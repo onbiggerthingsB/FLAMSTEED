@@ -6,7 +6,7 @@ paths:
   reports: reports
 elo:
   initial_rating: 1500.0
-  initial_rating_debutant: 1300.0   # low-information start; flagged provisional
+  provisional_games: 5              # first N matches flagged provisional (low-info marker; debutants start at initial_rating, not a faked-low value — Phase-2 prior handles uncertainty)
   home_advantage: 100.0             # rating points
   k_base: 40.0
   k_by_match_type:                  # importance multiplier on k_base
