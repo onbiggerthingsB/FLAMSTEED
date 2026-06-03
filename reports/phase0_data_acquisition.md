@@ -1,6 +1,6 @@
 # Phase 0 — Data-Acquisition Spike: Findings
 
-**Status:** IN PROGRESS — research only, no spending, no accounts. Ends in a hard stop for approval.
+**Status:** COMPLETE — awaiting approval (HARD STOP)
 **Date:** 2026-06-03
 **Spec:** `docs/superpowers/specs/2026-06-03-worldcup-betting-model-design.md` (§6)
 
@@ -9,7 +9,12 @@
 **Citation key:** every fact is tagged `(source: URL; accessed YYYY-MM-DD; confidence: High|Med|Low)`. Facts that could not be confirmed from public docs are marked `UNVERIFIED — <what would confirm>` and are NOT asserted.
 
 ## 1. Executive summary
-_TBD — written in Task 5._
+
+**Recommendation.** Use **The Odds API** as the single odds feed — the only candidate that verifiably passes both gates (Pinnacle + Betfair Exchange listed; timestamped closing snapshots with bet-time-to-close traversal; `soccer_fifa_world_cup` covered). Build the model on **penaltyblog** (Dixon-Coles / bivariate-Poisson), **PyMC v6 + pymc-extras** (ADVI/Pathfinder/NUTS — PyMC primary over Stan), **soccerdata** (results/standard stats), and **mplsoccer/arviz** for diagnostics.
+
+**Biggest risk (synthesized).** The backtest overstates edge from three compounding causes: the strength block (xG/Elo/market values) is revision-contaminated with no free point-in-time source; free international xG has collapsed since the 2026-01-20 FBref/Opta cutoff; and the historical-odds universe is big-match-skewed, barely sampling the minnow/qualifier tail. Consequence: the **minnow and tournament-progression edge can only be validated by the live forward-test**, not the backtest — which is at best a big-match upper bound.
+
+**The one decision you most need to make.** Approve The Odds API (pricing UNVERIFIED), **and** decide the §5.2 fork — also fund the Betfair Historical Data service for the VWAP+spread fair-price component, or run Pinnacle-closing-only for now.
 
 ## 2. Track A — Modeling libraries
 
@@ -262,16 +267,88 @@ Because all three mechanisms co-point, the obtainable backtest universe is a **n
 **Reinforcing the §4.2 point that the live forward-test may be the only trustworthy test of the minnow / tournament-progression edge.** Track C already forced `revision_contaminated=True` on the strength block (xG/Elo/market values), making §4.2's conclusion bite: backtest features overstate edge, and the **live forward-test (Phase 5) is the trustworthy number**. Track D adds an **independent, compounding reason** for the same conclusion that is *specific to the minnow / progression edge*: even with perfectly bitemporal features, the historical-odds universe barely samples that tail, so the backtest **cannot** validate the edge there regardless of leak hygiene. The forward test — which observes whatever minnow / qualifier / progression fixtures actually occur, at the prices actually quoted, point-in-time-correct by construction — is therefore the **only** instrument that exercises the deployment distribution. The two contamination sources stack: §4.2 says the backtest overstates edge on the features; §4.6-via-Track-D says the backtest barely measures the target market at all. Net: treat the backtest as a *big-match, revision-contaminated upper bound*, pre-register tier-stratified reporting under §4.6, and treat the Phase 5 live forward-test as authoritative for the minnow and tournament-progression edge — exactly as §4.2 and the §2 honesty rule anticipate.
 
 ## 6. Consolidated recommendation
-_TBD — Task 5._
+
+This is one coherent plan pulling Tracks A–D together — **what we would do in Phase 1 *if approved***. It introduces no new external facts; every claim traces to a finding already cited in §§2–5. Nothing here is acted on before the §9 hard stop clears.
+
+### 6.1 Odds feed — single recommendation, with the §5.2 fork made explicit
+
+**Recommended feed (exactly one, consistent with Track B §3d): The Odds API.** It is the only candidate that publicly and verifiably passes **both** gating criteria — Pinnacle (`pinnacle`, EU region) and Betfair Exchange (`betfair_ex_eu`/`_uk`/`_au`) are listed, and the historical endpoint returns timestamped closing snapshots (5-minute intervals from Sep 2022) with `previous_timestamp`/`next_timestamp` traversal so we can read both a hypothetical bet-time price and the closing line just before kickoff from the same endpoint (§3b, §3d). The `soccer_fifa_world_cup` and `soccer_fifa_world_cup_winner` keys cover the match-odds and outright universes (§3b).
+
+**The critical pairing tension (explicit fork).** The Odds API supplies the **Pinnacle closing line** and the **Betfair Exchange *price*** (back + lay, via `h2h_lay`), but it does **NOT** supply Betfair **traded volume or back/lay order-book depth** (§3b, §3d). The spec's §5.2 fair-price method requires exactly that depth — VWAP-near-close is canonical, midpoint is the sensitivity check, and bid-ask spread must be logged with every fair price to feed the wide-spread non-bet filter. So:
+
+- **Fork branch A — fund the Betfair fair-price machinery.** If we want the §5.2 VWAP+spread component, we must supplement The Odds API with the **Betfair Exchange Historical Data service** (Track B runner-up), which is the only confirmed source of `batb`/`batl` (full ladder), `trd` (traded volume per price), and `tv` (total volume) for World Cup markets (§3b, §3d). The Odds API stays the primary feed (Pinnacle close + Betfair price); Betfair Historical supplies the depth/volume layer.
+- **Fork branch B — Pinnacle-closing-only for now.** If we do not fund Betfair Historical, the **Pinnacle closing line is the CLV benchmark** (§5.1's "Pinnacle and/or Betfair close"), and the §5.2 Betfair VWAP+spread machinery is deferred. This is fully spec-compliant: §5.1 explicitly allows Pinnacle *and/or* Betfair as the close.
+
+This is a budget/scope decision for the user, surfaced in §8.1. Note that Betfair Historical also requires a Betfair account (account creation is free; the £299 fee documented in §3d attaches to the *live* Exchange API app key, not to the historical-data download itself) (§3e item 4).
+
+### 6.2 Library stack (Track A §2c, §2d)
+
+| Role | Package | Basis |
+|---|---|---|
+| Scoreline likelihoods (Dixon-Coles, bivariate-Poisson, MLE baseline + custom-MCMC) | `penaltyblog` | §2b/§2c — DC and bivariate-Poisson built in; satisfies the spec §7 "DC + bivariate-Poisson both behind the interface" commitment |
+| Bayesian inference — ADVI / Pathfinder for walk-forward refits + full NUTS for final fits | `PyMC` v6 + `pymc-extras` | §2d — **PyMC is primary over Stan**; ADVI confirmed in stable API, Pathfinder confirmed in `pymc-extras` v0.11.0; chosen for zero-friction Python integration + arviz, not algorithm availability (Stan matches on algorithms) |
+| Results / standard stats ingestion | `soccerdata` (FBref + Football-Data.co.uk backends only) | §2b — other backends carry scraping-ToS/fragility risk; FBref usable for results/standard stats but **not xG** post-2026-01-20 (§4) |
+| Visualization / diagnostics | `mplsoccer` + `arviz` (bundled with PyMC) | §2c — reporting/diagnostics only, no inference role |
+| Deferred to Phase 2+ | `socceraction`/SPADL, `kloppy` | §2c — only if event-level feeds are added |
+
+Stan/CmdStanPy is the documented fallback if PyMC ADVI/Pathfinder performance proves inadequate on large walk-forward backtests, but is not adopted in Phases 1–2 (§2d).
+
+### 6.3 Feature / data plan + bitemporal mode (Track C §4c)
+
+- **Clean / bitemporal-trivial — backtest honestly:** international match results (`martj42`, CC0, immutable), rest days (derived from immutable fixture dates), travel distance and venue altitude (static geographic facts), climate (Open-Meteo, CC BY 4.0, reanalysis from 1940). These are safe to put in the bitemporal store as point-in-time-correct (§4b, §4c).
+- **Revision-contaminated — set `revision_contaminated=True`:** the strength block — **xG / xGA, GK PSxG, set-piece metrics, Elo, squad market values**. No free, dependable point-in-time (transaction-time) source exists for any of them (§4c). This invokes the spec §4.2 single-version fallback.
+- **The FBref/Opta cutoff makes this worse, not just unchanged.** On **2026-01-20** Opta/Stats Perform terminated FBref's advanced-data feed, removing all free FBref xG/xA/PSxG (§4b, §4c). Free *international* xG is now very limited; the **StatsBomb Open Data curated subset is the survivor** (with non-comprehensive international coverage), Understat is club-only, and the FBref `soccerdata` backend retains only results/standard stats (§4b). So the strength block is not merely revision-contaminated — even its *current* free international coverage has collapsed.
+
+### 6.4 Backtest scope (Track D §5b, §5c)
+
+- The obtainable historical-odds universe is **SKEWED toward well-covered big matches**: usable history is ≤ ~6 years (and plausibly shorter for the `pinnacle`/`betfair_ex_*` keys specifically, per the per-bookmaker add-date caveat), the only WC-qualifier keys present are the high-liquidity confederations (`..._europe`, `..._south_america`) while CONCACAF/CAF/AFC/OFC qualifier keys and international friendlies are confirmed absent, and even within covered competitions sharp closing lines exist mainly where liquidity is matched — thinning on exactly the minnow tail (§5a, §5b).
+- **Pre-register tier-stratified reporting (§4.6):** the lockbox and permutation-null results, and the §5.4 "beat the sharp close's RPS or say so" bar, must be reported **per match tier** (big-nation tournament / minnow group-stage / qualifier / friendly), not pooled into one big-match-dominated headline. Where a stratum has too few sharp-priced fixtures to score, state it as a coverage gap rather than averaging it away (§5c).
+- **The live forward-test is authoritative for the minnow / tournament-progression edge.** Two independent contamination sources stack: §4.2 (revision-contaminated features overstate edge) and Track D (the historical universe barely samples the target tail). The Phase 5 live forward-test — point-in-time-correct by construction, observing whatever minnow/qualifier/progression fixtures actually occur at the prices actually quoted — is the only instrument that exercises the deployment distribution (§5c). Treat the backtest as a **big-match, revision-contaminated upper bound**.
+
+### 6.5 Live-feed risk for Phase 5 (Track D §5a)
+
+Pinnacle closed **public** API access in **July 2025**; the *historical* archive already captured by The Odds API is unaffected, but the **live Pinnacle-CLV feed for Phase 5 is at risk** and may have to lean on Betfair Exchange or on whichever aggregators retain Pinnacle access (§5a). This is a forward-test (Phase 5) concern, not a backtest-depth concern. Surfaced as a decision in §8.5.
 
 ## 7. Costs & accounts appendix
-_TBD — Task 5._
+
+Pricing that Tracks B/C marked **UNVERIFIED** stays UNVERIFIED here — no numbers are invented. "What it unlocks" describes the role in the plan above. All cost/account facts trace to §3 and §4.
+
+| Option | One-time / recurring cost | Account / ToS / payment required | What it unlocks | Notes |
+|---|---|---|---|---|
+| **The Odds API** (primary feed) | **UNVERIFIED** — tiered paid plans required for the historical endpoint; exact tier/price not confirmed (pricing page is JavaScript-rendered, did not load in any archived snapshot) (§3b, §3e item 1) | Account + API key + paid plan (the historical endpoint is "only available on paid usage plans") (§3b) | Pinnacle EU closing line + Betfair Exchange back/lay price (`h2h_lay`); `soccer_fifa_world_cup` match odds + `soccer_fifa_world_cup_winner` outrights; 5-min historical snapshots with timestamp traversal (§3b, §3d) | Does **not** supply Betfair traded volume / order-book depth (the §5.2 gap). Per-bookmaker historical start date for `pinnacle`/`betfair_ex_*` is UNVERIFIED and bounds backtest depth (§3e item 6, §5a) |
+| **Betfair Exchange Historical Data service** (supplement, fork branch A) | **UNVERIFIED** — "purchase & download" model confirmed; no public price list found (historicdata.betfair.com is JS-rendered; no Wayback price) (§3b, §3e item 2) | Betfair account required; account creation is free. The **£299 fee is for the *live* Exchange API app key, separate** from the historical-data download (§3d, §3e item 4) | The §5.2 Betfair fair-price machinery: `batb`/`batl` full ladder, `trd` traded volume per price, `tv` total volume → VWAP-near-close + bid-ask spread; confirmed World Cup coverage (§3b, §3d) | Compressed proprietary `.bz2` JSON-L format → needs a dedicated parsing pipeline. Liquidity-driven: minnow/low-tier markets may be thin or unlisted (§3d, §5a) |
+| **Betfair *live* Exchange API** (Phase 5 only, not Phase 0/1) | **£299 one-time** activation fee for live-API app keys (§3d) | Funded Betfair account + app key (§3d) | Live Betfair odds for Phase 5 forward-test / scanner; a candidate live sharp benchmark if Pinnacle's public API stays closed (§5a, §6.5) | Not needed for the backtest; relevant only at Phase 5. Listed for eyes-open budgeting |
+| **Football-Data.co.uk** (domestic backtest benchmark only) | **FREE** (all data free since July 2007) (§3b) | None | Pinnacle closing odds since 2012/13 + `C`-prefix closing columns since 2019/20, for domestic club leagues; aggregate Asian-handicap fallback (§3b, §3e item 3) | **No World Cup / international coverage** — terminal coverage gap for the target universe; usable only as a domestic backtest benchmark (§3c, §5a) |
+| **SportsDataIO** (runner-up-tier alternate, AT RISK) | Enterprise / contact sales (§3b) | Account + sales contact (§3b) | Would unlock a "Betting Odds API" / historical warehouse **if** Pinnacle/Betfair and closing snapshots are confirmed — both UNVERIFIED from public docs (§3b, §3c) | Revisit only with account-level access in Phase 1 if The Odds API pricing is unacceptable (§3e item 5) |
+| **OpticOdds** (alternate, AT RISK) | Enterprise / quote-based (multi-step form, no public price) (§3b) | Account + quote (§3b) | Pinnacle API confirmed; Betfair Exchange UNVERIFIED; API closing-snapshot capability only partially confirmed (Odds Screen feature) (§3b, §3c) | Same as above — account-level verification needed (§3e item 5) |
+| **StatsBomb Open Data** (free xG survivor, §4) | **FREE** | Custom user agreement; **attribution + logo required**; no payment (§4b) | The surviving free xG/PSxG/set-piece source after the 2026-01-20 FBref/Opta cutoff — a **curated subset** with non-comprehensive international coverage; still current-state (no as-published snapshots) (§4b, §4c) | Does not remove the `revision_contaminated=True` requirement (no point-in-time archive); international set-piece coverage UNVERIFIED pending `competitions.json` enumeration (§4b) |
+| **Open-Meteo Historical Weather API** (climate feature) | **FREE** (no API key) for non-commercial / open-source use (§4b) | None (no key); attribution "Weather data by Open-Meteo.com" (CC BY 4.0); software AGPLv3 (§4b) | Point-in-time-clean climate features (reanalysis back to 1940) — a bitemporal-trivial feature (§4b, §4c) | Clean; no revision risk |
+| **API-Football** (rosters / injuries, optional) | **UNVERIFIED** (account/key required; out of spike scope) (§4b) | Account + API key (§4b) | `/sidelined` dated injury/suspension records (partial bitemporal affordance); `/injuries` by fixture | Coverage is per-league-flag-gated; WC-universe coverage UNVERIFIED; treat as revision-contaminated until verified (§4b, §4c) |
+
+**Restatement (per constraints): no account has been created, no ToS has been clicked through, and no payment has been made. Every "UNVERIFIED" cost above remains genuinely unknown and must be confirmed by the user before any purchase.**
 
 ## 8. Decisions needed before Phase 1
-_TBD — Task 5._
+
+Actionable, numbered. Each must be resolved before any Phase 1 code runs.
+
+1. **Approve the odds feed — The Odds API — and resolve the §5.2 fork.** (a) Confirm The Odds API as the single primary feed (pricing **UNVERIFIED**; confirm the tier/cost and the request-quota cap before purchase — §3e item 1, §7). (b) Decide the §5.2 fork: **also fund the Betfair Exchange Historical Data service** (pricing UNVERIFIED — §3e item 2) to obtain traded-volume/back-lay depth for the VWAP+spread fair-price component, **OR run Pinnacle-closing-only for now** with the Betfair VWAP machinery deferred (both spec-compliant under §5.1's "Pinnacle and/or Betfair close") (§6.1).
+2. **Provide / verify the official static fixture file.** Supply or verify `config/tournament_2026.yaml` — the 48-team, 12-group, 104-fixture list plus group draw, advancement and 3rd-place tiebreakers, and two-path bracket (spec §1, §9). **We will not fabricate or scrape the draw** — it must be user-verified before Phase 1 (spec §1: factual-accuracy + leakage safety).
+3. **Accept the `revision_contaminated=True` fallback for the strength block — or fund a point-in-time source.** Acknowledge that xG/xGA, PSxG, set-piece, Elo, and squad market values have no free point-in-time source, so the **backtest overstates edge and the live forward-test is the trustworthy number** (§4c, spec §4.2) — accept this, **or** authorize funding a commercial point-in-time/as-published feed to make the backtest honest on the strength block.
+4. **Confirm the backtest match-universe scope given the Track D selection bias.** Accept that the historical-odds universe is big-match-skewed, that **§4.6 results will be pre-registered and reported tier-stratified** (big-nation / minnow / qualifier / friendly, with coverage gaps stated, not averaged away), and that the **minnow / tournament-progression edge is validated live, not in backtest** (§5b, §5c).
+5. **Decide the live Pinnacle-CLV feed strategy for Phase 5.** Given Pinnacle's **July 2025 public-API closure** (historical archive intact), choose the live sharp benchmark for the forward-test: lean on **Betfair Exchange**, or on **whichever aggregator retains Pinnacle access** (§5a, §6.5). (Phase 5 concern; flag now so it is not a surprise.)
+6. **Resolve Asian-handicap sourcing (carried from §3e item 3).** The Odds API spreads are "mainly available for US sports and bookmakers"; **Asian handicap for soccer is UNVERIFIED**. Decide whether AH markets are in scope for Phase 1, and if so accept the Football-Data.co.uk aggregate-AH fallback (domestic only) or defer AH.
+7. **Approve the free-source licenses / attribution obligations.** Accept the attribution/usage terms of the free sources we plan to use: **StatsBomb Open Data** (attribution + logo required), **Open-Meteo** (CC BY 4.0 attribution), `martj42` results (CC0). Confirm we will honor the `soccerdata` scraping discipline (FBref + Football-Data.co.uk backends only) (§2b, §4b).
+8. **(If pursued) authorize a Betfair account for the Historical Data download.** Only if fork branch A (decision 1b) is chosen: confirm creating a free Betfair account for the historical-data service, noting the **£299 fee is for the *live* API app key, not the historical download** (§3d, §3e item 4).
 
 ## 9. HARD STOP
-_TBD — Task 5._
+
+**Research is complete. This is the hard stop mandated by spec §6.1.**
+
+- **Nothing has been purchased. No account has been created. No API key has been obtained. No ToS has been clicked through. No payment has been made. No volume scraping or code/installs occurred.** This entire report rests on public documentation only.
+- Several load-bearing facts remain **UNVERIFIED** by design (The Odds API pricing, Betfair Historical Data pricing, per-bookmaker historical add-dates, Asian-handicap-on-soccer availability) because confirming them requires account-level access that is out of scope for this spike.
+- **No Phase 1 code will run until the user gives explicit approval on the decisions in §8** — in particular the §8.1 feed approval (The Odds API + the §5.2 Betfair-depth fork) and the §8.2 user-verified fixture/draw file.
+
+**Awaiting explicit approval. Stopping here.**
 
 ## 10. Sources log
 _TBD — Task 6._
