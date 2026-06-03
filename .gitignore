@@ -1,0 +1,13 @@
+# Tooling / OS cruft
+.gstack/
+.DS_Store
+
+# Python (Phase 1+)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Data artifact cache (reproducible from sources; see spec §3.1)
+data/
