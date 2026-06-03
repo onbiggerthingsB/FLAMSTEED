@@ -39,7 +39,7 @@ Converts event-stream data (StatsBomb, Opta, Wyscout, Stats Perform, WhoScored) 
 **4. `kloppy` (BSD-3-Clause, v3.18.0, 2025-10-23)**
 Vendor-independent data model standardizing 16+ event and tracking-data providers (source: https://pypi.org/project/kloppy/; accessed 2026-06-03; confidence: High). Strong maintenance cadence (~every 2-3 months). Not needed for Phase 1 (scoreline model from aggregated match data); revisit in Phase 2+ if raw event feeds are incorporated.
 
-**5. `mplsoccer` (MIT, v1.6.1, approx. Nov 2025)**
+**5. `mplsoccer` (MIT, v1.6.1, last-commit date UNVERIFIED)**
 Pitch, radar, and heatmap visualizations for Matplotlib; lightweight dependency on matplotlib and seaborn (source: https://mplsoccer.readthedocs.io; accessed 2026-06-03; confidence: High). Has no GitHub releases published (only PyPI/conda-forge), so the "last commit" date for the repo is UNVERIFIED — would require inspecting the GitHub commit list directly. Fit is purely for reporting and diagnostic plots.
 
 **6. `PyMC` v6.0.1 + `pymc-extras` v0.11.0 (both Apache-2.0)**
