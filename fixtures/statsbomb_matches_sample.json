@@ -1,0 +1,35 @@
+[
+  {
+    "match_id": 3869685,
+    "match_date": "2022-12-09",
+    "competition": {"competition_id": 43, "competition_name": "FIFA World Cup"},
+    "season": {"season_id": 106, "season_name": "2022"},
+    "home_team": {"home_team_name": "Croatia"},
+    "away_team": {"away_team_name": "Brazil"},
+    "shots": [
+      {"team": "Brazil", "shot_statsbomb_xg": 0.07},
+      {"team": "Brazil", "shot_statsbomb_xg": 0.42},
+      {"team": "Brazil", "shot_statsbomb_xg": 0.11},
+      {"team": "Brazil", "shot_statsbomb_xg": 0.05},
+      {"team": "Croatia", "shot_statsbomb_xg": 0.09},
+      {"team": "Croatia", "shot_statsbomb_xg": 0.21},
+      {"team": "Croatia", "shot_statsbomb_xg": 0.04}
+    ]
+  },
+  {
+    "match_id": 3857289,
+    "match_date": "2022-12-05",
+    "competition": {"competition_id": 43, "competition_name": "FIFA World Cup"},
+    "season": {"season_id": 106, "season_name": "2022"},
+    "home_team": {"home_team_name": "Brazil"},
+    "away_team": {"away_team_name": "South Korea"},
+    "shots": [
+      {"team": "Brazil", "shot_statsbomb_xg": 0.76},
+      {"team": "Brazil", "shot_statsbomb_xg": 0.33},
+      {"team": "Brazil", "shot_statsbomb_xg": 0.18},
+      {"team": "Brazil", "shot_statsbomb_xg": 0.29},
+      {"team": "South Korea", "shot_statsbomb_xg": 0.06},
+      {"team": "South Korea", "shot_statsbomb_xg": 0.12}
+    ]
+  }
+]

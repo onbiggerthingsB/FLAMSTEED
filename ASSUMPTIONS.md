@@ -53,9 +53,33 @@ by the tasks noted (Elo hyperparameters → Task 5; StatsBomb release → Task 9
   `p_home = E − p_draw/2`; `p_away = (1 − E) − p_draw/2`; each clipped to ≥ 0 and
   renormalised to sum 1. Draw mass peaks at `draw_base` for an even match and shrinks as
   the tie expectancy gets lopsided.
-- **StatsBomb xG point-in-time (versioned).** Open Data is static and versioned, so
-  for covered matches xG is point-in-time (not revision-contaminated); coverage-gated;
-  never imputed. _Pinned release `source_version` filled in Task 9._
+- **StatsBomb xG point-in-time (versioned, pinned, Task 9).** Open Data is static and
+  **append-mostly** (new competitions added over time; data for an already-covered match
+  is stable), so for COVERED matches xG is **point-in-time, not revision-contaminated**:
+  `valid_as_of == observed_at == match_date`, store policy POINT_IN_TIME (like results).
+  The client exposes no per-pull git tag, so the release marker is the installed client
+  version + pull date — `config.yaml` `statsbomb.open_data_version = "statsbombpy-1.18.0@2026-06-03"`
+  — i.e. point-in-time "as close as release versioning allows".
+  - **Coverage-gated, never imputed (pinned).** xG is NULL-safe. `normalize_match_xg`
+    (`src/wcmodel/data/sources/statsbomb.py`) emits one row per `(match_id, team)` that
+    has xG (aggregating shot `shot_statsbomb_xg`), each flagged `xg_covered = True`; a
+    match-team with no shot data produces **no row** (absent / NULL) — never a fabricated
+    `xg = 0`. The team-level gap is enumerated by `enumerate_coverage`
+    (`src/wcmodel/data/coverage.py`); `write_coverage_report` writes the covered set, the
+    uncovered **gap set**, and a CSV to `reports/phase1_statsbomb_coverage.md`.
+  - **Network boundary / offline tests.** Only the thin `fetch_competitions` /
+    `fetch_matches` / `fetch_shots` wrappers touch the network (`statsbombpy` → GitHub);
+    `normalize_match_xg` and `enumerate_coverage` are pure and tested **offline** against
+    `fixtures/statsbomb_*.json`.
+  - **Coverage reality (Task 9 live pull).** StatsBomb's *free* international men's-senior
+    xG footprint is essentially **8 FIFA World Cup finals editions** (1958, 1962, 1970,
+    1974, 1986, 1990, 2018, 2022) — finals only, no qualifiers/friendlies/continental
+    cups — so coverage concentrates on finalist nations and the minnow/qualifier tail is
+    largely absent. This compounds the post-2026-01-20 FBref/Opta xG collapse (SOURCES.md)
+    and reinforces north-star seed #10 (minnow edge validated by live forward-test, not the
+    backtest). The **48-team WC-2026 intersection is GATED** on the user-provided
+    `config/tournament_2026.yaml` draw file; the final 48-team gap analysis is produced in
+    Task 13 once that file lands.
 - **Tier bands from point-in-time computed-Elo.** Strength band is the computed-Elo
   percentile as-of the match cutoff (never as-of-today; bands may shift across the
   window). Uses computed-Elo, not the revised FIFA ranking.

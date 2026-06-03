@@ -28,4 +28,11 @@ covid:
   start: "2020-03-01"
   end: "2021-06-30"
 statsbomb:
-  open_data_version: "UNPINNED"      # set to a git tag/commit in Task 9
+  # Open Data is static + versioned and has no per-pull git tag exposed by the
+  # client, so we pin the installed client version + the pull date as the
+  # release marker (Task 9). Open Data is append-mostly (new competitions added
+  # over time; existing covered-match data is stable), so for COVERED matches xG
+  # is point-in-time "as close as release versioning allows":
+  # valid_as_of == observed_at == match_date. xG is coverage-gated, NULL-safe,
+  # and NEVER imputed (see ASSUMPTIONS.md / SOURCES.md).
+  open_data_version: "statsbombpy-1.18.0@2026-06-03"

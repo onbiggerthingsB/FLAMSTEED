@@ -1,0 +1,28 @@
+{
+  "competitions": [
+    {
+      "competition_id": 43,
+      "competition_name": "FIFA World Cup",
+      "country_name": "International",
+      "season_id": 106,
+      "season_name": "2022",
+      "teams": ["Brazil", "Croatia", "South Korea", "Argentina", "France"]
+    },
+    {
+      "competition_id": 43,
+      "competition_name": "FIFA World Cup",
+      "country_name": "International",
+      "season_id": 43,
+      "season_name": "2018",
+      "teams": ["Brazil", "Belgium", "England", "France", "Croatia"]
+    },
+    {
+      "competition_id": 1238,
+      "competition_name": "Copa America",
+      "country_name": "International",
+      "season_id": 282,
+      "season_name": "2024",
+      "teams": ["Argentina", "Colombia", "Brazil", "Uruguay"]
+    }
+  ]
+}
