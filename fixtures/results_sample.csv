@@ -1,0 +1,11 @@
+date,home_team,away_team,home_score,away_score,tournament,city,country,neutral
+1872-11-30,Scotland,England,0,0,Friendly,Glasgow,Scotland,FALSE
+2014-07-08,Brazil,Germany,1,7,FIFA World Cup,Belo Horizonte,Brazil,FALSE
+2018-07-15,France,Croatia,4,2,FIFA World Cup,Moscow,Russia,TRUE
+2019-06-22,Argentina,Qatar,2,0,Copa América,Belo Horizonte,Brazil,TRUE
+2020-09-05,Germany,Spain,1,1,UEFA Nations League,Stuttgart,Germany,FALSE
+2020-11-18,Belgium,Denmark,4,2,UEFA Nations League,Leuven,Belgium,FALSE
+2021-09-02,England,Hungary,4,0,FIFA World Cup qualification,Budapest,Hungary,FALSE
+2022-12-18,Argentina,France,3,3,FIFA World Cup,Lusail,Qatar,TRUE
+2023-03-25,Italy,England,1,2,UEFA Euro qualification,Naples,Italy,FALSE
+2024-07-14,Spain,England,2,1,UEFA Euro,Berlin,Germany,TRUE
