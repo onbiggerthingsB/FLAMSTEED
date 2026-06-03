@@ -1,0 +1,94 @@
+{
+  "bet_time": {
+    "timestamp": "2026-06-11T12:00:00Z",
+    "previous_timestamp": "2026-06-11T11:55:00Z",
+    "next_timestamp": "2026-06-11T12:05:00Z",
+    "data": [
+      {
+        "id": "evt_BRA_CRO",
+        "sport_key": "soccer_fifa_world_cup",
+        "commence_time": "2026-06-11T19:00:00Z",
+        "home_team": "Brazil",
+        "away_team": "Croatia",
+        "bookmakers": [
+          {
+            "key": "pinnacle",
+            "last_update": "2026-06-11T11:58:30Z",
+            "markets": [
+              {
+                "key": "h2h",
+                "last_update": "2026-06-11T11:58:30Z",
+                "outcomes": [
+                  {"name": "Brazil", "price": 1.62},
+                  {"name": "Draw", "price": 4.05},
+                  {"name": "Croatia", "price": 6.10}
+                ]
+              }
+            ]
+          },
+          {
+            "key": "betfair_ex_eu",
+            "last_update": "2026-06-11T11:59:10Z",
+            "markets": [
+              {
+                "key": "h2h",
+                "last_update": "2026-06-11T11:59:10Z",
+                "outcomes": [
+                  {"name": "Brazil", "price": 1.65},
+                  {"name": "Draw", "price": 4.10},
+                  {"name": "Croatia", "price": 6.40}
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "close": {
+    "timestamp": "2026-06-11T18:55:00Z",
+    "previous_timestamp": "2026-06-11T18:50:00Z",
+    "next_timestamp": "2026-06-11T19:00:00Z",
+    "data": [
+      {
+        "id": "evt_BRA_CRO",
+        "sport_key": "soccer_fifa_world_cup",
+        "commence_time": "2026-06-11T19:00:00Z",
+        "home_team": "Brazil",
+        "away_team": "Croatia",
+        "bookmakers": [
+          {
+            "key": "pinnacle",
+            "last_update": "2026-06-11T18:54:40Z",
+            "markets": [
+              {
+                "key": "h2h",
+                "last_update": "2026-06-11T18:54:40Z",
+                "outcomes": [
+                  {"name": "Brazil", "price": 1.57},
+                  {"name": "Draw", "price": 4.20},
+                  {"name": "Croatia", "price": 6.50}
+                ]
+              }
+            ]
+          },
+          {
+            "key": "betfair_ex_eu",
+            "last_update": "2026-06-11T18:54:55Z",
+            "markets": [
+              {
+                "key": "h2h",
+                "last_update": "2026-06-11T18:54:55Z",
+                "outcomes": [
+                  {"name": "Brazil", "price": 1.59},
+                  {"name": "Draw", "price": 4.30},
+                  {"name": "Croatia", "price": 6.80}
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
