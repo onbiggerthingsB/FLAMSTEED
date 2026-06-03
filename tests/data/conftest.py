@@ -72,6 +72,31 @@ _VENUES = pd.DataFrame([
 
 
 @pytest.fixture
+def matches_df() -> pd.DataFrame:
+    """Tiny match panel with a ``date`` column spanning ~2019->2025.
+
+    Deliberately includes **pre-2021** rows so the backtest-window test is
+    meaningful: a backtest from ``odds_start`` must KEEP this pre-feature-window
+    history (it is NOT cropped to ``feature_years``), whereas a 4-year feature
+    window cut at 2025-01-01 would drop everything before 2021-01-01.
+    """
+    return pd.DataFrame({
+        "date": pd.to_datetime([
+            "2019-09-01",   # pre-odds_start AND pre-feature-window -> in NEITHER window
+            "2020-03-15",   # before the 2020-06-06 odds_start -> excluded from backtest too
+            "2020-06-06",   # exactly odds_start (lower-bound boundary, included)
+            "2020-11-20",   # pre-feature-window but >= odds_start -> the "not cropped" row
+            "2021-06-10",   # inside feature window
+            "2022-12-18",   # inside feature window
+            "2024-07-14",   # inside feature window
+            "2025-03-01",   # AFTER the 2025-01-01 feature cutoff
+        ]),
+        "home_team": ["A", "B", "C", "A", "B", "C", "A", "B"],
+        "away_team": ["B", "C", "A", "C", "A", "B", "C", "A"],
+    })
+
+
+@pytest.fixture
 def small_store(tmp_path) -> BitemporalStore:
     store = BitemporalStore(root=tmp_path)
 
