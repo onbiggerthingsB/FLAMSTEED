@@ -1,0 +1,31 @@
+seed: 20260611              # global RNG seed (tournament kickoff date as integer)
+paths:
+  raw: data/raw
+  processed: data/processed
+  cache: data/cache
+  reports: reports
+elo:
+  initial_rating: 1500.0
+  initial_rating_debutant: 1300.0   # low-information start; flagged provisional
+  home_advantage: 100.0             # rating points
+  k_base: 40.0
+  k_by_match_type:                  # importance multiplier on k_base
+    wc_finals: 1.0
+    continental_championship: 0.9
+    wc_qualifier: 0.8
+    continental_qualifier: 0.8
+    nations_league: 0.7
+    friendly: 0.4
+    other: 0.5
+  mov_index: world_football_elo     # goal-difference multiplier scheme (see Task 5)
+baseline:
+  draw_base: 0.28                    # naive-Elo 1X2 draw parameter d0 (pinned)
+windows:
+  feature_years: 4                   # feature/model window (time-decay)
+  decay_half_life_days: 365          # exponential time-decay half-life
+  # backtest window is NOT cropped here — see windows.py / Task 12
+covid:
+  start: "2020-03-01"
+  end: "2021-06-30"
+statsbomb:
+  open_data_version: "UNPINNED"      # set to a git tag/commit in Task 9
