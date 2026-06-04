@@ -65,8 +65,21 @@ def count_volatility_arm(store: BitemporalStore, cutoff, field_teams: list[str])
     win = int(cfg["volatility_window"]); thr = float(cfg["provisional_volatility_threshold"])
     n_few = int(cfg["provisional_games"])
     cutoff = pd.Timestamp(cutoff)
+    # tz-AWARE cutoff (e.g. an Odds API `Z`/UTC timestamp routed straight in by
+    # fit()) -> coerce to tz-naive UTC before flooring/comparison. Mirrors the
+    # features.build convention exactly (src/wcmodel/data/features.py): match
+    # dates are tz-naive date-only, and a tz-aware-vs-tz-naive `<` raises in
+    # pandas. Day-boundary semantics (same-day excluded / prior-day included)
+    # are unchanged; the naive path is byte-identical to before.
+    if cutoff.tz is not None:
+        cutoff = cutoff.tz_convert("UTC").tz_localize(None)
     res = store.read("results", cutoff=cutoff)
     res["date"] = pd.to_datetime(res["date"])
+    # Symmetric tz-coercion (mirrors features.build): the cutoff side is now
+    # tz-naive UTC, so coerce a tz-AWARE result date column the same way before
+    # the `date < cutoff.normalize()` filter, else the comparison raises.
+    if getattr(res["date"].dt, "tz", None) is not None:
+        res["date"] = res["date"].dt.tz_convert("UTC").dt.tz_localize(None)
     res = res.loc[res["date"] < cutoff.normalize()].copy()
     res["match_type"] = res["tournament"].map(tiers.match_type)
     res = res.loc[res["home_score"].notna() & res["away_score"].notna()]
