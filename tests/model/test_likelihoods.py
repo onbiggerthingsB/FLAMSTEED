@@ -80,6 +80,56 @@ def test_dc_is_mass_neutral():
 
 
 # ---------------------------------------------------------------------------
+# Tau-floor soft barrier (Codex T4 NaN trap)
+# ---------------------------------------------------------------------------
+# The Dixon-Coles tau(0,0)=1-lh*la*rho can go <= 0 when the (UNBOUNDED) rates
+# lh,la=exp(...) take a tail draw large enough that lh*la*rho >= 1, even with
+# |rho| bounded. log(tau<=0) is NaN and breaks NUTS. The likelihood floors tau
+# at a tiny positive epsilon inside the log: a no-op in the valid region
+# (tau >> eps), but it converts the pathological tau<=0 tail from a NaN crash
+# into a large-but-FINITE penalty -- a soft barrier that repels the sampler.
+def test_dc_loglik_finite_when_tau_would_be_nonpositive():
+    # lh=la=3.0, rho=0.15 -> tau(0,0)=1-9*0.15=-0.35 (the pathological condition
+    # genuinely exists for these unbounded-rate-tail values).
+    assert dc_tau_np(0, 0, 3.0, 3.0, 0.15) < 0
+    # With the floor, dc_loglik_np is FINITE (penalized), not NaN.
+    val = dc_loglik_np(0, 0, 3.0, 3.0, 0.15)
+    assert np.isfinite(val)
+
+
+def test_dc_loglik_pt_finite_when_tau_would_be_nonpositive():
+    """PyTensor mirror: the graph the PyMC Potential evaluates must also stay
+    finite (not NaN) on the tau<=0 tail, or NUTS crashes instead of being
+    repelled."""
+    x = pt.lvector("x")
+    y = pt.lvector("y")
+    lh = pt.dvector("lh")
+    la = pt.dvector("la")
+    rho = pt.dscalar("rho")
+    f = pytensor.function([x, y, lh, la, rho], dc_loglik_pt(x, y, lh, la, rho))
+    got = f(
+        np.array([0], dtype=np.int64),
+        np.array([0], dtype=np.int64),
+        np.array([3.0]),
+        np.array([3.0]),
+        0.15,
+    )
+    assert np.isfinite(got).all()
+
+
+def test_dc_loglik_np_floor_is_noop_in_valid_region():
+    """The floor must NOT perturb the valid-region likelihood: where tau>0 the
+    max() picks tau, so realistic-rate values are identical to the unfloored
+    Poisson+log(tau) (matched against scipy, the independent anchor + the tau
+    perturbation). Guards against the floor distorting the calibrated region."""
+    for x, y, lh, la, rho in [(0, 0, 1.3, 0.9, 0.08), (2, 1, 1.7, 1.1, 0.1)]:
+        tau = dc_tau_np(x, y, lh, la, rho)
+        assert tau > 0  # valid region: floor is inert here
+        expect = poisson.logpmf(x, lh) + poisson.logpmf(y, la) + np.log(tau)
+        assert np.isclose(dc_loglik_np(x, y, lh, la, rho), expect, atol=1e-15)
+
+
+# ---------------------------------------------------------------------------
 # Bivariate-Poisson NumPy reference
 # ---------------------------------------------------------------------------
 def test_bp_reduces_to_independent_when_lambda3_zero():

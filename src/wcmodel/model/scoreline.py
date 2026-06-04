@@ -52,12 +52,16 @@ class DixonColesModel(ScorelineModel):
         with pm.Model() as m:
             att, defe, mu, home_adv = _priors(d, p)
             # rho CONTRACT (likelihoods.dc_loglik_pt): a tau cell <= 0 -> log(tau)
-            # = NaN -> NUTS breaks. An UNBOUNDED Normal can draw a tail value that
-            # makes a tau cell non-positive. International goal rates are ~<=2.5
-            # each (lh*la <~ 6.25), so |rho| <= 0.15 keeps tau(0,0)=1-lh*la*rho>0
-            # and the off-diagonals positive for all realistic rates. The bound is
-            # a safe Phase-2 default (Phase-4 may tune); it is what makes the model
-            # structurally unable to produce tau<=0.
+            # = NaN. This TruncatedNormal keeps |rho| small (<=0.15) so that for
+            # realistic international goal rates (~<=2.5 each, lh*la <~ 6.25)
+            # tau(0,0)=1-lh*la*rho stays positive. But the rates lh,la=exp(...) are
+            # UNBOUNDED: a tail draw with lh*la*|rho| >= 1 can still push tau(0,0)<=0,
+            # so the bound makes that RARE, not impossible. The actual structural NaN
+            # guard for the unbounded-rate tail is the `_TAU_FLOOR` soft barrier in
+            # dc_loglik_pt (a tau<=0 draw yields a finite penalty -> NUTS is repelled,
+            # not crashed). The bound stays as a good weakly-informative prior (safe
+            # Phase-2 default; Phase-4 may tune) that keeps the floor essentially never
+            # active on realistic rates.
             rho = pm.TruncatedNormal(
                 "rho", mu=0.0, sigma=p["rho_scale"], lower=-0.15, upper=0.15
             )

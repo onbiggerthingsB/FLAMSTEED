@@ -13,16 +13,24 @@ import numpy as np
 import pytensor.tensor as pt
 from scipy.special import gammaln
 
+_TAU_FLOOR = 1e-12  # numerical barrier: log(tau) for tau<=0 (extreme rate x rho) would be NaN; floor keeps NUTS finite. No-op for realistic rates where tau>>0.
+
 
 # ---- NumPy reference ----
 def _pois_logpmf_np(k, lam):
     return k * np.log(lam) - lam - gammaln(k + 1.0)
 
 
-# CONTRACT (NaN trap): caller must constrain `rho` so ALL FOUR tau cells stay
-# strictly positive: for rho>0 the binding cells are tau(0,0)=1-lh*la*rho>0 and
-# tau(1,1)=1-rho>0; for rho<0 they are tau(0,1)=1+lh*rho>0 and tau(1,0)=1+la*rho>0.
-# Otherwise log(tau) is NaN/-inf and breaks NUTS.
+# CONTRACT (NaN trap): the four tau cells are positive only when `rho` is small
+# relative to the rates: for rho>0 the binding cells are tau(0,0)=1-lh*la*rho>0
+# and tau(1,1)=1-rho>0; for rho<0 they are tau(0,1)=1+lh*rho>0 and
+# tau(1,0)=1+la*rho>0. The rates lh,la=exp(...) are UNBOUNDED, so a small |rho|
+# bound makes a tau<=0 cell RARE but not impossible (a tail draw with
+# lh*la*|rho| >= 1 still trips tau(0,0)<=0). Positivity is therefore enforced
+# NUMERICALLY by `_TAU_FLOOR` inside `dc_loglik_np`/`dc_loglik_pt` (a soft
+# barrier): a tau<=0 draw yields a finite penalized logp (NUTS is repelled) instead
+# of NaN. The caller SHOULD still keep `rho` small so the floor essentially never
+# activates on realistic rates -- but it is no longer a hard crash if it does.
 def dc_tau_np(x, y, lh, la, rho):
     # Canonical Dixon & Coles (1997) tau: x=home~Pois(lh), y=away~Pois(la).
     # The (0,1) cell uses the HOME rate lh; the (1,0) cell uses the AWAY rate la.
@@ -42,7 +50,7 @@ def dc_loglik_np(x, y, lh, la, rho):
     return (
         _pois_logpmf_np(x, lh)
         + _pois_logpmf_np(y, la)
-        + np.log(dc_tau_np(x, y, lh, la, rho))
+        + np.log(max(dc_tau_np(x, y, lh, la, rho), _TAU_FLOOR))  # soft barrier; no-op for tau>>0
     )
 
 
@@ -80,10 +88,16 @@ def _pois_logpmf_pt(k, lam):
     return k * pt.log(lam) - lam - pt.gammaln(k + 1.0)
 
 
-# CONTRACT (NaN trap): caller must constrain `rho` so ALL FOUR tau cells stay
-# strictly positive: for rho>0 the binding cells are tau(0,0)=1-lh*la*rho>0 and
-# tau(1,1)=1-rho>0; for rho<0 they are tau(0,1)=1+lh*rho>0 and tau(1,0)=1+la*rho>0.
-# Otherwise log(tau) is NaN/-inf and breaks NUTS.
+# CONTRACT (NaN trap): the four tau cells are positive only when `rho` is small
+# relative to the rates: for rho>0 the binding cells are tau(0,0)=1-lh*la*rho>0
+# and tau(1,1)=1-rho>0; for rho<0 they are tau(0,1)=1+lh*rho>0 and
+# tau(1,0)=1+la*rho>0. The rates lh,la=exp(...) are UNBOUNDED, so a small |rho|
+# bound makes a tau<=0 cell RARE but not impossible (a tail draw with
+# lh*la*|rho| >= 1 still trips tau(0,0)<=0). Positivity is therefore enforced
+# NUMERICALLY by `_TAU_FLOOR` below (a soft barrier): a tau<=0 draw yields a
+# finite penalized logp (NUTS is repelled) instead of NaN. The caller SHOULD
+# still keep `rho` small so the floor essentially never activates on realistic
+# rates -- but it is no longer a hard crash if it does.
 def dc_loglik_pt(x, y, lh, la, rho):
     # Canonical Dixon-Coles tau (see dc_tau_np): (0,1) uses HOME rate lh,
     # (1,0) uses AWAY rate la. Mass-neutral by construction.
@@ -100,7 +114,9 @@ def dc_loglik_pt(x, y, lh, la, rho):
             ),
         ),
     )
-    return _pois_logpmf_pt(x, lh) + _pois_logpmf_pt(y, la) + pt.log(tau)
+    # Floor tau (soft barrier): no-op for tau>>0; converts the tau<=0 tail from a
+    # NaN crash into a finite penalty so NUTS is repelled, not broken (see CONTRACT).
+    return _pois_logpmf_pt(x, lh) + _pois_logpmf_pt(y, la) + pt.log(pt.maximum(tau, _TAU_FLOOR))
 
 
 # CONTRACT (NaN trap): requires `l3 > 0` when `kmax > 0` -- the k=0 term computes
