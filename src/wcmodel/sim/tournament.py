@@ -126,19 +126,26 @@ class _FixtureSampler:
         lh, la = self._rb.rates(home, away, neutral, draw=self._draw)
 
         def sample(phase, rng):
-            if phase == "extra_time":   # ET = 30/90 of a regulation match -> scale BOTH rates
-                return self._sample_at(lh * self._cfg.et_scale, la * self._cfg.et_scale, rng)
-            return self._sample_at(lh, la, rng)
+            # ET = 30/90 of a regulation match -> scale ALL Poisson goal rates by et_scale.
+            # _sample_at applies the scale uniformly (lh, la, AND the BP shared l3); the DC
+            # rho is a low-score DEPENDENCE parameter, not a rate, so it is NOT scaled.
+            scale = self._cfg.et_scale if phase == "extra_time" else 1.0
+            return self._sample_at(lh, la, rng, rate_scale=scale)
 
         return sample
 
-    def _sample_at(self, lh, la, rng):
+    def _sample_at(self, lh, la, rng, *, rate_scale=1.0):
         rb, s = self._rb, self._draw
+        lh, la = lh * rate_scale, la * rate_scale
         if rb.likelihood == "dixon_coles":
+            # rho: dependence parameter (tau correction on low-score cells), NOT a goal
+            # rate -> unscaled by rate_scale.
             return sample_score(lh, la, rng=rng, likelihood=rb.likelihood,
                                 rho=float(rb.rho[s]), max_goals=self._cfg.max_goals)
+        # bivariate_poisson: l3 is the SHARED Poisson goal-rate (W3 ~ Pois(l3)); it scales
+        # with lh/la so extra time is consistently 30/90 of a regulation match.
         return sample_score(lh, la, rng=rng, likelihood=rb.likelihood,
-                            l3=float(rb.l3[s]), max_goals=self._cfg.max_goals)
+                            l3=float(rb.l3[s]) * rate_scale, max_goals=self._cfg.max_goals)
 
 
 def _match_depths(bracket) -> dict:
