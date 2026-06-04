@@ -1,15 +1,23 @@
 """Tests for provisional-widening: (a) likelihood down-weight + (c) predictive
 inflation, both selected by ``config["model"]["widening"]`` (mechanism/strength).
 
-(c) is MEAN-PRESERVING. It takes the 2D scoreline pmf grid for a fixture and
-widens it by mixing toward an independent product of overdispersed
-negative-binomial marginals whose means EXACTLY match the grid's marginal means.
-Because the reference marginals share the grid's expected home/away goals, the
-convex mix leaves both marginal means unchanged (to finite-grid truncation
-tolerance) while raising variance/entropy. The headline property test
-(``test_inflate_preserves_marginal_means``) pins this — it is exactly what the
-old uniform-over-bins mixture VIOLATED (uniform pulls the predicted scoreline
-toward the grid centre, biasing the betting edge by an arbitrary ``max_goals``).
+(c) is EXACTLY MEAN-PRESERVING (to machine precision, for ANY grid size). It
+takes the 2D scoreline pmf grid for a fixture and widens it by mixing toward an
+independent product of MAX-ENTROPY (exponential-tilted) marginals whose means
+are SOLVED (1-D root find) to EQUAL the grid's marginal means exactly. Because
+each reference marginal has mean exactly equal to the grid's expected home/away
+goals, the convex mix ``(1-alpha)*grid + alpha*q`` has marginal means
+``(1-alpha)*m + alpha*m = m`` — preserved to machine precision, INDEPENDENT of
+the goal-grid bound. (The earlier negative-binomial reference was only
+APPROXIMATELY mean-preserving: renormalizing the NB on the finite grid truncates
+its tail and shifts its mean, so the mix's mean drifted — by >1e-2 at small
+grids / high strength, e.g. mean 2.5 on a max_goals=6 grid at strength 0.99.)
+The headline property test (``test_inflate_preserves_marginal_means_exactly``)
+pins this to atol 1e-6 across means / strengths / grid sizes — the regime the
+NB version FAILED. Widening is in the ENTROPY sense: the max-entropy reference
+at a fixed mean is the highest-entropy distribution with that mean on the
+bounded support, so mixing toward it strictly INCREASES Shannon entropy (the
+"less-confident" invariant) and, for a concentrated predictive, variance too.
 """
 import numpy as np
 import pytest
@@ -73,6 +81,17 @@ def _marginal_vars(grid: np.ndarray) -> tuple[float, float]:
     return vh, va
 
 
+def _entropy(p: np.ndarray) -> float:
+    """Shannon entropy (nats) of a (flattened) pmf; 0*log0 := 0."""
+    p = p.ravel()
+    nz = p[p > 0]
+    return float(-(nz * np.log(nz)).sum())
+
+
+def _marginal_entropies(grid: np.ndarray) -> tuple[float, float]:
+    return _entropy(grid.sum(axis=1)), _entropy(grid.sum(axis=0))
+
+
 # ---------- mechanism (a): likelihood down-weight ----------
 
 
@@ -126,25 +145,56 @@ def test_likelihood_weight_unknown_mechanism_raises():
     assert "b" in str(exc.value)
 
 
-# ---------- mechanism (c): mean-preserving predictive widening ----------
+# ---------- mechanism (c): EXACTLY mean-preserving predictive widening ----------
 
 
-def test_inflate_preserves_marginal_means():
-    """THE HEADLINE PROPERTY (what uniform-mixture VIOLATED): widening a
-    provisional team's predictive scoreline grid leaves BOTH marginal means
-    (E[home goals], E[away goals]) unchanged. The predicted scoreline — which
-    drives the betting edge — must not move."""
-    grid = _poisson_grid(1.6, 0.9, n=11)  # non-symmetric, concentrated
+@pytest.mark.parametrize("mh,ma", [(1.6, 0.9), (2.5, 1.8)])
+@pytest.mark.parametrize("strength", [0.2, 0.5, 0.99])
+@pytest.mark.parametrize("max_goals", [6, 10])
+def test_inflate_preserves_marginal_means_exactly(mh, ma, strength, max_goals):
+    """THE HEADLINE PROPERTY: widening a provisional team's predictive scoreline
+    grid leaves BOTH marginal means (E[home goals], E[away goals]) unchanged to
+    MACHINE PRECISION (atol 1e-6), independent of grid size. The predicted
+    scoreline drives the betting edge, so this must be EXACT — not merely close.
+
+    Pinned across a lower- and higher-mean grid, across strength in
+    {0.2, 0.5, 0.99}, and on BOTH a small (max_goals=6) and a larger
+    (max_goals=10) grid. This is precisely the regime the negative-binomial
+    reference FAILED: at mean 2.5 on the max_goals=6 grid with strength 0.99, NB
+    renormalization truncates the tail and shifts the mix mean by far more than
+    1e-6 (~0.03–0.07). The max-entropy reference solves its mean to EQUAL the
+    grid mean, so the convex mix's mean is exact for any bound."""
+    grid = _poisson_grid(mh, ma, n=max_goals + 1)  # support 0..max_goals
     mh0, ma0 = _marginal_means(grid)
-    wide = inflate_predictive(grid, is_provisional=True, strength=0.5)
+    wide = inflate_predictive(grid, is_provisional=True, strength=strength)
     mh1, ma1 = _marginal_means(wide)
-    assert mh1 == pytest.approx(mh0, abs=1e-2)
-    assert ma1 == pytest.approx(ma0, abs=1e-2)
+    assert mh1 == pytest.approx(mh0, abs=1e-6)
+    assert ma1 == pytest.approx(ma0, abs=1e-6)
 
 
-def test_inflate_increases_variance():
-    """Wider = less confident: the marginal variance of home (and away) goals
-    strictly increases after widening, at the SAME mean."""
+def test_inflate_increases_entropy():
+    """THE GUARANTEED WIDENING INVARIANT: mixing toward the max-entropy reference
+    at the grid's mean strictly INCREASES Shannon entropy — per marginal AND
+    jointly. (Max-entropy at a fixed mean on bounded support is the highest-
+    entropy distribution with that mean, so a convex mix toward it lifts entropy
+    for any non-max-entropy input.)"""
+    grid = _poisson_grid(1.6, 0.9, n=11)
+    hh0, ha0 = _marginal_entropies(grid)
+    j0 = _entropy(grid)
+    wide = inflate_predictive(grid, is_provisional=True, strength=0.5)
+    hh1, ha1 = _marginal_entropies(wide)
+    j1 = _entropy(wide)
+    assert hh1 > hh0
+    assert ha1 > ha0
+    assert j1 > j0
+
+
+def test_inflate_increases_variance_on_concentrated_grid():
+    """Wider = less confident: on a CONCENTRATED predictive (independent Poisson
+    grid), the marginal variance of home (and away) goals strictly increases
+    after widening, at the SAME (exactly preserved) mean. (Variance increase
+    holds for concentrated inputs; entropy increase is the always-guaranteed
+    invariant — see ``test_inflate_increases_entropy``.)"""
     grid = _poisson_grid(1.6, 0.9, n=11)
     vh0, va0 = _marginal_vars(grid)
     wide = inflate_predictive(grid, is_provisional=True, strength=0.5)
@@ -179,17 +229,34 @@ def test_inflate_noop_when_strength_nonpositive():
     )
 
 
+def test_inflate_noop_when_marginal_mean_near_zero():
+    """No-op guard: a marginal mean at the support edge (~0, all mass at 0 goals)
+    has no interior max-entropy solution and nothing to widen, so the grid is
+    returned unchanged. A degenerate 0-0 grid (both marginal means 0) trips this."""
+    grid = np.zeros((11, 11))
+    grid[0, 0] = 1.0  # all mass on 0-0: both marginal means are exactly 0
+    out = inflate_predictive(grid, is_provisional=True, strength=0.5)
+    assert np.array_equal(out, grid)
+
+
 def test_inflate_strength_scales_widening():
-    """Larger strength => larger variance increase (more weight on the
-    overdispersed reference), while the mean stays put either way."""
+    """Larger strength => larger entropy increase (more weight on the max-entropy
+    reference), while BOTH marginal means stay put (to machine precision) either
+    way."""
     grid = _poisson_grid(1.6, 0.9, n=11)
-    vh0, va0 = _marginal_vars(grid)
+    mh0, ma0 = _marginal_means(grid)
+    hh0, ha0 = _marginal_entropies(grid)
     small = inflate_predictive(grid, is_provisional=True, strength=0.2)
     large = inflate_predictive(grid, is_provisional=True, strength=0.8)
-    vh_small, va_small = _marginal_vars(small)
-    vh_large, va_large = _marginal_vars(large)
-    assert vh_large > vh_small > vh0
-    assert va_large > va_small > va0
+    hh_small, ha_small = _marginal_entropies(small)
+    hh_large, ha_large = _marginal_entropies(large)
+    assert hh_large > hh_small > hh0
+    assert ha_large > ha_small > ha0
+    # Mean preserved regardless of strength.
+    for w in (small, large):
+        mh1, ma1 = _marginal_means(w)
+        assert mh1 == pytest.approx(mh0, abs=1e-6)
+        assert ma1 == pytest.approx(ma0, abs=1e-6)
 
 
 # ---------- both mechanisms reachable via the config switch ----------

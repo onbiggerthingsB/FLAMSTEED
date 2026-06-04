@@ -11,11 +11,12 @@ predictions).
   provisional team has its likelihood weight scaled by ``strength`` (in [0, 1]),
   so the fit trusts those matches less -> wider posterior. DISCARDS information.
 
-* (c) predictive-variance inflation (the design lean) — :func:`inflate_predictive`.
+* (c) predictive-entropy inflation (the design lean) — :func:`inflate_predictive`.
   Weights are left UNTOUCHED (so under 'c' :func:`likelihood_weight` is the
   identity); at PREDICT time a provisional team's predictive scoreline grid is
-  made WIDER / less confident, KEEPING the data. (c) is MEAN-PRESERVING (see the
-  function docstring) — it does not move the predicted scoreline.
+  made WIDER / less confident (strictly higher entropy), KEEPING the data. (c) is
+  EXACTLY MEAN-PRESERVING to machine precision (see the function docstring) — it
+  does not move the predicted scoreline, the betting edge.
 
 The two functions are config-driven by ``mechanism`` / ``strength``; wiring them
 into the fit/predict path is Task 7.
@@ -23,7 +24,7 @@ into the fit/predict path is Task 7.
 from __future__ import annotations
 
 import numpy as np
-from scipy.stats import nbinom
+from scipy.optimize import brentq
 
 from wcmodel.model.panel import DesignData
 
@@ -57,77 +58,100 @@ def likelihood_weight(d: DesignData, *, mechanism: str, strength: float) -> np.n
     return w
 
 
-# Default overdispersion for the (c) reference marginals. With NB "size" r = mean
-# (`_DISPERSION_SIZE_FACTOR` * mean), the NB variance is mean + mean^2/r = 2*mean
-# at this default — twice the Poisson variance at the same mean: clearly
-# overdispersed but not degenerate. PHASE-4-TUNABLE: this magnitude (and the
-# a-vs-c choice and `strength`) are calibration-harness knobs, not frozen.
-_DISPERSION_SIZE_FACTOR = 1.0
+# Edge guard: a marginal mean within this of the support edge (0 or K) has no
+# interior max-entropy (exp-tilted) solution — the tilt would need theta -> -+inf
+# — and there is essentially nothing to widen on that axis (mass already pinned
+# at an edge). In that case the grid is returned unchanged.
+_MEAN_EDGE_EPS = 1e-9
 
-# Truncation guard: if a marginal mean is below this, there is essentially
-# nothing to widen (mass already at 0) — return the grid unchanged.
-_MEAN_FLOOR = 1e-9
+# brentq bracket on the tilt parameter theta. mean(theta) for q(k) ∝ exp(theta*k)
+# on {0..K} is strictly increasing, -> 0 as theta -> -inf and -> K as theta ->
+# +inf, so for any interior target mean in (0, K) the root lies inside a wide
+# finite bracket. +-700 keeps exp(theta*k) representable for the k=0..K integer
+# support after the overflow-safe max-shift below.
+_THETA_BRACKET = 700.0
 
 
-def _nb_reference_pmf(mean: float, support_size: int) -> np.ndarray:
-    """Negative-binomial pmf on ``0..support_size-1`` with mean EXACTLY ``mean``
-    (in the infinite-support sense) and variance ``2*mean`` (twice Poisson),
-    renormalized on the finite support.
+def _max_entropy_pmf(n_bins: int, mean: float) -> np.ndarray:
+    """Max-entropy pmf on the support ``{0, 1, ..., n_bins-1}`` whose mean equals
+    ``mean`` EXACTLY (to root-solver precision).
 
-    ``nbinom(n=r, p=r/(r+mu))`` has mean ``mu`` and variance ``mu + mu^2/r``;
-    with ``r = mu`` the variance is ``2*mu``. Renormalizing on the finite grid
-    introduces only the (negligible, when the grid covers the bulk) truncated
-    tail mass, so the finite-support mean stays within the documented <1e-2
-    tolerance of ``mean``.
+    The maximum-entropy distribution on a bounded integer support subject to a
+    fixed mean is the exponential-tilted (Boltzmann) family ``q(k) ∝ exp(theta*k)``.
+    Its mean ``sum_k k*q(k)`` is strictly increasing in ``theta`` (it is the mean
+    of a one-parameter exponential family, whose derivative in ``theta`` is the
+    variance > 0), ranging over the open interval ``(0, K)`` as ``theta`` sweeps
+    ``(-inf, +inf)``, where ``K = n_bins - 1``. So for any interior target
+    ``mean in (0, K)`` there is a UNIQUE ``theta``; we find it by a 1-D bracketed
+    root solve (``brentq``). The returned pmf therefore has mean exactly ``mean``
+    on the FINITE support — no truncation/renormalization bias, for ANY grid size
+    (contrast the old negative-binomial reference, whose infinite-support mean was
+    only approximately preserved once truncated and renormalized on the grid).
     """
-    r = _DISPERSION_SIZE_FACTOR * mean
-    p = r / (r + mean)
-    support = np.arange(support_size)
-    pmf = nbinom.pmf(support, r, p)
-    total = pmf.sum()
-    if total <= 0:  # pragma: no cover - mean>0 guard upstream makes this unreachable
-        return pmf
-    return pmf / total
+    K = n_bins - 1
+    ks = np.arange(n_bins)
+
+    def mean_minus_target(theta: float) -> float:
+        z = theta * ks
+        w = np.exp(z - z.max())  # overflow-safe: shift by max before exp
+        p = w / w.sum()
+        return float((ks * p).sum() - mean)
+
+    theta = brentq(mean_minus_target, -_THETA_BRACKET, _THETA_BRACKET)
+    z = theta * ks
+    w = np.exp(z - z.max())
+    return w / w.sum()
 
 
 def inflate_predictive(
     grid: np.ndarray, *, is_provisional: bool, strength: float
 ) -> np.ndarray:
-    """Mechanism (c): MEAN-PRESERVING widening of a provisional team's PREDICTIVE
-    scoreline grid.
+    """Mechanism (c): EXACTLY MEAN-PRESERVING widening of a provisional team's
+    PREDICTIVE scoreline grid.
 
     ``grid`` is a 2D array of shape ``(n_home, n_away)``: a normalized JOINT
     scoreline pmf where ``grid[h, a] = P(home = h, away = a)``. For a provisional
     team we make the predictive WIDER / less confident WITHOUT moving the
     predicted scoreline, by mixing the grid toward an independent product of
-    OVERDISPERSED negative-binomial marginals whose means EXACTLY match the
-    grid's marginal means::
+    MAX-ENTROPY (exponential-tilted) marginals whose means are SOLVED to EQUAL
+    the grid's marginal means::
 
-        alpha = min(strength, 0.99)
+        alpha  = min(strength, 0.99)
         mh, ma = E[home goals], E[away goals]   # the grid's marginal means
-        qh = NB(mean=mh, var=2*mh) over 0..n_home-1   (renormalized on support)
-        qa = NB(mean=ma, var=2*ma) over 0..n_away-1
+        qh = max-entropy pmf on 0..n_home-1 with E[k] == mh  (theta solved by brentq)
+        qa = max-entropy pmf on 0..n_away-1 with E[k] == ma
         q  = outer(qh, qa)                       # independent -> marginals (mh, ma)
         out = (1 - alpha) * grid + alpha * q ;   return out / out.sum()
 
-    Because ``E[qh] = mh`` and ``E[qa] = ma``, the convex mix has marginal means
-    ``(1-alpha)*mh + alpha*mh = mh`` (and ``ma``) — EXACTLY preserved, modulo a
-    documented <1e-2 finite-grid truncation error (the NB tail beyond the grid is
-    renormalized away; keep the goal-grid bound large enough that this tail is
-    negligible — at the default 0..10 grid the error is ~9e-3 for a mean-1.6
-    marginal). Variance/entropy strictly increase because the NB reference is
-    overdispersed (variance ``2*mu`` vs Poisson ``mu``) at the SAME mean. This is
-    the property the previous uniform-over-bins mixture VIOLATED: uniform pulls
-    E[scoreline] toward the grid centre and injects high-score mass that scales
-    with the arbitrary goal-grid bound, biasing the betting edge.
+    EXACTLY mean-preserving, to machine precision, for ANY grid size. Each
+    reference marginal's tilt parameter ``theta`` is found by a 1-D root solve so
+    that the FINITE-support mean equals the grid mean exactly (``E[qh] == mh``,
+    ``E[qa] == ma``); the convex mix therefore has marginal means
+    ``(1-alpha)*mh + alpha*mh = mh`` (and ``ma``), independent of the goal-grid
+    bound. This fixes the residual truncation bias of the earlier
+    negative-binomial reference, whose infinite-support mean was only
+    APPROXIMATELY preserved once truncated and renormalized on the finite grid
+    (error exceeding 1e-2 at small grids / high strength — e.g. mean 2.5 on a
+    max_goals=6 grid drifted by ~0.03–0.07). A betting edge IS the predicted
+    mean, so mean-preservation here is load-bearing and must be exact.
+
+    Widening is in the ENTROPY sense, and it is GUARANTEED: the max-entropy
+    distribution at a given mean is, by construction, the highest-entropy
+    distribution with that mean on the bounded support, so mixing any
+    non-max-entropy predictive toward it strictly INCREASES Shannon entropy (the
+    "less-confident" invariant). For a concentrated predictive it also increases
+    variance, though entropy — not variance — is the always-true guarantee.
 
     A non-provisional team (or ``strength <= 0``) is a no-op: the input grid is
-    returned unchanged. If a marginal mean is ~0 (all mass already at 0 goals)
-    there is nothing to widen on that axis, so the grid is returned unchanged.
+    returned unchanged. If a marginal mean sits at the support edge (~0, all mass
+    at 0 goals; or ~K, the largest representable score) there is no interior
+    max-entropy solution and nothing to widen on that axis, so the grid is
+    returned unchanged.
 
-    PHASE-4-TUNABLE. The overdispersion magnitude (``2x`` Poisson here), the
-    (a)-vs-(c) selection, and ``strength`` are calibration-harness knobs. This is
-    a valid DEFAULT FORM, NOT a frozen choice.
+    PHASE-4-TUNABLE. The dispersion/magnitude (here ``alpha = strength``, the mix
+    weight) and the (a)-vs-(c) selection are calibration-harness knobs. This is a
+    valid DEFAULT FORM, NOT a frozen choice; only the EXACT mean-preservation (and
+    entropy-increase) invariant is fixed.
     """
     if not is_provisional or strength <= 0:
         return grid
@@ -139,13 +163,18 @@ def inflate_predictive(
     mh = float((grid.sum(axis=1) * home_support).sum())
     ma = float((grid.sum(axis=0) * away_support).sum())
 
-    # If either marginal mean is ~0, that axis has no spread to add; mixing a
-    # degenerate NB would be a no-op at best, so leave the grid untouched.
-    if mh <= _MEAN_FLOOR or ma <= _MEAN_FLOOR:
+    # A marginal mean at the support edge (0 or K) has no interior exp-tilt
+    # solution and no spread to add on that axis; leave the grid untouched.
+    if (
+        mh <= _MEAN_EDGE_EPS
+        or mh >= (n_home - 1) - _MEAN_EDGE_EPS
+        or ma <= _MEAN_EDGE_EPS
+        or ma >= (n_away - 1) - _MEAN_EDGE_EPS
+    ):
         return grid
 
-    qh = _nb_reference_pmf(mh, n_home)
-    qa = _nb_reference_pmf(ma, n_away)
+    qh = _max_entropy_pmf(n_home, mh)
+    qa = _max_entropy_pmf(n_away, ma)
     q = np.outer(qh, qa)
 
     out = (1 - alpha) * grid + alpha * q
