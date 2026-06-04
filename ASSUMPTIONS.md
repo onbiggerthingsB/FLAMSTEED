@@ -33,12 +33,22 @@ by the tasks noted (Elo hyperparameters → Task 5; StatsBomb release → Task 9
     **Effective K** (= `k_base · multiplier`): **WC finals = 40**, WC qualifier = 32,
     continental championship = 36, continental qualifier = 32, Nations League = 28,
     **friendly = 16**, other = 20.
-    - **Divergence from standard World Football Elo K = 60 — flagged, NOT changed.**
-      The canonical World Football Elo uses **K = 60** for World Cup finals; WE run
-      **K = 40** for WC finals (`k_base 40 × wc_finals 1.0`). This is a deliberate,
-      documented divergence (a flatter, less twitchy update than the public WFE),
-      recorded here so it is not mistaken for the standard. This entry does **not**
-      change K — it only reports the effective values.
+    - **K is PROVISIONAL, NOT frozen — a pre-counted Phase-4 tuning config.**
+      Canonical World Football Elo uses **K = 60** for WC finals; we currently run
+      **K = 40** (`k_base 40 × wc_finals 1.0`) as a provisional default — neither a
+      blessed choice nor to be flipped to 60 on intuition. **K ∈ {40, ~50, 60} is one
+      of the pre-registered Phase-4 configs**, chosen by out-of-sample RPS on the
+      locked-box (north-star §4.6), under the same pre-counted discipline as the
+      de-vig method and the Dixon-Coles-vs-bivariate-Poisson selection. The
+      provisional volatility threshold **T (currently the empirical p95 = 16.5)** is
+      likewise a pre-counted tuning config, calibrated **jointly** with K and the
+      prior strength — none of the three is frozen separately.
+      **Rationale (record):** we went Bayesian precisely so the *prior* handles
+      low-information shrinkage. A low K already over-smooths Elo; stacking model-side
+      shrinkage on top risks **double-damping** and staleness to genuine form changes.
+      So K, the volatility threshold, and prior strength must be calibrated *together*
+      on the lockbox — not frozen on intuition. K = 40 stands only until that
+      calibration; this entry tags it provisional, it does not bless it.
   - Margin-of-victory index = **World Football Elo goal-difference scheme**:
     `G = 1` for a goal margin ≤ 1, `1.5` for a margin of 2, else `(11 + margin)/8`.
     `G` at margins **1/2/3/5/7 = 1.0 / 1.5 / 1.75 / 2.0 / 2.25**. The resulting
