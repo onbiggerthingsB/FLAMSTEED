@@ -431,7 +431,7 @@ plus the follow-ups deferred to Phase 4. Implemented on branch
 ## Phase 3 — Monte Carlo simulation
 
 Load-bearing decisions in the Phase-3 tournament simulator (`src/wcmodel/sim/`).
-Implemented on branch `phase3-monte-carlo`. (Task 8 will expand this section.)
+Implemented on branch `phase3-monte-carlo`.
 
 - **Per-cutoff conditioning + leakage discipline (pinned, Task 6).** `simulate(cutoff, …)`
   (`src/wcmodel/sim/run.py`) runs the WC-2026 simulation CONDITIONED on the results known
@@ -459,3 +459,70 @@ Implemented on branch `phase3-monte-carlo`. (Task 8 will expand this section.)
   reachable today (no 2026 knockout results exist; there is no production caller of `simulate`
   yet), but it WOULD crash the first time a penalty-decided knockout enters the played set —
   hence the explicit fail-loud + this limitation note.
+- **Binding principle — uncertainty enters the sim ONCE (pinned).** Per simulation the ONLY
+  sources of randomness are (1) **one posterior draw**, fixed across EVERY fixture of that sim
+  (`s = rng.integers(n_draws)` drawn once in `simulate_tournament`, threaded to every group and
+  knockout fixture via `simulate_one(..., draw=s)`), which preserves the cross-fixture
+  correlation of the shared `att/def/μ/home_adv` (a team strong in one match is strong in the
+  next), and (2) the **raw DC/BP scoreline sampling** (`scoreline.sample_score` on the per-draw
+  rates). The Phase-2 mechanism-(c) provisional widening is **NEVER** applied in-sim:
+  `Posterior.predict_scoreline` / `inflate*` are not called by the sim (`RateBook` exposes the
+  RAW per-draw rates). Re-widening per draw would **double-count** the parameter uncertainty
+  already carried by the draw AND destroy the per-sim shared-parameter correlation — so it is
+  deliberately excluded. (Focal properties #1/#2 in `tournament.py`.)
+- **Extra-time 30/90 + penalty 0.50 defaults (pinned; P4-tunable).** Knockout ties resolve via
+  extra time then a penalty shootout. Config: `sim.extra_time_scale = 0.3333` (ET ≈ 30/90 of a
+  regulation match) and `sim.penalty_home_prob = 0.5` (a no-tilt shootout coin-flip). Under the
+  **bivariate-Poisson** likelihood ALL THREE Poisson goal rates — `λ_home`, `λ_away`, AND the
+  **shared** `λ₃` — scale by `et_scale` in extra time, so ET is consistently 30/90 of regulation
+  (a BP scoreline is generative `X=W₁+W₃, Y=W₂+W₃`, so a partial-scale of `λ₃` is required or the
+  shared-goal mass would be mis-weighted; Codex T5 finding). Under **Dixon-Coles** `λ_home`/
+  `λ_away` scale but `ρ` does **not** — `ρ` is a low-score **dependence** (tau) parameter, not a
+  goal rate. Both knobs are P4-tunable (calibration may revisit the 30/90 and the 0.50).
+- **Third-place selection + FIFA Annex-C R32 assignment (pinned; focal Codex target).** When 12
+  groups send their 8 best third-placers to the R32, the slot-eligibility sets are **READ from
+  the verified `config/tournament_2026.yaml`** (the `3rd-<groups>` feeder tokens), never invented.
+  Ranking the 12 thirds (`rank_thirds`: points → GD → GF) selects the best 8; the
+  best-8-groups → R32-match mapping is a **LOOKUP** of FIFA's published combination table
+  (`config/third_place_assignment.json`: all **495 = C(12,8)** combinations, externally
+  validated for bijection + eligibility), because the perfect matching is non-unique across the
+  495 cases so FIFA's official assignment is authoritative — there is **no invented mapping**.
+  `rank_thirds` consumes RNG **only** on a genuine tie that straddles the **8/9 qualification
+  boundary** (more groups share the 8th group's key than there are remaining slots); a tie wholly
+  inside the top-8 changes no one's qualification and draws no RNG (Codex T3 RNG-locality).
+- **Seeded FIFA tiebreak random tail + `random_tail_rate` (pinned).** After the deterministic
+  FIFA tiebreak chain (points → head-to-head → all-group GD → all-group GF), any residual exact
+  tie is broken by a **seeded random tail** standing in for FIFA's fair-play points + drawing of
+  lots (we do not model fair-play conduct). It is seeded (per-sim child RNG), so it is fully
+  reproducible. Its activation is **logged as `SimResult.random_tail_rate`** — the fraction of
+  sims in which the tail fired — a **diagnostic, not a probability**: it is **visibly > 0** on a
+  near-equal field (frequent all-level groups) and a **small fraction** on a separated field
+  (groups usually split on GD/GF). Asserted in `tests/sim/test_convergence.py`
+  (equal-strength field ⇒ tail fires on ≈3% of sims; non-degenerate field ⇒ < 5%).
+- **N = 20 000 default, per-market binomial MC SE, and the market set (pinned).** `sim.n_sims =
+  20000` is the default sample size (config-driven; raise for the final pre-tournament run).
+  EVERY market reports a binomial Monte-Carlo standard error **`SE = sqrt(p·(1−p)/N)`** alongside
+  the probability (the `SimResult.se` table, same shape as `progression`), so each number carries
+  its own ± uncertainty. The market columns are: the SIX headline markets `champion`,
+  `reach_final`, `reach_sf`, `reach_qf`, `advance_from_group`, `win_group`; plus `reach_r16` (the
+  deepest reach rung kept for the full ladder); plus the FOUR per-group placing markets `first`,
+  `second`, `third`, `out` (a partition of each team's group finish). The reach ladder is
+  cumulative by depth-from-final, so `champion ≤ reach_final ≤ reach_sf ≤ reach_qf ≤
+  advance_from_group` holds **by construction**, and `win_group ≡ first` (emitted as identical
+  columns). Convergence is pinned by `tests/sim/test_convergence.py` (probs at N vs 4N agree
+  within a documented multiple of `SE_N`).
+- **Content-addressed sim cache key (pinned).** A full MC run is cached on disk
+  (`wcmodel.sim.cache.cached_sim`) and reused **only** when EVERY output-determining input is
+  identical. The key (via the shared `data.cache.content_key`) folds in: the **posterior
+  content-hash** (the actual `idata.posterior` parameter VALUES `RateBook` reads + `teams` +
+  `likelihood`, not an object identity / config proxy), the **bracket structure-hash** (groups,
+  group_fixtures, third_place_slots, knockout_feeders, match_round; group keys canonicalized so
+  the key is independent of group **insertion** order, while within-group fixture order is
+  preserved as result-affecting content), the **cutoff**, **n_sims**, **seed**, **max_goals**,
+  **et_scale**, **pen_home_prob**, the **played-conditioning hash** (the per-cutoff
+  `{groups, knockout_results, match_dates}` map), and **git** (HEAD commit **plus** a hash of the
+  uncommitted tracked `git diff HEAD`, so an uncommitted sim-code edit also misses — Codex T7
+  finding 2; a brand-new UNTRACKED file is not in the diff, so commit or clear the cache when
+  iterating). Any change → a different key → a **MISS**, never a stale serve (the P2-T8 lesson:
+  an incomplete key returning a result for the WRONG cutoff/posterior/bracket is THE bug to
+  avoid).
