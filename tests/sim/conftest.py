@@ -3,7 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from tests.data.conftest import small_store  # noqa: F401  (reused by scoreline RateBook test)
+from tests.data.conftest import (  # noqa: F401
+    small_store,      # reused by the scoreline RateBook test
+    mutable_store,    # the future-result canary store (T6 leakage gate)
+)
 from wcmodel.data.tournament import load_tournament
 from wcmodel.sim.bracket import build_bracket
 

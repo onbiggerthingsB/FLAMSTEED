@@ -204,7 +204,7 @@ def _resolve_feeder(ref, *, group_rankings, third_by_match, winners, losers, mat
     raise ValueError(f"unrecognised feeder token {ref!r} for match {match_no}")
 
 
-def simulate_one(bracket, ratebook, draw, rng, cfg, played=None):
+def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None):
     """Simulate ONE tournament at a single fixed posterior ``draw``.
 
     Returns ``{"depth": {team: furthest_depth}, "groups": {team: placing}, "champion":
@@ -213,14 +213,40 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None):
     group finish. Every fixture in this call uses the SAME ``draw`` (focal property #1) and
     the RAW per-draw rates (focal property #2).
 
-    ``played`` is accepted for the Task-6 contract (fixed <=cutoff results threaded in) but
-    is INERT in T5: ``played=None`` means "simulate every fixture", the only path T5
-    exercises. No cutoff-conditioning logic is implemented here beyond accepting the param."""
-    if played is not None:                               # T6 will honour this; T5 must not.
-        raise NotImplementedError(
-            "simulate_one(played=...) is a Task-6 contract; T5 only simulates every "
-            "fixture (played=None)."
-        )
+    PER-CUTOFF CONDITIONING (Task 6). ``played`` pins the fixtures already DECIDED as of a
+    cutoff, so they are NOT sampled (the as-of-cutoff state is FACT, not a draw). The match
+    key everywhere is the EXACT ``(home_team, away_team, date)`` triple (the leakage-critical
+    matching rule built in ``wcmodel.sim.run.simulate`` from ``date < cutoff`` played rows):
+
+      * ``played["groups"]``  : ``{(home, away): (home_goals, away_goals)}`` — group teams
+        are concrete in the bracket, so ``simulate`` resolves these by the exact triple and
+        keys them by the (home, away) pair here. A group fixture present here uses its
+        ACTUAL score instead of ``sample_score``.
+      * ``played["knockout_results"]`` : ``{(home, away, date): (home_goals, away_goals)}``
+        + ``played["match_dates"]`` : ``{match_no: date}``. Knockout feeders are PLACEHOLDERS
+        in the bracket (``1A``/``W74``), so a played KO result can only be matched to a match
+        once its feeders resolve to CONCRETE teams — which happens HERE, in-loop. After
+        resolving match ``m``'s concrete ``home``/``away`` we look up
+        ``(home, away, match_dates[m])``; if present the match is decided -> use the ACTUAL
+        winner from that score, do NOT ``resolve_tie``. (KO fixture dates are not unique
+        across matches, so date alone can't identify a match; the concrete team pair + date
+        does. This is why KO matching is in-loop, not pre-resolved in ``simulate``.)
+
+    ``simulate`` builds these from results KNOWN at the cutoff (``date < cutoff``, played).
+    ``played=None`` (the T5 default) simulates every fixture. Determinism: fixing consumes
+    NO RNG (no ``sample_score`` / ``resolve_tie`` call for a pinned fixture), so two runs that
+    pin the IDENTICAL fixture set consume the per-sim RNG identically -> bit-identical
+    progression (the leakage canary's invariance). A fixed knockout still records both
+    participants' depths exactly as a sampled one would, so the reach ladder is unaffected by
+    whether a match was pinned or sampled.
+
+    ``depths`` is the pre-computed ``_match_depths(bracket)`` (pure structure). It is passed
+    in so ``simulate_tournament`` computes it ONCE per run rather than per sim; if omitted
+    (direct call) it is computed here. Behaviour is identical either way."""
+    played = played or {}
+    played_groups = played.get("groups", {})             # {(home, away): (hg, ag)}
+    played_ko_results = played.get("knockout_results", {})  # {(home, away, date): (hg, ag)}
+    ko_match_dates = played.get("match_dates", {})          # {match_no: date}
 
     sampler = _FixtureSampler(ratebook, draw, cfg)
     random_tail = False
@@ -232,8 +258,11 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None):
     placing = {}                   # {team: 0-based group finish}
     for g, fixtures in bracket.group_fixtures.items():
         teams = bracket.groups[g]
+        # A fixture decided as-of-cutoff (in played_groups) uses its ACTUAL score and is
+        # NOT sampled (consumes no RNG); every other fixture is sampled at this draw.
         results = {
-            (home, away): sampler.score(home, away, neutral=cfg.neutral, rng=rng)
+            (home, away): (played_groups[(home, away)] if (home, away) in played_groups
+                           else sampler.score(home, away, neutral=cfg.neutral, rng=rng))
             for home, away in fixtures
         }
         ranking, used = rank_group(teams, results, rng=rng, _return_random_used=True)
@@ -255,7 +284,10 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None):
     # --- Knockouts: resolve every match in match-number (topological) order. Winner-fed
     # matches propagate champions toward the Final; the loser-fed 3rd-place match is
     # resolved for full-sim fidelity but is off the championship depth ladder (no depth). ---
-    depths = _match_depths(bracket)
+    # `depths` is pure structure (the winner-feeder DAG); computed ONCE per run by
+    # simulate_tournament and passed in, else (direct call) computed here.
+    if depths is None:
+        depths = _match_depths(bracket)
     winners, losers = {}, {}
     furthest = {}                  # {team: MIN participated KO depth}
     champion = None
@@ -267,9 +299,22 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None):
         away = _resolve_feeder(away_ref, group_rankings=group_rankings,
                                third_by_match=third_by_match, winners=winners,
                                losers=losers, match_no=m)
-        sample = sampler.knockout_sampler(home, away, neutral=cfg.neutral)
-        w = resolve_tie(home, away, sample=sample, rng=rng, et_scale=cfg.et_scale,
-                        pen_home_prob=cfg.pen_home_prob)
+        # Decided as-of-cutoff? Match the now-CONCRETE (home, away) + this match's date
+        # against the played KO results (exact triple). A draw can't be a KO result (a KO
+        # has a winner), so a level played score is rejected as malformed.
+        ko_score = played_ko_results.get((home, away, ko_match_dates.get(m)))
+        if ko_score is not None:
+            hg, ag = ko_score
+            if hg == ag:
+                raise ValueError(
+                    f"played knockout result {ko_score} for match {m} ({home!r} vs "
+                    f"{away!r}) is level — a decided knockout must have a winner"
+                )
+            w = home if hg > ag else away                # ACTUAL winner, no RNG drawn
+        else:
+            sample = sampler.knockout_sampler(home, away, neutral=cfg.neutral)
+            w = resolve_tie(home, away, sample=sample, rng=rng, et_scale=cfg.et_scale,
+                            pen_home_prob=cfg.pen_home_prob)
         winners[m] = w
         losers[m] = away if w == home else home
 
@@ -295,8 +340,12 @@ def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale
     drawn ONCE per sim and that SAME ``s`` is threaded to every fixture (group + knockout)
     via ``simulate_one(..., draw=s, ...)``.
 
-    ``played`` is forwarded to ``simulate_one`` for the Task-6 contract; T5 uses
-    ``played=None`` (simulate every fixture)."""
+    ``played`` (the Task-6 per-cutoff conditioning map: ``{"groups": {(h,a): (hg,ag)},
+    "knockout_results": {(h,a,date): (hg,ag)}, "match_dates": {match_no: date}}``) is
+    forwarded to ``simulate_one``, which pins those fixtures to their actual results instead
+    of sampling them; ``played=None`` simulates every fixture. The same ``played`` set is
+    pinned in every sim, so fixing consumes no RNG and a leakage-free run is bit-identical
+    across runs that pin the identical set."""
     ratebook = RateBook(posterior)
     cfg = _Cfg(max_goals=max_goals, et_scale=et_scale, pen_home_prob=pen_home_prob)
     teams = list(posterior.teams)
@@ -308,7 +357,11 @@ def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale
     counts = {col: np.zeros(n_teams, dtype=np.int64) for col in _COLUMNS}
     random_tail_hits = 0
 
-    depths_on_dag = set(_match_depths(bracket).values())   # finite KO depths present
+    # `_match_depths` is pure structure (the winner-feeder DAG) -> compute ONCE here and
+    # reuse for the advance threshold AND every sim (passed into simulate_one), rather than
+    # recomputing it inside the per-sim body (wasted work at N=20k; T5 quality review).
+    depths = _match_depths(bracket)
+    depths_on_dag = set(depths.values())                   # finite KO depths present
     # `advance` threshold = the bracket's deepest KO depth (entered the knockouts at all).
     advance_depth = max(depths_on_dag) if depths_on_dag else _GROUP_EXIT
     reach_thresholds = dict(_REACH_LADDER)
@@ -318,7 +371,8 @@ def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale
     for child in children:
         rng = np.random.default_rng(child)                 # the ONLY RNG inside the sim
         s = int(rng.integers(ratebook.n_draws))            # ONE posterior draw, fixed for the sim
-        out = simulate_one(bracket, ratebook, draw=s, rng=rng, cfg=cfg, played=played)
+        out = simulate_one(bracket, ratebook, draw=s, rng=rng, cfg=cfg, played=played,
+                           depths=depths)
         random_tail_hits += int(out["random_tail"])
 
         for team, placing in out["groups"].items():
