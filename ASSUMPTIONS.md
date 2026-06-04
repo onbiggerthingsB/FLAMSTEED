@@ -91,6 +91,25 @@ by the tasks noted (Elo hyperparameters → Task 5; StatsBomb release → Task 9
     silently drift again). The **48-team WC-2026 intersection is GATED** on the user-provided
     `config/tournament_2026.yaml` draw file; the final 48-team gap analysis is produced in
     Task 13 once that file lands.
+- **Time-decay & feature window (pinned, Task 11/12).** `config.yaml` `windows:` pins the
+  two feature-recency parameters consumed by `features.build` (north-star §4.3):
+  - `feature_years = 4` — the model/feature window. A built row carries
+    `in_feature_window = (cutoff − date).days ≤ feature_years·365`; rows older than the
+    window are flagged out (a feature, not a hard crop).
+  - `decay_half_life_days = 365` — exponential time-decay half-life. Each row carries
+    `decay_weight = 0.5 ** (age_days / decay_half_life_days)` (a match exactly one half-life
+    old weighs 0.5). `age_days = (cutoff − date).days`, always ≥ 0 by the strict `date <
+    cutoff` filter — no future row is ever weighted.
+  - The **backtest** window is *separate* and is **NOT cropped** to `feature_years` (it keeps
+    pre-window history from `odds_start`) — see `windows.py` / Task 12.
+- **No imputation — every missing feature is NULL (pinned, Task 11).** `build` NEVER fills a
+  missing feature with `0` / mean / forward-fill / anything. Concretely: an uncovered match
+  (no StatsBomb xG) → `xg_for`/`xg_against = NaN`, `xg_covered = False`; a city absent from
+  the venue table (sparse historical city→coord coverage) → `travel_km`/`altitude_m` (and the
+  climate placeholders) `= NaN`; a team's first fixture in the slice → `rest_days = NaN`.
+  Absence of a whole source is a NULL-safe no-op, not contamination (it contributes `0.0`, not
+  `NaN`, to `revision_contaminated_exposure`). (The xG-specific form of this rule is also
+  recorded under the StatsBomb entry above; stated here as the panel-wide invariant.)
 - **Tier bands from point-in-time computed-Elo.** Strength band is the computed-Elo
   percentile as-of the match cutoff (never as-of-today; bands may shift across the
   window). Uses computed-Elo, not the revised FIFA ranking.
