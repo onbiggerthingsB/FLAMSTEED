@@ -32,9 +32,16 @@ def predict_rest_days(team, fixture_date, cutoff, played_schedule: pd.DataFrame)
     if fixture_date.tz is not None:
         fixture_date = fixture_date.tz_convert("UTC").tz_localize(None)
     s = played_schedule.copy()
-    dates = pd.to_datetime(s["date"])
-    if getattr(dates.dt, "tz", None) is not None:
-        dates = dates.dt.tz_convert("UTC").dt.tz_localize(None)
+    # MIXED tz-awareness guard: a schedule `date` column may carry a tz-naive
+    # AND a tz-aware (Odds API `Z`/UTC kickoff) Timestamp side by side. A bare
+    # `pd.to_datetime(s["date"])` raises ("Tz-aware datetime cannot be converted
+    # ... unless utc=True") on such a column BEFORE any later coercion runs.
+    # `utc=True` coerces EVERY value to UTC (naive treated as UTC, aware
+    # converted), then `tz_localize(None)` drops the tz — collapsing naive,
+    # aware, and mixed columns onto the one tz-naive UTC clock the cutoff/fixture
+    # also live on. Homogeneous cases are unchanged (the prior tz-aware test
+    # still returns 12).
+    dates = pd.to_datetime(s["date"], utc=True).dt.tz_localize(None)
     mask = (s["team"] == team) & (dates < cutoff.normalize()) & (dates < fixture_date)
     if not mask.any():
         return np.nan

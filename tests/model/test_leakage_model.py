@@ -1,7 +1,11 @@
 import numpy as np
+import pandas as pd
 import pytest
 
+from wcmodel.data.sources.results import normalize_results
+from wcmodel.data.store import BitemporalStore, Policy
 from wcmodel.model.scoreline import fit
+from wcmodel.model.volatility_diagnostic import count_volatility_arm
 
 
 @pytest.mark.slow
@@ -98,4 +102,106 @@ def test_full_posterior_invariance_is_non_vacuous(mutable_store):
     assert moved, (
         "non-vacuity FAILED: a full-panel (< cutoff) score change moved NO "
         "posterior variable — the invariance gate would be vacuous"
+    )
+
+
+def _edge_store(tmp_path) -> BitemporalStore:
+    """A tiny store where team ``Edge`` has EXACTLY 4 played matches before
+    2024-01-10 and a 5th match AFTER it. ``Edge`` always draws 0-0 vs ``Foe`` on
+    NEUTRAL ground, so both stay pinned at ``initial_rating`` and every rating
+    delta is exactly 0.0 — Edge's recent_volatility is therefore 0 (well under
+    the 16.5 threshold) regardless of cutoff. That isolates the ONLY thing that
+    changes between the two cutoffs below to the few-games COUNT (4 vs 5), which
+    is exactly the provisional-set boundary we want to probe.
+    """
+    raw = pd.DataFrame(
+        [
+            # date, home, away, hs, as, tournament, city, country, neutral
+            ("2024-01-02", "Edge", "Foe", 0, 0, "Friendly", "London", "England", True),
+            ("2024-01-04", "Edge", "Foe", 0, 0, "Friendly", "London", "England", True),
+            ("2024-01-06", "Edge", "Foe", 0, 0, "Friendly", "London", "England", True),
+            ("2024-01-08", "Edge", "Foe", 0, 0, "Friendly", "London", "England", True),
+            # 5th match — dated AFTER D=2024-01-10. In-set vs out-of-set hinges
+            # entirely on whether THIS row is counted.
+            ("2024-01-12", "Edge", "Foe", 0, 0, "Friendly", "London", "England", True),
+        ],
+        columns=["date", "home_team", "away_team", "home_score", "away_score",
+                 "tournament", "city", "country", "neutral"],
+    )
+    store = BitemporalStore(root=tmp_path)
+    store.write("results", normalize_results(raw), policy=Policy.POINT_IN_TIME,
+                keys=["match_id"], source="martj42", source_version="test")
+    return store
+
+
+def test_provisional_set_leak_would_be_caught(tmp_path):
+    """NON-VACUITY for the canary's ``provisional_teams ==`` assertion (Codex T9
+    re-review). The canary mutates a SCORE of a post-cutoff match; Codex
+    confirmed a score change shifts ``recent_volatility`` but CANNOT flip
+    provisional-set MEMBERSHIP, so on its own the ``provisional_teams ==``
+    assertion can't be SHOWN to catch a provisional-set leak. This test supplies
+    the missing teeth by proving the membership-deciding mechanism — the
+    ``date < cutoff.normalize()`` filter in ``count_volatility_arm`` — is
+    LOAD-BEARING for the set: the set CHANGES exactly when a game crosses the
+    cutoff.
+
+    ``Edge`` has 4 played matches before 2024-01-10 and a 5th AFTER it. The
+    few-games arm flips at ``provisional_games``=5: 4 games → provisional,
+    5 games → not. We do NOT mutate anything; we move the CUTOFF across the 5th
+    game, which is exactly what a leak that wrongly ADMITTED a > cutoff game
+    would do to the counted set:
+
+      * cutoff just after the 4th game (< the 5th): Edge has 4 games →
+        ``few_games_flag`` True → Edge IS in the provisional set;
+      * cutoff after the 5th game: Edge has 5 games → ``few_games_flag`` False
+        (and ``volatility_flag`` False, since all deltas are 0) → Edge is NOT in
+        the provisional set.
+
+    Therefore the provisional set IS sensitive to whether the post-cutoff game is
+    included. A leak that admitted the > cutoff game at the EARLIER cutoff would
+    count 5 games instead of 4, drop Edge from the set, and the canary's
+    ``before.provisional_teams == after.provisional_teams`` assertion would
+    FAIL — i.e. the canary WOULD catch a provisional-set leak. This proves the
+    date filter in ``count_volatility_arm`` is load-bearing for the set,
+    giving the canary's set-invariance assertion teeth. (If this test ever fails
+    — i.e. the set is NOT date-sensitive at this boundary — the canary's
+    provisional assertion is vacuous and must be revisited.)
+    """
+    store = _edge_store(tmp_path)
+
+    # Cutoff just after the 4th game (2024-01-08) and <= D (2024-01-10), strictly
+    # before the 5th game (2024-01-12): Edge has exactly 4 counted matches.
+    early = count_volatility_arm(store, cutoff="2024-01-09", field_teams=["Edge"])
+    edge_early = early.set_index("team").loc["Edge"]
+    assert int(edge_early["games"]) == 4, "expected exactly 4 < cutoff games"
+    assert bool(edge_early["few_games_flag"]) is True, (
+        "Edge with 4 games must trip the few-games arm (provisional_games=5)"
+    )
+    in_set_early = bool(edge_early["few_games_flag"] or edge_early["volatility_flag"])
+    assert in_set_early, "Edge must be IN the provisional set at 4 games"
+
+    # Cutoff after the 5th game (2024-01-12): Edge now has 5 counted matches.
+    late = count_volatility_arm(store, cutoff="2024-01-13", field_teams=["Edge"])
+    edge_late = late.set_index("team").loc["Edge"]
+    assert int(edge_late["games"]) == 5, "expected exactly 5 < cutoff games"
+    assert bool(edge_late["few_games_flag"]) is False, (
+        "Edge with 5 games must NOT trip the few-games arm"
+    )
+    # All-zero deltas (neutral 0-0 draws) ⇒ recent_volatility 0 ⇒ no volatility
+    # arm either, so the ONLY reason Edge could be in the set at 5 games is the
+    # few-games arm — which is now off. Membership change is unambiguous.
+    assert bool(edge_late["volatility_flag"]) is False, (
+        "Edge's volatility arm must be off so the membership change is purely "
+        "the few-games boundary"
+    )
+    in_set_late = bool(edge_late["few_games_flag"] or edge_late["volatility_flag"])
+    assert not in_set_late, "Edge must DROP OUT of the provisional set at 5 games"
+
+    # The crux: set membership flips on whether the 5th (post-early-cutoff) game
+    # is counted. A leak that admitted a > cutoff game would flip it the same way
+    # → the canary's provisional_teams equality would catch it.
+    assert in_set_early != in_set_late, (
+        "provisional-set membership is NOT sensitive to whether the post-cutoff "
+        "game is counted — the canary's provisional_teams assertion would be "
+        "vacuous; revisit count_volatility_arm's date filter"
     )

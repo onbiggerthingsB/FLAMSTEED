@@ -44,3 +44,27 @@ def test_rest_tz_aware_schedule_and_fixture_do_not_crash():
         played_schedule=aware,
     )
     assert r_aware == r_naive == 12                # tz-aware path is byte-identical to the naive path
+
+
+def test_rest_mixed_tz_schedule_column_does_not_crash():
+    # MIXED tz-awareness in the schedule `date` column (Codex T9 re-review): a
+    # real schedule can carry one tz-naive Timestamp and one tz-aware (Odds API
+    # `Z`/UTC kickoff) Timestamp side by side. `pd.to_datetime(s["date"])` on
+    # such a column raises `ValueError: Tz-aware datetime.datetime cannot be
+    # converted to datetime64 unless utc=True` BEFORE any coercion runs. The fix
+    # coerces with utc=True then drops tz, so naive/aware/mixed all collapse to
+    # one tz-naive UTC clock. RED against the pre-fix code (ValueError); GREEN
+    # after, returning the SAME integer as the all-naive equivalent.
+    naive = pd.DataFrame({"team": ["A", "A"],
+                          "date": [pd.Timestamp("2026-06-05"),
+                                   pd.Timestamp("2026-06-10")]})
+    r_naive = predict_rest_days(
+        "A", fixture_date="2026-06-22", cutoff="2026-06-18", played_schedule=naive
+    )
+    mixed = pd.DataFrame({"team": ["A", "A"],
+                          "date": [pd.Timestamp("2026-06-05"),                  # tz-naive
+                                   pd.Timestamp("2026-06-10", tz="UTC")]})       # tz-aware
+    r_mixed = predict_rest_days(
+        "A", fixture_date="2026-06-22", cutoff="2026-06-18", played_schedule=mixed
+    )
+    assert r_mixed == r_naive == 12               # uses 2026-06-10; mixed path == naive path
