@@ -275,58 +275,67 @@ def test_real_draw_validates_and_ingests_exactly_72_group_rows():
     assert len(store.read("results", cutoff="2027-01-01")) == 72
 
 
-def test_doctored_group_looking_fixture_is_not_ingested_as_group_row():
-    """FIX 1 belt-and-suspenders: even if `validate_tournament` were BYPASSED, a
-    group-SHAPED fixture whose team is a placeholder (home="2A", away="Mexico")
-    must be SKIPPED by ingest — `ingest_wc_group_fixtures` derives `drawn` from
-    the GROUP teams, and "2A" is in no group, so the row is NOT a group row and
-    ZERO placeholder tokens reach the store.
+# --- Codex B note: validate-at-ingest-entry + placeholder-excluding `drawn` ---
+#
+# `ingest_wc_group_fixtures` previously trusted the caller to have run
+# `validate_tournament` first. A caller that BYPASSED the validator and smuggled a
+# placeholder ("2A") into a group would put "2A" into the group-derived `drawn`
+# set. Not a leak today (such rows are NaN-score and dropped before Elo), but the
+# guarantee is now CODE-ENFORCED two ways: (1) ingest calls `validate_tournament`
+# at entry, so a malformed/unvalidated doc can never be ingested; (2) `drawn`
+# excludes any placeholder-shaped name as a second guard.
 
-    We construct the tournament dict DIRECTLY (no validate) so this proves the
-    ingest-side guard in isolation: top-level `teams` is poisoned with the "2A"
-    placeholder (the exact smuggling a bypassed validator would let through), and
-    a group-SHAPED fixture pairs "2A" with a REAL drawn nation — yet nothing is
-    written, because ingest reads `drawn` from the GROUP teams, where "2A" never
-    appears. (Under the OLD `drawn = set(teams)` code this row WOULD have been
-    ingested, since poisoned `teams` contained "2A"; that is the regression this
-    guards.)
+def test_ingest_validates_at_entry_rejecting_smuggled_placeholder_in_group():
+    """Codex B note (guard 1): ingest REFUSES an unvalidated/malformed doc.
+
+    A doc with "2A" smuggled into BOTH a group AND top-level `teams` (the exact
+    bypass a caller skipping `validate_tournament` could attempt) must RAISE
+    `ValueError` at ingest entry — `ingest_wc_group_fixtures` now calls
+    `validate_tournament` first, and the validator rejects placeholder-shaped
+    names. Ingestion can NEVER run on an unvalidated/malformed tournament.
     """
-    # 12 groups of 4 real names. The away team "T0_0" IS a real group member, so
-    # the ONLY thing keeping this group-shaped fixture out of the store is that
-    # "2A" is absent from the GROUP-derived drawn set.
+    # Start from a fully-valid structure so the ONLY defect is the smuggled
+    # placeholder (proving it is the placeholder-shape guard inside
+    # `validate_tournament` that trips, reached via the entry call — not an
+    # unrelated count/shape failure).
+    bad = _valid_min()
+    bad["venues"] = [{"city": "Los Angeles", "country": "US"}]
+    old = bad["groups"][0]["teams"][0]
+    bad["groups"][0]["teams"][0] = "2A"                 # smuggled INTO a group
+    bad["teams"] = ["2A" if t == old else t for t in bad["teams"]]  # ...and `teams`
+    # Self-consistent (48 distinct, teams == group union) — only the SHAPE is bad.
+    group_union = {t for g in bad["groups"] for t in g["teams"]}
+    assert "2A" in group_union and set(bad["teams"]) == group_union
+    store = BitemporalStore(root_for_test())
+    with pytest.raises(ValueError) as ei:
+        ingest_wc_group_fixtures(bad, store, observed_at="2026-01-01")
+    assert "2A" in str(ei.value), (
+        "the offending placeholder must be named by the entry validation"
+    )
+
+
+def test_ingest_drawn_excludes_placeholder_shaped_name_second_guard():
+    """Codex B note (guard 2): `drawn` is derived EXCLUDING placeholder-shaped
+    names, independently of the entry validation.
+
+    Even if a placeholder ever reached the group set, the `drawn` comprehension
+    filters it via `_is_placeholder_team`, so a group-SHAPED fixture pairing a
+    placeholder with a real nation is still SKIPPED (the placeholder is not in
+    `drawn`). Proven directly against `_drawn_teams` to isolate THIS guard from
+    the entry validation above.
+    """
+    from wcmodel.data.tournament import _drawn_teams
     groups = [{"name": chr(65 + i), "teams": [f"T{i}_{j}" for j in range(4)]}
               for i in range(12)]
-    group_teams = [t for g in groups for t in g["teams"]]
-    real_away = group_teams[0]  # "T0_0" — a genuine drawn nation, KEPT in `teams`
-    doctored = {
-        # Top-level `teams` is POISONED with the "2A" placeholder, replacing the
-        # LAST real group member (so length stays 48 and `real_away` is retained).
-        # Old ingest derived `drawn` from THIS list — which contains both "2A"
-        # AND `real_away` — so it WOULD have admitted the fixture (n=1). The fix
-        # derives `drawn` from the groups, where "2A" is absent → skipped (n=0).
-        "teams": group_teams[:-1] + ["2A"],
-        "groups": groups,
-        "fixtures": [
-            {"home": "2A", "away": real_away, "date": "2026-06-28",
-             "venue": "Los Angeles"},
-        ],
-        "venues": [{"city": "Los Angeles", "country": "US"}],
-    }
-    store = BitemporalStore(root_for_test())
-    n = ingest_wc_group_fixtures(doctored, store, observed_at="2026-01-01")
-    # ZERO rows written: the placeholder fixture is skipped, so NO placeholder
-    # token reaches the store — the count IS the proof (nothing was ingested).
-    assert n == 0, "a placeholder-team fixture was ingested as a group row"
-    # Defensive read: whatever the store returns (empty / not-found), no
-    # placeholder token may appear in any team column.
-    try:
-        rows = store.read("results", cutoff="2027-01-01")
-    except (FileNotFoundError, IndexError):
-        rows = None
-    if rows is not None and not rows.empty:
-        for col in ("home_team", "away_team"):
-            if col in rows.columns:
-                assert not rows[col].astype(str).str.match(_PLACEHOLDER_RE).any()
+    # Poison the group set: OVERWRITE one real member ("T0_0") with a placeholder
+    # shape; the second guard must drop "2A" from the derived drawn set.
+    groups[0]["teams"][0] = "2A"
+    drawn = _drawn_teams({"groups": groups})
+    assert "2A" not in drawn, "placeholder-shaped name leaked into the drawn set"
+    # The 47 remaining real members (all T{i}_{j} except the overwritten T0_0)
+    # are retained — the filter drops ONLY the placeholder, nothing else.
+    expected = {f"T{i}_{j}" for i in range(12) for j in range(4)} - {"T0_0"}
+    assert expected == drawn
 
 
 @_needs_draw

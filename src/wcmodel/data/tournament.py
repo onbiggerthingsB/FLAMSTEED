@@ -242,6 +242,27 @@ HOST_COUNTRY_BY_TEAM = {
 WC2026_SOURCE = "wc2026_schedule"
 
 
+def _drawn_teams(tournament: dict) -> set[str]:
+    """The drawn-48 set, derived from the GROUP teams, EXCLUDING any
+    placeholder-shaped name (second belt-and-suspenders guard).
+
+    ``ingest_wc_group_fixtures`` uses this set as the group/knockout
+    discriminator. Reading it from the groups (not raw top-level ``teams``)
+    already prevents a placeholder smuggled into top-level ``teams`` from
+    widening the membership test; filtering out :func:`_is_placeholder_team`
+    names here additionally ensures that even a placeholder smuggled into a
+    GROUP can never enter ``drawn`` — so it can never be written as a group row.
+    On a validated document this filter is a no-op (the validator already
+    rejects placeholder-shaped names), so it never changes the happy path.
+    """
+    return {
+        team
+        for group in tournament["groups"]
+        for team in group["teams"]
+        if not _is_placeholder_team(team)
+    }
+
+
 def ingest_wc_group_fixtures(
     tournament: dict,
     store: BitemporalStore,
@@ -286,17 +307,25 @@ def ingest_wc_group_fixtures(
     features), and a pre-WC cutoff excludes them on date. See the WC in-progress
     leakage test for the proof.
     """
+    # Validate at ENTRY so ingestion can NEVER run on an unvalidated/malformed
+    # doc: the validator rejects teams!=groups, non-48, and placeholder-SHAPED
+    # names (`2A`/`W74`/…) outright. This closes the bypass where a caller skips
+    # `validate_tournament` and smuggles a placeholder into a group — such a doc
+    # now raises here before any row is derived. (Idempotent: re-validating an
+    # already-validated dict returns it unchanged.)
+    validate_tournament(tournament)
     observed_at = pd.Timestamp(observed_at)
 
-    # Drawn-48 set derived from the GROUP teams — the VALIDATED source.
-    # `validate_tournament` guarantees top-level `teams` equals this group union,
-    # but we read it from the groups directly (not raw top-level `teams`) so that
-    # even if validation were bypassed, no placeholder smuggled into top-level
-    # `teams` could widen the membership test below. Belt-and-suspenders with the
-    # validator's teams==groups check: a knockout placeholder (e.g. `2A`/`W74`),
-    # never a member of any group, can never enter `drawn` and so can never be
-    # written as a group row.
-    drawn = {team for group in tournament["groups"] for team in group["teams"]}
+    # Drawn-48 set derived from the GROUP teams — the VALIDATED source — with
+    # placeholder-shaped names excluded as a SECOND guard (see `_drawn_teams`).
+    # `validate_tournament` (run above) guarantees top-level `teams` equals this
+    # group union, but we read it from the groups directly (not raw top-level
+    # `teams`) so that even absent validation, no placeholder smuggled into
+    # top-level `teams` could widen the membership test below. Belt-and-suspenders
+    # with the validator: a knockout placeholder (e.g. `2A`/`W74`), never a member
+    # of any group AND filtered by `_is_placeholder_team`, can never enter `drawn`
+    # and so can never be written as a group row.
+    drawn = _drawn_teams(tournament)
     venue_country = {v["city"]: v.get("country") for v in tournament["venues"]}
     # country-code -> host team name, for the neutral-ground test.
     host_by_country = {code: team for team, code in HOST_COUNTRY_BY_TEAM.items()}
