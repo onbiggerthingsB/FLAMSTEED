@@ -38,3 +38,21 @@ statsbomb:
   # valid_as_of == observed_at == match_date. xG is coverage-gated, NULL-safe,
   # and NEVER imputed (see ASSUMPTIONS.md / SOURCES.md).
   open_data_version: "statsbombpy-1.18.0@2026-06-03"
+model:
+  likelihood: dixon_coles            # dixon_coles | bivariate_poisson  (P4 DOF #8)
+  prior:
+    sigma_att: 0.5                   # HalfNormal scale, attack hyperprior  (P4 DOF #6)
+    sigma_def: 0.5                   # HalfNormal scale, defense hyperprior (P4 DOF #6)
+    mu_loc: 0.0                      # baseline log goal-rate prior loc
+    mu_scale: 1.0
+    home_loc: 0.25                   # home-advantage log-multiplier prior loc
+    home_scale: 0.25
+    rho_scale: 0.1                   # DC tau / BP-correlation prior scale
+  widening:
+    mechanism: c                     # a (likelihood down-weight) | c (predictive-variance inflation)  (P4 DOF #3)
+    strength: 0.5                    # widening strength, co-tuned with windows.decay_half_life_days  (P4 DOF #4)
+  inference:
+    backend: advi                    # advi | pathfinder | nuts
+    draws: 1000
+    tune: 1000
+    advi_iters: 30000
