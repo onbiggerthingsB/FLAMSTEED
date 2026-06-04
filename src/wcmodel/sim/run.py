@@ -65,6 +65,11 @@ class SimConfig:
     max_goals: int = 12
     et_scale: float = 0.3333
     pen_home_prob: float = 0.5
+    # Optional content-addressed sim-cache directory (Phase-3 T7). When set,
+    # :func:`simulate` routes through :func:`wcmodel.sim.cache.cached_sim` so a run
+    # whose every output-determining input is unchanged is loaded from disk instead of
+    # re-simulated; ``None`` (the default) always computes fresh.
+    cache_dir: str | Path | None = None
 
     @classmethod
     def from_config(cls, config: dict | None = None, *, tournament=None, seed=None,
@@ -218,12 +223,39 @@ def simulate(cutoff, posterior, store, config: SimConfig):
 
     Leakage-safe by construction: a result dated on/after ``cutoff`` is excluded by the
     strict cutoff filter, so it is never fixed and cannot change progression. Seeded +
-    fixing-is-RNG-free -> bit-identical across a post-cutoff mutation (the canary)."""
+    fixing-is-RNG-free -> bit-identical across a post-cutoff mutation (the canary).
+
+    When ``config.cache_dir`` is set the run is served through the content-addressed
+    sim cache (:func:`wcmodel.sim.cache.cached_sim`): a run whose every
+    output-determining input (posterior content, bracket structure, cutoff, n_sims,
+    seed, max_goals, et_scale, pen_home_prob, the played-conditioning, git) is unchanged
+    is loaded from disk WITHOUT re-simulating; any change misses. The cache wraps the
+    SAME ``simulate_tournament`` call with the SAME ``played`` set, so the leakage
+    guarantee is unaffected — the cache is keyed on (a hash of) that leakage-safe played
+    set, never on anything past the cutoff."""
     repo_root = Path(__file__).resolve().parents[3]
     tournament = _load_tournament(config.tournament, repo_root)
     bracket = build_bracket(tournament)
     group_dates, ko_dates = _fixture_dates(tournament)
     played = _build_played(store, cutoff, group_dates, ko_dates)
+    if config.cache_dir is not None:
+        # Imported lazily so the (default) uncached path keeps no dependency on the
+        # cache module / its parquet round-trip.
+        from wcmodel.sim.cache import cached_sim
+
+        result, _meta = cached_sim(
+            cutoff=cutoff,
+            posterior=posterior,
+            bracket=bracket,
+            n_sims=config.n_sims,
+            seed=config.seed,
+            max_goals=config.max_goals,
+            et_scale=config.et_scale,
+            pen_home_prob=config.pen_home_prob,
+            played=played,
+            cache_dir=config.cache_dir,
+        )
+        return result
     return simulate_tournament(
         posterior,
         bracket=bracket,

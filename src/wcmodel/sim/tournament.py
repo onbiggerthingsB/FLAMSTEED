@@ -66,26 +66,52 @@ _DEPTH_R16 = 3
 _GROUP_EXIT = 1 << 30
 
 # The market ladder, as (column -> depth threshold). A team scores 1 in column C iff its
-# MIN participated KO depth <= threshold[C]. `advance` uses the bracket's deepest KO
-# depth (set per-run), so it means "entered the knockouts at all". `win_group` and
-# `champion` are handled separately (group placing / Final winner).
+# MIN participated KO depth <= threshold[C]. `advance_from_group` uses the bracket's
+# deepest KO depth (set per-run), so it means "entered the knockouts at all". `win_group`
+# and `champion` are handled separately (group placing / Final winner).
+#
+# MARKET NAMING (Phase-3 T7). The depth-from-final reach ladder is keyed internally by the
+# advance-threshold name `advance_from_group` (the plan's resolved headline market; the old
+# `advance` is renamed, NOT aliased — the public table exposes exactly `advance_from_group`).
+_ADVANCE = "advance_from_group"
 _REACH_LADDER = [
     ("reach_r16", _DEPTH_R16),
     ("reach_qf", _DEPTH_QF),
     ("reach_sf", _DEPTH_SF),
     ("reach_final", _DEPTH_FINAL),
 ]
-# Column emission order (group-stage markets first, then deepening reach ladder, champion
-# last). Coherence chain champion <= reach_final <= reach_sf <= ... <= advance holds by
-# construction because each reach column is a monotone threshold on the same depth.
-_COLUMNS = ["win_group", "advance", "reach_r16", "reach_qf", "reach_sf", "reach_final",
-            "champion"]
+# Per-group placing markets: a team's 0-based group finish bucketed to first/second/third/
+# out (placing 0/1/2/>=3). They PARTITION every group team (first+second+third+out == 1 per
+# team, since every sim places every group team exactly once). `win_group` IS `first` (both
+# are placing==0) — emitted as IDENTICAL columns (computed once, copied), never two
+# inconsistent counts. `out` is "did not finish top-3 in the group".
+_GROUP_PLACE = ["first", "second", "third", "out"]
+# Public column/market set, in emission order. The SIX resolved headline markets are
+# `champion, reach_final, reach_sf, reach_qf, advance_from_group, win_group`; they are all
+# present below alongside `reach_r16` (the deepest reach rung kept for the full ladder) and
+# the four per-group placing markets. Coherence chain
+# `champion <= reach_final <= reach_sf <= reach_qf <= advance_from_group` holds by
+# construction (each reach column is a monotone threshold on the same MIN depth), and
+# `win_group <= advance_from_group` because a group winner (placing 0) always advances.
+_COLUMNS = (["win_group", _ADVANCE, "reach_r16", "reach_qf", "reach_sf", "reach_final",
+             "champion"] + _GROUP_PLACE)
 
 
 @dataclass(frozen=True)
 class SimResult:
     """Aggregated MC output. ``progression``/``se`` are team-indexed DataFrames over the
-    same market columns (``_COLUMNS``); ``random_tail_rate`` is the fraction of sims in
+    SAME market columns (``_COLUMNS``), one tidy team-indexed table each:
+
+      * SIX headline markets — ``champion, reach_final, reach_sf, reach_qf,
+        advance_from_group, win_group`` — plus ``reach_r16`` (the deepest reach rung,
+        kept for the full ladder);
+      * FOUR per-group placing markets — ``first, second, third, out`` — a partition of
+        every team's group finish (``first+second+third+out == 1`` per team). ``win_group``
+        and ``first`` are the SAME quantity (group placing == 0), emitted as identical
+        columns.
+
+    ``progression`` holds the probability in [0,1]; ``se`` the binomial Monte-Carlo SE
+    ``sqrt(p(1-p)/N)`` for the same cell. ``random_tail_rate`` is the fraction of sims in
     which a group ranking's seeded random tail fired (a diagnostic, not a probability);
     ``n_sims`` is the sample size behind every probability + SE."""
 
@@ -370,10 +396,9 @@ def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale
     # recomputing it inside the per-sim body (wasted work at N=20k; T5 quality review).
     depths = _match_depths(bracket)
     depths_on_dag = set(depths.values())                   # finite KO depths present
-    # `advance` threshold = the bracket's deepest KO depth (entered the knockouts at all).
+    # `advance_from_group` threshold = the bracket's deepest KO depth (entered the
+    # knockouts at all).
     advance_depth = max(depths_on_dag) if depths_on_dag else _GROUP_EXIT
-    reach_thresholds = dict(_REACH_LADDER)
-    reach_thresholds["advance"] = advance_depth
 
     children = np.random.SeedSequence(seed).spawn(n_sims)  # one seed-derived stream per sim
     for child in children:
@@ -383,20 +408,37 @@ def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale
                            depths=depths)
         random_tail_hits += int(out["random_tail"])
 
+        # Per-group placing markets: bucket the 0-based group finish to first/second/third/
+        # out (0/1/2/>=3). `win_group` is filled from the SAME placing==0 event as `first`
+        # so the two are identical by construction (reconciled into one column after the
+        # loop). Every group team is placed in exactly one bucket each sim.
         for team, placing in out["groups"].items():
+            i = team_idx[team]
             if placing == 0:
-                counts["win_group"][team_idx[team]] += 1
-        # Reach ladder (cumulative depth thresholds) + advance, from each team's MIN depth.
+                counts["first"][i] += 1
+            elif placing == 1:
+                counts["second"][i] += 1
+            elif placing == 2:
+                counts["third"][i] += 1
+            else:
+                counts["out"][i] += 1
+        # Reach ladder (cumulative depth thresholds) + advance_from_group, from each team's
+        # MIN participated KO depth.
         for team, d in out["depth"].items():
             i = team_idx[team]
-            if d <= reach_thresholds["advance"]:
-                counts["advance"][i] += 1
+            if d <= advance_depth:
+                counts[_ADVANCE][i] += 1
             for col, thr in _REACH_LADDER:
                 if d <= thr:
                     counts[col][i] += 1
         champ = out["champion"]
         if champ is not None:
             counts["champion"][team_idx[champ]] += 1
+
+    # `win_group` IS the per-group `first` market (both are group placing == 0). Copy the
+    # single counted array so the two columns are IDENTICAL by construction (design note 1:
+    # never two inconsistent computations); `[:]` writes into the pre-allocated array.
+    counts["win_group"][:] = counts["first"]
 
     n = float(n_sims)
     prob = pd.DataFrame({col: counts[col] / n for col in _COLUMNS}, index=teams)
