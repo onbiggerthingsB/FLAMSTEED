@@ -70,11 +70,19 @@ def build(cutoff, store: BitemporalStore, config: dict | None = None) -> pd.Data
     cfg = config or load_config()
     cutoff = pd.Timestamp(cutoff)
 
-    # 1) Results, strictly before the cutoff. The store's point-in-time read is
-    #    already leakage-safe by observed_at/valid_as_of; the date filter is the
-    #    feature-side "knowable before kickoff" cut.
+    # 1) Results, strictly before the cutoff DAY. Match dates are date-resolution
+    #    (stored at midnight), so a match on day D is not knowable until D+1 00:00
+    #    — its real kickoff may fall after an intraday bet_time cutoff on D. We
+    #    therefore floor the cutoff to its day and filter `date < cutoff_day`, so
+    #    a same-day match never leaks (e.g. cutoff "2024-06-20 12:00" excludes a
+    #    match dated 2024-06-20). This day-normalization is a FEATURES-LAYER
+    #    convention for DATE-ONLY match knowability ONLY: the store's
+    #    point-in-time read is left at true resolution, and intraday-timestamped
+    #    sources (odds bet_time/close) are NEVER day-normalized — doing so would
+    #    misalign entry-vs-close and corrupt CLV (see ASSUMPTIONS.md).
+    cutoff_day = cutoff.normalize()
     results = store.read("results", cutoff=cutoff)
-    results = results.loc[pd.to_datetime(results["date"]) < cutoff].copy()
+    results = results.loc[pd.to_datetime(results["date"]) < cutoff_day].copy()
     results["date"] = pd.to_datetime(results["date"])
 
     # 2) Per-match match_type tag (drives the Elo K multiplier AND is a tier).

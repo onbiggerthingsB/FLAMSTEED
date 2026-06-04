@@ -102,6 +102,21 @@ by the tasks noted (Elo hyperparameters → Task 5; StatsBomb release → Task 9
     cutoff` filter — no future row is ever weighted.
   - The **backtest** window is *separate* and is **NOT cropped** to `feature_years` (it keeps
     pre-window history from `odds_start`) — see `windows.py` / Task 12.
+- **Cutoff resolution — date-only match knowability vs intraday odds (pinned, Fix 1).**
+  Match results (martj42) are stored at **date resolution** (midnight). A match on date `D`
+  is therefore **not knowable until `D+1 00:00`** — its real kickoff can fall *after* an
+  intraday bet-time cutoff on `D`, so a same-day result must never feed a feature panel cut
+  at a `D`-daytime cutoff. `features.build` enforces this by **flooring the cutoff to its
+  day** (`cutoff_day = pd.Timestamp(cutoff).normalize()`) and filtering the results panel to
+  `date < cutoff_day`; the day-floored slice feeds **both** the Elo recompute **and** the
+  emitted rows, so a same-day match enters neither (e.g. `build(cutoff="2024-06-20 12:00")`
+  excludes a match dated `2024-06-20` but still includes `2024-06-19`). This day-normalization
+  is a **features-layer convention for date-only match knowability ONLY**. It is deliberately
+  **NOT** applied to `store.read` (which compares at true `observed_at`/`valid_as_of`
+  resolution) nor to any **intraday-timestamped source**: The Odds API snapshots carry real
+  intraday `bet_time`/`close` timestamps and are read at **TRUE resolution** — day-normalizing
+  them would misalign entry-vs-close and corrupt CLV. (`sources/odds.py` timestamp handling is
+  untouched.)
 - **No imputation — every missing feature is NULL (pinned, Task 11).** `build` NEVER fills a
   missing feature with `0` / mean / forward-fill / anything. Concretely: an uncovered match
   (no StatsBomb xG) → `xg_for`/`xg_against = NaN`, `xg_covered = False`; a city absent from

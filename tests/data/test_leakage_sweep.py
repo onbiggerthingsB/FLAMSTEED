@@ -13,9 +13,14 @@ matches (monotonicity), no built row is dated on/after its cutoff (the strict
 ``date < cutoff`` filter), and the Elo feature is the PRE-match rating only
 (``rating_post`` must never reach the panel).
 """
+import json
+
 import pandas as pd
 
 from wcmodel.data.features import build
+from wcmodel.data.sources.odds import extract_closing_prices
+from wcmodel.data.sources.results import normalize_results
+from wcmodel.data.store import BitemporalStore, Policy
 
 
 def test_match_count_monotonic_in_cutoff(small_store):
@@ -43,3 +48,74 @@ def test_future_result_change_does_not_leak_into_earlier_cutoff(mutable_store):
     f_after = build(cutoff="2024-06-01", store=mutable_store)
     pd.testing.assert_frame_equal(
         f_before.reset_index(drop=True), f_after.reset_index(drop=True))
+
+
+# --- Fix 1: sub-day cutoff is day-floored for date-only match knowability -----
+
+def _sub_day_store(tmp_path) -> BitemporalStore:
+    """A two-match store: a prior-day match and a same-day (vs the noon cutoff)
+    match, both date-resolution (stored midnight)."""
+    raw = pd.DataFrame([
+        # date, home, away, hs, as, tournament, city, country, neutral
+        ("2024-06-19", "Brazil", "Argentina", 1, 0, "Friendly", "London", "England", False),
+        ("2024-06-20", "Croatia", "Brazil", 2, 1, "Friendly", "Paris", "France", False),
+    ], columns=["date", "home_team", "away_team", "home_score", "away_score",
+                "tournament", "city", "country", "neutral"])
+    store = BitemporalStore(root=tmp_path)
+    store.write("results", normalize_results(raw), policy=Policy.POINT_IN_TIME,
+                keys=["match_id"], source="martj42", source_version="test")
+    return store
+
+
+def test_sub_day_cutoff_excludes_same_day_keeps_prior_day_odds_stay_intraday(tmp_path):
+    """The three leakage-boundary guarantees, in one test:
+
+    (a) a noon cutoff EXCLUDES a match dated that same day (date-only data: a
+        match on day D is not knowable until D+1 00:00 — midnight < noon must
+        NOT leak the kickoff-day result);
+    (b) it STILL INCLUDES the PRIOR day's match (guard against an off-by-one
+        that over-excludes the day before);
+    (c) the ODDS path is NOT day-normalized: the close snapshot is returned at
+        its TRUE intraday timestamp, distinct from the bet_time snapshot.
+    """
+    store = _sub_day_store(tmp_path)
+    df = build(cutoff="2024-06-20 12:00", store=store)
+    built_days = set(pd.to_datetime(df["date"]).dt.normalize())
+
+    # (a) same-day match (kickoff-day result) is NOT knowable at a noon cutoff.
+    assert pd.Timestamp("2024-06-20") not in built_days
+    # (b) prior-day match IS included (no over-exclusion of D-1).
+    assert pd.Timestamp("2024-06-19") in built_days
+
+    # (c) odds timestamps are read at TRUE intraday resolution (NOT floored):
+    #     the close is the 18:55Z snapshot, distinct from the 12:00Z bet_time.
+    sample = json.load(open("fixtures/oddsapi_historical_sample.json"))
+    close = extract_closing_prices(sample, bookmaker="pinnacle")
+    assert close["snapshot_ts"] == "2026-06-11T18:55:00Z"
+    assert close["snapshot_ts"] != sample["bet_time"]["timestamp"]
+    # Intraday (not midnight) — proves no day-normalization on the odds path.
+    assert pd.Timestamp(close["snapshot_ts"]).normalize() != pd.Timestamp(
+        close["snapshot_ts"])
+
+
+# --- Fix 2: a post-cutoff result must not change an earlier-cutoff band -------
+
+def test_post_cutoff_result_does_not_change_earlier_cutoff_strength_band(
+        mutable_store):
+    """Per-cutoff strength-band regression (Fix 2).
+
+    The strength band is ranked over the ``< cutoff`` Elo slice. A result dated
+    AFTER the cutoff must therefore leave every earlier-cutoff emitted
+    ``strength_band`` untouched. The mutable_store fixture sits a pivot team at
+    the Elite/Strong (10/11) boundary so a future-informed (leaked) ranking
+    WOULD flip its band — making this a non-vacuous guard, not a tautology.
+    """
+    def band_by_team(store):
+        df = build(cutoff="2024-06-01", store=store)
+        return (df[["team", "strength_band"]]
+                .drop_duplicates().set_index("team")["strength_band"].to_dict())
+
+    before = band_by_team(mutable_store)
+    mutable_store.mutate_future_result(after="2024-06-01")
+    after = band_by_team(mutable_store)
+    assert before == after

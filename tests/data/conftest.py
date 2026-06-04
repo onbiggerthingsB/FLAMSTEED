@@ -27,8 +27,79 @@ _CANARY_CUTOFF = pd.Timestamp("2024-06-01")
 # Raw martj42-shaped results: a handful of teams, two seasons, varied
 # tournaments (friendly / WC finals / qualifier / nations league / euro), a
 # 2020 COVID-window match, and cities that do / do not appear in the venues
-# table below. All matches are < the 2025-03-01 cutoff the tests use; one
+# table below. All core matches are < the 2025-03-01 cutoff the tests use; one
 # 2025-06 match sits AFTER it to prove the strict cutoff filter bites.
+#
+# STRENGTH-BAND EDGE (canary teeth — Fix 2). The three core teams all rank in
+# the top handful (all "Elite"), so a future-informed strength-band leak could
+# shift ranks WITHOUT changing any emitted band — the frame-equality canary
+# would pass vacuously. To give it teeth we add a 9-team "ladder" (France .. # Poland) that beats a punching-bag ("Malta") by staggered amounts so the panel
+# has a REAL Elite/Strong (rank 10/11) boundary, plus a pivot team "Mexico"
+# parked right at that edge. Mexico's LATEST result before the canary cutoff is
+# a near-1500 anchor (-> rank ~12, "Strong"); a high-K post-cutoff chain
+# (2024-06-05 WC-final, then 2024-06-25) is what the canary mutates. Under a
+# full-panel strength-band leak, mutating the 2024-06-05 result lifts Mexico's
+# leaked latest rating across the 10/11 boundary -> emitted band flips
+# Strong->Elite (proven RED in the Fix-2 canary-teeth check). Leakage-safe,
+# both core canary AND per-cutoff band test stay GREEN.
+# Every ladder match gets a UNIQUE calendar date. This is deliberate: Elo is
+# path-dependent WITHIN a date, and the store's point-in-time read orders ties
+# by (observed_at, valid_as_of) only — for same-date matches that order is not
+# stable across re-reads (e.g. after the canary rewrites the parquet). Unique
+# dates make the < cutoff Elo input fully deterministic, so the canary's
+# frame-equality compares like for like and only a genuine leak can break it.
+_LADDER = [
+    # date, home, away, hs, as, tournament, city, country, neutral
+    ("2023-01-02", "France", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-03", "France", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-04", "France", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-05", "France", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-06", "France", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-07", "France", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-08", "France", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-09", "France", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-10", "France", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-11", "Spain", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-12", "Spain", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-13", "Spain", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-14", "Spain", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-15", "Spain", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-16", "Spain", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-17", "Spain", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-18", "Spain", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-19", "Portugal", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-20", "Portugal", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-21", "Portugal", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-22", "Portugal", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-23", "Portugal", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-24", "Portugal", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-25", "Portugal", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-26", "England", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-27", "England", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-28", "England", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-29", "England", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-30", "England", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-01-31", "England", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-02-01", "Germany", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-02-02", "Germany", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-02-03", "Germany", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-02-04", "Germany", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-02-05", "Germany", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-02-06", "Netherlands", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-02-07", "Netherlands", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-02-08", "Netherlands", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-02-09", "Netherlands", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-02-10", "Italy", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-02-11", "Italy", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-02-12", "Italy", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-02-13", "Belgium", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-02-14", "Belgium", "Malta", 4, 0, "Friendly", "London", "England", False),
+    ("2023-02-15", "Poland", "Malta", 4, 0, "Friendly", "London", "England", False),
+    # Pivot anchor: Mexico's last PRE-cutoff result is a ~1500 draw -> parks it
+    # at the Elite/Strong (10/11) edge in the < cutoff ranking ("Strong").
+    ("2023-02-16", "Mexico", "Malta", 0, 0, "Friendly", "London", "England", False),
+]
+
 _RAW_RESULTS = pd.DataFrame([
     # date, home, away, hs, as, tournament, city, country, neutral
     ("2022-09-01", "Brazil", "Argentina", 1, 1, "Friendly", "London", "England", False),
@@ -37,11 +108,19 @@ _RAW_RESULTS = pd.DataFrame([
     ("2023-06-10", "Brazil", "Croatia", 3, 0, "UEFA Nations League", "Glasgow", "Scotland", False),
     ("2023-09-07", "Argentina", "Brazil", 0, 2, "Friendly", "Mexico City", "Mexico", False),
     ("2024-01-15", "Croatia", "Argentina", 1, 2, "UEFA Euro", "Rio de Janeiro", "Brazil", True),
+    # EARLIEST post-canary-cutoff match — this is the one mutate_future_result()
+    # rewrites. A high-K WC-final for the pivot (Mexico) so a leaked full-panel
+    # ranking would feel the score change at the 10/11 band edge.
+    ("2024-06-05", "Mexico", "Malta", 1, 0, "FIFA World Cup", "Doha", "Qatar", True),
     ("2024-06-20", "Brazil", "Argentina", 2, 2, "FIFA World Cup", "Doha", "Qatar", True),
+    # Mexico's post-cutoff "latest" result: its rating_pre here reflects the
+    # 2024-06-05 score, so a full-panel leak would read the mutated rating.
+    ("2024-06-25", "Mexico", "Poland", 0, 0, "Friendly", "London", "England", False),
     # COVID-window match (2020-03-01 .. 2021-06-30) — exercises is_covid tag.
     ("2020-04-10", "Brazil", "Croatia", 0, 0, "Friendly", "London", "England", False),
     # AFTER the test cutoff — must be filtered out by build().
     ("2025-06-01", "Argentina", "Brazil", 1, 0, "Friendly", "Paris", "France", False),
+    *_LADDER,
 ], columns=["date", "home_team", "away_team", "home_score", "away_score",
             "tournament", "city", "country", "neutral"])
 
@@ -175,10 +254,14 @@ def mutable_store(tmp_path) -> MutableStore:
     backed by :class:`MutableStore`, so a post-cutoff match can be rewritten.
 
     The shared ``_RAW_RESULTS`` panel deliberately straddles the canary cutoff
-    (2024-06-01): matches up to 2024-01-15 fall BEFORE it (and feed the
-    cutoff-2024-06-01 panel), while 2024-06-20 and 2025-06-01 fall AFTER it (and
-    are what ``mutate_future_result`` rewrites). xG + venues are loaded too, so
-    the canary exercises the full join path, not just the Elo core.
+    (2024-06-01): the core + ladder matches up to 2024-01-15 fall BEFORE it (and
+    feed the cutoff-2024-06-01 panel), while the pivot's 2024-06-05 / 2024-06-25
+    chain, 2024-06-20, and 2025-06-01 fall AFTER it. ``mutate_future_result``
+    rewrites the EARLIEST post-cutoff match — the 2024-06-05 pivot (Mexico)
+    WC-final — which sits at the strength-band edge so the canary has real teeth
+    (a full-panel band leak would flip Mexico Strong->Elite). xG + venues are
+    loaded too, so the canary exercises the full join path, not just the Elo
+    core.
     """
     store = MutableStore(root=tmp_path)
 
