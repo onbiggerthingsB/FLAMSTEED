@@ -20,8 +20,12 @@ import pymc as pm
 import pytensor.tensor as pt
 
 from wcmodel.config import load_config
+from wcmodel.data import features
+from wcmodel.model.inference import sample
 from wcmodel.model.likelihoods import bp_loglik_pt, dc_loglik_pt
-from wcmodel.model.panel import DesignData
+from wcmodel.model.panel import DesignData, build_design, to_match_panel
+from wcmodel.model.posterior import Posterior
+from wcmodel.model.widening import likelihood_weight
 
 
 def _rates(d: DesignData, att, defe, mu, home_adv):
@@ -109,3 +113,55 @@ def build_model(
         raise ValueError(f"unknown likelihood {likelihood!r}; choose from {sorted(_REGISTRY)}")
     w = d.weight if weight is None else weight
     return _REGISTRY[likelihood]().build(d, w)
+
+
+def fit(
+    cutoff,
+    store,
+    *,
+    likelihood: str | None = None,
+    backend: str | None = None,
+    draws: int | None = None,
+    tune: int | None = None,
+    seed: int | None = None,
+    advi_iters: int | None = None,
+    config: dict | None = None,
+) -> Posterior:
+    """Fit the scoreline model on the leakage-safe per-cutoff panel -> Posterior.
+
+    Consumes ONLY ``features.build(cutoff, store, cfg)`` -- the Phase-1
+    leakage-safe panel (matches strictly before the cutoff day, played-filtered).
+    No future data and no other store table is read here, so a fit at ``cutoff``
+    can never peek past it (Phase-2 Task 9 adds a model-layer leakage canary on
+    top of this). The match-level design feeds the (a)/(c) widening switch and the
+    PyMC scoreline model; ``sample`` (ADVI by default) produces the posterior. The
+    provisional-team set (for mechanism-(c) predict-time widening) is read off the
+    same panel's per-team provisional flags.
+
+    All sampler knobs default to ``config["model"]`` (or the global config) and
+    can be overridden per-call; ``seed`` falls back to the global ``config["seed"]``.
+    """
+    cfg = config or load_config()
+    likelihood = likelihood or cfg["model"]["likelihood"]
+    inf = cfg["model"]["inference"]
+    backend = backend or inf["backend"]
+    draws = draws or inf["draws"]
+    tune = tune or inf["tune"]
+    advi_iters = advi_iters or inf["advi_iters"]
+    seed = cfg["seed"] if seed is None else seed
+    feats = features.build(cutoff, store, cfg)            # leakage-safe panel ONLY
+    mp = to_match_panel(feats)
+    d = build_design(mp)
+    w = likelihood_weight(
+        d,
+        mechanism=cfg["model"]["widening"]["mechanism"],
+        strength=cfg["model"]["widening"]["strength"],
+    )
+    model = build_model(d, likelihood=likelihood, weight=w)
+    idata = sample(
+        model, backend=backend, draws=draws, tune=tune, seed=seed, advi_iters=advi_iters
+    )
+    prov = set(mp.loc[mp["home_provisional"], "home_team"]) | set(
+        mp.loc[mp["away_provisional"], "away_team"]
+    )
+    return Posterior(idata, d.teams, likelihood, provisional_teams=prov)
