@@ -117,6 +117,15 @@ def build(cutoff, store: BitemporalStore, config: dict | None = None) -> pd.Data
     #         where its date has passed but it still has no result.
     #     Dropping it here (before compute_elo_history) also stops a NaN score
     #     from poisoning the Elo recompute. (See ASSUMPTIONS.md "Played filter".)
+    #
+    #     Score dtype hygiene: coerce both score columns to numeric FIRST, so any
+    #     non-numeric/garbage score (e.g. a stray string from a malformed feed)
+    #     becomes NaN and is then excluded by the very next notna() filter — it
+    #     can never reach Elo as a string (which would raise) or the panel. Real
+    #     numeric scores, including 0, are unaffected; the martj42 feed is already
+    #     numeric, so this is a no-op there and a guard everywhere else.
+    for _c in ("home_score", "away_score"):
+        results[_c] = pd.to_numeric(results[_c], errors="coerce")
     results = results.loc[
         results["home_score"].notna() & results["away_score"].notna()].copy()
 

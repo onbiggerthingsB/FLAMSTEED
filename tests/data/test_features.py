@@ -122,6 +122,64 @@ def test_unplayed_fixture_excluded_from_panel_even_before_cutoff(tmp_path):
     assert not played.empty
 
 
+class _RawResultsStore:
+    """Minimal store stub returning a fixed ``results`` frame verbatim.
+
+    Bypasses ``normalize_results`` (which carries scores through untouched) so a
+    deliberately non-numeric score lands in the table exactly as a garbage feed
+    would, letting us assert ``build``'s own numeric coercion drops it. ``xg`` /
+    ``venues`` are absent (FileNotFoundError) → NULL-safe no-op path.
+    """
+
+    def __init__(self, results: pd.DataFrame):
+        self._results = results
+
+    def read(self, name: str, *, cutoff):  # noqa: D401 - store-shaped read
+        if name == "results":
+            return self._results.copy()
+        raise FileNotFoundError(name)
+
+
+def test_string_score_row_excluded_from_panel_coerced_to_nan(tmp_path):
+    """FIX 2: a results row with a NON-NUMERIC (string) score must be EXCLUDED.
+
+    ``build`` coerces ``home_score``/``away_score`` to numeric (``errors=coerce``)
+    IMMEDIATELY before the ``notna()`` played filter, so a garbage score
+    (``"x"`` / ``"nan"``) becomes NaN and is dropped — never reaching Elo or the
+    panel. A genuinely PLAYED numeric row (incl. a 0) survives, proving the
+    coercion excludes only non-numeric scores, not all rows.
+    """
+    results = pd.DataFrame({
+        "match_id": ["m_str", "m_strnan", "m_real"],
+        "date": pd.to_datetime(["2024-06-10", "2024-06-11", "2024-06-12"]),
+        "home_team": ["Brazil", "Spain", "Argentina"],
+        "away_team": ["Argentina", "Italy", "Brazil"],
+        # m_str: literal "x"; m_strnan: the STRING "nan" (not a float NaN);
+        # m_real: a real 0-0 played match that must SURVIVE.
+        "home_score": ["x", "nan", 0],
+        "away_score": [1, 2, 0],
+        "tournament": ["Friendly", "Friendly", "Friendly"],
+        "neutral": [False, False, False],
+        "city": ["London", "Madrid", "Paris"],
+        "country": ["England", "Spain", "France"],
+        "revision_contaminated": [False, False, False],
+    })
+    store = _RawResultsStore(results)
+    df = build(cutoff="2024-06-20", store=store)
+
+    surviving = set(df["match_id"])
+    # Both string-score rows are coerced to NaN and dropped by the played filter.
+    assert "m_str" not in surviving, "a string-score ('x') row leaked into the panel"
+    assert "m_strnan" not in surviving, "a string 'nan' score row leaked into the panel"
+    # No surviving row carries a NaN label score (the coercion + filter held).
+    assert df["home_score"].notna().all() and df["away_score"].notna().all()
+    # The genuinely PLAYED 0-0 row SURVIVES (coercion excludes only non-numeric).
+    assert "m_real" in surviving
+    # Only the two real teams of the surviving match appear (the string-score
+    # rows' teams never entered the Elo recompute).
+    assert set(df["team"]) == {"Argentina", "Brazil"}
+
+
 def test_unplayed_fixture_excluded_from_elo_input(tmp_path):
     """The unplayed fixture must not enter the Elo recompute either: with only
     one PLAYED match (Brazil beat Argentina) in scope, Brazil's emitted row must

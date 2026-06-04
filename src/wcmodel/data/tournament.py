@@ -58,6 +58,10 @@ def validate_tournament(data: dict) -> dict:
 
       - exactly 12 ``groups``, each with exactly 4 ``teams``;
       - 48 teams total across the groups, all distinct;
+      - a top-level ``teams`` list of exactly 48 DISTINCT names whose SET equals
+        the union of the group teams (so a placeholder smuggled into top-level
+        ``teams`` is a hard failure — the drawn-48 set ingestion trusts is
+        code-enforced to be exactly the group set);
       - exactly 104 ``fixtures``;
       - ``advancement.per_group == 2`` and ``advancement.best_thirds == 8``;
       - ``third_place_tiebreakers`` equal to the published FIFA sequence, in the
@@ -91,6 +95,30 @@ def validate_tournament(data: dict) -> dict:
     if len(set(all_teams)) != N_TEAMS:
         dupes = sorted({t for t in all_teams if all_teams.count(t) > 1})
         raise ValueError(f"team names must be distinct; duplicates: {dupes}")
+
+    # Top-level `teams` is the drawn-48 set that downstream ingestion trusts, so
+    # it MUST be a list of exactly 48 DISTINCT names AND equal (as a set) to the
+    # union of the group teams. This is what makes "a placeholder can't reach the
+    # store" code-enforced rather than convention: a token smuggled into
+    # top-level `teams` (e.g. "2A") that is in no group, OR any teams/groups
+    # mismatch, is a hard validation failure here — before anything consumes it.
+    teams = data.get("teams")
+    if not isinstance(teams, list) or len(teams) != N_TEAMS:
+        n = len(teams) if isinstance(teams, list) else "missing"
+        raise ValueError(
+            f"top-level 'teams' must be a list of exactly {N_TEAMS}, got {n}"
+        )
+    if len(set(teams)) != N_TEAMS:
+        dupes = sorted({t for t in teams if teams.count(t) > 1})
+        raise ValueError(f"top-level 'teams' must be distinct; duplicates: {dupes}")
+    if set(teams) != set(all_teams):
+        only_top = sorted(set(teams) - set(all_teams))
+        only_grp = sorted(set(all_teams) - set(teams))
+        raise ValueError(
+            "top-level 'teams' must equal the union of group teams; "
+            f"in 'teams' but no group: {only_top}; in a group but not 'teams': "
+            f"{only_grp}"
+        )
 
     fixtures = data.get("fixtures")
     if not isinstance(fixtures, list) or len(fixtures) != N_FIXTURES:
@@ -190,8 +218,9 @@ def ingest_wc_group_fixtures(
     ``3rd-ABCDF`` and winner/loser refs like ``W74`` / ``L101``), not real
     matches. They stay in the config as bracket structure for Phase 3. The
     group/knockout split is made on a hard fact — *both* participants being
-    members of the drawn-teams set — so no placeholder token can ever reach the
-    store even if the fixture shape changes.
+    members of the drawn-teams set, derived from the validated GROUP teams — so
+    no placeholder token can ever reach the store even if the fixture shape
+    changes (and even if ``validate_tournament`` were bypassed).
 
     UNPLAYED + future-dated by construction, these rows are leakage-SAFE: the
     played filter in ``features.build`` drops every NaN-score row (so an
@@ -201,7 +230,15 @@ def ingest_wc_group_fixtures(
     """
     observed_at = pd.Timestamp(observed_at)
 
-    drawn = set(tournament["teams"])  # the 48 real martj42-keyed nations
+    # Drawn-48 set derived from the GROUP teams — the VALIDATED source.
+    # `validate_tournament` guarantees top-level `teams` equals this group union,
+    # but we read it from the groups directly (not raw top-level `teams`) so that
+    # even if validation were bypassed, no placeholder smuggled into top-level
+    # `teams` could widen the membership test below. Belt-and-suspenders with the
+    # validator's teams==groups check: a knockout placeholder (e.g. `2A`/`W74`),
+    # never a member of any group, can never enter `drawn` and so can never be
+    # written as a group row.
+    drawn = {team for group in tournament["groups"] for team in group["teams"]}
     venue_country = {v["city"]: v.get("country") for v in tournament["venues"]}
     # country-code -> host team name, for the neutral-ground test.
     host_by_country = {code: team for team, code in HOST_COUNTRY_BY_TEAM.items()}
