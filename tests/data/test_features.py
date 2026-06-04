@@ -1,6 +1,11 @@
+import re
+
 import numpy as np
 import pandas as pd
+
+import wcmodel.data.features as features_mod
 from wcmodel.data.features import build
+from wcmodel.data.store import BitemporalStore
 
 
 class _TzResultsStore:
@@ -104,3 +109,127 @@ def test_build_emits_provisional_column(small_store):
     # Non-vacuous: the panel's early-history teams trip the count branch, so at
     # least one row is flagged provisional (not all-False / not all-True).
     assert df["provisional"].any()
+
+
+# --- DELIVERABLE #1: the closing line is WALLED OFF from FEATURES --------------
+#
+# The catastrophic leak is post-cutoff MARKET information (the closing line)
+# entering the model's FEATURE set — independent of timestamp fidelity. Even a
+# perfectly point-in-time-resolved close is a leak if it becomes a feature. Two
+# guards: (1) no emitted feature COLUMN is market-named; (2) build() structurally
+# reads ONLY the clean-core tables and never the odds table. Together they make a
+# future edit that joins odds into features fail loudly.
+
+# Any feature column matching one of these (case-insensitive) substrings would
+# signal market info bleeding into the panel.
+_MARKET_SUBSTRINGS = ("close", "closing", "odds", "bet_time", "snapshot",
+                      "price", "h2h")
+_MARKET_RE = re.compile("|".join(_MARKET_SUBSTRINGS), re.IGNORECASE)
+
+
+def test_close_absent_from_feature_columns(small_store):
+    """No emitted FEATURE column may carry market/closing-line provenance.
+
+    The closing line entering the feature set is the catastrophic leak (the model
+    would peek at post-cutoff market consensus). Assert no column name contains
+    any of close/closing/odds/bet_time/snapshot/price/h2h, case-insensitive.
+    """
+    df = build(cutoff="2025-03-01", store=small_store)
+    offenders = [c for c in df.columns if _MARKET_RE.search(c)]
+    # Failing-if-violated assertion (quoted in the report):
+    assert offenders == [], (
+        f"market/closing-line columns leaked into the FEATURE panel: {offenders} "
+        f"(matched one of {_MARKET_SUBSTRINGS})"
+    )
+
+
+def test_build_reads_only_clean_core_store_tables(small_store):
+    """Structural guard: build() requests ONLY the clean-core store tables.
+
+    We wrap ``BitemporalStore.read`` to RECORD every ``name`` it is asked for
+    during a build, then assert the recorded set is a subset of
+    ``{"results","xg","venues"}`` and that ``"odds"`` is NOT among them. This is
+    a STRUCTURAL guard independent of column naming: a future edit that joins the
+    odds table into features (even under an innocuous column name) would surface
+    here as a new requested table and fail loudly.
+    """
+    requested: list[str] = []
+    orig_read = BitemporalStore.read
+
+    def _recording_read(self, name, *, cutoff):
+        requested.append(name)
+        return orig_read(self, name, cutoff=cutoff)
+
+    original = BitemporalStore.read
+    BitemporalStore.read = _recording_read
+    try:
+        build(cutoff="2025-03-01", store=small_store)
+    finally:
+        BitemporalStore.read = original
+
+    requested_set = set(requested)
+    clean_core = {"results", "xg", "venues"}
+    # Failing-if-violated assertions (quoted in the report):
+    assert requested_set <= clean_core, (
+        f"build() read store tables outside the clean core: "
+        f"{requested_set - clean_core} (allowed: {clean_core})"
+    )
+    assert "odds" not in requested_set, (
+        "build() read the 'odds' table — the closing line must NEVER enter "
+        "features"
+    )
+    # Non-vacuous: build() must actually have read the core results table (else
+    # the subset check passes trivially on an empty set).
+    assert "results" in requested_set
+
+
+# --- DELIVERABLE #2: explicit per-cutoff Elo invariance to FUTURE matches ------
+
+
+def test_elo_pre_invariant_to_future_matches(small_store):
+    """A match's ``elo_pre`` at cutoff C1 must not change when a LATER match is
+    appended to the store (future matches must not bleed into the as-of rating).
+
+    Build at an early cutoff C1 and record a shared team's ``elo_pre`` for a
+    specific match M dated < C1. Append a NEW match dated AFTER C1 (same teams),
+    rebuild at C1, and assert M's ``elo_pre`` is BYTE-IDENTICAL. A precompute-
+    then-slice leak that assigns each match the team's latest/global rating would
+    read the appended future match and break this. (The Elo recompute is per-
+    cutoff causal, so appending a strictly-later match leaves the < C1 slice — and
+    hence M's pre-match rating — bit-for-bit unchanged.)
+    """
+    c1 = pd.Timestamp("2023-08-01")
+    # M: the 2023-06-10 Brazil vs Croatia match (dated < C1); Brazil is shared
+    # with the future match appended below.
+    m_date = pd.Timestamp("2023-06-10")
+    team = "Brazil"
+
+    def elo_pre_for_M(store) -> float:
+        df = build(cutoff=c1, store=store)
+        row = df[(df["date"] == m_date) & (df["team"] == team)]
+        assert len(row) == 1, "expected exactly one (M, Brazil) row at C1"
+        return float(row["elo_pre"].iloc[0])
+
+    before = elo_pre_for_M(small_store)
+
+    # Append a NEW match dated AFTER C1, same teams (Brazil vs Croatia). It must
+    # not touch M's as-of-C1 pre-match rating. Reuses the store's normalize +
+    # write path so the appended row is a real point-in-time result.
+    from wcmodel.data.sources.results import normalize_results
+
+    future = normalize_results(pd.DataFrame([
+        ("2024-09-01", "Brazil", "Croatia", 5, 0, "Friendly", "London",
+         "England", False),
+    ], columns=["date", "home_team", "away_team", "home_score", "away_score",
+                "tournament", "city", "country", "neutral"]))
+    from wcmodel.data.store import Policy
+    small_store.write("results", future, policy=Policy.POINT_IN_TIME,
+                      keys=["match_id"], source="martj42", source_version="test")
+
+    after = elo_pre_for_M(small_store)
+
+    # BYTE-IDENTICAL: a future match must not bleed into the as-of-C1 rating.
+    assert after == before, (
+        f"elo_pre for M leaked future information: was {before!r}, became "
+        f"{after!r} after appending a post-C1 match"
+    )
