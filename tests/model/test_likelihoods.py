@@ -118,10 +118,13 @@ def test_dc_loglik_pt_finite_when_tau_would_be_nonpositive():
 
 
 def test_dc_loglik_np_floor_is_noop_in_valid_region():
-    """The floor must NOT perturb the valid-region likelihood: where tau>0 the
-    max() picks tau, so realistic-rate values are identical to the unfloored
-    Poisson+log(tau) (matched against scipy, the independent anchor + the tau
-    perturbation). Guards against the floor distorting the calibrated region."""
+    """The floor must NOT perturb the valid-region likelihood: where
+    tau >= _TAU_FLOOR -- which realistic rates always satisfy, tau being O(1),
+    far above the 1e-12 floor -- max() picks tau unchanged, so realistic-rate
+    values are identical to the unfloored Poisson+log(tau) (matched against
+    scipy). NB the floor is a no-op only for tau >= _TAU_FLOOR, NOT for all
+    tau>0: a tau in (0, 1e-12) WOULD be floored, but that never occurs for
+    realistic O(1) rates. Guards against the floor distorting the calibrated region."""
     for x, y, lh, la, rho in [(0, 0, 1.3, 0.9, 0.08), (2, 1, 1.7, 1.1, 0.1)]:
         tau = dc_tau_np(x, y, lh, la, rho)
         assert tau > 0  # valid region: floor is inert here

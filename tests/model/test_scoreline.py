@@ -96,8 +96,10 @@ def test_soft_sum_to_zero_centering():
 
 @pytest.mark.slow
 def test_dixon_coles_no_nan_divergences():
-    """rho contract: the bounded prior cannot make a tau cell <= 0, so NUTS
-    sampling the DC model produces no NaN-logp divergences."""
+    """rho contract: on realistic rates the bounded prior keeps tau>0, and the
+    `_TAU_FLOOR` soft barrier guards any tail tau<=0, so NUTS sampling the DC
+    model produces no NaN-logp divergences. (The bound makes tau<=0 rare, not
+    impossible -- the floor, not the bound, is the structural NaN guard.)"""
     import pymc as pm
 
     d, *_ = _sim_design()
