@@ -39,6 +39,25 @@ class BitemporalStore:
         df.to_parquet(path, index=False)
 
     def read(self, name: str, *, cutoff: str | pd.Timestamp) -> pd.DataFrame:
+        """Read a source table as-of ``cutoff``, applying its stored policy.
+
+        The cutoff boundary is **exclusive of the future** but its strength
+        depends on the table's write-time policy (north-star §4.2):
+
+        - **POINT_IN_TIME** — the leakage-safe guarantee. Returns, per logical
+          key, only the latest row with ``observed_at <= cutoff`` AND
+          ``valid_as_of <= cutoff`` (look-ahead is impossible by construction),
+          flagged ``revision_contaminated = False``.
+        - **CURRENT_ONLY** — **deliberately ignores ``cutoff``** and returns the
+          latest snapshot per key regardless of when it was observed (the spec
+          §4.2 contaminated fallback: only the current revised state is
+          obtainable). Every row is flagged ``revision_contaminated = True`` so
+          Phase 4 can compute a per-bet contamination exposure. This is NOT a
+          point-in-time read — ``observed_at > cutoff`` is expected. **No
+          clean-core Phase-1 source uses CURRENT_ONLY** (it is reserved for the
+          deferred optional sources: market values / rosters), so the practical
+          leakage surface of this fallback is zero.
+        """
         cutoff = pd.Timestamp(cutoff)
         raw = pd.read_parquet(self._path(name))
         policy = Policy(raw["_policy"].iloc[0])

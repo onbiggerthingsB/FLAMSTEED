@@ -26,3 +26,15 @@ def test_contamination_exposure_zero_for_clean_core(small_store):
 def test_time_decay_weight_decreases_with_age(small_store):
     df = build(cutoff="2025-03-01", store=small_store).sort_values("date")
     assert df["decay_weight"].iloc[0] <= df["decay_weight"].iloc[-1]   # older -> smaller weight
+
+
+def test_build_emits_provisional_column(small_store):
+    """RIDER 1 propagation: the data-driven `provisional` flag must carry from
+    `compute_elo_history` through `build` to the panel — otherwise the flag is
+    decorative and Phase 2 cannot widen its prior for low-information teams."""
+    df = build(cutoff="2025-03-01", store=small_store)
+    assert "provisional" in df.columns
+    assert df["provisional"].dtype == bool          # a real per-row boolean flag
+    # Non-vacuous: the panel's early-history teams trip the count branch, so at
+    # least one row is flagged provisional (not all-False / not all-True).
+    assert df["provisional"].any()

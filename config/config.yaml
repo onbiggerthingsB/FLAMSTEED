@@ -7,6 +7,8 @@ paths:
 elo:
   initial_rating: 1500.0
   provisional_games: 5              # first N matches flagged provisional (low-info marker; debutants start at initial_rating, not a faked-low value — Phase-2 prior handles uncertainty)
+  provisional_volatility_threshold: 40.0   # rating-pts; std of the team's recent PRIOR rating deltas above this => ALSO provisional (low-info even with a long history) — Phase-2 prior must widen. NB: a single international Elo delta is bounded ~±80 (K*G_max), so std/max-abs of single-match deltas tops out ~80; the illustrative 120 from the rider was physically unreachable (would make the flag decorative) — 40 cleanly separates a volatile alternating-upset team (std~78) from a stable one (std~0-13). See ASSUMPTIONS.md.
+  volatility_window: 10             # # of most-recent PRIOR rating deltas used to measure recent_rating_volatility (causal std: strictly before the current match)
   home_advantage: 100.0             # rating points
   k_base: 40.0
   k_by_match_type:                  # importance multiplier on k_base

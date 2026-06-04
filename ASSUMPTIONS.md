@@ -34,7 +34,9 @@ by the tasks noted (Elo hyperparameters → Task 5; StatsBomb release → Task 9
     `G = 1` for a goal margin ≤ 1, `1.5` for a margin of 2, else `(11 + margin)/8`.
   - Expectancy/update: `dr = home_pre − away_pre + ha`; `E = 1/(1 + 10^(−dr/400))`;
     `rating_post = rating_pre + K·G·(W − E)` with `W ∈ {1, 0.5, 0}` (win/draw/loss).
-  - `provisional_games = 5` (see debutant note below).
+  - `provisional_games = 5` (see debutant / data-driven-provisional note below).
+  - `provisional_volatility_threshold = 40.0` rating-pts and `volatility_window = 10`
+    (the recent-volatility branch of `provisional` — see the data-driven note below).
   - **Point-in-time.** `rating_pre` (the pre-match rating, knowable at kickoff) is the
     leakage-safe feature; `rating_post` is the post-update rating and is never a
     same-match feature.
@@ -43,6 +45,29 @@ by the tasks noted (Elo hyperparameters → Task 5; StatsBomb release → Task 9
   `provisional_games = 5` matches are flagged `provisional = True` as a pure
   low-information marker. The minnow uncertainty is carried by the **Phase-2 prior**, not
   by rigging the rating. (The earlier `initial_rating_debutant: 1300` line was removed.)
+- **Data-driven `provisional` — count OR recent volatility (pinned, RIDER 1).** `provisional`
+  is no longer just a debutant counter: it is True if **`rated_match_count < provisional_games`
+  (=5)** OR **`recent_rating_volatility > provisional_volatility_threshold` (=40.0 rating-pts)**.
+  This catches the case a pure count misses: a **minor nation with a long but sparse/erratic
+  history** has the same low-information problem as a debutant yet would escape a count-only
+  flag. `recent_rating_volatility` is the **population std of the team's last
+  `volatility_window` (=10) rating deltas** (`rating_post − rating_pre`), computed **causally
+  from matches strictly BEFORE the current one** (the per-team delta list is appended only
+  *after* each row's flag is emitted) — so it is point-in-time, never peeks at the current or
+  any future match.
+  - **Threshold rationale (why 40, not the rider's illustrative 120).** A single international
+    Elo update is bounded ~±80 rating-pts (`K · G_max`, with `K ≤ 40` and the goal-difference
+    multiplier `G` capped in practice), so the std (or max-abs) of *single-match* deltas tops
+    out ≈ 80. The illustrative `120` would therefore be **physically unreachable** and the
+    volatility branch would never fire (a decorative flag — the exact failure RIDER 1 exists to
+    prevent). `40.0` cleanly separates a volatile alternating-upset team (recent-window std ≈ 51)
+    from a stable one (std ≈ 0 for repeated draws, ≈ 7 for a steadily-favoured strong side).
+  - **Confirm propagation — Phase-2 prior MUST widen for `provisional` teams (a Phase-2
+    acceptance criterion).** `features.build` **emits the `provisional` column** (it carries
+    straight from `compute_elo_history` through the panel; guarded by
+    `test_build_emits_provisional_column`). The flag is only meaningful if **Phase 2 widens its
+    prior for `provisional` teams** — otherwise the flag is decorative. This is a binding
+    Phase-2 acceptance criterion, recorded here so it cannot be silently dropped.
 - **Elo-baseline coherence (single Elo, pinned, Task 5).** There is exactly ONE Elo:
   `compute_elo_history` produces the ratings used BOTH as the model feature AND as the
   Phase-4 naive baseline — there is no second, divergent Elo. The baseline
@@ -91,6 +116,18 @@ by the tasks noted (Elo hyperparameters → Task 5; StatsBomb release → Task 9
     silently drift again). The **48-team WC-2026 intersection is GATED** on the user-provided
     `config/tournament_2026.yaml` draw file; the final 48-team gap analysis is produced in
     Task 13 once that file lands.
+- **xG is sparse prior-enrichment, NOT a model driver (pinned, Codex P3 / RIDER 3).** State
+  plainly: **this is an Elo-anchored model with sparse xG enrichment, NOT an xG-driven
+  model.** The Elo feature (`elo_pre`) is present on every row; xG is an *optional*
+  prior-enrichment feature available only on the handful of covered (major-tournament /
+  continental-cup) matches. Consequence for honesty: **the backtest CANNOT evaluate xG at
+  all** — xG is NULL across the *entire* qualifier/friendly/Nations-League backtest window
+  (the deployment distribution), and is present only on finals + continental-cup matches that
+  do not appear in the backtest universe. The NULL-safe-not-imputed rule (above) therefore
+  stays correct precisely *because* xG is enrichment, not a driver: a backtest row with no xG
+  is the norm, contributes `0.0` (not `NaN`) to `revision_contaminated_exposure`, and is
+  handled by the Phase-2 shrinkage prior. Any xG signal is validated by the live
+  forward-test, never claimed from the backtest.
 - **Time-decay & feature window (pinned, Task 11/12).** `config.yaml` `windows:` pins the
   two feature-recency parameters consumed by `features.build` (north-star §4.3):
   - `feature_years = 4` — the model/feature window. A built row carries
@@ -130,6 +167,25 @@ by the tasks noted (Elo hyperparameters → Task 5; StatsBomb release → Task 9
   window). Uses computed-Elo, not the revised FIFA ranking.
 - **COVID tag.** 2020–21 internationals (config `covid.start`/`covid.end`) are tagged
   COVID-distorted (empty-stadium era); tagged, not blended.
+- **Friendlies are a separately-reportable tier (pinned, Codex P3).** Friendlies are
+  **never weighted equal to competitive matches.** Two mechanisms enforce this: (1) the Elo
+  K-importance multiplier already down-weights them (`k_by_match_type.friendly = 0.4`, the
+  lowest band — see the Elo entry), and (2) **Phase-4 reporting stratifies on match type**,
+  so friendly performance is reported as its own tier and never folded into a blended
+  competitive headline. The down-weighting alone is not the whole guarantee — the
+  separately-reportable-tier assumption must be stated explicitly (it is a §6 tier tag and a
+  Phase-4 reporting contract, not just a K-factor).
 - **`current_only` policy scope.** The `current_only` (revision-contaminated) policy
   applies **only** to deferred optional sources (market values / rosters); the Phase 1
   clean core has no active `current_only` source.
+- **`read(cutoff)` boundary guarantee — POINT_IN_TIME vs CURRENT_ONLY (pinned, Codex P2).**
+  The exclusive-of-the-future cutoff boundary is the **POINT_IN_TIME** guarantee: `store.read`
+  returns, per logical key, only the latest row with `observed_at <= cutoff` **AND**
+  `valid_as_of <= cutoff` (look-ahead impossible by construction), flagged
+  `revision_contaminated = False`. **CURRENT_ONLY deliberately returns the latest snapshot
+  per key regardless of `cutoff`** (the spec §4.2 contaminated fallback: only the current
+  revised state is obtainable), with every row flagged `revision_contaminated = True` so
+  Phase 4 can compute a per-bet contamination exposure — i.e. `observed_at > cutoff` is
+  *expected*, not a bug, under this policy. **No clean-core Phase-1 source uses
+  CURRENT_ONLY** (it is reserved for the deferred optional sources above), so the practical
+  leakage surface of the contaminated fallback is **zero**.

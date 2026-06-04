@@ -24,6 +24,7 @@ Formulas are PINNED in ASSUMPTIONS.md; parameters are read from
 """
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from wcmodel.config import load_config
@@ -52,10 +53,19 @@ def compute_elo_history(matches: pd.DataFrame) -> pd.DataFrame:
     Returns two rows per match (home and away perspective) with columns
     `{match_id, date, team, opponent, is_home, neutral, rating_pre,
     rating_post, provisional}`. `rating_pre` is the pre-match rating (the
-    feature); `provisional` reflects whether the team had played fewer than
-    `provisional_games` matches *before* this one. `neutral` is carried through
-    (an input column, knowable at kickoff) so a row maps straight into
-    `elo_1x2_baseline` without re-joining the source frame.
+    feature). `provisional` is **data-driven on BOTH count and recent
+    volatility** (RIDER 1): it is True if the team had played fewer than
+    `provisional_games` matches before this one (the count / debutant branch)
+    OR its `recent_rating_volatility` exceeds `provisional_volatility_threshold`.
+    `recent_rating_volatility` is the population std of the team's last
+    `volatility_window` rating deltas (`rating_post - rating_pre`), computed
+    **causally from matches strictly BEFORE the current one** — so a long-but-
+    erratic minor nation (sparse/volatile history) is flagged low-information
+    too, not just true debutants. The volatility window is purely backward-
+    looking; no future data enters, so the flag stays point-in-time.
+
+    `neutral` is carried through (an input column, knowable at kickoff) so a row
+    maps straight into `elo_1x2_baseline` without re-joining the source frame.
     """
     cfg = load_config()["elo"]
     initial_rating = cfg["initial_rating"]
@@ -63,12 +73,31 @@ def compute_elo_history(matches: pd.DataFrame) -> pd.DataFrame:
     k_base = cfg["k_base"]
     k_by_match_type = cfg["k_by_match_type"]
     provisional_games = cfg["provisional_games"]
+    volatility_threshold = cfg["provisional_volatility_threshold"]
+    volatility_window = int(cfg["volatility_window"])
 
     ordered = matches.sort_values("date", kind="mergesort")
 
     ratings: dict[str, float] = {}
     games_played: dict[str, int] = {}
+    # Per-team chronological rating deltas (rating_post - rating_pre), used to
+    # measure recent volatility from PRIOR matches only (causal, point-in-time).
+    deltas: dict[str, list[float]] = {}
     rows: list[dict] = []
+
+    def _provisional(team: str) -> bool:
+        # Count / debutant branch: too few matches to be informative.
+        if games_played.get(team, 0) < provisional_games:
+            return True
+        # Volatility branch: erratic recent ratings = low-information even with a
+        # long history. Population std of the last `volatility_window` PRIOR
+        # deltas (strictly before this match — the list is updated AFTER the row
+        # is emitted, so no same-match/future leakage).
+        prior = deltas.get(team)
+        if not prior:
+            return False
+        window = prior[-volatility_window:]
+        return float(np.std(window)) > volatility_threshold
 
     for m in ordered.itertuples(index=False):
         home, away = m.home_team, m.away_team
@@ -91,9 +120,9 @@ def compute_elo_history(matches: pd.DataFrame) -> pd.DataFrame:
         home_post = home_pre + k * g * (w_home - e_home)
         away_post = away_pre + k * g * (w_away - e_away)
 
-        # Provisional reflects games played BEFORE this match (evaluate first).
-        home_provisional = games_played.get(home, 0) < provisional_games
-        away_provisional = games_played.get(away, 0) < provisional_games
+        # Provisional reflects state BEFORE this match (count + PRIOR deltas).
+        home_provisional = _provisional(home)
+        away_provisional = _provisional(away)
 
         rows.append({"match_id": m.match_id, "date": m.date, "team": home,
                      "opponent": away, "is_home": True, "neutral": m.neutral,
@@ -108,6 +137,10 @@ def compute_elo_history(matches: pd.DataFrame) -> pd.DataFrame:
         ratings[away] = away_post
         games_played[home] = games_played.get(home, 0) + 1
         games_played[away] = games_played.get(away, 0) + 1
+        # Record THIS match's delta only AFTER the flag was computed, so it never
+        # informs its own provisional value (causal window).
+        deltas.setdefault(home, []).append(home_post - home_pre)
+        deltas.setdefault(away, []).append(away_post - away_pre)
 
     return pd.DataFrame(
         rows,

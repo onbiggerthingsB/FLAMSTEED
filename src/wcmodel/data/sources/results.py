@@ -62,7 +62,19 @@ def normalize_results(raw: pd.DataFrame) -> pd.DataFrame:
     df["date"] = pd.to_datetime(df["date"])
     df["valid_as_of"] = df["date"]
     df["observed_at"] = df["date"]
-    return df[["match_id", "date", "valid_as_of", "observed_at", *_CARRY]]
+    out = df[["match_id", "date", "valid_as_of", "observed_at", *_CARRY]]
+    # Standing guard (systematic, not the 1974-double-header one-off): the
+    # disambiguation REWRITES match_id for composite-key collisions, so it must
+    # be row-PRESERVING (count_out == count_in — never drops a genuine match)
+    # and the final id must be unique. A regression that silently dropped or
+    # mis-suffixed a colliding row would trip here, not in some later join.
+    count_in, count_out = len(raw), len(out)
+    assert count_out == count_in, (
+        f"normalize_results dropped rows: {count_in} in, {count_out} out "
+        "(disambiguation must rewrite match_id, never drop a match)")
+    assert out["match_id"].is_unique, (
+        "normalize_results produced duplicate match_id after disambiguation")
+    return out
 
 
 def fetch_results(cache_dir: str | Path) -> pd.DataFrame:

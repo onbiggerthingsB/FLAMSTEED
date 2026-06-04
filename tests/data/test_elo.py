@@ -62,3 +62,75 @@ def test_baseline_home_advantage_and_neutral_symmetry():
 def test_baseline_draw_peaks_at_even_match():
     assert elo_1x2_baseline(1500, 1500, neutral=True)["draw"] == pytest.approx(0.28)
     assert elo_1x2_baseline(1900, 1500, neutral=True)["draw"] < 0.28
+
+
+# --- RIDER 1: data-driven provisional (count OR recent volatility) ------------
+#
+# `provisional` is True if the team had played fewer than `provisional_games`
+# matches before this one (count branch) OR its recent rating-delta volatility
+# (std of the last `volatility_window` PRIOR deltas, computed causally) exceeds
+# `provisional_volatility_threshold`. The three tests below isolate each regime;
+# tests 2 and 3 push the team WELL PAST provisional_games so ONLY the volatility
+# branch can decide the final-match flag (the count branch is already False).
+
+
+def _focal_last_row(history: pd.DataFrame, team: str, match_id: str) -> pd.Series:
+    return history[(history.team == team) & (history.match_id == match_id)].iloc[0]
+
+
+def test_few_matches_team_is_provisional():
+    """Count branch: a team with < provisional_games (=5) matches is provisional
+    on its early matches regardless of volatility."""
+    h = compute_elo_history(_matches())          # team A plays only 2 matches
+    assert _focal_last_row(h, "A", "m1")["provisional"] == True   # 0 prior
+    assert _focal_last_row(h, "A", "m2")["provisional"] == True   # 1 prior (< 5)
+
+
+def test_many_stable_matches_team_is_not_provisional():
+    """A team with MANY matches (count branch satisfied) whose recent rating
+    deltas are tiny (repeated draws vs an equal-rated opponent -> std ~0, well
+    below the 40-pt threshold) is NOT provisional on its latest match."""
+    rows = []
+    # 16 draws: F vs an always-equal-rated opponent. Every result is a draw
+    # against a side at F's own rating, so each delta is ~0 -> volatility ~0.
+    for i in range(16):
+        rows.append({
+            "match_id": f"s{i}", "date": f"2024-01-{i + 1:02d}",
+            "home_team": "F", "away_team": f"Eq{i}",
+            "home_score": 1, "away_score": 1,      # draw
+            "neutral": True, "match_type": "friendly",
+        })
+        # Seed each fresh opponent to F's CURRENT rating via a prior mirror draw
+        # is unnecessary: opponents start at 1500 and so does F; F's repeated
+        # draws keep it pinned near 1500, so deltas stay ~0 throughout.
+    h = compute_elo_history(pd.DataFrame(rows))
+    last = _focal_last_row(h, "F", "s15")
+    assert last["provisional"] == False           # >5 matches AND low volatility
+
+
+def test_many_but_recently_volatile_team_is_provisional():
+    """A team with MANY matches (count branch satisfied) but wildly swinging
+    recent ratings IS provisional. F alternates an 8-0 thrashing and an 0-8
+    thrashing against a FRESH 1500-rated opponent each match (wc_finals K=40);
+    fresh opponents keep the rating gap maximal so every delta stays ~±50 and
+    the recent-window std (~51) sits comfortably above the 40-pt threshold.
+    (Reusing two fixed opponents would let their ratings converge toward F and
+    decay the swings below threshold — hence a distinct opponent per match.)"""
+    rows = []
+    for i in range(16):
+        opp = f"Opp{i}"                              # FRESH opponent each match
+        if i % 2 == 0:                              # F thrashes them 8-0
+            hs, as_ = 8, 0
+        else:                                       # F is thrashed 0-8
+            hs, as_ = 0, 8
+        rows.append({
+            "match_id": f"v{i}", "date": f"2024-02-{i + 1:02d}",
+            "home_team": "F", "away_team": opp,
+            "home_score": hs, "away_score": as_,
+            "neutral": True, "match_type": "wc_finals",
+        })
+    h = compute_elo_history(pd.DataFrame(rows))
+    last = _focal_last_row(h, "F", "v15")
+    # Past provisional_games (16 > 5) so the COUNT branch is False; only the
+    # volatility branch can flip this True -> proves the volatility logic fires.
+    assert last["provisional"] == True
