@@ -91,8 +91,17 @@ def build(cutoff, store: BitemporalStore, config: dict | None = None) -> pd.Data
     #    misalign entry-vs-close and corrupt CLV (see ASSUMPTIONS.md).
     cutoff_day = cutoff.normalize()
     results = store.read("results", cutoff=cutoff)
-    results = results.loc[pd.to_datetime(results["date"]) < cutoff_day].copy()
     results["date"] = pd.to_datetime(results["date"])
+    # Symmetric tz-coercion: the cutoff side is already tz-naive UTC (above), so
+    # the RESULT date side must be too. If a source emits a tz-AWARE date (e.g.
+    # `2024-06-19T00:00:00Z`), the bare `< cutoff_day` filter — and the later
+    # age-days calc — would raise a tz-aware-vs-tz-naive comparison error. Coerce
+    # the instant to UTC then drop the tz so both sides compare cleanly; this
+    # single naive `results["date"]` then feeds BOTH the day-floor filter and the
+    # age/decay_weight calc (no tz-aware path remains downstream).
+    if getattr(results["date"].dt, "tz", None) is not None:
+        results["date"] = results["date"].dt.tz_convert("UTC").dt.tz_localize(None)
+    results = results.loc[results["date"] < cutoff_day].copy()
 
     # 2) Per-match match_type tag (drives the Elo K multiplier AND is a tier).
     results["match_type"] = results["tournament"].map(tiers.match_type)

@@ -42,19 +42,26 @@ def normalize_results(raw: pd.DataFrame) -> pd.DataFrame:
     martj42 data has a genuine same-day/same-venue double-header (Tahiti vs New
     Caledonia, 1974-02-17, Papeete — two matches, different scores). Those rows
     collide on the base key, so we append a deterministic occurrence index
-    (ordered by score, content-stable) to the hash input only where it repeats.
-    This guarantees `match_id.is_unique` while leaving every non-colliding row's
-    id identical to the bare formula.
+    (ordered by the full distinguishing tuple, content-stable) to the hash input
+    only where it repeats. This guarantees `match_id.is_unique` while leaving
+    every non-colliding row's id identical to the bare formula.
     """
     df = raw.copy()
     # Hash on the original (string) date so the id is stable regardless of how
     # the parsed timestamp later renders.
     base = (df["date"].astype(str) + "|" + df["home_team"].astype(str) + "|"
             + df["away_team"].astype(str) + "|" + df["city"].astype(str))
-    # Deterministic, input-order-independent disambiguation for collisions:
-    # rank tied rows by their result so the same CSV always maps a given match
-    # to the same suffix. Non-colliding rows (the vast majority) get occ == 0.
-    order = df.sort_values(["home_score", "away_score"], kind="mergesort").index
+    # Deterministic, input-order-INDEPENDENT disambiguation for collisions. We
+    # rank tied rows by their FULL distinguishing tuple — not score alone — so
+    # the occurrence index (and thus which colliding row keeps the bare hash vs
+    # gets a suffix) is fixed by content, never by feed position. Score alone was
+    # insufficient: two rows tying on (date|home|away|city) AND on score but
+    # differing in tournament/neutral got an input-order-dependent assignment.
+    # A stable mergesort over the full tuple makes the id set identical for any
+    # row ordering. Non-colliding rows (the vast majority) get occ == 0.
+    order = df.sort_values(
+        ["home_score", "away_score", "tournament", "neutral"],
+        kind="mergesort").index
     occ = pd.Series(0, index=df.index)
     occ.loc[order] = df.loc[order].groupby(base.loc[order], sort=False).cumcount()
     keyed = base.where(occ == 0, base + "|" + occ.astype(str))
@@ -65,15 +72,17 @@ def normalize_results(raw: pd.DataFrame) -> pd.DataFrame:
     out = df[["match_id", "date", "valid_as_of", "observed_at", *_CARRY]]
     # Standing guard (systematic, not the 1974-double-header one-off): the
     # disambiguation REWRITES match_id for composite-key collisions, so it must
-    # be row-PRESERVING (count_out == count_in — never drops a genuine match)
+    # be row-PRESERVING (out count == in count — never drops a genuine match)
     # and the final id must be unique. A regression that silently dropped or
     # mis-suffixed a colliding row would trip here, not in some later join.
-    count_in, count_out = len(raw), len(out)
-    assert count_out == count_in, (
-        f"normalize_results dropped rows: {count_in} in, {count_out} out "
-        "(disambiguation must rewrite match_id, never drop a match)")
-    assert out["match_id"].is_unique, (
-        "normalize_results produced duplicate match_id after disambiguation")
+    # These are explicit raises, NOT asserts: `python -O` strips `assert`, which
+    # would silently disable this integrity guard in optimized runs.
+    if len(out) != len(raw):
+        raise ValueError(
+            f"normalize_results dropped rows: in={len(raw)}, out={len(out)}")
+    if not out["match_id"].is_unique:
+        raise ValueError(
+            "normalize_results produced duplicate match_id after disambiguation")
     return out
 
 
