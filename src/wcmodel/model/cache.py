@@ -92,6 +92,14 @@ def _posterior_from_netcdf(path: Path, *, teams, likelihood, provisional_teams,
     ``DataTree`` so ``Posterior._post`` (``idata.posterior[name].stack(...)``)
     works exactly as on a fresh fit. No features/Elo recompute -- ``teams`` /
     ``likelihood`` / ``provisional_teams`` come straight from the meta JSON.
+
+    POSTERIOR-ONLY (NETCDF3 limitation). Only the ``posterior`` group is
+    persisted/reloaded; ``sample_stats`` and ``observed_data`` are NOT cached.
+    The returned ``Posterior.idata`` therefore has NO ``sample_stats`` group, so
+    a divergence check like ``idata.sample_stats.get("diverging", ...).sum()``
+    would silently see nothing (effectively 0) on a CACHED fit -- masking real
+    NUTS divergences. Divergence diagnostics and posterior-predictive checks MUST
+    be run on a FRESH fit (see ``cached_fit``).
     """
     ds = xr.open_dataset(path, engine="scipy").load()
     idata = xr.DataTree.from_dict({"posterior": ds})
@@ -108,6 +116,18 @@ def cached_fit(*, cutoff, store, backend, draws, seed, advi_iters, cache_dir,
     Returns ``(Posterior, {"cache_hit": bool, "key": str})``. On a HIT the
     Posterior is rebuilt from disk (netCDF + meta JSON) with NO recompute; on a
     MISS we fit, persist, and return ``cache_hit=False``.
+
+    WARNING -- the cached (HIT) ``Posterior`` is POSTERIOR-ONLY. The netCDF
+    persists ONLY the ``posterior`` group (NETCDF3 limitation, see module
+    docstring); ``sample_stats`` (NUTS ``diverging``, energy, tree depth, ...) and
+    ``observed_data`` are NOT cached and are absent from a reconstructed fit. So
+    divergence diagnostics (e.g. ``idata.sample_stats["diverging"].sum()``) and
+    posterior-predictive checks would silently return nothing on a CACHED fit,
+    masking real divergences. Any such diagnostic -- notably the T10 calibration
+    task -- MUST be run on a FRESH fit (``scoreline.fit`` directly, or a
+    guaranteed-MISS ``cached_fit``), NEVER routed through a cache hit. (Cached
+    PREDICTIONS are bit-identical to a fresh fit; this caveat is strictly about
+    the sampler-diagnostic groups, which predictions do not use.)
     """
     cfg = config or load_config()
     likelihood = likelihood or cfg["model"]["likelihood"]
@@ -121,6 +141,22 @@ def cached_fit(*, cutoff, store, backend, draws, seed, advi_iters, cache_dir,
     #   elo + windows        -- they change the features AND the provisional set
     #   feature_hash         -- the leakage-safe panel content (new/revised result)
     #   git                  -- code that builds the model/features/posterior
+    #
+    # `model` and `windows` are keyed from the PASSED `cfg`: those ARE config-
+    # threaded -- `_priors`/widening read the passed config and `features.build`
+    # reads `cfg["windows"]`. `elo`, however, is NOT keyed from `cfg`: the
+    # posterior's elo-dependent inputs (the panel's `provisional` flags and the
+    # prediction provisional set) come from `compute_elo_history`
+    # (src/wcmodel/data/elo.py) and `count_volatility_arm`
+    # (src/wcmodel/model/volatility_diagnostic.py), BOTH of which read the GLOBAL
+    # `load_config()["elo"]` internally -- they are NOT yet config-threaded (a
+    # Phase-4 follow-up). So the elo that ACTUALLY determined the posterior is the
+    # global one, and the key must reference THAT, not `cfg["elo"]`. Keying
+    # `load_config()["elo"]` here keeps a global-elo edit invalidating the cache
+    # and makes the key explicitly correct rather than relying on `feature_hash`
+    # as a proxy (the panel does capture global-elo effects for default callers,
+    # but a caller passing a custom `cfg.elo` that diverges from disk must NOT be
+    # able to record an elo the computation never used -> stale serve).
     params = {
         "cutoff": str(pd.Timestamp(cutoff)),
         "likelihood": likelihood,
@@ -130,7 +166,7 @@ def cached_fit(*, cutoff, store, backend, draws, seed, advi_iters, cache_dir,
         "seed": seed,
         "advi_iters": advi_iters,
         "model": cfg["model"],
-        "elo": cfg["elo"],
+        "elo": load_config()["elo"],  # the GLOBAL elo actually used (see above)
         "windows": cfg["windows"],
         "feature_hash": _feature_hash(cutoff, store, cfg),
         "git": _git_commit(),
