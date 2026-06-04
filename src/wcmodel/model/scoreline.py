@@ -3,9 +3,13 @@
 Hierarchical attack/defense with SOFT sum-to-zero centering (att = att_raw -
 mean(att_raw)); baseline mu; home_adv applied only on non-neutral matches; the
 likelihood is TIME-DECAY-WEIGHTED via a Potential (weight = design.weight, which
-already carries decay_weight; widening mechanism (a) multiplies into it). Elo is
-NOT used here (independent prior): the model learns attack/defense from goals +
-team indices + the decay weight only — it never reads elo_pre or any rating.
+carries the Phase-1 decay_weight). This file is mechanism-AGNOSTIC: it consumes
+whatever `weight` array it is given. Widening is applied in a LATER task —
+mechanism (a) (likelihood down-weight) would multiply into this weight, while the
+Phase-2 default mechanism (c) (predictive-variance inflation) leaves weight =
+decay only and acts at predict time. Elo is NOT used here (independent prior):
+the model learns attack/defense from goals + team indices + the decay weight
+only — it never reads elo_pre or any rating.
 """
 from __future__ import annotations
 
@@ -101,5 +105,7 @@ def build_model(
     d: DesignData, likelihood: str | None = None, weight: np.ndarray | None = None
 ) -> pm.Model:
     likelihood = likelihood or load_config()["model"]["likelihood"]
+    if likelihood not in _REGISTRY:
+        raise ValueError(f"unknown likelihood {likelihood!r}; choose from {sorted(_REGISTRY)}")
     w = d.weight if weight is None else weight
     return _REGISTRY[likelihood]().build(d, w)
