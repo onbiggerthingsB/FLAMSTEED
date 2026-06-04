@@ -16,6 +16,7 @@ matches (monotonicity), no built row is dated on/after its cutoff (the strict
 import json
 
 import pandas as pd
+import pytest
 
 from wcmodel.data.features import build
 from wcmodel.data.sources.odds import extract_closing_prices
@@ -52,9 +53,12 @@ def test_future_result_change_does_not_leak_into_earlier_cutoff(mutable_store):
 
 # --- Fix 1: sub-day cutoff is day-floored for date-only match knowability -----
 
-def _sub_day_store(tmp_path) -> BitemporalStore:
-    """A two-match store: a prior-day match and a same-day (vs the noon cutoff)
-    match, both date-resolution (stored midnight)."""
+@pytest.fixture
+def store_with_prior_and_same_day(tmp_path) -> BitemporalStore:
+    """A two-match store: a prior-day (2024-06-19) match and a same-day
+    (2024-06-20, vs the noon cutoff) match, both date-resolution (stored
+    midnight). Shared by the tz-naive sub-day boundary test and the tz-aware
+    boundary test below."""
     raw = pd.DataFrame([
         # date, home, away, hs, as, tournament, city, country, neutral
         ("2024-06-19", "Brazil", "Argentina", 1, 0, "Friendly", "London", "England", False),
@@ -67,7 +71,8 @@ def _sub_day_store(tmp_path) -> BitemporalStore:
     return store
 
 
-def test_sub_day_cutoff_excludes_same_day_keeps_prior_day_odds_stay_intraday(tmp_path):
+def test_sub_day_cutoff_excludes_same_day_keeps_prior_day_odds_stay_intraday(
+        store_with_prior_and_same_day):
     """The three leakage-boundary guarantees, in one test:
 
     (a) a noon cutoff EXCLUDES a match dated that same day (date-only data: a
@@ -78,8 +83,8 @@ def test_sub_day_cutoff_excludes_same_day_keeps_prior_day_odds_stay_intraday(tmp
     (c) the ODDS path is NOT day-normalized: the close snapshot is returned at
         its TRUE intraday timestamp, distinct from the bet_time snapshot.
     """
-    store = _sub_day_store(tmp_path)
-    df = build(cutoff="2024-06-20 12:00", store=store)
+    store = store_with_prior_and_same_day
+    df = build(cutoff="2024-06-20 12:00", store=store)  # tz-NAIVE noon cutoff
     built_days = set(pd.to_datetime(df["date"]).dt.normalize())
 
     # (a) same-day match (kickoff-day result) is NOT knowable at a noon cutoff.
@@ -96,6 +101,25 @@ def test_sub_day_cutoff_excludes_same_day_keeps_prior_day_odds_stay_intraday(tmp
     # Intraday (not midnight) — proves no day-normalization on the odds path.
     assert pd.Timestamp(close["snapshot_ts"]).normalize() != pd.Timestamp(
         close["snapshot_ts"])
+
+
+def test_tz_aware_cutoff_does_not_crash_and_keeps_boundary(
+        store_with_prior_and_same_day):
+    """A tz-AWARE (UTC `Z`) cutoff must build without crashing and keep the same
+    day-boundary semantics as the tz-naive case.
+
+    Odds API timestamps are `Z`/UTC, so a caller can hand `build` a tz-aware
+    cutoff. The result/match dates are tz-NAIVE date-only (midnight), so before
+    this fix the tz-aware `cutoff_day` raised on the tz-naive-vs-tz-aware
+    comparison. `build` now coerces the cutoff to UTC-naive before day-flooring,
+    so the comparison is clean and the boundary is unchanged: same UTC day
+    excluded, prior day still included.
+    """
+    df = build(cutoff=pd.Timestamp("2024-06-20T12:00:00Z"),  # tz-aware UTC
+               store=store_with_prior_and_same_day)
+    days = set(pd.to_datetime(df["date"]).dt.normalize())
+    assert pd.Timestamp("2024-06-20") not in days   # same UTC day excluded
+    assert pd.Timestamp("2024-06-19") in days        # prior day still included
 
 
 # --- Fix 2: a post-cutoff result must not change an earlier-cutoff band -------

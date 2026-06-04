@@ -69,6 +69,15 @@ def build(cutoff, store: BitemporalStore, config: dict | None = None) -> pd.Data
     """
     cfg = config or load_config()
     cutoff = pd.Timestamp(cutoff)
+    # A tz-AWARE cutoff (e.g. an Odds API `Z`/UTC timestamp) must be coerced to
+    # tz-naive UTC before flooring: match dates are tz-naive date-only
+    # (midnight), and a tz-aware-vs-tz-naive comparison raises in pandas.
+    # Interpret the cutoff's instant in UTC, then drop the tz so it compares
+    # cleanly against the tz-naive dates. Day-boundary semantics (same-day
+    # excluded / prior-day included) are unchanged. (The intraday odds path is
+    # separate and untouched — see ASSUMPTIONS.md "Cutoff resolution".)
+    if cutoff.tz is not None:
+        cutoff = cutoff.tz_convert("UTC").tz_localize(None)
 
     # 1) Results, strictly before the cutoff DAY. Match dates are date-resolution
     #    (stored at midnight), so a match on day D is not knowable until D+1 00:00

@@ -154,6 +154,15 @@ by the tasks noted (Elo hyperparameters → Task 5; StatsBomb release → Task 9
   intraday `bet_time`/`close` timestamps and are read at **TRUE resolution** — day-normalizing
   them would misalign entry-vs-close and corrupt CLV. (`sources/odds.py` timestamp handling is
   untouched.)
+  Cutoffs are interpreted in **UTC** for the day-flooring step. A **tz-aware** cutoff (e.g. an
+  Odds API `Z`/UTC timestamp) is first converted to UTC and made tz-naive
+  (`cutoff = cutoff.tz_convert("UTC").tz_localize(None)`) **before** `cutoff.normalize()`, so it
+  aligns with the tz-naive date-only (midnight) match dates — otherwise the
+  tz-aware-vs-tz-naive comparison raises in pandas. The same-day-excluded / prior-day-included
+  semantics are **unchanged** by this coercion (e.g. `build(cutoff="2024-06-20T12:00:00Z")`
+  behaves like the tz-naive noon cutoff: excludes `2024-06-20`, includes `2024-06-19`). The
+  intraday **odds-store read** at tz-aware intraday cutoffs is a separate, Phase-4 concern and is
+  out of scope for this features-layer day-flooring.
 - **No imputation — every missing feature is NULL (pinned, Task 11).** `build` NEVER fills a
   missing feature with `0` / mean / forward-fill / anything. Concretely: an uncovered match
   (no StatsBomb xG) → `xg_for`/`xg_against = NaN`, `xg_covered = False`; a city absent from
