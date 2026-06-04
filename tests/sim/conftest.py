@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.data.conftest import small_store  # noqa: F401  (reused by scoreline RateBook test)
 from wcmodel.data.tournament import load_tournament
 
 # The verified draw lives at the repo root; resolve it relative to THIS file so
