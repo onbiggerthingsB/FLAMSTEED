@@ -30,13 +30,29 @@ by the tasks noted (Elo hyperparameters → Task 5; StatsBomb release → Task 9
     An unrecognised `match_type` falls back to the `other` multiplier (the
     results→match_type tier wiring is Task 6 / Task 11; this module only reads the
     `match_type` input column and does not import the Task-6 tiers).
+    **Effective K** (= `k_base · multiplier`): **WC finals = 40**, WC qualifier = 32,
+    continental championship = 36, continental qualifier = 32, Nations League = 28,
+    **friendly = 16**, other = 20.
+    - **Divergence from standard World Football Elo K = 60 — flagged, NOT changed.**
+      The canonical World Football Elo uses **K = 60** for World Cup finals; WE run
+      **K = 40** for WC finals (`k_base 40 × wc_finals 1.0`). This is a deliberate,
+      documented divergence (a flatter, less twitchy update than the public WFE),
+      recorded here so it is not mistaken for the standard. This entry does **not**
+      change K — it only reports the effective values.
   - Margin-of-victory index = **World Football Elo goal-difference scheme**:
     `G = 1` for a goal margin ≤ 1, `1.5` for a margin of 2, else `(11 + margin)/8`.
+    `G` at margins **1/2/3/5/7 = 1.0 / 1.5 / 1.75 / 2.0 / 2.25**. The resulting
+    **max single-match update magnitude** `K·G·|W−E|` (taking `|W−E| → ~0.95` for a
+    big upset) at those margins is, for **WC finals** (K = 40):
+    **38 / 57 / 66.5 / 76 / 85.5** pts, and for **friendlies** (K = 16):
+    **15.2 / 22.8 / 26.6 / 30.4 / 34.2** pts. The absolute per-update ceiling
+    (`|W−E| → 1`, margin 7, G = 2.25) is **≈ 90** at WC and **≈ 36** at a friendly.
   - Expectancy/update: `dr = home_pre − away_pre + ha`; `E = 1/(1 + 10^(−dr/400))`;
     `rating_post = rating_pre + K·G·(W − E)` with `W ∈ {1, 0.5, 0}` (win/draw/loss).
   - `provisional_games = 5` (see debutant / data-driven-provisional note below).
-  - `provisional_volatility_threshold = 40.0` rating-pts and `volatility_window = 10`
-    (the recent-volatility branch of `provisional` — see the data-driven note below).
+  - `provisional_volatility_threshold = 16.5` rating-pts and `volatility_window = 10`
+    (the recent-volatility branch of `provisional` — **empirically derived from the
+    real Elo-delta distribution**, see the data-driven note below).
   - **Point-in-time.** `rating_pre` (the pre-match rating, knowable at kickoff) is the
     leakage-safe feature; `rating_post` is the post-update rating and is never a
     same-match feature.
@@ -47,21 +63,50 @@ by the tasks noted (Elo hyperparameters → Task 5; StatsBomb release → Task 9
   by rigging the rating. (The earlier `initial_rating_debutant: 1300` line was removed.)
 - **Data-driven `provisional` — count OR recent volatility (pinned, RIDER 1).** `provisional`
   is no longer just a debutant counter: it is True if **`rated_match_count < provisional_games`
-  (=5)** OR **`recent_rating_volatility > provisional_volatility_threshold` (=40.0 rating-pts)**.
+  (=5)** OR **`recent_rating_volatility > provisional_volatility_threshold` (=16.5 rating-pts)**.
   This catches the case a pure count misses: a **minor nation with a long but sparse/erratic
   history** has the same low-information problem as a debutant yet would escape a count-only
-  flag. `recent_rating_volatility` is the **population std of the team's last
-  `volatility_window` (=10) rating deltas** (`rating_post − rating_pre`), computed **causally
-  from matches strictly BEFORE the current one** (the per-team delta list is appended only
-  *after* each row's flag is emitted) — so it is point-in-time, never peeks at the current or
-  any future match.
-  - **Threshold rationale (why 40, not the rider's illustrative 120).** A single international
-    Elo update is bounded ~±80 rating-pts (`K · G_max`, with `K ≤ 40` and the goal-difference
-    multiplier `G` capped in practice), so the std (or max-abs) of *single-match* deltas tops
-    out ≈ 80. The illustrative `120` would therefore be **physically unreachable** and the
-    volatility branch would never fire (a decorative flag — the exact failure RIDER 1 exists to
-    prevent). `40.0` cleanly separates a volatile alternating-upset team (recent-window std ≈ 51)
-    from a stable one (std ≈ 0 for repeated draws, ≈ 7 for a steadily-favoured strong side).
+  flag.
+  - **The metric is a WINDOWED STDDEV, not a single delta.** `recent_rating_volatility` is the
+    **population std of the team's last `volatility_window` (=10) rating deltas**
+    (`rating_post − rating_pre`), computed **causally from matches strictly BEFORE the current
+    one** (the per-team delta list is appended only *after* each row's flag is emitted) — so it
+    is point-in-time, never peeks at the current or any future match. The threshold is therefore
+    on a **stddev-of-10-deltas**, NOT on a single-match update. (The prior config's "a single
+    international Elo delta is bounded ~±80, so std tops out ~80" framing was the **wrong scale
+    entirely** — it reasoned about single-update magnitude, but the flag thresholds a *window
+    stddev* whose empirical max is only ~30; see below.)
+  - **Threshold rationale — EMPIRICALLY DERIVED from the real martj42 distribution (not
+    test-fit).** The prior value `40.0` was reverse-engineered to make a *synthetic* test
+    fixture (alternating 8-0/0-8 thrashings vs perpetually-fresh opponents, window-std ≈ 51)
+    fire. That fixture does not occur in real football, so **`40.0` flagged 0.00% of real
+    team-match states — a decorative flag, the exact failure RIDER 1 exists to prevent.** We
+    re-derived the threshold by computing the windowed-stddev metric across **ALL teams over the
+    whole martj42 history** (the CC0 international-results feed via `sources/results`; 49,296
+    *played* matches 1872–2026 after dropping unplayed/NaN-score WC-2026 fixtures; **98,256
+    evaluable team-match states** with ≥1 prior delta) using `compute_elo_history`. The
+    **empirical distribution of the rolling stddev-of-last-10-deltas (rating pts)** is:
+
+    | metric | median (p50) | p75 | p85 | p90 | p95 | p99 | max |
+    |---|---|---|---|---|---|---|---|
+    | stddev-of-10-deltas | 10.2 | 12.5 | 13.9 | 14.9 | **16.5** | 19.4 | 30.0 |
+
+    (Stable across full-window-only and the modern 1990+ subset: p95 ≈ 16.4 in all three.) The
+    distribution **saturates far below the single-update ceiling** (~90 at WC, see the K·G
+    figures above) because a real 10-match window mixes low-K friendlies/qualifiers (K = 16–32),
+    near-1 goal-difference multipliers, and small `|W−E|` vs well-estimated opponents — the
+    pathological all-max-thrashing window never materialises.
+  - **Chosen point on the distribution: p95 → `T = 16.5` rating-pts.** We flag the **most-volatile
+    ~5% tail** of team-match observations as low-information. At `T = 16.5` exactly **4.9%** of the
+    98,256 evaluable states are flagged. **Physical interpretation:** *a team whose recent
+    per-match rating swings have a stddev > 16.5 points — vs a typical settled team at the
+    ~10-point median — is treated as low-information (provisionally rated).* The cut sits well
+    above the median (10.2) and p75 (12.5) of settled teams, so well-estimated sides are **not**
+    flagged (a steadily-favoured strong side that wins 2-0 every match has window-std ≈ 2; 16
+    draws → ≈ 0), while a genuinely erratic side that alternates wins and losses by two goals
+    (window-std ≈ 25, in the p99.9–max tail) **is** flagged. The value **changed from 40 → 16.5**
+    (a corrected *scale*, not a tweak). `volatility_window` is unchanged at 10. The derivation is
+    reproducible via `scripts/derive_volatility_threshold.py`.
   - **Confirm propagation — Phase-2 prior MUST widen for `provisional` teams (a Phase-2
     acceptance criterion).** `features.build` **emits the `provisional` column** (it carries
     straight from `compute_elo_history` through the panel; guarded by

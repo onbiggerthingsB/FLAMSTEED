@@ -88,8 +88,9 @@ def test_few_matches_team_is_provisional():
 
 def test_many_stable_matches_team_is_not_provisional():
     """A team with MANY matches (count branch satisfied) whose recent rating
-    deltas are tiny (repeated draws vs an equal-rated opponent -> std ~0, well
-    below the 40-pt threshold) is NOT provisional on its latest match."""
+    deltas are tiny (repeated draws vs an equal-rated opponent -> std ~0, far
+    below the empirically-derived 16.5-pt threshold) is NOT provisional on its
+    latest match."""
     rows = []
     # 16 draws: F vs an always-equal-rated opponent. Every result is a draw
     # against a side at F's own rating, so each delta is ~0 -> volatility ~0.
@@ -108,26 +109,48 @@ def test_many_stable_matches_team_is_not_provisional():
     assert last["provisional"] == False           # >5 matches AND low volatility
 
 
+def test_steadily_favoured_strong_team_is_not_provisional():
+    """A settled, well-estimated strong side is also NOT provisional. F beats a
+    FRESH 1500-rated opponent 2-0 every match (wc_qualifier, K=32): a consistent
+    result against the same starting gap, so the rating deltas barely vary and
+    the recent-window std (~2 pts) stays far below the 16.5-pt threshold. This is
+    the second settled regime (alongside repeated draws) that must NOT be flagged
+    — the threshold separates erratic swings, not steady dominance."""
+    rows = []
+    for i in range(16):
+        rows.append({
+            "match_id": f"w{i}", "date": f"2024-03-{i + 1:02d}",
+            "home_team": "F", "away_team": f"Weak{i}",   # fresh weak opponent
+            "home_score": 2, "away_score": 0,            # steady 2-0 win
+            "neutral": True, "match_type": "wc_qualifier",
+        })
+    h = compute_elo_history(pd.DataFrame(rows))
+    last = _focal_last_row(h, "F", "w15")
+    assert last["provisional"] == False           # >5 matches AND low volatility
+
+
 def test_many_but_recently_volatile_team_is_provisional():
-    """A team with MANY matches (count branch satisfied) but wildly swinging
-    recent ratings IS provisional. F alternates an 8-0 thrashing and an 0-8
-    thrashing against a FRESH 1500-rated opponent each match (wc_finals K=40);
-    fresh opponents keep the rating gap maximal so every delta stays ~±50 and
-    the recent-window std (~51) sits comfortably above the 40-pt threshold.
-    (Reusing two fixed opponents would let their ratings converge toward F and
-    decay the swings below threshold — hence a distinct opponent per match.)"""
+    """A team with MANY matches (count branch satisfied) but swinging recent
+    ratings IS provisional. F alternates a 2-0 WIN and a 0-2 LOSS against a FRESH
+    1500-rated opponent each match (wc_qualifier, K=32); fresh opponents hold the
+    expectancy near even so each result lands ~±16 pts off expectation and the
+    recent-window std (~25 pts) sits comfortably above the empirically-derived
+    16.5-pt threshold (which is the p95 of the real martj42 windowed-stddev
+    distribution; ~25 is in its p99.9–max tail — a *realistic* erratic side, not
+    the old all-out-thrashing synthetic). A distinct opponent per match keeps the
+    gap from converging and decaying the swing below threshold."""
     rows = []
     for i in range(16):
         opp = f"Opp{i}"                              # FRESH opponent each match
-        if i % 2 == 0:                              # F thrashes them 8-0
-            hs, as_ = 8, 0
-        else:                                       # F is thrashed 0-8
-            hs, as_ = 0, 8
+        if i % 2 == 0:                              # F wins by two
+            hs, as_ = 2, 0
+        else:                                       # F loses by two
+            hs, as_ = 0, 2
         rows.append({
             "match_id": f"v{i}", "date": f"2024-02-{i + 1:02d}",
             "home_team": "F", "away_team": opp,
             "home_score": hs, "away_score": as_,
-            "neutral": True, "match_type": "wc_finals",
+            "neutral": True, "match_type": "wc_qualifier",
         })
     h = compute_elo_history(pd.DataFrame(rows))
     last = _focal_last_row(h, "F", "v15")
