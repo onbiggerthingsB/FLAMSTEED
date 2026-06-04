@@ -22,3 +22,25 @@ def test_rest_excludes_a_match_dated_on_or_after_cutoff():
                            "date": [pd.Timestamp("2026-06-10"), pd.Timestamp("2026-06-19")]})
     r = predict_rest_days("A", fixture_date="2026-06-22", cutoff="2026-06-18", played_schedule=played)
     assert r == 12                                 # uses 2026-06-10 (the only < cutoff match), NOT 2026-06-19
+
+
+def test_rest_tz_aware_schedule_and_fixture_do_not_crash():
+    # tz-SAFE contract (docstring): a tz-AWARE schedule `date` column AND a
+    # tz-aware fixture_date/cutoff (e.g. an Odds API `Z`/UTC kickoff routed
+    # straight in) must coerce to tz-naive UTC and yield the SAME integer
+    # day-count as the tz-naive equivalent — never crash on a mixed
+    # tz-aware/tz-naive subtraction. RED against the pre-fix code: fixture_date
+    # was not coerced AND `last` was recomputed from the original tz-aware
+    # `date` column, so `(fixture_date - last)` raised TypeError.
+    naive = pd.DataFrame({"team": ["A"], "date": [pd.Timestamp("2026-06-10")]})
+    r_naive = predict_rest_days(
+        "A", fixture_date="2026-06-22", cutoff="2026-06-18", played_schedule=naive
+    )
+    aware = pd.DataFrame({"team": ["A"], "date": [pd.Timestamp("2026-06-10", tz="UTC")]})
+    r_aware = predict_rest_days(
+        "A",
+        fixture_date=pd.Timestamp("2026-06-22", tz="UTC"),
+        cutoff=pd.Timestamp("2026-06-18", tz="UTC"),
+        played_schedule=aware,
+    )
+    assert r_aware == r_naive == 12                # tz-aware path is byte-identical to the naive path
