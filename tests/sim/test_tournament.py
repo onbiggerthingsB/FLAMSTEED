@@ -166,19 +166,24 @@ def test_played_knockout_fix_is_load_bearing():
     assert bra["champion"] == "Brazil"
 
 
-def test_played_knockout_level_score_rejected():
-    """A decided knockout must have a winner — a level pinned KO score is malformed
-    and must raise (regulation/ET/penalties can't be reconstructed from a draw)."""
+def test_played_knockout_penalty_decided_not_yet_pinnable():
+    """A pinned knockout that is LEVEL after regulation+ET was decided by a penalty
+    shootout, but the martj42 adapter drops the shootout winner — so the actual winner
+    cannot be pinned. The sim FAILS LOUD (raises) rather than guessing/randomizing a
+    known outcome, and the message names the real cause (shootout winner unrecorded)."""
     br = tiny_bracket()
     cfg = _Cfg(max_goals=8, et_scale=0.3333, pen_home_prob=0.5)
     played = {
         "groups": _DET_GROUP,
-        "knockout_results": {("Brazil", "Argentina", _FINAL_DATE): (1, 1)},  # level: invalid
+        # Level after reg+ET => penalty-decided; winner not recorded by the data source.
+        "knockout_results": {("Brazil", "Argentina", _FINAL_DATE): (1, 1)},
         "match_dates": {104: _FINAL_DATE},
     }
-    with pytest.raises(ValueError, match="level"):
+    with pytest.raises(ValueError, match=r"(?i)(shootout|penalty).*winner") as exc:
         simulate_one(br, _DetRB(), draw=0, rng=_NoDrawRNG(), cfg=cfg, played=played,
                      depths=_match_depths(br))
+    msg = str(exc.value)
+    assert ("shootout" in msg or "penalty" in msg) and "winner" in msg
 
 
 def test_played_none_simulates_every_fixture():

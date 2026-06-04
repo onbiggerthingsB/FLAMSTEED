@@ -300,15 +300,23 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None)
                                third_by_match=third_by_match, winners=winners,
                                losers=losers, match_no=m)
         # Decided as-of-cutoff? Match the now-CONCRETE (home, away) + this match's date
-        # against the played KO results (exact triple). A draw can't be a KO result (a KO
-        # has a winner), so a level played score is rejected as malformed.
+        # against the played KO results (exact triple). A knockout that finishes LEVEL
+        # after regulation+ET is decided by a penalty shootout, but the martj42 results
+        # adapter stores only the regulation/ET score and DROPS the shootout winner
+        # (shootouts live in a separate file it does not ingest). So a level played KO
+        # score is VALID data we cannot yet pin to its actual winner — not malformed
+        # input — and we fail loud rather than guess/randomize a KNOWN outcome.
         ko_score = played_ko_results.get((home, away, ko_match_dates.get(m)))
         if ko_score is not None:
             hg, ag = ko_score
             if hg == ag:
                 raise ValueError(
-                    f"played knockout result {ko_score} for match {m} ({home!r} vs "
-                    f"{away!r}) is level — a decided knockout must have a winner"
+                    f"pinned knockout fixture {home!r} vs {away!r} (match {m}) has a "
+                    f"level score {hg}-{ag} — it was decided by a penalty shootout, but "
+                    f"the results data source does not record the shootout winner, so "
+                    f"the actual winner cannot be pinned; conditioning on a "
+                    f"penalty-decided knockout is not yet supported (resolution: ingest "
+                    f"the shootout winner)"
                 )
             w = home if hg > ag else away                # ACTUAL winner, no RNG drawn
         else:

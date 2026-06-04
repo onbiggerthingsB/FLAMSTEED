@@ -56,6 +56,9 @@ class SimConfig:
     MC params; the production values come from the project ``config/config.yaml``
     ``sim:`` section — use :meth:`from_config` to load them."""
 
+    # SOURCE OF TRUTH: :meth:`from_config` (the ``config.yaml`` ``sim:`` section) is the
+    # production source for these knobs; the literal field defaults below are a fallback
+    # for direct construction and MUST be kept in sync with that section.
     tournament: dict | str | Path | None = None
     n_sims: int = 20000
     seed: int = 0
@@ -85,7 +88,9 @@ def _load_tournament(spec, repo_root: Path) -> dict:
     """Resolve a SimConfig.tournament spec to a parsed, validated tournament dict.
 
     ``None`` -> the verified ``config/tournament_2026.yaml``; a dict -> used as-is; a
-    path -> loaded + validated via ``load_tournament``."""
+    path -> loaded + validated via ``load_tournament``. NOTE: only the YAML path runs
+    ``validate_tournament`` — passing a tournament DICT BYPASSES validation (an
+    intentional test escape hatch for minimal synthetic brackets)."""
     if spec is None:
         return load_tournament(repo_root / "config" / "tournament_2026.yaml")
     if isinstance(spec, (str, Path)):
@@ -109,6 +114,14 @@ def _fixture_dates(tournament: dict) -> tuple[dict, dict]:
         if m is None:
             # A group fixture MUST carry a date — it is the only key for matching its
             # concrete teams to a played result (the validated draw always has one).
+            # Guard symmetrically with the KO branch: a dateless group fixture cannot be
+            # matched and the docstring promises a date, so fail loud naming the fixture.
+            if fx.get("date") is None:
+                raise ValueError(
+                    f"group fixture {fx.get('home')!r} vs {fx.get('away')!r} has no "
+                    f"date — a group fixture's date is its only key for matching a "
+                    f"played result (the validated draw always carries one)"
+                )
             group_dates[(fx["home"], fx["away"])] = pd.Timestamp(fx["date"]).normalize()
         elif fx.get("date") is not None:
             # KO date drives the in-loop KO-result match. A KO fixture with no date

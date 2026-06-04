@@ -427,3 +427,35 @@ plus the follow-ups deferred to Phase 4. Implemented on branch
   (north-star §4.6); the number of configurations tried is **pre-registered before looking**
   (north-star seed #2). Every added knob raises overfit risk, so the list is fixed here and
   not grown on intuition.
+
+## Phase 3 — Monte Carlo simulation
+
+Load-bearing decisions in the Phase-3 tournament simulator (`src/wcmodel/sim/`).
+Implemented on branch `phase3-monte-carlo`. (Task 8 will expand this section.)
+
+- **Per-cutoff conditioning + leakage discipline (pinned, Task 6).** `simulate(cutoff, …)`
+  (`src/wcmodel/sim/run.py`) runs the WC-2026 simulation CONDITIONED on the results known
+  as of the cutoff: it FIXES every fixture played-as-of-cutoff (a group fixture to its
+  ACTUAL score; a decided knockout to its ACTUAL winner) and simulates only the unplayed
+  remainder via `simulate_tournament`. The played read uses the **EXACT** strict, day-floored,
+  tz-coerced `date < cutoff` filter `wcmodel.data.features.build` applies (mirrored
+  line-for-line in `_played_as_of`), so there is **no look-ahead** and no cutoff-semantics
+  drift between the model-fit layer and the sim layer. Fixing consumes no RNG and the sim is
+  seeded, so a leakage-free run is **bit-identical** under a mutation of any post-cutoff
+  result (the `tests/sim/test_leakage_sim.py` canary).
+- **KNOWN LIMITATION — a penalty-decided knockout cannot yet be pinned (pinned, Task 6 /
+  Codex T6 finding).** A knockout that finishes LEVEL after regulation+ET is decided by a
+  **penalty shootout**, but the martj42 results adapter (`src/wcmodel/data/sources/results.py`)
+  stores only the regulation/ET score and **drops the shootout winner** (martj42 keeps
+  shootouts in a separate file this adapter does not ingest). So such a fixture is stored as a
+  level draw with **no recorded winner** — VALID data we cannot yet pin to its actual outcome,
+  NOT malformed input. The sim therefore **FAILS LOUD** (`simulate_one` raises `ValueError`)
+  on a level pinned knockout rather than guessing or randomizing a KNOWN outcome (a penalty
+  coin-flip would randomize a known result — wrong for a model whose purpose is correct
+  conditioning on known results). **Resolution path:** ingest the shootout winner (or add a
+  winner-override column) in the **data layer** before mid-knockout-stage conditioning is used
+  for serving/backtest (Phase 4/5). **Pre-knockout cutoffs — the current use — are unaffected**
+  (no knockout has been played yet, so no level KO can enter the played set). It is not
+  reachable today (no 2026 knockout results exist; there is no production caller of `simulate`
+  yet), but it WOULD crash the first time a penalty-decided knockout enters the played set —
+  hence the explicit fail-loud + this limitation note.
