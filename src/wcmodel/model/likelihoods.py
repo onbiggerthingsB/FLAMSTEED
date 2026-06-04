@@ -19,9 +19,10 @@ def _pois_logpmf_np(k, lam):
     return k * np.log(lam) - lam - gammaln(k + 1.0)
 
 
-# CONTRACT (NaN trap): caller must constrain `rho` so all four tau cells stay
-# strictly positive -- tau(0,0)=1-lh*la*rho>0 and tau(1,1)=1-rho>0 -- otherwise
-# log(tau) is NaN/-inf and breaks NUTS.
+# CONTRACT (NaN trap): caller must constrain `rho` so ALL FOUR tau cells stay
+# strictly positive: for rho>0 the binding cells are tau(0,0)=1-lh*la*rho>0 and
+# tau(1,1)=1-rho>0; for rho<0 they are tau(0,1)=1+lh*rho>0 and tau(1,0)=1+la*rho>0.
+# Otherwise log(tau) is NaN/-inf and breaks NUTS.
 def dc_tau_np(x, y, lh, la, rho):
     # Canonical Dixon & Coles (1997) tau: x=home~Pois(lh), y=away~Pois(la).
     # The (0,1) cell uses the HOME rate lh; the (1,0) cell uses the AWAY rate la.
@@ -79,9 +80,10 @@ def _pois_logpmf_pt(k, lam):
     return k * pt.log(lam) - lam - pt.gammaln(k + 1.0)
 
 
-# CONTRACT (NaN trap): caller must constrain `rho` so all four tau cells stay
-# strictly positive -- tau(0,0)=1-lh*la*rho>0 and tau(1,1)=1-rho>0 -- otherwise
-# log(tau) is NaN/-inf and breaks NUTS.
+# CONTRACT (NaN trap): caller must constrain `rho` so ALL FOUR tau cells stay
+# strictly positive: for rho>0 the binding cells are tau(0,0)=1-lh*la*rho>0 and
+# tau(1,1)=1-rho>0; for rho<0 they are tau(0,1)=1+lh*rho>0 and tau(1,0)=1+la*rho>0.
+# Otherwise log(tau) is NaN/-inf and breaks NUTS.
 def dc_loglik_pt(x, y, lh, la, rho):
     # Canonical Dixon-Coles tau (see dc_tau_np): (0,1) uses HOME rate lh,
     # (1,0) uses AWAY rate la. Mass-neutral by construction.
