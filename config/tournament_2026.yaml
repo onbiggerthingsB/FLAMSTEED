@@ -1,0 +1,1090 @@
+# WC-2026 tournament structure — FOR HUMAN REVIEW (Phase-1 data layer).
+#
+# STATUS: NOT committed, NOT ingested, NOT validated into the store. This file
+# is the verified-draw artifact that `wcmodel.data.tournament.load_tournament`
+# consumes; it is being staged for review before anything downstream reads it.
+#
+# PROVENANCE
+#   draw + fixtures + grounds : openfootball/worldcup.json @ master,
+#                               2026/worldcup.json  (CC0). 104 matches verbatim:
+#                               72 group-stage + 32 knockout.
+#   team names                : martj42/international_results store keys
+#                               (commit dad6874bb720e23cccdf696f057aa64fa5471445),
+#                               so features.build can join each team's history.
+#                               openfootball->martj42 mapping (46/48 identical;
+#                               USA->United States, Bosnia & Herzegovina->Bosnia
+#                               and Herzegovina) is in
+#                               reports/phase1_wc2026_reconciliation.md.
+#   venue coords              : openfootball 2026/worldcup.stadiums.json (CC0).
+#   venue altitude_m          : Open-Meteo elevation API (Copernicus DEM) at the
+#                               stadium coords (free, no key). Point-derived.
+#   knockout slots            : openfootball R32->Final slot/winner linkage,
+#                               cross-checked 1:1 against FIFA's published 2026
+#                               bracket (Wikipedia render) — 0 mismatches.
+#
+# Group fixtures carry REAL drawn nations (martj42 keys). Knockout fixtures are
+# STRUCTURE placeholders only (group-position slots like 1A / 3rd-ABCDF, and
+# winner/loser refs like W74 / L101) — NEVER fabricated teams, since the
+# knockout participants are not yet known.
+#
+# Fixture fields: home, away, date (required by validator) + time, group, round,
+# venue (enrichment). Times are local with a UTC offset, as published by
+# openfootball. `match` on knockout rows is the official match number (73-104).
+
+teams:
+- Mexico
+- South Africa
+- South Korea
+- Czech Republic
+- Canada
+- Bosnia and Herzegovina
+- Qatar
+- Switzerland
+- Brazil
+- Morocco
+- Haiti
+- Scotland
+- United States
+- Paraguay
+- Australia
+- Turkey
+- Germany
+- Curaçao
+- Ivory Coast
+- Ecuador
+- Netherlands
+- Japan
+- Sweden
+- Tunisia
+- Belgium
+- Egypt
+- Iran
+- New Zealand
+- Spain
+- Cape Verde
+- Saudi Arabia
+- Uruguay
+- France
+- Senegal
+- Iraq
+- Norway
+- Argentina
+- Algeria
+- Austria
+- Jordan
+- Portugal
+- DR Congo
+- Uzbekistan
+- Colombia
+- England
+- Croatia
+- Ghana
+- Panama
+groups:
+- name: A
+  teams:
+  - Mexico
+  - South Africa
+  - South Korea
+  - Czech Republic
+- name: B
+  teams:
+  - Canada
+  - Bosnia and Herzegovina
+  - Qatar
+  - Switzerland
+- name: C
+  teams:
+  - Brazil
+  - Morocco
+  - Haiti
+  - Scotland
+- name: D
+  teams:
+  - United States
+  - Paraguay
+  - Australia
+  - Turkey
+- name: E
+  teams:
+  - Germany
+  - Curaçao
+  - Ivory Coast
+  - Ecuador
+- name: F
+  teams:
+  - Netherlands
+  - Japan
+  - Sweden
+  - Tunisia
+- name: G
+  teams:
+  - Belgium
+  - Egypt
+  - Iran
+  - New Zealand
+- name: H
+  teams:
+  - Spain
+  - Cape Verde
+  - Saudi Arabia
+  - Uruguay
+- name: I
+  teams:
+  - France
+  - Senegal
+  - Iraq
+  - Norway
+- name: J
+  teams:
+  - Argentina
+  - Algeria
+  - Austria
+  - Jordan
+- name: K
+  teams:
+  - Portugal
+  - DR Congo
+  - Uzbekistan
+  - Colombia
+- name: L
+  teams:
+  - England
+  - Croatia
+  - Ghana
+  - Panama
+fixtures:
+- home: Mexico
+  away: South Africa
+  date: '2026-06-11'
+  time: 13:00 UTC-6
+  group: A
+  round: Matchday 1
+  venue: Mexico City
+- home: South Korea
+  away: Czech Republic
+  date: '2026-06-11'
+  time: 20:00 UTC-6
+  group: A
+  round: Matchday 1
+  venue: Guadalajara (Zapopan)
+- home: Czech Republic
+  away: South Africa
+  date: '2026-06-18'
+  time: 12:00 UTC-4
+  group: A
+  round: Matchday 8
+  venue: Atlanta
+- home: Mexico
+  away: South Korea
+  date: '2026-06-18'
+  time: 19:00 UTC-6
+  group: A
+  round: Matchday 8
+  venue: Guadalajara (Zapopan)
+- home: Czech Republic
+  away: Mexico
+  date: '2026-06-24'
+  time: 19:00 UTC-6
+  group: A
+  round: Matchday 14
+  venue: Mexico City
+- home: South Africa
+  away: South Korea
+  date: '2026-06-24'
+  time: 19:00 UTC-6
+  group: A
+  round: Matchday 14
+  venue: Monterrey (Guadalupe)
+- home: Canada
+  away: Bosnia and Herzegovina
+  date: '2026-06-12'
+  time: 15:00 UTC-4
+  group: B
+  round: Matchday 2
+  venue: Toronto
+- home: Qatar
+  away: Switzerland
+  date: '2026-06-13'
+  time: 12:00 UTC-7
+  group: B
+  round: Matchday 3
+  venue: San Francisco Bay Area (Santa Clara)
+- home: Switzerland
+  away: Bosnia and Herzegovina
+  date: '2026-06-18'
+  time: 12:00 UTC-7
+  group: B
+  round: Matchday 8
+  venue: Los Angeles (Inglewood)
+- home: Canada
+  away: Qatar
+  date: '2026-06-18'
+  time: 15:00 UTC-7
+  group: B
+  round: Matchday 8
+  venue: Vancouver
+- home: Switzerland
+  away: Canada
+  date: '2026-06-24'
+  time: 12:00 UTC-7
+  group: B
+  round: Matchday 14
+  venue: Vancouver
+- home: Bosnia and Herzegovina
+  away: Qatar
+  date: '2026-06-24'
+  time: 12:00 UTC-7
+  group: B
+  round: Matchday 14
+  venue: Seattle
+- home: Brazil
+  away: Morocco
+  date: '2026-06-13'
+  time: 18:00 UTC-4
+  group: C
+  round: Matchday 3
+  venue: New York/New Jersey (East Rutherford)
+- home: Haiti
+  away: Scotland
+  date: '2026-06-13'
+  time: 21:00 UTC-4
+  group: C
+  round: Matchday 3
+  venue: Boston (Foxborough)
+- home: Scotland
+  away: Morocco
+  date: '2026-06-19'
+  time: 18:00 UTC-4
+  group: C
+  round: Matchday 9
+  venue: Boston (Foxborough)
+- home: Brazil
+  away: Haiti
+  date: '2026-06-19'
+  time: 20:30 UTC-4
+  group: C
+  round: Matchday 9
+  venue: Philadelphia
+- home: Scotland
+  away: Brazil
+  date: '2026-06-24'
+  time: 18:00 UTC-4
+  group: C
+  round: Matchday 14
+  venue: Miami (Miami Gardens)
+- home: Morocco
+  away: Haiti
+  date: '2026-06-24'
+  time: 18:00 UTC-4
+  group: C
+  round: Matchday 14
+  venue: Atlanta
+- home: United States
+  away: Paraguay
+  date: '2026-06-12'
+  time: 18:00 UTC-7
+  group: D
+  round: Matchday 2
+  venue: Los Angeles (Inglewood)
+- home: Australia
+  away: Turkey
+  date: '2026-06-13'
+  time: 21:00 UTC-7
+  group: D
+  round: Matchday 3
+  venue: Vancouver
+- home: United States
+  away: Australia
+  date: '2026-06-19'
+  time: 12:00 UTC-7
+  group: D
+  round: Matchday 9
+  venue: Seattle
+- home: Turkey
+  away: Paraguay
+  date: '2026-06-19'
+  time: 20:00 UTC-7
+  group: D
+  round: Matchday 9
+  venue: San Francisco Bay Area (Santa Clara)
+- home: Turkey
+  away: United States
+  date: '2026-06-25'
+  time: 19:00 UTC-7
+  group: D
+  round: Matchday 15
+  venue: Los Angeles (Inglewood)
+- home: Paraguay
+  away: Australia
+  date: '2026-06-25'
+  time: 19:00 UTC-7
+  group: D
+  round: Matchday 15
+  venue: San Francisco Bay Area (Santa Clara)
+- home: Germany
+  away: Curaçao
+  date: '2026-06-14'
+  time: 12:00 UTC-5
+  group: E
+  round: Matchday 4
+  venue: Houston
+- home: Ivory Coast
+  away: Ecuador
+  date: '2026-06-14'
+  time: 19:00 UTC-4
+  group: E
+  round: Matchday 4
+  venue: Philadelphia
+- home: Germany
+  away: Ivory Coast
+  date: '2026-06-20'
+  time: 16:00 UTC-4
+  group: E
+  round: Matchday 10
+  venue: Toronto
+- home: Ecuador
+  away: Curaçao
+  date: '2026-06-20'
+  time: 19:00 UTC-5
+  group: E
+  round: Matchday 10
+  venue: Kansas City
+- home: Curaçao
+  away: Ivory Coast
+  date: '2026-06-25'
+  time: 16:00 UTC-4
+  group: E
+  round: Matchday 15
+  venue: Philadelphia
+- home: Ecuador
+  away: Germany
+  date: '2026-06-25'
+  time: 16:00 UTC-4
+  group: E
+  round: Matchday 15
+  venue: New York/New Jersey (East Rutherford)
+- home: Netherlands
+  away: Japan
+  date: '2026-06-14'
+  time: 15:00 UTC-5
+  group: F
+  round: Matchday 4
+  venue: Dallas (Arlington)
+- home: Sweden
+  away: Tunisia
+  date: '2026-06-14'
+  time: 20:00 UTC-6
+  group: F
+  round: Matchday 4
+  venue: Monterrey (Guadalupe)
+- home: Netherlands
+  away: Sweden
+  date: '2026-06-20'
+  time: 12:00 UTC-5
+  group: F
+  round: Matchday 10
+  venue: Houston
+- home: Tunisia
+  away: Japan
+  date: '2026-06-20'
+  time: 22:00 UTC-6
+  group: F
+  round: Matchday 10
+  venue: Monterrey (Guadalupe)
+- home: Japan
+  away: Sweden
+  date: '2026-06-25'
+  time: 18:00 UTC-5
+  group: F
+  round: Matchday 15
+  venue: Dallas (Arlington)
+- home: Tunisia
+  away: Netherlands
+  date: '2026-06-25'
+  time: 18:00 UTC-5
+  group: F
+  round: Matchday 15
+  venue: Kansas City
+- home: Belgium
+  away: Egypt
+  date: '2026-06-15'
+  time: 12:00 UTC-7
+  group: G
+  round: Matchday 5
+  venue: Seattle
+- home: Iran
+  away: New Zealand
+  date: '2026-06-15'
+  time: 18:00 UTC-7
+  group: G
+  round: Matchday 5
+  venue: Los Angeles (Inglewood)
+- home: Belgium
+  away: Iran
+  date: '2026-06-21'
+  time: 12:00 UTC-7
+  group: G
+  round: Matchday 11
+  venue: Los Angeles (Inglewood)
+- home: New Zealand
+  away: Egypt
+  date: '2026-06-21'
+  time: 18:00 UTC-7
+  group: G
+  round: Matchday 11
+  venue: Vancouver
+- home: Egypt
+  away: Iran
+  date: '2026-06-26'
+  time: 20:00 UTC-7
+  group: G
+  round: Matchday 16
+  venue: Seattle
+- home: New Zealand
+  away: Belgium
+  date: '2026-06-26'
+  time: 20:00 UTC-7
+  group: G
+  round: Matchday 16
+  venue: Vancouver
+- home: Spain
+  away: Cape Verde
+  date: '2026-06-15'
+  time: 12:00 UTC-4
+  group: H
+  round: Matchday 5
+  venue: Atlanta
+- home: Saudi Arabia
+  away: Uruguay
+  date: '2026-06-15'
+  time: 18:00 UTC-4
+  group: H
+  round: Matchday 5
+  venue: Miami (Miami Gardens)
+- home: Spain
+  away: Saudi Arabia
+  date: '2026-06-21'
+  time: 12:00 UTC-4
+  group: H
+  round: Matchday 11
+  venue: Atlanta
+- home: Uruguay
+  away: Cape Verde
+  date: '2026-06-21'
+  time: 18:00 UTC-4
+  group: H
+  round: Matchday 11
+  venue: Miami (Miami Gardens)
+- home: Cape Verde
+  away: Saudi Arabia
+  date: '2026-06-26'
+  time: 19:00 UTC-5
+  group: H
+  round: Matchday 16
+  venue: Houston
+- home: Uruguay
+  away: Spain
+  date: '2026-06-26'
+  time: 18:00 UTC-6
+  group: H
+  round: Matchday 16
+  venue: Guadalajara (Zapopan)
+- home: France
+  away: Senegal
+  date: '2026-06-16'
+  time: 15:00 UTC-4
+  group: I
+  round: Matchday 6
+  venue: New York/New Jersey (East Rutherford)
+- home: Iraq
+  away: Norway
+  date: '2026-06-16'
+  time: 18:00 UTC-4
+  group: I
+  round: Matchday 6
+  venue: Boston (Foxborough)
+- home: France
+  away: Iraq
+  date: '2026-06-22'
+  time: 17:00 UTC-4
+  group: I
+  round: Matchday 12
+  venue: Philadelphia
+- home: Norway
+  away: Senegal
+  date: '2026-06-22'
+  time: 20:00 UTC-4
+  group: I
+  round: Matchday 12
+  venue: New York/New Jersey (East Rutherford)
+- home: Norway
+  away: France
+  date: '2026-06-26'
+  time: 15:00 UTC-4
+  group: I
+  round: Matchday 16
+  venue: Boston (Foxborough)
+- home: Senegal
+  away: Iraq
+  date: '2026-06-26'
+  time: 15:00 UTC-4
+  group: I
+  round: Matchday 16
+  venue: Toronto
+- home: Argentina
+  away: Algeria
+  date: '2026-06-16'
+  time: 20:00 UTC-5
+  group: J
+  round: Matchday 6
+  venue: Kansas City
+- home: Austria
+  away: Jordan
+  date: '2026-06-16'
+  time: 21:00 UTC-7
+  group: J
+  round: Matchday 6
+  venue: San Francisco Bay Area (Santa Clara)
+- home: Argentina
+  away: Austria
+  date: '2026-06-22'
+  time: 12:00 UTC-5
+  group: J
+  round: Matchday 12
+  venue: Dallas (Arlington)
+- home: Jordan
+  away: Algeria
+  date: '2026-06-22'
+  time: 20:00 UTC-7
+  group: J
+  round: Matchday 12
+  venue: San Francisco Bay Area (Santa Clara)
+- home: Algeria
+  away: Austria
+  date: '2026-06-27'
+  time: 21:00 UTC-5
+  group: J
+  round: Matchday 17
+  venue: Kansas City
+- home: Jordan
+  away: Argentina
+  date: '2026-06-27'
+  time: 21:00 UTC-5
+  group: J
+  round: Matchday 17
+  venue: Dallas (Arlington)
+- home: Portugal
+  away: DR Congo
+  date: '2026-06-17'
+  time: 12:00 UTC-5
+  group: K
+  round: Matchday 7
+  venue: Houston
+- home: Uzbekistan
+  away: Colombia
+  date: '2026-06-17'
+  time: 20:00 UTC-6
+  group: K
+  round: Matchday 7
+  venue: Mexico City
+- home: Portugal
+  away: Uzbekistan
+  date: '2026-06-23'
+  time: 12:00 UTC-5
+  group: K
+  round: Matchday 13
+  venue: Houston
+- home: Colombia
+  away: DR Congo
+  date: '2026-06-23'
+  time: 20:00 UTC-6
+  group: K
+  round: Matchday 13
+  venue: Guadalajara (Zapopan)
+- home: Colombia
+  away: Portugal
+  date: '2026-06-27'
+  time: 19:30 UTC-4
+  group: K
+  round: Matchday 17
+  venue: Miami (Miami Gardens)
+- home: DR Congo
+  away: Uzbekistan
+  date: '2026-06-27'
+  time: 19:30 UTC-4
+  group: K
+  round: Matchday 17
+  venue: Atlanta
+- home: England
+  away: Croatia
+  date: '2026-06-17'
+  time: 15:00 UTC-5
+  group: L
+  round: Matchday 7
+  venue: Dallas (Arlington)
+- home: Ghana
+  away: Panama
+  date: '2026-06-17'
+  time: 19:00 UTC-4
+  group: L
+  round: Matchday 7
+  venue: Toronto
+- home: England
+  away: Ghana
+  date: '2026-06-23'
+  time: 16:00 UTC-4
+  group: L
+  round: Matchday 13
+  venue: Boston (Foxborough)
+- home: Panama
+  away: Croatia
+  date: '2026-06-23'
+  time: 19:00 UTC-4
+  group: L
+  round: Matchday 13
+  venue: Toronto
+- home: Panama
+  away: England
+  date: '2026-06-27'
+  time: 17:00 UTC-4
+  group: L
+  round: Matchday 17
+  venue: New York/New Jersey (East Rutherford)
+- home: Croatia
+  away: Ghana
+  date: '2026-06-27'
+  time: 17:00 UTC-4
+  group: L
+  round: Matchday 17
+  venue: Philadelphia
+- match: 73
+  home: 2A
+  away: 2B
+  date: '2026-06-28'
+  time: 12:00 UTC-7
+  round: Round of 32
+  venue: Los Angeles (Inglewood)
+- match: 74
+  home: 1E
+  away: 3rd-ABCDF
+  date: '2026-06-29'
+  time: 16:30 UTC-4
+  round: Round of 32
+  venue: Boston (Foxborough)
+- match: 75
+  home: 1F
+  away: 2C
+  date: '2026-06-29'
+  time: 19:00 UTC-6
+  round: Round of 32
+  venue: Monterrey (Guadalupe)
+- match: 76
+  home: 1C
+  away: 2F
+  date: '2026-06-29'
+  time: 12:00 UTC-5
+  round: Round of 32
+  venue: Houston
+- match: 77
+  home: 1I
+  away: 3rd-CDFGH
+  date: '2026-06-30'
+  time: 17:00 UTC-4
+  round: Round of 32
+  venue: New York/New Jersey (East Rutherford)
+- match: 78
+  home: 2E
+  away: 2I
+  date: '2026-06-30'
+  time: 12:00 UTC-5
+  round: Round of 32
+  venue: Dallas (Arlington)
+- match: 79
+  home: 1A
+  away: 3rd-CEFHI
+  date: '2026-06-30'
+  time: 19:00 UTC-6
+  round: Round of 32
+  venue: Mexico City
+- match: 80
+  home: 1L
+  away: 3rd-EHIJK
+  date: '2026-07-01'
+  time: 12:00 UTC-4
+  round: Round of 32
+  venue: Atlanta
+- match: 81
+  home: 1D
+  away: 3rd-BEFIJ
+  date: '2026-07-01'
+  time: 17:00 UTC-7
+  round: Round of 32
+  venue: San Francisco Bay Area (Santa Clara)
+- match: 82
+  home: 1G
+  away: 3rd-AEHIJ
+  date: '2026-07-01'
+  time: 13:00 UTC-7
+  round: Round of 32
+  venue: Seattle
+- match: 83
+  home: 2K
+  away: 2L
+  date: '2026-07-02'
+  time: 19:00 UTC-4
+  round: Round of 32
+  venue: Toronto
+- match: 84
+  home: 1H
+  away: 2J
+  date: '2026-07-02'
+  time: 12:00 UTC-7
+  round: Round of 32
+  venue: Los Angeles (Inglewood)
+- match: 85
+  home: 1B
+  away: 3rd-EFGIJ
+  date: '2026-07-02'
+  time: 20:00 UTC-7
+  round: Round of 32
+  venue: Vancouver
+- match: 86
+  home: 1J
+  away: 2H
+  date: '2026-07-03'
+  time: 18:00 UTC-4
+  round: Round of 32
+  venue: Miami (Miami Gardens)
+- match: 87
+  home: 1K
+  away: 3rd-DEIJL
+  date: '2026-07-03'
+  time: 20:30 UTC-5
+  round: Round of 32
+  venue: Kansas City
+- match: 88
+  home: 2D
+  away: 2G
+  date: '2026-07-03'
+  time: 13:00 UTC-5
+  round: Round of 32
+  venue: Dallas (Arlington)
+- match: 89
+  home: W74
+  away: W77
+  date: '2026-07-04'
+  time: 17:00 UTC-4
+  round: Round of 16
+  venue: Philadelphia
+- match: 90
+  home: W73
+  away: W75
+  date: '2026-07-04'
+  time: 12:00 UTC-5
+  round: Round of 16
+  venue: Houston
+- match: 91
+  home: W76
+  away: W78
+  date: '2026-07-05'
+  time: 16:00 UTC-4
+  round: Round of 16
+  venue: New York/New Jersey (East Rutherford)
+- match: 92
+  home: W79
+  away: W80
+  date: '2026-07-05'
+  time: 18:00 UTC-6
+  round: Round of 16
+  venue: Mexico City
+- match: 93
+  home: W83
+  away: W84
+  date: '2026-07-06'
+  time: 14:00 UTC-5
+  round: Round of 16
+  venue: Dallas (Arlington)
+- match: 94
+  home: W81
+  away: W82
+  date: '2026-07-06'
+  time: 17:00 UTC-7
+  round: Round of 16
+  venue: Seattle
+- match: 95
+  home: W86
+  away: W88
+  date: '2026-07-07'
+  time: 12:00 UTC-4
+  round: Round of 16
+  venue: Atlanta
+- match: 96
+  home: W85
+  away: W87
+  date: '2026-07-07'
+  time: 13:00 UTC-7
+  round: Round of 16
+  venue: Vancouver
+- match: 97
+  home: W89
+  away: W90
+  date: '2026-07-09'
+  time: 16:00 UTC-4
+  round: Quarter-final
+  venue: Boston (Foxborough)
+- match: 98
+  home: W93
+  away: W94
+  date: '2026-07-10'
+  time: 12:00 UTC-7
+  round: Quarter-final
+  venue: Los Angeles (Inglewood)
+- match: 99
+  home: W91
+  away: W92
+  date: '2026-07-11'
+  time: 17:00 UTC-4
+  round: Quarter-final
+  venue: Miami (Miami Gardens)
+- match: 100
+  home: W95
+  away: W96
+  date: '2026-07-11'
+  time: 20:00 UTC-5
+  round: Quarter-final
+  venue: Kansas City
+- match: 101
+  home: W97
+  away: W98
+  date: '2026-07-14'
+  time: 14:00 UTC-5
+  round: Semi-final
+  venue: Dallas (Arlington)
+- match: 102
+  home: W99
+  away: W100
+  date: '2026-07-15'
+  time: 15:00 UTC-4
+  round: Semi-final
+  venue: Atlanta
+- match: 103
+  home: L101
+  away: L102
+  date: '2026-07-18'
+  time: 17:00 UTC-4
+  round: Match for third place
+  venue: Miami (Miami Gardens)
+- match: 104
+  home: W101
+  away: W102
+  date: '2026-07-19'
+  time: 15:00 UTC-4
+  round: Final
+  venue: New York/New Jersey (East Rutherford)
+advancement:
+  per_group: 2
+  best_thirds: 8
+third_place_tiebreakers:
+- goal_difference
+- goals_scored
+- head_to_head
+- fair_play
+- drawing_of_lots
+bracket:
+  paths:
+  - name: Path 1 (left half)
+    semifinal: 101
+    round_of_32_matches:
+    - 73
+    - 74
+    - 75
+    - 77
+    - 81
+    - 82
+    - 83
+    - 84
+    round_of_16_matches:
+    - 89
+    - 90
+    - 93
+    - 94
+    quarterfinals:
+    - 97
+    - 98
+  - name: Path 2 (right half)
+    semifinal: 102
+    round_of_32_matches:
+    - 76
+    - 78
+    - 79
+    - 80
+    - 85
+    - 86
+    - 87
+    - 88
+    round_of_16_matches:
+    - 91
+    - 92
+    - 95
+    - 96
+    quarterfinals:
+    - 99
+    - 100
+  final:
+    match: 104
+    home: W101
+    away: W102
+    date: '2026-07-19'
+    venue: New York/New Jersey (East Rutherford)
+  third_place:
+    match: 103
+    home: L101
+    away: L102
+    date: '2026-07-18'
+    venue: Miami (Miami Gardens)
+venues:
+- name: BC Place
+  city: Vancouver
+  country: CA
+  lat: 49.2767
+  lon: -123.1119
+  altitude_m: 18
+  climate: oceanic (Köppen Cfb), mild
+  capacity: 54000
+  timezone: UTC-7
+- name: Lumen Field
+  city: Seattle
+  country: US
+  lat: 47.5953
+  lon: -122.3317
+  altitude_m: 10
+  climate: oceanic (Köppen Csb/Cfb), mild
+  capacity: 69000
+  timezone: UTC-7
+- name: Levi's Stadium
+  city: San Francisco Bay Area (Santa Clara)
+  country: US
+  lat: 37.403
+  lon: -121.97
+  altitude_m: 3
+  climate: warm-summer Mediterranean (Köppen Csb), mild
+  capacity: 71000
+  timezone: UTC-7
+- name: SoFi Stadium
+  city: Los Angeles (Inglewood)
+  country: US
+  lat: 33.953
+  lon: -118.339
+  altitude_m: 38
+  climate: hot-summer Mediterranean (Köppen Csa), warm-dry
+  capacity: 70000
+  timezone: UTC-7
+- name: Estadio Akron
+  city: Guadalajara (Zapopan)
+  country: MX
+  lat: 20.6817
+  lon: -103.4628
+  altitude_m: 1675
+  climate: subtropical highland (Köppen Cwa), high-altitude temperate
+  capacity: 48000
+  timezone: UTC-6
+- name: Estadio Azteca
+  city: Mexico City
+  country: MX
+  lat: 19.3031
+  lon: -99.1506
+  altitude_m: 2245
+  climate: subtropical highland (Köppen Cwb), high-altitude temperate
+  capacity: 83000
+  timezone: UTC-6
+- name: Estadio BBVA
+  city: Monterrey (Guadalupe)
+  country: MX
+  lat: 25.6692
+  lon: -100.2444
+  altitude_m: 494
+  climate: hot semi-arid (Köppen BSh), HOT
+  capacity: 53500
+  timezone: UTC-6
+- name: NRG Stadium
+  city: Houston
+  country: US
+  lat: 29.6847
+  lon: -95.4108
+  altitude_m: 13
+  climate: humid subtropical (Köppen Cfa), HOT-HUMID
+  capacity: 72000
+  timezone: UTC-5
+- name: AT&T Stadium
+  city: Dallas (Arlington)
+  country: US
+  lat: 32.7478
+  lon: -97.0928
+  altitude_m: 193
+  climate: humid subtropical (Köppen Cfa), HOT
+  capacity: 94000
+  timezone: UTC-5
+- name: Arrowhead Stadium
+  city: Kansas City
+  country: US
+  lat: 39.0489
+  lon: -94.4839
+  altitude_m: 259
+  climate: humid subtropical/continental (Köppen Cfa/Dfa), HOT-HUMID
+  capacity: 73000
+  timezone: UTC-5
+- name: Mercedes-Benz Stadium
+  city: Atlanta
+  country: US
+  lat: 33.7556
+  lon: -84.4
+  altitude_m: 308
+  climate: humid subtropical (Köppen Cfa), warm-humid
+  capacity: 75000
+  timezone: UTC-4
+- name: Hard Rock Stadium
+  city: Miami (Miami Gardens)
+  country: US
+  lat: 25.9581
+  lon: -80.2389
+  altitude_m: 5
+  climate: tropical monsoon (Köppen Am), HOT-HUMID
+  capacity: 65000
+  timezone: UTC-4
+- name: BMO Field
+  city: Toronto
+  country: CA
+  lat: 43.6333
+  lon: -79.4186
+  altitude_m: 83
+  climate: humid continental (Köppen Dfa), warm
+  capacity: 45000
+  timezone: UTC-4
+- name: Gillette Stadium
+  city: Boston (Foxborough)
+  country: US
+  lat: 42.091
+  lon: -71.264
+  altitude_m: 84
+  climate: humid continental (Köppen Dfa), warm
+  capacity: 65000
+  timezone: UTC-4
+- name: Lincoln Financial Field
+  city: Philadelphia
+  country: US
+  lat: 39.9008
+  lon: -75.1675
+  altitude_m: 0
+  climate: humid subtropical (Köppen Cfa), warm-humid
+  capacity: 69000
+  timezone: UTC-4
+- name: MetLife Stadium
+  city: New York/New Jersey (East Rutherford)
+  country: US
+  lat: 40.8135
+  lon: -74.0744
+  altitude_m: 4
+  climate: humid subtropical (Köppen Cfa), warm-humid
+  capacity: 82500
+  timezone: UTC-4
