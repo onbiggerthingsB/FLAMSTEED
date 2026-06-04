@@ -16,6 +16,7 @@ No standard RPS variant (with/without the 1/(r-1) factor, either cumulation
 direction) yields 0.2725, so the literal is corrected to the verified 0.445.
 """
 import numpy as np
+import pandas as pd
 import pytest
 
 from wcmodel.model.calibration import (
@@ -46,3 +47,50 @@ def test_vs_elo_baseline_returns_both_scores(small_store):
     assert rep["n_matches"] >= 1
     assert rep["in_sample"] is True            # this harness is in-sample (sanity, not the betting bar)
     assert 0.0 <= rep["model_rps"] <= 1.0 and 0.0 <= rep["elo_rps"] <= 1.0
+
+
+def test_posterior_predictive_checks_empty_panel_is_null_safe():
+    """n=0 -> NaN obs/pred, n_matches==0, NO crash (the predictive grid loop is
+    never entered, so a posterior is not even needed). Guards the documented
+    NULL-safe contract: an empty fitted panel must not divide-by-zero."""
+    empty = pd.DataFrame(
+        {"home_team": [], "away_team": [], "home_goals": [], "away_goals": [],
+         "neutral": []}
+    )
+    rep = posterior_predictive_checks(posterior=None, match_panel=empty)
+    assert rep["n_matches"] == 0
+    for k in ("draw_rate", "home_win_rate", "mean_total_goals"):
+        assert np.isnan(rep[k]["obs"]) and np.isnan(rep[k]["pred"])
+
+
+@pytest.mark.slow
+def test_posterior_predictive_checks_obs_vs_pred(small_store):
+    """Fit on the tiny fixture, then assert PPC returns obs-vs-pred aggregates in
+    valid ranges. IN-SAMPLE sanity (the fitted fixtures), NOT a calibration claim:
+    rates must be probabilities in [0,1] and mean goals must be a finite >=0
+    count; obs values must equal the panel's own empirical rates exactly."""
+    from wcmodel.data import features
+    from wcmodel.model.panel import to_match_panel
+    from wcmodel.model.scoreline import fit
+
+    post = fit("2024-06-01", small_store, backend="advi", draws=150, seed=0, advi_iters=3000)
+    mp = to_match_panel(features.build("2024-06-01", small_store))
+    rep = posterior_predictive_checks(post, mp)
+
+    assert {"draw_rate", "home_win_rate", "mean_total_goals", "n_matches"} <= set(rep)
+    assert rep["n_matches"] == len(mp) >= 1
+    # Every rate (obs AND pred) is a probability; mean total goals is a finite
+    # non-negative count (obs AND pred).
+    for k in ("draw_rate", "home_win_rate"):
+        assert 0.0 <= rep[k]["obs"] <= 1.0
+        assert 0.0 <= rep[k]["pred"] <= 1.0
+    for side in ("obs", "pred"):
+        assert np.isfinite(rep["mean_total_goals"][side])
+        assert rep["mean_total_goals"][side] >= 0.0
+    # The observed aggregates are the panel's own empirical rates (no model in them).
+    assert rep["draw_rate"]["obs"] == pytest.approx(
+        float((mp["home_goals"] == mp["away_goals"]).mean())
+    )
+    assert rep["home_win_rate"]["obs"] == pytest.approx(
+        float((mp["home_goals"] > mp["away_goals"]).mean())
+    )

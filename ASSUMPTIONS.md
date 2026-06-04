@@ -271,3 +271,154 @@ by the tasks noted (Elo hyperparameters → Task 5; StatsBomb release → Task 9
   *expected*, not a bug, under this policy. **No clean-core Phase-1 source uses
   CURRENT_ONLY** (it is reserved for the deferred optional sources above), so the practical
   leakage surface of the contaminated fallback is **zero**.
+
+## Phase 2 — Bayesian scoreline model
+
+Every load-bearing decision in the Phase-2 scoreline model (`src/wcmodel/model/`),
+plus the follow-ups deferred to Phase 4. Implemented on branch
+`phase2-scoreline-model`; spec
+`docs/superpowers/specs/2026-06-03-phase2-bayesian-scoreline-design.md`.
+
+- **Independent prior — Elo is NOT a prior or covariate in the model (pinned, spec §1.1).**
+  The scoreline model learns each team's attack/defense (`att`/`def`) from **results**
+  via a **hierarchical shrinkage prior** (per-team Normal around a shared hyper-mean with a
+  learned scale), with a **soft sum-to-zero centering** on `att`/`def` for identifiability
+  (a zero-sum soft constraint, not a hard pivot). Elo is **never** an anchor, mean, or
+  covariate of that prior. Rationale: Elo is itself derived from results, so anchoring the
+  prior to Elo *and* fitting the likelihood on results would use the same data twice
+  (double-counting / the double-damping flagged in Phase 1). "We went Bayesian so the
+  *prior* handles low-information shrinkage" — the hierarchical prior + provisional-widening
+  does that job. **Computed-Elo stays the Phase-4 naive baseline** (`compute_elo_history` →
+  `elo_1x2_baseline`), a separate independent estimate the model is scored against — there
+  is exactly one Elo and it never enters the model.
+- **Both likelihoods behind one `ScorelineModel` interface — DC-vs-BP is a pre-counted P4
+  lockbox DOF (pinned, spec §1.2 / §7.4).** Phase 2 ships **both** the Dixon-Coles low-score
+  correction (a `tau`-reweight of the four `{0,1}×{0,1}` cells of the independent-Poisson
+  grid) **and** the bivariate-Poisson (a shared `λ3` covariance term), behind one
+  `ScorelineModel` ABC (`scoreline.py`) with a common `fit`. Both are **scipy-verified**
+  against their reference pmfs (`likelihoods.py`). Phase 2 does **NOT** pick the winner: the
+  empirical Dixon-Coles-vs-bivariate-Poisson choice is a **pre-counted Phase-4 lockbox
+  degree of freedom** (DOF #8 below), decided by out-of-sample calibration, under the same
+  pre-registration discipline as the de-vig method and Elo K.
+- **`_TAU_FLOOR` soft barrier for Dixon-Coles (pinned).** The DC `tau` correction can go
+  `<= 0` for an extreme combination of unbounded Poisson rates × `rho`; we floor it at
+  `_TAU_FLOOR = 1e-12` **inside the log** so NUTS receives a **finite penalty** (a soft
+  barrier) rather than a `-inf`/NaN gradient — it is a **no-op for any realistic goal
+  rate**, biting only in the pathological tail. The model additionally bounds `rho` with a
+  **TruncatedNormal** prior so the posterior keeps `rho` small (DC is a low-score
+  *correction*, not a free covariance). At **predict** time the DC grid is a QUASI-likelihood
+  (the `tau`-reweight does not integrate to a proper joint pmf), so each per-draw grid is
+  **renormalized**, and any residual `tau<0` cell is **clipped to 0** before renorm so no
+  negative probability survives (`posterior.predict_scoreline`). Bivariate-Poisson uses the
+  proper joint pmf, so its grid is just exponentiated + renormalized (finite-grid truncation
+  only).
+- **Provisional-widening — ship BOTH (a) and (c); mechanism AND strength are P4 DOF (pinned,
+  spec §7.2; binding Phase-1 acceptance criterion).** A `provisional` team (low
+  rated-match-count OR high recent Elo-delta volatility, from Phase 1) MUST carry **more
+  predictive uncertainty**, else the flag is decorative. Phase 2 ships **both** arms behind
+  `config.model.widening.mechanism`:
+  - **(a) likelihood down-weight** — scales that team's match contributions in the
+    likelihood (`likelihood_weight`), so the data pins its `att`/`def` less tightly.
+  - **(c) predictive-variance inflation** — an **EXACT mean-preserving** widening of the
+    averaged predictive grid (`widening.inflate_predictive`): a **max-entropy
+    exponentially-tilted** reference whose tilt is **solved so the widened grid's marginal
+    means equal the original grid's marginal means to machine precision**. This widens the
+    scoreline distribution (more uncertainty) **without biasing the predicted 1X2 edge** —
+    the mean (hence the implied fair price) is preserved by construction. Verified
+    mean-preserving in the widening tests.
+  - **Design leans (c)** (widens for the real reason — uncertainty — and keeps all the data),
+    but **both the mechanism (a vs c) AND the strength are pre-counted Phase-4 lockbox DOF**
+    (#3 and #4 below). The widening **strength is co-tuned with the decay half-life** (#5):
+    both encode the *same* recency signal, so tuning them independently would double-count
+    recency. **Sizing reality (T0 diagnostic, `reports/phase2_volatility_field_sizing.md`):**
+    of the 48-team WC-2026 field, **only 1 (Sweden)** trips the volatility arm and **0** trip
+    the few-games arm at the 2026-06-01 cutoff — so widening affects **few** predictions, and
+    the (a)/(c) arms are deliberately kept minimal.
+- **Inference — ADVI/Pathfinder walk-forward + NUTS final/periodic; periodic NUTS is an
+  ADVI-falsely-tight check (pinned, spec §7.5).** `inference.py` exposes a NUTS backend (full
+  posterior) and an ADVI backend (mean-field variational, fast) for the per-cutoff
+  walk-forward refits. The periodic full-**NUTS** fit is an explicit **`advi_variance_check`**:
+  **ADVI mean-field systematically UNDERESTIMATES posterior variance**, and we *depend on the
+  posterior width* — it drives both the (c) predictive widening and the Phase-4 stake sizing
+  — so a periodic NUTS fit checks that ADVI is not falsely tight. **Pathfinder is unavailable
+  in the pinned `pymc 6.0.1`** → the Pathfinder path raises `NotImplementedError` (recorded
+  so it is not mistaken for a bug); ADVI is the walk-forward backend until Pathfinder lands.
+- **Per-cutoff fit + leakage discipline (pinned, spec §6; Task-9 canary).** `fit(cutoff)`
+  consumes **only** `features.build(cutoff)` (the Phase-1 leakage-safe panel: matches strictly
+  before the cutoff day, played-filtered) **plus** `count_volatility_arm(cutoff)` — **both read
+  only matches `< cutoff`**. No other store table and no future row is read in the fit, so a
+  fit at `cutoff` can never peek past it. Specifics:
+  - The **provisional set for predict-time (c) widening is the AS-OF-CUTOFF status** (each
+    team's would-be provisional flag at its *next* match, via `count_volatility_arm`), **NOT
+    the per-match panel flags**. Panel flags are *pre-match* states, so a team provisional only
+    in its early history would otherwise be flagged "ever provisional" and widened forever;
+    the as-of-cutoff status widens only teams genuinely low-information **now**.
+  - `rest_days` is a **predict-time** covariate computed from **only matches that exist at the
+    cutoff** (`rest.predict_rest_days`): a team with no prior match in the `< cutoff` slice gets
+    **NULL**, never a value inferred from an unplayed future fixture (mirrors the Phase-1
+    no-imputation rule and the `rest_days` rider, spec §3/§7.1).
+  - **Model-layer leakage canary (Task 9):** the per-cutoff fit is proven **bit-identical** under
+    a future-result mutation — the posterior **and** the provisional set are invariant when a
+    post-cutoff result is rewritten, in **both** widening modes, with the canary's **teeth
+    demonstrated** (a deliberate leak would flip the posterior / the provisional-set membership).
+    Plus `rest_days` tz-coercion + explicit played contract are covered.
+- **Posterior cache — content-addressed, posterior-group-only (pinned, Task 8).**
+  `cache.py` is content-addressed on a **complete** key: the feature-hash + the **full model
+  config** (likelihood, prior, widening, inference knobs) + the **global elo block** + the
+  **windows** + the inference seed + the git commit. It persists the **`posterior` group
+  only** via the **NETCDF3** engine — `arviz 1.1.0` lacks `az.to_netcdf` and there is no
+  `netcdf4` backend in the pinned env, so `sample_stats` and `observed_data` are **NOT
+  cached**. Consequence (recorded so it cannot be silently violated): **any divergence or
+  posterior-predictive check must use a FRESH fit, not the cache** — the cached object is
+  posterior-only and carries no sampler stats. (See deferred follow-up (i) for the
+  global-elo-vs-`cfg.elo` keying nuance.)
+- **Calibration — IN-SAMPLE RPS vs Elo + PPC; out-of-sample is Phase 4 (pinned,
+  `calibration.py`).** Phase 2's calibration is an **internal diagnostic, NOT the betting
+  bar**: `vs_elo_baseline` scores the model's 1X2 RPS against the leakage-safe Elo baseline
+  over the **fitted** matches (so it stamps `in_sample=True`), and `posterior_predictive_checks`
+  compares the observed vs model-predicted draw-rate / home-win-rate / mean total goals on the
+  fitted panel. **The betting bar (out-of-sample RPS / CLV) is Phase 4.** Per the project rule,
+  a **too-good in-sample result (model RPS << Elo RPS) is a SUSPECTED OVERFIT / leakage bug to
+  surface, never a win** — the only honest verdict of edge is the Phase-4 walk-forward. The
+  Elo baseline in the harness recomputes from the **same `< cutoff` slice** the model fit used,
+  so model and baseline are scored on identical information. (RPS literal note: the standard
+  3-outcome RPS of `{.5,.3,.2}` with outcome `away` is **0.445**, not the `0.2725` in the task
+  draft — the standard formula is the source of truth.)
+
+### Deferred to Phase 4 (recorded explicitly)
+
+- **(i) The `elo` config block is NOT config-threaded — `fit(config=...)` is authoritative for
+  the model block + windows, but NOT for elo.** `compute_elo_history`
+  (`src/wcmodel/data/elo.py`) and `count_volatility_arm`
+  (`src/wcmodel/model/volatility_diagnostic.py`) both read the **GLOBAL** `load_config()["elo"]`
+  internally — they take no `config` argument. So `fit(config=...)` controls the **model block**
+  (priors / widening mechanism+strength / likelihood / inference knobs) and the **windows**, but
+  the **elo block** (K, the volatility threshold `T`, the volatility window) is taken from disk
+  regardless of the passed `cfg`. **Phase 4 must thread the elo config** through
+  `compute_elo_history` + `count_volatility_arm` so the lockbox can tune **Elo K and the
+  volatility threshold `T`** (which calibrate jointly with the prior strength — see the Phase-1
+  Elo entry). **And then the posterior cache key must switch to `cfg["elo"]`**: today the cache
+  deliberately keys `load_config()["elo"]` (the elo that *actually* determined the posterior,
+  since elo is global), precisely because a caller passing a custom `cfg.elo` that diverges from
+  disk must NOT be able to record an elo the computation never used (a stale-serve guard,
+  `cache.py` lines ~147-169). Once elo is threaded, `cfg["elo"]` becomes the value actually used
+  and the key should reference it.
+- **(ii) The Phase-4 tuning DOF list (single-use lockbox; more knobs ⇒ more overfit risk).**
+  Cross-reference the north-star spec §5.1 pre-registration table. The pre-counted degrees of
+  freedom the Phase-4 lockbox calibration may tune are:
+  1. **Elo K** (provisional 40; `{40, ~50, 60}` candidates — Phase-1 Elo entry).
+  2. **Volatility threshold `T`** (provisional p95 = 16.5; calibrated jointly with K and prior
+     strength).
+  3. **Widening mechanism** — (a) likelihood down-weight vs (c) predictive-variance inflation.
+  4. **Widening strength** — **co-tuned with the decay half-life** (#5; shared recency signal).
+  5. **Decay half-life** (provisional 365 days; co-tuned with #4).
+  6. **Prior strength** (the hierarchical shrinkage scale; calibrated jointly with K and `T`).
+  7. **De-vig method** (best-calibrated de-vig of the close is canonical; Shin is the prior —
+     north-star seed #7).
+  8. **Dixon-Coles vs bivariate-Poisson** (the likelihood choice).
+  9. **Kelly** (stake-sizing fraction — Phase 4 only).
+
+  This is a **single-use lockbox** evaluated once on the locked-box out-of-sample data
+  (north-star §4.6); the number of configurations tried is **pre-registered before looking**
+  (north-star seed #2). Every added knob raises overfit risk, so the list is fixed here and
+  not grown on intuition.
