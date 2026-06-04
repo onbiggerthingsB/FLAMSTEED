@@ -30,10 +30,14 @@ def test_dc_reduces_to_independent_poisson_when_rho_zero():
 
 
 def test_dc_tau_adjusts_only_low_scores():
+    # Canonical Dixon-Coles (1997) tau: with x=home~Pois(lh), y=away~Pois(la),
+    # the (0,1) cell uses the HOME rate lh and the (1,0) cell uses the AWAY
+    # rate la. (A swapped convention is NOT mass-neutral; see the mass-neutral
+    # test below.)
     lh, la, rho = 1.2, 0.8, 0.1
     assert dc_tau_np(0, 0, lh, la, rho) == 1 - lh * la * rho
-    assert dc_tau_np(0, 1, lh, la, rho) == 1 + la * rho
-    assert dc_tau_np(1, 0, lh, la, rho) == 1 + lh * rho
+    assert dc_tau_np(0, 1, lh, la, rho) == 1 + lh * rho
+    assert dc_tau_np(1, 0, lh, la, rho) == 1 + la * rho
     assert dc_tau_np(1, 1, lh, la, rho) == 1 - rho
     assert dc_tau_np(3, 2, lh, la, rho) == 1.0  # untouched
 
@@ -47,20 +51,17 @@ def test_dc_matches_independent_poisson_rho_zero_grid():
             assert np.isclose(dc_loglik_np(x, y, lh, la, rho=0.0), expect)
 
 
-def test_dc_normalizes_to_one_when_correction_is_mass_neutral():
-    """The raw Dixon-Coles tau-correction is a QUASI-likelihood, not a
-    normalized pmf: the original Dixon & Coles (1997) tau re-weights the four
-    low-score cells without preserving total mass. The net mass shift is exactly
+def test_dc_is_mass_neutral():
+    """Canonical Dixon-Coles tau is mass-neutral BY CONSTRUCTION: the four
+    low-score cell perturbations cancel exactly
+    (-lh*la + lh*rho*la + la*rho*lh - rho ... net 0 against the Poisson
+    weights), so sum_{x,y} tau(x,y)*Pois(x;lh)*Pois(y;la) == 1 for ANY
+    (lh, la, rho) -- including lh != la and rho != 0.
 
-        rho * (lh - la)**2 * e**(-(lh + la)),
-
-    so exp(dc_loglik) sums to 1 over the goal grid in (and only in) the two
-    cases where that shift vanishes -- rho == 0, or lh == la. Downstream
-    *predictive* code MUST renormalize DC over the score grid; the likelihood
-    used for estimation is the unnormalized form (this is standard DC practice).
-    This test pins both special cases AND the closed-form deviation in the
-    general case so the un-normalization is a documented, asserted property
-    rather than a silent surprise.
+    This is the correctness check that BUG 1 (the swapped (0,1)/(1,0) cells)
+    stays fixed: the swapped convention instead sums to
+    1 + rho*(lh - la)**2 * e**(-(lh + la)), so it FAILS this test whenever
+    lh != la and rho != 0.
     """
     grid = range(0, 40)  # wide enough that truncation error << tolerance
 
@@ -70,13 +71,12 @@ def test_dc_normalizes_to_one_when_correction_is_mass_neutral():
         )
 
     # rho == 0 -> reduces to independent Poisson -> proper pmf.
-    assert np.isclose(dc_grid_sum(1.3, 0.9, 0.0), 1.0, atol=1e-9)
-    # lh == la -> (lh - la)**2 == 0 -> mass-neutral even with rho != 0.
-    assert np.isclose(dc_grid_sum(1.1, 1.1, 0.08), 1.0, atol=1e-9)
-    # General case: total mass deviates from 1 by EXACTLY the closed-form shift.
-    lh, la, rho = 1.3, 0.9, 0.08
-    expected_dev = rho * (lh - la) ** 2 * np.exp(-(lh + la))
-    assert np.isclose(dc_grid_sum(lh, la, rho) - 1.0, expected_dev, atol=1e-9)
+    assert np.isclose(dc_grid_sum(1.3, 0.9, 0.0), 1.0, atol=1e-6)
+    # lh == la, rho != 0 -> mass-neutral.
+    assert np.isclose(dc_grid_sum(1.1, 1.1, 0.08), 1.0, atol=1e-6)
+    # General cases: lh != la AND rho != 0 -> still exactly mass-neutral.
+    assert np.isclose(dc_grid_sum(1.3, 0.9, 0.08), 1.0, atol=1e-6)
+    assert np.isclose(dc_grid_sum(2.0, 0.5, 0.15), 1.0, atol=1e-6)
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +190,43 @@ def test_bp_loglik_pt_matches_np():
     got = f(xs, ys)
     expect = np.array([bp_loglik_np(a, b, l1, l2, l3) for a, b in zip(xs, ys)])
     assert np.allclose(got, expect)
+
+
+def test_bp_loglik_pt_n_not_equal_kmax_plus_one():
+    """BUG 2 regression: the per-match rate term log(l3/(l1*l2)) must broadcast
+    against the k-axis, NOT the match-axis. The PyMC model passes PER-MATCH rate
+    vectors l1,l2,l3 of shape (n,) (one rate per match from the linear
+    predictor). The old `... + k * (log l3 - log l1 - log l2)` multiplied a
+    (1, kmax+1) k-grid by an (n,) rate: it ERRORS when n != kmax+1, and silently
+    contracts the wrong axis when n == kmax+1.
+
+    Uses n=5 matches and kmax=3 (so n != kmax+1 and n > 1). kmax stays
+    >= max(min(x,y)) (the design contract); min(x,y) mixes == kmax (full
+    k-range), < kmax (exercise the -inf mask), and == 0 (k=0 term only).
+    """
+    xs = np.array([0, 1, 5, 3, 2], dtype=np.int64)  # n = 5
+    ys = np.array([4, 0, 3, 1, 2], dtype=np.int64)
+    # min(x,y) = [0, 0, 3, 1, 2]; max = 3 == kmax (no truncation); mixes 0, <kmax, ==kmax
+    # Per-match rate VECTORS (n,), as the model supplies -- this is what makes
+    # the broadcast bug surface (scalar rates would mask it).
+    l1 = np.array([1.2, 0.8, 1.5, 1.0, 1.3])
+    l2 = np.array([1.0, 1.1, 0.9, 1.2, 0.7])
+    l3 = np.array([0.5, 0.4, 0.6, 0.3, 0.5])
+    kmax = 3  # n (5) != kmax+1 (4)
+    assert len(xs) != kmax + 1 and len(xs) > 1
+    assert int(np.minimum(xs, ys).max()) == kmax  # contract: kmax >= max(min(x,y))
+
+    x = pt.lvector("x")
+    y = pt.lvector("y")
+    L1 = pt.dvector("L1")
+    L2 = pt.dvector("L2")
+    L3 = pt.dvector("L3")
+    f = pytensor.function([x, y, L1, L2, L3], bp_loglik_pt(x, y, L1, L2, L3, kmax))
+    got = f(xs, ys, l1, l2, l3)
+    expect = np.array(
+        [bp_loglik_np(a, b, c, d, e) for a, b, c, d, e in zip(xs, ys, l1, l2, l3)]
+    )
+    assert np.allclose(got, expect, atol=1e-6)
 
 
 def test_bp_loglik_pt_kmax_larger_than_needed():

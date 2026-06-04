@@ -19,13 +19,19 @@ def _pois_logpmf_np(k, lam):
     return k * np.log(lam) - lam - gammaln(k + 1.0)
 
 
+# CONTRACT (NaN trap): caller must constrain `rho` so all four tau cells stay
+# strictly positive -- tau(0,0)=1-lh*la*rho>0 and tau(1,1)=1-rho>0 -- otherwise
+# log(tau) is NaN/-inf and breaks NUTS.
 def dc_tau_np(x, y, lh, la, rho):
+    # Canonical Dixon & Coles (1997) tau: x=home~Pois(lh), y=away~Pois(la).
+    # The (0,1) cell uses the HOME rate lh; the (1,0) cell uses the AWAY rate la.
+    # This convention is mass-neutral (the four perturbations cancel exactly).
     if x == 0 and y == 0:
         return 1.0 - lh * la * rho
     if x == 0 and y == 1:
-        return 1.0 + la * rho
-    if x == 1 and y == 0:
         return 1.0 + lh * rho
+    if x == 1 and y == 0:
+        return 1.0 + la * rho
     if x == 1 and y == 1:
         return 1.0 - rho
     return 1.0
@@ -73,16 +79,21 @@ def _pois_logpmf_pt(k, lam):
     return k * pt.log(lam) - lam - pt.gammaln(k + 1.0)
 
 
+# CONTRACT (NaN trap): caller must constrain `rho` so all four tau cells stay
+# strictly positive -- tau(0,0)=1-lh*la*rho>0 and tau(1,1)=1-rho>0 -- otherwise
+# log(tau) is NaN/-inf and breaks NUTS.
 def dc_loglik_pt(x, y, lh, la, rho):
+    # Canonical Dixon-Coles tau (see dc_tau_np): (0,1) uses HOME rate lh,
+    # (1,0) uses AWAY rate la. Mass-neutral by construction.
     tau = pt.switch(
         pt.eq(x, 0) & pt.eq(y, 0),
         1.0 - lh * la * rho,
         pt.switch(
             pt.eq(x, 0) & pt.eq(y, 1),
-            1.0 + la * rho,
+            1.0 + lh * rho,
             pt.switch(
                 pt.eq(x, 1) & pt.eq(y, 0),
-                1.0 + lh * rho,
+                1.0 + la * rho,
                 pt.switch(pt.eq(x, 1) & pt.eq(y, 1), 1.0 - rho, 1.0),
             ),
         ),
@@ -90,6 +101,9 @@ def dc_loglik_pt(x, y, lh, la, rho):
     return _pois_logpmf_pt(x, lh) + _pois_logpmf_pt(y, la) + pt.log(tau)
 
 
+# CONTRACT (NaN trap): requires `l3 > 0` when `kmax > 0` -- the k=0 term computes
+# 0*log(l3), and l3=0 yields NaN in the vectorized graph. For the independent
+# (l3=0) case pass kmax=0. The model uses a strictly-positive prior on l3.
 def bp_loglik_pt(x, y, l1, l2, l3, kmax: int):
     # x, y are observed int arrays; kmax = max(min(x,y)) precomputed in the design.
     base = (
@@ -102,10 +116,18 @@ def bp_loglik_pt(x, y, l1, l2, l3, kmax: int):
     if kmax == 0:
         return base
     ks = pt.arange(kmax + 1)  # (kmax+1,)
-    xk = x[:, None]
-    yk = y[:, None]
-    k = ks[None, :]  # (n, kmax+1)
-    valid = k <= pt.minimum(xk, yk)
+    xk = x[:, None]  # (n, 1)
+    yk = y[:, None]  # (n, 1)
+    k = ks[None, :]  # (1, kmax+1)
+    valid = k <= pt.minimum(xk, yk)  # (n, kmax+1)
+    # The per-match rate term log(l3/(l1*l2)) must broadcast against k over the
+    # MATCH axis, giving entry [i, j] = j * rate_i. `shape_padright` appends a
+    # trailing axis: a per-match (n,) rate (what the model supplies) becomes
+    # (n, 1) so `k * rate` is (n, kmax+1); a scalar rate becomes (1, 1) and still
+    # broadcasts as a scalar. (BUG: a bare (n,) rate term either ERRORS for
+    # n != kmax+1 or silently contracts the wrong axis when n == kmax+1.) The
+    # gammaln terms already broadcast: xk/yk are (n,1), k is (1, kmax+1).
+    rate = pt.shape_padright(pt.log(l3) - pt.log(l1) - pt.log(l2))  # (n, 1)
     log_term = (
         pt.gammaln(xk + 1)
         - pt.gammaln(k + 1)
@@ -114,7 +136,7 @@ def bp_loglik_pt(x, y, l1, l2, l3, kmax: int):
         - pt.gammaln(k + 1)
         - pt.gammaln(yk - k + 1)
         + pt.gammaln(k + 1)
-        + k * (pt.log(l3) - pt.log(l1) - pt.log(l2))
+        + k * rate
     )
     log_term = pt.switch(valid, log_term, -np.inf)
     return base + pt.logsumexp(log_term, axis=1)
