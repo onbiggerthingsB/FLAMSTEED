@@ -180,6 +180,54 @@ def test_string_score_row_excluded_from_panel_coerced_to_nan(tmp_path):
     assert set(df["team"]) == {"Argentina", "Brazil"}
 
 
+def test_invalid_score_rows_excluded_inf_negative_nonintegral(tmp_path):
+    """FIX 2: a results row whose score is NUMERIC but not a valid goal count —
+    ``inf`` / negative / non-integral — must be EXCLUDED from the panel.
+
+    ``pd.to_numeric(errors="coerce")`` alone lets ``inf``, ``-1`` and ``1.5``
+    through (they ARE numeric). ``build`` therefore additionally forces each
+    coerced score to be FINITE, NON-NEGATIVE and INTEGRAL — anything else becomes
+    NaN and is dropped by the played ``notna()`` filter, so it never reaches Elo
+    (where an ``inf`` would poison every downstream rating) or the panel. A real
+    integer score, including a 0-0, is untouched.
+    """
+    results = pd.DataFrame({
+        "match_id": ["m_inf", "m_neg", "m_frac", "m_real"],
+        "date": pd.to_datetime(["2024-06-09", "2024-06-10", "2024-06-11",
+                                "2024-06-12"]),
+        "home_team": ["Brazil", "Spain", "Italy", "Argentina"],
+        "away_team": ["Argentina", "Italy", "Spain", "Brazil"],
+        # m_inf: the STRING "inf" (coerces to +inf, NON-finite); m_neg: -1
+        # (negative); m_frac: 1.5 (non-integral); m_real: a real 0-0 that SURVIVES.
+        "home_score": ["inf", -1, 1.5, 0],
+        "away_score": [0, 0, 0, 0],
+        "tournament": ["Friendly", "Friendly", "Friendly", "Friendly"],
+        "neutral": [False, False, False, False],
+        "city": ["London", "Madrid", "Rome", "Paris"],
+        "country": ["England", "Spain", "Italy", "France"],
+        "revision_contaminated": [False, False, False, False],
+    })
+    store = _RawResultsStore(results)
+    df = build(cutoff="2024-06-20", store=store)
+
+    surviving = set(df["match_id"])
+    # Every invalid-score row is coerced to NaN and dropped by the played filter.
+    assert "m_inf" not in surviving, "an inf-score row leaked into the panel"
+    assert "m_neg" not in surviving, "a negative-score row leaked into the panel"
+    assert "m_frac" not in surviving, "a non-integral-score row leaked into the panel"
+    # The genuinely PLAYED 0-0 row SURVIVES (the validity check excludes only
+    # inf/negative/non-integral, never a real integer score — incl. 0).
+    assert "m_real" in surviving, "a valid 0-0 played match was wrongly dropped"
+    # No surviving row carries a NaN/inf label score; elo_pre is finite (no inf
+    # ever reached the Elo recompute to NaN/inf-poison a rating).
+    assert df["home_score"].notna().all() and df["away_score"].notna().all()
+    assert np.isfinite(df["home_score"]).all() and np.isfinite(df["away_score"]).all()
+    assert df["elo_pre"].notna().all() and np.isfinite(df["elo_pre"]).all()
+    # Only the two real teams of the surviving 0-0 match appear (the invalid-score
+    # rows' teams never entered the Elo recompute).
+    assert set(df["team"]) == {"Argentina", "Brazil"}
+
+
 def test_unplayed_fixture_excluded_from_elo_input(tmp_path):
     """The unplayed fixture must not enter the Elo recompute either: with only
     one PLAYED match (Brazil beat Argentina) in scope, Brazil's emitted row must

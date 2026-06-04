@@ -85,6 +85,114 @@ def test_validator_rejects_missing_top_level_teams():
         validate_tournament(bad)
 
 
+# --- FIX 1 (P2): reject placeholder-SHAPED team names ------------------------
+#
+# A bracket placeholder smuggled into BOTH top-level `teams` AND a group passes
+# the teams==groups / 48-distinct checks (it is consistent with itself) and would
+# then be ingested as a real nation. Real nations never look like bracket slots,
+# so `validate_tournament` rejects placeholder-SHAPED names outright: an anchored
+# regex (`2A` / `W74` / `L101` / `3rd-...`) OR a structural word token (tbd /
+# playoff / winner / runner-up / uefa path). These tests pin both the rejection
+# (per shape) and the no-false-positive guarantee on the real 48 nations.
+
+# Placeholder-shaped names that must be REJECTED even when self-consistent
+# (present in both top-level `teams` and a group). One per distinct shape:
+# group-slot, winner-ref, loser-ref, best-third slot (dash AND space), and each
+# structural word token.
+_PLACEHOLDER_SHAPED = [
+    "2A",                 # group-position slot (digit + A-L)
+    "W74",                # knockout winner ref
+    "L101",               # knockout loser ref
+    "3rd-ABCDF",          # best-third slot (dash form)
+    "3rd ABCDF",          # best-third slot (space form)
+    "Playoff Winner A",   # 'playoff' + 'winner' word tokens
+    "TBD",                # to-be-determined token
+    "Runner-up Group B",  # 'runner-up' token
+    "UEFA Path A",        # 'uefa path' token
+]
+
+
+def _with_placeholder_team(name: str) -> dict:
+    """A structurally VALID dict (48 distinct, teams==groups, 104 fixtures, …)
+    except that ``name`` replaces one real team in BOTH a group AND top-level
+    ``teams`` — so ONLY the placeholder-shape check can reject it (the
+    teams==groups / distinct / count checks all still pass)."""
+    data = _valid_min()
+    # Replace the very first group member everywhere it appears in `teams`.
+    old = data["groups"][0]["teams"][0]
+    data["groups"][0]["teams"][0] = name
+    data["teams"] = [name if t == old else t for t in data["teams"]]
+    # Sanity: still 48 distinct and teams == group union (so the ONLY thing that
+    # can trip the validator is the placeholder SHAPE, not a count/set mismatch).
+    group_union = {t for g in data["groups"] for t in g["teams"]}
+    assert len(data["teams"]) == 48 and len(set(data["teams"])) == 48
+    assert set(data["teams"]) == group_union
+    return data
+
+
+@pytest.mark.parametrize("name", _PLACEHOLDER_SHAPED)
+def test_validator_rejects_placeholder_shaped_team_name(name):
+    """A placeholder-SHAPED name (e.g. "2A", "W74", "3rd-ABCDF", "Playoff
+    Winner A") in BOTH `teams` and a group — self-consistent, so it survives the
+    teams==groups / 48-distinct checks — must STILL raise, and the offending name
+    must be named in the message."""
+    bad = _with_placeholder_team(name)
+    with pytest.raises(ValueError) as ei:
+        validate_tournament(bad)
+    assert name in str(ei.value), (
+        f"the offending placeholder {name!r} must be listed in the error"
+    )
+
+
+def test_validator_rejects_placeholder_in_group_even_if_top_level_teams_clean():
+    """The check covers EVERY team in EVERY group, not just top-level `teams`: a
+    placeholder living in a group still raises (here it is in `teams` too so the
+    set stays consistent — the shape is what trips it)."""
+    bad = _with_placeholder_team("2A")
+    assert "2A" in {t for g in bad["groups"] for t in g["teams"]}
+    with pytest.raises(ValueError):
+        validate_tournament(bad)
+
+
+def test_validator_accepts_real_48_nation_names_no_false_positive():
+    """No real WC-2026 nation may trip the placeholder-shape check.
+
+    Pins the exact 48 common-English keys (United States, Bosnia and
+    Herzegovina, DR Congo, South Korea, Côte d'Ivoire/Ivory Coast, Curaçao, …)
+    into the minimal-valid structure and asserts `validate_tournament` does NOT
+    raise — the anchored regex + word tokens are specific to bracket slots and
+    never match a country name.
+    """
+    real48 = [
+        "Algeria", "Argentina", "Australia", "Austria", "Belgium",
+        "Bosnia and Herzegovina", "Brazil", "Canada", "Cape Verde", "Colombia",
+        "Croatia", "Curaçao", "Czech Republic", "DR Congo", "Ecuador", "Egypt",
+        "England", "France", "Germany", "Ghana", "Haiti", "Iran", "Iraq",
+        "Ivory Coast", "Japan", "Jordan", "Mexico", "Morocco", "Netherlands",
+        "New Zealand", "Norway", "Panama", "Paraguay", "Portugal", "Qatar",
+        "Saudi Arabia", "Scotland", "Senegal", "South Africa", "South Korea",
+        "Spain", "Sweden", "Switzerland", "Tunisia", "Turkey", "United States",
+        "Uruguay", "Uzbekistan",
+        # A few alt common-English keys that could plausibly brush the regex,
+        # pinned here too so a future tightening can't silently break them.
+        "Côte d'Ivoire",
+    ]
+    assert len(set(real48)) == len(real48)
+    groups = [{"name": chr(65 + i), "teams": real48[4 * i:4 * i + 4]}
+              for i in range(12)]
+    data = {
+        "teams": real48[:48],
+        "groups": groups,
+        "fixtures": [{"home": "x", "away": "y", "date": "2026-06-11"}] * 104,
+        "advancement": {"per_group": 2, "best_thirds": 8},
+        "third_place_tiebreakers": ["goal_difference", "goals_scored",
+                                    "head_to_head", "fair_play",
+                                    "drawing_of_lots"],
+        "bracket": {"paths": ["A", "B"]},
+    }
+    validate_tournament(data)   # must NOT raise on any real nation
+
+
 @pytest.mark.skipif(not Path("config/tournament_2026.yaml").exists(),
                     reason="awaiting user-provided verified draw file (decision 2)")
 def test_real_draw_file_loads():

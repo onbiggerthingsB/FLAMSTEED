@@ -118,14 +118,24 @@ def build(cutoff, store: BitemporalStore, config: dict | None = None) -> pd.Data
     #     Dropping it here (before compute_elo_history) also stops a NaN score
     #     from poisoning the Elo recompute. (See ASSUMPTIONS.md "Played filter".)
     #
-    #     Score dtype hygiene: coerce both score columns to numeric FIRST, so any
-    #     non-numeric/garbage score (e.g. a stray string from a malformed feed)
-    #     becomes NaN and is then excluded by the very next notna() filter — it
-    #     can never reach Elo as a string (which would raise) or the panel. Real
-    #     numeric scores, including 0, are unaffected; the martj42 feed is already
-    #     numeric, so this is a no-op there and a guard everywhere else.
+    #     Score VALIDITY hygiene: coerce both score columns to numeric FIRST, so
+    #     any non-numeric/garbage score (e.g. a stray string from a malformed
+    #     feed) becomes NaN. Then require each coerced score to be a VALID goal
+    #     count — FINITE, NON-NEGATIVE and INTEGRAL — forcing anything else
+    #     (`inf`/`-1`/`1.5`, all of which `to_numeric` would otherwise let
+    #     through) to NaN as well. The very next notna() filter then drops every
+    #     such row, so an invalid score can never reach Elo (where a non-numeric
+    #     would raise and an `inf` would NaN/inf-poison every downstream rating)
+    #     or the panel. Real integer scores, including 0 (a 0-0 is a played
+    #     match), are unaffected; the martj42 feed is already clean integers, so
+    #     this is a no-op there and a guard everywhere else.
     for _c in ("home_score", "away_score"):
-        results[_c] = pd.to_numeric(results[_c], errors="coerce")
+        s = pd.to_numeric(results[_c], errors="coerce")
+        # inf / -1 / 1.5 -> NaN (then dropped below). `s == s.round()` is False
+        # for non-integral AND for NaN/inf, so the mask keeps only finite,
+        # non-negative, whole-number scores.
+        s = s.where(np.isfinite(s) & (s >= 0) & (s == s.round()))
+        results[_c] = s
     results = results.loc[
         results["home_score"].notna() & results["away_score"].notna()].copy()
 

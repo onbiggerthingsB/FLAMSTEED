@@ -20,6 +20,7 @@ read.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -49,6 +50,42 @@ THIRD_PLACE_TIEBREAKERS = [
     "fair_play",
     "drawing_of_lots",
 ]
+
+#: A team name that FULLY matches this is a knockout-bracket PLACEHOLDER, not a
+#: nation: a group-position slot (``2A`` — a digit then a group letter A-L), a
+#: winner/loser ref (``W74`` / ``L101``), or a best-third slot (``3rd-ABCDF`` /
+#: ``3rd ABCDF``). ANCHORED (``^...$``) so it can never partial-match a real
+#: nation — no WC-2026 country name starts with a digit+A-L, ``W``/``L``+digits,
+#: or ``3rd``. (Real nations were verified against this; see
+#: ``validate_tournament`` and its tests.) IGNORECASE makes ``3RD``/``w74`` etc.
+#: also trip — bracket exports vary in case, nations still never match.
+_PLACEHOLDER_TEAM_RE = re.compile(r"^(\d[A-L]|W\d+|L\d+|3rd[- ].*)$", re.IGNORECASE)
+#: Structural word tokens that only ever appear in PLACEHOLDER labels (never in a
+#: real nation's common-English name). A name whose lowercase form CONTAINS any
+#: of these is rejected as a placeholder, complementing the anchored regex above
+#: (this catches free-text slot labels like "Playoff Winner A" / "Runner-up
+#: Group B" / "UEFA Path A" that the slot/ref regex would miss).
+_PLACEHOLDER_WORDS = (
+    "tbd", "playoff", "play-off", "winner", "runner-up", "runner up",
+    "uefa path",
+)
+
+
+def _is_placeholder_team(name: object) -> bool:
+    """True iff ``name`` is a knockout-bracket placeholder, not a real nation.
+
+    A name is a placeholder if it FULLY matches :data:`_PLACEHOLDER_TEAM_RE`
+    (slot/winner/loser/best-third shape) OR — lowercased — CONTAINS any
+    :data:`_PLACEHOLDER_WORDS` token. Non-string names are treated as
+    placeholders (a real team name is always a string). Real WC-2026 nation
+    names never satisfy either condition.
+    """
+    if not isinstance(name, str):
+        return True
+    if _PLACEHOLDER_TEAM_RE.match(name):
+        return True
+    low = name.lower()
+    return any(word in low for word in _PLACEHOLDER_WORDS)
 
 
 def validate_tournament(data: dict) -> dict:
@@ -95,6 +132,27 @@ def validate_tournament(data: dict) -> dict:
     if len(set(all_teams)) != N_TEAMS:
         dupes = sorted({t for t in all_teams if all_teams.count(t) > 1})
         raise ValueError(f"team names must be distinct; duplicates: {dupes}")
+
+    # Placeholder-SHAPED name guard (defense-in-depth). The teams==groups /
+    # 48-distinct checks reject a placeholder smuggled into ONLY top-level `teams`
+    # (it would be in no group). But a placeholder smuggled into BOTH a group AND
+    # top-level `teams` is self-consistent — it passes those checks — and would
+    # then be ingested as if it were a real nation. Real nations never look like
+    # bracket slots, so reject placeholder-SHAPED names outright: scan EVERY team
+    # in EVERY group AND top-level `teams`, and raise if ANY matches the anchored
+    # slot/ref regex or carries a structural word token (see _is_placeholder_team).
+    candidate_names = list(all_teams)
+    raw_teams = data.get("teams")
+    if isinstance(raw_teams, list):
+        candidate_names.extend(raw_teams)
+    offending = sorted(
+        {n for n in candidate_names if _is_placeholder_team(n)}, key=str
+    )
+    if offending:
+        raise ValueError(
+            "team names must be real nations, not knockout-bracket placeholders; "
+            f"offending: {offending}"
+        )
 
     # Top-level `teams` is the drawn-48 set that downstream ingestion trusts, so
     # it MUST be a list of exactly 48 DISTINCT names AND equal (as a set) to the
