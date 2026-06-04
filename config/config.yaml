@@ -56,3 +56,8 @@ model:
     draws: 1000
     tune: 1000
     advi_iters: 30000
+sim:
+  n_sims: 20000               # MC sims (config-driven; raise for the final pre-tournament run)
+  max_goals: 12               # scoreline grid bound for DC sampling
+  extra_time_scale: 0.3333    # ET goal-rate scale (~30/90 of regulation); P4-tunable
+  penalty_home_prob: 0.5      # shootout coin-flip (no tilt); P4-tunable
