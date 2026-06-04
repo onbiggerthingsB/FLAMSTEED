@@ -8,6 +8,8 @@ per-team provisional flags from both perspectives. No score is imputed — the
 Phase-1 played filter guarantees integer goals.
 """
 from __future__ import annotations
+from dataclasses import dataclass
+import numpy as np
 import pandas as pd
 
 def to_match_panel(features_df: pd.DataFrame) -> pd.DataFrame:
@@ -27,4 +29,44 @@ def to_match_panel(features_df: pd.DataFrame) -> pd.DataFrame:
     out = base.merge(hp, on="match_id").merge(ap, on="match_id")
     out["home_goals"] = out["home_goals"].astype(int)
     out["away_goals"] = out["away_goals"].astype(int)
+    if len(out) != home["match_id"].nunique():
+        raise ValueError(
+            f"to_match_panel row count {len(out)} != distinct home matches "
+            f"{home['match_id'].nunique()} — malformed upstream panel "
+            "(a match missing its away row, or duplicate is_home rows)")
     return out.reset_index(drop=True)
+
+
+@dataclass(frozen=True)
+class DesignData:
+    """Team-indexed numpy arrays for the scoreline likelihood.
+
+    teams is the sorted unique team universe; home_idx/away_idx index into it.
+    All arrays are length-n (one entry per match) and aligned to match_panel row
+    order, so home_idx[i]/away_idx[i] et al. all describe match_panel row i.
+    """
+    teams: list[str]
+    n_teams: int
+    home_idx: np.ndarray
+    away_idx: np.ndarray
+    home_goals: np.ndarray
+    away_goals: np.ndarray
+    neutral: np.ndarray
+    weight: np.ndarray
+    home_provisional: np.ndarray
+    away_provisional: np.ndarray
+
+def build_design(match_panel: pd.DataFrame) -> DesignData:
+    teams = sorted(set(match_panel["home_team"]) | set(match_panel["away_team"]))
+    idx = {t: i for i, t in enumerate(teams)}
+    return DesignData(
+        teams=teams, n_teams=len(teams),
+        home_idx=match_panel["home_team"].map(idx).to_numpy(dtype=np.int64),
+        away_idx=match_panel["away_team"].map(idx).to_numpy(dtype=np.int64),
+        home_goals=match_panel["home_goals"].to_numpy(dtype=np.int64),
+        away_goals=match_panel["away_goals"].to_numpy(dtype=np.int64),
+        neutral=match_panel["neutral"].to_numpy(dtype=bool),
+        weight=match_panel["weight"].to_numpy(dtype=float),
+        home_provisional=match_panel["home_provisional"].to_numpy(dtype=bool),
+        away_provisional=match_panel["away_provisional"].to_numpy(dtype=bool),
+    )
