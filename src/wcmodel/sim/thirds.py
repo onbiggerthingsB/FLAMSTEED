@@ -33,29 +33,42 @@ def load_assignment_table() -> dict:
 
 def rank_thirds(thirds: dict, *, rng) -> list:
     """``thirds``: ``{group: {points, gd, gf}}`` for the 12 groups' 3rd-placers. Return the
-    best-8 groups by points -> gd -> gf -> seeded random draw for a boundary tie.
+    best-8 groups by points -> gd -> gf, with a seeded random draw ONLY for a tie that
+    straddles the 8/9 qualification boundary. Output is consumed as a SET (the 8
+    qualifying groups -> ``assign_thirds_to_slots``), so internal order is irrelevant; a
+    list of 8 is returned for compatibility.
 
-    Pure + seeded: ``rng`` (a numpy Generator) is consulted ONLY to break a cluster of
-    groups level on (points, gd, gf) -- mirroring the group-stage seeded random tail in
-    ``groups.rank_group``. No global state, no per-group tilt."""
-    groups = list(thirds)
-
+    RNG locality (closes Codex T3). ``rng`` (a numpy Generator) is consumed IFF a
+    (points, gd, gf) tie straddles the 8/9 boundary -- i.e. more groups share the 8th
+    group's key than there are remaining best-8 slots, so a draw genuinely decides WHICH
+    of the tied groups qualify. This mirrors FIFA's drawing-of-lots, which is invoked
+    only when lots actually decide qualification. A tie wholly INSIDE the top 8 (all
+    those groups qualify regardless of order) or wholly OUTSIDE it (none qualify) is
+    deterministic and consumes NO RNG -- so it never shifts the shared per-sim RNG
+    stream and never perturbs unrelated downstream draws (scoreline sampling, knockout
+    coin-flips). No global state, no per-group tilt."""
     def key(g):
         return (thirds[g]["points"], thirds[g]["gd"], thirds[g]["gf"])
 
-    order = sorted(groups, key=key, reverse=True)
-    out, i = [], 0
-    while i < len(order):
-        j = i
-        while j < len(order) and key(order[j]) == key(order[i]):
-            j += 1
-        cluster = order[i:j]
-        if len(cluster) > 1:
-            perm = rng.permutation(len(cluster))
-            cluster = [cluster[p] for p in perm]
-        out.extend(cluster)
-        i = j
-    return out[:8]
+    order = sorted(thirds, key=key, reverse=True)
+    boundary = key(order[7])                                  # the 8th group's key
+
+    strictly_better = [g for g in order if key(g) > boundary]  # auto-qualify, no RNG
+    boundary_tied = [g for g in order if key(g) == boundary]   # share the cutoff key
+    slots_left = 8 - len(strictly_better)                      # >= 1 (the 8th is tied)
+
+    if slots_left >= len(boundary_tied):
+        # No straddle: every boundary-tied group fits (slots_left == len here, since the
+        # 8th group's key is the boundary). Deterministic -> consume NO RNG.
+        chosen = boundary_tied
+    else:
+        # Genuine straddle: more groups tied at the cutoff key than slots remaining. A
+        # seeded draw decides which of them take the last qualification slot(s). This is
+        # the ONLY RNG consumption in rank_thirds.
+        perm = rng.permutation(len(boundary_tied))
+        chosen = [boundary_tied[p] for p in perm[:slots_left]]
+
+    return strictly_better + chosen
 
 
 def assign_thirds_to_slots(qualifying_groups) -> dict:
