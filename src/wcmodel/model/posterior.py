@@ -41,6 +41,25 @@ class Posterior:
         self.likelihood = likelihood
         self.provisional_teams = set(provisional_teams or ())
         self._cfg = (config or load_config())["model"]
+        # Fail loud on a bad widening config at CONSTRUCTION -- not at predict
+        # time. predict_scoreline only routes through inflate_predictive (which
+        # carries its own [0,1] guard) for mechanism 'c' AND a provisional
+        # fixture, so a bad strength/mechanism on a non-provisional fixture (or
+        # mechanism 'a', which widens in the likelihood) would otherwise silently
+        # no-op. Validating here once makes ANY Posterior with a bad widening
+        # config raise at the earliest point every construction path hits (fit,
+        # cached_fit on a hit, direct construction), independent of provisional
+        # status or whether predict is ever called. inflate_predictive keeps its
+        # own validation as inner defense-in-depth.
+        w = self._cfg["widening"]
+        if w["mechanism"] not in ("a", "c"):
+            raise ValueError(
+                f"widening.mechanism must be 'a' or 'c', got {w['mechanism']!r}"
+            )
+        if not (0.0 <= w["strength"] <= 1.0):
+            raise ValueError(
+                f"widening.strength must be in [0,1], got {w['strength']}"
+            )
 
     def _post(self, name):
         # stack chain+draw -> trailing sample axis S; a team-indexed param

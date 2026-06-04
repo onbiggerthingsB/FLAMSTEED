@@ -9,6 +9,7 @@ still real end-to-end fits, so marked slow.
 """
 import copy
 
+import arviz as az
 import numpy as np
 import pandas as pd
 import pytest
@@ -16,7 +17,87 @@ import pytest
 from wcmodel.config import load_config
 from wcmodel.data.sources.results import normalize_results
 from wcmodel.data.store import BitemporalStore, Policy
+from wcmodel.model.posterior import Posterior
 from wcmodel.model.scoreline import fit
+
+
+def _tiny_idata(n_teams=2):
+    """A minimal hand-built posterior (NO sampling) carrying exactly the params
+    ``Posterior.predict_scoreline`` reads for dixon_coles: team-indexed att/def
+    with dims (chain, draw, team) and scalar mu/home_adv/rho. Lets the
+    construction-time validation tests stay fast (no NUTS)."""
+    posterior = {
+        "att": np.zeros((1, 2, n_teams)),
+        "def": np.zeros((1, 2, n_teams)),
+        "mu": np.full((1, 2), 0.0),
+        "home_adv": np.full((1, 2), 0.2),
+        "rho": np.zeros((1, 2)),
+    }
+    return az.from_dict({"posterior": posterior})
+
+
+def _cfg_with_widening(*, mechanism, strength):
+    cfg = copy.deepcopy(load_config())
+    cfg["model"]["widening"]["mechanism"] = mechanism
+    cfg["model"]["widening"]["strength"] = strength
+    return cfg
+
+
+# ---------- Posterior.__init__ fails loud on a bad widening config ----------
+# (convergence-review blocker 2: the validation must fire at CONSTRUCTION,
+# independent of provisional status / which fixture / whether predict is ever
+# called -- closing the non-provisional-fixture bypass of inflate_predictive's
+# own guard.)
+
+
+def test_posterior_rejects_out_of_range_widening_strength():
+    """A widening ``strength`` outside [0, 1] must FAIL LOUD at Posterior
+    CONSTRUCTION -- before any predict call and with NO provisional teams (the
+    exact bypass: pre-fix, mechanism 'c' + a non-provisional fixture never
+    reached inflate_predictive's own guard, so strength=1.5 silently returned a
+    grid). Validate once at __init__ so any construction path is covered."""
+    teams = ["A", "B"]
+    # strength > 1 -> raise at construction, NO provisional teams.
+    with pytest.raises(ValueError, match="strength"):
+        Posterior(
+            _tiny_idata(len(teams)), teams, "dixon_coles",
+            provisional_teams=set(),
+            config=_cfg_with_widening(mechanism="c", strength=1.5),
+        )
+    # strength < 0 -> raise.
+    with pytest.raises(ValueError, match="strength"):
+        Posterior(
+            _tiny_idata(len(teams)), teams, "dixon_coles",
+            provisional_teams=set(),
+            config=_cfg_with_widening(mechanism="c", strength=-0.1),
+        )
+    # An unknown mechanism is likewise a construction-time config error.
+    with pytest.raises(ValueError, match="mechanism"):
+        Posterior(
+            _tiny_idata(len(teams)), teams, "dixon_coles",
+            provisional_teams=set(),
+            config=_cfg_with_widening(mechanism="bad", strength=0.5),
+        )
+
+
+def test_posterior_accepts_valid_widening_config():
+    """A valid widening config constructs fine (both mechanisms; in-range
+    strength, including the [0, 1] endpoints) -- the validation rejects ONLY bad
+    configs, never a no-op on good ones."""
+    teams = ["A", "B"]
+    for mechanism in ("a", "c"):
+        for strength in (0.0, 0.5, 1.0):
+            post = Posterior(
+                _tiny_idata(len(teams)), teams, "dixon_coles",
+                provisional_teams=set(),
+                config=_cfg_with_widening(mechanism=mechanism, strength=strength),
+            )
+            assert post._cfg["widening"]["mechanism"] == mechanism
+            assert post._cfg["widening"]["strength"] == strength
+    # The shipped default (mechanism 'c', strength 0.5) also constructs cleanly,
+    # including via the config-less default-load path.
+    Posterior(_tiny_idata(len(teams)), teams, "dixon_coles")
+
 
 
 def _provisional_contrast_store(tmp_path):

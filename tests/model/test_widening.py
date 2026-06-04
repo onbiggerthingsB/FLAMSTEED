@@ -292,10 +292,13 @@ def test_inflate_strength_scales_widening():
 
 def test_predict_scoreline_surfaces_bad_widening_strength():
     """FIX B (quick check): a bad (c) ``strength`` in config must surface as a
-    ``ValueError`` through ``Posterior.predict_scoreline`` for a provisional
-    team — it must NOT silently no-op. Builds a tiny hand-made posterior (no
-    sampling) with mechanism 'c' + an out-of-range strength and a provisional
-    home team, then asserts the predict path raises.
+    ``ValueError`` — it must NOT silently no-op. The fail-loud now fires at
+    Posterior CONSTRUCTION (convergence-review blocker 2: validated once in
+    ``__init__`` so it is independent of provisional status / which fixture /
+    whether predict is ever called), which is strictly earlier than — and
+    therefore subsumes — the old predict-time surfacing. Builds a tiny hand-made
+    posterior (no sampling) with mechanism 'c' + an out-of-range strength and a
+    provisional home team, then asserts construction raises.
     """
     import arviz as az
     import copy
@@ -321,10 +324,9 @@ def test_predict_scoreline_surfaces_bad_widening_strength():
     cfg = copy.deepcopy(load_config())
     cfg["model"]["widening"]["mechanism"] = "c"
     cfg["model"]["widening"]["strength"] = 1.5  # OUT OF RANGE -> must raise
-    post = Posterior(idata, teams, "dixon_coles",
-                     provisional_teams={"A"}, config=cfg)
     with pytest.raises(ValueError):
-        post.predict_scoreline("A", "B", neutral=False, max_goals=6)
+        Posterior(idata, teams, "dixon_coles",
+                  provisional_teams={"A"}, config=cfg)
 
 
 # ---------- both mechanisms reachable via the config switch ----------
