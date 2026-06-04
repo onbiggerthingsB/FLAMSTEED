@@ -40,6 +40,40 @@ from wcmodel.data.sources.derived import altitude, rest_days, travel_distance
 from wcmodel.data.store import BitemporalStore
 
 
+def valid_played_results(results: pd.DataFrame) -> pd.DataFrame:
+    """Coerce scores to numeric and keep only PLAYED matches with VALID goal
+    counts: finite, non-negative, integral, non-null.
+
+    This is THE SINGLE DEFINITION of a "valid played match" shared by
+    :func:`build`, :func:`wcmodel.model.volatility_diagnostic.count_volatility_arm`,
+    and the calibration Elo baseline (``calibration._leakage_safe_elo``) — so the
+    model fit, the provisional set, and the baseline all consume the IDENTICAL row
+    set (no inconsistency, no cache-key gap).
+
+    Both score columns are first coerced with ``pd.to_numeric(errors="coerce")``,
+    so a non-numeric/garbage score (e.g. a stray string from a malformed feed)
+    becomes NaN. Each coerced score is then required to be a VALID goal count —
+    FINITE, NON-NEGATIVE and INTEGRAL — forcing anything else (``inf`` / ``-1`` /
+    ``1.5``, all of which ``to_numeric`` would otherwise let through) to NaN as
+    well. The final ``notna()`` filter drops every such row, so an invalid score
+    can never reach Elo (where a non-numeric would raise and an ``inf`` would
+    NaN/inf-poison every downstream rating) or the panel. Real integer scores,
+    including 0 (a 0-0 is a played match), are unaffected; the martj42 feed is
+    already clean integers, so this is a no-op there and a guard everywhere else.
+
+    Returns a COPY; the input frame is never mutated.
+    """
+    out = results.copy()
+    for _c in ("home_score", "away_score"):
+        s = pd.to_numeric(out[_c], errors="coerce")
+        # inf / -1 / 1.5 -> NaN (then dropped below). `s == s.round()` is False
+        # for non-integral AND for NaN/inf, so the mask keeps only finite,
+        # non-negative, whole-number scores.
+        out[_c] = s.where(np.isfinite(s) & (s >= 0) & (s == s.round()))
+    return out.loc[
+        out["home_score"].notna() & out["away_score"].notna()].copy()
+
+
 def _try_read(store: BitemporalStore, name: str, cutoff: pd.Timestamp):
     """Read a store table, returning ``None`` if that source isn't present.
 
@@ -118,26 +152,15 @@ def build(cutoff, store: BitemporalStore, config: dict | None = None) -> pd.Data
     #     Dropping it here (before compute_elo_history) also stops a NaN score
     #     from poisoning the Elo recompute. (See ASSUMPTIONS.md "Played filter".)
     #
-    #     Score VALIDITY hygiene: coerce both score columns to numeric FIRST, so
-    #     any non-numeric/garbage score (e.g. a stray string from a malformed
-    #     feed) becomes NaN. Then require each coerced score to be a VALID goal
-    #     count — FINITE, NON-NEGATIVE and INTEGRAL — forcing anything else
-    #     (`inf`/`-1`/`1.5`, all of which `to_numeric` would otherwise let
-    #     through) to NaN as well. The very next notna() filter then drops every
-    #     such row, so an invalid score can never reach Elo (where a non-numeric
-    #     would raise and an `inf` would NaN/inf-poison every downstream rating)
-    #     or the panel. Real integer scores, including 0 (a 0-0 is a played
-    #     match), are unaffected; the martj42 feed is already clean integers, so
-    #     this is a no-op there and a guard everywhere else.
-    for _c in ("home_score", "away_score"):
-        s = pd.to_numeric(results[_c], errors="coerce")
-        # inf / -1 / 1.5 -> NaN (then dropped below). `s == s.round()` is False
-        # for non-integral AND for NaN/inf, so the mask keeps only finite,
-        # non-negative, whole-number scores.
-        s = s.where(np.isfinite(s) & (s >= 0) & (s == s.round()))
-        results[_c] = s
-    results = results.loc[
-        results["home_score"].notna() & results["away_score"].notna()].copy()
+    #     Score VALIDITY hygiene + the played notna() filter are the SHARED
+    #     `valid_played_results` helper (the single definition of a "valid played
+    #     match"): it coerces both scores to numeric, forces each to be FINITE /
+    #     NON-NEGATIVE / INTEGRAL (so `inf`/`-1`/`1.5` -> NaN), then drops every
+    #     null-score row — so an invalid score never reaches Elo or the panel.
+    #     count_volatility_arm and the calibration Elo baseline call the SAME
+    #     helper, so the model fit, the provisional set, and the baseline all
+    #     consume the identical row set. (No-op on the already-clean martj42 feed.)
+    results = valid_played_results(results)
 
     # 2) Per-match match_type tag (drives the Elo K multiplier AND is a tier).
     results["match_type"] = results["tournament"].map(tiers.match_type)

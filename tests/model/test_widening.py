@@ -218,15 +218,43 @@ def test_inflate_noop_when_not_provisional():
     assert np.array_equal(out, grid)
 
 
-def test_inflate_noop_when_strength_nonpositive():
-    """strength <= 0 is also a no-op (no widening requested)."""
+def test_inflate_noop_when_strength_zero():
+    """strength == 0.0 is a valid in-range no-op (zero widening requested) — it
+    must NOT raise, and the grid is returned unchanged."""
     grid = _poisson_grid(1.6, 0.9, n=11)
     assert np.array_equal(
         inflate_predictive(grid, is_provisional=True, strength=0.0), grid
     )
-    assert np.array_equal(
-        inflate_predictive(grid, is_provisional=True, strength=-0.3), grid
-    )
+
+
+def test_inflate_rejects_out_of_range_strength():
+    """FIX B (fail loud): (c) ``strength`` is a Phase-4 tuning DOF and MUST lie
+    in [0, 1] — a value <0 or >1 is a config error and raises ``ValueError``
+    (mirroring mechanism (a)'s ``likelihood_weight`` validation), NOT a silent
+    no-op (negative) / silent clip (>1). The in-range boundaries are valid:
+    0.0 = no-op, 1.0 = full widening (the internal ``min(strength, 0.99)``
+    numerical cap still applies WITHIN range).
+    """
+    grid = _poisson_grid(1.6, 0.9, n=11)
+    with pytest.raises(ValueError):
+        inflate_predictive(grid, is_provisional=True, strength=-0.1)
+    with pytest.raises(ValueError):
+        inflate_predictive(grid, is_provisional=True, strength=1.5)
+    # Boundaries are allowed (0.0 = no-op, 1.0 = full widening within the cap).
+    inflate_predictive(grid, is_provisional=True, strength=0.0)
+    inflate_predictive(grid, is_provisional=True, strength=1.0)
+
+
+def test_inflate_out_of_range_strength_raises_even_when_not_provisional():
+    """An out-of-range ``strength`` is a CONFIG error — it must fail loud
+    regardless of the provisional flag, so a bad Phase-4 strength can never hide
+    behind a non-provisional team. (Validate strength BEFORE the provisional
+    short-circuit.)"""
+    grid = _poisson_grid(1.6, 0.9, n=11)
+    with pytest.raises(ValueError):
+        inflate_predictive(grid, is_provisional=False, strength=1.5)
+    with pytest.raises(ValueError):
+        inflate_predictive(grid, is_provisional=False, strength=-0.1)
 
 
 def test_inflate_noop_when_marginal_mean_near_zero():
@@ -257,6 +285,46 @@ def test_inflate_strength_scales_widening():
         mh1, ma1 = _marginal_means(w)
         assert mh1 == pytest.approx(mh0, abs=1e-6)
         assert ma1 == pytest.approx(ma0, abs=1e-6)
+
+
+# ---------- predict-path surfaces the bad-config ValueError ----------
+
+
+def test_predict_scoreline_surfaces_bad_widening_strength():
+    """FIX B (quick check): a bad (c) ``strength`` in config must surface as a
+    ``ValueError`` through ``Posterior.predict_scoreline`` for a provisional
+    team — it must NOT silently no-op. Builds a tiny hand-made posterior (no
+    sampling) with mechanism 'c' + an out-of-range strength and a provisional
+    home team, then asserts the predict path raises.
+    """
+    import arviz as az
+    import copy
+
+    from wcmodel.config import load_config
+    from wcmodel.model.posterior import Posterior
+
+    teams = ["A", "B"]
+    n_teams = len(teams)
+    # Minimal posterior with the params predict_scoreline reads (dixon_coles):
+    # team-indexed att/def with dims (chain, draw, team); scalar mu/home_adv/rho.
+    posterior = {
+        "att": np.zeros((1, 2, n_teams)),
+        "def": np.zeros((1, 2, n_teams)),
+        "mu": np.full((1, 2), 0.0),
+        "home_adv": np.full((1, 2), 0.2),
+        "rho": np.zeros((1, 2)),
+    }
+    # arviz 1.1.0: from_dict takes a nested {group: {var: array}} dict (the
+    # `posterior=` kwarg form is older-arviz only — see inference.py provenance).
+    idata = az.from_dict({"posterior": posterior})
+
+    cfg = copy.deepcopy(load_config())
+    cfg["model"]["widening"]["mechanism"] = "c"
+    cfg["model"]["widening"]["strength"] = 1.5  # OUT OF RANGE -> must raise
+    post = Posterior(idata, teams, "dixon_coles",
+                     provisional_teams={"A"}, config=cfg)
+    with pytest.raises(ValueError):
+        post.predict_scoreline("A", "B", neutral=False, max_goals=6)
 
 
 # ---------- both mechanisms reachable via the config switch ----------

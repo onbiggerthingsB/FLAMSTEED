@@ -15,8 +15,11 @@ predictions).
   Weights are left UNTOUCHED (so under 'c' :func:`likelihood_weight` is the
   identity); at PREDICT time a provisional team's predictive scoreline grid is
   made WIDER / less confident (strictly higher entropy), KEEPING the data. (c) is
-  EXACTLY MEAN-PRESERVING to machine precision (see the function docstring) — it
-  does not move the predicted scoreline, the betting edge.
+  MEAN-PRESERVING IN EXPECTED GOALS to machine precision (see the function
+  docstring) — no central bias in (E[home], E[away]) — but it DOES reshape the
+  scoreline distribution and therefore DOES change the 1X2 probabilities: that
+  less-confident 1X2 shift is the INTENDED effect for a provisional team, not a
+  bug. "Mean-preserving" here means expected goals, NOT the 1X2 fair-price edge.
 
 The two functions are config-driven by ``mechanism`` / ``strength``; wiring them
 into the fit/predict path is Task 7.
@@ -106,15 +109,15 @@ def _max_entropy_pmf(n_bins: int, mean: float) -> np.ndarray:
 def inflate_predictive(
     grid: np.ndarray, *, is_provisional: bool, strength: float
 ) -> np.ndarray:
-    """Mechanism (c): EXACTLY MEAN-PRESERVING widening of a provisional team's
-    PREDICTIVE scoreline grid.
+    """Mechanism (c): widening of a provisional team's PREDICTIVE scoreline grid
+    that is MEAN-PRESERVING IN EXPECTED GOALS (to machine precision).
 
     ``grid`` is a 2D array of shape ``(n_home, n_away)``: a normalized JOINT
     scoreline pmf where ``grid[h, a] = P(home = h, away = a)``. For a provisional
-    team we make the predictive WIDER / less confident WITHOUT moving the
-    predicted scoreline, by mixing the grid toward an independent product of
-    MAX-ENTROPY (exponential-tilted) marginals whose means are SOLVED to EQUAL
-    the grid's marginal means::
+    team we make the predictive WIDER / less confident — strictly higher entropy —
+    by mixing the grid toward an independent product of MAX-ENTROPY
+    (exponential-tilted) marginals whose means are SOLVED to EQUAL the grid's
+    marginal means::
 
         alpha  = min(strength, 0.99)
         mh, ma = E[home goals], E[away goals]   # the grid's marginal means
@@ -132,8 +135,18 @@ def inflate_predictive(
     negative-binomial reference, whose infinite-support mean was only
     APPROXIMATELY preserved once truncated and renormalized on the finite grid
     (error exceeding 1e-2 at small grids / high strength — e.g. mean 2.5 on a
-    max_goals=6 grid drifted by ~0.03–0.07). A betting edge IS the predicted
-    mean, so mean-preservation here is load-bearing and must be exact.
+    max_goals=6 grid drifted by ~0.03–0.07).
+
+    WHAT IS (and is NOT) preserved — read this carefully. (c) is mean-preserving
+    in the marginal EXPECTED GOALS ``(E[home], E[away])`` ONLY: it introduces NO
+    CENTRAL BIAS in the predicted goal counts (unlike the rejected uniform-mixture
+    widening, which shifted the mean toward the grid centre). It does NOT preserve
+    the 1X2 (home/draw/away) fair-price edge: ``predict_1x2`` integrates this
+    widened grid, and reshaping the scoreline distribution — even at a fixed
+    marginal mean — REDISTRIBUTES mass across the home-win / draw / away-win
+    regions, so the 1X2 probabilities DO change. That 1X2 change is the INTENDED
+    less-confident effect for a provisional team (the whole point of widening),
+    NOT a bug — do not read "mean-preserving" as "edge-preserving".
 
     Widening is in the ENTROPY sense, and it is GUARANTEED: the max-entropy
     distribution at a given mean is, by construction, the highest-entropy
@@ -142,19 +155,33 @@ def inflate_predictive(
     "less-confident" invariant). For a concentrated predictive it also increases
     variance, though entropy — not variance — is the always-true guarantee.
 
-    A non-provisional team (or ``strength <= 0``) is a no-op: the input grid is
-    returned unchanged. If a marginal mean sits at the support edge (~0, all mass
-    at 0 goals; or ~K, the largest representable score) there is no interior
-    max-entropy solution and nothing to widen on that axis, so the grid is
-    returned unchanged.
+    A non-provisional team (or in-range ``strength == 0.0``) is a no-op: the input
+    grid is returned unchanged. An OUT-OF-RANGE ``strength`` (``<0`` or ``>1``)
+    raises ``ValueError`` — fail loud, never a silent no-op/clip. If a marginal
+    mean sits at the support edge (~0, all mass at 0 goals; or ~K, the largest
+    representable score) there is no interior max-entropy solution and nothing to
+    widen on that axis, so the grid is returned unchanged.
 
     PHASE-4-TUNABLE. The dispersion/magnitude (here ``alpha = strength``, the mix
     weight) and the (a)-vs-(c) selection are calibration-harness knobs. This is a
     valid DEFAULT FORM, NOT a frozen choice; only the EXACT mean-preservation (and
     entropy-increase) invariant is fixed.
     """
-    if not is_provisional or strength <= 0:
+    # Fail loud on an out-of-range strength (a Phase-4 tuning DOF). Validate
+    # BEFORE the no-op short-circuits so a bad config can never silently no-op
+    # (strength<0) or be silently clipped (strength>1) — it must raise regardless
+    # of the provisional flag, mirroring mechanism (a)'s likelihood_weight.
+    if not (0.0 <= strength <= 1.0):
+        raise ValueError(f"widening strength must be in [0,1], got {strength}")
+    # In-range no-ops: a non-provisional team, or strength == 0.0 (zero widening
+    # requested), returns the grid unchanged.
+    if not is_provisional or strength == 0.0:
         return grid
+    # Numerical cap: only bites for strength in (0.99, 1.0]. A full-replacement
+    # (alpha == 1.0) would discard the model's predictive entirely (a degenerate
+    # mix); cap at 0.99 so a sliver of the model grid always remains. This is a
+    # NUMERICAL SAFEGUARD within the valid range, NOT input validation (that is
+    # the [0,1] check above).
     alpha = min(float(strength), 0.99)
 
     n_home, n_away = grid.shape

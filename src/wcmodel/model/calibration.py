@@ -136,15 +136,13 @@ def _leakage_safe_elo(store, cutoff, config=None) -> dict[str, float]:
         results["date"] = results["date"].dt.tz_convert("UTC").dt.tz_localize(None)
     results = results.loc[results["date"] < cutoff_day].copy()
 
-    # Score-validity hygiene + played filter (identical to features.build): a
-    # non-numeric/inf/negative/non-integral score -> NaN -> dropped, so only
-    # finite, non-negative, whole-number scores (incl. a 0-0) reach Elo.
-    for _c in ("home_score", "away_score"):
-        s = pd.to_numeric(results[_c], errors="coerce")
-        s = s.where(np.isfinite(s) & (s >= 0) & (s == s.round()))
-        results[_c] = s
-    results = results.loc[
-        results["home_score"].notna() & results["away_score"].notna()].copy()
+    # Score-validity hygiene + played filter via the SHARED `valid_played_results`
+    # helper (the single definition, identical to features.build and
+    # count_volatility_arm): a non-numeric/inf/negative/non-integral score -> NaN
+    # -> dropped, so only finite, non-negative, whole-number scores (incl. a 0-0)
+    # reach Elo — guaranteeing the baseline scores the model on the SAME row set
+    # the fit and the provisional set consume.
+    results = features.valid_played_results(results)
 
     results["match_type"] = results["tournament"].map(tiers.match_type)
     if results.empty:

@@ -57,6 +57,7 @@ import pandas as pd
 from wcmodel.config import load_config
 from wcmodel.data.elo import compute_elo_history
 from wcmodel.data import tiers
+from wcmodel.data.features import valid_played_results
 from wcmodel.data.store import BitemporalStore
 
 
@@ -81,8 +82,15 @@ def count_volatility_arm(store: BitemporalStore, cutoff, field_teams: list[str])
     if getattr(res["date"].dt, "tz", None) is not None:
         res["date"] = res["date"].dt.tz_convert("UTC").dt.tz_localize(None)
     res = res.loc[res["date"] < cutoff.normalize()].copy()
+    # SHARED valid-played filter (the single `valid_played_results` definition,
+    # identical to features.build): coerce scores to numeric and keep only PLAYED
+    # matches with VALID goal counts (finite / non-negative / integral / non-null),
+    # so a non-numeric/inf/negative/non-integral score is dropped BEFORE Elo — and
+    # the provisional set this sizes is computed on the SAME row set the model fit
+    # consumes (no inconsistency, no cache-key gap). Replaces the old plain-notna
+    # filter, which let an `inf`/`1.5`/string score through to crash or poison Elo.
+    res = valid_played_results(res)
     res["match_type"] = res["tournament"].map(tiers.match_type)
-    res = res.loc[res["home_score"].notna() & res["away_score"].notna()]
     elo = compute_elo_history(res[["match_id", "date", "home_team", "away_team",
                                    "home_score", "away_score", "neutral", "match_type"]])
     elo = elo.sort_values("date", kind="mergesort")

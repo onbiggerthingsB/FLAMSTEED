@@ -319,13 +319,18 @@ plus the follow-ups deferred to Phase 4. Implemented on branch
   `config.model.widening.mechanism`:
   - **(a) likelihood down-weight** — scales that team's match contributions in the
     likelihood (`likelihood_weight`), so the data pins its `att`/`def` less tightly.
-  - **(c) predictive-variance inflation** — an **EXACT mean-preserving** widening of the
-    averaged predictive grid (`widening.inflate_predictive`): a **max-entropy
-    exponentially-tilted** reference whose tilt is **solved so the widened grid's marginal
-    means equal the original grid's marginal means to machine precision**. This widens the
-    scoreline distribution (more uncertainty) **without biasing the predicted 1X2 edge** —
-    the mean (hence the implied fair price) is preserved by construction. Verified
-    mean-preserving in the widening tests.
+  - **(c) predictive-variance inflation** — a widening of the averaged predictive grid
+    (`widening.inflate_predictive`) that is **mean-preserving in EXPECTED GOALS** to machine
+    precision: a **max-entropy exponentially-tilted** reference whose tilt is **solved so the
+    widened grid's marginal means `(E[home], E[away])` equal the original grid's marginal
+    means** (no central bias — unlike the rejected uniform-mixture, which shifted the mean).
+    It **intentionally widens the scoreline distribution and therefore changes the 1X2
+    (home/draw/away) probabilities** — `predict_1x2` integrates the widened grid, so
+    reshaping the distribution at a fixed marginal mean redistributes 1X2 mass. That
+    less-confident 1X2 shift is **the intended point of widening for a provisional team, NOT
+    a bug** — "mean-preserving" means expected goals, **not** the 1X2 fair-price edge.
+    Out-of-range `strength` (`<0`/`>1`) **raises** (fail loud, no silent no-op/clip), like
+    mechanism (a). Verified mean-preserving (in expected goals) in the widening tests.
   - **Design leans (c)** (widens for the real reason — uncertainty — and keeps all the data),
     but **both the mechanism (a vs c) AND the strength are pre-counted Phase-4 lockbox DOF**
     (#3 and #4 below). The widening **strength is co-tuned with the decay half-life** (#5):
