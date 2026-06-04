@@ -34,13 +34,13 @@ from wcmodel.model.widening import inflate_predictive
 class Posterior:
     """Fitted scoreline posterior + per-fixture predictive scoreline grids."""
 
-    def __init__(self, idata, teams, likelihood, provisional_teams=None):
+    def __init__(self, idata, teams, likelihood, provisional_teams=None, config=None):
         self.idata = idata
         self.teams = list(teams)
         self._idx = {t: i for i, t in enumerate(self.teams)}
         self.likelihood = likelihood
         self.provisional_teams = set(provisional_teams or ())
-        self._cfg = load_config()["model"]
+        self._cfg = (config or load_config())["model"]
 
     def _post(self, name):
         # stack chain+draw -> trailing sample axis S; a team-indexed param

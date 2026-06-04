@@ -25,6 +25,7 @@ from wcmodel.model.inference import sample
 from wcmodel.model.likelihoods import bp_loglik_pt, dc_loglik_pt
 from wcmodel.model.panel import DesignData, build_design, to_match_panel
 from wcmodel.model.posterior import Posterior
+from wcmodel.model.volatility_diagnostic import count_volatility_arm
 from wcmodel.model.widening import likelihood_weight
 
 
@@ -51,12 +52,12 @@ def _priors(d: DesignData, p):
 
 class ScorelineModel(ABC):
     @abstractmethod
-    def build(self, d: DesignData, weight: np.ndarray) -> pm.Model: ...
+    def build(self, d: DesignData, weight: np.ndarray, config: dict | None = None) -> pm.Model: ...
 
 
 class DixonColesModel(ScorelineModel):
-    def build(self, d, weight):
-        p = load_config()["model"]["prior"]
+    def build(self, d, weight, config=None):
+        p = (config or load_config())["model"]["prior"]
         with pm.Model() as m:
             att, defe, mu, home_adv = _priors(d, p)
             # rho CONTRACT (likelihoods.dc_loglik_pt): a tau cell <= 0 -> log(tau)
@@ -80,8 +81,8 @@ class DixonColesModel(ScorelineModel):
 
 
 class BivariatePoissonModel(ScorelineModel):
-    def build(self, d, weight):
-        p = load_config()["model"]["prior"]
+    def build(self, d, weight, config=None):
+        p = (config or load_config())["model"]["prior"]
         # kmax = max over matches of min(home,away) goals (the convolution depth).
         # bp_loglik_pt handles kmax==0 as the independent case.
         kmax = int(np.minimum(d.home_goals, d.away_goals).max()) if len(d.home_goals) else 0
@@ -106,13 +107,16 @@ _REGISTRY = {
 
 
 def build_model(
-    d: DesignData, likelihood: str | None = None, weight: np.ndarray | None = None
+    d: DesignData,
+    likelihood: str | None = None,
+    weight: np.ndarray | None = None,
+    config: dict | None = None,
 ) -> pm.Model:
-    likelihood = likelihood or load_config()["model"]["likelihood"]
+    likelihood = likelihood or (config or load_config())["model"]["likelihood"]
     if likelihood not in _REGISTRY:
         raise ValueError(f"unknown likelihood {likelihood!r}; choose from {sorted(_REGISTRY)}")
     w = d.weight if weight is None else weight
-    return _REGISTRY[likelihood]().build(d, w)
+    return _REGISTRY[likelihood]().build(d, w, config)
 
 
 def fit(
@@ -135,8 +139,16 @@ def fit(
     can never peek past it (Phase-2 Task 9 adds a model-layer leakage canary on
     top of this). The match-level design feeds the (a)/(c) widening switch and the
     PyMC scoreline model; ``sample`` (ADVI by default) produces the posterior. The
-    provisional-team set (for mechanism-(c) predict-time widening) is read off the
-    same panel's per-team provisional flags.
+    provisional-team set (for mechanism-(c) predict-time widening) is the
+    AS-OF-CUTOFF status -- each team's would-be provisional flag at its NEXT match
+    -- via the Task-0 ``count_volatility_arm`` (volatility OR few-games arm), NOT
+    the per-match panel flags. Those panel flags are PRE-MATCH states, so a team
+    provisional only in its first few (historical) matches would otherwise be
+    flagged "ever provisional" and widened at predict time forever; the
+    as-of-cutoff status widens only teams genuinely low-information NOW.
+    ``count_volatility_arm`` reads only matches strictly before the cutoff (the
+    same leakage-safe slice ``features.build`` uses), so this stays leakage-safe;
+    the duplicate sub-cutoff Elo recompute is acceptable for Phase 2.
 
     All sampler knobs default to ``config["model"]`` (or the global config) and
     can be overridden per-call; ``seed`` falls back to the global ``config["seed"]``.
@@ -157,11 +169,16 @@ def fit(
         mechanism=cfg["model"]["widening"]["mechanism"],
         strength=cfg["model"]["widening"]["strength"],
     )
-    model = build_model(d, likelihood=likelihood, weight=w)
+    model = build_model(d, likelihood=likelihood, weight=w, config=cfg)
     idata = sample(
         model, backend=backend, draws=draws, tune=tune, seed=seed, advi_iters=advi_iters
     )
-    prov = set(mp.loc[mp["home_provisional"], "home_team"]) | set(
-        mp.loc[mp["away_provisional"], "away_team"]
-    )
-    return Posterior(idata, d.teams, likelihood, provisional_teams=prov)
+    # Provisional set is the AS-OF-CUTOFF status (each team's would-be flag at its
+    # NEXT match), NOT the per-match panel flags (which are pre-match states, so a
+    # team provisional only in its early history would be widened forever).
+    # count_volatility_arm reads only matches strictly before the cutoff -> the
+    # same leakage-safe slice features.build uses; a team is provisional-for-
+    # prediction iff its volatility OR few-games arm trips.
+    arm = count_volatility_arm(store, cutoff, d.teams)
+    prov = set(arm.loc[arm["volatility_flag"] | arm["few_games_flag"], "team"])
+    return Posterior(idata, d.teams, likelihood, provisional_teams=prov, config=cfg)
