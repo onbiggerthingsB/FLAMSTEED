@@ -103,6 +103,23 @@ def build(cutoff, store: BitemporalStore, config: dict | None = None) -> pd.Data
         results["date"] = results["date"].dt.tz_convert("UTC").dt.tz_localize(None)
     results = results.loc[results["date"] < cutoff_day].copy()
 
+    # 1b) PLAYED FILTER (leakage-critical). An UNPLAYED fixture — null
+    #     home_score or away_score — is a SCHEDULE entry, not a RESULT: it has no
+    #     outcome, hence no rating delta and no label. It must be excluded from
+    #     BOTH the feature panel and the Elo input EVEN when its date is before
+    #     the cutoff. Two cases this walls off at the cutoff boundary:
+    #       - an in-progress tournament fixture (kickoff on day D-2 but no score
+    #         yet at a day-D cutoff) — `date < cutoff_day` would otherwise admit
+    #         it as an as-of feature with a NaN label;
+    #       - a future-dated, not-yet-played WC-2026 group row ingested into the
+    #         store (NaN scores) — date already excludes it at a pre-WC cutoff,
+    #         and THIS filter additionally excludes it at a mid-tournament cutoff
+    #         where its date has passed but it still has no result.
+    #     Dropping it here (before compute_elo_history) also stops a NaN score
+    #     from poisoning the Elo recompute. (See ASSUMPTIONS.md "Played filter".)
+    results = results.loc[
+        results["home_score"].notna() & results["away_score"].notna()].copy()
+
     # 2) Per-match match_type tag (drives the Elo K multiplier AND is a tier).
     results["match_type"] = results["tournament"].map(tiers.match_type)
 

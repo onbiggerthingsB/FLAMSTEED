@@ -22,7 +22,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import yaml
+
+from wcmodel.data.sources.results import normalize_results
+from wcmodel.data.store import BitemporalStore, Policy
 
 #: 2026 is the first 48-team World Cup.
 N_TEAMS = 48
@@ -133,3 +138,128 @@ def load_tournament(path: str | Path) -> dict:
     with open(path) as f:
         data = yaml.safe_load(f)
     return validate_tournament(data)
+
+
+#: 2026 co-host nations -> the ISO country code their venues carry in the draw's
+#: ``venues`` block. A group fixture at a venue in a host's country is NOT played
+#: on neutral ground *for that host* (Mexico/USA/Canada playing at home); every
+#: other group match is on neutral ground. Keyed by the martj42 team name (the
+#: same key the fixtures use) so the membership test is exact.
+HOST_COUNTRY_BY_TEAM = {
+    "Mexico": "MX",
+    "United States": "US",
+    "Canada": "CA",
+}
+
+#: The ``source`` tag stamped on ingested WC-2026 schedule rows (distinct from
+#: the historical martj42 ``results`` feed).
+WC2026_SOURCE = "wc2026_schedule"
+
+
+def ingest_wc_group_fixtures(
+    tournament: dict,
+    store: BitemporalStore,
+    *,
+    observed_at: str | pd.Timestamp,
+) -> int:
+    """Write the 72 WC-2026 **group-stage** fixtures into ``results`` as
+    future-dated, UNPLAYED rows; return the number of rows written.
+
+    Each group fixture (the only fixtures whose BOTH teams are real drawn
+    nations — see below) becomes one ``results`` row with:
+
+      - ``home_team`` / ``away_team`` straight from the draw (already martj42
+        keys, so :func:`wcmodel.data.features.build` can join each team's
+        history);
+      - ``date`` = the fixture date, ``home_score`` / ``away_score`` = **NaN**
+        (the match has not been played — it is a *schedule*, not a result);
+      - ``neutral`` = ``False`` iff a host nation (Mexico/USA/Canada) plays a
+        venue in **its own** country (:data:`HOST_COUNTRY_BY_TEAM`), else
+        ``True``;
+      - ``tournament = "FIFA World Cup"``, ``city`` / ``country`` from the venue;
+      - a deterministic ``match_id`` (the standard
+        ``sha1(date|home|away|city)`` via :func:`normalize_results`);
+      - ``valid_as_of == observed_at == date`` (POINT_IN_TIME): the fixture
+        schedule is treated as knowable on the fixture's own day and the row
+        never gets revised (the same immutable-result convention the historical
+        martj42 feed uses). ``observed_at`` is asserted to be on/before the
+        earliest fixture date so this PIT stamping is self-consistent.
+
+    The 32 **knockout** fixtures are deliberately **NOT** ingested: their
+    "teams" are structure placeholders (group-position slots like ``2A`` /
+    ``3rd-ABCDF`` and winner/loser refs like ``W74`` / ``L101``), not real
+    matches. They stay in the config as bracket structure for Phase 3. The
+    group/knockout split is made on a hard fact — *both* participants being
+    members of the drawn-teams set — so no placeholder token can ever reach the
+    store even if the fixture shape changes.
+
+    UNPLAYED + future-dated by construction, these rows are leakage-SAFE: the
+    played filter in ``features.build`` drops every NaN-score row (so an
+    in-progress group match before a mid-tournament cutoff cannot enter as-of
+    features), and a pre-WC cutoff excludes them on date. See the WC in-progress
+    leakage test for the proof.
+    """
+    observed_at = pd.Timestamp(observed_at)
+
+    drawn = set(tournament["teams"])  # the 48 real martj42-keyed nations
+    venue_country = {v["city"]: v.get("country") for v in tournament["venues"]}
+    # country-code -> host team name, for the neutral-ground test.
+    host_by_country = {code: team for team, code in HOST_COUNTRY_BY_TEAM.items()}
+
+    rows: list[dict] = []
+    for fx in tournament["fixtures"]:
+        home, away = fx.get("home"), fx.get("away")
+        # GROUP discriminator: both participants are real drawn nations.
+        # Knockout rows fail this (a placeholder like `2A`/`W74` is not in
+        # `drawn`), so they are skipped — never ingested.
+        if home not in drawn or away not in drawn:
+            continue
+
+        city = fx.get("venue")
+        country = venue_country.get(city)
+        # Non-neutral iff THIS venue's host nation is one of the two teams.
+        host_team = host_by_country.get(country)
+        neutral = not (host_team is not None and host_team in (home, away))
+
+        rows.append({
+            "date": fx["date"],
+            "home_team": home,
+            "away_team": away,
+            "home_score": np.nan,   # UNPLAYED — schedule, not result
+            "away_score": np.nan,
+            "tournament": "FIFA World Cup",
+            "neutral": neutral,
+            "city": city,
+            "country": country,
+        })
+
+    raw = pd.DataFrame(
+        rows,
+        columns=["date", "home_team", "away_team", "home_score", "away_score",
+                 "tournament", "neutral", "city", "country"],
+    )
+    # normalize_results stamps the deterministic match_id and sets
+    # valid_as_of == observed_at == date (the immutable-result convention). That
+    # is exactly the PIT stamping the task requires (`valid_as_of=observed_at=
+    # date`), so we keep it as-is. We only assert the caller's `observed_at` is
+    # consistent with it (knowable on/before the first kickoff) — a guard that
+    # the schedule isn't being back-stamped as known AFTER matches start.
+    out = normalize_results(raw)
+    if not out.empty:
+        first_kickoff = pd.to_datetime(out["date"]).min()
+        if observed_at > first_kickoff:
+            raise ValueError(
+                f"observed_at {observed_at.date()} is after the first WC "
+                f"fixture {first_kickoff.date()}: the schedule must be ingested "
+                "as knowable on/before kickoff (PIT valid_as_of==date)"
+            )
+
+    store.write(
+        "results",
+        out,
+        policy=Policy.POINT_IN_TIME,
+        keys=["match_id"],
+        source=WC2026_SOURCE,
+        source_version=WC2026_SOURCE,
+    )
+    return len(out)

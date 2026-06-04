@@ -218,6 +218,24 @@ by the tasks noted (Elo hyperparameters → Task 5; StatsBomb release → Task 9
   behaves like the tz-naive noon cutoff: excludes `2024-06-20`, includes `2024-06-19`). The
   intraday **odds-store read** at tz-aware intraday cutoffs is a separate, Phase-4 concern and is
   out of scope for this features-layer day-flooring.
+- **Played filter — unplayed/NaN-score fixtures are excluded from features and Elo
+  regardless of date (pinned, #4 gate).** An UNPLAYED fixture (null `home_score` or
+  `away_score`) is a *schedule* entry, not a *result*: it has no outcome, hence no rating
+  delta and no label. `features.build` drops every such row **immediately after** the
+  `date < cutoff_day` filter and **before** `compute_elo_history` — so it enters neither the
+  emitted panel nor the Elo input — **even when its date is before the cutoff.** This makes
+  two classes of row leakage-safe at the cutoff boundary: (1) an **in-progress** tournament
+  fixture (kickoff on day `D-2` but still scoreless at a day-`D` cutoff), which `date <
+  cutoff_day` alone would admit as an as-of feature carrying a NaN label; and (2) the
+  **future-dated, not-yet-played WC-2026 group rows** ingested into `results`
+  (`ingest_wc_group_fixtures`, NaN scores) — excluded by date at a pre-WC cutoff, and
+  *additionally* excluded by THIS filter at a mid-tournament cutoff where their date has
+  passed but they have no result. The **TBD-knockout** rows never reach the store at all (only
+  the 72 group fixtures are ingested; the 32 knockout fixtures stay as bracket *structure
+  placeholders* — `2A`/`W74`/`3rd-ABCDF` — in `config/tournament_2026.yaml` for Phase 3), so
+  no placeholder token can appear in any team column. Dropping unplayed rows before the Elo
+  recompute also prevents a NaN score from poisoning the per-cutoff ratings. (Existing
+  scored-fixture tests are unaffected; the WC in-progress leakage test proves the boundary.)
 - **No imputation — every missing feature is NULL (pinned, Task 11).** `build` NEVER fills a
   missing feature with `0` / mean / forward-fill / anything. Concretely: an uncovered match
   (no StatsBomb xG) → `xg_for`/`xg_against = NaN`, `xg_covered = False`; a city absent from

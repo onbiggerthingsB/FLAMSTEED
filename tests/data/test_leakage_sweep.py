@@ -14,7 +14,10 @@ matches (monotonicity), no built row is dated on/after its cutoff (the strict
 (``rating_post`` must never reach the panel).
 """
 import json
+import re
+from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -22,6 +25,7 @@ from wcmodel.data.features import build
 from wcmodel.data.sources.odds import extract_closing_prices
 from wcmodel.data.sources.results import normalize_results
 from wcmodel.data.store import BitemporalStore, Policy
+from wcmodel.data.tournament import ingest_wc_group_fixtures, load_tournament
 
 
 def test_match_count_monotonic_in_cutoff(small_store):
@@ -143,3 +147,191 @@ def test_post_cutoff_result_does_not_change_earlier_cutoff_strength_band(
     mutable_store.mutate_future_result(after="2024-06-01")
     after = band_by_team(mutable_store)
     assert before == after
+
+
+# --- #4 GATE: WC-2026 in-progress / TBD-knockout rows must not leak ------------
+#
+# The played filter + the structure-placeholder knockout exclusion, proven end
+# to end. With the 72 future-dated, UNPLAYED WC-2026 group rows ingested into the
+# SAME results store as real history, NO unplayed/future/placeholder row may
+# enter a feature panel — at a mid-tournament cutoff (where June-11..19 fixtures
+# are `date < cutoff` but scoreless → played-filter-excluded; June-20+ →
+# date-excluded), at a pre-WC cutoff (all future → date-excluded), and the
+# knockout placeholders never reach the store at all. The complementary
+# played-INCLUSION check proves the filter excludes UNPLAYED, not all WC rows.
+
+_REAL_DRAW = Path("config/tournament_2026.yaml")
+_needs_draw = pytest.mark.skipif(
+    not _REAL_DRAW.exists(),
+    reason="awaiting user-provided verified draw file (decision 2)")
+
+# Structure-placeholder shapes that must NEVER appear in any team column of the
+# panel: group-position slots (`^[0-9][A-L]$`, e.g. 2A), winner/loser refs
+# (`^W\d+$`/`^L\d+$`, e.g. W74/L101), and best-third slots (`^3rd-`, e.g.
+# 3rd-ABCDF). Anchored, per the gate spec.
+_PLACEHOLDER_PATTERNS = (r"^[0-9][A-L]$", r"^W\d+$", r"^L\d+$", r"^3rd-")
+_PLACEHOLDER_RE = re.compile("|".join(_PLACEHOLDER_PATTERNS))
+_PLACEHOLDER_TOKENS = ("2A", "W74", "3rd-ABCDF")  # explicit spot-checks
+
+# A few historical PLAYED results (real martj42 keys, all scored), spanning
+# 2022..2024 — the clean core the WC rows are layered on top of.
+_HISTORY = pd.DataFrame([
+    # date, home, away, hs, as, tournament, city, country, neutral
+    ("2022-09-01", "Brazil", "Argentina", 1, 1, "Friendly", "London", "England", False),
+    ("2022-12-09", "Mexico", "Brazil", 0, 2, "FIFA World Cup", "Doha", "Qatar", True),
+    ("2023-06-10", "Germany", "Spain", 2, 0, "UEFA Nations League", "Glasgow", "Scotland", False),
+    ("2023-09-07", "Argentina", "Mexico", 3, 0, "Friendly", "Mexico City", "Mexico", False),
+    ("2024-01-15", "England", "Croatia", 1, 2, "UEFA Euro", "Berlin", "Germany", True),
+], columns=["date", "home_team", "away_team", "home_score", "away_score",
+            "tournament", "city", "country", "neutral"])
+
+
+def _team_columns(df: pd.DataFrame) -> pd.Series:
+    """Every value across all team-bearing columns of the panel, as one Series."""
+    cols = [c for c in ("home_team", "away_team", "team", "opponent")
+            if c in df.columns]
+    return pd.concat([df[c].astype(str) for c in cols], ignore_index=True)
+
+
+def _seed_history(store: BitemporalStore, history: pd.DataFrame = _HISTORY) -> None:
+    store.write("results", normalize_results(history), policy=Policy.POINT_IN_TIME,
+                keys=["match_id"], source="martj42", source_version="test")
+
+
+@_needs_draw
+def test_wc2026_in_progress_rows_do_not_leak(tmp_path):
+    """The #4 gate. A store of historical PLAYED results + the 72 ingested
+    WC-2026 group fixtures (UNPLAYED, June-2026 dates).
+
+    (1) MID-TOURNAMENT cutoff 2026-06-20 — NO unplayed WC fixture in the panel,
+        NO NaN-score row anywhere, NO placeholder token in any team column.
+    (2) PRE-WC cutoff 2025-06-01 — NO WC fixture at all (all future).
+    (3) PLAYED-INCLUSION — give ONE WC group fixture a real score and a cutoff
+        after its date; it DOES now appear (filter excludes UNPLAYED, not all WC).
+    """
+    store = BitemporalStore(root=tmp_path / "store")
+    _seed_history(store)
+    t = load_tournament(_REAL_DRAW)
+    n = ingest_wc_group_fixtures(t, store, observed_at="2026-01-01")
+    assert n == 72, "expected exactly the 72 group fixtures ingested"
+
+    drawn = set(t["teams"])
+
+    # --- (1) MID-TOURNAMENT cutoff: 2026-06-20 --------------------------------
+    mid = build(cutoff="2026-06-20", store=store)
+
+    # (a) NO unplayed WC fixture in the panel. The WC group rows span 2026-06-11
+    #     .. 2026-06-27; at this cutoff the 2026-06-11..19 matches are
+    #     `date < cutoff` (so the date filter ALONE would admit them) yet
+    #     scoreless → the PLAYED filter drops them; 2026-06-20+ are date-excluded.
+    #     Net: not a single 2026 WC date survives.
+    assert (pd.to_datetime(mid["date"]) < pd.Timestamp("2026-06-11")).all(), (
+        "a WC-2026 fixture leaked into the mid-tournament panel"
+    )
+    # (b) No NaN-score row anywhere in the panel (the unplayed rows are gone).
+    assert mid["home_score"].notna().all() and mid["away_score"].notna().all()
+    # (c) No placeholder token in ANY team column — the knockout structure
+    #     placeholders were never ingested, so they cannot appear.
+    vals_mid = _team_columns(mid)
+    assert not vals_mid.str.match(_PLACEHOLDER_RE).any(), (
+        "a structure-placeholder token leaked into a team column of the panel"
+    )
+    assert not vals_mid.isin(_PLACEHOLDER_TOKENS).any()
+    # Every team in the panel is a real nation (no slot/ref tokens).
+    assert set(vals_mid) <= drawn
+
+    # --- (2) PRE-WC cutoff: 2025-06-01 — every WC fixture is in the future ----
+    pre = build(cutoff="2025-06-01", store=store)
+    assert (pd.to_datetime(pre["date"]) < pd.Timestamp("2026-01-01")).all(), (
+        "a WC-2026 fixture appeared at a PRE-WC cutoff (all should be future)"
+    )
+    # And still no placeholder / NaN-score contamination at this cutoff.
+    assert pre["home_score"].notna().all() and pre["away_score"].notna().all()
+    assert not _team_columns(pre).str.match(_PLACEHOLDER_RE).any()
+
+    # --- (3) PLAYED-INCLUSION: a SCORED WC fixture DOES appear ----------------
+    # Take the earliest WC group fixture, give it a real score (revision keeps
+    # the same match_id — score is not part of the key), re-stamp it as observed
+    # on/after kickoff, and write it back. A cutoff after its date must now
+    # surface it: this proves the played filter excludes UNPLAYED rows, not WC
+    # rows wholesale.
+    first = next(fx for fx in t["fixtures"]
+                 if fx.get("home") in drawn and fx.get("away") in drawn)
+    played = pd.DataFrame([(
+        first["date"], first["home"], first["away"], 3, 1, "FIFA World Cup",
+        first["venue"], None, True,
+    )], columns=["date", "home_team", "away_team", "home_score", "away_score",
+                 "tournament", "city", "country", "neutral"])
+    played = normalize_results(played)
+    # The result is observed AFTER the schedule row (which was stamped at the
+    # fixture's midnight). Stamp this revision one day later so the store's
+    # point-in-time read (latest observed_at wins) returns the SCORED row, not
+    # the original NaN schedule row — exactly modelling "the result is confirmed
+    # after kickoff". Still < the 2026-06-13 cutoff, so the read includes it.
+    revised_at = pd.to_datetime(first["date"]) + pd.Timedelta(days=1)
+    played["valid_as_of"] = revised_at
+    played["observed_at"] = revised_at
+    store.write("results", played, policy=Policy.POINT_IN_TIME,
+                keys=["match_id"], source="wc2026_result", source_version="test")
+
+    after_score = build(cutoff="2026-06-13", store=store)  # after the 06-11 date
+    hit = after_score[
+        (pd.to_datetime(after_score["date"]) == pd.to_datetime(first["date"]))
+        & (after_score["team"] == first["home"])]
+    assert len(hit) == 1, (
+        "a NOW-PLAYED WC group fixture failed to enter the panel — the played "
+        "filter must exclude only UNPLAYED rows, not all WC rows"
+    )
+    assert hit["home_score"].iloc[0] == 3 and hit["away_score"].iloc[0] == 1
+    # The scored row is the ONLY surviving WC date; still no NaN/placeholder.
+    assert after_score["home_score"].notna().all()
+    assert not _team_columns(after_score).str.match(_PLACEHOLDER_RE).any()
+
+
+@_needs_draw
+def test_future_result_canary_and_elo_invariance_hold_with_wc_rows(tmp_path):
+    """The existing leakage guarantees still hold with the WC group rows present.
+
+    Future-result canary: mutating a result dated AFTER a cutoff must not change
+    a single feature built at that earlier cutoff — re-proven here with the 72
+    unplayed WC rows sitting in the store. Per-cutoff Elo invariance: a played
+    match's pre-WC `elo_pre` is byte-identical whether or not the (future,
+    unplayed) WC rows are present, since the played filter + `date < cutoff`
+    strip them before the Elo recompute.
+    """
+    # Store A: history only. Store B: history + the 72 unplayed WC rows.
+    store_a = BitemporalStore(root=tmp_path / "a")
+    _seed_history(store_a)
+    store_b = BitemporalStore(root=tmp_path / "b")
+    _seed_history(store_b)
+    t = load_tournament(_REAL_DRAW)
+    ingest_wc_group_fixtures(t, store_b, observed_at="2026-01-01")
+
+    # Per-cutoff Elo invariance: the unplayed/future WC rows must not perturb a
+    # pre-WC panel at all — building at 2025-01-01 is BYTE-IDENTICAL with vs
+    # without them in the store.
+    cutoff = "2025-01-01"
+    panel_a = build(cutoff=cutoff, store=store_a).reset_index(drop=True)
+    panel_b = build(cutoff=cutoff, store=store_b).reset_index(drop=True)
+    # check_dtype=False is the ONLY relaxation, and it is principled: store_a's
+    # results have no NaN-score rows so its score columns are int64, while
+    # store_b carries the (later-filtered) NaN WC rows so its score columns are
+    # float64. The VALUES are identical — the WC rows change nothing in the
+    # pre-WC panel — only the column dtype differs, an artifact of the source mix
+    # (the real martj42 store always has float64 scores, like store_b).
+    pd.testing.assert_frame_equal(panel_a, panel_b, check_dtype=False)
+
+    # Future-result canary WITH the WC rows present: append a NEW played match
+    # dated AFTER the cutoff to store_b, rebuild at the cutoff, and assert the
+    # pre-cutoff panel is unchanged (a leak would let the post-cutoff result
+    # bleed back).
+    before = build(cutoff=cutoff, store=store_b).reset_index(drop=True)
+    future = normalize_results(pd.DataFrame([
+        ("2025-09-01", "Brazil", "Germany", 5, 0, "Friendly", "London",
+         "England", False),
+    ], columns=["date", "home_team", "away_team", "home_score", "away_score",
+                "tournament", "city", "country", "neutral"]))
+    store_b.write("results", future, policy=Policy.POINT_IN_TIME,
+                  keys=["match_id"], source="martj42", source_version="test")
+    after = build(cutoff=cutoff, store=store_b).reset_index(drop=True)
+    pd.testing.assert_frame_equal(before, after)

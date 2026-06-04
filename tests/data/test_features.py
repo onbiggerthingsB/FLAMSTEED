@@ -5,7 +5,8 @@ import pandas as pd
 
 import wcmodel.data.features as features_mod
 from wcmodel.data.features import build
-from wcmodel.data.store import BitemporalStore
+from wcmodel.data.sources.results import normalize_results
+from wcmodel.data.store import BitemporalStore, Policy
 
 
 class _TzResultsStore:
@@ -76,6 +77,65 @@ def test_build_handles_tz_aware_result_dates_against_tz_aware_cutoff():
 def test_build_returns_only_matches_strictly_before_cutoff(small_store):
     df = build(cutoff="2025-03-01", store=small_store)
     assert (pd.to_datetime(df["date"]) < pd.Timestamp("2025-03-01")).all()
+
+
+# --- PLAYED FILTER: an UNPLAYED (NaN-score) fixture is NOT a result -----------
+#
+# A fixture with a null home_score/away_score has no outcome, so it must NOT
+# enter the feature panel OR the Elo input — EVEN when its date is before the
+# cutoff (an in-progress group match on day D-2 with no score yet). The played
+# filter sits AFTER the date<cutoff_day filter and BEFORE compute_elo_history.
+
+def _played_unplayed_store(tmp_path) -> BitemporalStore:
+    """A store with one PLAYED and one UNPLAYED fixture, BOTH dated before the
+    test cutoff. The unplayed row models an in-progress / scheduled fixture
+    whose score is still NaN at cutoff time."""
+    raw = pd.DataFrame([
+        # date, home, away, hs, as, tournament, city, country, neutral
+        ("2024-06-10", "Brazil", "Argentina", 2, 1, "Friendly", "London",
+         "England", False),
+        # UNPLAYED: NaN scores, but dated BEFORE the cutoff below.
+        ("2024-06-12", "Croatia", "Brazil", np.nan, np.nan, "FIFA World Cup",
+         "Paris", "France", True),
+    ], columns=["date", "home_team", "away_team", "home_score", "away_score",
+                "tournament", "city", "country", "neutral"])
+    store = BitemporalStore(root=tmp_path)
+    store.write("results", normalize_results(raw), policy=Policy.POINT_IN_TIME,
+                keys=["match_id"], source="martj42", source_version="test")
+    return store
+
+
+def test_unplayed_fixture_excluded_from_panel_even_before_cutoff(tmp_path):
+    """The NaN-score fixture (dated < cutoff) must NOT appear in the panel, and
+    NO NaN-score row may survive anywhere — yet the PLAYED fixture stays."""
+    store = _played_unplayed_store(tmp_path)
+    df = build(cutoff="2024-06-20", store=store)  # cutoff AFTER both dates
+
+    # The unplayed Croatia-vs-Brazil match (2024-06-12) is gone from the panel.
+    unplayed = df[pd.to_datetime(df["date"]) == pd.Timestamp("2024-06-12")]
+    assert unplayed.empty, "an UNPLAYED (NaN-score) fixture leaked into the panel"
+    # No surviving row carries a NaN label score.
+    assert df["home_score"].notna().all() and df["away_score"].notna().all()
+    # The genuinely PLAYED fixture is still present (filter excludes UNPLAYED,
+    # not all rows).
+    played = df[pd.to_datetime(df["date"]) == pd.Timestamp("2024-06-10")]
+    assert not played.empty
+
+
+def test_unplayed_fixture_excluded_from_elo_input(tmp_path):
+    """The unplayed fixture must not enter the Elo recompute either: with only
+    one PLAYED match (Brazil beat Argentina) in scope, Brazil's emitted row must
+    carry the debutant initial rating (1500) PRE-match — proving the later
+    NaN-score Croatia match never produced a (poisoned) rating update that
+    reached the panel."""
+    store = _played_unplayed_store(tmp_path)
+    df = build(cutoff="2024-06-20", store=store)
+    # Exactly the two teams of the single played match appear.
+    assert set(df["team"]) == {"Brazil", "Argentina"}
+    # elo_pre is finite everywhere (no NaN rating injected by the unplayed row).
+    assert df["elo_pre"].notna().all()
+    # Both teams are at the initial 1500 PRE their (first, only) played match.
+    assert np.allclose(df["elo_pre"], 1500.0)
 
 
 def test_elo_feature_is_pre_match_rating(small_store):
