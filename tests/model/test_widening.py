@@ -1,20 +1,15 @@
 """Tests for provisional-widening: (a) likelihood down-weight + (c) predictive
 inflation, both selected by ``config["model"]["widening"]`` (mechanism/strength).
 
-NOTE ON THE (c) METRIC — deliberate divergence from the plan's draft test.
-The Phase-2 plan's draft asserted that ``pmf_draws.var(axis=0).sum()`` (variance
-ACROSS DRAWS, per bin) INCREASES under (c). That assertion is WRONG and we do
-NOT reproduce it. (c) here is a uniform-mixture ``wide = (1-a)*draws + a*uniform``;
-since ``a*uniform`` is the SAME constant added to every draw, the across-draw
-variance scales by exactly ``(1-a)**2`` and therefore strictly DECREASES — you
-cannot raise a sample's variance by adding a constant to every sample. That
-quantity is *parameter* uncertainty (spread of the pmf across posterior draws),
-not the *predictive* spread we want to inflate. The INTENT of (c) is "less sure
-what the score will be" = a WIDER / HIGHER-ENTROPY predictive distribution OVER
-THE SCORELINE OUTCOMES. So we test that correct property directly:
-``test_inflate_increases_entropy`` (Shannon entropy per row strictly up), plus
-normalization, a no-op control, and an explicit characterization of the known
-mean-shift limitation (``test_inflate_shifts_mean_toward_grid_centre``).
+(c) is MEAN-PRESERVING. It takes the 2D scoreline pmf grid for a fixture and
+widens it by mixing toward an independent product of overdispersed
+negative-binomial marginals whose means EXACTLY match the grid's marginal means.
+Because the reference marginals share the grid's expected home/away goals, the
+convex mix leaves both marginal means unchanged (to finite-grid truncation
+tolerance) while raising variance/entropy. The headline property test
+(``test_inflate_preserves_marginal_means``) pins this — it is exactly what the
+old uniform-over-bins mixture VIOLATED (uniform pulls the predicted scoreline
+toward the grid centre, biasing the betting edge by an arbitrary ``max_goals``).
 """
 import numpy as np
 import pytest
@@ -50,10 +45,32 @@ def _design_with_provisional():
     return build_design(mp)
 
 
-def _entropy(pmf, axis=-1):
-    """Shannon entropy (nats) of a (normalized) pmf along ``axis``; 0*log0:=0."""
-    pmf = np.asarray(pmf, dtype=float)
-    return -np.sum(np.where(pmf > 0, pmf * np.log(pmf), 0.0), axis=axis)
+def _poisson_grid(mh: float, ma: float, n: int = 11) -> np.ndarray:
+    """Independent Poisson(mh) (x) Poisson(ma) joint scoreline pmf on a 0..n-1
+    grid, renormalized on the finite support. Concentrated, non-symmetric when
+    mh != ma — a realistic predictive scoreline grid."""
+    from scipy.stats import poisson
+
+    support = np.arange(n)
+    ph = poisson.pmf(support, mh)
+    pa = poisson.pmf(support, ma)
+    grid = np.outer(ph, pa)
+    return grid / grid.sum()
+
+
+def _marginal_means(grid: np.ndarray) -> tuple[float, float]:
+    h = np.arange(grid.shape[0])
+    a = np.arange(grid.shape[1])
+    return float((grid.sum(axis=1) * h).sum()), float((grid.sum(axis=0) * a).sum())
+
+
+def _marginal_vars(grid: np.ndarray) -> tuple[float, float]:
+    h = np.arange(grid.shape[0])
+    a = np.arange(grid.shape[1])
+    mh, ma = _marginal_means(grid)
+    vh = float((grid.sum(axis=1) * (h - mh) ** 2).sum())
+    va = float((grid.sum(axis=0) * (a - ma) ** 2).sum())
+    return vh, va
 
 
 # ---------- mechanism (a): likelihood down-weight ----------
@@ -79,6 +96,20 @@ def test_likelihood_weight_a_does_not_mutate_input():
     assert w is not d.weight
 
 
+def test_likelihood_weight_a_rejects_out_of_range_strength():
+    """(a) strength is a multiplier and MUST lie in [0, 1]. A value <0 would flip
+    sign and >1 would UP-weight provisional matches (the opposite of widening) —
+    both are config errors -> ValueError (Codex finding 5)."""
+    d = _design_with_provisional()
+    with pytest.raises(ValueError):
+        likelihood_weight(d, mechanism="a", strength=-0.1)
+    with pytest.raises(ValueError):
+        likelihood_weight(d, mechanism="a", strength=1.5)
+    # Boundaries are allowed (0 = drop, 1 = no-op).
+    likelihood_weight(d, mechanism="a", strength=0.0)
+    likelihood_weight(d, mechanism="a", strength=1.0)
+
+
 def test_likelihood_weight_c_is_identity():
     """(c) leaves weights untouched — it acts at PREDICT time, not in the
     likelihood. So likelihood_weight under 'c' == d.weight exactly."""
@@ -95,86 +126,70 @@ def test_likelihood_weight_unknown_mechanism_raises():
     assert "b" in str(exc.value)
 
 
-# ---------- mechanism (c): predictive-variance / entropy inflation ----------
+# ---------- mechanism (c): mean-preserving predictive widening ----------
 
 
-def _base_draws():
-    """(n_draws=4, n_bins=6) of non-uniform, normalized pmf rows (seeded)."""
-    rng = np.random.default_rng(0)
-    raw = rng.gamma(shape=2.0, size=(4, 6))
-    return raw / raw.sum(axis=1, keepdims=True)
+def test_inflate_preserves_marginal_means():
+    """THE HEADLINE PROPERTY (what uniform-mixture VIOLATED): widening a
+    provisional team's predictive scoreline grid leaves BOTH marginal means
+    (E[home goals], E[away goals]) unchanged. The predicted scoreline — which
+    drives the betting edge — must not move."""
+    grid = _poisson_grid(1.6, 0.9, n=11)  # non-symmetric, concentrated
+    mh0, ma0 = _marginal_means(grid)
+    wide = inflate_predictive(grid, is_provisional=True, strength=0.5)
+    mh1, ma1 = _marginal_means(wide)
+    assert mh1 == pytest.approx(mh0, abs=1e-2)
+    assert ma1 == pytest.approx(ma0, abs=1e-2)
 
 
-def test_inflate_increases_entropy():
-    """THE CORRECT (c) PROPERTY: widening a provisional team's predictive makes
-    it HIGHER-ENTROPY (wider over scoreline outcomes) row-by-row. Mixing a
-    non-uniform pmf toward uniform strictly increases Shannon entropy."""
-    base = _base_draws()
-    wide = inflate_predictive(base, is_provisional=True, strength=0.5)
-    h_base = _entropy(base)
-    h_wide = _entropy(wide)
-    assert np.all(h_wide > h_base)  # strictly higher entropy every row
+def test_inflate_increases_variance():
+    """Wider = less confident: the marginal variance of home (and away) goals
+    strictly increases after widening, at the SAME mean."""
+    grid = _poisson_grid(1.6, 0.9, n=11)
+    vh0, va0 = _marginal_vars(grid)
+    wide = inflate_predictive(grid, is_provisional=True, strength=0.5)
+    vh1, va1 = _marginal_vars(wide)
+    assert vh1 > vh0
+    assert va1 > va0
 
 
-def test_inflate_does_not_raise_across_draw_variance():
-    """GUARD AGAINST THE PLAN'S WRONG METRIC. The plan asserted across-draw
-    variance INCREASES; it does not. Mixing toward a constant scales across-draw
-    variance by (1-a)**2, so it strictly DECREASES. We pin that here so nobody
-    'fixes' (c) to satisfy the wrong assertion — entropy is the right target."""
-    base = _base_draws()
-    alpha = 0.5
-    wide = inflate_predictive(base, is_provisional=True, strength=alpha)
-    v_base = base.var(axis=0).sum()
-    v_wide = wide.var(axis=0).sum()
-    assert v_wide < v_base  # the plan's metric goes the WRONG way
-    assert v_wide == pytest.approx((1 - alpha) ** 2 * v_base)
-
-
-def test_inflate_rows_still_sum_to_one():
-    """Normalization invariant: widened rows are still valid pmfs (sum to 1)."""
-    base = _base_draws()
-    wide = inflate_predictive(base, is_provisional=True, strength=0.5)
-    assert np.allclose(wide.sum(axis=1), 1.0)
+def test_inflate_normalized():
+    """The widened grid is still a valid joint pmf (sums to 1)."""
+    grid = _poisson_grid(1.6, 0.9, n=11)
+    wide = inflate_predictive(grid, is_provisional=True, strength=0.5)
+    assert wide.sum() == pytest.approx(1.0)
 
 
 def test_inflate_noop_when_not_provisional():
-    """No-op control: a non-provisional team's predictive is returned unchanged."""
-    base = _base_draws()
-    out = inflate_predictive(base, is_provisional=False, strength=0.5)
-    assert np.array_equal(out, base)
+    """No-op control: a non-provisional team's predictive grid is returned
+    unchanged."""
+    grid = _poisson_grid(1.6, 0.9, n=11)
+    out = inflate_predictive(grid, is_provisional=False, strength=0.5)
+    assert np.array_equal(out, grid)
 
 
 def test_inflate_noop_when_strength_nonpositive():
     """strength <= 0 is also a no-op (no widening requested)."""
-    base = _base_draws()
+    grid = _poisson_grid(1.6, 0.9, n=11)
     assert np.array_equal(
-        inflate_predictive(base, is_provisional=True, strength=0.0), base
+        inflate_predictive(grid, is_provisional=True, strength=0.0), grid
     )
     assert np.array_equal(
-        inflate_predictive(base, is_provisional=True, strength=-0.3), base
+        inflate_predictive(grid, is_provisional=True, strength=-0.3), grid
     )
 
 
-def test_inflate_shifts_mean_toward_grid_centre():
-    """CHARACTERIZES THE DOCUMENTED (c) LIMITATION: uniform-mixture is NOT
-    mean-preserving. For a left-skewed pmf (mass on low bins), the expected bin
-    index E[bin] is pulled UP toward the grid centre (n_bins-1)/2 by widening.
-    This shifts the predicted scoreline — a known weakness for a betting model
-    whose edge is driven by the predictive mean (Phase-4-tunable choice)."""
-    # One sharply left-skewed pmf row: nearly all mass on bin 0.
-    n_bins = 6
-    base = np.array([[0.90, 0.06, 0.02, 0.01, 0.005, 0.005]])
-    assert base.sum() == pytest.approx(1.0)
-    bins = np.arange(n_bins)
-    centre = (n_bins - 1) / 2.0  # 2.5
-
-    wide = inflate_predictive(base, is_provisional=True, strength=0.5)
-    mean_base = float((base[0] * bins).sum())
-    mean_wide = float((wide[0] * bins).sum())
-
-    # The mean is NOT preserved: it moves, and specifically toward the centre.
-    assert mean_wide != pytest.approx(mean_base)
-    assert mean_base < mean_wide <= centre
+def test_inflate_strength_scales_widening():
+    """Larger strength => larger variance increase (more weight on the
+    overdispersed reference), while the mean stays put either way."""
+    grid = _poisson_grid(1.6, 0.9, n=11)
+    vh0, va0 = _marginal_vars(grid)
+    small = inflate_predictive(grid, is_provisional=True, strength=0.2)
+    large = inflate_predictive(grid, is_provisional=True, strength=0.8)
+    vh_small, va_small = _marginal_vars(small)
+    vh_large, va_large = _marginal_vars(large)
+    assert vh_large > vh_small > vh0
+    assert va_large > va_small > va0
 
 
 # ---------- both mechanisms reachable via the config switch ----------
