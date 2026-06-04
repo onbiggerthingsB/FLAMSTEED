@@ -1,0 +1,343 @@
+"""Full-posterior Monte-Carlo tournament loop + progression aggregation (Phase-3 T5).
+
+INTEGRATES Tasks 0-4: it draws ONE posterior sample per simulation, plays the group
+stage (``sample_score`` at that draw's rates), ranks each group + the best-8 thirds
+(FIFA 2026 tiebreakers), resolves the R32 feeder graph, and propagates knockout
+winners (``resolve_tie``) through to the Final — recording, per team, the furthest
+stage reached and a win-group flag. Counts/N over ``n_sims`` give the progression
+probabilities; ``se = sqrt(p*(1-p)/N)`` is the per-market binomial Monte-Carlo SE.
+
+THREE focal correctness properties (each load-bearing; cross-model adversarial review):
+
+1. ONE posterior draw per sim, FIXED across every fixture. ``simulate_one`` is called
+   with a single integer ``draw`` and passes that SAME ``draw`` to ``RateBook.rates``
+   for every group fixture and every knockout phase. Drawing a fresh posterior sample
+   per fixture would decorrelate the shared att/def/mu/home_adv across a sim's matches
+   (a team would be strong in one match, weak in the next) — that is WRONG and would
+   understate joint tail events. Cross-fixture correlation is preserved EXACTLY because
+   the rates all read the same draw ``s`` (see ``_FixtureSampler`` and the single
+   ``rng.integers(n_draws)`` per sim in ``simulate_tournament``).
+
+2. The (c) provisional widening is NEVER applied in-sim. Uncertainty enters ONCE: via
+   the posterior draw (RateBook) + the raw DC/BP scoreline sampling (``sample_score``).
+   We deliberately do NOT call ``Posterior.predict_scoreline`` (which averages draws AND
+   may inflate a provisional grid) — that would double-count uncertainty and destroy the
+   per-sim shared-parameter correlation. ``RateBook`` exposes the RAW per-draw rates.
+
+3. Seeded / fully reproducible. ``SeedSequence(seed).spawn(n_sims)`` gives each sim an
+   independent, seed-derived child stream; per-sim ``rng = default_rng(child)``. No
+   global/default RNG anywhere. Same ``seed`` -> bit-identical ``progression``.
+
+The ``reach_X`` markets are CUMULATIVE by depth-from-final (Final = depth 0, SF = 1,
+QF = 2, R16 = 3, anything deeper -> group-stage-exit boundary), so for ANY bracket
+``champion <= reach_final <= reach_sf <= reach_qf <= reach_r16 <= advance`` holds BY
+CONSTRUCTION (a team that reaches a later round trivially satisfies every earlier depth
+threshold). Depths are read off the WINNER feeder DAG rooted at the Final, so the
+loser-fed 3rd-place consolation match is correctly OFF the championship ladder.
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+import numpy as np
+import pandas as pd
+
+from wcmodel.sim.groups import group_table, rank_group
+from wcmodel.sim.knockout import resolve_tie
+from wcmodel.sim.scoreline import RateBook, sample_score
+from wcmodel.sim.thirds import assign_thirds_to_slots, rank_thirds
+
+# Feeder-token grammar (mirrors bracket.py / config/tournament_2026.yaml):
+#   "1A"/"2B"  -> group-position slot: digit (1=winner, 2=runner-up) + group letter
+#   "3rd-ABCDF"-> best-third slot: the third assigned to this match (Annex C lookup)
+#   "W74"      -> winner of match 74 ; "L101" -> loser of match 101 (3rd-place feeders)
+_GROUP_SLOT = re.compile(r"^([12])([A-L])$")
+_THIRD_SLOT = re.compile(r"^3rd-[A-L]+$")
+_WL_REF = re.compile(r"^([WL])(\d+)$")
+
+# Depth-from-final -> ladder semantic. Smaller depth = further in the tournament.
+_DEPTH_FINAL = 0
+_DEPTH_SF = 1
+_DEPTH_QF = 2
+_DEPTH_R16 = 3
+# Sentinel for a team eliminated in the group stage (never entered any KO match):
+# larger than any real KO depth so every reach_X threshold test is False for it.
+_GROUP_EXIT = 1 << 30
+
+# The market ladder, as (column -> depth threshold). A team scores 1 in column C iff its
+# MIN participated KO depth <= threshold[C]. `advance` uses the bracket's deepest KO
+# depth (set per-run), so it means "entered the knockouts at all". `win_group` and
+# `champion` are handled separately (group placing / Final winner).
+_REACH_LADDER = [
+    ("reach_r16", _DEPTH_R16),
+    ("reach_qf", _DEPTH_QF),
+    ("reach_sf", _DEPTH_SF),
+    ("reach_final", _DEPTH_FINAL),
+]
+# Column emission order (group-stage markets first, then deepening reach ladder, champion
+# last). Coherence chain champion <= reach_final <= reach_sf <= ... <= advance holds by
+# construction because each reach column is a monotone threshold on the same depth.
+_COLUMNS = ["win_group", "advance", "reach_r16", "reach_qf", "reach_sf", "reach_final",
+            "champion"]
+
+
+@dataclass(frozen=True)
+class SimResult:
+    """Aggregated MC output. ``progression``/``se`` are team-indexed DataFrames over the
+    same market columns (``_COLUMNS``); ``random_tail_rate`` is the fraction of sims in
+    which a group ranking's seeded random tail fired (a diagnostic, not a probability);
+    ``n_sims`` is the sample size behind every probability + SE."""
+
+    progression: pd.DataFrame      # index=team, cols=markets -> probability in [0,1]
+    se: pd.DataFrame               # index=team, cols=markets -> binomial MC SE
+    random_tail_rate: float        # fraction of sims where a rank_group random tail fired
+    n_sims: int
+
+
+@dataclass(frozen=True)
+class _Cfg:
+    """Sim knobs threaded through one run (all passed explicitly to ``simulate_one``)."""
+    max_goals: int
+    et_scale: float
+    pen_home_prob: float
+    neutral: bool = True   # WC-2026 group/KO matches are modelled on neutral ground
+
+
+class _FixtureSampler:
+    """Per-sim closure: every call reads the SAME posterior draw ``s`` from the shared
+    ``RateBook``. This is the mechanical guarantee of focal property #1 — one draw, fixed
+    across all fixtures in the sim. ``knockout_sampler`` returns the ``sample(phase, rng)``
+    callable ``resolve_tie`` consumes: regulation rates, or rates*et_scale for extra time
+    (the et_scale arithmetic lives HERE, per the knockout.py caller-applies contract)."""
+
+    def __init__(self, ratebook: RateBook, draw: int, cfg: _Cfg):
+        self._rb = ratebook
+        self._draw = draw
+        self._cfg = cfg
+
+    def score(self, home, away, *, neutral, rng):
+        # RAW per-draw rates (NO predict_scoreline averaging, NO (c) widening) at the one
+        # fixed draw -> raw DC/BP pmf sample. Focal properties #1 and #2.
+        lh, la = self._rb.rates(home, away, neutral, draw=self._draw)
+        return self._sample_at(lh, la, rng)
+
+    def knockout_sampler(self, home, away, *, neutral):
+        lh, la = self._rb.rates(home, away, neutral, draw=self._draw)
+
+        def sample(phase, rng):
+            if phase == "extra_time":   # ET = 30/90 of a regulation match -> scale BOTH rates
+                return self._sample_at(lh * self._cfg.et_scale, la * self._cfg.et_scale, rng)
+            return self._sample_at(lh, la, rng)
+
+        return sample
+
+    def _sample_at(self, lh, la, rng):
+        rb, s = self._rb, self._draw
+        if rb.likelihood == "dixon_coles":
+            return sample_score(lh, la, rng=rng, likelihood=rb.likelihood,
+                                rho=float(rb.rho[s]), max_goals=self._cfg.max_goals)
+        return sample_score(lh, la, rng=rng, likelihood=rb.likelihood,
+                            l3=float(rb.l3[s]), max_goals=self._cfg.max_goals)
+
+
+def _match_depths(bracket) -> dict:
+    """Depth-from-final for every knockout match, read off the WINNER feeder DAG rooted at
+    the Final (round == 'Final', depth 0). A match feeding match ``m`` (via ``W{m}``) sits
+    one hop deeper. Matches NOT on the winner-DAG (the loser-fed 3rd-place consolation) get
+    no depth -> excluded from the championship ladder. Pure structure (computed once per
+    run from the immutable bracket); no RNG, no draw."""
+    finals = [m for m, r in bracket.match_round.items() if r == "Final"]
+    if len(finals) != 1:
+        raise ValueError(f"bracket must have exactly one Final, found matches {finals}")
+    final_no = finals[0]
+
+    # consumer[p] = the match that consumes W{p} (p's winner advances INTO it).
+    consumer = {}
+    for m, (home_ref, away_ref) in bracket.knockout_feeders.items():
+        for ref in (home_ref, away_ref):
+            mt = _WL_REF.match(ref)
+            if mt and mt.group(1) == "W":
+                consumer[int(mt.group(2))] = m
+
+    depth = {final_no: _DEPTH_FINAL}
+
+    def _depth_of(m):
+        if m in depth:
+            return depth[m]
+        if m not in consumer:
+            return None                      # off the winner-DAG (e.g. the 3rd-place match)
+        parent = _depth_of(consumer[m])
+        if parent is None:
+            return None
+        depth[m] = parent + 1
+        return depth[m]
+
+    for m in bracket.knockout_feeders:
+        _depth_of(m)
+    return depth
+
+
+def _resolve_feeder(ref, *, group_rankings, third_by_match, winners, losers, match_no):
+    """Resolve one feeder token to a concrete team for ``match_no``.
+
+    ``group_rankings``: {group_letter: [1st, 2nd, 3rd, 4th]} (this sim's rank_group output).
+    ``third_by_match``: {match_no: group_letter} from assign_thirds_to_slots (or {} when the
+    bracket has no best-third slots, e.g. tiny_bracket). ``winners``/``losers``: filled in
+    match-number (topological) order as knockouts resolve."""
+    mt = _GROUP_SLOT.match(ref)
+    if mt:                                               # "1A"/"2B": placing 0 or 1
+        return group_rankings[mt.group(2)][int(mt.group(1)) - 1]
+    if _THIRD_SLOT.match(ref):                           # "3rd-ABCDF": Annex-C-assigned third
+        return group_rankings[third_by_match[match_no]][2]
+    mt = _WL_REF.match(ref)
+    if mt:                                               # "W74"/"L101"
+        src = int(mt.group(2))
+        return (winners if mt.group(1) == "W" else losers)[src]
+    raise ValueError(f"unrecognised feeder token {ref!r} for match {match_no}")
+
+
+def simulate_one(bracket, ratebook, draw, rng, cfg, played=None):
+    """Simulate ONE tournament at a single fixed posterior ``draw``.
+
+    Returns ``{"depth": {team: furthest_depth}, "groups": {team: placing}, "champion":
+    team, "random_tail": bool}`` — ``furthest_depth`` is the team's MIN participated KO
+    depth (smaller = further; ``_GROUP_EXIT`` if it never advanced), ``placing`` its 0-based
+    group finish. Every fixture in this call uses the SAME ``draw`` (focal property #1) and
+    the RAW per-draw rates (focal property #2).
+
+    ``played`` is accepted for the Task-6 contract (fixed <=cutoff results threaded in) but
+    is INERT in T5: ``played=None`` means "simulate every fixture", the only path T5
+    exercises. No cutoff-conditioning logic is implemented here beyond accepting the param."""
+    if played is not None:                               # T6 will honour this; T5 must not.
+        raise NotImplementedError(
+            "simulate_one(played=...) is a Task-6 contract; T5 only simulates every "
+            "fixture (played=None)."
+        )
+
+    sampler = _FixtureSampler(ratebook, draw, cfg)
+    random_tail = False
+
+    # --- Group stage: play each group's fixtures, rank (FIFA 2026 tiebreakers), and
+    # capture the 3rd-placer's (points, gd, gf) from the SAME scorelines (no re-sampling). ---
+    group_rankings = {}            # {group: [1st, 2nd, 3rd, 4th]}
+    thirds_stats = {}              # {group: {points, gd, gf}} for the 3rd-placer
+    placing = {}                   # {team: 0-based group finish}
+    for g, fixtures in bracket.group_fixtures.items():
+        teams = bracket.groups[g]
+        results = {
+            (home, away): sampler.score(home, away, neutral=cfg.neutral, rng=rng)
+            for home, away in fixtures
+        }
+        ranking, used = rank_group(teams, results, rng=rng, _return_random_used=True)
+        random_tail = random_tail or used
+        group_rankings[g] = ranking
+        for pos, team in enumerate(ranking):
+            placing[team] = pos
+        if bracket.third_place_slots:    # only needed when the bracket has best-third slots
+            tbl = group_table(teams, results)
+            third = ranking[2]
+            thirds_stats[g] = {k: tbl[third][k] for k in ("points", "gd", "gf")}
+
+    # --- Best-8 thirds + R32 slot assignment (skipped entirely when the bracket has no
+    # third slots, e.g. tiny_bracket -> no FIFA Annex-C lookup, no RNG touched there). ---
+    third_by_match = {}
+    if bracket.third_place_slots:
+        third_by_match = assign_thirds_to_slots(rank_thirds(thirds_stats, rng=rng))
+
+    # --- Knockouts: resolve every match in match-number (topological) order. Winner-fed
+    # matches propagate champions toward the Final; the loser-fed 3rd-place match is
+    # resolved for full-sim fidelity but is off the championship depth ladder (no depth). ---
+    depths = _match_depths(bracket)
+    winners, losers = {}, {}
+    furthest = {}                  # {team: MIN participated KO depth}
+    champion = None
+    for m in sorted(bracket.knockout_feeders):
+        home_ref, away_ref = bracket.knockout_feeders[m]
+        home = _resolve_feeder(home_ref, group_rankings=group_rankings,
+                               third_by_match=third_by_match, winners=winners,
+                               losers=losers, match_no=m)
+        away = _resolve_feeder(away_ref, group_rankings=group_rankings,
+                               third_by_match=third_by_match, winners=winners,
+                               losers=losers, match_no=m)
+        sample = sampler.knockout_sampler(home, away, neutral=cfg.neutral)
+        w = resolve_tie(home, away, sample=sample, rng=rng, et_scale=cfg.et_scale,
+                        pen_home_prob=cfg.pen_home_prob)
+        winners[m] = w
+        losers[m] = away if w == home else home
+
+        d = depths.get(m)
+        if d is not None:                    # on the championship DAG: record participation
+            for team in (home, away):
+                furthest[team] = min(furthest.get(team, _GROUP_EXIT), d)
+            if d == _DEPTH_FINAL:
+                champion = w
+
+    return {"depth": furthest, "groups": placing, "champion": champion,
+            "random_tail": random_tail}
+
+
+def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale,
+                        pen_home_prob, played=None):
+    """Run ``n_sims`` full-posterior MC tournaments over ``bracket`` -> ``SimResult``.
+
+    Focal property #3 (seeded determinism): ``SeedSequence(seed).spawn(n_sims)`` derives
+    one independent child stream per sim; ``rng = default_rng(child)`` is the ONLY RNG used
+    inside a sim. No global/default RNG anywhere -> same ``seed`` gives a bit-identical
+    ``progression``. Focal property #1 (one draw per sim): ``s = rng.integers(n_draws)`` is
+    drawn ONCE per sim and that SAME ``s`` is threaded to every fixture (group + knockout)
+    via ``simulate_one(..., draw=s, ...)``.
+
+    ``played`` is forwarded to ``simulate_one`` for the Task-6 contract; T5 uses
+    ``played=None`` (simulate every fixture)."""
+    ratebook = RateBook(posterior)
+    cfg = _Cfg(max_goals=max_goals, et_scale=et_scale, pen_home_prob=pen_home_prob)
+    teams = list(posterior.teams)
+    team_idx = {t: i for i, t in enumerate(teams)}
+    n_teams = len(teams)
+
+    # Per-market integer counts (teams x markets), summed over sims; champion-summing to N
+    # is guaranteed because each sim records exactly one Final winner.
+    counts = {col: np.zeros(n_teams, dtype=np.int64) for col in _COLUMNS}
+    random_tail_hits = 0
+
+    depths_on_dag = set(_match_depths(bracket).values())   # finite KO depths present
+    # `advance` threshold = the bracket's deepest KO depth (entered the knockouts at all).
+    advance_depth = max(depths_on_dag) if depths_on_dag else _GROUP_EXIT
+    reach_thresholds = dict(_REACH_LADDER)
+    reach_thresholds["advance"] = advance_depth
+
+    children = np.random.SeedSequence(seed).spawn(n_sims)  # one seed-derived stream per sim
+    for child in children:
+        rng = np.random.default_rng(child)                 # the ONLY RNG inside the sim
+        s = int(rng.integers(ratebook.n_draws))            # ONE posterior draw, fixed for the sim
+        out = simulate_one(bracket, ratebook, draw=s, rng=rng, cfg=cfg, played=played)
+        random_tail_hits += int(out["random_tail"])
+
+        for team, placing in out["groups"].items():
+            if placing == 0:
+                counts["win_group"][team_idx[team]] += 1
+        # Reach ladder (cumulative depth thresholds) + advance, from each team's MIN depth.
+        for team, d in out["depth"].items():
+            i = team_idx[team]
+            if d <= reach_thresholds["advance"]:
+                counts["advance"][i] += 1
+            for col, thr in _REACH_LADDER:
+                if d <= thr:
+                    counts[col][i] += 1
+        champ = out["champion"]
+        if champ is not None:
+            counts["champion"][team_idx[champ]] += 1
+
+    n = float(n_sims)
+    prob = pd.DataFrame({col: counts[col] / n for col in _COLUMNS}, index=teams)
+    prob.index.name = "team"
+    # Binomial Monte-Carlo standard error per market: sqrt(p*(1-p)/N).
+    se = pd.DataFrame(
+        {col: np.sqrt(prob[col].to_numpy() * (1.0 - prob[col].to_numpy()) / n)
+         for col in _COLUMNS},
+        index=teams,
+    )
+    se.index.name = "team"
+    return SimResult(progression=prob[_COLUMNS], se=se[_COLUMNS],
+                     random_tail_rate=random_tail_hits / n, n_sims=n_sims)
