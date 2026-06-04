@@ -14,7 +14,8 @@ These tests prove:
   * cold = MISS (computes), warm = HIT (no recompute — asserted via a SENTINEL:
     ``simulate_tournament`` is monkeypatched to raise on a hit);
   * changing EACH key component (cutoff, seed, n_sims, max_goals, et_scale,
-    pen_home_prob, a perturbed posterior, a different bracket) MISSES;
+    pen_home_prob, a perturbed posterior, a different bracket, the git HEAD-commit,
+    and the uncommitted-worktree dirty-flag) MISSES;
   * a HIT returns results BYTE-IDENTICAL to the cold compute.
 
 Uses a tiny stub RateBook-shaped posterior + ``tiny_bracket()`` so no ADVI is
@@ -197,6 +198,37 @@ def test_different_played_misses(tmp_path):
     _, m1 = cached_sim(**_base_kwargs(tmp_path))
     _, m2 = cached_sim(**_base_kwargs(tmp_path, played=played))
     assert m2["cache_hit"] is False and m1["key"] != m2["key"]
+
+
+def test_different_git_commit_misses(tmp_path, monkeypatch):
+    """The git HEAD-commit component is in the key, so a code change (a new commit)
+    MUST miss — otherwise a cached run could serve a result computed by older code.
+    Non-brittle: we monkeypatch the git-key GETTER (``_git_commit``, imported into the
+    cache module) rather than mutating the real repo, so the key flips deterministically."""
+    _, m1 = cached_sim(**_base_kwargs(tmp_path))
+    monkeypatch.setattr(sim_cache, "_git_commit", lambda: "deadbeefcafef00d")
+    _, m2 = cached_sim(**_base_kwargs(tmp_path))
+    assert m2["cache_hit"] is False and m1["key"] != m2["key"], (
+        "a changed git commit must change the key -> a miss (no stale serve from old code)"
+    )
+
+
+def test_dirty_worktree_misses(tmp_path, monkeypatch):
+    """GIT-KEY POLICY (Codex T7 finding 2): the HEAD commit alone can't see uncommitted
+    edits to the sim code, so the sim key ALSO folds in a hash of the uncommitted tracked
+    diff (``_git_worktree_hash``). A clean tree HITs; once the working tree is dirty
+    (different ``_git_worktree_hash``) the SAME run MISSES -> no serve from since-edited
+    code. We monkeypatch the worktree getter (clean -> a sentinel diff-hash)."""
+    monkeypatch.setattr(sim_cache, "_git_worktree_hash", lambda: "clean")
+    _, m1 = cached_sim(**_base_kwargs(tmp_path))            # cold (clean tree)
+    _, m1b = cached_sim(**_base_kwargs(tmp_path))           # warm hit while still "clean"
+    assert m1["cache_hit"] is False and m1b["cache_hit"] is True
+    # Now the working tree is "dirty" (uncommitted sim edit) -> a different worktree hash.
+    monkeypatch.setattr(sim_cache, "_git_worktree_hash", lambda: "0123456789abcdef")
+    _, m2 = cached_sim(**_base_kwargs(tmp_path))
+    assert m2["cache_hit"] is False and m1["key"] != m2["key"], (
+        "an uncommitted sim-code change must change the key -> a miss (no stale serve)"
+    )
 
 
 def test_perturbed_posterior_changes_results(tmp_path):

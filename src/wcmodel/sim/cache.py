@@ -34,7 +34,20 @@ ACTUAL CONTENT that drove the run, never on a config field that can drift:
     The cutoff is in the key, but the played set is what the cutoff RESOLVES to, and
     the same posterior can be simulated with different conditioning; hashing the
     actual played content makes a hit impossible to serve for the wrong conditioning.
-  * ``git`` — the code that builds the bracket / runs the sim / aggregates markets.
+  * ``git`` — the HEAD commit of the code that builds the bracket / runs the sim /
+    aggregates markets, PLUS ``git_worktree`` (a hash of the uncommitted tracked diff,
+    or ``"clean"``). See the GIT-KEY POLICY below.
+
+GIT-KEY POLICY (Codex T7 finding 2). Cache validity assumes COMMITTED code. The shared
+``content_key`` git component (``_git_commit``) is the HEAD COMMIT ONLY — a project-wide
+Phase-1/2 convention we do NOT change here. On its own that cannot distinguish a clean
+tree from one with uncommitted edits to the sim/aggregation code, so a HIT during active
+development could serve a result computed by SINCE-EDITED code. To close that locally
+WITHOUT touching the shared helper, the sim key ALSO includes ``_git_worktree_hash()`` (a
+hash of ``git diff HEAD``), so any uncommitted change to TRACKED sim code yields a
+different key -> a MISS. Caveat: a brand-new UNTRACKED file is not in ``git diff HEAD``;
+when iterating on sim code prefer to commit, or clear the cache, rather than rely on the
+dirty-flag for untracked additions.
 
 On a MISS we ``simulate_tournament`` and persist three files keyed by the content
 hash (so a HIT reconstructs the full ``SimResult`` from disk WITHOUT re-simulating):
@@ -49,6 +62,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -56,6 +70,34 @@ import pandas as pd
 
 from wcmodel.data.cache import _git_commit, content_key
 from wcmodel.sim.tournament import SimResult, simulate_tournament
+
+
+def _git_worktree_hash() -> str:
+    """Short digest of the UNCOMMITTED working-tree state (tracked files), or
+    ``"clean"`` / ``"nogit"``.
+
+    GIT-KEY POLICY (Codex T7 finding 2). The shared ``content_key`` git component
+    (``wcmodel.data.cache._git_commit``) is the HEAD COMMIT ONLY, so on its own a
+    cache key cannot tell a committed tree from a working tree with uncommitted edits
+    to the sim/aggregation code — during active development a ``cached_sim`` HIT could
+    serve a result computed by SINCE-EDITED code. ``_git_commit`` is a project-wide
+    convention shared by the Phase-1/2 caches; we do NOT change it. Instead this LOCAL
+    sim-cache helper folds a hash of ``git diff HEAD`` (the full uncommitted tracked
+    diff) into the sim key, so any uncommitted change to code the sim depends on yields
+    a DIFFERENT key -> a MISS (never a stale serve from since-edited code). A clean tree
+    hashes to the literal ``"clean"`` so a committed run's key is stable; ``"nogit"`` if
+    git is unavailable. NB: this captures TRACKED edits (``git diff HEAD``); a brand-new
+    UNTRACKED, unstaged file is not in the diff — commit/clear the cache when iterating.
+    """
+    try:
+        diff = subprocess.check_output(
+            ["git", "diff", "HEAD"], text=True, stderr=subprocess.DEVNULL
+        )
+    except Exception:
+        return "nogit"
+    if not diff:
+        return "clean"
+    return hashlib.sha256(diff.encode()).hexdigest()[:16]
 
 
 def _posterior_hash(posterior) -> str:
@@ -84,9 +126,29 @@ def _bracket_hash(bracket) -> str:
     """Stable 16-hex hash of the bracket STRUCTURE.
 
     Serializes every structural field to a canonical, sorted JSON blob (frozensets
-    -> sorted lists; tuple feeders -> lists) so the digest is order-independent and
-    deterministic. A different group composition / fixture pairing / feeder graph /
-    round map -> a different blob -> a different hash -> a cache miss.
+    -> sorted lists; tuple feeders -> lists) so the digest is deterministic. A
+    different group composition / fixture pairing / feeder graph / round map -> a
+    different blob -> a different hash -> a cache miss.
+
+    HASH <-> SIM CONTRACT (Codex T7 stale-serve guard) — the two MUST agree on the
+    canonical form, in BOTH directions, or a cache hit could serve a seeded result the
+    live sim would not produce:
+
+      * GROUP KEYS are canonicalized (``sorted(...items())`` on ``groups`` and
+        ``group_fixtures``), so the key is INDEPENDENT of group dict-insertion order.
+        ``simulate_one`` therefore walks groups in the SAME ``sorted(group_fixtures)``
+        order (it consumes the per-sim RNG group-by-group), so two content-identical
+        brackets whose groups are inserted in different order share a key AND produce
+        the SAME seeded ``SimResult`` (proven by ``test_simresult_invariant_to_group_
+        insertion_order``). Without that, sharing a key would be a stale serve.
+      * WITHIN-GROUP FIXTURE ORDER is PRESERVED (the inner ``[list(p) for p in
+        fixtures]`` is NOT sorted), because the sim samples each group's ``fixtures``
+        list in list order and consumes RNG in that order — so within-group order IS
+        result-affecting content. Preserving it here means a within-group reorder is a
+        DIFFERENT blob -> a different key -> a miss (proven by
+        ``test_simresult_invariant_to_within_group_fixture_order``, which asserts the
+        sim is NOT invariant to such a reorder). Sorting the inner lists would
+        reintroduce the same stale-serve bug one level down.
     """
     payload = {
         "groups": {g: list(teams) for g, teams in sorted(bracket.groups.items())},
@@ -153,8 +215,11 @@ def cached_sim(*, cutoff, posterior, bracket, n_sims, seed, max_goals, et_scale,
 
     The key (see module docstring) is the ACTUAL posterior content-hash + bracket
     structure-hash + cutoff + n_sims + seed + max_goals + et_scale + pen_home_prob +
-    the played-conditioning hash + git. Any change -> a different key -> a miss
-    (never a stale serve)."""
+    the played-conditioning hash + git (HEAD commit + uncommitted-tracked-diff hash, per
+    the GIT-KEY POLICY in the module docstring). Any change -> a different key -> a miss
+    (never a stale serve). Cache validity assumes COMMITTED code; the ``git_worktree``
+    component makes uncommitted TRACKED sim edits miss, but a new UNTRACKED file is not in
+    ``git diff HEAD`` — commit or clear the cache when iterating on sim code."""
     params = {
         "cutoff": str(pd.Timestamp(cutoff)),
         "posterior_hash": _posterior_hash(posterior),
@@ -166,6 +231,11 @@ def cached_sim(*, cutoff, posterior, bracket, n_sims, seed, max_goals, et_scale,
         "pen_home_prob": float(pen_home_prob),
         "played_hash": _played_hash(played),
         "git": _git_commit(),
+        # HEAD commit alone can't see uncommitted edits to the sim/aggregation code, so a
+        # dirty working tree would otherwise HIT a result computed by since-edited code.
+        # Fold a hash of the uncommitted tracked diff in -> uncommitted sim changes MISS.
+        # (Sim-cache-local; the shared content_key/_git_commit convention is untouched.)
+        "git_worktree": _git_worktree_hash(),
     }
     key = content_key("sim", params)
     cache_dir = Path(cache_dir)

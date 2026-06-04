@@ -194,3 +194,122 @@ def test_played_none_simulates_every_fixture():
     with pytest.raises(AssertionError, match="drawn"):
         simulate_one(br, _DetRB(), draw=0, rng=_NoDrawRNG(), cfg=cfg, played=None,
                      depths=_match_depths(br))
+
+
+# --- Codex T7 (stale-serve guard): SimResult is a PURE FUNCTION of bracket CONTENT,
+# independent of the `groups`/`group_fixtures` dict INSERTION order. ---
+# `cache.py::_bracket_hash` canonicalizes the bracket by SORTING the group keys, so two
+# content-identical brackets that differ only in group insertion order share a cache key.
+# That is only SOUND if the sim itself is insertion-order-invariant; otherwise a cache hit
+# could serve a seeded result the live sim would not produce. The sim walks each group in
+# turn consuming the per-sim RNG (scoreline sampling + rank_group tail), so the consumption
+# order — and hence the seeded result — must be a deterministic function of group CONTENT,
+# i.e. the canonical sorted-by-group-key order the hash uses. These tests pin that.
+import xarray as xr
+from wcmodel.model.posterior import Posterior
+from wcmodel.sim.bracket import build_bracket
+
+_INV_TEAMS = ["Brazil", "Argentina", "Croatia", "France",
+              "Spain", "England", "Germany", "Portugal"]
+
+
+def _inv_posterior(seed=0):
+    """A minimal but REAL Posterior over the 8 invariance-test teams (hand-built
+    idata.posterior — no ADVI, runs in ms). Mirrors tests/sim/test_sim_cache.py."""
+    rng = np.random.default_rng(seed)
+    n_teams, n_chain, n_draw = len(_INV_TEAMS), 1, 8
+    ds = xr.Dataset(
+        {
+            "att": (("chain", "draw", "team"),
+                    rng.normal(0, 0.3, (n_chain, n_draw, n_teams))),
+            "def": (("chain", "draw", "team"),
+                    rng.normal(0, 0.3, (n_chain, n_draw, n_teams))),
+            "mu": (("chain", "draw"), rng.normal(0.1, 0.05, (n_chain, n_draw))),
+            "home_adv": (("chain", "draw"), rng.normal(0.2, 0.05, (n_chain, n_draw))),
+            "rho": (("chain", "draw"), rng.normal(-0.05, 0.01, (n_chain, n_draw))),
+        },
+        coords={"team": list(_INV_TEAMS)},
+    )
+    idata = xr.DataTree.from_dict({"posterior": ds})
+    return Posterior(idata, list(_INV_TEAMS), "dixon_coles", provisional_teams=set())
+
+
+def _round_robin(teams):
+    a, b, c, d = teams
+    return [(a, b), (c, d), (a, c), (b, d), (a, d), (b, c)]
+
+
+def _two_group_tournament(group_order):
+    """A 2-group (4 teams each) -> single Final tournament dict, with the two groups
+    emitted in ``group_order`` (a sequence of group dicts). The Final (match 104) pairs
+    the two group winners (1A vs 1B), so BOTH groups feed the knockout — content is the
+    SAME for any ordering; only the `groups` list (and hence dict insertion) order moves.
+    Group fixtures carry NO ``match`` key (the group discriminator); the Final carries
+    one + placeholder feeders."""
+    fixtures = []
+    for g in group_order:
+        for h, aw in _round_robin(g["teams"]):
+            fixtures.append({"home": h, "away": aw, "round": "Matchday 1"})
+    fixtures.append({"match": 104, "home": "1A", "away": "1B", "round": "Final"})
+    return {"groups": list(group_order), "fixtures": fixtures}
+
+
+def test_simresult_invariant_to_group_insertion_order():
+    """STALE-SERVE GUARD (Codex T7). Two brackets with IDENTICAL content but different
+    group INSERTION order must produce a BYTE-IDENTICAL seeded SimResult — because
+    `_bracket_hash` sorts the group keys (so they share a cache key), serving one for the
+    other is only correct if the sim is insertion-order-invariant. RED on the old
+    insertion-order group loop (the two orderings consume the per-sim RNG in different
+    order -> different draws -> different progression); GREEN once the loop iterates groups
+    in sorted-key order."""
+    group_a = {"name": "A", "teams": _INV_TEAMS[:4]}
+    group_b = {"name": "B", "teams": _INV_TEAMS[4:]}
+    # SAME content, DIFFERENT group insertion order: A,B vs B,A.
+    br_ab = build_bracket(_two_group_tournament([group_a, group_b]))
+    br_ba = build_bracket(_two_group_tournament([group_b, group_a]))
+    # Sanity: the two brackets are genuinely just a reordering — identical group CONTENT,
+    # but a different `groups`/`group_fixtures` dict insertion order (the bug's trigger).
+    assert dict(br_ab.groups) == dict(br_ba.groups)
+    assert list(br_ab.groups) != list(br_ba.groups), "insertion order must differ"
+
+    kw = dict(n_sims=400, seed=0, max_goals=8, et_scale=0.3333, pen_home_prob=0.5)
+    res_ab = simulate_tournament(_inv_posterior(), bracket=br_ab, **kw)
+    res_ba = simulate_tournament(_inv_posterior(), bracket=br_ba, **kw)
+    assert res_ab.progression.equals(res_ba.progression), (
+        "SimResult depends on group INSERTION order — a cache hit (keyed on the "
+        "order-independent _bracket_hash) could serve a result the live sim would "
+        "not produce (stale serve)"
+    )
+    assert res_ab.se.equals(res_ba.se)
+
+
+def test_simresult_invariant_to_within_group_fixture_order():
+    """Sister guard for the within-group level: `_bracket_hash` PRESERVES each group's
+    fixture-list order (it does NOT sort the inner lists), and the sim samples each
+    group's fixtures in list order — so a within-group fixture REORDERING is genuine
+    new content that the hash distinguishes (a different key) and the sim must reflect.
+    This documents the deliberate hash/sim contract: group keys canonicalized (sorted)
+    in both; within-group fixture order PRESERVED in both. We assert the sim is NOT
+    invariant to a within-group reorder (it is real content, correctly keyed)."""
+    teams_a, teams_b = _INV_TEAMS[:4], _INV_TEAMS[4:]
+    base = {"name": "A", "teams": teams_a}, {"name": "B", "teams": teams_b}
+    br1 = build_bracket(_two_group_tournament(list(base)))
+
+    # Reorder ONLY group A's within-group fixture list (same pairs, different order).
+    rr_a = _round_robin(teams_a)
+    rr_a_shuffled = [rr_a[3], rr_a[0], rr_a[5], rr_a[1], rr_a[4], rr_a[2]]
+    fixtures = ([{"home": h, "away": aw, "round": "Matchday 1"} for h, aw in rr_a_shuffled]
+                + [{"home": h, "away": aw, "round": "Matchday 1"}
+                   for h, aw in _round_robin(teams_b)]
+                + [{"match": 104, "home": "1A", "away": "1B", "round": "Final"}])
+    br2 = build_bracket({"groups": list(base), "fixtures": fixtures})
+
+    assert br1.group_fixtures["A"] != br2.group_fixtures["A"], "fixture order must differ"
+    kw = dict(n_sims=400, seed=0, max_goals=8, et_scale=0.3333, pen_home_prob=0.5)
+    res1 = simulate_tournament(_inv_posterior(), bracket=br1, **kw)
+    res2 = simulate_tournament(_inv_posterior(), bracket=br2, **kw)
+    # Within-group order IS content (hash preserves it -> distinct key): results differ.
+    assert not res1.progression.equals(res2.progression), (
+        "within-group fixture order is real content the hash distinguishes; the sim "
+        "must reflect it (else the hash and sim would disagree one level down)"
+    )

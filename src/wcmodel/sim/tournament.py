@@ -282,7 +282,18 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None)
     group_rankings = {}            # {group: [1st, 2nd, 3rd, 4th]}
     thirds_stats = {}              # {group: {points, gd, gf}} for the 3rd-placer
     placing = {}                   # {team: 0-based group finish}
-    for g, fixtures in bracket.group_fixtures.items():
+    # CANONICAL group iteration (Codex T7 stale-serve guard): walk groups in sorted-key
+    # order, NOT dict-insertion order. This loop consumes the per-sim RNG (scoreline
+    # sampling below + rank_group's seeded tail), so its order determines the seeded
+    # result. cache.py::_bracket_hash canonicalizes the bracket by SORTING the group keys
+    # (the key is independent of group insertion order), so the sim MUST consume RNG in
+    # that same content-determined order — else two content-identical brackets with
+    # different group insertion order would share a cache key yet produce different seeded
+    # results (a stale serve). sorted() makes SimResult a pure function of bracket CONTENT.
+    # (Within-group fixture order is left as-is: it IS content and _bracket_hash preserves
+    # it, so a reorder there is a distinct key — see test_simresult_invariant_to_*.)
+    for g in sorted(bracket.group_fixtures):
+        fixtures = bracket.group_fixtures[g]
         teams = bracket.groups[g]
         # A fixture decided as-of-cutoff (in played_groups) uses its ACTUAL score and is
         # NOT sampled (consumes no RNG); every other fixture is sampled at this draw.
@@ -370,9 +381,15 @@ def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale
     Focal property #3 (seeded determinism): ``SeedSequence(seed).spawn(n_sims)`` derives
     one independent child stream per sim; ``rng = default_rng(child)`` is the ONLY RNG used
     inside a sim. No global/default RNG anywhere -> same ``seed`` gives a bit-identical
-    ``progression``. Focal property #1 (one draw per sim): ``s = rng.integers(n_draws)`` is
-    drawn ONCE per sim and that SAME ``s`` is threaded to every fixture (group + knockout)
-    via ``simulate_one(..., draw=s, ...)``.
+    ``progression``. ``simulate_one`` walks groups in CANONICAL ``sorted(group_fixtures)``
+    order, so the per-sim RNG-consumption order — and hence the seeded ``SimResult`` — is a
+    pure function of bracket CONTENT, INDEPENDENT of the ``groups`` dict insertion order.
+    That makes the (insertion-order-independent) ``cache.py::_bracket_hash`` a SOUND cache
+    key: two content-identical brackets ordered differently share a key AND produce the same
+    result (Codex T7 stale-serve guard; ``test_simresult_invariant_to_group_insertion_order``).
+    Focal property #1 (one draw per sim): ``s = rng.integers(n_draws)`` is drawn ONCE per sim
+    and that SAME ``s`` is threaded to every fixture (group + knockout) via
+    ``simulate_one(..., draw=s, ...)``.
 
     ``played`` (the Task-6 per-cutoff conditioning map: ``{"groups": {(h,a): (hg,ag)},
     "knockout_results": {(h,a,date): (hg,ag)}, "match_dates": {match_no: date}}``) is
