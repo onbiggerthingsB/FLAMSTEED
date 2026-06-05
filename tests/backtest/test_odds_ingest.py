@@ -2,9 +2,11 @@ import json
 
 import pandas as pd
 
+import pytest
+
 from wcmodel.backtest.odds_ingest import (
     OUTCOMES, event_key, entry_close_prices, synthetic_odds_sample,
-    non_bet_snapshot,
+    non_bet_snapshot, _SYNTHETIC_KEY,
 )
 
 
@@ -46,6 +48,36 @@ def test_synthetic_sample_is_labelled_non_real():
     pc = entry_close_prices(s["sample"], bookmaker="pinnacle")
     assert pc["is_synthetic"] is True            # provenance propagates
     assert pc["entry"]["home"] == 2.0 and pc["close"]["away"] == 4.3
+
+
+def test_synthetic_marker_key_is_single_source_of_truth():
+    # MUST-FIX 1(a): the marker key is ONE module constant shared by writer+reader,
+    # so the writer's stamp and the reader's lookup can never drift to two literals.
+    assert _SYNTHETIC_KEY == "_is_synthetic"
+
+
+def test_synthetic_marker_rides_on_nested_snapshots_not_only_the_wrapper():
+    # MUST-FIX 1(b): every nested snapshot the harness builds carries the marker —
+    # the flag travels WITH the snapshot, not only on the outer wrapper, so a
+    # snapshot lifted out of the wrapper still self-identifies as synthetic.
+    s = synthetic_odds_sample(home="X", away="Y", commence="2024-06-20T19:00:00Z",
+                              entry=(2.0, 3.4, 4.0), close=(1.9, 3.5, 4.3))
+    sample = s["sample"]
+    snaps = [v for v in sample.values()
+             if isinstance(v, dict) and "timestamp" in v and "data" in v]
+    assert snaps, "harness must build at least one nested snapshot"
+    for snap in snaps:
+        assert snap.get(_SYNTHETIC_KEY) is True   # marker is on the snapshot itself
+
+
+def test_entry_close_is_synthetic_contract_true_and_false(odds_fixture_path):
+    # MUST-FIX 1: pin the is_synthetic contract at the entry_close_prices boundary.
+    # A real (non-synthetic) fixture sample => False; a synthetic harness sample => True.
+    real = _sample(odds_fixture_path)
+    assert entry_close_prices(real, bookmaker="pinnacle")["is_synthetic"] is False
+    syn = synthetic_odds_sample(home="X", away="Y", commence="2024-06-20T19:00:00Z",
+                                entry=(2.0, 3.4, 4.0), close=(1.9, 3.5, 4.3))
+    assert entry_close_prices(syn["sample"], bookmaker="pinnacle")["is_synthetic"] is True
 
 
 def test_non_bet_snapshot_flags_sign_flip_wide_spread_and_stale():

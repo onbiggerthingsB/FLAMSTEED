@@ -161,7 +161,27 @@ def load_odds_snapshots(store: BitemporalStore, sample: dict) -> None:
 
     Odds are POINT_IN_TIME: ``valid_as_of == observed_at == snapshot_ts`` (the
     moment the market was observed). Pure parse path — no network.
+
+    DEFENSE-IN-DEPTH (betting-safety): this REFUSES to persist a synthetic sample
+    as real. If the sample wrapper OR any of its snapshots carries the synthetic
+    marker (``odds_ingest._SYNTHETIC_KEY``), it raises — a fabricated price can
+    never enter the real odds store (``source=the_odds_api``) even if it leaks out
+    of the harness wrapper. This is additive: real samples carry no marker and are
+    unaffected.
     """
+    # Function-local import: ``odds_ingest`` imports ``parse_snapshot`` from this
+    # module, so importing it at top level would be circular. ONE source of truth
+    # for the marker key (defined in ``odds_ingest``).
+    from wcmodel.backtest.odds_ingest import _SYNTHETIC_KEY
+
+    if sample.get(_SYNTHETIC_KEY) or any(
+        isinstance(v, dict) and v.get(_SYNTHETIC_KEY) for v in sample.values()
+    ):
+        raise ValueError(
+            "refusing to store synthetic odds as real (source=the_odds_api) — "
+            "synthetic harness output must never enter the real odds store"
+        )
+
     rows: list[dict] = []
     for value in sample.values():
         if isinstance(value, dict) and all(k in value for k in _SNAPSHOT_REQUIRED):

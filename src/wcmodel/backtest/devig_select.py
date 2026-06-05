@@ -66,9 +66,27 @@ def _rps(probs: list[float], outcome: str) -> float:
 
 def rps_of_devig(odds_list: list[list[float]], outcomes: list[str],
                  *, method: str) -> float:
-    """Mean RPS of ``method``'s de-vigged probabilities over realised ``outcomes``."""
+    """Mean RPS of ``method``'s de-vigged probabilities over realised ``outcomes``.
+
+    Raises ``ValueError`` on any length/shape mismatch: ``odds_list`` and
+    ``outcomes`` must have the SAME length (a silent ``zip`` truncation would score
+    only a subset and report a wrong calibration number), and every odds row must
+    be exactly ``len(OUTCOMES)`` (= 3) wide (a malformed 1X2 vector).
+    """
     if not odds_list:
         return float("nan")
+    if len(odds_list) != len(outcomes):
+        raise ValueError(
+            f"rps_of_devig length mismatch: {len(odds_list)} odds rows vs "
+            f"{len(outcomes)} realised outcomes — refusing to zip-truncate"
+        )
+    n = len(OUTCOMES)
+    for o in odds_list:
+        if len(o) != n:
+            raise ValueError(
+                f"rps_of_devig: each decimal-odds row must have len(OUTCOMES)={n} "
+                f"entries (got {len(o)})"
+            )
     scores = [_rps(devig(o, method=method), y) for o, y in zip(odds_list, outcomes)]
     return sum(scores) / len(scores)
 
@@ -81,9 +99,18 @@ def choose_devig(odds_list: list[list[float]], outcomes: list[str],
     odds + outcomes (the sensitivity table) and returns ``(best_method, table)``.
     Ties (or an empty calibration set) fall back to the configured prior
     (``backtest.devig_method``, default Shin) — never a silent arbitrary pick.
+
+    The configured prior is VALIDATED ∈ ``DEVIG_METHODS`` (which excludes Buchdahl):
+    a config that (mis)sets ``devig_method`` to ``"buchdahl"`` or anything not
+    choosable is NOT promoted — it falls back to ``"shin"``. Buchdahl manufactures
+    phantom favourite-longshot value, so it can never be promoted via the config
+    prior, not even on the empty-calibration path.
     """
     cfg = config or load_config()
     prior = cfg["backtest"]["devig_method"]
+    if prior not in DEVIG_METHODS:
+        # Never promote an un-choosable prior (e.g. buchdahl) — fall back to Shin.
+        prior = "shin"
     if not odds_list:
         return prior, {m: float("nan") for m in DEVIG_METHODS}
     table = {m: rps_of_devig(odds_list, outcomes, method=m) for m in DEVIG_METHODS}

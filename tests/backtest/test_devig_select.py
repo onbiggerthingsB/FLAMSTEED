@@ -1,4 +1,4 @@
-import numpy as np
+import pytest
 
 from wcmodel.backtest.devig_select import (
     devig, rps_of_devig, choose_devig, DEVIG_METHODS,
@@ -43,3 +43,37 @@ def test_choose_devig_empty_returns_config_default():
     # No bets to calibrate on => fall back to the configured prior (Shin), not crash.
     best, table = choose_devig([], [])
     assert best == "shin"
+
+
+def test_choose_devig_empty_never_promotes_buchdahl_via_config():
+    # MUST-FIX 2: the empty-calibration fallback must VALIDATE the config prior is
+    # in DEVIG_METHODS. A config that (mis)sets devig_method="buchdahl" must NOT be
+    # promoted — buchdahl manufactures phantom favourite-longshot value. The path
+    # falls back to "shin" instead of returning the un-choosable method.
+    cfg = {"backtest": {"devig_method": "buchdahl"}}
+    best, table = choose_devig([], [], config=cfg)
+    assert best == "shin"                         # NOT "buchdahl"
+    assert best in DEVIG_METHODS
+    # And a garbage/unknown prior is likewise refused (defense-in-depth).
+    cfg_bad = {"backtest": {"devig_method": "nonsense_method"}}
+    best_bad, _ = choose_devig([], [], config=cfg_bad)
+    assert best_bad == "shin"
+
+
+def test_rps_of_devig_raises_on_length_mismatch():
+    # MUST-FIX 3: a length mismatch between odds rows and realised outcomes must
+    # RAISE (a silent zip-truncation would compute the score over a subset and
+    # report a wrong calibration number).
+    odds_list = [[1.57, 4.20, 6.50], [2.10, 3.30, 3.80]]
+    outcomes = ["home"]                           # one outcome, two odds rows
+    with pytest.raises(ValueError):
+        rps_of_devig(odds_list, outcomes, method="shin")
+
+
+def test_rps_of_devig_raises_on_wrong_odds_width():
+    # Each decimal-odds row must have exactly len(OUTCOMES)=3 entries; a 2-wide
+    # row is a malformed 1X2 vector and must RAISE, not be silently zipped short.
+    odds_list = [[1.57, 4.20]]                     # missing the away price
+    outcomes = ["home"]
+    with pytest.raises(ValueError):
+        rps_of_devig(odds_list, outcomes, method="shin")
