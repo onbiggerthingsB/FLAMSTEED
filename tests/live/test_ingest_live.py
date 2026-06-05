@@ -116,3 +116,121 @@ def test_ingest_refuses_future_observed_at(tmp_path):
             neutral=True, city="Foxborough", country="United States",
             observed_at="2026-06-19T12:00:00Z",   # BEFORE the match date => refused
         )
+
+
+# ---------------------------------------------------------------------------
+# FIX 1 (store-level tz leak) — read() must normalize a tz-aware NON-UTC cutoff
+# to naive-UTC so it can never parse as next-day naive time and leak a future
+# observed_at result. The whistle is 2026-06-11T21:00Z; a +08:00 cutoff of
+# 2026-06-12T01:00+08:00 is 2026-06-11T17:00Z — BEFORE the whistle — so it must
+# see 0 played rows. Without the fix the aware string drops its offset in the
+# DuckDB `TIMESTAMP '...'` literal and reads as 2026-06-12 01:00 naive => LEAK.
+# ---------------------------------------------------------------------------
+def test_read_aware_non_utc_cutoff_does_not_leak_future_result(tmp_path):
+    store = _store(tmp_path)
+    # The actual result, observed AT the 21:00Z final whistle (T2 ingest path).
+    ingest_live_result(
+        store, home_team="Brazil", away_team="Croatia",
+        date="2026-06-11", home_score=2, away_score=0,
+        tournament="FIFA World Cup", neutral=True, city="Inglewood",
+        country="United States", observed_at="2026-06-11T21:00:00Z",
+    )
+    # A +08:00 cutoff that is 2026-06-11T17:00Z — strictly BEFORE the whistle.
+    aware_non_utc = pd.Timestamp("2026-06-12T01:00:00+08:00")  # == 2026-06-11T17:00Z
+    out = store.read("results", cutoff=aware_non_utc)
+    leaked = out[(out["home_team"] == "Brazil") & (out["away_team"] == "Croatia")]
+    assert leaked.empty, "non-UTC aware cutoff before the whistle leaked the future result"
+
+    # No regression: a naive cutoff and an aware-UTC `Z` cutoff naming the SAME
+    # instant (2026-06-11T17:00Z) behave identically — both BEFORE the whistle.
+    naive = store.read("results", cutoff="2026-06-11T17:00:00")
+    aware_z = store.read("results", cutoff=pd.Timestamp("2026-06-11T17:00:00Z"))
+    for r in (naive, aware_z):
+        assert r[(r["home_team"] == "Brazil") & (r["away_team"] == "Croatia")].empty
+
+
+# ---------------------------------------------------------------------------
+# FIX 2 (idempotency for timestamp dates) — a live result whose `date` is a
+# FULL TIMESTAMP must hash to the SAME match_id as the date-only schedule row
+# (an UPDATE, not a duplicate). Without canonicalizing the date to its calendar
+# day, sha1("2026-06-11T21:00:00Z|...") != sha1("2026-06-11|...") => 2 keys.
+# ---------------------------------------------------------------------------
+def test_ingest_timestamp_date_keys_same_match_id_as_schedule(tmp_path):
+    store = _store(tmp_path)
+    # Pre-existing UNPLAYED schedule row keyed off the date-only "2026-06-11".
+    sched_raw = pd.DataFrame(
+        [{"date": "2026-06-11", "home_team": "Brazil", "away_team": "Croatia",
+          "home_score": np.nan, "away_score": np.nan, "tournament": "FIFA World Cup",
+          "neutral": True, "city": "Inglewood", "country": "United States"}],
+        columns=["date", "home_team", "away_team", "home_score", "away_score",
+                 "tournament", "neutral", "city", "country"],
+    )
+    sched = normalize_results(sched_raw)
+    sched_match_id = sched["match_id"].iloc[0]
+    store.write("results", sched, policy=Policy.POINT_IN_TIME, keys=["match_id"],
+                source=WC2026_SOURCE, source_version=WC2026_SOURCE)
+
+    # Live-ingest the SAME fixture but pass a FULL-TIMESTAMP date (with the whistle
+    # time-of-day) — the canonical calendar day must still match the schedule key.
+    ingest_live_result(
+        store, home_team="Brazil", away_team="Croatia",
+        date="2026-06-11T21:00:00Z", home_score=2, away_score=0,
+        tournament="FIFA World Cup", neutral=True, city="Inglewood",
+        country="United States", observed_at="2026-06-11T21:00:00Z",
+    )
+
+    raw = pd.read_parquet(store._path("results"))
+    live_match_id = raw[raw["source"] == "wc2026_live"]["match_id"].iloc[0]
+    assert live_match_id == sched_match_id      # full-timestamp date -> same key
+    assert raw["match_id"].nunique() == 1       # an UPDATE, not a duplicate fixture
+
+
+# ---------------------------------------------------------------------------
+# FIX 3 (finite/non-negative/integral scores) — `int()` truncation/negatives
+# are refused via the shared valid_played_results rule.
+# ---------------------------------------------------------------------------
+def test_ingest_refuses_fractional_score(tmp_path):
+    store = _store(tmp_path)
+    import pytest
+    with pytest.raises(ValueError, match="(?i)score|integ|finite|non-negative|valid"):
+        ingest_live_result(
+            store, home_team="X", away_team="Y", date="2026-06-20",
+            home_score=2.5, away_score=0, tournament="FIFA World Cup",
+            neutral=True, city="Foxborough", country="United States",
+            observed_at="2026-06-20T21:00:00Z",
+        )
+
+
+def test_ingest_refuses_negative_score(tmp_path):
+    store = _store(tmp_path)
+    import pytest
+    with pytest.raises(ValueError, match="(?i)score|integ|finite|non-negative|valid"):
+        ingest_live_result(
+            store, home_team="X", away_team="Y", date="2026-06-20",
+            home_score=-1, away_score=0, tournament="FIFA World Cup",
+            neutral=True, city="Foxborough", country="United States",
+            observed_at="2026-06-20T21:00:00Z",
+        )
+
+
+# ---------------------------------------------------------------------------
+# FIX 4 (inclusive as-of-now boundary) — read AS-OF exactly the whistle SEES
+# the result (observed_at <= cutoff); one microsecond before does NOT.
+# ---------------------------------------------------------------------------
+def test_read_at_whistle_is_inclusive_one_microsecond_before_is_not(tmp_path):
+    store = _store(tmp_path)
+    ingest_live_result(
+        store, home_team="Brazil", away_team="Croatia",
+        date="2026-06-11", home_score=2, away_score=0,
+        tournament="FIFA World Cup", neutral=True, city="Inglewood",
+        country="United States", observed_at="2026-06-11T21:00:00Z",
+    )
+    whistle = pd.Timestamp("2026-06-11T21:00:00")        # naive UTC == observed_at
+    at = store.read("results", cutoff=whistle)
+    arow = at[(at["home_team"] == "Brazil") & (at["away_team"] == "Croatia")]
+    assert len(arow) == 1                                # inclusive as-of-now: SEES it
+    assert int(arow["home_score"].iloc[0]) == 2 and int(arow["away_score"].iloc[0]) == 0
+
+    just_before = whistle - pd.Timedelta(microseconds=1)
+    bf = store.read("results", cutoff=just_before)
+    assert bf[(bf["home_team"] == "Brazil") & (bf["away_team"] == "Croatia")].empty

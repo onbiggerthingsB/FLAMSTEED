@@ -59,6 +59,20 @@ class BitemporalStore:
           leakage surface of this fallback is zero.
         """
         cutoff = pd.Timestamp(cutoff)
+        # Normalize a tz-AWARE cutoff to tz-NAIVE UTC before it reaches the DuckDB
+        # `TIMESTAMP '{cutoff}'` literal. The stored `observed_at`/`valid_as_of`
+        # columns are tz-naive UTC (every writer collapses to naive UTC), so an
+        # aware cutoff's string form (e.g. `2026-06-12 01:00:00+08:00`) would have
+        # its offset SILENTLY DROPPED by `TIMESTAMP '...'` and parse as the wrong
+        # naive wall-clock — a +08:00 cutoff just before a 21:00Z whistle would
+        # read as next-day 01:00 naive and LEAK the future result. Coercing the
+        # instant to UTC then dropping the tz makes the `observed_at <= cutoff`
+        # boundary exact and tz-agnostic for EVERY caller (defense-in-depth; the
+        # feature/sim callers already normalize, this hardens the store itself).
+        # Additive: a naive cutoff passes through unchanged, and an aware-UTC `Z`
+        # cutoff is unchanged in effect.
+        if cutoff.tz is not None:
+            cutoff = cutoff.tz_convert("UTC").tz_localize(None)
         raw = pd.read_parquet(self._path(name))
         policy = Policy(raw["_policy"].iloc[0])
         keys = raw["_keys"].iloc[0].split(",")
