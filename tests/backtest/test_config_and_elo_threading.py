@@ -80,3 +80,29 @@ def test_posterior_cache_key_uses_threaded_elo(tmp_path, small_store):
                                tune=10, cfg=bumped_cfg)
     assert p_base["elo"] != p_bump["elo"]
     assert p_base["elo"] == base_cfg["elo"]                # keyed from the PASSED cfg, not disk
+
+
+def test_cached_fit_posterior_actually_uses_threaded_elo(tmp_path, small_store):
+    """Stale-serve TEETH: a bumped cfg['elo'] must change the ACTUAL fit output
+    (provisional set and/or predictions), not merely the cache key. Before the
+    call-site threading this was False (key changed, computation did not) — the
+    exact P2-T8 stale-serve class on the posterior cache key."""
+    import copy
+    from wcmodel.config import load_config
+    from wcmodel.model.scoreline import fit
+    base_cfg = load_config()
+    bumped = copy.deepcopy(base_cfg)
+    bumped["elo"]["k_base"] = 999.0
+    bumped["elo"]["provisional_volatility_threshold"] = 0.0   # force a provisional-set change
+    kw = dict(backend="advi", draws=60, seed=0, advi_iters=1500)
+    p_base = fit("2024-06-01", small_store, config=base_cfg, **kw)
+    p_bump = fit("2024-06-01", small_store, config=bumped, **kw)
+    # The provisional set (driven by count_volatility_arm's elo config) must differ,
+    # OR a representative prediction must differ — i.e. cfg['elo'] reaches the computation.
+    differs = (p_base.provisional_teams != p_bump.provisional_teams) or (
+        p_base.predict_1x2("Brazil", "Argentina") != p_bump.predict_1x2("Brazil", "Argentina")
+    )
+    assert differs, (
+        "cfg['elo'] changed the cache key but NOT the actual fit -> stale serve. "
+        "The fit-path call sites are not threading config into the Elo computation."
+    )

@@ -148,9 +148,15 @@ def _leakage_safe_elo(store, cutoff, config=None) -> dict[str, float]:
     if results.empty:
         return {}
 
+    # Thread the resolved `cfg` so the leakage-safe baseline Elo uses the PASSED
+    # config's K/T params (not global disk) — keeps the lockbox's Elo-baseline
+    # comparison config-consistent with the model fit. Only the K/T params move;
+    # the `< cutoff` slice above (the leakage-safe window) is untouched, so the
+    # baseline still never peeks past the cutoff.
     elo = compute_elo_history(
         results[["match_id", "date", "home_team", "away_team",
-                 "home_score", "away_score", "neutral", "match_type"]]
+                 "home_score", "away_score", "neutral", "match_type"]],
+        config=cfg,
     )
     last = (elo.sort_values("date", kind="mergesort")
                .groupby("team", sort=False)["rating_post"].last())
@@ -191,7 +197,11 @@ def vs_elo_baseline(posterior, store, cutoff, config=None) -> dict:
         # rating — the SAME no-faked-low-rating convention as compute_elo_history.
         r_home = ratings.get(row.home_team, initial)
         r_away = ratings.get(row.away_team, initial)
-        elo_scores.append(rps(elo_1x2_baseline(r_home, r_away, neutral), outcome))
+        # Thread `cfg` so the baseline's home_advantage / draw_base come from the
+        # PASSED config (not global disk), config-consistent with the threaded
+        # ratings above and the model fit.
+        elo_scores.append(
+            rps(elo_1x2_baseline(r_home, r_away, neutral, config=cfg), outcome))
 
     n = len(model_scores)
     return {

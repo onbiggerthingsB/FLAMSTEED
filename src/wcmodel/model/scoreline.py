@@ -179,6 +179,12 @@ def fit(
     # count_volatility_arm reads only matches strictly before the cutoff -> the
     # same leakage-safe slice features.build uses; a team is provisional-for-
     # prediction iff its volatility OR few-games arm trips.
-    arm = count_volatility_arm(store, cutoff, d.teams)
+    # Thread the resolved `cfg` so the provisional set is computed under the
+    # PASSED elo config (not global disk) — a custom cfg["elo"] (lockbox K/T
+    # sweep) thus actually changes the provisional set, matching the posterior
+    # cache key (closes the Task-0 stale-serve finding). count_volatility_arm
+    # keeps its own `< cutoff` filter, so leakage-safety is unchanged; only the
+    # K/T params it feeds to compute_elo_history move.
+    arm = count_volatility_arm(store, cutoff, d.teams, config=cfg)
     prov = set(arm.loc[arm["volatility_flag"] | arm["few_games_flag"], "team"])
     return Posterior(idata, d.teams, likelihood, provisional_teams=prov, config=cfg)

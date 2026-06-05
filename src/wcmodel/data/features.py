@@ -172,9 +172,16 @@ def build(cutoff, store: BitemporalStore, config: dict | None = None) -> pd.Data
     #     NOT precompute across the full panel and slice by row — a row's Elo
     #     must reflect only pre-cutoff information. O(N) per cutoff by design
     #     (correctness over speed); Phase-4 may memoise/incrementalise this.
+    #     The resolved `cfg` is threaded so the Elo K/T params come from the
+    #     PASSED config (not global disk) — a custom cfg["elo"] (a lockbox K/T
+    #     sweep) thus actually drives elo_pre + the provisional flags, matching
+    #     the posterior cache key (closes the Task-0 stale-serve finding). Only
+    #     the K/T PARAMS change; the `< cutoff` data window is untouched above,
+    #     so per-cutoff leakage-safety is preserved exactly.
     elo = compute_elo_history(
         results[["match_id", "date", "home_team", "away_team",
-                 "home_score", "away_score", "neutral", "match_type"]]
+                 "home_score", "away_score", "neutral", "match_type"]],
+        config=cfg,
     )
 
     # One output row per (match_id, team), seeded from the Elo long frame (which
