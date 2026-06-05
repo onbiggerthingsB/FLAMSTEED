@@ -73,13 +73,15 @@ def rps_of_devig(odds_list: list[list[float]], outcomes: list[str],
     only a subset and report a wrong calibration number), and every odds row must
     be exactly ``len(OUTCOMES)`` (= 3) wide (a malformed 1X2 vector).
     """
-    if not odds_list:
-        return float("nan")
+    # Length mismatch is checked FIRST, so empty-odds-but-non-empty-outcomes (a
+    # genuine mismatch) raises rather than slipping through the empty-return below.
     if len(odds_list) != len(outcomes):
         raise ValueError(
             f"rps_of_devig length mismatch: {len(odds_list)} odds rows vs "
             f"{len(outcomes)} realised outcomes — refusing to zip-truncate"
         )
+    if not odds_list:               # both empty -> legitimately-empty calibration set
+        return float("nan")
     n = len(OUTCOMES)
     for o in odds_list:
         if len(o) != n:

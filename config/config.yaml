@@ -79,7 +79,7 @@ backtest:
     betfair: 0.02                  # 2% on NET winnings, only if/when Betfair is used
   devig_method: shin               # de-vig of the close (lockbox DOF #7; Shin prior; chosen empirically by RPS)
   # Non-bet filters.
-  max_spread: 0.05                 # de-vigged two-way implied-prob spread above this => wide-spread non-bet
+  max_spread: 0.05                 # wide-spread non-bet threshold — INERT on the h2h feed (no bid/ask); gated behind _WIDE_SPREAD_ENABLED for the funded Betfair back/lay path
   stale_snapshot_seconds: 86400    # entry snapshot older than this before kickoff => stale non-bet
   # Foresight-RED ceilings (the "too-good = bug" guardrail, ENFORCED as a test).
   # Any metric past RED => SUSPECTED LEAK => STOP and investigate, never celebrate.

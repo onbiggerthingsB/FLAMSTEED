@@ -77,3 +77,14 @@ def test_rps_of_devig_raises_on_wrong_odds_width():
     outcomes = ["home"]
     with pytest.raises(ValueError):
         rps_of_devig(odds_list, outcomes, method="shin")
+
+
+def test_rps_of_devig_empty_odds_nonempty_outcomes_raises():
+    # Codex T1 re-review hole: EMPTY odds + NON-empty outcomes is a genuine length
+    # mismatch and must RAISE — it previously slipped through the empty-return as
+    # nan (the length check now runs FIRST). Both-empty is a legitimately-empty
+    # calibration set and still returns nan (no data to score).
+    import math
+    with pytest.raises(ValueError):
+        rps_of_devig([], ["home"], method="shin")
+    assert math.isnan(rps_of_devig([], [], method="shin"))
