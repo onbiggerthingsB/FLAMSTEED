@@ -32,9 +32,55 @@ import pandas as pd
 
 from wcmodel.config import load_config
 from wcmodel.backtest.baselines import edge_vector, market_fair_1x2, model_fair_1x2
-from wcmodel.backtest.odds_ingest import OUTCOMES, entry_close_prices, non_bet_snapshot
+from wcmodel.backtest.odds_ingest import (
+    OUTCOMES, _bookmaker_prices, _parse_ts, entry_close_prices, non_bet_snapshot,
+)
 from wcmodel.backtest.staking import stake_fraction
 from wcmodel.backtest.clv import clv_pct
+
+
+def _decision_time_entry(sample: dict, *, bookmaker: str, cutoff, close_ts: str):
+    """The leakage-correct LIVE entry: the latest snapshot with ``timestamp <= cutoff``
+    for ``bookmaker`` (the price transactable AT the decision time ``cutoff``).
+
+    ODDS-SIDE LEAKAGE BOUNDARY (the T3 fix). ``entry_close_prices`` selects the entry
+    by KICKOFF (earliest <= kickoff), which is NOT cutoff-aware — a snapshot AFTER
+    ``cutoff`` (a future / post-decision price) could otherwise drive the edge/stake.
+    Here we filter to snapshots whose ``timestamp <= cutoff`` BEFORE picking, so a
+    ``> cutoff`` snapshot is STRUCTURALLY unusable, and take the LATEST among them as
+    the decision-time price. The kickoff CLOSE (``close_ts``) is EXCLUDED as an entry
+    candidate — it is recorded for later CLV only and must never influence the decision
+    (so even at ``cutoff >= kickoff`` the close cannot become the entry).
+
+    Returns ``({home, draw, away} decimal odds, entry_ts)`` for the chosen decision-time
+    snapshot, or ``(None, None)`` if NO snapshot ``<= cutoff`` exists (a counted non-bet).
+    """
+    ct = pd.Timestamp(cutoff)
+    if ct.tzinfo is None:
+        ct = ct.tz_localize("UTC")
+    cutoff_dt = ct.to_pydatetime()
+    close_dt = _parse_ts(close_ts)
+
+    snaps = [
+        v for v in sample.values()
+        if isinstance(v, dict) and "timestamp" in v and "data" in v
+    ]
+    # Candidates: snapshots at/before the decision cutoff, EXCLUDING the kickoff close
+    # snapshot (reserved for CLV). Sorted ascending; the entry is the latest of these.
+    candidates = sorted(
+        (s for s in snaps
+         if _parse_ts(s["timestamp"]) <= cutoff_dt
+         and _parse_ts(s["timestamp"]) != close_dt),
+        key=lambda s: _parse_ts(s["timestamp"]),
+    )
+    if not candidates:
+        return None, None
+    entry_snap = candidates[-1]
+    first_event = entry_snap["data"][0]
+    prices = _bookmaker_prices(
+        entry_snap, bookmaker, first_event["home_team"], first_event["away_team"]
+    )
+    return prices, entry_snap["timestamp"]
 
 
 @dataclass
@@ -97,15 +143,32 @@ def decide_live(store, sample: dict, *, cutoff, config: dict | None = None,
     home, away = ekey[0], ekey[1]
     is_synth = bool(pc["is_synthetic"])
 
+    # ODDS-SIDE LEAKAGE BOUNDARY. The ENTRY that drives edge/staked-side/stake is the
+    # DECISION-TIME price (the latest snapshot <= cutoff), NOT the kickoff-based entry
+    # `entry_close_prices` returns (it ignores `cutoff`) and NEVER a > cutoff (future)
+    # snapshot. The CLOSE (latest <= kickoff) is still taken from `pc` and recorded for
+    # later realized CLV ONLY (T6); it never influences the decision.
+    entry_prices, entry_ts = _decision_time_entry(
+        sample, bookmaker=live["bookmaker"], cutoff=cutoff, close_ts=pc["close_ts"],
+    )
+
     base = LiveDecision(
         cutoff=str(cutoff), event_key=[ekey[0], ekey[1], str(ekey[2])],
-        market_surface="1x2", staked="", entry_odds=dict(pc["entry"]),
+        market_surface="1x2", staked="",
+        entry_odds=dict(entry_prices) if entry_prices is not None else {},
         close_odds=dict(pc["close"]), is_synthetic=is_synth,
         signal_only=bool(live["signal_only"]),
     )
 
-    # Non-bet snapshot filters (sign-flip / stale) on the ENTRY — logged, stakes nothing.
-    reason = non_bet_snapshot(pc["entry"], entry_ts=pc["entry_ts"],
+    # No decision-time price (no snapshot <= cutoff for the book) => a COUNTED non-bet,
+    # never a crash and never a future-priced bet off a post-cutoff snapshot.
+    if entry_prices is None:
+        base.non_bet_reason = "no_odds"
+        return base
+
+    # Non-bet snapshot filters (sign-flip / stale) on the DECISION-TIME ENTRY — logged,
+    # stakes nothing.
+    reason = non_bet_snapshot(entry_prices, entry_ts=entry_ts,
                               commence=pc["commence_time"], max_spread=bt["max_spread"],
                               stale_seconds=bt["stale_snapshot_seconds"])
     if reason is not None:
@@ -130,14 +193,15 @@ def decide_live(store, sample: dict, *, cutoff, config: dict | None = None,
         base.non_bet_reason = "no_model_price"
         return base
 
-    # FOCAL: edge + staked side + stake decided against the de-vigged ENTRY, NEVER the
-    # close (== walkforward FIX-1). The close is recorded above for CLV only.
-    market_entry = market_fair_1x2(pc["entry"], method=bt["devig_method"])
+    # FOCAL: edge + staked side + stake decided against the de-vigged DECISION-TIME
+    # ENTRY (<= cutoff), NEVER the close and NEVER a post-cutoff snapshot (== walkforward
+    # FIX-1 + the T3 odds-boundary fix). The close is recorded above for CLV only.
+    market_entry = market_fair_1x2(entry_prices, method=bt["devig_method"])
     edge = edge_vector(model, market_entry)
     staked = max(OUTCOMES, key=lambda o: edge[o])
     p_model = model[staked]
     se = float(np.sqrt(p_model * (1 - p_model) / max(draws, 1)))
-    f = stake_fraction(prob=p_model, decimal_odds=pc["entry"][staked], edge=edge[staked],
+    f = stake_fraction(prob=p_model, decimal_odds=entry_prices[staked], edge=edge[staked],
                        se=se, kelly_fraction=bt["kelly_fraction"],
                        edge_threshold=bt["edge_threshold"])
 
