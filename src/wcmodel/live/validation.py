@@ -100,25 +100,40 @@ def assert_entry_logged_at_decision_time(decision, sample: dict, *, bookmaker: s
     logs (same code path) and cannot be evaded by a stale- or future-priced entry.
 
     Asserts:
-      1. (MIRROR) ``decision.entry_odds`` == the DECISION-TIME (latest ``<= cutoff``,
+      1. (VALUE MIRROR) ``decision.entry_odds`` == the DECISION-TIME (latest ``<= cutoff``,
          book-aware, close-excluded) snapshot price re-derived via the SAME
          ``_decision_time_entry`` path — caught per-outcome (a stale, future, or
          single-leg-swapped entry trips it).
-      2. (INDEPENDENT PIN — the FOCAL close-as-entry catch) The logged entry must match
-         SOME snapshot that is ``<= cutoff`` AND is NOT the BOOK-AWARE close snapshot
-         (the entry is strictly not the close). This check does NOT route through
-         ``_decision_time_entry``, so it catches a bug IN ``_decision_time_entry`` (e.g. a
-         regression that selects the CLOSE as the entry) instead of blindly mirroring it.
-    Raises ``MisLogError`` on either violation. The non-vacuity teeth (a sabotaged
+      2. (INDEPENDENT VALUE PIN) The logged entry must match SOME snapshot that is
+         ``<= cutoff`` AND is NOT the BOOK-AWARE close snapshot (the entry price is strictly
+         not the close price). This check does NOT route through ``_decision_time_entry``, so
+         it catches a bug IN ``_decision_time_entry`` (e.g. a regression that selects the
+         CLOSE as the entry) when the close PRICE differs from the decision-time price.
+      3. (IDENTITY PIN — the FOCAL equal-price catch) The decision's logged ``entry_ts``
+         (the SNAPSHOT IDENTITY of the entry) must be (a) ``<= cutoff``, (b) the SAME ts
+         ``_decision_time_entry`` would select (an identity mirror of what ``decide_live``
+         logs), and (c) STRICTLY NOT the book-aware close snapshot's ts. This proves the
+         entry is a DISTINCT decision-time snapshot — NOT the close — REGARDLESS of whether
+         their PRICES coincide.
+    Raises ``MisLogError`` on any violation. The non-vacuity teeth (a sabotaged
     close-as-entry decision DOES raise) live in the calling test.
 
-    WHY THE INDEPENDENT PIN (the FOCAL constructed miss). The mirror in (1) re-derives the
-    reference through the SAME function ``decide_live`` uses; a bug in that function (e.g.
+    WHY THE INDEPENDENT VALUE PIN (the FOCAL constructed miss). The mirror in (1) re-derives
+    the reference through the SAME function ``decide_live`` uses; a bug in that function (e.g.
     when the missing-earliest-book case made ``close_ts`` None and the close was wrongly
     selected as the entry) is REPRODUCED by the mirror, so a pure mirror would PASS the
     leak. (2) derives the close BOOK-AWARE (``book_aware_close``, independent of the
     crashing earliest-entry leg) and asserts the logged entry is a genuine ``<= cutoff``
-    non-close price — so even if (1) regressed in lockstep, (2) RAISES.
+    non-close price — so even if (1) regressed in lockstep, (2) RAISES when the close price
+    differs.
+
+    WHY THE IDENTITY PIN (the equal-price residual the value pins miss). (1) and (2) match by
+    PRICE; if the decision-time (MID) snapshot and the CLOSE snapshot have IDENTICAL odds, a
+    close-as-entry mis-log is VALUE-indistinguishable — the logged close price equals the MID
+    price (a genuine ``<= cutoff`` non-close snapshot), so both value pins PASS the leak.
+    (3) pins on the entry snapshot's TIMESTAMP (logged as ``entry_ts``) and asserts it is the
+    decision-time snapshot's ts and NOT the close snapshot's ts — so a close-as-entry is
+    caught by IDENTITY even when the prices coincide (the focal equal-price hole).
     """
     # The BOOK-AWARE close (CLV-only) + its timestamp, derived INDEPENDENTLY of the
     # earliest-entry leg (which raises on a missing-earliest-book). This is the close to
@@ -130,7 +145,9 @@ def assert_entry_logged_at_decision_time(decision, sample: dict, *, bookmaker: s
         close, close_ts = {}, None
     # (1) MIRROR: the decision-time entry via the SAME selection decide_live uses (latest
     # <= cutoff WITH the book, close-excluded). Keyed off the decision's OWN logged cutoff.
-    entry, _entry_ts = _decision_time_entry(
+    # We also keep `entry_ts_ref` — the TIMESTAMP that selection would log — for the IDENTITY
+    # pin (3), which proves entry != close by SNAPSHOT, not value.
+    entry, entry_ts_ref = _decision_time_entry(
         sample, bookmaker=bookmaker, cutoff=decision.cutoff, close_ts=close_ts,
     )
     if entry is None:
@@ -174,6 +191,60 @@ def assert_entry_logged_at_decision_time(decision, sample: dict, *, bookmaker: s
             f"{decision.cutoff!r} snapshot (close-excluded) for book {bookmaker!r} — the "
             "entry must be a price transactable AT the decision cutoff and never the close. "
             "STOP and investigate."
+        )
+
+    # (3) IDENTITY PIN (the FOCAL equal-price catch). The value teeth in (1)/(2) match the
+    # logged PRICE against the decision-time + non-close snapshots; if the decision-time
+    # (MID) snapshot and the CLOSE snapshot have IDENTICAL odds, a close-as-entry mis-log is
+    # VALUE-indistinguishable — the logged close price equals the MID price, so (1) and (2)
+    # both PASS though the entry is really the close. Value alone CANNOT prove the entry is a
+    # DISTINCT decision-time snapshot. So we pin on the entry snapshot's TIMESTAMP (SNAPSHOT
+    # IDENTITY), which the decision logs as `entry_ts`: it must be (a) <= cutoff, (b) the SAME
+    # ts `_decision_time_entry` would select (an identity mirror of what decide_live logs),
+    # and (c) STRICTLY NOT the book-aware close snapshot's ts — so a close-as-entry is caught
+    # by identity REGARDLESS of whether the prices coincide.
+    logged_ts = getattr(decision, "entry_ts", None)
+    ct = pd.Timestamp(decision.cutoff)
+    if ct.tzinfo is None:
+        ct = ct.tz_localize("UTC")
+    cutoff_dt = ct.to_pydatetime()
+    if logged_ts is None:
+        # A non-empty entry was logged (we passed the value teeth above) but with NO snapshot
+        # identity — the entry cannot be PROVEN to be a decision-time snapshot rather than the
+        # close. An honest decision always carries the entry snapshot's ts.
+        raise MisLogError(
+            "live mis-log: a non-empty entry was logged with NO entry_ts (snapshot "
+            "identity) — without the entry's timestamp a close-as-entry mis-log whose price "
+            "coincides with the decision-time price is value-indistinguishable. The decision "
+            "must record the entry snapshot's ts. STOP and investigate."
+        )
+    logged_dt = _parse_ts(logged_ts)
+    # (3a) the logged entry ts is at/before the decision cutoff (a decision-time snapshot).
+    if logged_dt > cutoff_dt:
+        raise MisLogError(
+            f"live mis-log: logged entry_ts {logged_ts!r} is AFTER the decision cutoff "
+            f"{decision.cutoff!r} — the entry must be a snapshot available AT the decision "
+            "time, never a post-cutoff (future) snapshot. STOP and investigate."
+        )
+    # (3b) the logged entry ts IS the snapshot `_decision_time_entry` would select (identity
+    # mirror): a stale/future/wrong snapshot trips it even if its price happened to match.
+    if entry_ts_ref is None or _parse_ts(logged_ts) != _parse_ts(entry_ts_ref):
+        raise MisLogError(
+            f"live mis-log: logged entry_ts {logged_ts!r} != the decision-time snapshot ts "
+            f"{entry_ts_ref!r} that _decision_time_entry would select — the logged entry is "
+            "NOT the decision-time snapshot (a stale, future, or close snapshot mis-logged "
+            "as the entry, caught by identity even when prices coincide). STOP and investigate."
+        )
+    # (3c) the logged entry ts is STRICTLY NOT the book-aware close snapshot's ts — the entry
+    # is a DISTINCT decision-time snapshot, NOT the close, REGARDLESS of price coincidence.
+    # This is the residual the value-only pin missed: equal MID/CLOSE prices made a
+    # close-as-entry value-identical, but the close snapshot's ts can never equal the entry's.
+    if close_ts is not None and _parse_ts(logged_ts) == _parse_ts(close_ts):
+        raise MisLogError(
+            "live mis-log: logged entry_ts equals the BOOK-AWARE CLOSE snapshot's ts — the "
+            "logged entry IS the close (information from AFTER the entry decision), even "
+            "though its price coincides with the decision-time price. Logging the close as "
+            "the entry fakes the edge. STOP and investigate (the focal equal-price catch)."
         )
 
 

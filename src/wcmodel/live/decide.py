@@ -124,8 +124,12 @@ def _event_meta(sample: dict):
 class LiveDecision:
     """One live signal at ``cutoff = now``. SIGNAL-ONLY: ``stake`` is a recommended
     bankroll fraction, not a placed bet. ``entry_odds`` is the price AT decision time
-    (the logged transacted price); ``close_odds`` is recorded for later CLV ONLY.
-    ``is_synthetic`` taints the whole decision if the odds were non-real."""
+    (the logged transacted price) and ``entry_ts`` is the TIMESTAMP of that exact entry
+    snapshot — the SNAPSHOT IDENTITY the mis-log canary pins on, so a close-as-entry
+    mis-log is caught by identity even if the close and the decision-time price coincide
+    in VALUE; ``close_odds`` is recorded for later CLV ONLY. ``is_synthetic`` taints the
+    whole decision if the odds were non-real. ``entry_ts`` is ``None`` on a non-bet/no-odds
+    path (no decision-time snapshot was selected)."""
 
     cutoff: str
     event_key: list                         # [home, away, commence_date-iso]
@@ -135,6 +139,7 @@ class LiveDecision:
     market_entry: dict = field(default_factory=dict) # de-vigged ENTRY (the edge driver)
     edge: dict = field(default_factory=dict)          # {o: model[o] - market_entry[o]}
     entry_odds: dict = field(default_factory=dict)    # {home, draw, away} ENTRY decimal odds (logged)
+    entry_ts: str | None = None             # the TIMESTAMP of the ENTRY snapshot (SNAPSHOT IDENTITY)
     close_odds: dict = field(default_factory=dict)    # {home, draw, away} CLOSE decimal odds (CLV only)
     stake: float = 0.0                      # RECOMMENDED bankroll fraction (signal, not a bet)
     non_bet_reason: str | None = None       # a filter reason if not bettable, else None
@@ -154,7 +159,8 @@ class LiveDecision:
             "cutoff": self.cutoff, "event_key": list(self.event_key),
             "market_surface": self.market_surface, "staked": self.staked,
             "model": self.model, "market_entry": self.market_entry, "edge": self.edge,
-            "entry_odds": self.entry_odds, "close_odds": self.close_odds,
+            "entry_odds": self.entry_odds, "entry_ts": self.entry_ts,
+            "close_odds": self.close_odds,
             "stake": self.stake, "non_bet_reason": self.non_bet_reason,
             "is_synthetic": self.is_synthetic, "signal_only": self.signal_only,
         }
@@ -215,6 +221,11 @@ def decide_live(store, sample: dict, *, cutoff, config: dict | None = None,
         cutoff=str(cutoff), event_key=[ekey[0], ekey[1], str(ekey[2])],
         market_surface="1x2", staked="",
         entry_odds=dict(entry_prices) if entry_prices is not None else {},
+        # SNAPSHOT IDENTITY: the timestamp of the EXACT decision-time snapshot
+        # `_decision_time_entry` selected (None when there is no <= cutoff book price).
+        # The mis-log canary pins on this ts so a close-as-entry mis-log is caught by
+        # identity even when the close and the decision-time price coincide in value.
+        entry_ts=entry_ts,
         close_odds=dict(close_prices), is_synthetic=is_synth,
         signal_only=bool(live["signal_only"]),
     )

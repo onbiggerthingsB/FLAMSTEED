@@ -98,6 +98,80 @@ def _missing_earliest_book_sample():
     return sample, cutoff, mid, close
 
 
+def _equal_price_mid_close_sample():
+    """A sample where the MID (decision-time, <= cutoff) snapshot and the CLOSE snapshot
+    have IDENTICAL odds — the equal-price coincidence that makes a close-as-entry mis-log
+    VALUE-indistinguishable from the correct entry. Returns
+    (sample, cutoff, mid_ts, close_ts, prices) with cutoff strictly between mid_ts and
+    close_ts (so MID is the decision-time entry and the CLOSE is a DISTINCT later snapshot
+    that happens to carry the same price)."""
+    commence = "2024-06-30T19:00:00Z"
+    ko = _parse_ts(commence)
+
+    def _snap(ts, h, d, a):
+        return {
+            _SYNTHETIC_KEY: True, "timestamp": ts,
+            "previous_timestamp": ts, "next_timestamp": ts,
+            "data": [{
+                "id": "X", "sport_key": "soccer_fifa_world_cup",
+                "commence_time": commence, "home_team": "Brazil", "away_team": "Croatia",
+                "bookmakers": [{"key": "pinnacle", "last_update": ts, "markets": [{
+                    "key": "h2h", "last_update": ts,
+                    "outcomes": [{"name": "Brazil", "price": h}, {"name": "Draw", "price": d},
+                                 {"name": "Croatia", "price": a}],
+                }]}],
+            }],
+        }
+
+    t_mid = (ko - pd.Timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")    # decision-time, <= cutoff
+    t_close = (ko - pd.Timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")  # the CLOSE, > cutoff
+    cutoff = (ko - pd.Timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")    # mid_ts < cutoff < close_ts
+    prices = {"home": 2.30, "draw": 3.45, "away": 3.20}
+    # MID and CLOSE carry the SAME odds — value alone cannot distinguish them.
+    sample = {
+        _SYNTHETIC_KEY: True,
+        "mid": _snap(t_mid, prices["home"], prices["draw"], prices["away"]),
+        "close": _snap(t_close, prices["home"], prices["draw"], prices["away"]),
+    }
+    return sample, cutoff, t_mid, t_close, prices
+
+
+def test_mislog_canary_catches_equal_price_close_as_entry():
+    """FOCAL RESIDUAL (the equal-price hole). When the MID (decision-time <= cutoff) and
+    the CLOSE snapshot carry IDENTICAL odds, a close-as-entry mis-log is VALUE-identical to
+    the correct entry: every per-outcome price-match (the mirror in (1) AND the independent
+    non-close pin in (2)) PASSES, because the logged close price also equals the MID price
+    (a genuine <= cutoff non-close snapshot). Value alone CANNOT prove entry != close.
+
+    The FIX pins the canary on SNAPSHOT IDENTITY (the entry's TIMESTAMP), not value: the
+    decision logs `entry_ts` (the ts of the snapshot `_decision_time_entry` selected), and
+    the canary asserts that ts is <= cutoff, is the ts `_decision_time_entry` would select,
+    and is strictly NOT the book-aware close snapshot's ts. A sabotaged decision whose
+    logged `entry_ts` is the CLOSE ts (even with the MID's price) is caught by identity.
+    RED before the fix (value-match passes -> missed); GREEN after."""
+    sample, cutoff, _mid_ts, close_ts, prices = _equal_price_mid_close_sample()
+    # Sabotage: the logged ENTRY price equals the MID price (== the CLOSE price), but the
+    # logged entry_ts is the CLOSE snapshot's ts — a close-as-entry mis-log that is
+    # value-indistinguishable from the correct entry and only catchable by timestamp.
+    d = SimpleNamespace(cutoff=cutoff, entry_odds=dict(prices), entry_ts=close_ts,
+                        close_odds=dict(prices))
+    with pytest.raises(MisLogError, match="(?i)close|entry_ts|timestamp|identity|mis-log"):
+        assert_entry_logged_at_decision_time(d, sample, bookmaker="pinnacle")
+
+
+def test_mislog_canary_passes_equal_price_correct_entry():
+    """POSITIVE (the equal-price coincidence is NOT itself a leak): a CORRECTLY-logged
+    decision whose entry_ts is the MID snapshot's ts (<= cutoff, strictly != close_ts)
+    must PASS even when the MID and CLOSE prices coincide. The identity pin keys off the
+    timestamp, so an honest decision-time entry is not false-positived by a price that
+    happens to equal the close."""
+    sample, cutoff, mid_ts, _close_ts, prices = _equal_price_mid_close_sample()
+    # Correct: logged entry IS the MID snapshot (its ts, <= cutoff, != close_ts).
+    d = SimpleNamespace(cutoff=cutoff, entry_odds=dict(prices), entry_ts=mid_ts,
+                        close_odds=dict(prices))
+    assert_entry_logged_at_decision_time(d, sample, bookmaker="pinnacle")  # must NOT raise
+
+
 def test_mislog_canary_passes_a_correctly_logged_entry(small_store, cfg):
     s = _synth_sample()
     d = decide_live(small_store, s["sample"], cutoff="2024-06-30T19:00:00Z",
@@ -147,10 +221,12 @@ def test_mislog_canary_passes_the_latest_le_cutoff_entry_multi_snapshot():
     a correctly-logged decision-time (mid) entry must PASS (no false positive)."""
     sample, cutoff = _multi_snapshot_sample()
     pc = entry_close_prices(sample, bookmaker="pinnacle")
-    entry, _ = _decision_time_entry(sample, bookmaker="pinnacle", cutoff=cutoff,
-                                    close_ts=pc["close_ts"])
+    entry, entry_ts = _decision_time_entry(sample, bookmaker="pinnacle", cutoff=cutoff,
+                                           close_ts=pc["close_ts"])
     assert entry["home"] == 2.30 and pc["entry"]["home"] == 2.50  # mid != earliest-<=-KO
-    d = SimpleNamespace(cutoff=cutoff, entry_odds=dict(entry), close_odds=dict(pc["close"]))
+    # A correctly-logged decision carries the entry snapshot's ts (SNAPSHOT IDENTITY).
+    d = SimpleNamespace(cutoff=cutoff, entry_odds=dict(entry), entry_ts=entry_ts,
+                        close_odds=dict(pc["close"]))
     assert_entry_logged_at_decision_time(d, sample, bookmaker="pinnacle")  # must NOT raise
 
 
@@ -162,7 +238,10 @@ def test_mislog_canary_CATCHES_a_stale_pre_cutoff_entry_multi_snapshot():
     sample, cutoff = _multi_snapshot_sample()
     pc = entry_close_prices(sample, bookmaker="pinnacle")
     stale = pc["entry"]  # earliest-<=-kickoff (2.50) — NOT the decision-time price
-    d = SimpleNamespace(cutoff=cutoff, entry_odds=dict(stale), close_odds=dict(pc["close"]))
+    # Faithful stale mis-log: BOTH the price AND the ts are the stale earliest-<=-KO
+    # snapshot's, so the canary catches it by value AND by identity (ts != the mid ts).
+    d = SimpleNamespace(cutoff=cutoff, entry_odds=dict(stale), entry_ts=pc["entry_ts"],
+                        close_odds=dict(pc["close"]))
     with pytest.raises(MisLogError, match="(?i)decision.time|cutoff|stale|mis-log"):
         assert_entry_logged_at_decision_time(d, sample, bookmaker="pinnacle")
 
