@@ -124,15 +124,36 @@ def roi_metrics(*, pnls: list[float], stakes: list[float], start: float) -> dict
     }
 
 
+#: Metrics whose value does NOT depend on bet ORDER, so a resample-with-replacement
+#: bootstrap (which destroys temporal order) is valid. Drawdown is path-order-
+#: dependent and is deliberately EXCLUDED -- see ``bootstrap_ci``.
+_PERMUTATION_INVARIANT_METRICS = frozenset({"roi", "hit_rate", "turnover", "net"})
+
+
 def bootstrap_ci(*, pnls: list[float], stakes: list[float], start: float,
                  metric: str, resamples: int, seed: int,
                  alpha: float = 0.05) -> tuple[float, float]:
-    """Seeded bootstrap CI for a scalar ``roi_metrics`` field over the bet sequence.
+    """Seeded bootstrap CI for a PERMUTATION-INVARIANT ``roi_metrics`` field.
 
     Resamples (bet, stake) pairs WITH replacement ``resamples`` times, recomputes
     ``metric``, and returns the ``[alpha/2, 1−alpha/2]`` percentile interval.
     Seeded (``np.random.default_rng(seed)``) so the CI is bit-reproducible.
+
+    Only valid for ORDER-INDEPENDENT metrics (``roi``/``hit_rate``/``turnover``/
+    ``net``). Drawdown (``max_drawdown``/``max_drawdown_frac``) is PATH-ORDER-
+    DEPENDENT: resampling indices destroys the realised temporal order, so a CI
+    over reshuffled orderings is meaningless (it can exceed 100%). Requesting a
+    drawdown (or unknown) metric raises ``ValueError`` rather than returning a
+    bogus interval -- read drawdown off the realised path via ``roi_metrics``.
     """
+    if metric not in _PERMUTATION_INVARIANT_METRICS:
+        raise ValueError(
+            f"bootstrap_ci: metric {metric!r} is not bootstrappable. Valid (order-"
+            f"independent) metrics: {sorted(_PERMUTATION_INVARIANT_METRICS)}. "
+            "Drawdown metrics are path-order-dependent (the bootstrap resamples bet "
+            "indices and destroys temporal order, so their CI is meaningless and can "
+            "exceed 100%); read drawdown off the realised path via roi_metrics."
+        )
     rng = np.random.default_rng(seed)
     n = len(pnls)
     if n == 0:

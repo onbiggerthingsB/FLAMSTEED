@@ -81,3 +81,21 @@ def test_bootstrap_ci_is_seeded_and_brackets_point_estimate():
     lo2, hi2 = bootstrap_ci(pnls=pnls, stakes=stakes, start=10.0,
                             metric="roi", resamples=500, seed=20260611)
     assert (lo, hi) == (lo2, hi2)
+
+
+def test_bootstrap_ci_refuses_order_dependent_and_unknown_metrics():
+    # Quality-review finding: drawdown is PATH-ORDER-DEPENDENT, but the bootstrap
+    # resamples bet indices (destroys temporal order) -> a CI on it is meaningless
+    # (a reshuffle front-loading losses drove the probe to a 110% upper bound). It
+    # must RAISE, not return a bogus number. An unknown metric also raises (rather
+    # than KeyError-ing mid-resample). Order-independent roi still works.
+    import pytest
+    pnls = [1.5, -1.0, 0.8, -0.5]
+    stakes = [1.0] * 4
+    for bad in ("max_drawdown", "max_drawdown_frac", "not_a_metric"):
+        with pytest.raises(ValueError):
+            bootstrap_ci(pnls=pnls, stakes=stakes, start=10.0, metric=bad,
+                         resamples=50, seed=0)
+    lo, hi = bootstrap_ci(pnls=pnls, stakes=stakes, start=10.0, metric="roi",
+                          resamples=50, seed=0)
+    assert lo <= hi
