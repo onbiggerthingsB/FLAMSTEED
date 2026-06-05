@@ -149,6 +149,83 @@ def test_decide_live_never_prices_from_a_post_cutoff_snapshot(small_store, cfg):
     assert d.close_odds != d.entry_odds
 
 
+def test_decide_live_skips_snapshot_missing_the_book_uses_earlier_priced_one(small_store, cfg):
+    # BOOK-AWARE DECISION-TIME ENTRY. The decision-time entry is the latest snapshot
+    # <= cutoff THAT CONTAINS the configured book — NOT merely the latest <= cutoff
+    # snapshot (which might carry only some OTHER book). Two <= cutoff snapshots:
+    #   T_A    = kickoff-6h  has `pinnacle` (price A)            — the valid book price
+    #   T_late = kickoff-4h  has ONLY `betfair`, NO `pinnacle`   — still <= cutoff
+    # cutoff = kickoff-3h (so BOTH are <= cutoff; T_late is the latest <= cutoff).
+    # The decision must price/stake from A (latest <= cutoff snapshot that HAS pinnacle),
+    # NOT crash on T_late's missing pinnacle and NOT let T_late block A.
+    commence = "2024-06-30T19:00:00Z"
+    kickoff = pd.Timestamp(commence)
+    cutoff = (kickoff - pd.Timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    t_a = (kickoff - pd.Timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    t_late = (kickoff - pd.Timedelta(hours=4)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    t_close = (kickoff - pd.Timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    price_a = (2.50, 3.40, 3.00)     # the pinnacle decision-time entry (latest <= cutoff WITH pinnacle)
+    price_late = (1.50, 4.00, 5.00)  # betfair-only later snapshot; lacks pinnacle entirely
+    price_close = (2.10, 3.50, 3.40)  # pinnacle close (latest <= kickoff; CLV only)
+    a_map = dict(zip(OUTCOMES, price_a))
+
+    sample = {
+        _SYNTHETIC_KEY: True,
+        "s_a": _snap(t_a, price_a, commence=commence, bookmaker="pinnacle"),
+        # Latest <= cutoff snapshot, but it only carries betfair — pinnacle is absent.
+        # The buggy _decision_time_entry picks THIS (latest <= cutoff) and crashes on
+        # the missing pinnacle; the fix skips it and falls back to the pinnacle s_a.
+        "s_late": _snap(t_late, price_late, commence=commence, bookmaker="betfair"),
+        # A pinnacle CLOSE (latest <= kickoff, > cutoff): the kickoff-based
+        # entry_close_prices close leg, recorded for CLV only — never the entry.
+        "s_close": _snap(t_close, price_close, commence=commence, bookmaker="pinnacle"),
+    }
+    d = decide_live(small_store, sample, cutoff=cutoff, config=cfg,
+                    fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0})
+
+    # The logged ENTRY is the pinnacle price A (latest <= cutoff WITH the book), never
+    # a crash and never blocked by the later book-less snapshot.
+    assert d.entry_odds == a_map
+    # The edge/stake were priced off A's de-vig (the snapshot that HAS pinnacle).
+    from wcmodel.backtest.baselines import market_fair_1x2
+    bt = cfg["backtest"]
+    assert d.market_entry == market_fair_1x2(a_map, method=bt["devig_method"])
+
+
+def test_decide_live_no_book_price_before_cutoff_is_a_non_bet(small_store, cfg):
+    # If NO snapshot <= cutoff contains the configured book (every <= cutoff snapshot
+    # carries only some OTHER book), there is no decision-time price for the book =>
+    # a COUNTED NON-BET (stake 0, reason "no_odds") — NEVER a crash and NEVER a price
+    # off a snapshot that lacks the book.
+    commence = "2024-06-30T19:00:00Z"
+    kickoff = pd.Timestamp(commence)
+    cutoff = (kickoff - pd.Timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    t1 = (kickoff - pd.Timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    t2 = (kickoff - pd.Timedelta(hours=4)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # The configured book (pinnacle) is absent from EVERY pre-kickoff snapshot here
+    # (the earliest <= kickoff snapshot is betfair-only, so even entry_close_prices'
+    # book-keyed entry/close legs cannot resolve). decide_live must treat the book's
+    # total absence as a counted no_odds non-bet (with NO close recorded) — NEVER a crash.
+    # Event identity is still derived book-independently so the non-bet logs its event key.
+    t_betfair_close = (kickoff - pd.Timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    sample = {
+        _SYNTHETIC_KEY: True,
+        "s1": _snap(t1, (2.50, 3.40, 3.00), commence=commence, bookmaker="betfair"),
+        "s2": _snap(t2, (2.10, 3.50, 3.40), commence=commence, bookmaker="betfair"),
+        "s3": _snap(t_betfair_close, (2.10, 3.50, 3.40), commence=commence, bookmaker="betfair"),
+    }
+    d = decide_live(small_store, sample, cutoff=cutoff, config=cfg,
+                    fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0})
+    assert isinstance(d, LiveDecision)
+    assert d.staked == ""           # no side staked
+    assert d.stake == 0.0           # counted non-bet, not a price off a book-less snapshot
+    assert d.entry_odds == {}       # no decision-time book price was logged
+    assert d.close_odds == {}       # no book close to record for CLV (book absent entirely)
+    # Event identity is still present (derived book-independently), so the non-bet is logged.
+    assert d.event_key[0] == "Brazil" and d.event_key[1] == "Croatia"
+    assert d.non_bet_reason == "no_odds"
+
+
 def test_decide_live_no_pre_cutoff_price_is_a_non_bet(small_store, cfg):
     # If the ONLY snapshots are > cutoff (no decision-time price exists for the book),
     # the decision is a COUNTED NON-BET (stake 0, a clear reason) — NOT a crash, and

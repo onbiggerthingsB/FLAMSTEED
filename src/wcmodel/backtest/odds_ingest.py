@@ -100,6 +100,19 @@ def _bookmaker_prices(snapshot: dict, bookmaker: str, home_team: str,
         ) from exc
 
 
+def _snapshot_has_book(snapshot: dict, bookmaker: str) -> bool:
+    """True iff ``bookmaker`` is present in ``snapshot`` (the SAME book-presence rule
+    ``_bookmaker_prices`` enforces, via the SAME ``parse_snapshot`` path).
+
+    Used by the live decision (``live.decide._decision_time_entry``) to pick the latest
+    decision-time snapshot THAT CONTAINS the configured book, so a snapshot missing the
+    book is SKIPPED (a counted non-bet downstream) rather than crashing ``_bookmaker_prices``.
+    A snapshot that HAS the book but is otherwise malformed (missing an outcome) is left to
+    ``_bookmaker_prices`` to reject loudly — this only gates book PRESENCE.
+    """
+    return any(r["bookmaker"] == bookmaker for r in parse_snapshot(snapshot))
+
+
 def entry_close_prices(sample: dict, bookmaker: str) -> dict:
     """Extract ENTRY (bet_time) + CLOSE (nearest-kickoff) h2h prices for ``bookmaker``.
 

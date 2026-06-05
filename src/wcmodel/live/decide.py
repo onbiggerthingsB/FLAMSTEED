@@ -33,54 +33,91 @@ import pandas as pd
 from wcmodel.config import load_config
 from wcmodel.backtest.baselines import edge_vector, market_fair_1x2, model_fair_1x2
 from wcmodel.backtest.odds_ingest import (
-    OUTCOMES, _bookmaker_prices, _parse_ts, entry_close_prices, non_bet_snapshot,
+    OUTCOMES, _SYNTHETIC_KEY, _bookmaker_prices, _parse_ts, _snapshot_has_book,
+    entry_close_prices, event_key, non_bet_snapshot,
 )
 from wcmodel.backtest.staking import stake_fraction
 from wcmodel.backtest.clv import clv_pct
 
 
-def _decision_time_entry(sample: dict, *, bookmaker: str, cutoff, close_ts: str):
+def _decision_time_entry(sample: dict, *, bookmaker: str, cutoff, close_ts: str | None):
     """The leakage-correct LIVE entry: the latest snapshot with ``timestamp <= cutoff``
-    for ``bookmaker`` (the price transactable AT the decision time ``cutoff``).
+    THAT CONTAINS ``bookmaker`` (the price transactable AT the decision time ``cutoff``).
 
     ODDS-SIDE LEAKAGE BOUNDARY (the T3 fix). ``entry_close_prices`` selects the entry
     by KICKOFF (earliest <= kickoff), which is NOT cutoff-aware — a snapshot AFTER
     ``cutoff`` (a future / post-decision price) could otherwise drive the edge/stake.
     Here we filter to snapshots whose ``timestamp <= cutoff`` BEFORE picking, so a
-    ``> cutoff`` snapshot is STRUCTURALLY unusable, and take the LATEST among them as
-    the decision-time price. The kickoff CLOSE (``close_ts``) is EXCLUDED as an entry
-    candidate — it is recorded for later CLV only and must never influence the decision
-    (so even at ``cutoff >= kickoff`` the close cannot become the entry).
+    ``> cutoff`` snapshot is STRUCTURALLY unusable. The kickoff CLOSE (``close_ts``) is
+    EXCLUDED as an entry candidate — it is recorded for later CLV only and must never
+    influence the decision (so even at ``cutoff >= kickoff`` the close cannot become the
+    entry).
+
+    BOOK-AWARE SELECTION (the T3 re-review fix). The decision-time price is the latest
+    ``<= cutoff`` (close-excluded) snapshot THAT CONTAINS the configured book — NOT merely
+    the latest ``<= cutoff`` snapshot. We iterate the candidates latest -> earliest and
+    take the FIRST that has the book (book presence checked via ``_snapshot_has_book``,
+    the SAME ``parse_snapshot`` rule ``_bookmaker_prices`` enforces). So a latest snapshot
+    that lacks the book (e.g. only a different exchange refreshed) neither CRASHES
+    ``_bookmaker_prices`` nor BLOCKS an earlier valid ``<= cutoff`` price for the book.
 
     Returns ``({home, draw, away} decimal odds, entry_ts)`` for the chosen decision-time
-    snapshot, or ``(None, None)`` if NO snapshot ``<= cutoff`` exists (a counted non-bet).
+    snapshot, or ``(None, None)`` if NO ``<= cutoff`` (close-excluded) snapshot contains
+    the book (a counted ``no_odds`` non-bet — never a crash, never a post-cutoff price).
     """
     ct = pd.Timestamp(cutoff)
     if ct.tzinfo is None:
         ct = ct.tz_localize("UTC")
     cutoff_dt = ct.to_pydatetime()
-    close_dt = _parse_ts(close_ts)
+    # `close_ts` is None only when the configured book has no close snapshot at all (the
+    # book is absent from the sample); then there is no close to exclude.
+    close_dt = _parse_ts(close_ts) if close_ts is not None else None
 
     snaps = [
         v for v in sample.values()
         if isinstance(v, dict) and "timestamp" in v and "data" in v
     ]
     # Candidates: snapshots at/before the decision cutoff, EXCLUDING the kickoff close
-    # snapshot (reserved for CLV). Sorted ascending; the entry is the latest of these.
+    # snapshot (reserved for CLV). Sorted ascending; we scan from the latest backward.
     candidates = sorted(
         (s for s in snaps
          if _parse_ts(s["timestamp"]) <= cutoff_dt
          and _parse_ts(s["timestamp"]) != close_dt),
         key=lambda s: _parse_ts(s["timestamp"]),
     )
-    if not candidates:
-        return None, None
-    entry_snap = candidates[-1]
-    first_event = entry_snap["data"][0]
-    prices = _bookmaker_prices(
-        entry_snap, bookmaker, first_event["home_team"], first_event["away_team"]
+    # The entry is the LATEST candidate THAT CONTAINS the book: a latest snapshot missing
+    # the book is skipped (not a crash) and does not block an earlier book-present price.
+    for entry_snap in reversed(candidates):
+        if not _snapshot_has_book(entry_snap, bookmaker):
+            continue
+        first_event = entry_snap["data"][0]
+        prices = _bookmaker_prices(
+            entry_snap, bookmaker, first_event["home_team"], first_event["away_team"]
+        )
+        return prices, entry_snap["timestamp"]
+    # No <= cutoff snapshot contains the book -> a counted no_odds non-bet.
+    return None, None
+
+
+def _event_meta(sample: dict):
+    """``(event_key, commence_time, is_synthetic)`` for the sample's single event, derived
+    book-INDEPENDENTLY (the fixture/harness is one event per sample).
+
+    Mirrors the event-identity derivation in ``entry_close_prices`` but takes NO bookmaker:
+    so a sample whose configured book is absent can still be logged as a counted non-bet
+    (with its event key + synthetic taint) instead of crashing before the decision is built.
+    """
+    snaps = [
+        v for v in sample.values()
+        if isinstance(v, dict) and "timestamp" in v and "data" in v
+    ]
+    if not snaps:
+        raise ValueError("decide_live: sample has no snapshots")
+    first_event = snaps[0]["data"][0]
+    is_synth = bool(
+        sample.get(_SYNTHETIC_KEY, False) or any(s.get(_SYNTHETIC_KEY) for s in snaps)
     )
-    return prices, entry_snap["timestamp"]
+    return event_key(first_event), first_event["commence_time"], is_synth
 
 
 @dataclass
@@ -138,25 +175,39 @@ def decide_live(store, sample: dict, *, cutoff, config: dict | None = None,
     fit_kwargs = fit_kwargs or {}
     draws = fit_kwargs.get("draws", 200)
 
-    pc = entry_close_prices(sample, bookmaker=live["bookmaker"])
-    ekey = pc["event_key"]
+    # Event identity + the close (CLV only). `entry_close_prices` derives the close from
+    # the latest snapshot <= kickoff for the configured book. If that book is ABSENT from
+    # the sample's pre-kickoff snapshots it raises — but a missing book is a COUNTED
+    # `no_odds` non-bet, NEVER a crash. We derive the event metadata book-INDEPENDENTLY
+    # (so the non-bet can still be logged with its event key) and treat the book-absence
+    # as the no-close case (no CLV recordable for an unpriced book).
+    ekey, commence, is_synth = _event_meta(sample)
     home, away = ekey[0], ekey[1]
-    is_synth = bool(pc["is_synthetic"])
+    try:
+        pc = entry_close_prices(sample, bookmaker=live["bookmaker"])
+        close_prices, close_ts = pc["close"], pc["close_ts"]
+        is_synth = bool(pc["is_synthetic"])
+    except ValueError as exc:
+        if "not in snapshot" not in str(exc):
+            raise  # a genuinely malformed snapshot (e.g. missing an outcome) — fail loud
+        close_prices, close_ts = {}, None
 
     # ODDS-SIDE LEAKAGE BOUNDARY. The ENTRY that drives edge/staked-side/stake is the
-    # DECISION-TIME price (the latest snapshot <= cutoff), NOT the kickoff-based entry
-    # `entry_close_prices` returns (it ignores `cutoff`) and NEVER a > cutoff (future)
-    # snapshot. The CLOSE (latest <= kickoff) is still taken from `pc` and recorded for
-    # later realized CLV ONLY (T6); it never influences the decision.
+    # DECISION-TIME price (the latest snapshot <= cutoff THAT HAS the book), NOT the
+    # kickoff-based entry `entry_close_prices` returns (it ignores `cutoff`) and NEVER a
+    # > cutoff (future) snapshot. The CLOSE (latest <= kickoff) is recorded for later
+    # realized CLV ONLY (T6); it never influences the decision. When there is no book
+    # close, `close_ts` is None and the close exclusion in `_decision_time_entry` is inert
+    # (no snapshot timestamp equals None), which is correct — there is nothing to exclude.
     entry_prices, entry_ts = _decision_time_entry(
-        sample, bookmaker=live["bookmaker"], cutoff=cutoff, close_ts=pc["close_ts"],
+        sample, bookmaker=live["bookmaker"], cutoff=cutoff, close_ts=close_ts,
     )
 
     base = LiveDecision(
         cutoff=str(cutoff), event_key=[ekey[0], ekey[1], str(ekey[2])],
         market_surface="1x2", staked="",
         entry_odds=dict(entry_prices) if entry_prices is not None else {},
-        close_odds=dict(pc["close"]), is_synthetic=is_synth,
+        close_odds=dict(close_prices), is_synthetic=is_synth,
         signal_only=bool(live["signal_only"]),
     )
 
@@ -169,7 +220,7 @@ def decide_live(store, sample: dict, *, cutoff, config: dict | None = None,
     # Non-bet snapshot filters (sign-flip / stale) on the DECISION-TIME ENTRY — logged,
     # stakes nothing.
     reason = non_bet_snapshot(entry_prices, entry_ts=entry_ts,
-                              commence=pc["commence_time"], max_spread=bt["max_spread"],
+                              commence=commence, max_spread=bt["max_spread"],
                               stale_seconds=bt["stale_snapshot_seconds"])
     if reason is not None:
         base.non_bet_reason = reason
