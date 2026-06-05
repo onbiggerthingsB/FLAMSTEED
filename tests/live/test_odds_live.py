@@ -240,12 +240,22 @@ def test_dry_run_fixture_output_is_tainted_non_real(small_store, odds_fixture_pa
     # output must carry the synthetic marker so entry_close_prices reports it AND
     # load_odds_snapshots refuses it (the store boundary). A dry-run number is then
     # unmistakably non-real even off the REAL fixture (not just the synthetic harness).
+    import copy
+    from wcmodel.backtest.odds_ingest import _SYNTHETIC_KEY
     from wcmodel.data.sources.odds import load_odds_snapshots
     sample = json.load(open(odds_fixture_path))
+    original = copy.deepcopy(sample)                       # no-mutation guard
     live = live_snapshot_from_fixture(sample, which="bet_time")
+    # The taint rides on _is_synthetic at BOTH the wrapper AND the nested snap, so a
+    # dry-run number is non-real everywhere it surfaces (not just via entry_close_prices).
+    assert live[_SYNTHETIC_KEY] is True
+    assert live["live"][_SYNTHETIC_KEY] is True
     assert entry_close_prices(live, "pinnacle")["is_synthetic"] is True
     with pytest.raises(ValueError, match="(?i)synthetic"):
         load_odds_snapshots(small_store, live)
+    # The input fixture is NEVER mutated (shallow-copy of the chosen snapshot) — a
+    # revert to in-place stamping would trip this.
+    assert sample == original
 
 
 def test_budget_counts_each_retry_attempt(monkeypatch):
