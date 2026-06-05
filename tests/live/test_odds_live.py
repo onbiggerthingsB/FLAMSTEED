@@ -9,16 +9,23 @@ from wcmodel.live.odds_live import (
 
 
 def test_live_route_is_the_regular_no_date_endpoint():
-    # The NEW live route is GET /v4/sports/{sport}/odds (no `date`), DISTINCT from
-    # the gated historical /v4/historical/... route fetch_historical uses.
-    assert LIVE_ODDS_ROUTE == "/v4/sports/{sport}/odds"
+    # The NEW live route is the regular GET /v4/sports/{sport}/odds (no `date`),
+    # DISTINCT from the gated historical /v4/historical/... route fetch_historical
+    # uses. ODDSAPI_BASE already ends in /v4, so the ROUTE must NOT repeat it (a
+    # doubled /v4 would 404 when funded) — it appends to give .../v4/sports/{sport}/odds.
+    from wcmodel.data.sources.odds import ODDSAPI_BASE
+    assert LIVE_ODDS_ROUTE == "/sports/{sport}/odds"
+    joined = f"{ODDSAPI_BASE}{LIVE_ODDS_ROUTE.format(sport='soccer_fifa_world_cup')}"
+    assert joined == "https://api.the-odds-api.com/v4/sports/soccer_fifa_world_cup/odds"
+    assert joined.count("/v4") == 1
 
 
 def test_fetch_live_odds_is_gated_without_api_key():
     # GATED like fetch_historical: raises without a key, never hits the network.
+    # dry_run=False isolates the api_key gate (the dry_run gate is tested separately).
     with pytest.raises(RuntimeError, match="(?i)gated|api_key|funding"):
         fetch_live_odds(api_key=None, sport="soccer_fifa_world_cup",
-                        regions="eu", market="h2h")
+                        regions="eu", market="h2h", dry_run=False)
 
 
 def test_dry_run_reads_fixture_not_network(odds_fixture_path):
@@ -26,8 +33,9 @@ def test_dry_run_reads_fixture_not_network(odds_fixture_path):
     # and wraps it as a single-snapshot live mapping the real parse path consumes.
     sample = json.load(open(odds_fixture_path))
     live = live_snapshot_from_fixture(sample, which="bet_time")
-    # The wrapped mapping has exactly one snapshot under the "live" key + a dry-run flag.
-    assert set(k for k in live if k != "_dry_run") == {"live"}
+    # The wrapped mapping has exactly one snapshot under the "live" key, plus the
+    # dry-run flag and the non-real (_is_synthetic) taint — no other snapshot keys.
+    assert set(k for k in live if k not in ("_dry_run", "_is_synthetic")) == {"live"}
     assert live["_dry_run"] is True
     assert live["live"]["data"][0]["home_team"] == "Brazil"
 
@@ -80,9 +88,11 @@ def test_no_key_call_does_not_touch_the_network(monkeypatch):
     def _boom(*a, **k):  # pragma: no cover - must NOT be called
         raise AssertionError("network was contacted on a gated/no-key live fetch")
     monkeypatch.setattr(_ol.httpx, "get", _boom)
+    # dry_run=False isolates the api_key gate; the booby-trap still proves the no-key
+    # path never reaches the network (the gate raises before httpx.get).
     with pytest.raises(RuntimeError, match="(?i)gated|api_key|funding"):
         fetch_live_odds(api_key=None, sport="soccer_fifa_world_cup",
-                        regions="eu", market="h2h")
+                        regions="eu", market="h2h", dry_run=False)
 
 
 def test_dry_run_path_touches_no_network(monkeypatch, odds_fixture_path):
@@ -205,3 +215,88 @@ def test_synthetic_live_snapshot_is_refused_by_the_store_write(small_store):
     live = live_snapshot_from_fixture(syn["sample"], which="bet_time")
     with pytest.raises(ValueError, match="(?i)synthetic"):
         load_odds_snapshots(small_store, live)
+
+
+# --- Review-finding fixes (FIX 1-4): the spend gate (dry_run) in the fetch itself,
+# dry-run output tainted non-real, budget charged PER http call, single /v4 in URL.
+
+
+def test_fetch_live_odds_refuses_network_when_dry_run(monkeypatch):
+    # FIX 1 (HIGH — the spend gate is incomplete). The whole-phase spend gate is
+    # dry_run; with a KEY present but dry_run=true the fetch must STILL refuse the
+    # network (defense-in-depth, not just the caller's dispatch). The ONLY path to
+    # httpx.get is dry_run=false AND a key present. Booby-trap httpx.get: it must
+    # NEVER be contacted.
+    def _boom(*a, **k):  # pragma: no cover - must NOT be called
+        raise AssertionError("network was contacted with dry_run=true (spend gate breached)")
+    monkeypatch.setattr(_ol.httpx, "get", _boom)
+    with pytest.raises(RuntimeError, match="(?i)dry.?run|gated|spend"):
+        fetch_live_odds(api_key="FAKE_KEY_NOT_REAL", sport="soccer_fifa_world_cup",
+                        regions="eu", market="h2h", dry_run=True)
+
+
+def test_dry_run_fixture_output_is_tainted_non_real(small_store, odds_fixture_path):
+    # FIX 2 (HIGH — a dry-run number can be mistaken for real). The fixture dry-run
+    # output must carry the synthetic marker so entry_close_prices reports it AND
+    # load_odds_snapshots refuses it (the store boundary). A dry-run number is then
+    # unmistakably non-real even off the REAL fixture (not just the synthetic harness).
+    from wcmodel.data.sources.odds import load_odds_snapshots
+    sample = json.load(open(odds_fixture_path))
+    live = live_snapshot_from_fixture(sample, which="bet_time")
+    assert entry_close_prices(live, "pinnacle")["is_synthetic"] is True
+    with pytest.raises(ValueError, match="(?i)synthetic"):
+        load_odds_snapshots(small_store, live)
+
+
+def test_budget_counts_each_retry_attempt(monkeypatch):
+    # FIX 3 (HIGH — call-budget bypass on retries). The budget caps PAID api calls,
+    # not decisions: each retry is another real (paid) httpx.get, so N retries must
+    # count N+1 against max_calls_per_day. Persistent 503 with max_retries=2 (mocked
+    # sleep) => budget.spent == total http attempts (3), not 1.
+    import httpx
+    monkeypatch.setattr(_ol.time, "sleep", lambda s: None)
+    http_calls = {"n": 0}
+
+    def _boom(*a, **k):
+        http_calls["n"] += 1
+        _FakeResp(503).raise_for_status()
+    monkeypatch.setattr(_ol.httpx, "get", _boom)
+
+    budget = CallBudget(max_calls_per_day=10)
+    with pytest.raises(httpx.HTTPStatusError):
+        fetch_live_odds(api_key="FAKE_KEY_NOT_REAL", sport="soccer_fifa_world_cup",
+                        regions="eu", market="h2h", dry_run=False,
+                        budget=budget, max_retries=2, base_backoff=1.0)
+    assert http_calls["n"] == 3          # initial + 2 retries = 3 PAID http calls
+    assert budget.spent == 3             # budget charged PER http call, not once
+
+    # And exhausting the budget mid-retry refuses further attempts: a budget of 2
+    # with persistent 503 makes exactly 2 http calls, then BudgetExhaustedError.
+    http_calls["n"] = 0
+    tight = CallBudget(max_calls_per_day=2)
+    with pytest.raises(BudgetExhaustedError):
+        fetch_live_odds(api_key="FAKE_KEY_NOT_REAL", sport="soccer_fifa_world_cup",
+                        regions="eu", market="h2h", dry_run=False,
+                        budget=tight, max_retries=5, base_backoff=1.0)
+    assert http_calls["n"] == 2          # stopped at the budget ceiling mid-retry
+    assert tight.spent == 2
+
+
+def test_live_url_has_exactly_one_v4(monkeypatch):
+    # FIX 4 (doubled /v4 — funded path 404s). ODDSAPI_BASE ends in /v4 and the route
+    # must NOT also start with /v4 (…/v4/v4/… would 404 when funded). Capture the url
+    # arg before raising (booby-trap the send so NO real call happens). This is the
+    # one test that needs dry_run=false + a fake key to reach url construction.
+    captured = {}
+
+    def _capture(url, *a, **k):
+        captured["url"] = url
+        raise AssertionError("send booby-trapped after url capture (no real call)")
+    monkeypatch.setattr(_ol.httpx, "get", _capture)
+
+    with pytest.raises(AssertionError):
+        fetch_live_odds(api_key="FAKE_KEY_NOT_REAL", sport="soccer_fifa_world_cup",
+                        regions="eu", market="h2h", dry_run=False, max_retries=0)
+    url = captured["url"]
+    assert url.count("/v4") == 1
+    assert url.endswith("/sports/soccer_fifa_world_cup/odds")

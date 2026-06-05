@@ -30,12 +30,18 @@ import httpx
 
 from wcmodel.data.sources.odds import ODDSAPI_BASE
 
-#: The NEW live route (no ``date`` => the CURRENT snapshot for every event). This is
-#: DISTINCT from the gated historical route ``fetch_historical`` uses.
-LIVE_ODDS_ROUTE = "/v4/sports/{sport}/odds"
+#: The NEW live route (no ``date`` => the CURRENT snapshot for every event), DISTINCT
+#: from the gated historical route ``fetch_historical`` uses. The leading ``/v4`` is
+#: NOT repeated here: ``ODDSAPI_BASE`` already ends in ``/v4`` and we append this to
+#: it (exactly as ``fetch_historical`` appends ``/historical/sports/...``), so the
+#: joined URL is ``.../v4/sports/{sport}/odds`` — a doubled ``/v4`` would 404 when funded.
+LIVE_ODDS_ROUTE = "/sports/{sport}/odds"
 
-#: Dry-run marker stamped on a fixture/synthetic-derived live mapping so a dry-run
-#: snapshot can never be mistaken for a real pull downstream.
+#: Dry-run marker stamped on a fixture/synthetic-derived live mapping. INFORMATIONAL
+#: only: the *non-real guarantee* rides on ``_is_synthetic`` (``_SYNTHETIC_KEY``, the
+#: store-boundary refusal key), which the dry-run output ALSO carries — see
+#: ``live_snapshot_from_fixture`` — so a dry-run number can never be mistaken for or
+#: persisted as real even if ``_dry_run`` were dropped.
 _DRY_RUN_KEY = "_dry_run"
 
 
@@ -96,25 +102,44 @@ def wrap_live_response(raw_events: list[dict], *, observed_ts: str) -> dict:
 
 
 def fetch_live_odds(*, api_key: str | None, sport: str, regions: str, market: str,
+                    dry_run: bool = True,
                     budget: CallBudget | None = None,
                     base_backoff: float = 2.0, max_retries: int = 4) -> list[dict]:
     """Pull the CURRENT live odds snapshot from the regular route (network, PAID).
 
-    GATED: raises ``RuntimeError`` without an ``api_key`` (the feed is funded
-    separately, L1) — never exercised with a real key by tests. When a key IS
-    supplied it charges the call budget, hits ``GET /v4/sports/{sport}/odds`` with
-    backoff, and returns the raw event list (wrap it with ``wrap_live_response``).
+    DOUBLE-GATED (L1 spend gate, defense-in-depth): the ONLY path to ``httpx.get`` is
+    ``dry_run=false AND api_key present``. It raises ``RuntimeError`` if EITHER
+    ``dry_run`` is true (the whole-phase spend gate — a key alone must NOT spend; in
+    dry-run the pipeline reads the fixture / synthetic harness, never this) OR the
+    ``api_key`` is missing (the feed is funded separately). ``dry_run`` defaults to
+    true so this can never spend unless explicitly funded; the gate is enforced HERE,
+    not only at the caller's dispatch. When BOTH gates clear it appends the route to
+    ``ODDSAPI_BASE`` (``.../v4/sports/{sport}/odds``), retries 429/5xx with backoff,
+    and returns the raw event list (wrap it with ``wrap_live_response``).
+
+    COST DISCIPLINE (L1 rider c): ``budget`` is charged PER actual http attempt
+    (inside the retried call), so N retries count N+1 against ``max_calls_per_day`` —
+    the budget caps PAID api calls, not decisions — and exhausting it mid-retry
+    refuses further attempts.
     """
+    if dry_run:
+        raise RuntimeError(
+            "live odds pull refused: dry_run is true — the whole-phase spend gate is "
+            "dry_run, so the fetch must not touch the network (read the fixture / "
+            "synthetic harness instead). Flip live.dry_run=false ONLY when funded (L1)."
+        )
     if api_key is None:
         raise RuntimeError(
             "live odds pull gated: no api_key — the paid feed is funded separately "
             "(L1 spend gate; run in dry_run until funded)"
         )
-    if budget is not None:
-        budget.charge()
     url = f"{ODDSAPI_BASE}{LIVE_ODDS_ROUTE.format(sport=sport)}"
 
     def _call() -> list[dict]:
+        # Charge PER http attempt (a retry is another PAID call): the budget caps
+        # paid api calls, not decisions, so a runaway retry can never bypass it.
+        if budget is not None:
+            budget.charge()
         resp = httpx.get(
             url,
             params={"apiKey": api_key, "regions": regions, "markets": market,
@@ -135,14 +160,26 @@ def live_snapshot_from_fixture(sample: dict, *, which: str = "bet_time",
     ``which`` selects the snapshot to treat as the CURRENT live one (``"bet_time"``
     for the decision-time price, ``"close"`` for a near-kickoff refresh). The chosen
     snapshot is re-exposed under a single ``"live"`` key + a ``_dry_run`` flag, so
-    ``entry_close_prices`` reads exactly one snapshot and the result can never be
-    mistaken for a real pull. The ``budget`` is NOT charged (no real call happened).
+    ``entry_close_prices`` reads exactly one snapshot. The ``budget`` is NOT charged
+    (no real call happened).
+
+    NON-REAL TAINT (betting-safety, binding): a dry-run number is NOT a real pull, so
+    the output is stamped ``_is_synthetic = True`` (``_SYNTHETIC_KEY``) on BOTH the
+    wrapper AND the nested ``"live"`` snapshot — UNCONDITIONALLY, even off the REAL
+    fixture, since the *value* (fixture price replayed as "current") is not a live
+    quote. Therefore ``entry_close_prices(...).is_synthetic`` is True and
+    ``load_odds_snapshots`` REFUSES to persist it as real (the store boundary). The
+    non-real guarantee rides on ``_is_synthetic``, not on ``_dry_run``.
     """
-    snap = sample[which]
-    out = {"live": snap, _DRY_RUN_KEY: True}
-    # Preserve the synthetic marker if present so the non-real taint propagates
-    # (load_odds_snapshots refuses to persist it as real).
     from wcmodel.backtest.odds_ingest import _SYNTHETIC_KEY
-    if sample.get(_SYNTHETIC_KEY) or (isinstance(snap, dict) and snap.get(_SYNTHETIC_KEY)):
-        out[_SYNTHETIC_KEY] = True
-    return out
+
+    # Shallow-copy the chosen snapshot before stamping the marker so we never mutate
+    # the caller's input sample (e.g. a shared/session fixture).
+    snap = dict(sample[which]) if isinstance(sample[which], dict) else sample[which]
+    if isinstance(snap, dict):
+        snap[_SYNTHETIC_KEY] = True
+    # The dry-run output is non-real BY CONSTRUCTION: stamp the synthetic marker on
+    # the wrapper AND the nested snap so the store-write refuses it and
+    # entry_close_prices reports is_synthetic (a dry-run number can never be mistaken
+    # for, or persisted as, real). _dry_run is kept as an informational flag.
+    return {"live": snap, _DRY_RUN_KEY: True, _SYNTHETIC_KEY: True}
