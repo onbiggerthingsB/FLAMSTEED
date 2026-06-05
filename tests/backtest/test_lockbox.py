@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 from wcmodel.backtest.lockbox import (
-    LockboxRegistry, LockboxUsedError, LockboxResolvedError, REGISTRY_PATH,
+    LockboxRegistry, LockboxUsedError, LockboxResolvedError, LockboxBusyError,
+    REGISTRY_PATH,
 )
 
 PREREGISTERED_DOF = [
@@ -126,3 +127,34 @@ def test_resolve_cutoff_is_write_once_on_same_object(temp_registry):
     with pytest.raises(LockboxResolvedError):
         reg.resolve_cutoff("2030-01-01")
     assert json.loads(temp_registry.read_text())["resolved_cutoff_date"] == "2025-11-15"
+
+
+def test_concurrent_evaluation_is_refused_atomically(temp_registry):
+    """Codex P1 (re-review): the check-and-burn is ATOMIC across concurrent
+    processes, not merely a sequential reload→guard→flush. We simulate a second
+    evaluation that STARTS while the first is still in flight (inside its critical
+    section) by re-entering evaluate_on_lockbox from within the first's eval_fn,
+    via a freshly-loaded registry (≈ a separate process). The interprocess lock is
+    held across the whole section, so the concurrent entrant is REFUSED with
+    LockboxBusyError and CANNOT also burn the single shot."""
+    reg = LockboxRegistry.load(path=temp_registry)
+
+    def inner_concurrent_eval():
+        # This runs while the OUTER evaluate_on_lockbox still holds the lock and has
+        # already flushed used=true. A separate-process registry that tries to claim
+        # the lock now must be refused (lock held) — it can never run its eval_fn.
+        concurrent = LockboxRegistry.load(path=temp_registry)
+        with pytest.raises(LockboxBusyError):
+            concurrent.evaluate_on_lockbox(lambda: {"roi_roi": 0.99})
+        return {"roi_roi": 0.01}
+
+    result = reg.evaluate_on_lockbox(inner_concurrent_eval)
+    assert result["roi_roi"] == 0.01
+    # exactly one burn happened; the lock was released after the outer eval.
+    assert json.loads(temp_registry.read_text())["used"] is True
+    assert not (temp_registry.with_suffix(".lock")).exists()   # lock cleaned up
+
+    # and after the section completes, a brand-new attempt sees used=true -> refused.
+    after = LockboxRegistry.load(path=temp_registry)
+    with pytest.raises(LockboxUsedError):
+        after.evaluate_on_lockbox(lambda: {"roi_roi": 0.5})

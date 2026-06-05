@@ -12,3 +12,8 @@ venv/
 # Data artifact cache (reproducible from sources; see spec §3.1)
 # Anchored to repo root so it does NOT match the src/wcmodel/data/ package.
 /data/
+
+# Lockbox runtime artifacts (the LockboxRegistry's interprocess lock + atomic-write
+# temp file). The registry JSON itself IS committed; these transient siblings are not.
+/config/lockbox.lock
+/config/lockbox.json.tmp

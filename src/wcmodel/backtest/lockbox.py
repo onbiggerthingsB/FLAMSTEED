@@ -18,7 +18,10 @@ holds the rule + ``resolved: false`` (D1: the real pull is gated).
 """
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import time
 from pathlib import Path
 
 #: The committed, pre-registered registry. Pinned before any tuning code runs.
@@ -31,6 +34,11 @@ class LockboxUsedError(RuntimeError):
 
 class LockboxResolvedError(RuntimeError):
     """Raised on an attempt to re-resolve an already-frozen lockbox cutoff date."""
+
+
+class LockboxBusyError(RuntimeError):
+    """Raised when another process holds the registry lock (a concurrent claim is
+    in flight). The single-use critical section is interprocess-exclusive."""
 
 
 class LockboxRegistry:
@@ -63,6 +71,37 @@ class LockboxRegistry:
         state at the moment of the guard, not the state captured at ``load`` time.
         """
         self._data = json.loads(self._path.read_text())
+
+    @contextlib.contextmanager
+    def _claim_lock(self):
+        """Interprocess-exclusive lock around the WHOLE reload→guard→burn→flush
+        critical section, so the check-and-burn is ATOMIC across concurrent
+        processes (not just sequential re-loads).
+
+        Uses ``O_CREAT | O_EXCL`` on a sibling ``.lock`` file: POSIX guarantees
+        exactly ONE creator wins the race; every other concurrent claimant gets
+        ``FileExistsError`` and is refused with ``LockboxBusyError``. Without this,
+        two processes could both ``_reload()`` and observe ``used=false`` before
+        either ``_flush()`` lands — and both would burn the single shot. The lock is
+        always released in ``finally`` (a crash leaves the burned ``used=true`` on
+        disk, fail-closed, and at most a stale lockfile — never a second live eval).
+        """
+        lock_path = self._path.with_suffix(".lock")
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError as exc:
+            raise LockboxBusyError(
+                f"another process holds the lockbox lock ({lock_path.name}); the "
+                "single-use critical section is interprocess-exclusive. Retry once the "
+                "in-flight evaluation completes (or remove a stale lockfile after a crash)."
+            ) from exc
+        try:
+            os.write(fd, str(time.time()).encode())
+            os.close(fd)
+            yield
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(str(lock_path))
 
     # ---- frozen, pre-registered fields ------------------------------------
     @property
@@ -99,18 +138,20 @@ class LockboxRegistry:
         is materialized. Refuses to overwrite an already-resolved cutoff (immutable
         once written) — the boundary is a committed artifact, not a moving target.
 
-        The on-disk ``resolved`` flag is RE-READ before the guard, so a stale
-        registry object (loaded while ``resolved=false``, then resolved by another
-        process) cannot overwrite the frozen cutoff date."""
-        self._reload()                              # current disk state, not stale cache
-        if self._data["resolved"]:
-            raise LockboxResolvedError(
-                f"lockbox cutoff already frozen at {self._data['resolved_cutoff_date']!r} "
-                "— the held-out boundary is write-once and immutable."
-            )
-        self._data["resolved"] = True
-        self._data["resolved_cutoff_date"] = str(cutoff_date)
-        self._flush()
+        The on-disk ``resolved`` flag is RE-READ before the guard under the same
+        interprocess lock as the single-use burn, so neither a stale object nor two
+        CONCURRENT processes can overwrite the frozen cutoff date (atomic
+        check-and-write)."""
+        with self._claim_lock():
+            self._reload()                          # current disk state, not stale cache
+            if self._data["resolved"]:
+                raise LockboxResolvedError(
+                    f"lockbox cutoff already frozen at {self._data['resolved_cutoff_date']!r} "
+                    "— the held-out boundary is write-once and immutable."
+                )
+            self._data["resolved"] = True
+            self._data["resolved_cutoff_date"] = str(cutoff_date)
+            self._flush()
 
     # ---- the single-use evaluation (single-use ENFORCED ON DISK) ----------
     def evaluate_on_lockbox(self, eval_fn) -> dict:
@@ -125,14 +166,19 @@ class LockboxRegistry:
         registry object (loaded while ``used=false``, then burned by another
         process) is refused — the single-use guarantee is the CURRENT disk state,
         not a value cached at ``load`` time.
+
+        The whole reload→guard→burn→flush→run is held under an interprocess lock
+        (``_claim_lock``), so two CONCURRENT processes cannot both observe
+        ``used=false`` before one of them flushes — the check-and-burn is atomic.
         """
-        self._reload()                              # current disk state, not stale cache
-        if self.used:
-            raise LockboxUsedError(
-                "the single-use lockbox has already been evaluated (used=true on disk) "
-                "— a second evaluation is REFUSED. Re-tuning against the lockbox would "
-                "destroy its purpose. STOP."
-            )
-        self._data["used"] = True
-        self._flush()                               # burn the shot ON DISK first (fail-closed)
-        return eval_fn()
+        with self._claim_lock():
+            self._reload()                          # current disk state, not stale cache
+            if self.used:
+                raise LockboxUsedError(
+                    "the single-use lockbox has already been evaluated (used=true on disk) "
+                    "— a second evaluation is REFUSED. Re-tuning against the lockbox would "
+                    "destroy its purpose. STOP."
+                )
+            self._data["used"] = True
+            self._flush()                           # burn the shot ON DISK first (fail-closed)
+            return eval_fn()
