@@ -83,10 +83,20 @@ def test_posterior_cache_key_uses_threaded_elo(tmp_path, small_store):
 
 
 def test_cached_fit_posterior_actually_uses_threaded_elo(tmp_path, small_store):
-    """Stale-serve TEETH: a bumped cfg['elo'] must change the ACTUAL fit output
-    (provisional set and/or predictions), not merely the cache key. Before the
-    call-site threading this was False (key changed, computation did not) — the
-    exact P2-T8 stale-serve class on the posterior cache key."""
+    """Stale-serve TEETH for the PROVISIONAL-SET channel specifically: a bumped
+    cfg['elo'] must change the ACTUAL fit output (the provisional set, driven by
+    scoreline.fit -> count_volatility_arm, and/or a prediction), not merely the
+    cache key. Before the call-site threading this was False (key changed,
+    computation did not) — the exact P2-T8 stale-serve class on the posterior
+    cache key.
+
+    SCOPE / what this test does NOT see: the scoreline model is Elo-independent,
+    so a revert of the OTHER channel — features.build -> compute_elo_history(
+    config=cfg) -> the panel's Elo feature column -> _feature_hash — would leave
+    predictions AND the provisional set unchanged here, so this guard would still
+    PASS while the feature-hash channel of the cache key silently stopped
+    reflecting cfg['elo']. That feature-hash channel is covered directly by
+    test_feature_hash_reflects_threaded_elo."""
     import copy
     from wcmodel.config import load_config
     from wcmodel.model.scoreline import fit
@@ -105,4 +115,26 @@ def test_cached_fit_posterior_actually_uses_threaded_elo(tmp_path, small_store):
     assert differs, (
         "cfg['elo'] changed the cache key but NOT the actual fit -> stale serve. "
         "The fit-path call sites are not threading config into the Elo computation."
+    )
+
+
+def test_feature_hash_reflects_threaded_elo(small_store):
+    """Teeth for the features.build -> compute_elo_history -> _feature_hash channel,
+    which the prediction-based guard test CANNOT see (the scoreline model is
+    Elo-independent, so a reverted features.build elo-threading leaves predictions +
+    the provisional set unchanged, yet would make _feature_hash — part of the
+    posterior cache key — stop reflecting cfg['elo']). A bumped cfg['elo'] must change
+    the panel's Elo feature column, hence _feature_hash."""
+    import copy
+    from wcmodel.config import load_config
+    from wcmodel.model.cache import _feature_hash
+    base = load_config()
+    bumped = copy.deepcopy(base)
+    bumped["elo"]["k_base"] = 999.0
+    h_base = _feature_hash("2024-06-01", small_store, base)
+    h_bump = _feature_hash("2024-06-01", small_store, bumped)
+    assert h_base != h_bump, (
+        "features.build is not threading cfg['elo'] into compute_elo_history -> the "
+        "Elo feature column (hence _feature_hash, hence the cache key) is blind to a "
+        "custom cfg['elo'] -> stale serve on the feature-hash channel."
     )
