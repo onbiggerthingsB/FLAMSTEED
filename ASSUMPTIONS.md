@@ -542,8 +542,9 @@ Implemented on branch `phase3-monte-carlo`.
   labelling).
 - **CLV is the primary number; ROI is the goal; calibration (RPS) is diagnostic,
   never the target** (north-star §0, verbatim). The report leads with CLV
-  (beat-the-close rate + avg CLV% = entry/close − 1 on de-vigged transacted
-  prices).
+  (beat-the-close rate + avg CLV% = entry/close − 1 on transacted (raw decimal)
+  prices — de-vig drives the EDGE, not CLV; `clv.py` compares the prices you
+  actually transact at).
 - **De-vig selection (lockbox DOF #7).** Shin is the prior/primary; multiplicative
   + power are sensitivity checks; **Buchdahl / odds-proportional is sensitivity-
   only and NEVER promoted** (it manufactures phantom favourite-longshot value) — it
