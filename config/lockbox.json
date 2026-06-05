@@ -1,0 +1,20 @@
+{
+  "_comment": "PRE-REGISTERED SINGLE-USE LOCKBOX (Phase-4, spec §2.7). Committed BEFORE any tuning/evaluation code ran. The held-out boundary and the 9-DOF config budget are FROZEN here; the lockbox may be evaluated EXACTLY ONCE (enforced on disk via the `used` flag). Do NOT hand-edit `used` or `resolved_cutoff_date` — the LockboxRegistry harness owns them.",
+  "boundary_rule": "final 18% by date of the odds-covered backtest_window universe",
+  "lockbox_fraction": 0.18,
+  "resolved": false,
+  "resolved_cutoff_date": null,
+  "preregistered_config_count": 9,
+  "preregistered_dof": [
+    "elo_k",
+    "elo_volatility_threshold_T",
+    "widening_mechanism",
+    "widening_strength",
+    "decay_half_life",
+    "prior_strength",
+    "devig_method",
+    "likelihood_dc_vs_bp",
+    "kelly_fraction"
+  ],
+  "used": false
+}
