@@ -94,3 +94,85 @@ def test_render_scan_report_leads_non_real_and_is_text(small_store, cfg):
     assert isinstance(report, str)
     assert "DRY-RUN" in report and "NOT AN EDGE CLAIM" in report
     assert "edge" in report.lower() and "liquidity" in report.lower()
+
+
+def _malformed_synthetic_item(liquidity: float = 50.0) -> dict:
+    # A SYNTHETIC fixture (the non-real marker rides on the wrapper AND every nested
+    # snapshot) that is also MALFORMED — its snapshots carry an EMPTY `data` list, so
+    # `decide_live`'s `_event_meta`/`_decision_time_entry` RAISES (IndexError on
+    # `snaps[0]["data"][0]`). The synthetic taint must still be detected per-sample
+    # BEFORE the guarded `decide_live`, so even an all-malformed synthetic batch reads
+    # non-real (rider #1 money-safety).
+    s = synthetic_odds_sample(
+        home="Brazil", away="Croatia", commence="2024-06-30T19:00:00Z",
+        entry=(2.50, 3.40, 3.00), close=(2.10, 3.50, 3.40), bookmaker="pinnacle", seed=0)
+    sample = s["sample"]
+    for snap in sample.values():
+        if isinstance(snap, dict) and "data" in snap:
+            snap["data"] = []          # malformed: decide_live raises, marker preserved
+    return {"sample": sample, "liquidity": liquidity}
+
+
+def test_scan_all_malformed_synthetic_run_is_still_tainted_non_real(small_store, cfg):
+    # MONEY-SAFETY (Codex HIGH, rider #1): a batch whose fixtures are SYNTHETIC but
+    # MALFORMED (decide_live raises on each) used to return is_synthetic=False with NO
+    # dry-run banner — a synthetic/dry-run scan could be mistaken for real. The
+    # synthetic taint is now detected per-sample BEFORE the guarded decide_live, so
+    # even an all-malformed synthetic batch taints the whole run non-real.
+    batch = [_malformed_synthetic_item(50.0), _malformed_synthetic_item(75.0)]
+    ranked = scan(small_store, batch, cutoff="2024-06-30T19:00:00Z", config=cfg,
+                  fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0})
+    # Every fixture was caught by the batch guard (malformed) — yet the run is tainted.
+    assert ranked.non_bets.get("malformed", 0) == 2
+    assert ranked.opportunities == []
+    # The whole artifact reads NON-REAL even though no decide_live ever succeeded.
+    assert ranked.is_synthetic is True
+    # And the written report LEADS with the unmissable DRY-RUN / NOT-REAL banner.
+    report = render_scan_report(ranked)
+    assert report.startswith("# DRY-RUN")
+    assert "NOT AN EDGE CLAIM" in report
+
+
+def test_scan_batch_guard_records_exception_detail(small_store, cfg):
+    # DIAGNOSTICS (both reviews): the broad batch guard must RECORD the actual
+    # exception so a SYSTEMIC bug (every fixture dying on the same error) is visible
+    # rather than masquerading as generic "malformed" input. A malformed fixture with
+    # NO snapshots -> decide_live raises ValueError("decide_live: sample has no
+    # snapshots"); the sidecar list must capture that repr + the offending event id.
+    bad = {"sample": {"garbage": 1, "event_id": "SYNTHETIC_bad_evt"}, "liquidity": 50.0}
+    items = _two_synth_events()
+    batch = [items[0], bad, items[1]]
+    ranked = scan(small_store, batch, cutoff="2024-06-30T19:00:00Z", config=cfg,
+                  fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0})
+    # The malformed counter is intact (the run did not abort).
+    assert ranked.non_bets.get("malformed", 0) >= 1
+    # AND the new sidecar list captured the real error (visible, not opaque).
+    detail = ranked.errors
+    assert isinstance(detail, list) and len(detail) >= 1
+    blob = repr(detail)
+    assert "ValueError" in blob and "no snapshots" in blob
+    # The offending event identifier is recorded so a systemic failure is locatable.
+    assert "SYNTHETIC_bad_evt" in blob
+    # The sidecar is serialised deterministically in the structured artifact.
+    assert ranked.to_dict()["errors"] == detail
+
+
+def test_scan_is_reproducible_and_tie_break_deterministic(small_store, cfg):
+    # REPRODUCIBILITY + STABLE TIE-BREAK (in-house review, now committed). Two scan
+    # calls with the SAME seed/inputs -> identical Ranked.to_dict() AND identical
+    # report; two opportunities with the SAME edge*liquidity rank_key preserve a
+    # deterministic order (stable sort on input order).
+    items = _two_synth_events()
+    fk = {"draws": 60, "advi_iters": 1500, "seed": 0}
+    a = scan(small_store, items, cutoff="2024-06-30T19:00:00Z", config=cfg, fit_kwargs=fk)
+    b = scan(small_store, items, cutoff="2024-06-30T19:00:00Z", config=cfg, fit_kwargs=fk)
+    assert a.to_dict() == b.to_dict()
+    assert render_scan_report(a) == render_scan_report(b)
+    # Stable tie-break: two opportunities with IDENTICAL edge*liquidity keep input order.
+    tie = [
+        {"event_key": ("A", "B", "2024"), "edge": 0.04, "liquidity": 50.0},
+        {"event_key": ("C", "D", "2024"), "edge": 0.02, "liquidity": 100.0},
+    ]
+    assert rank_key(tie[0]) == rank_key(tie[1])      # same score -> a true tie
+    ordered = sorted(tie, key=rank_key, reverse=True)
+    assert [o["event_key"] for o in ordered] == [("A", "B", "2024"), ("C", "D", "2024")]

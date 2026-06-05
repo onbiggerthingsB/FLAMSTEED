@@ -34,6 +34,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from wcmodel.config import load_config
+from wcmodel.backtest.walkforward import _sample_is_synthetic
 from wcmodel.live.decide import decide_live
 
 _DRY_RUN_BANNER = (
@@ -54,6 +55,12 @@ class Ranked:
     opportunities: list = field(default_factory=list)
     progression_surface: dict = field(default_factory=dict)
     non_bets: dict = field(default_factory=dict)
+    #: The batch-guard exception SIDECAR (diagnostics). The ``non_bets["malformed"]``
+    #: counter says HOW MANY fixtures the broad guard caught; this list says WHAT
+    #: killed each — ``{"event": <id|event_key|None>, "error": repr(exception)}`` per
+    #: caught fixture, in input order. A SYSTEMIC bug (every fixture dying on the same
+    #: error) is thereby VISIBLE instead of masquerading as generic "malformed" input.
+    errors: list = field(default_factory=list)
     is_synthetic: bool = False
     signal_only: bool = True
 
@@ -61,13 +68,45 @@ class Ranked:
         return {"cutoff": self.cutoff, "primary_surface": self.primary_surface,
                 "opportunities": self.opportunities,
                 "progression_surface": self.progression_surface,
-                "non_bets": self.non_bets, "is_synthetic": self.is_synthetic,
+                "non_bets": self.non_bets, "errors": self.errors,
+                "is_synthetic": self.is_synthetic,
                 "signal_only": self.signal_only}
 
 
 def rank_key(opportunity: dict) -> float:
     """The ranking score: ``edge x liquidity`` (higher = a better opportunity)."""
     return float(opportunity["edge"]) * float(opportunity["liquidity"])
+
+
+def _event_id(item: dict):
+    """Best-effort event IDENTIFIER for the batch-guard error sidecar — NEVER raises.
+
+    A malformed fixture is, by definition, one the parse path chokes on, so this is a
+    defensive scan: it tries the Odds-API ``id`` nested in the first snapshot's
+    ``data[0]``, then a top-level ``event_id``/``id`` on the sample, then the
+    ``(home, away, commence)`` identity triple — and returns ``None`` if nothing is
+    legible. Used ONLY to LOCATE a systemic failure, so a missing id degrades to
+    ``None`` rather than masking the recorded exception.
+    """
+    try:
+        sample = item.get("sample", item)
+        if not isinstance(sample, dict):
+            return None
+        for v in sample.values():
+            if isinstance(v, dict) and isinstance(v.get("data"), list) and v["data"]:
+                ev = v["data"][0]
+                if isinstance(ev, dict):
+                    if ev.get("id") is not None:
+                        return ev["id"]
+                    h, a, c = ev.get("home_team"), ev.get("away_team"), ev.get("commence_time")
+                    if h is not None and a is not None:
+                        return f"{h} vs {a} @ {c}"
+        for k in ("event_id", "id"):
+            if sample.get(k) is not None:
+                return sample[k]
+    except Exception:
+        return None
+    return None
 
 
 def scan(store, items: list[dict], *, cutoff, config: dict | None = None,
@@ -90,12 +129,27 @@ def scan(store, items: list[dict], *, cutoff, config: dict | None = None,
 
     opportunities: list[dict] = []
     non_bets: dict[str, int] = {}
+    errors: list[dict] = []
     any_synth = False
 
     def _bump(reason: str) -> None:
         non_bets[reason] = non_bets.get(reason, 0) + 1
 
     for item in items:
+        # MONEY-SAFETY (rider #1, Codex HIGH): detect the synthetic taint PER-SAMPLE
+        # BEFORE the guarded `decide_live`. `decide_live` only stamps `is_synthetic`
+        # on a SUCCESSFUL decision, so an ALL-MALFORMED synthetic batch (every
+        # `decide_live` raises) would otherwise return `is_synthetic=False` with NO
+        # dry-run banner — a synthetic/dry-run scan mistakable for real. Reusing the
+        # Phase-4 `_sample_is_synthetic` (the wrapper `is_synthetic`/`_is_synthetic`
+        # flag OR a nested snapshot's `_is_synthetic`), even a malformed synthetic
+        # fixture taints the whole run non-real. Pure dict inspection, never raises.
+        try:
+            if _sample_is_synthetic(item):
+                any_synth = True
+        except Exception:
+            pass
+
         # --- Stage 1: per-fixture decision (GUARDED). ---
         # `decide_live` parses the snapshot, fits the as-of model, and prices the edge;
         # a malformed item (missing "sample", a sample with no snapshots, an odds-less
@@ -106,9 +160,14 @@ def scan(store, items: list[dict], *, cutoff, config: dict | None = None,
             liquidity = float(item.get("liquidity", 0.0))
             d = decide_live(store, sample, cutoff=cutoff, config=cfg,
                             fit_kwargs=fit_kwargs)
-        except Exception:
+        except Exception as e:
             # One bad fixture is counted + skipped; the run continues and good ones rank.
+            # DIAGNOSTICS: RECORD the actual exception (not swallow it opaquely) so a
+            # SYSTEMIC bug — every fixture dying on the SAME error — is VISIBLE in the
+            # artifact rather than masquerading as generic "malformed" input. The
+            # `malformed` COUNTER is kept intact; the sidecar adds {event id, repr}.
             _bump("malformed")
+            errors.append({"event": _event_id(item), "error": repr(e)})
             continue
 
         any_synth = any_synth or d.is_synthetic
@@ -139,7 +198,7 @@ def scan(store, items: list[dict], *, cutoff, config: dict | None = None,
 
     return Ranked(
         cutoff=str(cutoff), primary_surface="1x2", opportunities=opportunities,
-        progression_surface=progression_surface, non_bets=non_bets,
+        progression_surface=progression_surface, non_bets=non_bets, errors=errors,
         is_synthetic=any_synth, signal_only=bool(live["signal_only"]),
     )
 
