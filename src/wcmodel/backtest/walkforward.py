@@ -24,6 +24,7 @@ real edge.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -39,11 +40,15 @@ from wcmodel.backtest.baselines import (
 )
 from wcmodel.backtest.cache import cached_walkforward, walkforward_key
 from wcmodel.backtest.clv import clv_summary
-from wcmodel.backtest.devig_select import devig
 from wcmodel.backtest.odds_ingest import (
-    OUTCOMES, entry_close_prices, event_key, non_bet_snapshot,
+    OUTCOMES, _SYNTHETIC_KEY, entry_close_prices, non_bet_snapshot,
 )
 from wcmodel.backtest.staking import roi_metrics, settle_bet, stake_fraction
+
+#: The default ADVI draw count for the per-cutoff refit, bound ONCE so the fit
+#: knob and the posterior-SE denominator (sqrt(p(1-p)/draws)) can never read two
+#: different literals (FIX 7: the coupled 200s used to live at two call sites).
+_DEFAULT_DRAWS = 200
 
 
 @dataclass
@@ -96,30 +101,51 @@ class EloMemo:
         res["match_type"] = res["tournament"].map(tiers.match_type)
         return res
 
+    #: EVERY column ``compute_elo_history`` consumes — so the memo key changes
+    #: whenever ANY Elo-determining input changes. The original key hashed only
+    #: ``match_id/home_score/away_score``, omitting ``date`` (orders the path),
+    #: the teams (identity), ``neutral`` (home-advantage), and ``match_type``
+    #: (K-factor). A revision touching any of those would have stale-served the
+    #: cached Elo or bled it across cutoffs that share only the score triple.
+    _ELO_KEY_COLS = ("match_id", "date", "home_team", "away_team",
+                     "home_score", "away_score", "neutral", "match_type")
+
     def elo_as_of(self, cutoff) -> pd.DataFrame:
         res = self._played_as_of(cutoff)
         import hashlib
         blob = pd.util.hash_pandas_object(
-            res[["match_id", "home_score", "away_score"]].sort_values("match_id"),
+            res[list(self._ELO_KEY_COLS)].sort_values("match_id"),
             index=False,
         ).values.tobytes()
         key = hashlib.sha256(blob).hexdigest()[:16]
         if key in self._cache:
             self.hits += 1
-            return self._cache[key]
+            # Copy-safety: hand back a COPY so a caller mutating the frame cannot
+            # corrupt the cached Elo (and poison every later cutoff that shares
+            # this < cutoff result set).
+            return self._cache[key].copy()
         elo = compute_elo_history(
             res[["match_id", "date", "home_team", "away_team",
                  "home_score", "away_score", "neutral", "match_type"]],
             config=self._cfg,
         )
         self._cache[key] = elo
-        return elo
+        return elo.copy()
 
     def latest_ratings(self, cutoff) -> dict:
-        """Each team's latest pre-cutoff ``rating_pre`` (for the Elo baseline)."""
+        """Each team's CURRENT as-of-cutoff rating = its latest ``rating_post``.
+
+        For a FUTURE prediction a team's current strength is the rating AFTER its
+        last pre-cutoff match (``rating_post``), NOT the ``rating_pre`` of that
+        match (which is one match stale — it omits the most recent result). This
+        mirrors the proven leakage-safe rule in
+        ``model.calibration._leakage_safe_elo`` (latest ``rating_post`` per team,
+        stable mergesort) so the Elo baseline and the model fit agree on the
+        same as-of-cutoff strength estimate.
+        """
         elo = self.elo_as_of(cutoff)
         last = (elo.sort_values("date", kind="mergesort")
-                   .groupby("team", sort=False)["rating_pre"].last())
+                   .groupby("team", sort=False)["rating_post"].last())
         return last.to_dict()
 
 
@@ -138,6 +164,52 @@ def _settle_outcome(home_score: int, away_score: int) -> str:
     if home_score < away_score:
         return "away"
     return "draw"
+
+
+def _nan_to_none(_const):
+    """``json.loads`` ``parse_constant`` hook: map NaN/Infinity -> None.
+
+    A NaN aggregate (empty-bets summary) reloads as ``float('nan')``, and
+    ``nan != nan`` would break ``cold == warm`` equality, so we canonicalise it
+    to ``None`` (the "no bets" sentinel) on the way back in — applied to BOTH the
+    cold canonicalisation and the cache HIT below.
+    """
+    return None
+
+
+def _json_canonical(obj):
+    """Round-trip ``obj`` through the EXACT JSON form the cache persists+reloads.
+
+    ``cached_walkforward`` writes ``json.dumps(metrics, default=str)`` and reads
+    ``json.loads(..., parse_constant=_nan_to_none)`` on a HIT. Applying the same
+    transform to the COLD result makes a cold in-memory Metrics byte-identical to
+    its cache-HIT reload, so ``cold.to_dict() == warm.to_dict()`` (FIX 4
+    value-identical HIT). It folds NaN -> None (empty-bets sentinel; nan != nan
+    would otherwise break equality), numpy float64 -> float, and the event_key
+    date -> its ISO string, in ONE canonicalisation.
+    """
+    return json.loads(json.dumps(obj, default=str), parse_constant=_nan_to_none)
+
+
+def _sample_is_synthetic(sample: dict) -> bool:
+    """Authoritative non-real taint for one odds sample (FIX 5).
+
+    Mirrors EXACTLY what ``entry_close_prices`` reads, so a WRAPPED sample, a
+    BARE inner snapshot mapping, OR a nested snapshot carrying ``_is_synthetic``
+    all self-identify as non-real — a synthetic price can never be lost on the
+    way to the ``Metrics`` taint. Cheap (no full parse); pure dict inspection.
+    """
+    if sample.get("is_synthetic") or sample.get(_SYNTHETIC_KEY):
+        return True
+    raw = sample.get("sample", sample)
+    if not isinstance(raw, dict):
+        return False
+    if raw.get(_SYNTHETIC_KEY):
+        return True
+    return any(
+        isinstance(v, dict) and v.get(_SYNTHETIC_KEY)
+        for v in raw.values()
+    )
 
 
 def walkforward(store, odds_samples: list[dict], *, results_for_settle: pd.DataFrame,
@@ -168,11 +240,26 @@ def walkforward(store, odds_samples: list[dict], *, results_for_settle: pd.DataF
     cfg = config or load_config()
     bt = cfg["backtest"]
     fit_kwargs = fit_kwargs or {}
-    is_synth = any(s.get("is_synthetic") or s.get("sample", {}).get("_is_synthetic")
-                   for s in odds_samples)
+    draws = fit_kwargs.get("draws", _DEFAULT_DRAWS)    # FIX 7: bound ONCE; the
+    # fit knob AND the posterior-SE denominator below read this same value.
+
+    # FIX 5: the AUTHORITATIVE taint mirrors what `entry_close_prices` reads —
+    # the wrapper `is_synthetic`/`_is_synthetic` flag OR a nested snapshot's
+    # `_is_synthetic` — so an UNWRAPPED/nested synthetic sample (no wrapper flag)
+    # still taints the whole Metrics. Computed at the top so the no-bets /
+    # no-result / odds-less cases (where no per-bet flag is emitted) are still
+    # tainted, and OR'd with each per-bet flag below.
+    is_synth = any(_sample_is_synthetic(s) for s in odds_samples)
+
+    # FIX 2: the cutoff grid is the ACTUAL driver — the per-matchday refit
+    # cadence over `backtest_window(matches, odds_start)`. A fixture whose
+    # matchday is NOT in the grid (e.g. before `odds_start`) is OUT OF WINDOW and
+    # counted, never bet. Built for BOTH the cache and non-cache paths.
+    grid = build_cutoff_grid(matches, bt["odds_start"])
+    grid_days = {pd.Timestamp(c).normalize() for c in grid}
 
     def _compute() -> dict:
-        from wcmodel.model.cache import cached_fit
+        import wcmodel.model.cache as _model_cache
 
         memo = EloMemo(store, config=cfg)
         # Index realised results by the odds⇄results identity triple for settle + outcome.
@@ -186,92 +273,146 @@ def walkforward(store, odds_samples: list[dict], *, results_for_settle: pd.DataF
         bets: list[dict] = []
         non_bets: dict[str, int] = {}
 
+        def _bump(reason: str) -> None:
+            non_bets[reason] = non_bets.get(reason, 0) + 1
+
+        # --- Stage 1: parse each sample's odds (GUARDED) and bucket by cutoff. ---
+        # FIX 6: `entry_close_prices` + the de-vig can raise on an odds-less /
+        # malformed fixture (no primary-bookmaker quote, no snapshot <= kickoff).
+        # That must be a COUNTED non-bet, never a crash that aborts the whole run.
+        # FIX 2: bucket the bettable fixtures by their matchday cutoff so the
+        # refit happens ONCE per cutoff (reused across that cutoff's fixtures).
+        by_cutoff: dict[pd.Timestamp, list] = {}
         for sample in odds_samples:
-            # Normalise to the (sample-dict, is_synthetic) shape; the synthetic
-            # harness wraps its snapshot under "sample".
+            # Normalise to the inner snapshot mapping; the synthetic harness wraps
+            # its snapshot under "sample".
             raw = sample.get("sample", sample)
-            pc = entry_close_prices(raw, bookmaker=bt["primary_bookmaker"])
+            try:
+                pc = entry_close_prices(raw, bookmaker=bt["primary_bookmaker"])
+            except (ValueError, KeyError):
+                # No primary-bookmaker quote / no snapshot <= kickoff / malformed.
+                _bump("no_odds")
+                continue
+
             ekey = pc["event_key"]
             realised = by_key.get(ekey)
             if realised is None:
-                non_bets["no_result"] = non_bets.get("no_result", 0) + 1
+                _bump("no_result")
                 continue
 
-            cutoff = pd.Timestamp(ekey[2])            # decision = match date (matchday cadence)
-            # Non-bet snapshot filters (sign-flip / stale), logged + counted.
+            cutoff = pd.Timestamp(ekey[2]).normalize()   # decision = matchday
+            # FIX 2: only fixtures whose matchday is IN the swept grid are
+            # eligible (the grid is bounded by `odds_start`); others are counted.
+            if cutoff not in grid_days:
+                _bump("out_of_window")
+                continue
+
+            # Non-bet snapshot filters (sign-flip / stale), logged + counted. The
+            # de-vig of the ENTRY price can also reject a malformed line -> no_odds.
             reason = non_bet_snapshot(pc["entry"], entry_ts=pc["entry_ts"],
                                       commence=pc["commence_time"],
                                       max_spread=bt["max_spread"],
                                       stale_seconds=bt["stale_snapshot_seconds"])
             if reason is not None:
-                non_bets[reason] = non_bets.get(reason, 0) + 1
+                _bump(reason)
+                continue
+            try:
+                market_entry = market_fair_1x2(pc["entry"], method=bt["devig_method"])
+            except (ValueError, KeyError, ZeroDivisionError):
+                _bump("no_odds")
                 continue
 
-            home, away = ekey[0], ekey[1]
-            # --- Refit the posterior as-of the cutoff (memoised Elo unblocks the
-            #     model; cached_fit caches the fit itself). ---
+            by_cutoff.setdefault(cutoff, []).append((pc, realised, market_entry))
+
+        # --- Stage 2: walk the cutoff grid; refit ONCE per cutoff, reuse it for
+        #     every fixture decided at that cutoff (the per-matchday cadence). ---
+        for cutoff in sorted(by_cutoff):
+            fixtures = by_cutoff[cutoff]
+            # Refit the posterior as-of the cutoff ONCE (memoised Elo unblocks the
+            # model; cached_fit caches the fit itself). Referenced via the module
+            # so a test can monkeypatch `cached_fit` and observe the refit cadence.
             try:
-                post, _meta = cached_fit(
+                post, _meta = _model_cache.cached_fit(
                     cutoff=cutoff, store=store,
                     backend=fit_kwargs.get("backend", "advi"),
-                    draws=fit_kwargs.get("draws", 200),
+                    draws=draws,
                     seed=fit_kwargs.get("seed", cfg["seed"]),
                     advi_iters=fit_kwargs.get("advi_iters", 2000),
                     cache_dir=fit_kwargs.get("cache_dir", cache_dir or "data/cache"),
                     config=cfg,
                 )
-                model = model_fair_1x2(post, home=home, away=away, neutral=True)
             except KeyError:
-                # A team not in the as-of-cutoff panel (debutant with no < cutoff
-                # history) -> no model price -> not bettable, logged.
-                non_bets["no_model_price"] = non_bets.get("no_model_price", 0) + 1
+                # The as-of-cutoff panel could not be built/fit -> no model price
+                # for ANY fixture at this cutoff -> all counted, not bet.
+                for _pc, _realised, _mkt in fixtures:
+                    _bump("no_model_price")
                 continue
 
-            market_close = market_fair_1x2(pc["close"], method=bt["devig_method"])
-            edge = edge_vector(model, market_close)
+            ratings = memo.latest_ratings(cutoff)        # ONCE per cutoff (coherence).
 
-            # Pick the single best edge outcome to stake (the strongest signal).
-            staked = max(OUTCOMES, key=lambda o: edge[o])
-            entry_odds = pc["entry"][staked]
-            close_odds = pc["close"][staked]
-            # Posterior SE on the staked 1X2 prob: bootstrap-free proxy = sqrt(p(1-p)/draws).
-            p_model = model[staked]
-            se = float(np.sqrt(p_model * (1 - p_model) / max(fit_kwargs.get("draws", 200), 1)))
+            for pc, realised, market_entry in fixtures:
+                home, away = pc["event_key"][0], pc["event_key"][1]
+                ekey = pc["event_key"]
+                try:
+                    model = model_fair_1x2(post, home=home, away=away, neutral=True)
+                except KeyError:
+                    # A team absent from the as-of-cutoff panel (debutant with no
+                    # < cutoff history) -> no model price -> not bettable, logged.
+                    _bump("no_model_price")
+                    continue
 
-            f = stake_fraction(prob=p_model, decimal_odds=entry_odds, edge=edge[staked],
-                               se=se, kelly_fraction=bt["kelly_fraction"],
-                               edge_threshold=bt["edge_threshold"])
-            if f <= 0:
-                non_bets["below_edge"] = non_bets.get("below_edge", 0) + 1
-                continue
+                # FIX 1 (CRITICAL — the leakage fix): the edge, the staked side,
+                # and the stake are decided against the de-vigged ENTRY price (the
+                # price we transact at at T_bet) — NEVER the CLOSE, which is the
+                # kickoff-1min line, information from AFTER the entry decision.
+                # The close is used ONLY for CLV (entry/close - 1) and the
+                # close-market baseline in reporting.
+                edge = edge_vector(model, market_entry)
 
-            outcome = _settle_outcome(int(realised.home_score), int(realised.away_score))
-            won = (outcome == staked)
-            stake = f                                  # fraction of a 1.0 bankroll unit
-            pnl = settle_bet(stake=stake, decimal_odds=entry_odds, won=won,
-                             venue=bt["primary_bookmaker"], commission=bt["commission"])
+                # Pick the single best edge outcome to stake (the strongest signal).
+                staked = max(OUTCOMES, key=lambda o: edge[o])
+                entry_odds = pc["entry"][staked]
+                close_odds = pc["close"][staked]
+                # Posterior SE on the staked 1X2 prob: bootstrap-free proxy
+                # sqrt(p(1-p)/draws) (FIX 7: `draws` is the single bound value).
+                p_model = model[staked]
+                se = float(np.sqrt(p_model * (1 - p_model) / max(draws, 1)))
 
-            # Tier tags + baselines (Elo from the SAME memoised ratings — coherence).
-            ratings = memo.latest_ratings(cutoff)
-            elo_p = elo_baseline_1x2(
-                rating_home=ratings.get(home, cfg["elo"]["initial_rating"]),
-                rating_away=ratings.get(away, cfg["elo"]["initial_rating"]),
-                neutral=True, config=cfg,
-            )
-            bets.append({
-                "event_key": list(ekey), "cutoff": str(cutoff), "staked": staked,
-                "entry_odds": entry_odds, "close_odds": close_odds,
-                "edge": edge[staked], "stake": stake, "pnl": pnl, "won": won,
-                "outcome": outcome,
-                "match_type": tiers.match_type(getattr(realised, "tournament", "")),
-                "confederation_home": tiers.confederation(home),
-                "model": model, "market": market_close, "elo": elo_p,
-                "rps_model": rps(model, outcome), "rps_market": rps(market_close, outcome),
-                "rps_elo": rps(elo_p, outcome),
-                # SYNTHETIC marker on EVERY emitted record (D1 rider): a synthetic
-                # ROI/CLV number can never be mistaken for a real backtest number.
-                "synthetic": is_synth,
-            })
+                f = stake_fraction(prob=p_model, decimal_odds=entry_odds, edge=edge[staked],
+                                   se=se, kelly_fraction=bt["kelly_fraction"],
+                                   edge_threshold=bt["edge_threshold"])
+                if f <= 0:
+                    _bump("below_edge")
+                    continue
+
+                outcome = _settle_outcome(int(realised.home_score), int(realised.away_score))
+                won = (outcome == staked)
+                stake = f                                  # fraction of a 1.0 bankroll unit
+                pnl = settle_bet(stake=stake, decimal_odds=entry_odds, won=won,
+                                 venue=bt["primary_bookmaker"], commission=bt["commission"])
+
+                # The CLOSE market baseline (reporting only — NOT the edge driver).
+                market_close = market_fair_1x2(pc["close"], method=bt["devig_method"])
+                elo_p = elo_baseline_1x2(
+                    rating_home=ratings.get(home, cfg["elo"]["initial_rating"]),
+                    rating_away=ratings.get(away, cfg["elo"]["initial_rating"]),
+                    neutral=True, config=cfg,
+                )
+                bets.append({
+                    "event_key": list(ekey), "cutoff": str(cutoff), "staked": staked,
+                    "entry_odds": entry_odds, "close_odds": close_odds,
+                    "edge": edge[staked], "stake": stake, "pnl": pnl, "won": won,
+                    "outcome": outcome,
+                    "match_type": tiers.match_type(getattr(realised, "tournament", "")),
+                    "confederation_home": tiers.confederation(home),
+                    "model": model, "market": market_close, "elo": elo_p,
+                    "rps_model": rps(model, outcome), "rps_market": rps(market_close, outcome),
+                    "rps_elo": rps(elo_p, outcome),
+                    # SYNTHETIC marker on EVERY emitted record (D1 rider): a
+                    # synthetic ROI/CLV number can never be mistaken for a real
+                    # one. FIX 5: derived from the authoritative per-sample flag.
+                    "synthetic": bool(pc["is_synthetic"]) or is_synth,
+                })
 
         clv = clv_summary([{"entry_odds": b["entry_odds"], "close_odds": b["close_odds"]}
                            for b in bets])
@@ -285,21 +426,49 @@ def walkforward(store, odds_samples: list[dict], *, results_for_settle: pd.DataF
             "mean_rps_elo": float(np.mean([b["rps_elo"] for b in bets])) if bets else float("nan"),
             "is_synthetic": is_synth,
         }
-        return Metrics(bets=bets, non_bets=non_bets, summary=summary,
-                       is_synthetic=is_synth).to_dict()
+        out = Metrics(bets=bets, non_bets=non_bets, summary=summary,
+                      is_synthetic=is_synth).to_dict()
+        # FIX 4 (value-identical HIT). Canonicalise the COLD result through the
+        # EXACT JSON round-trip the cache persists+reloads, so the cold in-memory
+        # Metrics is byte-identical to its cache-HIT reload. This subsumes three
+        # otherwise-divergent representations: (a) NaN aggregates on the empty-
+        # bets path -> JSON `null` -> None (NaN != NaN would break equality);
+        # (b) numpy float64 from the de-vig -> plain float; (c) the event_key
+        # date -> its ISO string. HIT equality is thereby DEFINED as structural
+        # dict equality over the JSON-canonical form.
+        return _json_canonical(out)
 
     if cache_dir is not None:
-        grid = build_cutoff_grid(matches, cfg["backtest"]["odds_start"])
-        dof = {k: cfg[k] for k in ("model", "elo", "windows")}
+        # FIX 4: the key folds EVERYTHING that determines the Metrics. Beyond the
+        # model/elo/windows DOF it now also keys `baseline` (the Elo-baseline
+        # draw_base) and the global `seed`; the backtest subset adds the non-bet
+        # thresholds `max_spread`/`stale_snapshot_seconds` (they gate which
+        # fixtures bet) alongside the staking/de-vig DOF.
+        dof = {k: cfg[k] for k in ("model", "elo", "windows", "baseline")}
+        dof["seed"] = cfg["seed"]
         dof["backtest"] = {k: cfg["backtest"][k] for k in
                            ("kelly_fraction", "edge_threshold", "devig_method",
-                            "commission", "primary_bookmaker")}
+                            "commission", "primary_bookmaker", "max_spread",
+                            "stale_snapshot_seconds")}
+        # The fit knobs actually used (backend/draws/seed/advi_iters) change the
+        # posterior -> the Metrics, so they MUST key the run; `draws` is the
+        # single bound default so the key matches the SE denominator.
+        fit_key = {
+            "backend": fit_kwargs.get("backend", "advi"),
+            "draws": draws,
+            "seed": fit_kwargs.get("seed", cfg["seed"]),
+            "advi_iters": fit_kwargs.get("advi_iters", 2000),
+        }
         key = walkforward_key(
             store=store,
             odds_samples=[s.get("sample", s) for s in odds_samples],
             dof_config=dof, cutoff_grid=grid,
             odds_start=cfg["backtest"]["odds_start"],
             last_cutoff=grid[-1] if grid else pd.Timestamp(cfg["backtest"]["odds_start"]),
+            fit_kwargs=fit_key,
+            # The settled-results identity: a revised result that flips an outcome
+            # changes the Metrics, so the settle frame must key the run too.
+            settle_results=results_for_settle,
         )
         metrics_dict, _meta = cached_walkforward(key=key, compute=_compute,
                                                  cache_dir=cache_dir)
