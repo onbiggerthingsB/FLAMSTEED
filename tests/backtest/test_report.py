@@ -113,8 +113,34 @@ def test_permutation_null_places_model_score_and_is_seeded():
     res = permutation_null(model_probs, outcomes, shuffles=200, seed=20260611)
     assert res["n_shuffles"] == 200
     assert 0.0 <= res["percentile"] <= 1.0
-    # a genuinely-informative model beats most shuffles (high percentile of the null).
-    assert res["percentile"] > 0.90
+    # a genuinely-informative model clears the D4 ~99th-percentile bar.
+    assert res["percentile"] >= 0.99
     # seeded -> reproducible.
     res2 = permutation_null(model_probs, outcomes, shuffles=200, seed=20260611)
     assert res == res2
+
+
+def test_permutation_null_refuses_under_sampling():
+    # D4: an under-sampled null (below the pre-registered minimum 200) reports a
+    # misleadingly-precise percentile and must RAISE, not be silently reported.
+    import pytest
+    outcomes = ["home", "away", "draw"] * 20
+    probs = [{"home": 1 / 3, "draw": 1 / 3, "away": 1 / 3} for _ in outcomes]
+    for bad in (1, 50, 199):
+        with pytest.raises(ValueError):
+            permutation_null(probs, outcomes, shuffles=bad, seed=0)
+    permutation_null(probs, outcomes, shuffles=200, seed=0)   # exactly the minimum is allowed
+
+
+def test_permutation_null_refuses_length_mismatch_and_bad_outcomes():
+    # A length mismatch (a silent zip-truncation would score a SUBSET as if it were
+    # the full shuffle), an empty input, and an invalid outcome must all RAISE.
+    import pytest
+    outcomes = ["home", "away", "draw"] * 20
+    probs = [{"home": 1 / 3, "draw": 1 / 3, "away": 1 / 3} for _ in outcomes]
+    with pytest.raises(ValueError):
+        permutation_null(probs[:10], outcomes, shuffles=200, seed=0)        # length mismatch
+    with pytest.raises(ValueError):
+        permutation_null([], [], shuffles=200, seed=0)                      # empty
+    with pytest.raises(ValueError):
+        permutation_null(probs, ["home"] * 59 + ["nope"], shuffles=200, seed=0)  # invalid outcome

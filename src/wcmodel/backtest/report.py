@@ -139,8 +139,15 @@ def _rps(probs: dict, outcome: str) -> float:
     return total
 
 
+#: Pre-registered minimum permutation-null shuffles (D4; mirrors config
+#: backtest.permutation_shuffles = 200). A smaller null gives a misleadingly-
+#: precise percentile, so ``permutation_null`` REFUSES it.
+_MIN_PERMUTATION_SHUFFLES = 200
+
+
 def permutation_null(model_probs: list[dict], outcomes: list[str], *,
-                     shuffles: int, seed: int) -> dict:
+                     shuffles: int, seed: int,
+                     min_shuffles: int = _MIN_PERMUTATION_SHUFFLES) -> dict:
     """Label-permutation null: shuffle the realised outcomes ``shuffles`` times,
     recompute the model's mean RPS against each shuffle, and report where the REAL
     mean RPS sits in the null distribution.
@@ -148,7 +155,29 @@ def permutation_null(model_probs: list[dict], outcomes: list[str], *,
     Returns ``{real_rps, n_shuffles, percentile}``. ``percentile`` is the fraction
     of shuffles the model BEATS (real RPS < shuffled RPS); a genuinely-informative
     model sits at ~0.99 (the 99th percentile). Seeded -> reproducible.
+
+    Raises ``ValueError`` on an UNDER-SAMPLED null (``shuffles`` below the
+    pre-registered minimum ``min_shuffles`` = 200, D4 — a tiny null reports a
+    misleadingly-precise percentile) or on a ``model_probs``/``outcomes`` length
+    mismatch / empty input / invalid outcome (a silent ``zip`` truncation would
+    score only a SUBSET while looking like a full realised-outcome shuffle).
     """
+    if len(model_probs) != len(outcomes):
+        raise ValueError(
+            f"permutation_null: model_probs ({len(model_probs)}) and outcomes "
+            f"({len(outcomes)}) must be equal length -- refusing to zip-truncate"
+        )
+    if not outcomes:
+        raise ValueError("permutation_null: empty input -- nothing to score")
+    bad = sorted({o for o in outcomes if o not in OUTCOMES})
+    if bad:
+        raise ValueError(f"permutation_null: outcomes must be in {OUTCOMES}; got {bad}")
+    if shuffles < min_shuffles:
+        raise ValueError(
+            f"permutation_null: shuffles={shuffles} is below the pre-registered "
+            f"minimum {min_shuffles} (D4) -- an under-sampled null reports a "
+            "misleadingly-precise percentile"
+        )
     rng = np.random.default_rng(seed)
     real = float(np.mean([_rps(p, y) for p, y in zip(model_probs, outcomes)]))
     labels = np.array(outcomes, dtype=object)
