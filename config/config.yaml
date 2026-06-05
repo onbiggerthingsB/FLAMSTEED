@@ -95,3 +95,36 @@ backtest:
   # Reproducibility.
   bootstrap_resamples: 2000        # bootstrap CI resamples for ROI/drawdown/etc.
   bootstrap_seed: 20260611         # seeded so CIs are bit-reproducible
+live:
+  # L1 SPEND GATE. dry_run=true => NO network, NO real odds spend, NO real bet:
+  # the whole live pipeline runs against the fixture / the clearly-labelled-non-real
+  # synthetic harness. Flipping to false is a SEPARATE explicit funding action
+  # (after the Phase-0 four-point checklist + pricing-fits-budget) — the ONE gated
+  # switch. Default true so a fresh run can never spend or imply a real bet.
+  dry_run: true
+  # L2 EXECUTION BOUNDARY. signal_only=true => the system emits SIGNALS + a PAPER
+  # ledger only; it NEVER places a real bet (no broker/exchange/order path exists).
+  # Any real bet is the user's manual action. There is no false setting wired —
+  # this is a standing, asserted invariant.
+  signal_only: true
+  # Feed-agnostic (L1 rider b). The bookmaker we transact-price against and the
+  # sharp CLV benchmark are configurable; the Pinnacle-via-aggregator vs Betfair-
+  # Exchange pick is deferred to funding-time (Pinnacle closed its public API in
+  # July 2025; at funding-time verify The Odds API still carries Pinnacle's close,
+  # else use Betfair Exchange). The fixture carries BOTH keys.
+  bookmaker: pinnacle              # the transacted-price book (entry/close)
+  sharp_benchmark: pinnacle        # the sharp CLV benchmark close (== bookmaker until re-picked at funding)
+  sport_key: soccer_fifa_world_cup # the Odds API sport key for the GET /v4/sports/{sport}/odds route
+  regions: eu                      # Odds API regions param
+  market: h2h                      # 1X2 head-to-head (PRIMARY surface)
+  refresh:
+    matchday: true                 # one refresh per matchday
+    pre_kickoff_minutes: 60        # an extra refresh ~kickoff-1h for active fixtures
+  call_budget:
+    max_calls_per_day: 480         # hard ceiling on live fetches/day (pinned to plan quota)
+    rate_limit_backoff_seconds: 2.0  # base backoff on a 429/5xx (exponential)
+    max_retries: 4
+  scan:
+    min_liquidity: 0.0             # liquidity floor; markets below are coverage-gapped (0 = keep all in dry-run)
+    progression_coverage_gated: true  # outright/progression surface is SECONDARY + coverage-gated (sub-threshold = gap)
+  ledger_path: reports/live_paper_ledger.jsonl
