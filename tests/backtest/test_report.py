@@ -16,6 +16,25 @@ def test_lockbox_split_is_final_18pct_by_date():
     assert min(b["cutoff"] for b in lock) > max(b["cutoff"] for b in tuned)
 
 
+def test_lockbox_split_never_bleeds_a_tied_boundary_date_into_tuning():
+    """Codex P1(c): when multiple bets SHARE the boundary cutoff date, the split is
+    BY DATE — every bet on the boundary date goes together into the lockbox, never
+    straddling the boundary. A late date can never leak into the tuned set even
+    though a raw count slice (round(N*frac)) would split that date."""
+    # 16 distinct early dates (one bet each) + a final matchday with 5 tied bets.
+    early = [{"cutoff": f"2020-01-{d:02d}", "pnl": 0.0, "stake": 1.0}
+             for d in range(1, 17)]
+    boundary = [{"cutoff": "2020-01-17", "pnl": 0.0, "stake": 1.0} for _ in range(5)]
+    bets = early + boundary                            # N=21, round(21*0.18)=4
+    tuned, lock = lockbox_split(bets, lockbox_fraction=0.18)
+    # A count slice would keep 1 of the 5 tied "2020-01-17" bets in `tuned`; the
+    # by-date split must pull ALL FIVE into the lockbox.
+    assert all(b["cutoff"] != "2020-01-17" for b in tuned)   # no boundary date leaks
+    assert sum(1 for b in lock if b["cutoff"] == "2020-01-17") == 5
+    # strict separation by date still holds (frozen tail is the latest dates).
+    assert min(b["cutoff"] for b in lock) > max(b["cutoff"] for b in tuned)
+
+
 def test_stratify_groups_by_tier_and_flags_thin_strata():
     bets = (
         [{"match_type": "wc_finals", "confederation_home": "UEFA", "pnl": 1.0,
@@ -56,6 +75,29 @@ def test_baseline_beat_verdict_states_beat_both_or_not():
     # model worse than market RPS => does NOT beat both (report says so plainly).
     summ2 = dict(summ, mean_rps_model=0.21)
     assert baseline_beat_verdict(summ2)["beats_both"] is False
+
+
+def test_baseline_beat_verdict_fails_on_missing_or_nonfinite_baseline():
+    """Codex P2(d): a missing or non-finite baseline RPS can NEVER silently pass.
+    The verdict requires beating BOTH PRESENT, finite baselines — an absent baseline
+    is treated as not-beaten, not defaulted to inf (which would auto-pass)."""
+    # market baseline ABSENT: must NOT count as beaten, so beats_both is False even
+    # with a great model RPS and positive ROI.
+    no_market = {"mean_rps_model": 0.05, "mean_rps_elo": 0.22, "roi_roi": 0.03}
+    v = baseline_beat_verdict(no_market)
+    assert v["beats_market_rps"] is False     # absent baseline is not a beat
+    assert v["beats_both"] is False
+    # elo baseline present but NaN: also not a beat.
+    nan_elo = {"mean_rps_model": 0.05, "mean_rps_market": 0.20,
+               "mean_rps_elo": float("nan"), "roi_roi": 0.03}
+    assert baseline_beat_verdict(nan_elo)["beats_elo_rps"] is False
+    assert baseline_beat_verdict(nan_elo)["beats_both"] is False
+    # a non-finite MODEL RPS likewise fails both (nothing to compare).
+    nan_model = {"mean_rps_model": float("nan"), "mean_rps_market": 0.20,
+                 "mean_rps_elo": 0.22, "roi_roi": 0.03}
+    vm = baseline_beat_verdict(nan_model)
+    assert vm["beats_market_rps"] is False and vm["beats_elo_rps"] is False
+    assert vm["beats_both"] is False
 
 
 def test_permutation_null_places_model_score_and_is_seeded():

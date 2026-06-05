@@ -53,6 +53,17 @@ class LockboxRegistry:
         tmp.write_text(json.dumps(self._data, indent=2) + "\n")
         tmp.replace(self._path)
 
+    def _reload(self) -> None:
+        """Re-read the on-disk registry into ``self._data``.
+
+        Called before the single-use / write-once guards so a STALE in-memory
+        object (loaded while ``used``/``resolved`` was false, then another process
+        burned/resolved the registry on disk) cannot slip a second evaluation or a
+        cutoff overwrite past a cached check. The guarantee is the CURRENT disk
+        state at the moment of the guard, not the state captured at ``load`` time.
+        """
+        self._data = json.loads(self._path.read_text())
+
     # ---- frozen, pre-registered fields ------------------------------------
     @property
     def lockbox_fraction(self) -> float:
@@ -86,7 +97,12 @@ class LockboxRegistry:
     def resolve_cutoff(self, cutoff_date: str) -> None:
         """Freeze the held-out boundary date ONCE, the first time the real universe
         is materialized. Refuses to overwrite an already-resolved cutoff (immutable
-        once written) — the boundary is a committed artifact, not a moving target."""
+        once written) — the boundary is a committed artifact, not a moving target.
+
+        The on-disk ``resolved`` flag is RE-READ before the guard, so a stale
+        registry object (loaded while ``resolved=false``, then resolved by another
+        process) cannot overwrite the frozen cutoff date."""
+        self._reload()                              # current disk state, not stale cache
         if self._data["resolved"]:
             raise LockboxResolvedError(
                 f"lockbox cutoff already frozen at {self._data['resolved_cutoff_date']!r} "
@@ -104,7 +120,13 @@ class LockboxRegistry:
         process), PHYSICALLY REFUSE: raise ``LockboxUsedError``. The flip to
         ``used=true`` is flushed to disk BEFORE returning, so a crash mid-eval still
         spends the shot (fail-closed) and no second run can ever slip through.
+
+        The on-disk flag is RE-READ immediately before the guard, so even a stale
+        registry object (loaded while ``used=false``, then burned by another
+        process) is refused — the single-use guarantee is the CURRENT disk state,
+        not a value cached at ``load`` time.
         """
+        self._reload()                              # current disk state, not stale cache
         if self.used:
             raise LockboxUsedError(
                 "the single-use lockbox has already been evaluated (used=true on disk) "

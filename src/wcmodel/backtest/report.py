@@ -33,14 +33,28 @@ MIN_STRATUM_N = 30
 
 def lockbox_split(bets: list[dict], *, lockbox_fraction: float) -> tuple[list, list]:
     """Split bets into (tuned, lockbox) — the lockbox is the final ``lockbox_fraction``
-    BY DATE (the ``cutoff`` field), frozen. Returns ``(tuned, lockbox)``."""
+    strictly BY DATE (the ``cutoff`` field), frozen. Returns ``(tuned, lockbox)``.
+
+    The split is on a DATE THRESHOLD, never a raw bet-count slice: all bets sharing
+    the boundary ``cutoff`` date go together into the lockbox, so a date with
+    multiple bets can never straddle the split (a late date can never bleed into the
+    tuned set). The target lockbox size ``n_lock`` is ``round(N * lockbox_fraction)``
+    bets; the threshold is the date of the ``n_lock``-th bet from the end, and the
+    lockbox is EVERY bet on or after that date. When dates are distinct this reduces
+    exactly to the final ``n_lock`` bets.
+    """
     if not bets:
         return [], []
     ordered = sorted(bets, key=lambda b: b["cutoff"])
     n_lock = int(round(len(ordered) * lockbox_fraction))
     if n_lock == 0:
         return ordered, []
-    return ordered[:-n_lock], ordered[-n_lock:]
+    # Snap to a date threshold so same-date bets are never split across the boundary:
+    # take the cutoff of the n_lock-th-from-end bet, then pull EVERY bet >= that date.
+    threshold = ordered[-n_lock]["cutoff"]
+    lock = [b for b in ordered if b["cutoff"] >= threshold]
+    tuned = [b for b in ordered if b["cutoff"] < threshold]
+    return tuned, lock
 
 
 def _stratum_metrics(bets: list[dict]) -> dict:
@@ -92,10 +106,20 @@ def render_stratum(stratum: dict) -> dict:
 
 def baseline_beat_verdict(summary: dict) -> dict:
     """"Beat both or say so": did the model beat market-only AND naive-Elo on RPS,
-    and earn positive ROI? Lower RPS is better."""
+    and earn positive ROI? Lower RPS is better.
+
+    A baseline that is ABSENT or non-finite (``NaN``/``inf``) is treated as NOT
+    beaten — a missing baseline can never silently pass the verdict. ``beats_both``
+    requires the model RPS to be finite AND strictly below BOTH finite baseline RPS
+    values AND positive ROI; anything missing or non-finite fails the claim.
+    """
     m = summary.get("mean_rps_model", float("nan"))
-    beats_market = m < summary.get("mean_rps_market", float("inf"))
-    beats_elo = m < summary.get("mean_rps_elo", float("inf"))
+    mkt = summary.get("mean_rps_market", float("nan"))
+    elo = summary.get("mean_rps_elo", float("nan"))
+    # `m < baseline` requires BOTH operands finite: an absent/NaN/inf baseline (or
+    # model) RPS is NOT a beat, so a missing baseline can never pass by default.
+    beats_market = np.isfinite(m) and np.isfinite(mkt) and m < mkt
+    beats_elo = np.isfinite(m) and np.isfinite(elo) and m < elo
     positive_roi = summary.get("roi_roi", float("nan")) > 0
     return {
         "beats_market_rps": bool(beats_market),

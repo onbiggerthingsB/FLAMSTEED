@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from wcmodel.backtest.lockbox import (
-    LockboxRegistry, LockboxUsedError, REGISTRY_PATH,
+    LockboxRegistry, LockboxUsedError, LockboxResolvedError, REGISTRY_PATH,
 )
 
 PREREGISTERED_DOF = [
@@ -78,3 +78,51 @@ def test_synthetic_eval_does_not_burn_the_committed_real_flag(temp_registry):
     reg.evaluate_on_lockbox(lambda: {"roi_roi": 0.0})
     committed = json.loads(REGISTRY_PATH.read_text())
     assert committed["used"] is False             # the REAL flag was never consumed
+
+
+def test_stale_registry_object_is_refused_after_another_process_burns_it(temp_registry):
+    """Codex P1(a): a STALE registry object (loaded while used=false, then BURNED by
+    a separate process/registry on disk) must STILL be refused. The single-use guard
+    re-reads the CURRENT on-disk state, not the value cached at load time — so a
+    long-lived object that never re-loaded cannot slip a second evaluation through."""
+    stale = LockboxRegistry.load(path=temp_registry)   # captured while used=false
+    assert stale.used is False
+
+    # A DIFFERENT object (≈ another process) burns the shot on disk.
+    other = LockboxRegistry.load(path=temp_registry)
+    other.evaluate_on_lockbox(lambda: {"roi_roi": 0.5})
+    assert json.loads(temp_registry.read_text())["used"] is True
+
+    # The stale object still has used=false IN MEMORY, but the disk says burned —
+    # the guard must re-read disk and REFUSE, never trust the stale cache.
+    with pytest.raises(LockboxUsedError):
+        stale.evaluate_on_lockbox(lambda: {"roi_roi": 0.99})
+
+
+def test_stale_registry_object_cannot_overwrite_a_resolved_cutoff(temp_registry):
+    """Codex P1(b): the write-once cutoff is immutable even against a STALE object.
+    A registry loaded while resolved=false cannot overwrite a cutoff that another
+    process froze on disk in the meantime — resolve_cutoff re-reads disk first."""
+    stale = LockboxRegistry.load(path=temp_registry)   # captured while resolved=false
+    assert stale.resolved is False
+
+    other = LockboxRegistry.load(path=temp_registry)
+    other.resolve_cutoff("2025-12-01")
+    assert json.loads(temp_registry.read_text())["resolved_cutoff_date"] == "2025-12-01"
+
+    # The stale object must NOT be able to clobber the already-frozen boundary.
+    with pytest.raises(LockboxResolvedError):
+        stale.resolve_cutoff("2099-01-01")
+    # disk cutoff is unchanged (the first frozen value wins).
+    assert json.loads(temp_registry.read_text())["resolved_cutoff_date"] == "2025-12-01"
+
+
+def test_resolve_cutoff_is_write_once_on_same_object(temp_registry):
+    """resolve_cutoff freezes the boundary date ONCE; a second resolve on the SAME
+    object raises LockboxResolvedError and never moves the frozen target."""
+    reg = LockboxRegistry.load(path=temp_registry)
+    reg.resolve_cutoff("2025-11-15")
+    assert reg.resolved is True and reg.resolved_cutoff_date == "2025-11-15"
+    with pytest.raises(LockboxResolvedError):
+        reg.resolve_cutoff("2030-01-01")
+    assert json.loads(temp_registry.read_text())["resolved_cutoff_date"] == "2025-11-15"
