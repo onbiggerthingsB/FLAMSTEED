@@ -43,7 +43,7 @@ def _mov_index(margin: int) -> float:
     return (11 + margin) / 8.0
 
 
-def compute_elo_history(matches: pd.DataFrame) -> pd.DataFrame:
+def compute_elo_history(matches: pd.DataFrame, config: dict | None = None) -> pd.DataFrame:
     """Deterministic, point-in-time Elo over a results frame.
 
     Input columns: `match_id`, `date`, `home_team`, `away_team`, `home_score`,
@@ -67,7 +67,7 @@ def compute_elo_history(matches: pd.DataFrame) -> pd.DataFrame:
     `neutral` is carried through (an input column, knowable at kickoff) so a row
     maps straight into `elo_1x2_baseline` without re-joining the source frame.
     """
-    cfg = load_config()["elo"]
+    cfg = (config or load_config())["elo"]
     initial_rating = cfg["initial_rating"]
     home_advantage = cfg["home_advantage"]
     k_base = cfg["k_base"]
@@ -150,7 +150,7 @@ def compute_elo_history(matches: pd.DataFrame) -> pd.DataFrame:
 
 
 def elo_1x2_baseline(rating_home: float, rating_away: float,
-                     neutral: bool) -> dict[str, float]:
+                     neutral: bool, config: dict | None = None) -> dict[str, float]:
     """Naive Elo -> 1X2 probabilities (the Phase-4 baseline).
 
     Documented mapping from the SAME computed ratings as the feature:
@@ -158,7 +158,7 @@ def elo_1x2_baseline(rating_home: float, rating_away: float,
     as the match gets more lopsided (peaks at `draw_base` for an even match).
     Probabilities are clipped to >= 0 and renormalised to sum to 1.
     """
-    cfg = load_config()
+    cfg = config or load_config()
     home_advantage = cfg["elo"]["home_advantage"]
     draw_base = cfg["baseline"]["draw_base"]
 

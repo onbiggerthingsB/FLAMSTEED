@@ -1,0 +1,82 @@
+import copy
+
+import numpy as np
+import pandas as pd
+
+from wcmodel.config import load_config
+
+
+def test_backtest_config_block_present_and_typed():
+    bt = load_config()["backtest"]
+    assert bt["odds_start"] == "2020-06-06"
+    assert bt["edge_threshold"] == 0.02
+    assert bt["kelly_fraction"] == 0.25
+    assert bt["preregistered_config_count"] == 9
+    assert bt["lockbox_fraction"] == 0.18
+    assert bt["permutation_shuffles"] == 200
+    assert bt["foresight_red"]["roi"] == 0.10
+    assert bt["foresight_red"]["beat_close_rate"] == 0.58
+    assert bt["foresight_red"]["avg_clv"] == 0.02
+    assert bt["commission"]["pinnacle"] == 0.0 and bt["commission"]["betfair"] == 0.02
+    assert bt["devig_method"] == "shin"
+
+
+def _two_match_frame():
+    # Two played matches, distinct dates, so a K change moves the post rating.
+    return pd.DataFrame([
+        {"match_id": "m1", "date": pd.Timestamp("2023-01-01"), "home_team": "A",
+         "away_team": "B", "home_score": 3, "away_score": 0, "neutral": False,
+         "match_type": "wc_finals"},
+        {"match_id": "m2", "date": pd.Timestamp("2023-02-01"), "home_team": "A",
+         "away_team": "B", "home_score": 1, "away_score": 0, "neutral": False,
+         "match_type": "wc_finals"},
+    ])
+
+
+def test_compute_elo_history_threads_config_k():
+    from wcmodel.data.elo import compute_elo_history
+    frame = _two_match_frame()
+    base = compute_elo_history(frame)                      # global config (k_base 40)
+    cfg = copy.deepcopy(load_config())
+    cfg["elo"]["k_base"] = 80.0                            # double K via THREADED config
+    bumped = compute_elo_history(frame, config=cfg)
+    # A's rating_pre at its SECOND match must differ once K doubles (config really threaded).
+    a2_base = base[(base["team"] == "A") & (base["match_id"] == "m2")]["rating_pre"].iloc[0]
+    a2_bump = bumped[(bumped["team"] == "A") & (bumped["match_id"] == "m2")]["rating_pre"].iloc[0]
+    assert not np.isclose(a2_base, a2_bump)
+
+
+def test_elo_1x2_baseline_threads_config_draw_base():
+    from wcmodel.data.elo import elo_1x2_baseline
+    base = elo_1x2_baseline(1600.0, 1500.0, neutral=True)
+    cfg = copy.deepcopy(load_config())
+    cfg["baseline"]["draw_base"] = 0.10                    # shrink draw mass via threaded config
+    bumped = elo_1x2_baseline(1600.0, 1500.0, neutral=True, config=cfg)
+    assert bumped["draw"] < base["draw"]
+
+
+def test_count_volatility_arm_threads_config(small_store):
+    from wcmodel.model.volatility_diagnostic import count_volatility_arm
+    cfg = copy.deepcopy(load_config())
+    cfg["elo"]["provisional_volatility_threshold"] = 0.0   # everything trips the volatility arm
+    out = count_volatility_arm(small_store, "2024-06-01", ["Brazil", "France"], config=cfg)
+    # With T=0 every team with >= provisional_games and any volatility trips the volatility arm.
+    assert out["volatility_flag"].any()
+
+
+def test_posterior_cache_key_uses_threaded_elo(tmp_path, small_store):
+    """Stale-serve guard: a caller passing a custom cfg['elo'] must yield a DIFFERENT
+    cache key (the key must reflect the elo that ACTUALLY determined the posterior —
+    the threaded cfg, not the global disk value). RED before the D6 key switch."""
+    from wcmodel.model.cache import _cache_key_params
+    base_cfg = load_config()
+    bumped_cfg = copy.deepcopy(base_cfg)
+    bumped_cfg["elo"]["k_base"] = 999.0
+    p_base = _cache_key_params(cutoff="2024-06-01", store=small_store, backend="advi",
+                               draws=10, seed=0, advi_iters=50, likelihood="dixon_coles",
+                               tune=10, cfg=base_cfg)
+    p_bump = _cache_key_params(cutoff="2024-06-01", store=small_store, backend="advi",
+                               draws=10, seed=0, advi_iters=50, likelihood="dixon_coles",
+                               tune=10, cfg=bumped_cfg)
+    assert p_base["elo"] != p_bump["elo"]
+    assert p_base["elo"] == base_cfg["elo"]                # keyed from the PASSED cfg, not disk

@@ -61,8 +61,10 @@ from wcmodel.data.features import valid_played_results
 from wcmodel.data.store import BitemporalStore
 
 
-def count_volatility_arm(store: BitemporalStore, cutoff, field_teams: list[str]) -> pd.DataFrame:
-    cfg = load_config()["elo"]
+def count_volatility_arm(store: BitemporalStore, cutoff, field_teams: list[str],
+                         config: dict | None = None) -> pd.DataFrame:
+    full_cfg = config or load_config()
+    cfg = full_cfg["elo"]
     win = int(cfg["volatility_window"]); thr = float(cfg["provisional_volatility_threshold"])
     n_few = int(cfg["provisional_games"])
     cutoff = pd.Timestamp(cutoff)
@@ -92,7 +94,8 @@ def count_volatility_arm(store: BitemporalStore, cutoff, field_teams: list[str])
     res = valid_played_results(res)
     res["match_type"] = res["tournament"].map(tiers.match_type)
     elo = compute_elo_history(res[["match_id", "date", "home_team", "away_team",
-                                   "home_score", "away_score", "neutral", "match_type"]])
+                                   "home_score", "away_score", "neutral", "match_type"]],
+                              config=full_cfg)
     elo = elo.sort_values("date", kind="mergesort")
     rows = []
     for team in field_teams:

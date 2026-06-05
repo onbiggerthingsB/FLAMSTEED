@@ -61,3 +61,37 @@ sim:
   max_goals: 12               # scoreline grid bound for DC sampling
   extra_time_scale: 0.3333    # ET goal-rate scale (~30/90 of regulation); P4-tunable
   penalty_home_prob: 0.5      # shootout coin-flip (no tilt); P4-tunable
+backtest:
+  # Walk-forward grid. `odds_start` is an EXPLICIT key (UNVERIFIED magnitude,
+  # Phase-0): the headline The-Odds-API snapshot start is 2020-06-06, but usable
+  # per-bookmaker pinnacle/betfair depth may begin later — set from verified
+  # depth, never assumed (reports/phase1_odds_depth.md). The cutoff grid is the
+  # set of as-of decision dates the sweep walks; production builds it from the
+  # backtest_window match dates, this literal is the synthetic-harness default.
+  odds_start: "2020-06-06"
+  refit_cadence: matchday          # refit the posterior once per matchday (D5)
+  primary_bookmaker: pinnacle      # CLV benchmark = Pinnacle close (margin-in-line)
+  # Staking / trigger (D5).
+  edge_threshold: 0.02             # bet only when |edge| > 2pp on de-vigged prob (TRIGGER, not a DOF)
+  kelly_fraction: 0.25             # ¼-Kelly (lockbox DOF #9)
+  commission:
+    pinnacle: 0.0                  # margin already in the line — no separate commission
+    betfair: 0.02                  # 2% on NET winnings, only if/when Betfair is used
+  devig_method: shin               # de-vig of the close (lockbox DOF #7; Shin prior; chosen empirically by RPS)
+  # Non-bet filters.
+  max_spread: 0.05                 # de-vigged two-way implied-prob spread above this => wide-spread non-bet
+  stale_snapshot_seconds: 86400    # entry snapshot older than this before kickoff => stale non-bet
+  # Foresight-RED ceilings (the "too-good = bug" guardrail, ENFORCED as a test).
+  # Any metric past RED => SUSPECTED LEAK => STOP and investigate, never celebrate.
+  foresight_red:
+    roi: 0.10                      # simulated ROI above +10% vs the sharp close on the big-match upper bound is implausible
+    beat_close_rate: 0.58          # beating the sharp close > 58% of bets is implausibly good
+    avg_clv: 0.02                  # average CLV% above +2% is implausibly good
+  # Statistical validation (D4).
+  lockbox_fraction: 0.18           # final 18% of odds-covered history BY DATE, frozen
+  preregistered_config_count: 9    # the 9 DOF (ASSUMPTIONS deferred-ii); lockbox judged against THIS
+  permutation_shuffles: 200        # label-shuffle null; model real score must sit ~99th pct
+  permutation_pct: 0.99
+  # Reproducibility.
+  bootstrap_resamples: 2000        # bootstrap CI resamples for ROI/drawdown/etc.
+  bootstrap_seed: 20260611         # seeded so CIs are bit-reproducible

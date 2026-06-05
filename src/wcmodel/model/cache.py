@@ -109,6 +109,34 @@ def _posterior_from_netcdf(path: Path, *, teams, likelihood, provisional_teams,
     )
 
 
+def _cache_key_params(*, cutoff, store, backend, draws, seed, advi_iters,
+                      likelihood, tune, cfg) -> dict:
+    """Build the exhaustive content-key params for a posterior fit.
+
+    D6: ``elo`` is now keyed from the PASSED ``cfg`` (not the global
+    ``load_config()["elo"]``). ``compute_elo_history`` / ``count_volatility_arm``
+    are config-threaded as of Phase-4 Task 0, so the elo that ACTUALLY determines
+    the posterior is ``cfg["elo"]`` — keying that makes a caller-supplied custom
+    ``cfg.elo`` (e.g. a lockbox K/T sweep) invalidate the cache correctly and
+    forbids recording an elo the computation never used (the P2-T8 stale-serve
+    lesson). Every other field is unchanged from the original exhaustive key.
+    """
+    return {
+        "cutoff": str(pd.Timestamp(cutoff)),
+        "likelihood": likelihood,
+        "backend": backend,
+        "draws": draws,
+        "tune": tune,
+        "seed": seed,
+        "advi_iters": advi_iters,
+        "model": cfg["model"],
+        "elo": cfg["elo"],                       # D6: threaded cfg, not global disk
+        "windows": cfg["windows"],
+        "feature_hash": _feature_hash(cutoff, store, cfg),
+        "git": _git_commit(),
+    }
+
+
 def cached_fit(*, cutoff, store, backend, draws, seed, advi_iters, cache_dir,
                likelihood=None, tune=None, config=None):
     """Fit ``scoreline.fit`` through the content-addressed posterior cache.
@@ -132,45 +160,16 @@ def cached_fit(*, cutoff, store, backend, draws, seed, advi_iters, cache_dir,
     cfg = config or load_config()
     likelihood = likelihood or cfg["model"]["likelihood"]
     tune = tune if tune is not None else cfg["model"]["inference"]["tune"]
-    # The key includes EVERYTHING that determines the posterior. Any change to a
-    # listed input -> a different key -> a miss (never a stale serve):
-    #   cutoff               -- which matches feed the fit
-    #   likelihood           -- DC vs bivariate-Poisson (different posterior)
-    #   backend/draws/tune/seed/advi_iters -- the exact (seeded) sampler run
-    #   model                -- likelihood + prior + widening + inference block
-    #   elo + windows        -- they change the features AND the provisional set
-    #   feature_hash         -- the leakage-safe panel content (new/revised result)
-    #   git                  -- code that builds the model/features/posterior
-    #
-    # `model` and `windows` are keyed from the PASSED `cfg`: those ARE config-
-    # threaded -- `_priors`/widening read the passed config and `features.build`
-    # reads `cfg["windows"]`. `elo`, however, is NOT keyed from `cfg`: the
-    # posterior's elo-dependent inputs (the panel's `provisional` flags and the
-    # prediction provisional set) come from `compute_elo_history`
-    # (src/wcmodel/data/elo.py) and `count_volatility_arm`
-    # (src/wcmodel/model/volatility_diagnostic.py), BOTH of which read the GLOBAL
-    # `load_config()["elo"]` internally -- they are NOT yet config-threaded (a
-    # Phase-4 follow-up). So the elo that ACTUALLY determined the posterior is the
-    # global one, and the key must reference THAT, not `cfg["elo"]`. Keying
-    # `load_config()["elo"]` here keeps a global-elo edit invalidating the cache
-    # and makes the key explicitly correct rather than relying on `feature_hash`
-    # as a proxy (the panel does capture global-elo effects for default callers,
-    # but a caller passing a custom `cfg.elo` that diverges from disk must NOT be
-    # able to record an elo the computation never used -> stale serve).
-    params = {
-        "cutoff": str(pd.Timestamp(cutoff)),
-        "likelihood": likelihood,
-        "backend": backend,
-        "draws": draws,
-        "tune": tune,
-        "seed": seed,
-        "advi_iters": advi_iters,
-        "model": cfg["model"],
-        "elo": load_config()["elo"],  # the GLOBAL elo actually used (see above)
-        "windows": cfg["windows"],
-        "feature_hash": _feature_hash(cutoff, store, cfg),
-        "git": _git_commit(),
-    }
+    # The key includes EVERYTHING that determines the posterior (any change ->
+    # different key -> a miss, never a stale serve). `_cache_key_params` builds it.
+    # D6 (Phase-4 Task 0): `elo` is keyed from the PASSED `cfg` now that
+    # `compute_elo_history`/`count_volatility_arm` are config-threaded — so a
+    # caller-supplied custom `cfg.elo` (a lockbox K/T sweep) invalidates the cache
+    # correctly and CANNOT record an elo the computation never used.
+    params = _cache_key_params(
+        cutoff=cutoff, store=store, backend=backend, draws=draws, seed=seed,
+        advi_iters=advi_iters, likelihood=likelihood, tune=tune, cfg=cfg,
+    )
     key = content_key("posterior", params)
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
