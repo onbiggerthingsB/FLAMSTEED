@@ -160,6 +160,57 @@ def entry_close_prices(sample: dict, bookmaker: str) -> dict:
     }
 
 
+def book_aware_close(sample: dict, bookmaker: str) -> dict | None:
+    """The BOOK-AWARE closing line: the LATEST snapshot ``<= kickoff`` THAT CONTAINS
+    ``bookmaker`` (its ``{home, draw, away}`` prices + its timestamp), derived
+    INDEPENDENTLY of ``entry_close_prices``' earliest-entry leg.
+
+    WHY SEPARATE FROM ``entry_close_prices`` (the FOCAL close-as-entry fix). The live
+    decision needs the close TIMESTAMP to EXCLUDE the close snapshot from the entry
+    candidates (so the close can never be selected as the entry). ``entry_close_prices``
+    derives entry AND close together, and its EARLIEST-``<=``-kickoff entry leg RAISES
+    when the book is absent from that earliest snapshot — even if LATER (mid + close)
+    snapshots DO have the book. A caller that derived ``close_ts`` via that crashing path
+    would fall back to ``close_ts=None``, the close exclusion would go inert, and a
+    ``cutoff >= close_ts`` decision would (wrongly) select the CLOSE as the entry. This
+    helper scans for the book on the ``<= kickoff`` snapshots from LATEST backward and
+    returns the first one that HAS it, so a missing-earliest-book never makes the close
+    unknown. Book presence is checked via ``_snapshot_has_book`` (the SAME ``parse_snapshot``
+    rule ``_bookmaker_prices`` enforces); the chosen snapshot's prices are read via
+    ``_bookmaker_prices``.
+
+    Returns ``{"close": {home, draw, away}, "close_ts": <ts>}`` for the latest ``<=``
+    kickoff snapshot with the book, or ``None`` if NO ``<= kickoff`` snapshot contains the
+    book at all (the book-absent / no-close case — nothing to exclude, no CLV recordable).
+    """
+    snaps = [
+        v for v in sample.values()
+        if isinstance(v, dict) and "timestamp" in v and "data" in v
+    ]
+    if not snaps:
+        raise ValueError("book_aware_close: sample has no snapshots")
+    first_event = snaps[0]["data"][0]
+    home_team = first_event["home_team"]
+    away_team = first_event["away_team"]
+    kickoff = _parse_ts(first_event["commence_time"])
+
+    at_or_before = sorted(
+        (s for s in snaps if _parse_ts(s["timestamp"]) <= kickoff),
+        key=lambda s: _parse_ts(s["timestamp"]),
+    )
+    # Scan latest -> earliest; the close is the LATEST <= kickoff snapshot WITH the book.
+    # A latest snapshot missing the book is skipped (not a crash) — exactly so a
+    # missing-earliest (or missing-latest) book snapshot can never make the close unknown.
+    for close_snap in reversed(at_or_before):
+        if not _snapshot_has_book(close_snap, bookmaker):
+            continue
+        return {
+            "close": _bookmaker_prices(close_snap, bookmaker, home_team, away_team),
+            "close_ts": close_snap["timestamp"],
+        }
+    return None
+
+
 def synthetic_odds_sample(*, home: str, away: str, commence: str,
                           entry: tuple[float, float, float],
                           close: tuple[float, float, float],

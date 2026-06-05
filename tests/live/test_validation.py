@@ -57,6 +57,47 @@ def _multi_snapshot_sample():
     return sample, t_mid
 
 
+def _missing_earliest_book_sample():
+    """The FOCAL constructed-miss sample: the EARLIEST <= kickoff snapshot LACKS the
+    configured book (betfair-only) while LATER mid + close snapshots HAVE it (pinnacle).
+    On this sample `entry_close_prices` raises on its earliest-entry leg, so a canary
+    that re-derives its close_ts via that path gets close_ts=None and (mirroring the
+    decide_live bug) would select the close as the entry. Returns (sample, cutoff, mid,
+    close) with cutoff >= close_ts (so an un-excluded close is the latest <= cutoff
+    book-present snapshot)."""
+    commence = "2024-06-30T19:00:00Z"
+    ko = _parse_ts(commence)
+
+    def _snap(ts, h, d, a, *, bookmaker):
+        return {
+            _SYNTHETIC_KEY: True, "timestamp": ts,
+            "previous_timestamp": ts, "next_timestamp": ts,
+            "data": [{
+                "id": "X", "sport_key": "soccer_fifa_world_cup",
+                "commence_time": commence, "home_team": "Brazil", "away_team": "Croatia",
+                "bookmakers": [{"key": bookmaker, "last_update": ts, "markets": [{
+                    "key": "h2h", "last_update": ts,
+                    "outcomes": [{"name": "Brazil", "price": h}, {"name": "Draw", "price": d},
+                                 {"name": "Croatia", "price": a}],
+                }]}],
+            }],
+        }
+
+    t_early = (ko - pd.Timedelta(hours=12)).strftime("%Y-%m-%dT%H:%M:%SZ")  # betfair-only, EARLIEST <= KO
+    t_mid = (ko - pd.Timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")     # pinnacle, decision-time
+    t_close = (ko - pd.Timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")  # pinnacle, the CLOSE
+    cutoff = (ko - pd.Timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")   # cutoff >= close_ts
+    mid = {"home": 2.30, "draw": 3.45, "away": 3.20}
+    close = {"home": 2.10, "draw": 3.50, "away": 3.40}
+    sample = {
+        _SYNTHETIC_KEY: True,
+        "early": _snap(t_early, 9.99, 9.99, 9.99, bookmaker="betfair"),
+        "mid": _snap(t_mid, mid["home"], mid["draw"], mid["away"], bookmaker="pinnacle"),
+        "close": _snap(t_close, close["home"], close["draw"], close["away"], bookmaker="pinnacle"),
+    }
+    return sample, cutoff, mid, close
+
+
 def test_mislog_canary_passes_a_correctly_logged_entry(small_store, cfg):
     s = _synth_sample()
     d = decide_live(small_store, s["sample"], cutoff="2024-06-30T19:00:00Z",
@@ -75,6 +116,28 @@ def test_mislog_canary_CATCHES_a_close_logged_as_entry(small_store, cfg):
     d.entry_odds = dict(d.close_odds)
     with pytest.raises(MisLogError, match="(?i)entry.*close|close.*entry|mis-log"):
         assert_entry_logged_at_decision_time(d, s["sample"], bookmaker="pinnacle")
+
+
+def test_mislog_canary_catches_close_as_entry_in_missing_earliest_book_case():
+    """TEETH for the FOCAL constructed miss. On the missing-earliest-book sample
+    (earliest <= KO lacks pinnacle; mid + close have it), a canary that re-derives its
+    close reference through `entry_close_prices`' earliest-entry leg gets close_ts=None
+    and (mirroring the decide_live bug) reproduces the SAME close-as-entry selection — so
+    it would PASS a sabotaged decision whose logged entry IS the close. A mirror cannot
+    catch a bug in the function it mirrors.
+
+    The FIX makes the canary INDEPENDENTLY pin the entry: it derives the close snapshot
+    BOOK-AWARE (latest <= kickoff WITH the book, independent of the crashing earliest leg)
+    and asserts the logged entry is <= cutoff AND strictly NOT the close snapshot. So even
+    when `_decision_time_entry` regresses to select the close (close_ts=None), the canary
+    RAISES MisLogError on a decision whose logged entry == the close prices.
+    """
+    sample, cutoff, _mid, close = _missing_earliest_book_sample()
+    # Sabotage: a decision whose logged ENTRY is the CLOSE prices (the focal mis-log) in
+    # exactly the case the old mirror-canary would have let through.
+    d = SimpleNamespace(cutoff=cutoff, entry_odds=dict(close), close_odds=dict(close))
+    with pytest.raises(MisLogError, match="(?i)entry.*close|close.*entry|mis-log|decision.time|cutoff"):
+        assert_entry_logged_at_decision_time(d, sample, bookmaker="pinnacle")
 
 
 def test_mislog_canary_passes_the_latest_le_cutoff_entry_multi_snapshot():

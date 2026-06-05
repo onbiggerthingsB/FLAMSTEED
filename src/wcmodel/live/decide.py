@@ -34,7 +34,7 @@ from wcmodel.config import load_config
 from wcmodel.backtest.baselines import edge_vector, market_fair_1x2, model_fair_1x2
 from wcmodel.backtest.odds_ingest import (
     OUTCOMES, _SYNTHETIC_KEY, _bookmaker_prices, _parse_ts, _snapshot_has_book,
-    entry_close_prices, event_key, non_bet_snapshot,
+    book_aware_close, event_key, non_bet_snapshot,
 )
 from wcmodel.backtest.staking import stake_fraction
 from wcmodel.backtest.clv import clv_pct
@@ -175,21 +175,29 @@ def decide_live(store, sample: dict, *, cutoff, config: dict | None = None,
     fit_kwargs = fit_kwargs or {}
     draws = fit_kwargs.get("draws", 200)
 
-    # Event identity + the close (CLV only). `entry_close_prices` derives the close from
-    # the latest snapshot <= kickoff for the configured book. If that book is ABSENT from
-    # the sample's pre-kickoff snapshots it raises — but a missing book is a COUNTED
-    # `no_odds` non-bet, NEVER a crash. We derive the event metadata book-INDEPENDENTLY
-    # (so the non-bet can still be logged with its event key) and treat the book-absence
-    # as the no-close case (no CLV recordable for an unpriced book).
+    # Event identity + the close (CLV only). The close is the BOOK-AWARE closing line —
+    # the LATEST snapshot <= kickoff THAT CONTAINS the configured book — derived via
+    # `book_aware_close`, INDEPENDENTLY of `entry_close_prices`' earliest-entry leg.
+    #
+    # WHY NOT `entry_close_prices` here (the FOCAL close-as-entry fix). Its earliest-entry
+    # leg RAISES when the book is absent from the EARLIEST <= kickoff snapshot, even if
+    # later (mid + close) snapshots DO have the book. Deriving `close_ts` through that
+    # crashing path forced a `close_ts=None` fallback, which made the close EXCLUSION in
+    # `_decision_time_entry` inert — so with `cutoff >= close_ts` the CLOSE snapshot became
+    # the latest <= cutoff book-present candidate and was WRONGLY selected as the entry
+    # (pricing edge/stake off post-decision info — a leak). `book_aware_close` finds the
+    # close by scanning <= kickoff snapshots latest -> earliest for the book, so a
+    # missing-earliest-book never makes `close_ts` None and the close is ALWAYS excluded
+    # from the entry candidates. If NO <= kickoff snapshot has the book, the close is None
+    # (the book-absent no-close case) and the (still-derived-below) decision-time entry is
+    # itself empty -> a counted `no_odds` non-bet. Event metadata is derived
+    # book-INDEPENDENTLY so the non-bet can still be logged with its event key.
     ekey, commence, is_synth = _event_meta(sample)
     home, away = ekey[0], ekey[1]
-    try:
-        pc = entry_close_prices(sample, bookmaker=live["bookmaker"])
-        close_prices, close_ts = pc["close"], pc["close_ts"]
-        is_synth = bool(pc["is_synthetic"])
-    except ValueError as exc:
-        if "not in snapshot" not in str(exc):
-            raise  # a genuinely malformed snapshot (e.g. missing an outcome) — fail loud
+    bac = book_aware_close(sample, bookmaker=live["bookmaker"])
+    if bac is not None:
+        close_prices, close_ts = bac["close"], bac["close_ts"]
+    else:
         close_prices, close_ts = {}, None
 
     # ODDS-SIDE LEAKAGE BOUNDARY. The ENTRY that drives edge/staked-side/stake is the

@@ -26,7 +26,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from wcmodel.backtest.odds_ingest import OUTCOMES, entry_close_prices
+import pandas as pd
+
+from wcmodel.backtest.odds_ingest import (
+    OUTCOMES, _bookmaker_prices, _parse_ts, _snapshot_has_book, book_aware_close,
+)
 from wcmodel.backtest.validation import check_foresight_red  # REUSED verbatim (§2.5, §3)
 from wcmodel.live.decide import _decision_time_entry  # the SAME entry path decide_live logs
 
@@ -39,6 +43,44 @@ class MisLogError(AssertionError):
 class ImmutableLogError(RuntimeError):
     """Raised on an attempt to re-write/re-price an already-logged signal (the bet log
     is append-only / immutable)."""
+
+
+def _entry_matches_non_close_le_cutoff_snapshot(
+    sample: dict, *, bookmaker: str, cutoff, logged: dict, close_ts: str | None
+) -> bool:
+    """True iff ``logged`` (the decision's logged entry prices) equals the book prices of
+    SOME snapshot that is ``<= cutoff`` AND is NOT the book-aware close snapshot.
+
+    INDEPENDENT of ``_decision_time_entry`` (the function under test): it enumerates the
+    candidate snapshots directly from the low-level parse primitives (``_parse_ts`` /
+    ``_snapshot_has_book`` / ``_bookmaker_prices``) and compares prices, rather than asking
+    ``_decision_time_entry`` which one it would have SELECTED. So a bug IN
+    ``_decision_time_entry`` (e.g. selecting the CLOSE as the entry) cannot be reproduced
+    here — the close snapshot is excluded by its ``close_ts`` and a logged close price will
+    therefore match NO candidate (when the line moved), making this return False -> the
+    caller RAISES. An empty ``logged`` (a counted non-bet) is handled by the caller before
+    this is reached.
+    """
+    ct = pd.Timestamp(cutoff)
+    if ct.tzinfo is None:
+        ct = ct.tz_localize("UTC")
+    cutoff_dt = ct.to_pydatetime()
+    close_dt = _parse_ts(close_ts) if close_ts is not None else None
+    snaps = [
+        v for v in sample.values()
+        if isinstance(v, dict) and "timestamp" in v and "data" in v
+    ]
+    for s in snaps:
+        ts = _parse_ts(s["timestamp"])
+        if ts > cutoff_dt or ts == close_dt:  # not <= cutoff, or IS the book-aware close
+            continue
+        if not _snapshot_has_book(s, bookmaker):
+            continue
+        ev = s["data"][0]
+        prices = _bookmaker_prices(s, bookmaker, ev["home_team"], ev["away_team"])
+        if all(logged.get(o) == prices[o] for o in OUTCOMES):
+            return True
+    return False
 
 
 def assert_entry_logged_at_decision_time(decision, sample: dict, *, bookmaker: str) -> None:
@@ -57,25 +99,37 @@ def assert_entry_logged_at_decision_time(decision, sample: dict, *, bookmaker: s
     ``decision.cutoff`` — so it is an EXACT, non-driftable mirror of what ``decide_live``
     logs (same code path) and cannot be evaded by a stale- or future-priced entry.
 
-    Asserts, re-deriving entry (decision-time) + close from the SAME paths:
-      1. ``decision.entry_odds`` == the DECISION-TIME (latest ``<= cutoff``, book-aware,
-         close-excluded) snapshot price — caught per-outcome (a stale, future, or
-         single-leg-swapped entry trips it);
-      2. when entry != close (the prices actually moved), ``decision.entry_odds`` is NOT
-         the CLOSE prices (the focal close-logged-as-entry mis-log is caught explicitly).
+    Asserts:
+      1. (MIRROR) ``decision.entry_odds`` == the DECISION-TIME (latest ``<= cutoff``,
+         book-aware, close-excluded) snapshot price re-derived via the SAME
+         ``_decision_time_entry`` path — caught per-outcome (a stale, future, or
+         single-leg-swapped entry trips it).
+      2. (INDEPENDENT PIN — the FOCAL close-as-entry catch) The logged entry must match
+         SOME snapshot that is ``<= cutoff`` AND is NOT the BOOK-AWARE close snapshot
+         (the entry is strictly not the close). This check does NOT route through
+         ``_decision_time_entry``, so it catches a bug IN ``_decision_time_entry`` (e.g. a
+         regression that selects the CLOSE as the entry) instead of blindly mirroring it.
     Raises ``MisLogError`` on either violation. The non-vacuity teeth (a sabotaged
     close-as-entry decision DOES raise) live in the calling test.
+
+    WHY THE INDEPENDENT PIN (the FOCAL constructed miss). The mirror in (1) re-derives the
+    reference through the SAME function ``decide_live`` uses; a bug in that function (e.g.
+    when the missing-earliest-book case made ``close_ts`` None and the close was wrongly
+    selected as the entry) is REPRODUCED by the mirror, so a pure mirror would PASS the
+    leak. (2) derives the close BOOK-AWARE (``book_aware_close``, independent of the
+    crashing earliest-entry leg) and asserts the logged entry is a genuine ``<= cutoff``
+    non-close price — so even if (1) regressed in lockstep, (2) RAISES.
     """
-    # The close (CLV-only) and its timestamp — needed to EXCLUDE the close from the entry
-    # candidates exactly as decide_live does. A book absent from the pre-kickoff snapshots
-    # raises in entry_close_prices; that is the no-close case (nothing to exclude).
-    try:
-        pc = entry_close_prices(sample, bookmaker=bookmaker)
-        close, close_ts = pc["close"], pc["close_ts"]
-    except ValueError:
+    # The BOOK-AWARE close (CLV-only) + its timestamp, derived INDEPENDENTLY of the
+    # earliest-entry leg (which raises on a missing-earliest-book). This is the close to
+    # EXCLUDE from the entry candidates — and the reference the independent pin uses.
+    bac = book_aware_close(sample, bookmaker=bookmaker)
+    if bac is not None:
+        close, close_ts = bac["close"], bac["close_ts"]
+    else:
         close, close_ts = {}, None
-    # The decision-time entry via the SAME selection decide_live uses (latest <= cutoff
-    # WITH the book, close-excluded). Keyed off the decision's OWN logged cutoff.
+    # (1) MIRROR: the decision-time entry via the SAME selection decide_live uses (latest
+    # <= cutoff WITH the book, close-excluded). Keyed off the decision's OWN logged cutoff.
     entry, _entry_ts = _decision_time_entry(
         sample, bookmaker=bookmaker, cutoff=decision.cutoff, close_ts=close_ts,
     )
@@ -99,12 +153,27 @@ def assert_entry_logged_at_decision_time(decision, sample: dict, *, bookmaker: s
                 "the entry must be the price available AT the decision cutoff, never "
                 "re-priced, never a stale or post-cutoff snapshot"
             )
-    # (2) when the line moved, the logged entry must NOT be the close (the focal leak).
-    if close and entry != close and decision.entry_odds == close:
+    # (2) INDEPENDENT PIN (does NOT route through _decision_time_entry): the logged entry
+    # must be (a) <= cutoff AND (b) strictly NOT the BOOK-AWARE close snapshot. We match the
+    # logged prices directly against the prices of the <= cutoff snapshots WITH the book,
+    # EXCLUDING the book-aware close snapshot (by its timestamp). If the logged entry equals
+    # NO such non-close <= cutoff snapshot — in particular if it equals ONLY the close (the
+    # focal close-as-entry mis-log, which the mirror in (1) would reproduce and miss) — RAISE.
+    if not _entry_matches_non_close_le_cutoff_snapshot(
+        sample, bookmaker=bookmaker, cutoff=decision.cutoff,
+        logged=decision.entry_odds, close_ts=close_ts,
+    ):
+        if close and decision.entry_odds == close:
+            raise MisLogError(
+                "live mis-log: logged entry equals the CLOSE — the close is information "
+                "from AFTER the entry decision (kickoff-1min); logging it as the entry "
+                "fakes the edge. STOP and investigate (the focal operational-leakage gate)."
+            )
         raise MisLogError(
-            "live mis-log: logged entry equals the CLOSE — the close is information from "
-            "AFTER the entry decision (kickoff-1min); logging it as the entry fakes the "
-            "edge. STOP and investigate (the focal operational-leakage gate)."
+            "live mis-log: logged entry matches NO <= cutoff "
+            f"{decision.cutoff!r} snapshot (close-excluded) for book {bookmaker!r} — the "
+            "entry must be a price transactable AT the decision cutoff and never the close. "
+            "STOP and investigate."
         )
 
 

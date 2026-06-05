@@ -192,6 +192,60 @@ def test_decide_live_skips_snapshot_missing_the_book_uses_earlier_priced_one(sma
     assert d.market_entry == market_fair_1x2(a_map, method=bt["devig_method"])
 
 
+def test_decide_live_missing_earliest_book_never_prices_from_close(small_store, cfg):
+    # FOCAL CONSTRUCTED MISS (the close-as-entry leak). When the EARLIEST <= kickoff
+    # snapshot LACKS the configured book but LATER (mid + close) snapshots HAVE it,
+    # `entry_close_prices` raises on its earliest-entry leg (book absent from the
+    # earliest <= kickoff snapshot) and `decide_live` falls back to close_ts=None.
+    # A close_ts=None makes the close EXCLUSION in `_decision_time_entry` inert (no
+    # snapshot timestamp equals None), so with `cutoff >= close_ts` the CLOSE snapshot
+    # becomes the latest <= cutoff book-present candidate and is (wrongly) selected as
+    # the entry — pricing edge/staked-side/stake off POST-DECISION info (a leak).
+    #
+    # The FIX derives close_ts BOOK-AWARE and INDEPENDENTLY of the crashing earliest leg
+    # (latest <= kickoff snapshot WITH the book), so the close is ALWAYS excluded from the
+    # entry candidates. The logged entry must be the MID (latest <= cutoff WITH the book,
+    # close-excluded), NEVER the close.
+    commence = "2024-06-30T19:00:00Z"
+    kickoff = pd.Timestamp(commence)
+    # cutoff is AFTER the close timestamp (the trap: cutoff >= close_ts) so the close,
+    # if not excluded, is the latest <= cutoff book-present snapshot.
+    t_early = (kickoff - pd.Timedelta(hours=12)).strftime("%Y-%m-%dT%H:%M:%SZ")  # betfair-only, EARLIEST <= KO
+    t_mid = (kickoff - pd.Timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")     # pinnacle, the decision-time price
+    t_close = (kickoff - pd.Timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")  # pinnacle, the CLOSE (post-decision)
+    cutoff = (kickoff - pd.Timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")   # cutoff >= close_ts
+    price_early = (9.99, 9.99, 9.99)  # betfair-only earliest snapshot (no pinnacle)
+    price_mid = (2.30, 3.45, 3.20)    # pinnacle decision-time entry (the MID)
+    price_close = (2.10, 3.50, 3.40)  # pinnacle CLOSE — must NEVER become the entry
+    mid_map = dict(zip(OUTCOMES, price_mid))
+    close_map = dict(zip(OUTCOMES, price_close))
+
+    sample = {
+        _SYNTHETIC_KEY: True,
+        # EARLIEST <= kickoff snapshot carries ONLY betfair — pinnacle absent here makes
+        # entry_close_prices' earliest-entry leg raise (the trigger for the close_ts=None fallback).
+        "early": _snap(t_early, price_early, commence=commence, bookmaker="betfair"),
+        "mid": _snap(t_mid, price_mid, commence=commence, bookmaker="pinnacle"),
+        "close": _snap(t_close, price_close, commence=commence, bookmaker="pinnacle"),
+    }
+    d = decide_live(small_store, sample, cutoff=cutoff, config=cfg,
+                    fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0})
+
+    # The logged ENTRY is the MID (decision-time <= cutoff, book-aware, close-excluded),
+    # NEVER the close. (RED before the fix: the close was selected as the entry.)
+    assert d.entry_odds == mid_map
+    assert d.entry_odds != close_map
+    # The edge/stake were priced off the MID's de-vig, not the close's.
+    from wcmodel.backtest.baselines import market_fair_1x2
+    bt = cfg["backtest"]
+    assert d.market_entry == market_fair_1x2(mid_map, method=bt["devig_method"])
+    assert d.market_entry != market_fair_1x2(close_map, method=bt["devig_method"])
+    # The CLOSE is still recorded (book-aware close snapshot) for later realized CLV ONLY,
+    # and is a DIFFERENT price from the entry.
+    assert d.close_odds == close_map
+    assert d.close_odds != d.entry_odds
+
+
 def test_decide_live_no_book_price_before_cutoff_is_a_non_bet(small_store, cfg):
     # If NO snapshot <= cutoff contains the configured book (every <= cutoff snapshot
     # carries only some OTHER book), there is no decision-time price for the book =>
