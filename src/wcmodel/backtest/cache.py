@@ -88,7 +88,8 @@ def odds_hash(odds_samples: list[dict]) -> str:
 
 
 def walkforward_key(*, store, odds_samples, dof_config, cutoff_grid, odds_start,
-                    last_cutoff, fit_kwargs=None, settle_results=None) -> str:
+                    last_cutoff, fit_kwargs=None, settle_results=None,
+                    is_synthetic=False) -> str:
     """The exhaustive content key for one walk-forward run.
 
     Folds EVERYTHING that determines the ``Metrics``: the leakage-safe store
@@ -96,8 +97,17 @@ def walkforward_key(*, store, odds_samples, dof_config, cutoff_grid, odds_start,
     (now including ``baseline``/``seed`` and the non-bet thresholds), the cutoff
     grid + ``odds_start``, the sampler ``fit_kwargs`` (backend/draws/seed/
     advi_iters — they change the posterior), the realised settle identity (a
-    flipped result changes every settled bet), and git. Any change -> a new key
-    -> a MISS, so a stale Metrics is never served.
+    flipped result changes every settled bet), the RESOLVED run-level synthetic
+    taint, and git. Any change -> a new key -> a MISS, so a stale Metrics is
+    never served.
+
+    ``is_synthetic`` is the SAME resolved boolean that sets ``Metrics.is_synthetic``.
+    It MUST key the run because ``odds_hash`` is computed over the inner snapshot
+    sample with the synthetic WRAPPER stripped, yet the taint is derived FROM that
+    wrapper (or a nested ``_is_synthetic``): without it, a real run and a
+    wrapper-tainted run sharing the same inner sample would share a key and a HIT
+    could stale-serve the wrong taint flag (a synthetic result read as real,
+    defeating rider #1 via the cache).
     """
     params = {
         "store_hash": store_hash(store, last_cutoff),
@@ -107,6 +117,7 @@ def walkforward_key(*, store, odds_samples, dof_config, cutoff_grid, odds_start,
         "settle_hash": settle_hash(settle_results) if settle_results is not None else None,
         "cutoff_grid": [str(pd.Timestamp(c)) for c in cutoff_grid],
         "odds_start": str(pd.Timestamp(odds_start)),
+        "is_synthetic": bool(is_synthetic),
         "git": _git_commit(),
         "git_diff": _git_diff_hash(),
     }

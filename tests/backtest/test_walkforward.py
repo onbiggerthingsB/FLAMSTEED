@@ -3,9 +3,9 @@ import pandas as pd
 import pytest
 
 from wcmodel.backtest.walkforward import (
-    EloMemo, build_cutoff_grid, walkforward, Metrics,
+    EloMemo, build_cutoff_grid, walkforward, Metrics, _sample_is_synthetic,
 )
-from wcmodel.backtest.odds_ingest import synthetic_odds_sample
+from wcmodel.backtest.odds_ingest import synthetic_odds_sample, _SYNTHETIC_KEY
 
 
 def test_elo_memo_matches_features_build_elo(small_store, cfg):
@@ -386,6 +386,76 @@ def test_walkforward_cache_misses_on_each_key_component(tmp_path, small_store, m
 
     n1 = len(list(tmp_path.glob("walkforward-*.json")))
     assert n1 == n0 + 1, f"{mutate}: expected a cache MISS (new artifact), got {n0}->{n1}"
+
+
+def test_walkforward_cache_key_distinguishes_wrapper_taint(tmp_path, small_store):
+    """T5 Codex residual: the run-level synthetic taint must be a KEYED determining
+    input, so the cached ``is_synthetic`` flag can never be stale-served.
+
+    ``odds_hash`` is computed over the INNER snapshot sample (the wrapper is
+    stripped at the call site), but ``Metrics.is_synthetic`` is derived from the
+    WRAPPER-level ``is_synthetic`` (or a nested ``_is_synthetic``). So two runs
+    with the SAME inner snapshot but DIFFERENT wrapper-level taint used to share a
+    cache key — a HIT could then serve a cached Metrics whose ``is_synthetic`` flag
+    is WRONG (a synthetic-tainted result read as real, defeating rider #1 via the
+    cache). Folding the resolved run-level taint into the key gives the two runs
+    DIFFERENT keys -> a MISS -> the taint can never be stale-served.
+
+    Build two runs identical in every input EXCEPT the wrapper-level taint:
+      * ``tainted``: the bare inner snapshot wrapped with ``is_synthetic=True`` and
+        NO nested ``_is_synthetic`` (taint comes ONLY from the wrapper);
+      * ``real``: the bare inner snapshot passed directly (no taint anywhere).
+    The inner snapshot is byte-identical between them, so ``odds_hash`` matches;
+    only the wrapper-level taint — and hence ``Metrics.is_synthetic`` — differs.
+    """
+    # A bare, clean inner snapshot with NO synthetic marker anywhere (strip both
+    # the wrapper flag AND the nested `_is_synthetic` so the only taint signal is
+    # the wrapper we add below). This is the "real" inner sample.
+    wrapped = synthetic_odds_sample(
+        home="Brazil", away="Croatia", commence="2024-06-30T19:00:00Z",
+        entry=(2.50, 3.40, 3.00), close=(2.10, 3.50, 3.40), bookmaker="pinnacle")
+    bare = wrapped["sample"]
+    bare.pop("is_synthetic", None)
+    bare.pop(_SYNTHETIC_KEY, None)
+    for snap in bare.values():
+        if isinstance(snap, dict):
+            snap.pop(_SYNTHETIC_KEY, None)
+    # Sanity: the bare inner sample now self-identifies as REAL (no taint signal).
+    assert not _sample_is_synthetic(bare)
+
+    # The tainted run wraps that SAME bare inner sample with a wrapper-only taint.
+    tainted = {"sample": bare, "is_synthetic": True}
+    assert _sample_is_synthetic(tainted)              # taint comes from the wrapper
+    # Both runs strip to the identical inner sample -> identical odds_hash.
+    assert tainted.get("sample", tainted) is bare
+
+    rfs = pd.DataFrame([{
+        "home_team": "Brazil", "away_team": "Croatia",
+        "date": pd.Timestamp("2024-06-30"), "home_score": 2, "away_score": 0,
+        "tournament": "FIFA World Cup"}])
+    matches = pd.DataFrame({"date": pd.to_datetime(["2024-06-30"])})
+    kw = dict(results_for_settle=rfs, matches=matches,
+              fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0},
+              cache_dir=str(tmp_path))
+
+    m_real = walkforward(small_store, [bare], **kw)
+    n_after_real = len(list(tmp_path.glob("walkforward-*.json")))
+    m_tainted = walkforward(small_store, [tainted], **kw)
+    n_after_tainted = len(list(tmp_path.glob("walkforward-*.json")))
+
+    # The resolved Metrics.is_synthetic genuinely DIFFERS between the two runs, so
+    # the taint really is a determining input the cache key MUST reflect.
+    assert m_real.is_synthetic is False
+    assert m_tainted.is_synthetic is True
+    assert m_real.summary["is_synthetic"] is False
+    assert m_tainted.summary["is_synthetic"] is True
+
+    # The cache must MISS across them (a second, distinct artifact) — before the
+    # fix the two share a key (same inner odds_hash) and the tainted run would HIT
+    # the real run's artifact, stale-serving is_synthetic=False as synthetic.
+    assert n_after_tainted == n_after_real + 1, (
+        "wrapper-level taint must change the cache key (a MISS); a shared key would "
+        "stale-serve the wrong is_synthetic flag")
 
 
 # --------------------------------------------------------------------------- #

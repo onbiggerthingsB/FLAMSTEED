@@ -469,6 +469,14 @@ def walkforward(store, odds_samples: list[dict], *, results_for_settle: pd.DataF
             # The settled-results identity: a revised result that flips an outcome
             # changes the Metrics, so the settle frame must key the run too.
             settle_results=results_for_settle,
+            # The RESOLVED run-level synthetic taint (the SAME boolean that sets
+            # `Metrics.is_synthetic`, resolved above at `is_synth`). `odds_hash`
+            # strips the synthetic WRAPPER, but the taint is derived from it, so
+            # without keying it a real run and a wrapper-tainted run with the same
+            # inner sample would share a key and a HIT could stale-serve the wrong
+            # taint flag (a synthetic result read as real). Keyed -> a MISS ->
+            # the taint can never be stale-served (rider #1 holds through the cache).
+            is_synthetic=is_synth,
         )
         metrics_dict, _meta = cached_walkforward(key=key, compute=_compute,
                                                  cache_dir=cache_dir)
