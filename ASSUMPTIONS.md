@@ -526,3 +526,103 @@ Implemented on branch `phase3-monte-carlo`.
   iterating). Any change → a different key → a **MISS**, never a stale serve (the P2-T8 lesson:
   an incomplete key returning a result for the WRONG cutoff/posterior/bracket is THE bug to
   avoid).
+
+## Phase 4 — Backtest, CLV & Simulated ROI
+
+- **Build-and-gate odds posture (D1).** The entire backtest/CLV/staking/validation
+  machinery is built + fully tested NOW against the real pure-parse odds path
+  (`wcmodel.data.sources.odds.parse_snapshot`/`extract_closing_prices`) over the
+  hand-built fixture + a clearly-labelled-NON-REAL synthetic-odds harness
+  (`wcmodel.backtest.odds_ingest.synthetic_odds_sample`, `is_synthetic=True` +
+  `SYNTHETIC — NOT REAL ODDS` provenance, propagated into every `Metrics`). **No
+  real odds spend and NO real CLV/ROI number is produced by this phase.** The real
+  paid Odds API pull (`fetch_historical`, gated — raises without a key) is a single
+  switch behind a SEPARATE explicit funding approval; until then no number off the
+  harness is ever reported as an edge (mirrors the Phase-3 snapshot's non-real
+  labelling).
+- **CLV is the primary number; ROI is the goal; calibration (RPS) is diagnostic,
+  never the target** (north-star §0, verbatim). The report leads with CLV
+  (beat-the-close rate + avg CLV% = entry/close − 1 on de-vigged transacted
+  prices).
+- **De-vig selection (lockbox DOF #7).** Shin is the prior/primary; multiplicative
+  + power are sensitivity checks; **Buchdahl / odds-proportional is sensitivity-
+  only and NEVER promoted** (it manufactures phantom favourite-longshot value) — it
+  is not even a choosable method in `devig_select.DEVIG_METHODS`. The best-
+  calibrated de-vig of the close is chosen EMPIRICALLY by RPS, not assumed. A
+  negative/sign-flipped implied prob, a stale snapshot, or a wide bid-ask → non-bet
+  (logged + counted, never silently dropped).
+- **Staking (D5).** ¼-Kelly (lockbox DOF #9, `backtest.kelly_fraction=0.25`) ×
+  posterior-uncertainty shrink (`1/(1+k·SE)` ∈ (0,1], only ever scales exposure
+  DOWN); bet only when `edge > edge_threshold` (2 pp — the TRIGGER, not a DOF).
+  Commission: Pinnacle close = margin-in-line, none separate; Betfair = 2% on NET
+  winnings (losses unaffected). Outputs ROI / hit-rate / turnover / max drawdown /
+  bankroll path, each with seeded bootstrap CIs.
+- **Baselines — beat both or say so.** Market-only (the de-vigged close) + naive
+  `elo_1x2_baseline` (the SAME computed ratings — the coherence requirement, no
+  second divergent Elo), both through the identical settle/RPS path. The report
+  asserts whether the model beats BOTH on RPS AND positive ROI.
+- **The 9 pre-registered lockbox DOF (D4), pinned (the config budget the lockbox is
+  judged against):** (1) Elo K, (2) Elo volatility threshold T, (3) widening
+  mechanism a/c, (4) widening strength, (5) decay half-life, (6) prior
+  σ_att/σ_def, (7) de-vig method, (8) likelihood DC/BP, (9) ¼-Kelly fraction. The
+  edge threshold (2 pp) is the trigger, NOT a DOF. **Lockbox = the final 18% of
+  odds-covered history BY DATE, frozen**; a lockbox ROI ≈ the tuned-window ROI ⇒
+  the edge is real, a collapse ⇒ overfit. **Permutation null = 200 label shuffles**;
+  the model's real RPS must sit at ~the 99th percentile of the null.
+- **The single-use lockbox is a MECHANISM, not an adjective (Task 7).** A committed
+  pre-registration registry (`config/lockbox.json`) is pinned FIRST — before any
+  tuning/evaluation code — recording the held-out boundary as a FROZEN rule (final
+  18% by date; `resolved_cutoff_date` written ONCE/immutably when the real universe
+  is materialized, else `resolved: false`), the pre-registered config count = the 9
+  DOF (listed), and a `used: false` flag. The `LockboxRegistry` harness
+  (`backtest/lockbox.py`) flips `used → true` ON DISK on a real evaluation and
+  PHYSICALLY REFUSES (`LockboxUsedError`) any second evaluation — even from a fresh
+  process / re-loaded registry. Enforcement is persisted disk state, not a comment;
+  a RED→GREEN proof shows an in-memory-only flag is caught. Test evals use an
+  isolated temp registry so the committed real single-use shot is never burned.
+- **Foresight-RED hard-STOP (the "too-good = bug" guardrail, ENFORCED as a test).**
+  RED ceilings in `config.yaml` `backtest.foresight_red` (ROI > +10%, beat-close >
+  58%, avg CLV > +2% — tight for 1X2-vs-sharp-close); any metric past RED ⇒
+  `ForesightRedError` ⇒ STOP and investigate, never celebrate. Treat any too-good
+  result as a suspected bug. RED is a COARSE backstop for GROSS leaks, NOT proof of
+  cleanliness — a clean pass means nothing on its own; the permutation null (Task 7)
+  and the leakage canary (Task 6) are the real catches.
+- **Backtest-layer leakage canary (THE GATE, the focal Codex target).** A
+  post-cutoff odds OR result mutation must not move any as-of-cutoff
+  price/edge/stake/settled P&L; seeded ⇒ bit-identical across the mutation; with
+  non-vacuity teeth (a leak WOULD move it). Mirrors the P2 model + P3 tournament
+  canaries. Every per-cutoff read is the bitemporal `store.read(cutoff)` + strict
+  `date < cutoff`; settle uses the realised result ONLY after the decision, never
+  as a feature.
+- **D6 must-do plumbing (done in Task 0).** `elo` config is threaded end-to-end
+  (`compute_elo_history`, `elo_1x2_baseline`, `count_volatility_arm` all take an
+  optional `config`) and the posterior cache key now folds `cfg["elo"]` (not the
+  global `load_config()["elo"]`) — so a lockbox K/T sweep invalidates the cache
+  correctly and cannot record an elo the computation never used (the P2-T8 stale-
+  serve lesson). The per-cutoff Elo recompute is MEMOISED in the walk-forward
+  engine (`walkforward.EloMemo`, the `features.build` Phase-4 hook at
+  features.py:174) so the O(N)-per-cutoff Elo is not re-paid every fixture; the
+  memoised Elo is byte-identical to `features.build`'s.
+- **Penalty-decided-KO (D3) — DEFERRED, recorded as a Phase-5 precondition.** The
+  data layer drops shootout winners, so `sim.tournament.simulate_one` fails loud on
+  a level pinned knockout. The Phase-4 backtest conditions on NO in-tournament
+  knockout (WC-2026 hasn't happened; prior WCs aren't in the WC-2026 bracket), so a
+  level pinned KO is UNREACHABLE — pinned by
+  `tests/backtest/test_d3_unreachable_knockout.py` (every backtest cutoff is
+  strictly before the 2026-06-28 KO window; no played WC-2026 knockout is in the
+  store). The fail-loud guard stays. **Resolution before Phase-5 live in-tournament
+  betting: ingest the shootout winner / a winner-override column.**
+- **Reproducibility / compute.** The whole run is content-addressed
+  (`cached_walkforward`: store-hash, odds-hash, the full DOF config block, the
+  cutoff grid, `odds_start`, git HEAD + uncommitted-diff hash) — no stale serve,
+  the P1/P2/P3 cache discipline. Bootstrap + permutation seeds are pinned in config.
+- **The backtest is a big-match, revision-contaminated UPPER BOUND.** The obtainable
+  sharp-priced universe is skewed to well-covered big matches; the
+  minnow/progression tail is thin or absent. Every metric is stratified by tier and
+  a thin stratum is a COVERAGE GAP (n < 30), never averaged into a headline. The
+  **Phase-5 live forward-test is authoritative** for the minnow/progression edge —
+  exactly the markets the thesis targets.
+- **Two surfaces (D2).** 1X2 (`h2h`, `predict_1x2`) is PRIMARY + authoritative.
+  Tournament-progression/outright (`SimResult` columns: champion / advance_from_
+  group / reach-*) is SECONDARY, coverage-gated exploratory — where outright keys
+  are unverified/absent it is a coverage gap, not a number.
