@@ -54,3 +54,12 @@ test('pct: very small probability does not round to a misleading naked 0 without
   expect(pct(0.004)).toBe('0%');     // still carries the % unit
   expect(pct(0.004, 1)).toBe('0.4%');
 });
+
+test('non-finite inputs never render a malformed token', () => {
+  expect(pct(Infinity)).toBe('—');
+  expect(pct(-Infinity)).toBe('—');
+  expect(pctPlusMinus(Infinity, 0.01)).toBe('—');
+  expect(pctPlusMinus(0.10, Infinity)).toBe('10% ±?');
+  expect(edgeChip(Infinity)).toBe('no edge');
+  expect(edgeChip(-Infinity)).toBe('no edge');
+});

@@ -3,16 +3,17 @@
 // no input to pctPlusMinus that yields a bare number with no ± or —.
 
 export function pct(p: number | null | undefined, dp = 0): string {
-  if (p === null || p === undefined || Number.isNaN(p)) return '—';
+  if (p === null || p === undefined || !Number.isFinite(p)) return '—';
   return `${(p * 100).toFixed(dp)}%`;
 }
 
 // The no-naked-number primitive: an estimate ALWAYS carries its SE (in percentage points).
 // value present but se null -> "±?" (explicit unknown), never a silent bare number.
 export function pctPlusMinus(value: number | null | undefined, se: number | null | undefined): string {
-  if (value === null || value === undefined || Number.isNaN(value)) return '—';
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
   const v = `${Math.round(value * 100)}%`;
-  if (se === null || se === undefined || Number.isNaN(se)) return `${v} ±?`;
+  if (se === null || se === undefined || !Number.isFinite(se)) return `${v} ±?`;
+  // An SE is a magnitude: abs() guards against a malformed negative-SE token (±-0.3) without crashing the display.
   const pts = Math.abs(se) * 100;
   const dp = pts > 0 && pts < 1 ? 1 : 0;
   return `${v} ±${pts.toFixed(dp)}`;
@@ -30,7 +31,7 @@ export function ciText(ci: [number, number]): string {
 }
 
 export function edgeChip(edge: number | null | undefined): string {
-  if (edge === null || edge === undefined || Number.isNaN(edge) || edge === 0) return 'no edge';
+  if (edge === null || edge === undefined || !Number.isFinite(edge) || edge === 0) return 'no edge';
   return `${edge > 0 ? '▲' : '▼'} ${signed(edge)}%`;
 }
 
