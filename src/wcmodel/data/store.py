@@ -96,6 +96,14 @@ class BitemporalStore:
         if cutoff.tz is not None:
             cutoff = cutoff.tz_convert("UTC").tz_localize(None)
         raw = pd.read_parquet(self._path(name))
+        if "_ingest_seq" not in raw.columns:
+            # Backward-compat: a pre-D3 store has no `_ingest_seq`. Back-fill it in-memory by
+            # existing row order (older = lower) so the read's tie-break query can reference it
+            # and the EXCLUDE is valid. This mirrors the write-time back-fill (write() lines
+            # 49-55); it ONLY defines previously-undefined exact (observed_at, valid_as_of) ties
+            # (older file row loses to the later one) and changes no currently-deterministic read.
+            raw = raw.copy()
+            raw["_ingest_seq"] = range(len(raw))
         policy = Policy(raw["_policy"].iloc[0])
         keys = raw["_keys"].iloc[0].split(",")
         con = duckdb.connect()
