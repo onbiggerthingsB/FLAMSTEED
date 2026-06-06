@@ -727,3 +727,40 @@ Implemented on branch `phase3-monte-carlo`.
   loop (fetch → ingest → decide → scan → log → CLV) on the synthetic harness, labelled
   non-real, with NO spend and NO bet — the mis-log canary passes in the loop and
   foresight-RED guards the tracker.
+
+## Dashboard data layer
+
+- **Read-only JSON snapshots over Phase 1–5 (the data layer, not a UI).** The
+  `wcmodel.dashboard` package emits provenance-stamped, leakage-safe JSON bundles over the
+  existing Phase 1–5 outputs; the frontend (Plan 2) RENDERS these and recomputes NOTHING.
+  `build.py` only assembles, GATES, stamps, and writes — it never reads a raw result or
+  recomputes a number. The thin runner (`dashboard.cli.build_arg_parser`,
+  `wc-dashboard-build`) defaults to `--dry-run` with `--cutoff` defaulting to now at runtime.
+- **The spec §10 provenance map is ENFORCED, never trusted to hold upstream.** `schema.py`
+  carries the serializer-side rules (no-naked-numbers — every probability node needs an
+  uncertainty companion; coherence — the progression ladder must be monotone; coverage-gap —
+  a thin/absent market is an explicit gap, never a number; no-impute) and `build.py` is the
+  one place every artifact passes through before disk: `gate_artifact` is a true STOP (a
+  naked/incoherent team-progression table RAISES before any write, so a violating artifact is
+  never persisted), provenance is stamped on EVERY file, `json.dumps(allow_nan=False)` fails
+  loud on a residual NaN rather than emitting an invalid token, and tuple event-keys are
+  stringified (`(home, away, date) → "home|away|date"`).
+- **NON-REAL / synthetic posture (`is_synthetic` taint + DRY-RUN banner).** v1 is synthetic
+  only; the `is_synthetic` taint propagates into the provenance envelope and the DRY-RUN
+  banner (`DRY_RUN_BANNER`) marks every synthetic snapshot as unmistakably non-real (no real
+  odds sourced, no bet placed, no real CLV/ROI claim).
+- **Leakage-safe BY CONSTRUCTION.** A snapshot IS a `read(cutoff)`: the heavy compute is
+  delegated to the already-leakage-gated producers (`cached_fit`/`simulate` read ONLY
+  `store.read(cutoff)`, the strict `date < cutoff` set), so a result observed AFTER the cutoff
+  cannot touch the as-of-cutoff bundle. The dashboard leakage canary
+  (`tests/dashboard/test_leakage_dashboard.py`) ISOLATES the `observed_at` gate — a result
+  observed after the cutoff cannot change the as-of-cutoff bundle (the dashboard-layer analog
+  of the P2–P5 canaries), with a positive control proving the canary is non-vacuous.
+- **xG coverage-gated; reliability + KO occupants DERIVED from real outputs.** xG is NEVER
+  imputed — absent coverage is an explicit coverage gap. The reliability diagram and the
+  knockout-bracket occupants are DERIVED from the real Phase 1–5 model/sim outputs, not
+  fabricated.
+- **The real-feed flip is GATED.** Flipping `--no-dry-run` (the real feed) is GATED behind
+  the pre-funding `decision_ts` follow-up + funding-flip runbook already documented in the
+  Phase 5 section above — v1 ships synthetic only; no number in a dashboard snapshot is a
+  real CLV/ROI claim.
