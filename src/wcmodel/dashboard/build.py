@@ -132,21 +132,69 @@ def _match_id(home: str, away: str, date) -> str:
     return "".join(c if (c.isalnum() or c in "._-") else "_" for c in raw)
 
 
-def _edge_key(home: str, away: str, date) -> tuple:
-    """The ``edges_by_event`` lookup key for a fixture: ``(home, away, commence_date-as-str)``.
+def _fixture_utc_commence_date(date, time) -> str:
+    """Reconstruct a fixture's UTC COMMENCE DATE (ISO ``"YYYY-MM-DD"``) from the YAML row.
+
+    The verified ``config/tournament_2026.yaml`` fixtures store a LOCAL ``date`` plus a LOCAL
+    ``time`` that CARRIES its UTC offset, e.g. ``date: '2026-06-11', time: '20:00 UTC-6'`` ->
+    local kickoff ``2026-06-11 20:00`` at UTC-6 -> UTC ``2026-06-12T02:00:00Z`` -> UTC date
+    ``"2026-06-12"`` (ONE DAY AFTER the local ``date``). The scan/odds path keys on exactly this
+    UTC date (``odds_ingest.event_key`` -> ``astimezone(utc).date()``), so the dashboard edge
+    key MUST be derived the SAME way or an evening-kickoff fixture in a negative-offset venue
+    misses the lookup.
+
+    ``time`` shape: ``"HH:MM UTC±N"`` (the openfootball-published local-with-offset form; all
+    104 real fixtures carry it). When ``time`` is absent (the synthetic test harness, whose
+    fixtures carry only a ``date``), the ``date`` is treated as ALREADY the UTC commence date
+    (no crossing) — so the synthetic harness, whose odds ``commence`` UTC date already equals
+    its fixture ``date``, keeps matching unchanged."""
+    import re
+    from datetime import datetime, timedelta, timezone
+
+    import pandas as pd
+
+    if not time:
+        # No local time/offset -> nothing to convert; the date is the commence date as-is.
+        # (The synthetic harness fixtures; production rows always carry a time.)
+        return str(pd.Timestamp(str(date)).date())
+    m = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s+UTC([+-]\d{1,2})\s*", str(time))
+    if m is None:
+        # An unrecognized time shape would silently mis-derive the UTC date; fail LOUD naming
+        # what's missing rather than guessing a timezone (the FOCAL "report, don't guess" rule).
+        raise ValueError(
+            f"fixture time {time!r} for {date!r} is not 'HH:MM UTC±N'; cannot reconstruct "
+            "the UTC commence date without a parseable local time + offset"
+        )
+    hh, mm, offset_h = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    d = pd.Timestamp(str(date)).date()
+    # Local kickoff at the published fixed offset -> UTC -> the UTC calendar date. This mirrors
+    # odds_ingest.event_key (which parses the UTC commence_time then `.astimezone(utc).date()`):
+    # here we BUILD the same instant from the local wall time + offset, then take the UTC date.
+    local = datetime(d.year, d.month, d.day, hh, mm,
+                     tzinfo=timezone(timedelta(hours=offset_h)))
+    return str(local.astimezone(timezone.utc).date())
+
+
+def _edge_key(home: str, away: str, date, *, time=None) -> tuple:
+    """The ``edges_by_event`` lookup key for a fixture: ``(home, away, UTC-commence-date-str)``.
 
     KEY-IDENTITY MATCH (C5 FOCAL Codex). ``edges_by_event`` keys on ``tuple(opp["event_key"])``,
     and the scan opportunity's ``event_key`` comes from ``LiveDecision`` which STRINGIFIES the
-    commence date: ``decide_live`` builds ``event_key=[home, away, str(ekey[2])]`` where
-    ``ekey[2]`` is the ``odds_ingest.event_key`` UTC ``datetime.date``. So the live key's third
-    element is the ISO ``"YYYY-MM-DD"`` STRING, never a ``date`` object. We therefore stringify
-    the fixture date the SAME way — ``str(pd.Timestamp(str(date)).date())`` -> ``"YYYY-MM-DD"``
-    — so this key is BYTE-IDENTICAL to ``edges_by_event``'s key and the edge ACTUALLY ATTACHES.
-    (Returning a ``date`` object made every lookup miss, silently turning every edge into a
-    coverage_gap — the whole model-vs-market overlay was dead on real scan output.)"""
-    import pandas as pd
+    UTC commence date: ``decide_live`` builds ``event_key=[home, away, str(ekey[2])]`` where
+    ``ekey[2]`` is the ``odds_ingest.event_key`` UTC ``datetime.date`` (``commence_time`` parsed,
+    ``astimezone(utc).date()``). So the live key's third element is the ISO ``"YYYY-MM-DD"``
+    STRING of the UTC commence DATE.
 
-    return (home, away, str(pd.Timestamp(str(date)).date()))
+    We therefore derive the fixture's UTC commence date the SAME way the scan/odds path does —
+    reconstructing the UTC kickoff from the fixture's LOCAL ``date`` + ``time`` (which carries
+    its UTC offset) via ``_fixture_utc_commence_date`` — NOT the raw local ``date``. On a
+    negative-UTC-offset evening kickoff the local date is one day BEFORE the UTC date (e.g.
+    ``'2026-06-11'`` + ``'20:00 UTC-6'`` -> UTC ``'2026-06-12'``); keying on the local date made
+    EVERY such production fixture's lookup miss, silently turning its edge into a coverage_gap —
+    the model-vs-market overlay was dead on more than a third of the real WC-2026 group fixtures.
+    The synthetic harness (fixtures with no ``time``) is unaffected: the date is treated as
+    already-UTC, matching its odds ``commence`` UTC date."""
+    return (home, away, _fixture_utc_commence_date(date, time))
 
 
 def _forecast_summary(forecast: dict) -> dict:
@@ -410,7 +458,10 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
         home, away, date = fx["home"], fx["away"], fx["date"]
         forecast = fixture_forecast(posterior, home=home, away=away, neutral=True)
         gate_fixture_forecast(forecast)              # STOP: never write a naked/degenerate forecast
-        ekey = _edge_key(home, away, date)
+        # The edge lookup keys on the fixture's UTC COMMENCE DATE (reconstructed from the
+        # local date + local time-with-offset), matching the scan event_key — NOT the local
+        # date (C5 FOCAL Codex: a negative-offset evening kickoff's local date != UTC date).
+        ekey = _edge_key(home, away, date, time=fx.get("time"))
         edge_node = edges.get(ekey, {"coverage_gap": True,
                                      "reason": "no live edge for this fixture as-of cutoff"})
         detail = {
