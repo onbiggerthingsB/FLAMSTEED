@@ -16,7 +16,7 @@ import argparse
 import sys
 
 from wcmodel.config import load_config
-from wcmodel.live.scan import scan, render_scan_report
+from wcmodel.live.scan import scan
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
