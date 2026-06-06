@@ -32,10 +32,13 @@ def assert_uncertainty_companion(node: dict) -> None:
     """Every emitted probability must carry a REAL uncertainty companion — a finite ``se``
     (an MC SE; 0.0 is valid for a certain p in {0,1}) or a ``ci`` of two finite bounds.
     A missing OR degenerate (NaN/inf/empty/wrong-length) companion is a naked number."""
-    # A coverage gap or an explicit null value is NOT a naked number.
-    if node.get("coverage_gap") or node.get("value") is None:
-        return
+    # An explicit null value is NOT a naked number. A legitimate coverage_gap ALWAYS
+    # carries value=None, so the null-value exemption covers it. We deliberately do NOT
+    # exempt on the coverage_gap flag alone: a contradictory {coverage_gap: True, value: 0.1}
+    # carries a real number that must still be companion-checked (it would otherwise slip).
     if "value" not in node:
+        return
+    if node.get("value") is None:
         return
     se, ci = node.get("se"), node.get("ci")
     se_ok = _finite_number(se)
@@ -69,7 +72,13 @@ def gate_fixture_forecast(f: dict, *, tol: float = 0.05) -> None:
     ALL THREE outcomes (never a lone score). (No per-outcome CI — the distribution is the
     uncertainty, per the approved design.)"""
     grid = f.get("grid")
-    if not grid or abs(sum(sum(row) for row in grid) - 1.0) > tol:
+    if not grid:
+        raise ValueError("fixture forecast: grid missing or does not sum to ~1 "
+                         "(the scoreline distribution is the uncertainty)")
+    if not (isinstance(grid, (list, tuple))
+            and all(isinstance(row, (list, tuple)) for row in grid)):
+        raise ValueError("fixture forecast: grid must be a list of numeric rows")
+    if abs(sum(sum(row) for row in grid) - 1.0) > tol:
         raise ValueError("fixture forecast: grid missing or does not sum to ~1 "
                          "(the scoreline distribution is the uncertainty)")
     ml = f.get("most_likely") or {}

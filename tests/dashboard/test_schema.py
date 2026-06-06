@@ -109,3 +109,36 @@ def test_gate_track_rejects_a_nan_metric():
     gate_track({"beat_close_rate": 0.56, "avg_clv": 0.018, "rps": {"model": 0.1}})  # ok
     with pytest.raises(ValueError, match="(?i)nan|finite"):
         gate_track({"beat_close_rate": float("nan")})
+
+
+def test_coverage_gap_with_a_real_value_is_a_contradiction_and_raises():
+    # a coverage_gap MUST have value=None; one carrying a real value must NOT be exempted
+    with pytest.raises(ValueError, match="naked"):
+        assert_uncertainty_companion({"coverage_gap": True, "value": 0.1})
+
+
+def test_gate_fixture_forecast_rejects_bad_sum_grid_and_missing_prob():
+    base = {"most_likely": {"home_goals": 1, "away_goals": 0, "prob": 0.12},
+            "one_x_two": {"home": 0.7, "draw": 0.2, "away": 0.1}}
+    with pytest.raises(ValueError, match="(?i)sum|grid"):
+        gate_fixture_forecast({**base, "grid": [[0.1, 0.1], [0.1, 0.1]]})   # sums to 0.4, not ~1
+    with pytest.raises(ValueError, match="(?i)naked|prob"):
+        gate_fixture_forecast({"grid": [[0.5, 0.2], [0.2, 0.1]],
+                               "most_likely": {"home_goals": 1, "away_goals": 0},  # no prob
+                               "one_x_two": {"home": 0.7, "draw": 0.2, "away": 0.1}})
+
+
+def test_gate_fixture_forecast_rejects_malformed_grid_with_valueerror():
+    with pytest.raises(ValueError, match="(?i)grid"):
+        gate_fixture_forecast({"grid": [0.5, 0.5],  # rows not iterable
+                               "most_likely": {"home_goals": 0, "away_goals": 0, "prob": 1.0},
+                               "one_x_two": {"home": 0.4, "draw": 0.3, "away": 0.3}})
+
+
+def test_gate_track_recursion_inf_none_and_coverage_gap():
+    gate_track({"a": {"b": [1.0, None, 0.5]}, "rps": {"model": 0.1, "elo": None}})   # ok: finite/None
+    gate_track({"x": coverage_gap("no backtest")})                                    # ok: gap subtree exempt
+    with pytest.raises(ValueError, match="(?i)finite|nan"):
+        gate_track({"a": {"b": [1.0, float("inf")]}})                                 # nested inf
+    with pytest.raises(ValueError, match="(?i)finite|nan"):
+        gate_track({"deep": {"deeper": {"x": float("nan")}}})                         # nested NaN
