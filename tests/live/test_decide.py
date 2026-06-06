@@ -291,6 +291,12 @@ def test_decide_live_post_kickoff_non_close_refresh_is_a_non_bet(small_store, cf
     # selector logs it as the decision-time entry — but it is a post-kickoff price, so the
     # decision is a COUNTED NON-BET, never a bet priced off in-game info.
     assert d.non_bet_reason == "post_kickoff"
+    # Hardening: the selector DID pick the post-kickoff snapshot as the (rejected) entry —
+    # this pins that the test exercises the post-kickoff path (the in-game snapshot was
+    # selected as the latest non-close <= cutoff entry, then REJECTED by the guard), not a
+    # no_odds/other non-bet that would pass vacuously.
+    assert d.entry_ts == t_post
+    assert d.entry_odds == post_map
     assert d.staked == ""             # no side staked off the in-game price
     assert d.stake == 0.0
     # The post-kickoff (in-game) price NEVER drove the market_entry/edge/stake.

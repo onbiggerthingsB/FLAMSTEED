@@ -116,7 +116,7 @@ def assert_entry_logged_at_decision_time(decision, sample: dict, *, bookmaker: s
          entry is a DISTINCT decision-time snapshot — NOT the close — REGARDLESS of whether
          their PRICES coincide.
       4. (POST-KICKOFF PIN — the FOCAL operational-leakage gate) The decision's logged
-         ``entry_ts`` must be STRICTLY before ``commence`` (kickoff), derived book-aware-ly
+         ``entry_ts`` must be STRICTLY before ``commence`` (kickoff), derived book-independently
          from the sample (the SAME source ``_event_meta`` uses), INDEPENDENTLY of
          ``_decision_time_entry``. A logged ``entry_ts >= commence`` is a post-kickoff
          (in-game) price logged as the decision-time entry — a mis-log.
