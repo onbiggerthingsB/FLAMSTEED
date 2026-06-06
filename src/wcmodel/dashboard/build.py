@@ -48,12 +48,23 @@ def _bundle_is_synthetic(items) -> bool:
     batch (some synthetic, some not) taints the WHOLE bundle. ``items is None`` (no real
     feed wired) OR an EMPTY batch is synthetic-by-default — there is no explicitly-real
     sample to clear the taint, and the leakage/repro canaries build synthetic brackets
-    with ``items=[]`` that must stay stamped NON-REAL. The per-item detector is the
-    canonical ``walkforward._sample_is_synthetic`` (handles the wrapper flag AND a
-    nested ``_is_synthetic`` marker), reused — never re-implemented."""
+    with ``items=[]`` that must stay stamped NON-REAL. An item taints if it carries a
+    taint flag at the ITEM/wrapper level OR its sample (wrapper+nested) is synthetic per
+    the canonical ``walkforward._sample_is_synthetic`` — a marker can never be STRIPPED by
+    passing only the inner sample to the detector. A bare item (no ``"sample"`` key) is
+    treated as its own sample. An unknown (non-dict) item shape fails safe to NON-REAL.
+    The per-item sample detector is reused — never re-implemented."""
     if not items:                       # None OR empty -> no real feed -> synthetic
         return True
-    return any(_sample_is_synthetic(it.get("sample", {})) for it in items)
+
+    def _item_synth(it) -> bool:
+        if not isinstance(it, dict):
+            return True                                   # unknown shape -> fail safe to NON-REAL
+        if it.get("is_synthetic") or it.get("_is_synthetic"):
+            return True                                   # item/wrapper-level taint
+        return _sample_is_synthetic(it.get("sample", it)) # sample (wrapper+nested) via canonical detector
+
+    return any(_item_synth(it) for it in items)
 
 
 def gate_artifact(team_markets: dict) -> None:

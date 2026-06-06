@@ -63,3 +63,14 @@ def test_bundle_taint_is_fail_safe_any_synthetic_taints():
     assert _bundle_is_synthetic(None) is True
     # ONLY an all-explicitly-real batch is real
     assert _bundle_is_synthetic([{"sample": {"_is_synthetic": False}}]) is False
+
+
+def test_bundle_taint_catches_wrapper_level_and_bare_items():
+    from wcmodel.dashboard.build import _bundle_is_synthetic
+    # taint flag at the ITEM/wrapper level (sample inner is clean) -> must still be NON-REAL
+    assert _bundle_is_synthetic([{"sample": {"_is_synthetic": False}, "is_synthetic": True}]) is True
+    assert _bundle_is_synthetic([{"sample": {"x": 1}, "_is_synthetic": True}]) is True
+    # a bare synthetic item (no "sample" key; the item IS the sample) -> NON-REAL
+    assert _bundle_is_synthetic([{"_is_synthetic": True}]) is True
+    # all-explicitly-real (no taint anywhere) -> real
+    assert _bundle_is_synthetic([{"sample": {"_is_synthetic": False}}]) is False
