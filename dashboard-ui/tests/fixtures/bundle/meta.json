@@ -1,0 +1,26 @@
+{
+  "provenance": {
+    "as_of": "2026-06-06T19:31:22Z",
+    "posterior_key": "123a88ae08fd5ae5",
+    "git": "eb4b7b1",
+    "is_synthetic": true,
+    "n_sims": 20000,
+    "banner": "DRY-RUN \u00b7 SYNTHETIC ODDS \u00b7 NOT REAL \u2014 no real odds were sourced, no bet was placed, and no number here is a real CLV/ROI claim."
+  },
+  "data": {
+    "markets": [
+      "win_group",
+      "advance_from_group",
+      "reach_r16",
+      "reach_qf",
+      "reach_sf",
+      "reach_final",
+      "champion",
+      "first",
+      "second",
+      "third",
+      "out"
+    ],
+    "provenance_note": "every artifact carries the SAME as-of provenance envelope"
+  }
+}

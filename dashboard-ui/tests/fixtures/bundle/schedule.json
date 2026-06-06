@@ -1,0 +1,220 @@
+{
+  "provenance": {
+    "as_of": "2026-06-06T19:31:22Z",
+    "posterior_key": "123a88ae08fd5ae5",
+    "git": "eb4b7b1",
+    "is_synthetic": true,
+    "n_sims": 20000,
+    "banner": "DRY-RUN \u00b7 SYNTHETIC ODDS \u00b7 NOT REAL \u2014 no real odds were sourced, no bet was placed, and no number here is a real CLV/ROI claim."
+  },
+  "data": {
+    "group": [
+      {
+        "home": "Brazil",
+        "away": "Argentina",
+        "date": "2024-05-01",
+        "group": null,
+        "stage": "group",
+        "status": "played",
+        "forecast_summary": {
+          "most_likely": {
+            "home_goals": 0,
+            "away_goals": 0,
+            "prob": 0.14745894398130707
+          },
+          "one_x_two": {
+            "home": 0.33367202998054113,
+            "draw": 0.250592462900576,
+            "away": 0.4157355071188827
+          }
+        },
+        "edge": {
+          "coverage_gap": true,
+          "reason": "no live edge for this fixture as-of cutoff"
+        },
+        "match_id": "Brazil__Argentina__2024-05-01"
+      },
+      {
+        "home": "Brazil",
+        "away": "Mexico",
+        "date": "2024-05-02",
+        "group": null,
+        "stage": "group",
+        "status": "played",
+        "forecast_summary": {
+          "most_likely": {
+            "home_goals": 0,
+            "away_goals": 0,
+            "prob": 0.16842934884799962
+          },
+          "one_x_two": {
+            "home": 0.3485557140956659,
+            "draw": 0.25864067803992613,
+            "away": 0.3928036078644081
+          }
+        },
+        "edge": {
+          "staked": "away",
+          "edge": 0.06855933654933044,
+          "stake_signal": 0.013677718224615837,
+          "entry_odds": 3.0,
+          "is_synthetic": true
+        },
+        "match_id": "Brazil__Mexico__2024-05-02"
+      },
+      {
+        "home": "Argentina",
+        "away": "Malta",
+        "date": "2024-05-03",
+        "group": null,
+        "stage": "group",
+        "status": "played",
+        "forecast_summary": {
+          "most_likely": {
+            "home_goals": 0,
+            "away_goals": 0,
+            "prob": 0.1526011212853481
+          },
+          "one_x_two": {
+            "home": 0.47788257354213237,
+            "draw": 0.25633042817760265,
+            "away": 0.265786998280265
+          }
+        },
+        "edge": {
+          "coverage_gap": true,
+          "reason": "no live edge for this fixture as-of cutoff"
+        },
+        "match_id": "Argentina__Malta__2024-05-03"
+      },
+      {
+        "home": "Brazil",
+        "away": "Malta",
+        "date": "2024-05-04",
+        "group": null,
+        "stage": "group",
+        "status": "played",
+        "forecast_summary": {
+          "most_likely": {
+            "home_goals": 0,
+            "away_goals": 0,
+            "prob": 0.15115696059003259
+          },
+          "one_x_two": {
+            "home": 0.4399551050559352,
+            "draw": 0.24254766695466792,
+            "away": 0.3174972279893969
+          }
+        },
+        "edge": {
+          "coverage_gap": true,
+          "reason": "no live edge for this fixture as-of cutoff"
+        },
+        "match_id": "Brazil__Malta__2024-05-04"
+      },
+      {
+        "home": "Argentina",
+        "away": "Mexico",
+        "date": "2024-05-05",
+        "group": null,
+        "stage": "group",
+        "status": "played",
+        "forecast_summary": {
+          "most_likely": {
+            "home_goals": 0,
+            "away_goals": 0,
+            "prob": 0.1765546691535645
+          },
+          "one_x_two": {
+            "home": 0.37628864460766187,
+            "draw": 0.2867010243861976,
+            "away": 0.3370103310061405
+          }
+        },
+        "edge": {
+          "coverage_gap": true,
+          "reason": "no live edge for this fixture as-of cutoff"
+        },
+        "match_id": "Argentina__Mexico__2024-05-05"
+      },
+      {
+        "home": "Mexico",
+        "away": "Malta",
+        "date": "2024-05-06",
+        "group": null,
+        "stage": "group",
+        "status": "played",
+        "forecast_summary": {
+          "most_likely": {
+            "home_goals": 0,
+            "away_goals": 0,
+            "prob": 0.18223812885768623
+          },
+          "one_x_two": {
+            "home": 0.43297094940916464,
+            "draw": 0.2807135098719821,
+            "away": 0.2863155407188531
+          }
+        },
+        "edge": {
+          "coverage_gap": true,
+          "reason": "no live edge for this fixture as-of cutoff"
+        },
+        "match_id": "Mexico__Malta__2024-05-06"
+      }
+    ],
+    "knockout": [
+      {
+        "match": 104,
+        "stage": "Final",
+        "status": "upcoming",
+        "home_ref": "1A",
+        "away_ref": "2A",
+        "home_occupants": [
+          {
+            "team": "Argentina",
+            "prob": 0.28885,
+            "se": 0.0032048063709060486
+          },
+          {
+            "team": "Brazil",
+            "prob": 0.26225,
+            "se": 0.0031102647596306008
+          },
+          {
+            "team": "Mexico",
+            "prob": 0.2619,
+            "se": 0.003108925779107633
+          },
+          {
+            "team": "Malta",
+            "prob": 0.187,
+            "se": 0.002757090858132898
+          }
+        ],
+        "away_occupants": [
+          {
+            "team": "Argentina",
+            "prob": 0.30155,
+            "se": 0.003245131719206479
+          },
+          {
+            "team": "Mexico",
+            "prob": 0.2812,
+            "se": 0.00317904513966065
+          },
+          {
+            "team": "Brazil",
+            "prob": 0.21785,
+            "se": 0.002918830052435393
+          },
+          {
+            "team": "Malta",
+            "prob": 0.1994,
+            "se": 0.002825240166782286
+          }
+        ]
+      }
+    ]
+  }
+}
