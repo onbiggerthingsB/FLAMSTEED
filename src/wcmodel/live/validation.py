@@ -115,6 +115,11 @@ def assert_entry_logged_at_decision_time(decision, sample: dict, *, bookmaker: s
          logs), and (c) STRICTLY NOT the book-aware close snapshot's ts. This proves the
          entry is a DISTINCT decision-time snapshot — NOT the close — REGARDLESS of whether
          their PRICES coincide.
+      4. (POST-KICKOFF PIN — the FOCAL operational-leakage gate) The decision's logged
+         ``entry_ts`` must be STRICTLY before ``commence`` (kickoff), derived book-aware-ly
+         from the sample (the SAME source ``_event_meta`` uses), INDEPENDENTLY of
+         ``_decision_time_entry``. A logged ``entry_ts >= commence`` is a post-kickoff
+         (in-game) price logged as the decision-time entry — a mis-log.
     Raises ``MisLogError`` on any violation. The non-vacuity teeth (a sabotaged
     close-as-entry decision DOES raise) live in the calling test.
 
@@ -135,6 +140,17 @@ def assert_entry_logged_at_decision_time(decision, sample: dict, *, bookmaker: s
     decision-time snapshot's ts and NOT the close snapshot's ts — so a close-as-entry is
     caught by IDENTITY even when the prices coincide (the focal equal-price hole).
     """
+    # The event's COMMENCE (kickoff) derived book-INDEPENDENTLY from the sample — the SAME
+    # source `decide.py::_event_meta` uses (`data[0]["commence_time"]` of any snapshot),
+    # NOT routed through `_decision_time_entry`. This is the reference the INDEPENDENT
+    # post-kickoff pin (4) uses: the logged entry_ts must be STRICTLY before kickoff.
+    _snaps = [
+        v for v in sample.values()
+        if isinstance(v, dict) and "timestamp" in v and "data" in v
+    ]
+    if not _snaps:
+        raise ValueError("assert_entry_logged_at_decision_time: sample has no snapshots")
+    commence = _snaps[0]["data"][0]["commence_time"]
     # The BOOK-AWARE close (CLV-only) + its timestamp, derived INDEPENDENTLY of the
     # earliest-entry leg (which raises on a missing-earliest-book). This is the close to
     # EXCLUDE from the entry candidates — and the reference the independent pin uses.
@@ -245,6 +261,26 @@ def assert_entry_logged_at_decision_time(decision, sample: dict, *, bookmaker: s
             "logged entry IS the close (information from AFTER the entry decision), even "
             "though its price coincides with the decision-time price. Logging the close as "
             "the entry fakes the edge. STOP and investigate (the focal equal-price catch)."
+        )
+
+    # (4) POST-KICKOFF PIN (the FOCAL operational-leakage gate, INDEPENDENT of the selector).
+    # The logged entry_ts must be STRICTLY before COMMENCE (kickoff), derived book-aware-ly
+    # from the sample (the SAME source `_event_meta` uses), NOT via `_decision_time_entry`.
+    # The book-aware close is the LATEST snapshot <= kickoff, so ANY non-close snapshot AFTER
+    # it is post-kickoff; the identity pins above only exclude the close itself, not a LATER
+    # in-game refresh. So a post-kickoff (in-game) snapshot can be the latest non-close <=
+    # cutoff snapshot and be SELECTED + logged as the entry (entry_ts >= commence) — passing
+    # pins (1)/(2)/(3) (it genuinely IS the snapshot the selector picked). This pin, keyed off
+    # COMMENCE rather than the selector, catches that mis-log even if the selector regresses
+    # (defense-in-depth, like the book-aware close pin). An entry priced off an in-game
+    # snapshot is never a valid pre-match decision price.
+    if logged_dt >= _parse_ts(commence):
+        raise MisLogError(
+            f"live mis-log: logged entry_ts {logged_ts!r} is AT/AFTER the event commence "
+            f"(kickoff) {commence!r} — the entry is a post-kickoff (in-game) price, never a "
+            "valid pre-match decision price; pricing the edge/stake off it leaks in-game "
+            "information. The entry_ts must be STRICTLY before kickoff. STOP and investigate "
+            "(the focal operational-leakage gate)."
         )
 
 

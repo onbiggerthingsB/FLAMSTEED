@@ -172,6 +172,71 @@ def test_mislog_canary_passes_equal_price_correct_entry():
     assert_entry_logged_at_decision_time(d, sample, bookmaker="pinnacle")  # must NOT raise
 
 
+def _post_kickoff_refresh_sample():
+    """A sample with a legitimate pre-kickoff MID (book present, < commence), the
+    book-aware CLOSE (latest <= kickoff), AND a POST-KICKOFF non-close refresh (book
+    present, ts > commence). With cutoff > the post-kickoff ts, `_decision_time_entry`
+    selects the post-kickoff snapshot as the latest non-close <= cutoff entry — so a
+    decision logged with that snapshot's price+ts passes the VALUE/IDENTITY pins (it IS
+    the snapshot the selector would pick), and only an INDEPENDENT `entry_ts < commence`
+    assertion catches that the entry is a post-kickoff (in-game) price. Returns
+    (sample, cutoff, commence, post_ts, post_prices, mid_ts, mid_prices)."""
+    commence = "2024-06-30T19:00:00Z"
+    ko = _parse_ts(commence)
+
+    def _snap(ts, h, d, a):
+        return {
+            _SYNTHETIC_KEY: True, "timestamp": ts,
+            "previous_timestamp": ts, "next_timestamp": ts,
+            "data": [{
+                "id": "X", "sport_key": "soccer_fifa_world_cup",
+                "commence_time": commence, "home_team": "Brazil", "away_team": "Croatia",
+                "bookmakers": [{"key": "pinnacle", "last_update": ts, "markets": [{
+                    "key": "h2h", "last_update": ts,
+                    "outcomes": [{"name": "Brazil", "price": h}, {"name": "Draw", "price": d},
+                                 {"name": "Croatia", "price": a}],
+                }]}],
+            }],
+        }
+
+    t_mid = (ko - pd.Timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")     # legit pre-match
+    t_close = (ko - pd.Timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")  # book-aware close
+    t_post = (ko + pd.Timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")  # IN-GAME refresh, > commence
+    cutoff = (ko + pd.Timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")     # > t_post
+    mid = {"home": 2.30, "draw": 3.45, "away": 3.20}
+    post = {"home": 1.20, "draw": 6.00, "away": 9.00}
+    sample = {
+        _SYNTHETIC_KEY: True,
+        "mid": _snap(t_mid, mid["home"], mid["draw"], mid["away"]),
+        "close": _snap(t_close, 2.10, 3.50, 3.40),
+        "post": _snap(t_post, post["home"], post["draw"], post["away"]),
+    }
+    return sample, cutoff, commence, t_post, post, t_mid, mid
+
+
+def test_mislog_canary_CATCHES_a_post_kickoff_entry_ts():
+    """FOCAL OPERATIONAL-LEAKAGE GATE (the post-kickoff entry leak). The book-aware CLOSE
+    is the LATEST snapshot <= kickoff, so a post-kickoff non-close refresh is the latest
+    non-close <= cutoff snapshot when cutoff > kickoff — `_decision_time_entry` would
+    SELECT it, and a decision logging its price+ts passes EVERY existing pin (value mirror
+    (1), independent non-close value pin (2), and identity pin (3): the logged ts IS the
+    selector's ts, <= cutoff, and != the close ts). So the existing pins BLESS a bet priced
+    off an IN-GAME (post-kickoff) snapshot.
+
+    The FIX makes the canary assert, INDEPENDENTLY of the selector, that the logged
+    `entry_ts` is STRICTLY before `commence` (the event's kickoff). A logged entry_ts at/
+    after kickoff is a post-kickoff price logged as the decision-time entry — a mis-log.
+    RED before the fix (every pin passes -> blessed); GREEN after (MisLogError)."""
+    sample, cutoff, _commence, post_ts, post, _mid_ts, _mid = _post_kickoff_refresh_sample()
+    # A decision that logs the POST-KICKOFF snapshot's price+ts — exactly what the buggy
+    # selector would produce. It passes the value/identity pins (it IS the selected snapshot)
+    # and is only catchable by an independent `entry_ts < commence` assertion.
+    d = SimpleNamespace(cutoff=cutoff, entry_odds=dict(post), entry_ts=post_ts,
+                        close_odds={"home": 2.10, "draw": 3.50, "away": 3.40})
+    with pytest.raises(MisLogError, match="(?i)post.?kickoff|commence|kickoff|in.game|mis-log"):
+        assert_entry_logged_at_decision_time(d, sample, bookmaker="pinnacle")
+
+
 def test_mislog_canary_passes_a_correctly_logged_entry(small_store, cfg):
     s = _synth_sample()
     d = decide_live(small_store, s["sample"], cutoff="2024-06-30T19:00:00Z",

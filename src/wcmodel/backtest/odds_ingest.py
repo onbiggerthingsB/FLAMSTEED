@@ -276,6 +276,12 @@ def non_bet_snapshot(prices: dict, *, entry_ts: str, commence: str,
     Returns a reason string or ``None`` (bettable):
       * ``"sign_flip"`` — any decimal odd ``<= 1.0`` (a valid decimal odd implies a
         probability in (0,1); ``<= 1.0`` is impossible/garbage / a sign-flip);
+      * ``"post_kickoff"`` — the entry snapshot is AT/AFTER kickoff (``age <= 0``, i.e.
+        ``entry_ts >= commence``). Such a snapshot is an IN-GAME / post-kickoff price, never
+        a valid PRE-MATCH decision price; pricing the edge/stake off it would leak in-game
+        information. The FOCAL operational-leakage gate (the close is the LATEST snapshot
+        ``<= kickoff``, so ANY later non-close snapshot is post-kickoff and must be rejected
+        here, never selected as the decision-time entry);
       * ``"stale"``     — the entry snapshot is older than ``stale_seconds`` before
         kickoff (a stale line is not a real decision-time price);
       * ``"wide_spread"`` — the raw inverse-odds overround-normalised two-way spread
@@ -287,6 +293,10 @@ def non_bet_snapshot(prices: dict, *, entry_ts: str, commence: str,
     if any((not isinstance(o, (int, float))) or o <= 1.0 for o in prices.values()):
         return "sign_flip"
     age = (_parse_ts(commence) - _parse_ts(entry_ts)).total_seconds()
+    if age <= 0:
+        # The entry snapshot is at/after kickoff — an in-game / post-kickoff price, never a
+        # valid pre-match decision price. (entry_ts must be STRICTLY before commence.)
+        return "post_kickoff"
     if age > stale_seconds:
         return "stale"
     inv = [1.0 / prices[o] for o in OUTCOMES]

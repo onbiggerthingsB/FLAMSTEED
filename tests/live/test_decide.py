@@ -246,6 +246,61 @@ def test_decide_live_missing_earliest_book_never_prices_from_close(small_store, 
     assert d.close_odds != d.entry_odds
 
 
+def test_decide_live_post_kickoff_non_close_refresh_is_a_non_bet(small_store, cfg):
+    # FOCAL OPERATIONAL-LEAKAGE GATE (the post-kickoff-entry leak). `non_bet_snapshot`
+    # only rejected entries OLDER than stale_seconds; an entry snapshot AT/AFTER kickoff
+    # (age <= 0, an IN-GAME / post-kickoff price) passed as bettable. Because the
+    # book-aware CLOSE is the LATEST snapshot <= kickoff, ANY snapshot AFTER the close is
+    # > kickoff (post-kickoff). `_decision_time_entry` excludes only the close by ts (NOT
+    # post-kickoff snapshots), so with a post-kickoff non-close refresh in the sample and
+    # cutoff > that refresh, that in-game snapshot becomes the latest non-close <= cutoff
+    # and would drive market_entry/edge/staked-side/stake — a leak (a bet priced off
+    # post-kickoff, in-game information).
+    #
+    # Three snapshots for the book:
+    #   T_mid   = kickoff-3h   (price MID, < commence)        — a legitimate pre-match price
+    #   T_close = kickoff-5min (price CLOSE, <= kickoff)      — the book-aware close (CLV only)
+    #   T_post  = kickoff+30min(price POST, > commence)       — an IN-GAME refresh; never an entry
+    # cutoff = kickoff+1h (> T_post), so the post-kickoff snapshot is the latest non-close
+    # <= cutoff. RED before the fix: it drives market_entry/stake (entry_ts > commence).
+    # GREEN after: non_bet_reason == "post_kickoff", nothing staked, POST never drives the
+    # market_entry/stake.
+    commence = "2024-06-30T19:00:00Z"
+    kickoff = pd.Timestamp(commence)
+    t_mid = (kickoff - pd.Timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    t_close = (kickoff - pd.Timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    t_post = (kickoff + pd.Timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cutoff = (kickoff + pd.Timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    price_mid = (2.50, 3.40, 3.00)    # a legitimate pre-match price
+    price_close = (2.10, 3.50, 3.40)  # the book-aware close (CLV only)
+    price_post = (1.20, 6.00, 9.00)   # an IN-GAME (post-kickoff) price — must NEVER be the entry
+    post_map = dict(zip(OUTCOMES, price_post))
+
+    sample = {
+        _SYNTHETIC_KEY: True,
+        "mid": _snap(t_mid, price_mid, commence=commence, bookmaker="pinnacle"),
+        "close": _snap(t_close, price_close, commence=commence, bookmaker="pinnacle"),
+        # The post-kickoff (in-game) refresh: > commence, > the close, <= cutoff. Pre-fix
+        # the buggy path selects THIS as the latest non-close <= cutoff entry.
+        "post": _snap(t_post, price_post, commence=commence, bookmaker="pinnacle"),
+    }
+    d = decide_live(small_store, sample, cutoff=cutoff, config=cfg,
+                    fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0})
+
+    # The post-kickoff snapshot is the latest non-close <= cutoff snapshot, so the entry
+    # selector logs it as the decision-time entry — but it is a post-kickoff price, so the
+    # decision is a COUNTED NON-BET, never a bet priced off in-game info.
+    assert d.non_bet_reason == "post_kickoff"
+    assert d.staked == ""             # no side staked off the in-game price
+    assert d.stake == 0.0
+    # The post-kickoff (in-game) price NEVER drove the market_entry/edge/stake.
+    assert d.market_entry == {}
+    assert d.edge == {}
+    from wcmodel.backtest.baselines import market_fair_1x2
+    bt = cfg["backtest"]
+    assert d.market_entry != market_fair_1x2(post_map, method=bt["devig_method"])
+
+
 def test_decide_live_no_book_price_before_cutoff_is_a_non_bet(small_store, cfg):
     # If NO snapshot <= cutoff contains the configured book (every <= cutoff snapshot
     # carries only some OTHER book), there is no decision-time price for the book =>
