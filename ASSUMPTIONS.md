@@ -663,8 +663,9 @@ Implemented on branch `phase3-monte-carlo`.
   revision-contaminated backtest cannot be (L5, north-star §4.2).
 - **The focal operational-leakage discipline (L5, the NEW risk class).** Live has no
   look-ahead by construction; the new risk is OPERATIONAL. The **entry price is logged
-  AT decision time** (the EARLIEST snapshot ≤ kickoff = the price when the signal
-  fired), **NEVER retroactively re-priced from the close** (the kickoff−1 min line is
+  AT decision time** (the latest snapshot ≤ `cutoff` with the book, close-excluded and
+  strictly before kickoff — the price transactable when the decision fired),
+  **NEVER retroactively re-priced from the close** (the kickoff−1 min line is
   info from AFTER the entry decision; logging it as the entry would fake the edge). The
   edge + staked side + stake are decided against the de-vigged ENTRY; the close is used
   ONLY for realized CLV (`entry/close − 1`). The **bet log is append-only / immutable**
@@ -673,6 +674,29 @@ Implemented on branch `phase3-monte-carlo`.
   the FOCAL Codex target) proves a mis-log (the close logged as the entry) is caught.
   Every live decision is reproducible (same cutoff+seed → identical decision; provenance
   auditable from the content-addressed cache key).
+- **Decision-time / CLV semantics + a pre-funding live-timeline follow-up (the
+  whole-phase convergence-review DESIGN-QUESTION).** `cutoff` is the EVALUATION HORIZON of
+  a decision, not necessarily the wall-clock bet instant. The ENTRY is the latest
+  `<= cutoff` snapshot with the book that is STRICTLY BEFORE kickoff (`entry_ts < commence`,
+  enforced — an at/after-kickoff in-game snapshot is a `"post_kickoff"` non-bet, never the
+  entry; `non_bet_snapshot` + the mis-log canary both pin this independently). The entry is
+  therefore ALWAYS strictly before the book-aware CLOSE (`entry_ts < close_ts <= kickoff`),
+  so `CLV = entry/close − 1` is honest: you bet earlier at a real transactable price, the
+  line closes later, CLV measures the move. The convergence review asked whether a decision
+  taken when the close is ALREADY observable (`cutoff >= close_ts`) and priced off an
+  earlier mid is "backdating." **Resolution (reviewed + chosen):** it is NOT a leak under
+  standard CLV methodology, and a hard `cutoff >= close_ts → non-bet` guard is NOT viable —
+  `book_aware_close` bounds by kickoff, so in genuine live (`cutoff = now < kickoff`, the
+  kickoff−Xmin closing line not yet observable) it returns the latest-so-far snapshot and
+  `close_ts <= cutoff` ALWAYS, which would turn EVERY live decision into a non-bet. **PRE-FUNDING
+  FOLLOW-UP (do before flipping `live.dry_run=false`):** separate an explicit `decision_ts`
+  (bet-commit instant) from the `cutoff` evaluation horizon and require `decision_ts <
+  close_ts`, with genuine-live passing `decision_ts = now` and the real close folded in
+  post-kickoff by the T6 tracker — so the live path prices the genuinely-latest transactable
+  snapshot at decision time instead of treating the latest-so-far as the close. This is a
+  live-operation refinement (it only bites once the real feed is funded), NOT a
+  backtest/dry-run leak: the dry-run machinery this phase delivers is honest as-is (entry
+  strictly before close; in-game prices rejected).
 - **Cadence + cost discipline (L4/L1).** Per-matchday + a pre-kickoff (~kickoff−1h)
   refresh for active fixtures, within a pinned call budget (`live.call_budget`);
   rate-limit + exponential backoff on a 429/5xx; the feed key gated; never a
