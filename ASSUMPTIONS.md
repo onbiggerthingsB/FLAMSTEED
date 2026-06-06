@@ -627,3 +627,79 @@ Implemented on branch `phase3-monte-carlo`.
   Tournament-progression/outright (`SimResult` columns: champion / advance_from_
   group / reach-*) is SECONDARY, coverage-gated exploratory — where outright keys
   are unverified/absent it is a coverage gap, not a number.
+
+## Phase 5 — Live Forward-Test, Scanner & Realized-CLV Tracker
+
+- **Build-and-gate live-feed posture (L1).** The entire live pipeline
+  (fetch/ingest/decide/scan/clv-tracker) is built + fully tested NOW against the real
+  pure-parse odds path (`wcmodel.data.sources.odds.parse_snapshot`) over the fixture +
+  a clearly-labelled-NON-REAL synthetic harness (`backtest.odds_ingest.synthetic_odds_sample`,
+  `is_synthetic=True`, propagated). **No real odds spend, no real bet, NO real CLV/ROI
+  number is produced by this phase.** The live fetch route (`live.odds_live.fetch_live_odds`,
+  the regular `GET /v4/sports/{sport}/odds`) is GATED behind an `api_key` (raises
+  without it, like `fetch_historical`); flipping the real feed on is the ONE gated
+  switch behind a SEPARATE explicit funding approval. `config.live.dry_run` defaults
+  TRUE so a fresh run can never spend or imply a real bet.
+- **Funding-flip runbook (the gated switch).** Before flipping `live.dry_run=false`:
+  (1) verify pricing-fits-budget on a FREE Odds API account + the Phase-0 §8.9
+  four-point checklist; (2) re-pick the sharp CLV benchmark — Pinnacle closed its
+  public API in July 2025, so verify The Odds API still carries Pinnacle's close, else
+  set `live.sharp_benchmark`/`live.bookmaker` to Betfair Exchange (the fetch is
+  feed-agnostic; the fixture carries both keys); (3) confirm the call budget
+  (`live.call_budget.max_calls_per_day`) ≥ cadence × event-count and ≤ the plan quota;
+  (4) supply `--api-key` (LIVE runs are refused without one). The flip changes NO code
+  — only the config flag + the key.
+- **SIGNAL-ONLY / PAPER (L2).** The system emits ranked edge×liquidity SIGNALS + an
+  append-only realized-CLV/ROI PAPER tracker; **it NEVER places a real bet** (no
+  order/broker/exchange path exists in the codebase). Any real bet is the user's manual
+  action (the money-action boundary). Project ROI stays "simulated / paper";
+  `live.signal_only` is an asserted invariant.
+- **The live loop IS the Phase-4 per-cutoff body at `cutoff = now`.** `live.decide.decide_live`
+  REUSES `model_fair_1x2`/`market_fair_1x2`/`edge_vector`/`choose_devig`/`devig`/
+  `non_bet_snapshot`/`stake_fraction`/`clv_pct` — it does NOT reimplement the decision.
+  `read(now)`/`cached_fit(now)`/`simulate(now)` are leakage-safe by construction (≤ now;
+  strict `date < cutoff`), already proven by the P1/P2/P3/P4 canaries — so the LIVE
+  number is **point-in-time-correct, the AUTHORITATIVE forward number** the
+  revision-contaminated backtest cannot be (L5, north-star §4.2).
+- **The focal operational-leakage discipline (L5, the NEW risk class).** Live has no
+  look-ahead by construction; the new risk is OPERATIONAL. The **entry price is logged
+  AT decision time** (the EARLIEST snapshot ≤ kickoff = the price when the signal
+  fired), **NEVER retroactively re-priced from the close** (the kickoff−1 min line is
+  info from AFTER the entry decision; logging it as the entry would fake the edge). The
+  edge + staked side + stake are decided against the de-vigged ENTRY; the close is used
+  ONLY for realized CLV (`entry/close − 1`). The **bet log is append-only / immutable**
+  (`live.validation.AppendOnlyLedger` — a re-log of a logged signal raises
+  `ImmutableLogError`). The **live mis-log canary** (`assert_entry_logged_at_decision_time`,
+  the FOCAL Codex target) proves a mis-log (the close logged as the entry) is caught.
+  Every live decision is reproducible (same cutoff+seed → identical decision; provenance
+  auditable from the content-addressed cache key).
+- **Cadence + cost discipline (L4/L1).** Per-matchday + a pre-kickoff (~kickoff−1h)
+  refresh for active fixtures, within a pinned call budget (`live.call_budget`);
+  rate-limit + exponential backoff on a 429/5xx; the feed key gated; never a
+  scraper-at-volume.
+- **"Too-good = bug" live (L5).** `live.validation.check_live_foresight_red` REUSES the
+  Phase-4 `check_foresight_red` on the realized-CLV tracker (same `backtest.foresight_red`
+  ceilings: ROI > +10%, beat-close > 58%, avg CLV > +2%); a suspiciously-good live CLV
+  ⇒ SUSPECTED feed/logging bug ⇒ STOP + inspect, never celebrate. Foresight-RED is a
+  COARSE backstop, NOT proof of cleanliness — the mis-log canary is the real catch.
+- **The scanner (`live.scan.scan(cutoff=now) → Ranked`).** Ranks live opportunities by
+  EDGE × LIQUIDITY (the north-star headline deliverable). TWO surfaces: 1X2 (`h2h`,
+  PRIMARY/authoritative) + tournament-progression/outright (`SimResult` columns,
+  SECONDARY, COVERAGE-GATED — outright keys unverified, so a sub-threshold/absent-odds
+  market is an explicit COVERAGE GAP, never a number). Output: a structured artifact + a
+  written report (no UI); non-bet filters (sign-flip/stale/thin-liquidity) gate the
+  ranking + are counted. Every dry-run artifact + report is labelled non-real.
+- **D3 penalty-KO fix (L3) — DONE before R32.** `wcmodel.data.sources.results.join_shootout_winners`
+  ingests martj42's SEPARATE `shootouts.csv` (same pinned commit `dad6874…`) → a
+  nullable `winner_override` column joined on `(date, home_team, away_team)`;
+  `sim.run._build_played` threads it into `played["knockout_winners"]`;
+  `sim.tournament.simulate_one` resolves a level pinned KO to the ACTUAL recorded winner
+  (no RNG drawn) instead of failing loud. **The guard is PRESERVED:** a level KO with NO
+  recorded winner (genuinely-missing data) STILL fails loud. Leakage-safe — only the
+  ACTUAL played winner; the `< cutoff` discipline is untouched. The Phase-4
+  `tests/backtest/test_d3_unreachable_knockout.py` (the BACKTEST never reaches a KO)
+  stays valid; the LIVE path conditions on KOs post-fix.
+- **Dry-run end-to-end (the §4 gate).** `tests/live/test_dry_run_e2e.py` runs the FULL
+  loop (fetch → ingest → decide → scan → log → CLV) on the synthetic harness, labelled
+  non-real, with NO spend and NO bet — the mis-log canary passes in the loop and
+  foresight-RED guards the tracker.
