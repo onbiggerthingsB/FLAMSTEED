@@ -155,3 +155,16 @@ def test_gate_fixture_forecast_rejects_non_finite_or_nonnumeric_grid_cells():
             gate_fixture_forecast({**base, "grid": bad_grid})
     # a valid numeric grid summing ~1 still passes
     gate_fixture_forecast({**base, "grid": [[0.5, 0.2], [0.2, 0.1]]})
+
+
+def test_gate_fixture_forecast_rejects_empty_or_ragged_grid():
+    base = {"most_likely": {"home_goals": 0, "away_goals": 0, "prob": 1.0},
+            "one_x_two": {"home": 0.4, "draw": 0.3, "away": 0.3}}
+    for bad in ([[], [1.0]],          # an empty row (was slipping; rest sums to 1)
+                [[0.5], [0.5, 0.5]],  # ragged rows (unequal length)
+                [[True, False]],      # bool cells masquerading as numbers
+                []):                  # empty grid
+        with pytest.raises(ValueError, match="(?i)grid"):
+            gate_fixture_forecast({**base, "grid": bad})
+    # a valid rectangular numeric grid summing ~1 still passes
+    gate_fixture_forecast({**base, "grid": [[0.5, 0.2], [0.2, 0.1]]})

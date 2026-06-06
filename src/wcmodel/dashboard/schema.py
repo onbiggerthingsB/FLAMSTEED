@@ -72,18 +72,16 @@ def gate_fixture_forecast(f: dict, *, tol: float = 0.05) -> None:
     ALL THREE outcomes (never a lone score). (No per-outcome CI — the distribution is the
     uncertainty, per the approved design.)"""
     grid = f.get("grid")
-    if not grid:
-        raise ValueError("fixture forecast: grid missing or does not sum to ~1 "
-                         "(the scoreline distribution is the uncertainty)")
-    if not (isinstance(grid, (list, tuple))
-            and all(isinstance(row, (list, tuple)) for row in grid)):
-        raise ValueError("fixture forecast: grid must be a list of numeric rows")
-    for row in grid:
-        if not all(_finite_number(c) for c in row):
-            raise ValueError("fixture forecast: every grid cell must be a finite number")
-    if abs(sum(sum(row) for row in grid) - 1.0) > tol:
-        raise ValueError("fixture forecast: grid missing or does not sum to ~1 "
-                         "(the scoreline distribution is the uncertainty)")
+    if not grid or not all(isinstance(row, (list, tuple)) and row for row in grid):
+        raise ValueError("fixture forecast: grid must be a non-empty list of non-empty rows")
+    width = len(grid[0])
+    if not all(len(row) == width for row in grid):
+        raise ValueError("fixture forecast: grid must be rectangular (all rows equal length)")
+    if not all(_finite_number(c) for row in grid for c in row):
+        raise ValueError("fixture forecast: every grid cell must be a finite number")
+    total = sum(sum(row) for row in grid)
+    if abs(total - 1.0) > tol:
+        raise ValueError("fixture forecast: grid does not sum to ~1 (the scoreline distribution is the uncertainty)")
     ml = f.get("most_likely") or {}
     if "prob" not in ml:
         raise ValueError("fixture forecast: most_likely score is naked (no prob)")
