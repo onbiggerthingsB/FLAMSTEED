@@ -3,20 +3,19 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import App from '../../src/App.svelte';
 
-// T0 scaffold smoke test, updated for the T5 App rewrite: the placeholder
-// `app-title` heading is gone — the App now loads the bundle and renders the
-// honesty bar + surface nav. We assert the real shell mounts instead.
 const dir = resolve(__dirname, '../fixtures/bundle');
-beforeEach(() => {
-  location.hash = '';
+function mockFetch() {
   globalThis.fetch = (async (url: string) => {
     const rel = String(url).replace(/^.*\/bundle\//, '');
     const body = readFileSync(resolve(dir, rel), 'utf8');
     return { ok: true, json: async () => JSON.parse(body) } as Response;
   }) as typeof fetch;
-});
+}
 
-test('app mounts and renders the loaded shell', async () => {
+beforeEach(() => { location.hash = ''; mockFetch(); });
+
+test('App loads the bundle and shows the honesty bar + schedule landing', async () => {
   render(App);
-  await waitFor(() => expect(screen.getByRole('navigation')).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText(/DRY-RUN/)).toBeInTheDocument());
+  expect(screen.getByRole('navigation')).toBeInTheDocument();   // surface nav
 });
