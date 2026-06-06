@@ -12,10 +12,11 @@
     "e2e": "playwright test"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^4.0.0",
-    "@testing-library/svelte": "^5.2.4",
-    "@testing-library/jest-dom": "^6.4.8",
     "@playwright/test": "^1.47.0",
+    "@sveltejs/vite-plugin-svelte": "^4.0.0",
+    "@testing-library/jest-dom": "^6.4.8",
+    "@testing-library/svelte": "^5.2.4",
+    "@types/node": "^22.19.20",
     "jsdom": "^25.0.0",
     "svelte": "^5.0.0",
     "svelte-check": "^4.0.0",

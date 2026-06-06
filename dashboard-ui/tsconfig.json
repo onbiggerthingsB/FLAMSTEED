@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler",
     "strict": true, "noUnusedLocals": true, "noUnusedParameters": true,
-    "types": ["svelte", "vitest/globals", "@testing-library/jest-dom"],
+    "types": ["node", "svelte", "vitest/globals", "@testing-library/jest-dom"],
     "lib": ["ES2022", "DOM", "DOM.Iterable"], "skipLibCheck": true,
     "verbatimModuleSyntax": true, "isolatedModules": true
   },
