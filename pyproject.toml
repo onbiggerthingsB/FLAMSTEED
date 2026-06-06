@@ -9,6 +9,8 @@ dependencies = [
 ]
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-cov>=5.0"]
+[project.scripts]
+wc-dashboard-build = "wcmodel.dashboard.cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

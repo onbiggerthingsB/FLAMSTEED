@@ -736,6 +736,30 @@ Implemented on branch `phase3-monte-carlo`.
   `build.py` only assembles, GATES, stamps, and writes — it never reads a raw result or
   recomputes a number. The thin runner (`dashboard.cli.build_arg_parser`,
   `wc-dashboard-build`) defaults to `--dry-run` with `--cutoff` defaulting to now at runtime.
+- **The FULL bundle (one per-cutoff dir).** `build_snapshot(cutoff)` writes a directory of
+  stamped JSON: `tournament.json` (`team_progression`), `schedule.json` (`{group, knockout}`
+  rows — group rows carry a forecast summary + edge node, knockout rows carry the derived slot
+  occupants), `track.json` (`track_record` when backtest records are supplied, else an honest
+  `coverage_gap` — the build NEVER re-runs the walk-forward backtest), `meta.json` (markets +
+  provenance note), and a `fixtures/<match_id>.json` per group fixture (the FULL gated
+  `fixture_forecast` + the match-detail "why" + the edge node).
+- **Per-surface honesty semantics (the no-naked-numbers rule, per surface).** Each surface
+  carries its uncertainty in the shape native to that surface, never a bare point estimate:
+  team-PROGRESSION cells are `{value, se}`; SCORELINE is the full score-grid distribution (the
+  distribution IS the uncertainty — no separate companion); the 1X2 split is likewise a full
+  distribution (distribution-is-uncertainty); TEAM-STRENGTH ("why") is `{value, ci}` with `ci`
+  the 94% HDI of the posterior; EDGES are DERIVED from the model-vs-market overlay (decision
+  fields), never asserted; xG is COVERAGE-GATED (never imputed — absent StatsBomb coverage is
+  an explicit `coverage_gap`, and a WC-2026 future fixture is therefore always an honest xG
+  gap). A `coverage_gap` node is EXEMPT from the uncertainty-companion check (a gap is an
+  explicit absence, not a naked number) — that exemption is what lets a thin/absent market
+  pass the gate as a gap rather than RAISE.
+- **The artifact-glob contract (bundle = stamped JSON only).** The bundle dir contains ONLY
+  the stamped JSON artifacts (top-level `*.json` + the `fixtures/` dir). Model fit caches live
+  OUTSIDE the bundle dir (default `paths.cache`, the shared project cache; never under
+  `out_root`, never inside the per-cutoff dir), so a frontend globbing the bundle's `*.json`
+  never trips over a cache file, and the whole `out_root` tree a production run reuses holds
+  only bundle dirs.
 - **The spec §10 provenance map is ENFORCED, never trusted to hold upstream.** `schema.py`
   carries the serializer-side rules (no-naked-numbers — every probability node needs an
   uncertainty companion; coherence — the progression ladder must be monotone; coverage-gap —
@@ -749,6 +773,26 @@ Implemented on branch `phase3-monte-carlo`.
   only; the `is_synthetic` taint propagates into the provenance envelope and the DRY-RUN
   banner (`DRY_RUN_BANNER`) marks every synthetic snapshot as unmistakably non-real (no real
   odds sourced, no bet placed, no real CLV/ROI claim).
+- **The fail-safe NON-REAL taint (the bundle reads REAL only when EVERY item is explicitly
+  real).** `is_synth = cfg["dashboard"]["dry_run"] OR _bundle_is_synthetic(items) OR
+  ranked.is_synthetic` — the taint is the producer-side ANY, not an `all(...)`: `dry_run`
+  taints the WHOLE bundle, ANY synthetic / nested-synthetic item taints (a MIXED batch taints
+  the whole bundle), `items` None/empty is synthetic-by-default (no explicitly-real sample to
+  clear the taint), and an unknown item shape fails safe to NON-REAL. So a snapshot reads as
+  REAL only when dry-run is off AND every item is explicitly real — the banner can never be
+  dropped on synthetic data. In v1 (`dashboard.dry_run=true`) the bundle is therefore ALWAYS
+  NON-REAL, consistent with the embedded paper track (`track_record` hardcodes
+  `is_synthetic=True`).
+- **The UTC-date edge key (match the scan `event_key`, not the local date).** The edge lookup
+  key is `(home, away, UTC-commence-date-str)` — the fixture's UTC COMMENCE DATE reconstructed
+  from its local `date` + local `time`-with-offset (`_fixture_utc_commence_date`), NOT the raw
+  local `date`. The scan/odds path keys `edges_by_event` on the stringified UTC commence date
+  (`odds_ingest.event_key` → `astimezone(utc).date()`, stringified by `decide_live`), so the
+  dashboard MUST derive the key the same way. A negative-UTC-offset evening kickoff's local
+  date is ONE DAY before the UTC date (e.g. `'2026-06-11' + '20:00 UTC-6'` → UTC
+  `'2026-06-12'`); keying on the local date made every such fixture's edge silently miss into a
+  `coverage_gap` — 28 of the 72 WC-2026 group fixtures cross the UTC boundary. The synthetic
+  harness (fixtures with no `time`) is unaffected: the local `date` is treated as already-UTC.
 - **Leakage-safe BY CONSTRUCTION.** A snapshot IS a `read(cutoff)`: the heavy compute is
   delegated to the already-leakage-gated producers (`cached_fit`/`simulate` read ONLY
   `store.read(cutoff)`, the strict `date < cutoff` set), so a result observed AFTER the cutoff
@@ -760,6 +804,15 @@ Implemented on branch `phase3-monte-carlo`.
   imputed — absent coverage is an explicit coverage gap. The reliability diagram and the
   knockout-bracket occupants are DERIVED from the real Phase 1–5 model/sim outputs, not
   fabricated.
+- **The gated CLI (`wc-dashboard-build`, dry-run default; `--no-dry-run` REFUSES).** The
+  console script (`pyproject` `[project.scripts]` → `wcmodel.dashboard.cli:main`) defaults to
+  `--dry-run`: it builds a NON-REAL synthetic demo bundle (a self-contained synthetic harness —
+  no test code imported) and prints the bundle path. `main(["--no-dry-run"])` REFUSES — it
+  prints a clear "the real feed is GATED behind the funded pre-flip checklist; not available in
+  v1" to stderr and `SystemExit(2)`; it can NEVER reach a real feed by accident. The tested
+  library entry point `run_build_dry(...)` FORCES `dashboard.dry_run=True` on a DEEP COPY of
+  the caller's config (the caller's dict is never mutated), so the dry-run builder can never
+  emit a real-looking bundle even if handed a config whose `dry_run` is somehow False.
 - **The real-feed flip is GATED.** Flipping `--no-dry-run` (the real feed) is GATED behind
   the pre-funding `decision_ts` follow-up + funding-flip runbook already documented in the
   Phase 5 section above — v1 ships synthetic only; no number in a dashboard snapshot is a
