@@ -1,5 +1,6 @@
 # Tooling / OS cruft
 .gstack/
+.superpowers/
 .DS_Store
 
 # Python (Phase 1+)
