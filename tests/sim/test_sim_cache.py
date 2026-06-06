@@ -299,3 +299,75 @@ def test_simulate_run_path_uncached_by_default(tmp_path, small_store):
     )
     simulate("2024-06-01", _toy_posterior(), small_store, cfg)
     assert list(tmp_path.glob("sim-*")) == [], "uncached run must not write cache files"
+
+
+# ---------------------------------------------------------------------------
+# D3 STALE-SERVE GUARD (Phase-5 T7, Codex finding). The D3 fix made
+# ``knockout_winners`` determine the champion of a LEVEL (penalty-decided) pinned
+# KO, but the played-hash omitted it — so two played maps differing ONLY by the
+# recorded shootout winner shared a cache key and the cached path stale-served the
+# WRONG champion. These prove the key now distinguishes them (key-level) and the
+# cached ``cached_sim`` no longer serves winner-A's result for a winner-B run
+# (integration-level — the real proof).
+# ---------------------------------------------------------------------------
+import pandas as pd
+
+from wcmodel.sim.cache import _played_hash
+
+_FINAL_DATE = pd.Timestamp("2026-07-19")
+# Distinct, tie-free group standings (Brazil 9 > Argentina 6 > Croatia 3 > France 0)
+# so the group order is fully determined by the pinned scores alone — 1A=Brazil,
+# 2A=Argentina feed the Final (match 104), exactly as tests/sim/test_tournament.py.
+_DET_GROUP = {
+    ("Brazil", "Argentina"): (2, 0), ("Croatia", "France"): (1, 0),
+    ("Brazil", "Croatia"): (2, 0), ("Argentina", "France"): (1, 0),
+    ("Brazil", "France"): (2, 0), ("Argentina", "Croatia"): (1, 0),
+}
+
+
+def _played_level_final(winner):
+    """A fully-pinned played map whose Final (104) is LEVEL 1-1 after ET and whose
+    recorded shootout winner is ``winner`` — so the champion is FACT, set entirely by
+    ``knockout_winners`` (no RNG). Everything else is identical for both winners."""
+    return {
+        "groups": _DET_GROUP,
+        "knockout_results": {("Brazil", "Argentina", _FINAL_DATE): (1, 1)},
+        "knockout_winners": {("Brazil", "Argentina", _FINAL_DATE): winner},
+        "match_dates": {104: _FINAL_DATE},
+    }
+
+
+def test_played_hash_distinguishes_knockout_winners():
+    """KEY LEVEL: two played maps identical EXCEPT the recorded shootout winner of the
+    same level KO triple MUST hash differently — otherwise the cache key collides and a
+    winner-B run stale-serves winner-A's cached champion. (RED before knockout_winners
+    is in the hashed payload: the two hashes are identical.)"""
+    h_bra = _played_hash(_played_level_final("Brazil"))
+    h_arg = _played_hash(_played_level_final("Argentina"))
+    assert h_bra != h_arg, (
+        "played-hash ignores knockout_winners — two played maps differing only by the "
+        "recorded shootout winner share a key (the D3 stale-serve)"
+    )
+
+
+def test_cached_sim_does_not_stale_serve_wrong_shootout_winner(tmp_path):
+    """INTEGRATION LEVEL (the real proof): run ``cached_sim`` (the cached path) on a
+    played map recording the level-Final winner = Brazil, then on the SAME everything
+    but winner = Argentina. The second run MUST reflect Argentina as champion — it must
+    NOT stale-serve Brazil's cached progression. (RED before the fix: identical key ->
+    Argentina HITs Brazil's cache -> champion still Brazil.)"""
+    bra_kw = _base_kwargs(tmp_path, played=_played_level_final("Brazil"))
+    arg_kw = _base_kwargs(tmp_path, played=_played_level_final("Argentina"))
+
+    res_bra, m_bra = cached_sim(**bra_kw)
+    res_arg, m_arg = cached_sim(**arg_kw)
+
+    # Each pinned-winner run is FACT: champion prob is 1.0 on the recorded winner.
+    assert res_bra.progression.loc["Brazil", "champion"] == 1.0
+    assert res_arg.progression.loc["Argentina", "champion"] == 1.0, (
+        "winner=Argentina stale-served winner=Brazil's cached result — the played-hash "
+        "must include knockout_winners so the keys differ"
+    )
+    # The keys MUST differ (else the second call would be a HIT serving stale content).
+    assert m_bra["key"] != m_arg["key"]
+    assert m_arg["cache_hit"] is False

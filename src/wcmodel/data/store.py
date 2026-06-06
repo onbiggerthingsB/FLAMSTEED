@@ -34,8 +34,30 @@ class BitemporalStore:
         df["source"] = source or name
         df["source_version"] = source_version
         path = self._path(name)
-        if path.exists():
-            df = pd.concat([pd.read_parquet(path), df], ignore_index=True)
+        prior = pd.read_parquet(path) if path.exists() else None
+        # ``_ingest_seq`` — a monotonic, write-time INGEST-ORDER column. It exists ONLY to
+        # give the read tie-break a STABLE tertiary key so "latest-ingested-wins" is
+        # well-defined when two same-key rows carry IDENTICAL ``observed_at`` AND
+        # ``valid_as_of`` (the pre-D3-store re-pull case: a same-(match_id) row re-appended
+        # with the same timestamps, now carrying ``winner_override``). Without it the read's
+        # ``row_number()`` tie-break fell back to DuckDB scan order, so the winner of an
+        # exact tie was nondeterministic and an old no-override row could shadow the new one.
+        # The sequence increases ACROSS writes (each write's rows start above every prior
+        # ``_ingest_seq``), so a later ingest always sorts after an earlier one. A pre-D3
+        # store has no ``_ingest_seq`` column; we back-fill the prior rows by their existing
+        # row order (older = lower) before appending, so the column is total + monotonic.
+        if prior is not None:
+            if "_ingest_seq" in prior.columns:
+                start = int(prior["_ingest_seq"].max()) + 1
+            else:
+                prior = prior.copy()
+                prior["_ingest_seq"] = range(len(prior))
+                start = len(prior)
+        else:
+            start = 0
+        df["_ingest_seq"] = range(start, start + len(df))
+        if prior is not None:
+            df = pd.concat([prior, df], ignore_index=True)
         df.to_parquet(path, index=False)
 
     def read(self, name: str, *, cutoff: str | pd.Timestamp) -> pd.DataFrame:
@@ -79,11 +101,17 @@ class BitemporalStore:
         con = duckdb.connect()
         con.register("t", raw)
         key_list = ", ".join(keys)
+        # ``_ingest_seq DESC`` is the STABLE tertiary tie-break (latest-ingested-wins):
+        # it ONLY decides the order when the prior keys are EQUAL, so it changes no
+        # currently-deterministic read — it just makes a previously-undefined exact tie
+        # (same key, same ``observed_at`` AND ``valid_as_of``) resolve to the row written
+        # LAST. It is a write-time bookkeeping column, EXCLUDEd from the returned frame.
         if policy is Policy.POINT_IN_TIME:
             q = f"""
-              SELECT * EXCLUDE (rn) FROM (
+              SELECT * EXCLUDE (rn, _ingest_seq) FROM (
                 SELECT *, row_number() OVER (
-                  PARTITION BY {key_list} ORDER BY observed_at DESC, valid_as_of DESC) rn
+                  PARTITION BY {key_list}
+                  ORDER BY observed_at DESC, valid_as_of DESC, _ingest_seq DESC) rn
                 FROM t
                 WHERE observed_at <= TIMESTAMP '{cutoff}' AND valid_as_of <= TIMESTAMP '{cutoff}'
               ) WHERE rn = 1
@@ -92,9 +120,10 @@ class BitemporalStore:
             out["revision_contaminated"] = False
         else:
             q = f"""
-              SELECT * EXCLUDE (rn) FROM (
+              SELECT * EXCLUDE (rn, _ingest_seq) FROM (
                 SELECT *, row_number() OVER (
-                  PARTITION BY {key_list} ORDER BY observed_at DESC) rn FROM t
+                  PARTITION BY {key_list}
+                  ORDER BY observed_at DESC, _ingest_seq DESC) rn FROM t
               ) WHERE rn = 1
             """
             out = con.execute(q).df()

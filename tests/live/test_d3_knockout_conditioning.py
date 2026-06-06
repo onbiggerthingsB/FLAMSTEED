@@ -88,3 +88,26 @@ def test_level_pinned_ko_without_recorded_winner_still_fails_loud():
     with pytest.raises(ValueError, match=r"(?i)(shootout|penalty).*winner"):
         simulate_one(br, _DetRB(), draw=0, rng=_NoDrawRNG(), cfg=cfg, played=played,
                      depths=_match_depths(br))
+
+
+def test_level_pinned_ko_with_corrupt_winner_fails_loud():
+    """D3 corruption guard: a level pinned KO whose recorded ``knockout_winners`` entry
+    names a team that is NEITHER participant (a corrupt ``winner_override``) must fail
+    loud — the sim refuses to crown a non-participant rather than silently mis-resolve."""
+    from tests.sim.test_tournament import (
+        tiny_bracket as _tb, _DetRB, _NoDrawRNG, _Cfg, _DET_GROUP, _FINAL_DATE,
+        _match_depths,
+    )
+    from wcmodel.sim.tournament import simulate_one
+    br = _tb()
+    cfg = _Cfg(max_goals=8, et_scale=0.3333, pen_home_prob=0.5)
+    played = {
+        "groups": _DET_GROUP,
+        "knockout_results": {("Brazil", "Argentina", _FINAL_DATE): (1, 1)},
+        # Corrupt: the recorded winner is a THIRD team, not Brazil or Argentina.
+        "knockout_winners": {("Brazil", "Argentina", _FINAL_DATE): "Croatia"},
+        "match_dates": {104: _FINAL_DATE},
+    }
+    with pytest.raises(ValueError, match=r"(?i)(corrupt|neither)"):
+        simulate_one(br, _DetRB(), draw=0, rng=_NoDrawRNG(), cfg=cfg, played=played,
+                     depths=_match_depths(br))

@@ -30,10 +30,13 @@ ACTUAL CONTENT that drove the run, never on a config field that can drift:
     plan lists et_scale + pen_home_prob explicitly, and max_goals is included for the
     same stale-serve reason — it changes the sampled grid, so it MUST be in the key).
   * ``played_hash`` — a deterministic hash of the per-cutoff conditioning map
-    (``{"groups", "knockout_results", "match_dates"}``) actually passed to the sim.
-    The cutoff is in the key, but the played set is what the cutoff RESOLVES to, and
-    the same posterior can be simulated with different conditioning; hashing the
-    actual played content makes a hit impossible to serve for the wrong conditioning.
+    (``{"groups", "knockout_results", "knockout_winners", "match_dates"}``) actually
+    passed to the sim. The cutoff is in the key, but the played set is what the cutoff
+    RESOLVES to, and the same posterior can be simulated with different conditioning;
+    hashing the actual played content makes a hit impossible to serve for the wrong
+    conditioning. ``knockout_winners`` (the recorded shootout winner) is in the payload
+    because D3 made it DETERMINE a level pinned KO's champion (Phase-5 T7 stale-serve
+    fix): two played maps differing only by the recorded winner MUST get different keys.
   * ``git`` — the HEAD commit of the code that builds the bracket / runs the sim /
     aggregates markets, PLUS ``git_worktree`` (a hash of the uncommitted tracked diff,
     or ``"clean"``). See the GIT-KEY POLICY below.
@@ -176,6 +179,17 @@ def _played_hash(played) -> str:
     entry to sorted ``(repr(key), value)`` lists before hashing. ``played=None`` (the
     T5 all-simulated default) hashes to the literal ``"none"`` so it is stable and
     distinct from any non-empty conditioning.
+
+    D3 STALE-SERVE GUARD (Phase-5 T7, Codex finding). The D3 fix made
+    ``knockout_winners`` (``{(home, away, date): winner}``, the recorded shootout
+    winner) DETERMINE the champion of a level (penalty-decided) pinned KO in
+    ``simulate_one`` — so it is output-affecting content and MUST be in the key.
+    Omitting it let two played maps differing ONLY by the recorded shootout winner
+    share a key, and the cached path stale-served the WRONG champion. It is folded in
+    the SAME canonical, key-sorted form as ``knockout_results`` (``sorted`` on
+    ``(repr(key), value)``), so the digest is insertion-order-independent — the same
+    Phase-3 lesson (a dict hashed in insertion order is non-reproducible) — and a
+    different recorded winner yields a different blob -> a different key -> a MISS.
     """
     if not played:
         return "none"
@@ -183,6 +197,9 @@ def _played_hash(played) -> str:
         "groups": sorted((repr(k), list(v)) for k, v in played.get("groups", {}).items()),
         "knockout_results": sorted(
             (repr(k), list(v)) for k, v in played.get("knockout_results", {}).items()
+        ),
+        "knockout_winners": sorted(
+            (repr(k), str(w)) for k, w in played.get("knockout_winners", {}).items()
         ),
         "match_dates": sorted(
             (str(m), str(d)) for m, d in played.get("match_dates", {}).items()

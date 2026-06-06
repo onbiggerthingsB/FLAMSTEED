@@ -208,7 +208,8 @@ def _build_played(store, cutoff, group_dates: dict, ko_dates: dict) -> dict:
     # D3 (Phase-5 L3): the actual shootout winner per played triple, from the nullable
     # `winner_override` column (NaN -> no override, so a non-shootout KO is unaffected).
     # `simulate_one` reads this to resolve a level pinned KO instead of failing loud.
-    # The column is absent on a pre-D3 store, so guard with `getattr`/`hasattr`.
+    # The column is absent on a pre-D3 store, so guard with an `in played.columns`
+    # membership check before iterating, plus a per-row `getattr` default for safety.
     ko_winners = {}
     if "winner_override" in played.columns:
         for r in played.itertuples(index=False):
