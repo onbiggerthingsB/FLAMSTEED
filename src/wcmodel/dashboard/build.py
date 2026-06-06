@@ -35,8 +35,25 @@ import json
 import math
 from pathlib import Path
 
+from wcmodel.backtest.walkforward import _sample_is_synthetic
 from wcmodel.dashboard.provenance import Provenance, _git_rev, stamp
 from wcmodel.dashboard.schema import assert_uncertainty_companion, validate_progression_coherence
+
+
+def _bundle_is_synthetic(items) -> bool:
+    """Fail-safe bundle taint (C2): NON-REAL unless EVERY item is explicitly real.
+
+    A NON-REAL bundle must NEVER read as real (the banner must never be dropped on
+    synthetic data), so the taint is the producer-side ANY, not an ``all(...)``: a MIXED
+    batch (some synthetic, some not) taints the WHOLE bundle. ``items is None`` (no real
+    feed wired) OR an EMPTY batch is synthetic-by-default — there is no explicitly-real
+    sample to clear the taint, and the leakage/repro canaries build synthetic brackets
+    with ``items=[]`` that must stay stamped NON-REAL. The per-item detector is the
+    canonical ``walkforward._sample_is_synthetic`` (handles the wrapper flag AND a
+    nested ``_is_synthetic`` marker), reused — never re-implemented."""
+    if not items:                       # None OR empty -> no real feed -> synthetic
+        return True
+    return any(_sample_is_synthetic(it.get("sample", {})) for it in items)
 
 
 def gate_artifact(team_markets: dict) -> None:
@@ -121,8 +138,9 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
     tournament_view = team_progression(sim)
     gate_artifact(tournament_view)                  # STOP: never write a naked/incoherent table
 
-    is_synth = bool(items is None or all(
-        (it.get("sample", {}) or {}).get("_is_synthetic") for it in items))
+    # C2: fail-safe taint — NON-REAL unless EVERY item is explicitly real (ANY synthetic
+    # or nested-synthetic item taints the whole bundle; items None/empty -> synthetic).
+    is_synth = _bundle_is_synthetic(items)
     prov = Provenance(cutoff=str(cutoff), posterior_key=meta["key"], git=_git_rev(),
                       is_synthetic=is_synth, n_sims=sim.n_sims)
     bundle = out_root / str(cutoff).replace(":", "").replace(" ", "T")

@@ -50,3 +50,16 @@ def test_write_stringifies_tuple_keys_so_a_tuple_keyed_artifact_serializes(tmp_p
     assert env["data"]["Spain|Morocco|2026-06-11"]["edge"] == 0.04
     # No tuple-shaped (un-stringified) key leaked through as a Python repr string.
     assert not any(k.startswith("(") for k in env["data"])
+
+
+def test_bundle_taint_is_fail_safe_any_synthetic_taints():
+    from wcmodel.dashboard.build import _bundle_is_synthetic
+    # a MIXED batch (one synthetic, one not) must taint the whole bundle NON-REAL
+    assert _bundle_is_synthetic([{"sample": {"_is_synthetic": True}},
+                                 {"sample": {"_is_synthetic": False}}]) is True
+    # a nested/wrapper marker also taints
+    assert _bundle_is_synthetic([{"sample": {"x": {"_is_synthetic": True}}}]) is True
+    # items=None (no real feed supplied) is synthetic by default
+    assert _bundle_is_synthetic(None) is True
+    # ONLY an all-explicitly-real batch is real
+    assert _bundle_is_synthetic([{"sample": {"_is_synthetic": False}}]) is False
