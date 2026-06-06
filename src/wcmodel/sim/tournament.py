@@ -273,6 +273,11 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None)
     played_groups = played.get("groups", {})             # {(home, away): (hg, ag)}
     played_ko_results = played.get("knockout_results", {})  # {(home, away, date): (hg, ag)}
     ko_match_dates = played.get("match_dates", {})          # {match_no: date}
+    # D3 (Phase-5 L3): the ACTUAL shootout winner for a level pinned KO, keyed by the
+    # SAME (home, away, date) triple. Supplied by sim.run._build_played from the
+    # results `winner_override` column (martj42 shootouts.csv). Empty -> a level KO
+    # with no recorded winner still fails loud below (the guard is preserved).
+    played_ko_winners = played.get("knockout_winners", {})  # {(home, away, date): winner}
 
     sampler = _FixtureSampler(ratebook, draw, cfg)
     random_tail = False
@@ -347,15 +352,29 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None)
         if ko_score is not None:
             hg, ag = ko_score
             if hg == ag:
-                raise ValueError(
-                    f"pinned knockout fixture {home!r} vs {away!r} (match {m}) has a "
-                    f"level score {hg}-{ag} — it was decided by a penalty shootout, but "
-                    f"the results data source does not record the shootout winner, so "
-                    f"the actual winner cannot be pinned; conditioning on a "
-                    f"penalty-decided knockout is not yet supported (resolution: ingest "
-                    f"the shootout winner)"
-                )
-            w = home if hg > ag else away                # ACTUAL winner, no RNG drawn
+                # D3 (Phase-5 L3): a level (penalty-decided) KO resolves to the ACTUAL
+                # recorded shootout winner if we have it (martj42 shootouts.csv ->
+                # winner_override -> knockout_winners). No RNG is drawn — the winner is
+                # FACT, not a coin-flip. The guard is PRESERVED: a level KO with NO
+                # recorded winner (genuinely-missing data) still fails loud.
+                ko_winner = played_ko_winners.get((home, away, ko_match_dates.get(m)))
+                if ko_winner is None:
+                    raise ValueError(
+                        f"pinned knockout fixture {home!r} vs {away!r} (match {m}) has a "
+                        f"level score {hg}-{ag} — it was decided by a penalty shootout, "
+                        f"but no shootout winner is recorded for it, so the actual winner "
+                        f"cannot be pinned; conditioning on a penalty-decided knockout "
+                        f"with no recorded winner is unsupported (resolution: ingest the "
+                        f"shootout winner via results.winner_override)"
+                    )
+                if ko_winner not in (home, away):
+                    raise ValueError(
+                        f"recorded shootout winner {ko_winner!r} for match {m} is neither "
+                        f"participant ({home!r}/{away!r}) — the winner_override is corrupt"
+                    )
+                w = ko_winner                            # ACTUAL recorded winner, no RNG
+            else:
+                w = home if hg > ag else away            # ACTUAL winner, no RNG drawn
         else:
             sample = sampler.knockout_sampler(home, away, neutral=cfg.neutral)
             w = resolve_tie(home, away, sample=sample, rng=rng, et_scale=cfg.et_scale,

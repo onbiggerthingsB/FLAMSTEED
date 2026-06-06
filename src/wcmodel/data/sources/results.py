@@ -11,6 +11,7 @@ import hashlib
 from pathlib import Path
 
 import httpx
+import numpy as np
 import pandas as pd
 
 from wcmodel.data.cache import cached_pull
@@ -21,6 +22,14 @@ MARTJ42_COMMIT = "dad6874bb720e23cccdf696f057aa64fa5471445"
 MARTJ42_RAW_URL = (
     "https://raw.githubusercontent.com/martj42/international_results/"
     f"{MARTJ42_COMMIT}/results.csv"
+)
+# martj42 ships shootout winners in a SEPARATE file (the same pinned commit). The
+# main results.csv stores only the regulation/ET score and DROPS the shootout winner,
+# which is exactly why sim.tournament.simulate_one fails loud on a level pinned KO
+# (Phase-4 D3 deferral). Ingesting this resolves D3 (Phase-5 L3, before R32).
+MARTJ42_SHOOTOUTS_URL = (
+    "https://raw.githubusercontent.com/martj42/international_results/"
+    f"{MARTJ42_COMMIT}/shootouts.csv"
 )
 
 _CARRY = ["home_team", "away_team", "home_score", "away_score",
@@ -86,6 +95,44 @@ def normalize_results(raw: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def join_shootout_winners(results: pd.DataFrame,
+                          shootouts: pd.DataFrame) -> pd.DataFrame:
+    """Attach the penalty-shootout winner to results via a nullable ``winner_override``.
+
+    Pure transform. ``shootouts`` is martj42's separate ``shootouts.csv`` (cols
+    ``date, home_team, away_team, winner``); we LEFT-join it onto ``results`` by the
+    ``(date, home_team, away_team)`` triple (the same identity the sim matches KO
+    results on) and expose the winner as a nullable ``winner_override`` column (NaN
+    for every non-shootout match). Row-PRESERVING (a left join never drops/adds a
+    result row); a result with no shootout entry simply gets ``winner_override = NaN``.
+
+    This supplies ONLY the ACTUAL played KO winner — it is leakage-safe (the
+    ``< cutoff`` discipline downstream is untouched) and resolves the D3 fail-loud:
+    ``sim.tournament.simulate_one`` reads this winner to resolve a level pinned KO
+    instead of raising.
+    """
+    res = results.copy()
+    if shootouts is None or shootouts.empty:
+        res["winner_override"] = np.nan
+        return res
+    sh = shootouts.copy()
+    sh["date"] = pd.to_datetime(sh["date"])
+    res["date"] = pd.to_datetime(res["date"])
+    sh = sh[["date", "home_team", "away_team", "winner"]].rename(
+        columns={"winner": "winner_override"})
+    # Drop duplicate shootout rows on the triple (defensive — keep the first) so the
+    # left join can never multiply result rows.
+    sh = sh.drop_duplicates(subset=["date", "home_team", "away_team"], keep="first")
+    n_before = len(res)
+    out = res.merge(sh, on=["date", "home_team", "away_team"], how="left")
+    if len(out) != n_before:
+        raise ValueError(
+            f"join_shootout_winners changed the row count ({n_before} -> {len(out)}) "
+            "— the shootout join must be row-preserving (one winner per result row)"
+        )
+    return out
+
+
 def fetch_results(cache_dir: str | Path) -> pd.DataFrame:
     """Pull the real martj42 CSV (network). Cached by content key + commit."""
     def _fetch() -> pd.DataFrame:
@@ -102,9 +149,27 @@ def fetch_results(cache_dir: str | Path) -> pd.DataFrame:
     )
 
 
+def fetch_shootouts(cache_dir: str | Path) -> pd.DataFrame:
+    """Pull martj42's separate shootouts.csv (network). Cached by content key + commit."""
+    def _fetch() -> pd.DataFrame:
+        resp = httpx.get(MARTJ42_SHOOTOUTS_URL, timeout=30.0, follow_redirects=True)
+        resp.raise_for_status()
+        from io import StringIO
+        return pd.read_csv(StringIO(resp.text))
+
+    return cached_pull(
+        "martj42_shootouts",
+        {"commit": MARTJ42_COMMIT},
+        _fetch,
+        cache_dir=cache_dir,
+    )
+
+
 def load_results(store: BitemporalStore, cache_dir: str | Path) -> None:
-    """Fetch -> normalize -> write to the bitemporal store."""
-    df = normalize_results(fetch_results(cache_dir))
+    """Fetch -> normalize -> attach shootout winners -> write to the bitemporal store."""
+    normalized = normalize_results(fetch_results(cache_dir))
+    shootouts = fetch_shootouts(cache_dir)
+    df = join_shootout_winners(normalized, shootouts)
     store.write(
         "results",
         df,

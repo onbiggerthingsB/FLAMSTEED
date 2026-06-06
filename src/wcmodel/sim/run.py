@@ -205,10 +205,21 @@ def _build_played(store, cutoff, group_dates: dict, ko_dates: dict) -> dict:
         for (home, away), date in group_dates.items()
         if (home, away, date) in by_triple
     }
+    # D3 (Phase-5 L3): the actual shootout winner per played triple, from the nullable
+    # `winner_override` column (NaN -> no override, so a non-shootout KO is unaffected).
+    # `simulate_one` reads this to resolve a level pinned KO instead of failing loud.
+    # The column is absent on a pre-D3 store, so guard with `getattr`/`hasattr`.
+    ko_winners = {}
+    if "winner_override" in played.columns:
+        for r in played.itertuples(index=False):
+            wo = getattr(r, "winner_override", None)
+            if wo is not None and not pd.isna(wo):
+                ko_winners[(r.home_team, r.away_team, r.date)] = wo
     return {
         "groups": group_played,
-        "knockout_results": by_triple,    # {(home, away, date): (hg, ag)}
-        "match_dates": ko_dates,           # {match_no: date}
+        "knockout_results": by_triple,       # {(home, away, date): (hg, ag)}
+        "knockout_winners": ko_winners,       # {(home, away, date): winner}  (D3)
+        "match_dates": ko_dates,              # {match_no: date}
     }
 
 
