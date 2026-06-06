@@ -1,23 +1,16 @@
 <script lang="ts">
-  import type { ScheduleData, GroupRow } from '../lib/types';
+  import type { ScheduleData } from '../lib/types';
   import { isGap } from '../lib/guards';
   import { formatDate } from '../lib/format';
   import Estimate from '../components/Estimate.svelte';
   import EdgeChip from '../components/EdgeChip.svelte';
   import CoverageGap from '../components/CoverageGap.svelte';
   import WinBar from '../components/WinBar.svelte';
+  import ScorePill from '../components/ScorePill.svelte';
 
   let { data }: { data: ScheduleData } = $props();
   const STAGES = ['group', 'knockout'] as const;
   let stage = $state<'group' | 'knockout'>('group');
-
-  // The most-likely score is a label; its probability is the estimate. Keep the
-  // two separate so the score text never poses as a bare probability.
-  function scoreText(r: GroupRow): string {
-    if (isGap(r.forecast_summary)) return '';
-    const m = r.forecast_summary.most_likely;
-    return `${m.home_goals}–${m.away_goals}`;
-  }
 </script>
 
 <div class="nav">
@@ -35,17 +28,9 @@
         {#if isGap(r.forecast_summary)}
           <CoverageGap reason={r.forecast_summary.reason} />
         {:else}
-          <!-- Most-likely score carries its probability (no naked score, no naked %). -->
-          <span class="score">
-            <strong>{scoreText(r)}</strong>
-            <span class="ml"
-              ><Estimate
-                value={r.forecast_summary.most_likely.prob}
-                se={null}
-                label={`${r.match_id}-most-likely`}
-              /></span
-            >
-          </span>
+          <!-- Most-likely score + its prob as ONE distribution readout ("1–0 · 15%"); the
+               scoreline distribution is the uncertainty (no "±?", no naked score/%). -->
+          <span class="score"><ScorePill ml={r.forecast_summary.most_likely} /></span>
           <!-- The 1X2 distribution IS the uncertainty; WinBar wraps it in a marked region. -->
           <span class="dist"><WinBar model={r.forecast_summary.one_x_two} /></span>
         {/if}
@@ -91,7 +76,6 @@
   .row[data-status="played"] { opacity: 0.6; }
   .teams { font-weight: 600; min-width: 220px; }
   .score { display: inline-flex; align-items: baseline; gap: 6px; }
-  .score strong { font-size: 1.15em; }
   .dist { min-width: 200px; flex: 1; }
   .more { margin-left: auto; color: var(--accent); text-decoration: none; }
   .occ { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; width: 100%; }

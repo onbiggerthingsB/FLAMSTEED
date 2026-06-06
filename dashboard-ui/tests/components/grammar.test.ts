@@ -5,6 +5,19 @@ import CredibleInterval from '../../src/components/CredibleInterval.svelte';
 import EdgeChip from '../../src/components/EdgeChip.svelte';
 import HonestyBar from '../../src/components/HonestyBar.svelte';
 import WinBar from '../../src/components/WinBar.svelte';
+import ScorePill from '../../src/components/ScorePill.svelte';
+
+test('ScorePill marks the most-likely score+prob as a distribution readout, never "±?"', () => {
+  // The scoreline distribution IS the uncertainty (spec §4: "1–0 · 12%"). The prob must
+  // sit inside data-uncertainty="distribution" and must NOT render the unknown-SE token "±?"
+  // (which would misread known uncertainty as unknown).
+  const { container } = render(ScorePill, { ml: { home_goals: 1, away_goals: 0, prob: 0.15 } });
+  const region = container.querySelector('[data-uncertainty="distribution"]')!;
+  expect(region).toBeInTheDocument();
+  expect(region.textContent).toContain('1–0');
+  expect(region.textContent).toContain('15%');
+  expect(container.textContent).not.toContain('±?');     // distribution carries it, not a missing SE
+});
 
 test('WinBar: every visible probability sits inside a data-uncertainty region (no naked legend)', () => {
   // RED before the fix: the legend readout (H 45% ...) lived OUTSIDE the data-uncertainty
