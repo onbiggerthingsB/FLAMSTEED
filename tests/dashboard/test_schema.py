@@ -78,3 +78,34 @@ def test_degenerate_companions_are_rejected_as_naked():
 def test_valid_companions_still_pass():
     assert_uncertainty_companion({"value": 0.14, "se": 0.02})        # finite se
     assert_uncertainty_companion({"value": 0.58, "ci": [0.52, 0.63]}) # 2 finite bounds
+
+
+from wcmodel.dashboard.schema import gate_fixture_forecast, gate_track
+
+
+def test_coverage_gap_node_is_exempt_from_naked_check():
+    assert_uncertainty_companion(coverage_gap("no odds"))      # no raise (value is None)
+    assert_uncertainty_companion({"value": None})              # explicit null is not naked
+
+
+def test_gate_fixture_forecast_requires_distribution_and_paired_score():
+    good = {"most_likely": {"home_goals": 1, "away_goals": 0, "prob": 0.12},
+            "shortlist": [{"home_goals": 1, "away_goals": 0, "prob": 0.12}],
+            "grid": [[0.5, 0.2], [0.2, 0.1]],
+            "one_x_two": {"home": 0.7, "draw": 0.2, "away": 0.1}}
+    gate_fixture_forecast(good)                                # grid sums ~1, all three 1X2, paired score
+    with pytest.raises(ValueError, match="(?i)grid|1x2|naked"):
+        gate_fixture_forecast({"most_likely": {"home_goals": 1, "away_goals": 0, "prob": 0.12}})
+
+
+def test_gate_fixture_forecast_rejects_a_lone_1x2_outcome():
+    f = {"most_likely": {"home_goals": 1, "away_goals": 0, "prob": 0.12},
+         "grid": [[0.5, 0.2], [0.2, 0.1]], "one_x_two": {"home": 0.7}}   # only one outcome
+    with pytest.raises(ValueError, match="(?i)1x2|three"):
+        gate_fixture_forecast(f)
+
+
+def test_gate_track_rejects_a_nan_metric():
+    gate_track({"beat_close_rate": 0.56, "avg_clv": 0.018, "rps": {"model": 0.1}})  # ok
+    with pytest.raises(ValueError, match="(?i)nan|finite"):
+        gate_track({"beat_close_rate": float("nan")})

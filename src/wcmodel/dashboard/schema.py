@@ -32,6 +32,9 @@ def assert_uncertainty_companion(node: dict) -> None:
     """Every emitted probability must carry a REAL uncertainty companion — a finite ``se``
     (an MC SE; 0.0 is valid for a certain p in {0,1}) or a ``ci`` of two finite bounds.
     A missing OR degenerate (NaN/inf/empty/wrong-length) companion is a naked number."""
+    # A coverage gap or an explicit null value is NOT a naked number.
+    if node.get("coverage_gap") or node.get("value") is None:
+        return
     if "value" not in node:
         return
     se, ci = node.get("se"), node.get("ci")
@@ -58,3 +61,37 @@ def no_impute(x):
         return None if math.isnan(float(x)) else float(x)
     except (TypeError, ValueError):
         return None
+
+
+def gate_fixture_forecast(f: dict, *, tol: float = 0.05) -> None:
+    """A fixture forecast's uncertainty IS its scoreline distribution: the full grid must be
+    present and sum to ~1, the most-likely score must carry its prob, and the 1X2 must show
+    ALL THREE outcomes (never a lone score). (No per-outcome CI — the distribution is the
+    uncertainty, per the approved design.)"""
+    grid = f.get("grid")
+    if not grid or abs(sum(sum(row) for row in grid) - 1.0) > tol:
+        raise ValueError("fixture forecast: grid missing or does not sum to ~1 "
+                         "(the scoreline distribution is the uncertainty)")
+    ml = f.get("most_likely") or {}
+    if "prob" not in ml:
+        raise ValueError("fixture forecast: most_likely score is naked (no prob)")
+    oxt = f.get("one_x_two") or {}
+    if not all(k in oxt for k in ("home", "draw", "away")):
+        raise ValueError("fixture forecast: 1x2 must show all three outcomes, never a lone score")
+
+
+def gate_track(t: dict) -> None:
+    """Track-record metrics must be finite numbers or explicit null/coverage_gap — never a
+    NaN/inf token (the JSON gate uses allow_nan=False; a NaN must be sanitized to null first)."""
+    def _check(x):
+        if isinstance(x, dict):
+            if x.get("coverage_gap"):
+                return
+            for v in x.values():
+                _check(v)
+        elif isinstance(x, (list, tuple)):
+            for v in x:
+                _check(v)
+        elif isinstance(x, float) and not math.isfinite(x):
+            raise ValueError(f"track metric is not finite ({x!r}) — sanitize NaN/inf to null first")
+    _check(t)
