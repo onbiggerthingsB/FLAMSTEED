@@ -30,3 +30,15 @@ def test_ko_occupants_are_derived_from_group_placing_not_fabricated():
     assert occ[0] == {"team": "Brazil", "prob": 0.55}
     assert {"team": "Mexico", "prob": 0.30} in occ
     assert all("prob" in o and o["prob"] is not None for o in occ)
+
+
+def test_ko_occupants_consume_value_se_nodes_and_carry_se():
+    # the REAL team_progression shape: {first: {value, se}}
+    placing = {"Brazil": {"first": {"value": 0.55, "se": 0.003}},
+               "Mexico": {"first": {"value": 0.30, "se": 0.004}},
+               "Croatia": {"first": {"value": 0.0, "se": 0.0}},      # 0 prob -> excluded
+               "Japan": {}}                                          # no placing -> excluded
+    occ = ko_slot_occupants(slot_source="1A", placing=placing)
+    assert occ[0] == {"team": "Brazil", "prob": 0.55, "se": 0.003}   # value extracted, se carried, most-likely first
+    assert {"team": "Mexico", "prob": 0.30, "se": 0.004} in occ
+    assert all(o["team"] not in ("Croatia", "Japan") for o in occ)   # 0-prob + missing excluded

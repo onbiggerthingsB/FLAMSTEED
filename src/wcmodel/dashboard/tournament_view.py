@@ -31,14 +31,25 @@ def ko_slot_occupants(*, slot_source: str, placing: dict) -> list[dict]:
 
     ``slot_source`` is a bracket slot ref like ``"1A"`` (winner of group A), ``"2B"``
     (runner-up of B), or a third-place slot handled by the caller. ``placing`` is
-    ``team -> {"first": p, "second": p, "third": p}`` for the relevant group. Returns the
-    teams that can fill the slot, each with their real probability, most-likely first.
-    Nothing is invented — a team with no placing probability does not appear."""
+    ``team -> {pos: ...}`` for the relevant group, where each position is EITHER the real
+    ``team_progression`` node shape ``{"value": p, "se": se}`` OR a raw float (back-compat).
+    Returns the teams that can fill the slot, each with their real probability and the SE
+    when present, most-likely first. Nothing is invented — a team with no placing
+    probability > 0 does not appear; nothing is imputed."""
     pos = {"1": "first", "2": "second", "3": "third"}[slot_source[0]]
     occ = []
     for team, pm in placing.items():
-        p = no_impute(pm.get(pos))
+        cell = pm.get(pos)
+        if isinstance(cell, dict):                  # the real {value, se} node
+            p = no_impute(cell.get("value"))
+            se = no_impute(cell.get("se"))
+        else:                                       # backward-compat: a raw float
+            p = no_impute(cell)
+            se = None
         if p is not None and p > 0.0:
-            occ.append({"team": team, "prob": p})
+            node = {"team": team, "prob": p}
+            if se is not None:
+                node["se"] = se
+            occ.append(node)
     occ.sort(key=lambda o: o["prob"], reverse=True)
     return occ
