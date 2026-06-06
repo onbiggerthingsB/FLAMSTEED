@@ -93,6 +93,63 @@ def test_main_no_dry_run_refuses_systemexit(capsys):
     assert "GATED" in err and "pre-flip checklist" in err
 
 
+def test_launcher_delegates_to_cli_main(monkeypatch):
+    """The ``wc-dashboard-build`` console-script target delegates to the gated CLI.
+
+    The entry point is ``wc_dashboard_build:main`` (a physical top-level launcher), NOT
+    ``wcmodel.dashboard.cli:main`` directly — so the operator CLI survives environments
+    where uv's editable ``.pth`` is skipped by ``site`` (macOS ``UF_HIDDEN``). The launcher
+    must pass argv straight through to the real CLI and return its result unchanged."""
+    import wc_dashboard_build
+
+    seen = {}
+
+    def _cli(argv=None):
+        seen["argv"] = argv
+        return 0
+
+    monkeypatch.setattr("wcmodel.dashboard.cli.main", _cli)
+    rc = wc_dashboard_build.main(["--dry-run", "--cutoff", "2026-06-12T12:00:00Z"])
+    assert rc == 0
+    assert seen["argv"] == ["--dry-run", "--cutoff", "2026-06-12T12:00:00Z"]
+
+
+def test_launcher_no_dry_run_refuses_through_launcher(capsys):
+    """``--no-dry-run`` still REFUSES (SystemExit) when routed through the launcher — the
+    bootstrap must not weaken the real-feed gate (it just makes ``wcmodel`` importable)."""
+    import wc_dashboard_build
+
+    with pytest.raises(SystemExit) as exc:
+        wc_dashboard_build.main(["--no-dry-run"])
+    assert exc.value.code != 0
+    assert "GATED" in capsys.readouterr().err
+
+
+def test_launcher_recovers_src_from_hidden_pth(tmp_path):
+    """The launcher recovers the editable src root from a ``.pth`` that ``site`` skipped.
+
+    Simulates the failure mode hermetically: a site dir containing a ``.pth`` that records a
+    src root holding a ``wcmodel`` package. ``_editable_src_roots`` must surface exactly that
+    root (this is the path ``site.addpackage`` would have added were the file not hidden),
+    while ignoring comment/``import`` lines and unrelated roots."""
+    import wc_dashboard_build
+
+    src_root = tmp_path / "proj" / "src"
+    (src_root / "wcmodel").mkdir(parents=True)
+    (src_root / "wcmodel" / "__init__.py").write_text("")
+    unrelated = tmp_path / "elsewhere"
+    unrelated.mkdir()
+
+    sitedir = tmp_path / "site-packages"
+    sitedir.mkdir()
+    # A real editable .pth (bare path) + noise lines + an unrelated path that has no wcmodel.
+    (sitedir / "_editable_impl_wcmodel.pth").write_text(str(src_root))
+    (sitedir / "noise.pth").write_text(f"# comment\nimport sys\n{unrelated}\n")
+
+    roots = wc_dashboard_build._editable_src_roots([str(sitedir)])
+    assert roots == [str(src_root)]
+
+
 def test_main_dry_run_routes_to_builder(monkeypatch, capsys, tmp_path):
     """The default (dry-run) path ROUTES to ``run_build_dry`` and prints the bundle path.
 

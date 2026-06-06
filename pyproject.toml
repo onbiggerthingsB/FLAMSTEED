@@ -10,12 +10,19 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-cov>=5.0"]
 [project.scripts]
-wc-dashboard-build = "wcmodel.dashboard.cli:main"
+# Points at a physical top-level launcher (NOT wcmodel.* directly): on this iCloud-synced
+# macOS checkout uv's editable *.pth ends up UF_HIDDEN, which CPython 3.12 site.py skips, so
+# `from wcmodel...` would ModuleNotFoundError. The launcher lives in site-packages itself
+# (force-included below) and bootstraps src before delegating to wcmodel.dashboard.cli.
+wc-dashboard-build = "wc_dashboard_build:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/wcmodel"]
+# Ship the launcher as a physical top-level module in site-packages (always importable,
+# independent of the editable .pth). force-include copies it even for editable installs.
+force-include = { "src/wc_dashboard_build.py" = "wc_dashboard_build.py" }
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
