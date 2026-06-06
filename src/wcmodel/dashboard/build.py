@@ -393,6 +393,24 @@ def _ko_row(match_no: int, bracket, team_progression: dict) -> dict:
     }
 
 
+def _safe_bundle_dir(out_root: Path, cutoff) -> Path:
+    """Resolve the per-cutoff bundle dir, REFUSING any name that could escape ``out_root``.
+    The dir is ``rmtree``-d on rebuild (clean rebuild, FIX B), and a raw ``--cutoff`` is
+    operator input, so a name carrying a path separator / ``..`` / an absolute path must be
+    rejected BEFORE we delete anything. Two layers: reject a traversing/degenerate name, then
+    assert the RESOLVED path is a DIRECT child strictly under ``out_root``."""
+    name = str(cutoff).replace(":", "").replace(" ", "T")
+    if (not name or name in (".", "..") or "/" in name or "\\" in name
+            or ".." in Path(name).parts or Path(name).is_absolute()):
+        raise ValueError(f"unsafe bundle dir name from cutoff {cutoff!r}: {name!r}")
+    bundle = out_root / name
+    resolved, root = bundle.resolve(), out_root.resolve()
+    resolved.relative_to(root)                       # raises ValueError if not under out_root
+    if resolved.parent != root:
+        raise ValueError(f"bundle dir must be a direct child of {root!s}: {resolved!s}")
+    return bundle
+
+
 def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
                    out_root=None, tournament=None, backtest_records=None) -> Path:
     """Build + write the FULL snapshot bundle for ``cutoff``. Returns the bundle dir. Heavy
@@ -437,6 +455,7 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
     cfg = config or load_config()
     fk = fit_kwargs or {}
     out_root = Path(out_root or cfg["dashboard"]["output_dir"])
+    bundle = _safe_bundle_dir(out_root, cutoff)  # FIX B: refuse a traversal cutoff BEFORE the heavy fit/rmtree
     # The fit cache defaults to the shared project cache (paths.cache) — OUTSIDE the dashboard
     # output tree entirely, never under out_root and never inside the per-cutoff bundle dir.
     # So the bundle dir holds ONLY stamped JSON artifacts (a frontend globbing the bundle's
@@ -557,11 +576,16 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
     from wcmodel.dashboard.schema import coverage_gap
     from wcmodel.dashboard.track import track_record
 
-    # FIX E: take the metrics branch ONLY when there are ACTUAL records — a TRUTHY-but-EMPTY
-    # dict (empty bets/preds) would make clv_summary([]) return NaN, which gate_track then
-    # raises on. An empty records dict is an honest coverage_gap, not a NaN.
-    if backtest_records and (backtest_records.get("bets") or backtest_records.get("preds")):
-        track = track_record(bets=backtest_records["bets"], preds=backtest_records["preds"])
+    # FIX E: defensive .get — NEVER hard-index (a real ``walkforward.Metrics.to_dict()`` has no
+    # "preds" key, so ``backtest_records["preds"]`` would KeyError). Take the metrics branch when
+    # there are ANY records: bets-only or preds-only is legitimate (a preds-only track = forecasts
+    # made but no bet cleared the edge threshold) — ``track_record`` GAPS the CLV block when there
+    # are no bets and rps/reliability when no preds. A TRUTHY-but-EMPTY dict -> honest coverage_gap
+    # (never ``clv_summary([])``'s NaN, which gate_track would raise on, crashing the build).
+    bets = (backtest_records or {}).get("bets") or []
+    preds = (backtest_records or {}).get("preds") or []
+    if bets or preds:
+        track = track_record(bets=bets, preds=preds)
         gate_track(track)                            # STOP: never write a non-finite/out-of-bounds metric
     else:
         track = coverage_gap("no backtest records supplied")
@@ -578,8 +602,8 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
                 or bool(getattr(ranked, "is_synthetic", False)))
     prov = Provenance(cutoff=str(cutoff), posterior_key=meta["key"], git=_git_rev(),
                       is_synthetic=is_synth, n_sims=sim.n_sims)
-    bundle = out_root / str(cutoff).replace(":", "").replace(" ", "T")
-    # CLEAN REBUILD (FIX B). The bundle dir holds ONLY this build's stamped JSON (the glob
+    # CLEAN REBUILD (FIX B). The bundle dir (validated as a direct child of out_root above)
+    # holds ONLY this build's stamped JSON (the glob
     # contract). A bare mkdir(exist_ok=True) overwrites named files but leaves ORPHANED
     # top-level/``fixtures/*.json`` from a prior/different build — a stale-provenance file the
     # frontend would render AND a byte-reproducibility/§10 violation. So clear the per-cutoff

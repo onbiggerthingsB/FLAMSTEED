@@ -801,6 +801,13 @@ Implemented on branch `phase3-monte-carlo`.
     never bound-checked). The build takes the metrics branch ONLY when there are ACTUAL
     records (`backtest_records and (bets or preds)`) — a truthy-but-empty records dict yields
     an honest `coverage_gap` track, never a `clv_summary([])` NaN the gate would raise on.
+  - **Preds-only / Metrics-shaped records are handled (convergence Codex round-2 FIX E).** The
+    build reads `bets`/`preds` via defensive `.get` (NEVER hard-index — a real
+    `walkforward.Metrics.to_dict()` has no `preds` key, so `["preds"]` would `KeyError`). A
+    preds-only track (forecasts made, no bet cleared the edge threshold) is legitimate:
+    `track_record` GAPS the CLV block (`beat_close_rate`/`avg_clv` = None, `n_bets` = 0) instead
+    of `clv_summary([])`'s NaN, while RPS/reliability stay populated from the preds; gate_track
+    passes (None is exempt). A no-records dict still gaps the whole track.
 - **NON-REAL / synthetic posture (`is_synthetic` taint + DRY-RUN banner).** v1 is synthetic
   only; the `is_synthetic` taint propagates into the provenance envelope and the DRY-RUN
   banner (`DRY_RUN_BANNER`) marks every synthetic snapshot as unmistakably non-real (no real
@@ -835,7 +842,13 @@ Implemented on branch `phase3-monte-carlo`.
   named files but leaves ORPHANED top-level/`fixtures/*.json` from a prior/different build — a
   stale-provenance file the frontend would render AND a byte-reproducibility/§10 violation. So
   the bundle dir holds ONLY this build's stamped JSON (the glob contract), and a rebuild is
-  byte-identical with no surviving orphan.
+  byte-identical with no surviving orphan. **The `rmtree` is PROVABLY scoped (convergence Codex
+  round-2 FIX B).** Because the dir name derives from a raw `--cutoff` (operator input) and the
+  op is destructive, `_safe_bundle_dir` validates BEFORE any delete (and before the heavy fit):
+  it REJECTS a name carrying a path separator / `..` / an absolute path, then asserts the
+  RESOLVED bundle path is a DIRECT child strictly under `out_root` (`resolve().relative_to` +
+  `parent == out_root`). A traversal cutoff (`"../evil"`, `"/etc/x"`, `"2026/06/12"`) raises
+  `ValueError` and deletes nothing out-of-tree.
 - **The UTC-date edge key (match the scan `event_key`, not the local date).** The edge lookup
   key is `(home, away, UTC-commence-date-str)` — the fixture's UTC COMMENCE DATE reconstructed
   from its local `date` + local `time`-with-offset (`_fixture_utc_commence_date`), NOT the raw

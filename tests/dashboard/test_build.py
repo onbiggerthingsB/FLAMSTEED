@@ -214,6 +214,46 @@ def test_rebuild_clears_stale_artifacts_from_the_bundle_dir(small_store, synthet
     assert (sibling / "keepme.json").exists(), "the clear leaked OUTSIDE the per-cutoff bundle dir"
 
 
+def test_safe_bundle_dir_rejects_path_traversal_cutoffs(tmp_path):
+    """FIX B (Codex still-open): the per-cutoff bundle dir is ``rmtree``-d on rebuild, so a
+    cutoff carrying a path separator / ``..`` / an absolute path MUST be refused BEFORE any
+    delete — a raw ``--cutoff`` is operator input. The bundle-name strip (``:``/space only)
+    does not reject separators, and there was no resolve()/relative_to(out_root) guard.
+
+    RED before (no validation -> a ``../evil`` bundle resolves OUTSIDE out_root); GREEN after
+    (sanitize the name AND assert the resolved path is a direct child strictly under out_root)."""
+    from wcmodel.dashboard.build import _safe_bundle_dir
+    out_root = tmp_path / "out"
+    out_root.mkdir()
+    # a normal ISO cutoff is fine and lands as a DIRECT child of out_root
+    b = _safe_bundle_dir(out_root, "2026-06-12T12:00:00Z")
+    assert b.parent.resolve() == out_root.resolve()
+    assert b.name == "2026-06-12T120000Z"
+    # traversal / separators / absolute / degenerate names are REFUSED (a destructive-op guard)
+    for bad in ("../evil", "..", ".", "2026/06/12", "/etc/passwd", "a\\b", ""):
+        with pytest.raises(ValueError):
+            _safe_bundle_dir(out_root, bad)
+
+
+@pytest.mark.slow
+def test_build_refuses_a_traversal_cutoff_without_deleting_out_of_tree_dirs(
+        small_store, synthetic_tournament, tmp_path):
+    """FIX B (wiring): build_snapshot must REFUSE a traversal cutoff UP FRONT (before the
+    rmtree, and before the heavy fit) so it can never delete an out-of-tree directory."""
+    from wcmodel.dashboard.build import build_snapshot
+    out_root = tmp_path / "out"
+    out_root.mkdir()
+    sentinel = tmp_path / "sentinel"           # a SIBLING of out_root that ../sentinel would hit
+    sentinel.mkdir()
+    (sentinel / "keep.txt").write_text("precious")
+    with pytest.raises(ValueError):
+        build_snapshot("../sentinel", store=small_store, items=[],
+                       fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0,
+                                   "cache_dir": str(tmp_path / "fc")},
+                       out_root=out_root, tournament=synthetic_tournament)
+    assert (sentinel / "keep.txt").exists(), "a traversal cutoff must NEVER delete an out-of-tree dir"
+
+
 @pytest.mark.slow
 def test_schedule_gate_is_wired_and_real_occupants_carry_se(small_store, synthetic_tournament,
                                                             tmp_path):

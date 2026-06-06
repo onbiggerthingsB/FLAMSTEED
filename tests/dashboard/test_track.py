@@ -26,6 +26,41 @@ def test_track_record_leads_with_clv_and_carries_rps_vs_baselines():
     assert tr["is_synthetic"] is True
 
 
+def test_track_record_preds_only_gaps_clv_not_nan():
+    """FIX E: predictions made but NO bet cleared the edge threshold is LEGITIMATE — the track
+    must show RPS/reliability and GAP the CLV block (beat_close_rate/avg_clv None, n_bets 0),
+    NEVER a NaN (which gate_track would raise on, crashing the build). RED before (track_record
+    calls clv_summary([]) -> NaN beat_close_rate); GREEN after (None)."""
+    preds = [{"p": 0.6, "hit": 1, "rps_model": 0.10, "rps_market": 0.12, "rps_elo": 0.15}]
+    tr = track_record(bets=[], preds=preds)
+    assert tr["n_bets"] == 0
+    assert tr["beat_close_rate"] is None and tr["avg_clv"] is None
+    assert not (isinstance(tr["beat_close_rate"], float) and math.isnan(tr["beat_close_rate"]))
+    assert tr["rps"]["model"] == pytest.approx(0.10)   # rps still populated from preds
+
+
+@pytest.mark.slow
+def test_preds_only_records_build_gaps_clv_no_crash(small_store, synthetic_tournament, tmp_path):
+    """FIX E (E2 wiring): a records dict with ONLY ``preds`` (no ``"bets"`` key — the shape of a
+    real ``walkforward.Metrics.to_dict()`` missing preds, or a no-bet-cleared run) must NOT
+    KeyError, and must produce a GATED track with the CLV block gapped (beat_close_rate None,
+    n_bets 0) and RPS populated — never a NaN/crash. RED before (hard-index ``["bets"]`` ->
+    KeyError, or clv_summary([]) -> NaN -> gate_track raises); GREEN after (defensive .get +
+    CLV-gap)."""
+    import json
+    from wcmodel.dashboard.build import build_snapshot
+    preds = [{"p": 0.6, "hit": 1, "rps_model": 0.10, "rps_market": 0.12, "rps_elo": 0.15}]
+    b = build_snapshot("2026-06-12T12:00:00Z", store=small_store, items=[],
+                       fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0,
+                                   "cache_dir": str(tmp_path / "fc")},
+                       out_root=tmp_path / "out", tournament=synthetic_tournament,
+                       backtest_records={"preds": preds})   # NO "bets" key (Metrics-shaped)
+    track = json.loads((b / "track.json").read_text())["data"]
+    assert track.get("coverage_gap") is not True          # a real (gated) track, not a gap
+    assert track["beat_close_rate"] is None and track["n_bets"] == 0
+    assert track["rps"]["model"] is not None              # rps populated from preds
+
+
 def test_empty_backtest_records_build_emits_a_coverage_gap_track(
         small_store, synthetic_tournament, tmp_path):
     """FIX E: a TRUTHY-but-EMPTY backtest_records dict (empty bets/preds) must NOT take the

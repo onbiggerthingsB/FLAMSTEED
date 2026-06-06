@@ -26,8 +26,14 @@ def reliability_bins(preds: list[dict], *, n_bins: int = 10) -> list[dict]:
 
 
 def track_record(*, bets: list[dict], preds: list[dict]) -> dict:
-    """CLV-first track record + RPS vs baselines + reliability bins. Paper/synthetic (v1)."""
-    summary = clv_summary(bets)
+    """CLV-first track record + RPS vs baselines + reliability bins. Paper/synthetic (v1).
+
+    FIX E: a preds-only track (forecasts made, but no bet cleared the edge threshold) is
+    LEGITIMATE — GAP the CLV block (None metrics, n_bets 0) rather than ``clv_summary([])``'s
+    NaN, which ``gate_track`` would raise on. rps/reliability stay None-safe when preds is empty.
+    """
+    summary = (clv_summary(bets) if bets
+               else {"n_bets": 0, "beat_close_rate": None, "avg_clv": None})
     rps_model = [r["rps_model"] for r in preds if "rps_model" in r]
     rps_market = [r["rps_market"] for r in preds if "rps_market" in r]
     rps_elo = [r["rps_elo"] for r in preds if "rps_elo" in r]
