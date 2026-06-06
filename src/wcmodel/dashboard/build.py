@@ -73,9 +73,14 @@ def stringify_keys(d: dict) -> dict:
 
 
 def _write(bundle: Path, name: str, payload: dict, prov: Provenance) -> None:
-    """Stamp provenance on EVERY file, NaN-sanitize, write with allow_nan=False (fail loud
-    on a residual NaN rather than emitting invalid JSON)."""
-    env = sanitize_nans(stamp(payload, prov))
+    """Stamp provenance on EVERY file, stringify tuple keys, NaN-sanitize, write with
+    allow_nan=False (fail loud on a residual NaN rather than emitting invalid JSON).
+
+    ``stringify_keys`` runs on the payload FIRST so an event-tuple-keyed artifact (e.g.
+    ``edges_by_event`` -> ``(home, away, date) -> node``) is JSON-safe before ``json.dumps``
+    — without it ``json.dumps`` raises ``TypeError: keys must be str...`` on the tuple key
+    (T4 review: ``stringify_keys`` was unit-tested but never wired in here)."""
+    env = sanitize_nans(stamp(stringify_keys(payload), prov))
     (bundle / name).write_text(json.dumps(env, indent=2, allow_nan=False))
 
 

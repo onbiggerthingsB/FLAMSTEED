@@ -5,8 +5,11 @@ from __future__ import annotations
 
 import math
 
-# The cumulative knockout ladder, shallow -> deep. Each must be >= the next.
-_LADDER = ["advance_from_group", "reach_qf", "reach_sf", "reach_final", "champion"]
+# The cumulative knockout ladder, shallow -> deep. Each must be >= the next. Mirrors the
+# sim's documented cumulative ladder champion <= reach_final <= reach_sf <= reach_qf <=
+# reach_r16 <= advance_from_group, so EVERY rung team_progression emits is gated here
+# (reach_r16 included — omitting it silently skipped a real coherence rung).
+_LADDER = ["advance_from_group", "reach_r16", "reach_qf", "reach_sf", "reach_final", "champion"]
 
 
 def validate_progression_coherence(markets: dict, *, tol: float = 1e-9) -> None:

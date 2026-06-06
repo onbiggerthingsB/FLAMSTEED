@@ -20,6 +20,29 @@ def test_coherence_rejects_a_broken_ladder():
         })
 
 
+def test_coherence_includes_reach_r16_in_the_ladder():
+    """reach_r16 sits between advance_from_group and reach_qf on the cumulative ladder
+    (champion <= reach_final <= reach_sf <= reach_qf <= reach_r16 <= advance_from_group),
+    and team_progression emits it — so the coherence gate must check it. A table where
+    reach_r16 EXCEEDS advance_from_group (a deeper stage more likely than a shallower one)
+    while every other rung is coherent must RAISE. RED before reach_r16 is in _LADDER
+    (the rung is silently skipped, so the violation slips through GREEN); GREEN after."""
+    with pytest.raises(ValueError, match="coherence"):
+        validate_progression_coherence({
+            "champion": 0.10, "reach_final": 0.18, "reach_sf": 0.30, "reach_qf": 0.45,
+            "reach_r16": 0.80,            # > advance_from_group (0.70): incoherent
+            "advance_from_group": 0.70,
+        })
+
+
+def test_coherence_accepts_a_coherent_ladder_with_reach_r16():
+    """The full ladder including reach_r16, all monotone -> no raise."""
+    validate_progression_coherence({
+        "champion": 0.10, "reach_final": 0.18, "reach_sf": 0.30, "reach_qf": 0.45,
+        "reach_r16": 0.60, "advance_from_group": 0.70,
+    })  # no raise
+
+
 def test_uncertainty_companion_required_on_every_probability():
     assert_uncertainty_companion({"value": 0.14, "se": 0.02})
     assert_uncertainty_companion({"value": 0.58, "ci": [0.52, 0.63]})

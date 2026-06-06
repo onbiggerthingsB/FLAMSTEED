@@ -1,6 +1,8 @@
+import json
 import math
 import pytest
-from wcmodel.dashboard.build import gate_artifact, sanitize_nans, stringify_keys
+from wcmodel.dashboard.build import _write, gate_artifact, sanitize_nans, stringify_keys
+from wcmodel.dashboard.provenance import Provenance
 
 
 def test_gate_rejects_a_naked_or_incoherent_artifact():
@@ -26,3 +28,25 @@ def test_sanitize_nans_turns_nan_into_null_so_json_is_valid():
 def test_stringify_keys_makes_tuple_keys_json_safe():
     out = stringify_keys({("Spain", "Morocco", "2026-06-11"): {"edge": 0.04}})
     assert "Spain|Morocco|2026-06-11" in out
+
+
+def test_write_stringifies_tuple_keys_so_a_tuple_keyed_artifact_serializes(tmp_path):
+    """``_write`` must stringify a payload's tuple keys before ``json.dumps`` — an
+    event-tuple-keyed artifact (e.g. ``edges_by_event`` returns ``(home, away, date) ->
+    node``) would otherwise raise ``TypeError: keys must be str...``. RED before
+    ``_write`` calls ``stringify_keys`` (json.dumps raises on the tuple key); GREEN after
+    (the on-disk JSON carries the joined string key). ``stringify_keys`` is unit-tested in
+    isolation but was never wired into ``_write`` — this pins the wiring."""
+    prov = Provenance(cutoff="2026-06-12T00:00:00Z", posterior_key="k", git="abc",
+                      is_synthetic=True, n_sims=10)
+    payload = {("Spain", "Morocco", "2026-06-11"): {"edge": 0.04},
+               ("Brazil", "Serbia", "2026-06-12"): {"edge": 0.01}}
+    _write(tmp_path, "edges_by_event.json", payload, prov)        # must NOT raise
+
+    env = json.loads((tmp_path / "edges_by_event.json").read_text())
+    # The provenance envelope is intact AND the tuple keys are now JSON string keys.
+    assert "Spain|Morocco|2026-06-11" in env["data"]
+    assert "Brazil|Serbia|2026-06-12" in env["data"]
+    assert env["data"]["Spain|Morocco|2026-06-11"]["edge"] == 0.04
+    # No tuple-shaped (un-stringified) key leaked through as a Python repr string.
+    assert not any(k.startswith("(") for k in env["data"])
