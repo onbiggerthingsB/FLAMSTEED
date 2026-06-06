@@ -128,3 +128,7 @@ live:
     min_liquidity: 0.0             # liquidity floor; markets below are coverage-gapped (0 = keep all in dry-run)
     progression_coverage_gated: true  # outright/progression surface is SECONDARY + coverage-gated (sub-threshold = gap)
   ledger_path: reports/live_paper_ledger.jsonl
+dashboard:
+  dry_run: true               # synthetic-odds posture; the real-feed flip is gated (ASSUMPTIONS)
+  output_dir: data/dashboard  # snapshot bundles land here (under the gitignored /data/)
+  n_sims: 20000               # sim sample size for the snapshot (overridable per build)
