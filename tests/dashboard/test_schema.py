@@ -35,3 +35,23 @@ def test_coverage_gap_is_explicit_not_a_number():
 def test_no_impute_passes_nan_through_as_null_never_zero():
     assert no_impute(float("nan")) is None
     assert no_impute(1.7) == 1.7
+
+
+def test_se_zero_is_a_valid_companion_certain_market():
+    # an eliminated team: champion prob 0 -> binomial SE exactly 0 -> legitimate, NOT naked
+    assert_uncertainty_companion({"value": 0.0, "se": 0.0})   # no raise
+
+
+def test_degenerate_companions_are_rejected_as_naked():
+    for bad in ({"value": 0.1, "se": float("nan")},
+                {"value": 0.1, "se": float("inf")},
+                {"value": 0.1, "ci": []},
+                {"value": 0.1, "ci": [0.5]},
+                {"value": 0.1, "ci": [0.5, float("nan")]}):
+        with pytest.raises(ValueError, match="naked"):
+            assert_uncertainty_companion(bad)
+
+
+def test_valid_companions_still_pass():
+    assert_uncertainty_companion({"value": 0.14, "se": 0.02})        # finite se
+    assert_uncertainty_companion({"value": 0.58, "ci": [0.52, 0.63]}) # 2 finite bounds

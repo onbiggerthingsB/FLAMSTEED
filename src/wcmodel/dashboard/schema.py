@@ -21,15 +21,24 @@ def validate_progression_coherence(markets: dict, *, tol: float = 1e-9) -> None:
             )
 
 
+def _finite_number(x) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+
+
 def assert_uncertainty_companion(node: dict) -> None:
-    """Every emitted probability must carry an uncertainty companion — an ``se`` (MC SE)
-    or a ``ci`` interval. A bare ``{"value": p}`` is a naked number and is rejected."""
+    """Every emitted probability must carry a REAL uncertainty companion — a finite ``se``
+    (an MC SE; 0.0 is valid for a certain p in {0,1}) or a ``ci`` of two finite bounds.
+    A missing OR degenerate (NaN/inf/empty/wrong-length) companion is a naked number."""
     if "value" not in node:
         return
-    if node.get("se") is None and node.get("ci") is None:
+    se, ci = node.get("se"), node.get("ci")
+    se_ok = _finite_number(se)
+    ci_ok = (isinstance(ci, (list, tuple)) and len(ci) == 2
+             and all(_finite_number(b) for b in ci))
+    if not (se_ok or ci_ok):
         raise ValueError(
-            f"naked number: {node!r} has a value but no uncertainty companion (se or ci) "
-            "— the no-naked-numbers rule applies at the source"
+            f"naked number: {node!r} has a value but no REAL uncertainty companion "
+            "(need a finite se or a 2-bound finite ci) — the no-naked-numbers rule applies"
         )
 
 
