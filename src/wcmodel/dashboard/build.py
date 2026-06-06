@@ -42,7 +42,13 @@ from pathlib import Path
 
 from wcmodel.backtest.walkforward import _sample_is_synthetic
 from wcmodel.dashboard.provenance import Provenance, _git_rev, stamp
-from wcmodel.dashboard.schema import assert_uncertainty_companion, validate_progression_coherence
+from wcmodel.dashboard.schema import (
+    assert_uncertainty_companion,
+    gate_fixture_forecast,
+    gate_track,
+    validate_progression_coherence,
+)
+from wcmodel.dashboard.tournament_view import ko_slot_occupants
 
 
 def _bundle_is_synthetic(items) -> bool:
@@ -117,26 +123,186 @@ def _write(bundle: Path, name: str, payload: dict, prov: Provenance) -> None:
     (bundle / name).write_text(json.dumps(env, indent=2, allow_nan=False))
 
 
-def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
-                   out_root=None, tournament=None) -> Path:
-    """Build + write one snapshot bundle for ``cutoff``. Returns the bundle dir. Heavy compute
-    is delegated to cached_fit/simulate/scan; build.py only assembles, GATES, stamps, writes.
+def _match_id(home: str, away: str, date) -> str:
+    """A stable, filesystem-safe per-fixture id: ``home__away__date`` with any path-/JSON-
+    hostile char collapsed to ``_``. Derived from the ``(home, away, date)`` event identity
+    (the same triple ``edges_by_event``/``event_key`` key on), so it is deterministic across
+    builds and joins back to the edge/schedule rows."""
+    raw = f"{home}__{away}__{date}"
+    return "".join(c if (c.isalnum() or c in "._-") else "_" for c in raw)
 
-    GLOB CONTRACT. The snapshot bundle dir contains ONLY stamped JSON artifacts (top-level
-    ``*.json`` + a ``fixtures/`` dir once wired); model fit caches live OUTSIDE the bundle
-    (default ``paths.cache``, the shared project cache), so a reader globbing the bundle's
-    ``*.json`` never picks up a cache file. The fit cache default is OUTSIDE the dashboard
-    ``out_root`` tree entirely (not just outside the leaf bundle dir), so the whole output
-    tree a production run reuses across cutoffs holds only stamped bundle subdirs.
+
+def _edge_key(home: str, away: str, date) -> tuple:
+    """The ``edges_by_event`` lookup key for a fixture: ``(home, away, commence_date)`` where
+    the date is a calendar ``date`` (the scanner derives the same via ``event_key``). A
+    fixture date string is day-resolution, so we coerce to a ``date`` for an exact join."""
+    import pandas as pd
+
+    return (home, away, pd.Timestamp(str(date)).date())
+
+
+def _forecast_summary(forecast: dict) -> dict:
+    """The schedule-ROW projection of an already-gated full ``fixture_forecast``: the
+    most-likely score (WITH its prob — never naked) + the full 1X2 split. The grid lives
+    only in the per-fixture detail; the row carries the headline. No separate gate is needed
+    — this is a pure projection of a forecast the detail already gated."""
+    return {"most_likely": forecast["most_likely"], "one_x_two": forecast["one_x_two"]}
+
+
+def _recent_form(results, team: str, *, n: int = 5) -> dict:
+    """Last-``n`` PLAYED matches for ``team`` from the as-of ``results`` read — RAW history
+    (Derived), NULL-safe + coverage-gapped when the team has no played history as-of-cutoff.
+
+    Reuses the SHARED ``valid_played_results`` definition (finite/non-negative/integral,
+    played) so the form set matches the model's row set; nothing is fabricated. Each entry is
+    ``{date, home_team, away_team, home_score, away_score}`` straight from the store."""
+    from wcmodel.dashboard.schema import coverage_gap
+    from wcmodel.data.features import valid_played_results
+
+    if results is None or results.empty:
+        return coverage_gap("no played history as-of cutoff")
+    played = valid_played_results(results)
+    mask = (played["home_team"] == team) | (played["away_team"] == team)
+    mine = played.loc[mask].copy()
+    if mine.empty:
+        return coverage_gap("no played history as-of cutoff")
+    mine = mine.sort_values("date").tail(n)
+    return {"matches": [
+        {"date": str(r.date), "home_team": r.home_team, "away_team": r.away_team,
+         "home_score": int(r.home_score), "away_score": int(r.away_score)}
+        for r in mine.itertuples(index=False)
+    ]}
+
+
+def _fixture_why(posterior, *, home: str, away: str, date, xg_read, features, results):
+    """The match-detail "why" for one fixture: team-strength posteriors (home + away),
+    xG coverage-gated, rest_days (Phase-1 feature) NULL-safe, and recent form (raw history).
+    Every absent input is an explicit ``coverage_gap`` / NULL — never imputed."""
+    from wcmodel.dashboard.schema import coverage_gap
+    from wcmodel.dashboard.why import team_strength, xg_or_gap
+
+    def _xg_node(team: str) -> dict:
+        # xG coverage is presence of the team's own xg row in the as-of read; the WC group
+        # fixtures are uncovered (StatsBomb is historical), so this is an honest gap there.
+        if xg_read is None or xg_read.empty or "team" not in xg_read.columns:
+            return xg_or_gap(xg=None, covered=False)
+        rows = xg_read.loc[xg_read["team"] == team]
+        if rows.empty:
+            return xg_or_gap(xg=None, covered=False)
+        return xg_or_gap(xg=float(rows["xg"].iloc[-1]), covered=True)
+
+    def _rest_days(team: str) -> dict:
+        if features is None or features.empty or "rest_days" not in features.columns:
+            return coverage_gap("rest_days unavailable as-of cutoff")
+        rows = features.loc[features["team"] == team]
+        if rows.empty:
+            return coverage_gap("rest_days unavailable as-of cutoff")
+        from wcmodel.dashboard.schema import no_impute
+        v = no_impute(rows["rest_days"].iloc[-1])
+        return {"value": v} if v is not None else coverage_gap("rest_days null as-of cutoff")
+
+    return {
+        "team_strength": {"home": team_strength(posterior, home),
+                          "away": team_strength(posterior, away)},
+        "xg": {"home": _xg_node(home), "away": _xg_node(away)},
+        "rest_days": {"home": _rest_days(home), "away": _rest_days(away)},
+        "recent_form": {"home": _recent_form(results, home),
+                        "away": _recent_form(results, away)},
+    }
+
+
+def _placing_for_group(team_progression: dict, teams) -> dict:
+    """Slice ``{team: {pos: {value, se}}}`` for a group's teams out of the full
+    ``team_progression`` table — the ``first``/``second``/``third`` {value,se} nodes
+    ``ko_slot_occupants`` consumes (C3). A team absent from the table is skipped."""
+    out = {}
+    for t in teams:
+        node = team_progression.get(t)
+        if not node:
+            continue
+        out[t] = {pos: node[pos] for pos in ("first", "second", "third") if pos in node}
+    return out
+
+
+def _ko_row(match_no: int, bracket, team_progression: dict) -> dict:
+    """One UNRESOLVED-knockout schedule row: per feeder ref, the probable slot occupants
+    DERIVED from the group-placing markets via ``ko_slot_occupants`` (C3). Feeder refs:
+
+      * ``1X``/``2X`` — group-position slot: occupants are group X's first/second placers.
+      * ``3rd-XXXXX`` — best-third slot: occupants are the THIRD placers of the eligible
+        groups (the verified eligible-set the bracket parsed in ``third_place_slots``). We do
+        NOT re-derive FIFA Annex C: the slot->eligible-groups mapping is read straight from
+        the bracket, and the per-sim Annex-C assignment (``assign_thirds_to_slots``) is a
+        random tournament outcome not knowable at build time, so the schedule shows every
+        eligible third's probability (most-likely first), never a fabricated single occupant.
+    """
+    import re
+
+    home_ref, away_ref = bracket.knockout_feeders[match_no]
+    eligible = bracket.third_place_slots.get(match_no)
+
+    def _occupants_for(ref: str):
+        m = re.fullmatch(r"([12])([A-L])", ref)
+        if m:
+            placing = _placing_for_group(team_progression, bracket.groups.get(m.group(2), []))
+            return ko_slot_occupants(slot_source=ref, placing=placing)
+        if re.fullmatch(r"3rd-([A-L]{5})", ref) and eligible:
+            # Eligible-group thirds (verified slot->eligible mapping from the bracket).
+            teams = [t for g in sorted(eligible) for t in bracket.groups.get(g, [])]
+            placing = _placing_for_group(team_progression, teams)
+            return ko_slot_occupants(slot_source="3", placing=placing)
+        # A winner/loser feeder ("W74"/"L101") resolves only deeper in the bracket — no
+        # placing-derived occupant exists yet, so it is an explicit (non-fabricated) gap.
+        return {"coverage_gap": True, "reason": f"feeder {ref} resolves from a later match"}
+
+    return {
+        "match": match_no, "stage": bracket.match_round.get(match_no), "status": "upcoming",
+        "home_ref": home_ref, "away_ref": away_ref,
+        "home_occupants": _occupants_for(home_ref),
+        "away_occupants": _occupants_for(away_ref),
+    }
+
+
+def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
+                   out_root=None, tournament=None, backtest_records=None) -> Path:
+    """Build + write the FULL snapshot bundle for ``cutoff``. Returns the bundle dir. Heavy
+    compute is delegated to cached_fit/simulate/scan; build.py only assembles, GATES every
+    artifact, stamps the SAME provenance on every file, and writes.
+
+    THE BUNDLE (each file stamped via ``_write`` -> provenance + NaN-safe + stringify-keys):
+
+      * ``tournament.json`` — ``team_progression(sim)``, gated by ``gate_artifact`` (per-team
+        uncertainty companion + coherence; a coverage_gap node is exempt per C1).
+      * ``schedule.json`` — ``build_schedule`` over the GROUP fixtures, each row carrying a
+        forecast summary (a projection of the GATED full forecast) + the edge node (or a
+        coverage_gap) by event key; PLUS one row per UNRESOLVED knockout fixture with its
+        slot occupants (``ko_slot_occupants``, C3).
+      * ``fixtures/<match_id>.json`` — per GROUP fixture: the FULL ``fixture_forecast`` (incl
+        the grid) GATED by ``gate_fixture_forecast`` + the "why" (team strength / xG / rest /
+        recent form, all NULL-safe + coverage-gapped) + the edge node (or a gap).
+      * ``track.json`` — ``track_record`` GATED by ``gate_track`` when ``backtest_records`` is
+        supplied; else an honest ``coverage_gap`` ("no backtest records supplied"). The build
+        NEVER re-runs the heavy walk-forward backtest.
+      * ``meta.json`` — markets list + provenance.
+
+    GATING IS A TRUE STOP. ``gate_fixture_forecast`` (each fixture forecast), ``gate_artifact``
+    (tournament), and ``gate_track`` (track) RAISE before any write, so a violating artifact is
+    never persisted. The edges dict (tuple keys) is JSON-safed by ``_write``'s ``stringify_keys``.
+
+    GLOB CONTRACT. The bundle dir contains ONLY stamped JSON artifacts (top-level ``*.json`` +
+    the ``fixtures/`` dir); model fit caches live OUTSIDE the bundle (default ``paths.cache``,
+    the shared project cache), so a reader globbing the bundle's ``*.json`` never picks up a
+    cache file, and the whole ``out_root`` tree a production run reuses holds only bundle dirs.
 
     ``tournament`` (default ``None`` -> the verified ``config/tournament_2026.yaml``) is
-    threaded straight to ``SimConfig`` so a minimal synthetic bracket can be simulated over a
-    compact posterior (the leakage/repro canaries pass one; production passes nothing and
-    gets the real 48-team draw). Without this hook ``RateBook(posterior)`` would ``KeyError``
-    whenever the posterior does not cover every team in the real bracket."""
+    threaded straight to ``SimConfig`` AND reused to build the schedule + bracket, so a minimal
+    synthetic bracket can be simulated over a compact posterior (the leakage/repro canaries
+    pass one; production passes nothing and gets the real 48-team draw). Without this hook
+    ``RateBook(posterior)`` would ``KeyError`` whenever the posterior misses a bracket team."""
     from wcmodel.config import load_config
     from wcmodel.model.cache import cached_fit
-    from wcmodel.sim.run import SimConfig, simulate
+    from wcmodel.sim.bracket import build_bracket
+    from wcmodel.sim.run import SimConfig, _load_tournament, simulate
 
     cfg = config or load_config()
     fk = fit_kwargs or {}
@@ -165,15 +331,119 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
     tournament_view = team_progression(sim)
     gate_artifact(tournament_view)                  # STOP: never write a naked/incoherent table
 
+    # Resolve the SAME tournament dict the sim used (None -> the verified 2026 draw) so the
+    # schedule + bracket are built from the identical structure — never re-derived here.
+    repo_root = Path(__file__).resolve().parents[3]
+    tdict = _load_tournament(tournament, repo_root)
+    bracket = build_bracket(tdict)
+
+    # --- Live edges (PRIMARY 1X2 surface), re-keyed by event. Heavy compute stays in scan ->
+    # decide_live -> cached_fit/simulate; a missing/odds-less item is a counted non-bet (the
+    # scan batch-guard), never a crash. An empty/None items list yields no edges (and a
+    # synthetic-by-default bundle taint below). edges_by_event propagates the per-edge taint.
+    from wcmodel.dashboard.edges import edges_by_event
+    from wcmodel.live.scan import scan
+
+    ranked = scan(store, list(items or []), cutoff=cutoff, config=cfg, fit_kwargs=fk)
+    edges = edges_by_event(ranked)
+
+    # --- The as-of reads the "why" projects from (NULL-safe / coverage-gapped when absent).
+    # These are pure store.read(cutoff)/features.build(cutoff) — no recompute beyond the
+    # already-leakage-gated producers.
+    from wcmodel.data.features import build as features_build
+
+    def _safe_read(name):
+        try:
+            return store.read(name, cutoff=cutoff)
+        except FileNotFoundError:
+            return None
+
+    xg_read = _safe_read("xg")
+    results_read = _safe_read("results")
+    try:
+        features = features_build(cutoff, store, config=cfg)
+    except Exception:
+        features = None                              # NULL-safe: rest_days simply coverage-gaps
+
+    # --- Per-fixture forecasts (FULL, gated) + schedule rows. GROUP fixtures only feed
+    # build_schedule (the KO fixtures carry placeholder feeders + no date). neutral=True per
+    # the confirmed WC design (group stage is on neutral ground; the host exception is a
+    # downstream refinement, not modelled here).
+    from wcmodel.dashboard.fixtures import build_schedule, fixture_forecast
+
+    group_fixtures = [fx for fx in tdict["fixtures"] if fx.get("match") is None]
+    schedule = build_schedule(group_fixtures, cutoff=str(cutoff))
+
+    fixture_details: dict[str, dict] = {}
+    by_pair_date: dict[tuple, dict] = {}
+    for fx in group_fixtures:
+        home, away, date = fx["home"], fx["away"], fx["date"]
+        forecast = fixture_forecast(posterior, home=home, away=away, neutral=True)
+        gate_fixture_forecast(forecast)              # STOP: never write a naked/degenerate forecast
+        ekey = _edge_key(home, away, date)
+        edge_node = edges.get(ekey, {"coverage_gap": True,
+                                     "reason": "no live edge for this fixture as-of cutoff"})
+        detail = {
+            "match_id": _match_id(home, away, date),
+            "home": home, "away": away, "date": str(date), "stage": "group",
+            "forecast": forecast,
+            "why": _fixture_why(posterior, home=home, away=away, date=date,
+                                xg_read=xg_read, features=features, results=results_read),
+            "edge": edge_node,
+        }
+        fixture_details[detail["match_id"]] = detail
+        by_pair_date[(home, away, str(date))] = {
+            "forecast_summary": _forecast_summary(forecast), "edge": edge_node,
+            "match_id": detail["match_id"],
+        }
+
+    # Attach the forecast summary + edge to each GROUP schedule row by (home, away, date).
+    for row in schedule:
+        attach = by_pair_date.get((row["home"], row["away"], str(row["date"])))
+        if attach is not None:
+            row.update(attach)
+        else:                                        # a fixture the forecaster skipped -> gap
+            row["forecast_summary"] = {"coverage_gap": True,
+                                       "reason": "no forecast for this fixture"}
+            row["edge"] = {"coverage_gap": True, "reason": "no live edge for this fixture"}
+
+    # UNRESOLVED knockout rows: slot occupants derived from the group-placing markets.
+    ko_rows = [_ko_row(m, bracket, tournament_view)
+               for m in sorted(bracket.knockout_feeders)]
+
+    # --- Track record: track_record(gated) when records supplied, else an honest coverage_gap
+    # (the build NEVER re-runs the heavy walk-forward backtest).
+    from wcmodel.dashboard.schema import coverage_gap
+    from wcmodel.dashboard.track import track_record
+
+    if backtest_records:
+        track = track_record(bets=backtest_records["bets"], preds=backtest_records["preds"])
+        gate_track(track)                            # STOP: never write a non-finite track metric
+    else:
+        track = coverage_gap("no backtest records supplied")
+
     # C2: fail-safe taint — NON-REAL unless EVERY item is explicitly real (ANY synthetic
-    # or nested-synthetic item taints the whole bundle; items None/empty -> synthetic).
-    is_synth = _bundle_is_synthetic(items)
+    # or nested-synthetic item taints the whole bundle; items None/empty -> synthetic). The
+    # scan's own synthetic flag is ORed in so a synthetic odds feed taints even a real-shaped
+    # items list.
+    is_synth = _bundle_is_synthetic(items) or bool(getattr(ranked, "is_synthetic", False))
     prov = Provenance(cutoff=str(cutoff), posterior_key=meta["key"], git=_git_rev(),
                       is_synthetic=is_synth, n_sims=sim.n_sims)
     bundle = out_root / str(cutoff).replace(":", "").replace(" ", "T")
     bundle.mkdir(parents=True, exist_ok=True)
+
     _write(bundle, "tournament.json", tournament_view, prov)
+    _write(bundle, "schedule.json", {"group": schedule, "knockout": ko_rows}, prov)
+    _write(bundle, "track.json", track, prov)
     _write(bundle, "meta.json",
-           {"markets": list(next(iter(tournament_view.values())).keys())}
-           if tournament_view else {}, prov)
+           {"markets": list(next(iter(tournament_view.values())).keys())
+                       if tournament_view else [],
+            "provenance_note": "every artifact carries the SAME as-of provenance envelope"},
+           prov)
+
+    fixtures_dir = bundle / "fixtures"
+    fixtures_dir.mkdir(exist_ok=True)
+    for mid, detail in fixture_details.items():
+        _write(fixtures_dir, f"{mid}.json", detail, prov)
+
     return bundle

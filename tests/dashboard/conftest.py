@@ -19,10 +19,19 @@ from __future__ import annotations
 
 import pytest
 
+from wcmodel.config import load_config
 from tests.data.conftest import (  # noqa: F401  (re-exported so tests/dashboard/ sees them)
     small_store,
     mutable_store,
 )
+
+
+@pytest.fixture
+def cfg() -> dict:
+    """The project config dict (same fixture as tests/backtest|live/conftest.py), exposed
+    here so the C5 full-bundle e2e (which threads ``config=cfg`` into ``build_snapshot`` /
+    the scanner) reuses the SAME resolved config every other layer fits against."""
+    return load_config()
 
 # PANEL teams every fixture lives in the small_store posterior, so RateBook(posterior)
 # resolves every group fixture. Mirrors tests/sim/test_leakage_sim.py's _PANEL_TEAMS.
