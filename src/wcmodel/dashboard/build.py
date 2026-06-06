@@ -177,34 +177,56 @@ def _recent_form(results, team: str, *, n: int = 5) -> dict:
 def _fixture_why(posterior, *, home: str, away: str, date, xg_read, features, results):
     """The match-detail "why" for one fixture: team-strength posteriors (home + away),
     xG coverage-gated, rest_days (Phase-1 feature) NULL-safe, and recent form (raw history).
-    Every absent input is an explicit ``coverage_gap`` / NULL — never imputed."""
-    from wcmodel.dashboard.schema import coverage_gap
+    Every absent input is an explicit ``coverage_gap`` / NULL — never imputed.
+
+    FIXTURE-IDENTITY MATCH, NO STALE REUSE (C5 FOCAL Codex HIGH-1/HIGH-2). xG and rest_days
+    are emitted ONLY when THIS exact fixture has a covered/played row — matched by the fixture's
+    own identity, never by team-last. The xg store is per ``(match_id, team)`` and StatsBomb is
+    HISTORICAL, so a WC-2026 FUTURE fixture is never covered -> xG ALWAYS gaps. ``features.build
+    (cutoff)`` DROPS future/unplayed rows, so a future fixture has no row -> rest_days ALWAYS
+    gaps. Emitting a DIFFERENT match's xg/rest onto a future fixture would be fabrication."""
+    import pandas as pd
+    from wcmodel.dashboard.schema import coverage_gap, no_impute
     from wcmodel.dashboard.why import team_strength, xg_or_gap
 
-    def _xg_node(team: str) -> dict:
-        # xG coverage is presence of the team's own xg row in the as-of read; the WC group
-        # fixtures are uncovered (StatsBomb is historical), so this is an honest gap there.
-        if xg_read is None or xg_read.empty or "team" not in xg_read.columns:
+    fixture_date = pd.Timestamp(str(date)).normalize()
+
+    def _xg_node(team: str, opp: str) -> dict:
+        # xG is covered ONLY if the xg read carries a row for THIS exact fixture identity
+        # (team == this side, opponent == the other side, match_date == the fixture date) —
+        # NEVER the team's last historical xg. A WC-2026 future fixture is never StatsBomb-
+        # covered, so this is an honest gap there.
+        if (xg_read is None or xg_read.empty
+                or not {"team", "opponent", "match_date", "xg"} <= set(xg_read.columns)):
             return xg_or_gap(xg=None, covered=False)
-        rows = xg_read.loc[xg_read["team"] == team]
+        md = pd.to_datetime(xg_read["match_date"]).dt.normalize()
+        rows = xg_read.loc[(xg_read["team"] == team) & (xg_read["opponent"] == opp)
+                           & (md == fixture_date)]
         if rows.empty:
             return xg_or_gap(xg=None, covered=False)
         return xg_or_gap(xg=float(rows["xg"].iloc[-1]), covered=True)
 
     def _rest_days(team: str) -> dict:
-        if features is None or features.empty or "rest_days" not in features.columns:
-            return coverage_gap("rest_days unavailable as-of cutoff")
-        rows = features.loc[features["team"] == team]
+        # rest_days is emitted ONLY if THIS fixture (by (home_team, away_team, date) identity)
+        # is a PLAYED row in the features frame — features.build(cutoff) drops the unplayed
+        # row, so a future fixture has no row here and gaps (never a prior match's rest).
+        need = {"rest_days", "team", "home_team", "away_team", "date"}
+        if features is None or features.empty or not need <= set(features.columns):
+            return coverage_gap("rest_days unknown for an unplayed fixture")
+        fd = pd.to_datetime(features["date"]).dt.normalize()
+        rows = features.loc[(features["team"] == team)
+                            & (features["home_team"] == home)
+                            & (features["away_team"] == away)
+                            & (fd == fixture_date)]
         if rows.empty:
-            return coverage_gap("rest_days unavailable as-of cutoff")
-        from wcmodel.dashboard.schema import no_impute
+            return coverage_gap("rest_days unknown for an unplayed fixture")
         v = no_impute(rows["rest_days"].iloc[-1])
         return {"value": v} if v is not None else coverage_gap("rest_days null as-of cutoff")
 
     return {
         "team_strength": {"home": team_strength(posterior, home),
                           "away": team_strength(posterior, away)},
-        "xg": {"home": _xg_node(home), "away": _xg_node(away)},
+        "xg": {"home": _xg_node(home, away), "away": _xg_node(away, home)},
         "rest_days": {"home": _rest_days(home), "away": _rest_days(away)},
         "recent_form": {"home": _recent_form(results, home),
                         "away": _recent_form(results, away)},
@@ -422,11 +444,16 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
     else:
         track = coverage_gap("no backtest records supplied")
 
-    # C2: fail-safe taint — NON-REAL unless EVERY item is explicitly real (ANY synthetic
-    # or nested-synthetic item taints the whole bundle; items None/empty -> synthetic). The
-    # scan's own synthetic flag is ORed in so a synthetic odds feed taints even a real-shaped
-    # items list.
-    is_synth = _bundle_is_synthetic(items) or bool(getattr(ranked, "is_synthetic", False))
+    # C2 + MED-6: fail-safe taint — NON-REAL unless EVERY item is explicitly real AND the
+    # dashboard is NOT in dry-run. ``dashboard.dry_run`` (the v1 synthetic-odds posture) taints
+    # the WHOLE bundle so a paper track (``track_record`` hardcodes ``is_synthetic=True``) can
+    # never sit under a real-looking banner. ANY synthetic / nested-synthetic item also taints
+    # (items None/empty -> synthetic), and the scan's own synthetic flag is ORed in so a
+    # synthetic odds feed taints even a real-shaped items list. In v1 (dry_run=True) the bundle
+    # is therefore ALWAYS NON-REAL, consistent with the embedded paper track.
+    is_synth = (bool(cfg["dashboard"]["dry_run"])
+                or _bundle_is_synthetic(items)
+                or bool(getattr(ranked, "is_synthetic", False)))
     prov = Provenance(cutoff=str(cutoff), posterior_key=meta["key"], git=_git_rev(),
                       is_synthetic=is_synth, n_sims=sim.n_sims)
     bundle = out_root / str(cutoff).replace(":", "").replace(" ", "T")

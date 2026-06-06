@@ -39,6 +39,7 @@ group fixture between PANEL teams, isolates the ``observed_at`` gate, and proves
 positive control that holds the cutoff FIXED and varies ONLY the result.
 """
 import json
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -77,10 +78,44 @@ _LEAK_HOME_SCORE, _LEAK_AWAY_SCORE = 0, 5
 
 
 def _bundle_bytes(bundle) -> dict:
-    """The FULL bundle as ``{filename: bytes}`` over every ``*.json`` (sorted) in the bundle
-    dir — so a byte-identical-bundle assertion covers EVERY artifact build_snapshot writes
-    (tournament.json AND meta.json), not just tournament.json."""
-    return {p.name: p.read_bytes() for p in sorted(bundle.glob("*.json"))}
+    """The FULL bundle as ``{relative_path: bytes}`` over every ``*.json`` RECURSIVELY (sorted
+    by relative path) in the bundle dir — so a byte-identical-bundle assertion covers EVERY
+    artifact build_snapshot writes, INCLUDING the per-fixture ``fixtures/<id>.json`` details
+    (HIGH-3 C5 Codex), not just the top-level ``tournament.json``/``meta.json``. Pre-fix this
+    used ``glob("*.json")`` (top-level only), so a leak/repro regression confined to a fixture
+    detail (forecast grid, the "why", the edge node) slipped the canary entirely. Keying on the
+    relative path (``rglob``) keeps fixtures/ entries distinct and in the comparison."""
+    bundle = Path(bundle)
+    return {str(p.relative_to(bundle)): p.read_bytes()
+            for p in sorted(bundle.rglob("*.json"), key=lambda q: q.relative_to(bundle).as_posix())}
+
+
+def test_bundle_bytes_covers_the_fixtures_subdir_not_just_top_level(tmp_path):
+    """HIGH-3 (C5 FOCAL Codex): the leakage/repro byte-identity canary must cover the FULL
+    bundle, INCLUDING ``fixtures/<id>.json`` — the per-fixture details (forecast grid, the
+    "why", the edge node). Pre-fix ``_bundle_bytes`` used ``bundle.glob("*.json")`` (TOP-LEVEL
+    only), so a leak/repro regression confined to a fixture detail would slip through the
+    canary entirely. The fix uses ``rglob`` keyed by RELATIVE path, so every artifact is in the
+    comparison.
+
+    RED before (keys are bare top-level filenames; no ``fixtures/`` key); GREEN after (a
+    ``fixtures/...json`` relative-path key is present)."""
+    bundle = tmp_path / "bundle"
+    (bundle / "fixtures").mkdir(parents=True)
+    (bundle / "tournament.json").write_text("{}")
+    (bundle / "meta.json").write_text("{}")
+    (bundle / "fixtures" / "bra_mex.json").write_text('{"detail": 1}')
+
+    keys = set(_bundle_bytes(bundle))
+    assert any(k.startswith("fixtures/") and k.endswith(".json") for k in keys), (
+        f"_bundle_bytes does NOT cover the fixtures/ subdir (keys={sorted(keys)}) — the "
+        "leakage/repro canary would miss any leak confined to a per-fixture detail"
+    )
+    # The top-level artifacts are still covered (now keyed by relative path).
+    assert "tournament.json" in keys and "meta.json" in keys
+    # The fixture detail's BYTES are actually captured (so a diff would be detected).
+    fk = next(k for k in keys if k.startswith("fixtures/"))
+    assert _bundle_bytes(bundle)[fk] == b'{"detail": 1}'
 
 
 def _data_payload(bundle) -> dict:

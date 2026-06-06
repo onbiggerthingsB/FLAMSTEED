@@ -77,6 +77,49 @@ def test_bundle_taint_catches_wrapper_level_and_bare_items():
 
 
 @pytest.mark.slow
+def test_dry_run_taints_the_bundle_non_real_even_with_real_items(
+        small_store, synthetic_tournament, tmp_path):
+    """MED-6 (C5 FOCAL Codex): when ``cfg["dashboard"]["dry_run"]`` is True, the WHOLE bundle
+    must be stamped NON-REAL (``provenance.is_synthetic == True``) regardless of the items.
+
+    THE BUG (before the fix). ``track_record``'s payload hardcodes ``is_synthetic=True`` (a
+    paper track), but the BUNDLE provenance ORed only ``_bundle_is_synthetic(items)`` +
+    ``ranked.is_synthetic``. So with EXPLICITLY-REAL items (no synthetic flag), the bundle
+    banner read REAL while the embedded paper track read NON-REAL — a paper track sitting under
+    a real-looking banner. In v1 (``dashboard.dry_run=True``) the bundle is synthetic-odds
+    posture, so it must ALWAYS be NON-REAL.
+
+    THE FIX. ``is_synth = cfg["dashboard"]["dry_run"] or _bundle_is_synthetic(items) or
+    ranked.is_synthetic``. RED before (real items + dry_run -> banner False); GREEN after
+    (dry_run alone taints)."""
+    import copy
+    import json
+    from wcmodel.config import load_config
+    from wcmodel.dashboard.build import build_snapshot, _bundle_is_synthetic
+
+    cfg = copy.deepcopy(load_config())
+    cfg["dashboard"]["dry_run"] = True
+
+    # EXPLICITLY-REAL items: _bundle_is_synthetic reads them REAL (so the items themselves do
+    # NOT taint), and they decide-fail as counted non-bets so the scan's own taint stays False
+    # too. Pre-fix, BOTH taint sources are False -> the banner would read REAL despite dry_run.
+    real_items = [{"sample": {"_is_synthetic": False}, "liquidity": 50.0}]
+    assert _bundle_is_synthetic(real_items) is False     # the items alone do NOT taint
+
+    b = build_snapshot("2026-06-12T12:00:00Z", store=small_store, items=real_items,
+                       config=cfg, fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0,
+                                               "cache_dir": str(tmp_path / "fc")},
+                       tournament=synthetic_tournament, out_root=tmp_path / "out")
+    # Every artifact's provenance is NON-REAL because the dashboard is in dry-run.
+    for p in b.rglob("*.json"):
+        env = json.loads(p.read_text())
+        assert env["provenance"]["is_synthetic"] is True, (
+            f"{p.name}: dry_run=True did NOT taint the bundle NON-REAL — a paper track would "
+            "sit under a real-looking banner (MED-6)"
+        )
+
+
+@pytest.mark.slow
 def test_bundle_dir_contains_only_stamped_artifacts(small_store, synthetic_tournament, tmp_path):
     import json
     from wcmodel.dashboard.build import build_snapshot
