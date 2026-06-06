@@ -1,3 +1,7 @@
+import math
+
+import pytest
+
 from wcmodel.dashboard.track import reliability_bins, track_record
 
 
@@ -20,3 +24,22 @@ def test_track_record_leads_with_clv_and_carries_rps_vs_baselines():
     assert "beat_close_rate" in tr and "avg_clv" in tr
     assert tr["rps"]["model"] <= tr["rps"]["elo"]
     assert tr["is_synthetic"] is True
+
+
+def test_empty_backtest_records_build_emits_a_coverage_gap_track(
+        small_store, synthetic_tournament, tmp_path):
+    """FIX E: a TRUTHY-but-EMPTY backtest_records dict (empty bets/preds) must NOT take the
+    metrics branch — ``clv_summary([])`` returns NaN, which ``gate_track`` would then raise on.
+    The build must emit an honest ``coverage_gap`` track instead (no NaN). RED before (the
+    truthy dict takes the metrics branch -> NaN track -> gate_track raises); GREEN after (an
+    empty records dict -> coverage_gap track)."""
+    from wcmodel.dashboard.build import build_snapshot
+    b = build_snapshot("2026-06-12T12:00:00Z", store=small_store, items=[],
+                       fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0,
+                                   "cache_dir": str(tmp_path / "fc")},
+                       out_root=tmp_path / "out", tournament=synthetic_tournament,
+                       backtest_records={"bets": [], "preds": []})   # truthy but EMPTY
+    import json
+    track = json.loads((b / "track.json").read_text())["data"]
+    assert track.get("coverage_gap") is True, (
+        "an empty backtest_records dict must emit a coverage_gap track, not a NaN metrics track")

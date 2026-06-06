@@ -76,6 +76,29 @@ def test_bundle_taint_catches_wrapper_level_and_bare_items():
     assert _bundle_is_synthetic([{"sample": {"_is_synthetic": False}}]) is False
 
 
+def test_bundle_taint_fail_safe_unmarked_item_reads_non_real():
+    """FIX A: an UNMARKED item (a dict with no ``is_synthetic`` marker at the item level NOR
+    in its sample) must read NON-REAL — the invariant is 'NON-REAL unless EVERY item is
+    EXPLICITLY real'. Pre-fix ``any(_item_synth(it))`` only flagged POSITIVELY-synthetic
+    items, so an unmarked item slipped through as REAL (the banner could drop on data that
+    never proved itself real). The fix requires an explicit ``is_synthetic is False`` marker
+    (item-level OR in the sample) AND a non-synthetic sample to clear the taint.
+
+    RED before (unmarked -> any() returns False -> REAL); GREEN after (unmarked -> NON-REAL)."""
+    from wcmodel.dashboard.build import _bundle_is_synthetic
+    # an UNMARKED item (no is_synthetic marker anywhere) is NOT explicitly real -> NON-REAL
+    assert _bundle_is_synthetic([{"sample": {"book": {"home": 2.0}}}]) is True
+    # an item explicitly real at BOTH the item level AND in its sample -> REAL
+    assert _bundle_is_synthetic([{"is_synthetic": False, "sample": {"is_synthetic": False}}]) is False
+    # a positively-synthetic item still taints
+    assert _bundle_is_synthetic([{"is_synthetic": True}]) is True
+    # ONE unmarked item among an explicitly-real one taints the WHOLE bundle (every item must clear)
+    assert _bundle_is_synthetic([{"is_synthetic": False}, {"sample": {}}]) is True
+    # empty / None preserved as synthetic-by-default
+    assert _bundle_is_synthetic([]) is True
+    assert _bundle_is_synthetic(None) is True
+
+
 @pytest.mark.slow
 def test_dry_run_taints_the_bundle_non_real_even_with_real_items(
         small_store, synthetic_tournament, tmp_path):
@@ -145,3 +168,78 @@ def test_bundle_dir_contains_only_stamped_artifacts(small_store, synthetic_tourn
     # output dir); GREEN after (default cache = paths.cache, OUTSIDE out_root). A reader
     # globbing the output tree for stamped bundles never trips over a cache dir.
     assert not (tmp_path / "_fit_cache").exists()
+
+
+@pytest.mark.slow
+def test_rebuild_clears_stale_artifacts_from_the_bundle_dir(small_store, synthetic_tournament,
+                                                            tmp_path):
+    """FIX B: a rebuild into an EXISTING per-cutoff bundle dir must REMOVE stale artifacts a
+    prior/different build left behind — ``mkdir(exist_ok=True)`` overwrites named files but
+    leaves ORPHANED top-level/``fixtures/*.json`` (a stale-provenance file the frontend would
+    render + a byte-reproducibility/§10 violation). The clear is scoped EXACTLY to the
+    per-cutoff bundle dir (never out_root or above).
+
+    RED before (the stale ``fixtures/STALE.json`` + top-level ``extra.json`` survive the
+    rebuild); GREEN after (only the current build's stamped artifacts remain)."""
+    from wcmodel.dashboard.build import build_snapshot
+    cutoff = "2026-06-12T00:00:00Z"
+    out_root = tmp_path / "out"
+    bundle_name = cutoff.replace(":", "").replace(" ", "T")
+    bundle = out_root / bundle_name
+
+    # Pre-seed the bundle dir with stale orphans from a hypothetical prior/different build.
+    (bundle / "fixtures").mkdir(parents=True)
+    (bundle / "fixtures" / "STALE.json").write_text('{"stale": true}')
+    (bundle / "extra.json").write_text('{"orphan": true}')
+    # A sibling bundle dir under the SAME out_root must NOT be touched (scope = this dir only).
+    sibling = out_root / "2026-06-13T000000Z"
+    sibling.mkdir(parents=True)
+    (sibling / "keepme.json").write_text('{"sibling": true}')
+
+    b = build_snapshot(cutoff, store=small_store, items=[],
+                       fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0,
+                                   "cache_dir": str(tmp_path / "fc")},
+                       out_root=out_root, tournament=synthetic_tournament)
+    assert b == bundle
+
+    # The stale orphans are GONE.
+    assert not (bundle / "extra.json").exists(), "stale top-level orphan survived the rebuild"
+    assert not (bundle / "fixtures" / "STALE.json").exists(), \
+        "stale fixtures/ orphan survived the rebuild"
+    # Only the current build's stamped artifacts remain (each a {provenance, data} envelope).
+    for p in bundle.rglob("*.json"):
+        env = json.loads(p.read_text())
+        assert "provenance" in env and "data" in env
+    # The clear was scoped to THIS bundle dir — the sibling bundle is untouched.
+    assert (sibling / "keepme.json").exists(), "the clear leaked OUTSIDE the per-cutoff bundle dir"
+
+
+@pytest.mark.slow
+def test_schedule_gate_is_wired_and_real_occupants_carry_se(small_store, synthetic_tournament,
+                                                            tmp_path):
+    """FIX D: build_snapshot GATES schedule.json (the homepage) as a true STOP before writing,
+    and the real production occupant nodes carry ``se`` (so the occupant-se gate has TEETH on
+    real data without false-raising). A naked-prob schedule would RAISE in ``gate_schedule``
+    before any write; here we prove the VALID production schedule passes AND every emitted KO
+    occupant carries a finite ``se`` (proving team_progression emits se on the placing markets
+    that feed ko_slot_occupants)."""
+    from wcmodel.dashboard.build import build_snapshot
+    b = build_snapshot("2026-06-12T12:00:00Z", store=small_store, items=[],
+                       fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0,
+                                   "cache_dir": str(tmp_path / "fc")},
+                       out_root=tmp_path / "out", tournament=synthetic_tournament)
+    sched = json.loads((b / "schedule.json").read_text())["data"]
+    # Every group row's forecast_summary is either a gap or a coherent headline+1X2 (it
+    # already passed gate_schedule or the build would have raised). Spot-check the KO rows:
+    # an emitted (non-gap) occupant carries {team, prob, se} with a finite se.
+    saw_occupant = False
+    for row in sched["knockout"]:
+        for side in ("home_occupants", "away_occupants"):
+            occ = row[side]
+            if isinstance(occ, list):                  # a non-gap occupant-list
+                for o in occ:
+                    saw_occupant = True
+                    assert {"team", "prob", "se"} <= set(o), f"occupant missing a field: {o!r}"
+                    assert isinstance(o["se"], (int, float)) and math.isfinite(o["se"]), \
+                        f"occupant {o['team']!r} se is not finite — would false-raise the gate"
+    assert saw_occupant, "no real occupant nodes emitted — the occupant-se gate was never exercised"

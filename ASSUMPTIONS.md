@@ -769,20 +769,73 @@ Implemented on branch `phase3-monte-carlo`.
   never persisted), provenance is stamped on EVERY file, `json.dumps(allow_nan=False)` fails
   loud on a residual NaN rather than emitting an invalid token, and tuple event-keys are
   stringified (`(home, away, date) → "home|away|date"`).
+- **COMPLETE gate coverage — EVERY surface is a true STOP, not just the grid + tournament
+  table (convergence Codex + multi-agent Workflow).** The earlier gates covered only the
+  per-fixture scoreline grid (`gate_fixture_forecast`) and the team-progression table
+  (`gate_artifact`); the homepage (`schedule.json`), the track record (`track.json`), the
+  fixture-forecast HEADLINE, and the scoreline SHORTLIST escaped the no-naked-number STOP.
+  These are now ALL gated before their `_write` (VALIDATION/HARDENING only — the approved
+  DESIGN semantics are unchanged: the 1X2 split stays "distribution IS the uncertainty" with
+  NO per-outcome CI, and edges stay a DERIVED comparison with NO uncertainty companion):
+  - `gate_fixture_forecast` now value-checks the headline `most_likely.prob` (finite in
+    [0,1]), the full `one_x_two` triple (each finite in [0,1] AND summing to ~1 — a coherent
+    all-three distribution), and every `shortlist` entry's `prob` (finite in [0,1]). NOTE: a
+    NaN headline would otherwise be MASKED — `_write`'s `sanitize_nans` turns NaN→None BEFORE
+    `allow_nan=False`, so the gate is the only real STOP.
+  - `gate_schedule(payload)` (the HOMEPAGE, previously written with NO gate) STOPs on each
+    GROUP row's `forecast_summary` (headline + 1X2, shared helpers with the fixture gate so
+    the two agree), each row's `edge` node (finite-sanity only — `edge`/`stake_signal` finite,
+    `entry_odds` a finite decimal-odds number > 1.0 — NO uncertainty companion, edges are
+    derived comparisons by design), and each KO row's `home_occupants`/`away_occupants` (each
+    occupant carries `{team, prob, se}` with prob finite in [0,1] and a finite `se` — no naked
+    occupant prob). `team_progression` always pairs every placing market's value with its
+    binomial MC SE, so `ko_slot_occupants` always carries `se` on real data; if a qualifying
+    occupant ever lacked a finite SE companion, `ko_slot_occupants` GAPS the whole
+    occupant-list (`coverage_gap`) rather than emit a naked prob — the gate never false-raises
+    on valid production output.
+  - `gate_track` now BOUNDS the headline metrics in addition to finiteness — the "too-good is
+    a suspected bug" law made structural: `beat_close_rate` in [0,1], each `rps.{model,
+    market,elo}` (when not None) finite and >= 0, `n_bets`/`n` >= 0, a reliability bin's
+    `forecast_mean`/`empirical` (when not None) in [0,1]. A `beat_close_rate` of 1.4 or a
+    negative RPS now STOPS the build. coverage_gap/None stay exempt (an honest absence is
+    never bound-checked). The build takes the metrics branch ONLY when there are ACTUAL
+    records (`backtest_records and (bets or preds)`) — a truthy-but-empty records dict yields
+    an honest `coverage_gap` track, never a `clv_summary([])` NaN the gate would raise on.
 - **NON-REAL / synthetic posture (`is_synthetic` taint + DRY-RUN banner).** v1 is synthetic
   only; the `is_synthetic` taint propagates into the provenance envelope and the DRY-RUN
   banner (`DRY_RUN_BANNER`) marks every synthetic snapshot as unmistakably non-real (no real
   odds sourced, no bet placed, no real CLV/ROI claim).
-- **The fail-safe NON-REAL taint (the bundle reads REAL only when EVERY item is explicitly
+- **The fail-safe NON-REAL taint (the bundle reads REAL only when EVERY item is EXPLICITLY
   real).** `is_synth = cfg["dashboard"]["dry_run"] OR _bundle_is_synthetic(items) OR
-  ranked.is_synthetic` — the taint is the producer-side ANY, not an `all(...)`: `dry_run`
-  taints the WHOLE bundle, ANY synthetic / nested-synthetic item taints (a MIXED batch taints
-  the whole bundle), `items` None/empty is synthetic-by-default (no explicitly-real sample to
-  clear the taint), and an unknown item shape fails safe to NON-REAL. So a snapshot reads as
-  REAL only when dry-run is off AND every item is explicitly real — the banner can never be
-  dropped on synthetic data. In v1 (`dashboard.dry_run=true`) the bundle is therefore ALWAYS
-  NON-REAL, consistent with the embedded paper track (`track_record` hardcodes
-  `is_synthetic=True`).
+  ranked.is_synthetic`. The bundle is synthetic UNLESS `items` is non-empty AND EVERY item is
+  EXPLICITLY real, where an item is "explicitly real" iff it is a dict, carries NO positive
+  synthetic flag, carries an EXPLICIT `is_synthetic is False` marker (item/wrapper level OR in
+  its `sample`, under either the canonical `_is_synthetic` key or the `is_synthetic` alias),
+  AND the canonical `walkforward._sample_is_synthetic` sees no synthetic flag in the sample.
+  Anything else (missing/None/ambiguous marker, non-dict, a positive taint anywhere) → NON-REAL
+  (fail-safe). An UNMARKED item that never proves itself real now reads NON-REAL (convergence
+  Codex FIX A — previously a producer-side `any(_item_synth(...))` only flagged
+  POSITIVELY-synthetic items, so an unmarked item slipped through as REAL and could drop the
+  banner). `dry_run` taints the WHOLE bundle, a MIXED batch taints the whole bundle, and
+  `items` None/empty is synthetic-by-default. So a snapshot reads as REAL only when dry-run is
+  off AND every item is explicitly real. In v1 (`dashboard.dry_run=true`) the bundle is
+  therefore ALWAYS NON-REAL, consistent with the embedded paper track (`track_record`
+  hardcodes `is_synthetic=True`).
+- **PRE-FUNDING CHECKLIST — stamp real odds samples `is_synthetic=False`.** Because the taint
+  is now fail-safe (NON-REAL unless EXPLICITLY real), the real-feed flip MUST stamp each real
+  odds sample `is_synthetic=False` (item/wrapper level OR in its `sample`) — else
+  `_bundle_is_synthetic` keeps the WHOLE bundle stamped NON-REAL (the safe default) and the
+  real banner is never shown. This is an addition to the funding-flip runbook below: an
+  unstamped real feed fails SAFE to NON-REAL, never UNSAFE to a real-looking banner on
+  unverified data.
+- **Clean-rebuild dir (byte-reproducibility + the glob contract, convergence Codex FIX B).**
+  A rebuild into an existing per-cutoff bundle dir REMOVES the dir's contents first
+  (`shutil.rmtree(bundle, ignore_errors=True)` then recreate), scoped EXACTLY to the
+  per-cutoff `bundle` dir (never `out_root` or above). A bare `mkdir(exist_ok=True)` overwrites
+  named files but leaves ORPHANED top-level/`fixtures/*.json` from a prior/different build — a
+  stale-provenance file the frontend would render AND a byte-reproducibility/§10 violation. So
+  the bundle dir holds ONLY this build's stamped JSON (the glob contract), and a rebuild is
+  byte-identical with no surviving orphan.
 - **The UTC-date edge key (match the scan `event_key`, not the local date).** The edge lookup
   key is `(home, away, UTC-commence-date-str)` — the fixture's UTC COMMENCE DATE reconstructed
   from its local `date` + local `time`-with-offset (`_fixture_utc_commence_date`), NOT the raw
@@ -800,6 +853,11 @@ Implemented on branch `phase3-monte-carlo`.
   (`tests/dashboard/test_leakage_dashboard.py`) ISOLATES the `observed_at` gate — a result
   observed after the cutoff cannot change the as-of-cutoff bundle (the dashboard-layer analog
   of the P2–P5 canaries), with a positive control proving the canary is non-vacuous.
+  DEFENSE-IN-DEPTH (convergence Codex FIX F): `_recent_form` additionally filters the emitted
+  form-match DATES to `date <= cutoff` (tz-safe, on the calendar day) BEFORE the `tail(n)`, so
+  a future-dated row that somehow slipped the store's observed_at/valid_as_of gate (e.g. a
+  live-ingest row with `valid_as_of <= cutoff` but a later calendar date) can never surface as
+  "recent form"; if the filter empties the set it is an honest `coverage_gap`.
 - **xG coverage-gated; reliability + KO occupants DERIVED from real outputs.** xG is NEVER
   imputed — absent coverage is an explicit coverage gap. The reliability diagram and the
   knockout-bracket occupants are DERIVED from the real Phase 1–5 model/sim outputs, not

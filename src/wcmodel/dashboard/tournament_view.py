@@ -26,16 +26,26 @@ def team_progression(simresult) -> dict:
     return out
 
 
-def ko_slot_occupants(*, slot_source: str, placing: dict) -> list[dict]:
+def ko_slot_occupants(*, slot_source: str, placing: dict):
     """Probable occupants of a knockout slot, DERIVED from the group-placing markets.
 
     ``slot_source`` is a bracket slot ref like ``"1A"`` (winner of group A), ``"2B"``
     (runner-up of B), or a third-place slot handled by the caller. ``placing`` is
     ``team -> {pos: ...}`` for the relevant group, where each position is EITHER the real
     ``team_progression`` node shape ``{"value": p, "se": se}`` OR a raw float (back-compat).
-    Returns the teams that can fill the slot, each with their real probability and the SE
-    when present, most-likely first. Nothing is invented — a team with no placing
-    probability > 0 does not appear; nothing is imputed."""
+    Returns the teams that can fill the slot, each as ``{team, prob, se}`` most-likely first.
+    Nothing is invented — a team with no placing probability > 0 does not appear; nothing is
+    imputed.
+
+    NO NAKED OCCUPANT PROB (FIX D). Each emitted occupant MUST carry a finite ``se`` companion
+    (``team_progression`` always pairs every placing market's value with its binomial MC SE,
+    so this holds on real data). If a qualifying occupant has a probability but NO finite se
+    (the only path: a back-compat raw-float placing, or an upstream NaN SE), the WHOLE
+    occupant-list GAPS (``coverage_gap``) rather than emit a naked prob — the gate
+    (``gate_schedule._check_occupants``) would otherwise STOP the build, so we gap honestly
+    instead of false-raising on a missing companion."""
+    from wcmodel.dashboard.schema import coverage_gap
+
     pos = {"1": "first", "2": "second", "3": "third"}[slot_source[0]]
     occ = []
     for team, pm in placing.items():
@@ -47,9 +57,10 @@ def ko_slot_occupants(*, slot_source: str, placing: dict) -> list[dict]:
             p = no_impute(cell)
             se = None
         if p is not None and p > 0.0:
-            node = {"team": team, "prob": p}
-            if se is not None:
-                node["se"] = se
-            occ.append(node)
+            if se is None:
+                # A qualifying occupant with no finite SE companion -> gap the whole list
+                # (no naked occupant prob), never emit it.
+                return coverage_gap(f"slot {slot_source}: occupant {team} has no se companion")
+            occ.append({"team": team, "prob": p, "se": se})
     occ.sort(key=lambda o: o["prob"], reverse=True)
     return occ

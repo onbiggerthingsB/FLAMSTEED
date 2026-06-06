@@ -24,12 +24,15 @@ def test_team_progression_pairs_every_prob_with_its_mc_se_and_is_coherent():
                                     if isinstance(v, dict) and "value" in v})
 
 
-def test_ko_occupants_are_derived_from_group_placing_not_fabricated():
+def test_ko_occupants_gap_when_a_qualifying_occupant_has_no_se_companion():
+    """FIX D: a qualifying occupant (prob > 0) with NO finite se companion makes the WHOLE
+    occupant-list GAP — no naked occupant prob is ever emitted. The back-compat RAW-FLOAT
+    placing shape (no se) is exactly that path: it now gaps rather than emit nakedly. (The
+    REAL production placing is always {value, se}, so this never fires on production data;
+    it's a fail-safe so the gate never sees a naked occupant prob.)"""
     placing = {"Brazil": {"first": 0.55, "second": 0.15}, "Mexico": {"first": 0.30}}
     occ = ko_slot_occupants(slot_source="1A", placing=placing)
-    assert occ[0] == {"team": "Brazil", "prob": 0.55}
-    assert {"team": "Mexico", "prob": 0.30} in occ
-    assert all("prob" in o and o["prob"] is not None for o in occ)
+    assert isinstance(occ, dict) and occ.get("coverage_gap") is True   # gapped, not a naked list
 
 
 def test_ko_occupants_consume_value_se_nodes_and_carry_se():

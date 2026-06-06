@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
 from pathlib import Path
 
 from wcmodel.backtest.walkforward import _sample_is_synthetic
@@ -45,6 +46,7 @@ from wcmodel.dashboard.provenance import Provenance, _git_rev, stamp
 from wcmodel.dashboard.schema import (
     assert_uncertainty_companion,
     gate_fixture_forecast,
+    gate_schedule,
     gate_track,
     validate_progression_coherence,
 )
@@ -52,30 +54,60 @@ from wcmodel.dashboard.tournament_view import ko_slot_occupants
 
 
 def _bundle_is_synthetic(items) -> bool:
-    """Fail-safe bundle taint (C2): NON-REAL unless EVERY item is explicitly real.
+    """Fail-safe bundle taint (C2 + FIX A): NON-REAL unless EVERY item is EXPLICITLY real.
 
     A NON-REAL bundle must NEVER read as real (the banner must never be dropped on
-    synthetic data), so the taint is the producer-side ANY, not an ``all(...)``: a MIXED
-    batch (some synthetic, some not) taints the WHOLE bundle. ``items is None`` (no real
-    feed wired) OR an EMPTY batch is synthetic-by-default — there is no explicitly-real
-    sample to clear the taint, and the leakage/repro canaries build synthetic brackets
-    with ``items=[]`` that must stay stamped NON-REAL. An item taints if it carries a
-    taint flag at the ITEM/wrapper level OR its sample (wrapper+nested) is synthetic per
-    the canonical ``walkforward._sample_is_synthetic`` — a marker can never be STRIPPED by
-    passing only the inner sample to the detector. A bare item (no ``"sample"`` key) is
-    treated as its own sample. An unknown (non-dict) item shape fails safe to NON-REAL.
-    The per-item sample detector is reused — never re-implemented."""
+    synthetic OR merely-UNMARKED data), so the taint is fail-safe: the bundle is synthetic
+    unless ``items`` is non-empty AND EVERY item is EXPLICITLY real. An item is
+    "explicitly real" iff ALL of:
+
+      * it is a ``dict`` (an unknown shape is never explicitly real -> NON-REAL);
+      * it carries an EXPLICIT ``is_synthetic is False`` marker — at the ITEM/wrapper level
+        OR inside its ``sample`` — so a missing/None/ambiguous marker reads NON-REAL (the
+        producer must STAMP real odds samples ``is_synthetic=False``; an unmarked item never
+        clears the taint); AND
+      * ``walkforward._sample_is_synthetic(it.get("sample", it))`` is False (the canonical
+        per-sample detector also sees no wrapper/nested synthetic flag — a marker can never
+        be STRIPPED by passing only the inner sample to the detector).
+
+    A bare item (no ``"sample"`` key) is treated as its own sample for the detector, but its
+    explicit-real marker is still read at the item level. ``items`` None OR empty is
+    synthetic-by-default — there is no explicitly-real sample to clear the taint, and the
+    leakage/repro canaries build synthetic brackets with ``items=[]`` that must stay stamped
+    NON-REAL. The per-item sample detector is reused — never re-implemented.
+
+    PRE-FUNDING NOTE. The real-feed flip MUST stamp real odds samples ``is_synthetic=False``
+    (item-level or in the sample) — else this fail-safe taint keeps the WHOLE bundle NON-REAL
+    (the safe default). See the pre-funding checklist in ASSUMPTIONS.md."""
     if not items:                       # None OR empty -> no real feed -> synthetic
         return True
 
-    def _item_synth(it) -> bool:
-        if not isinstance(it, dict):
-            return True                                   # unknown shape -> fail safe to NON-REAL
-        if it.get("is_synthetic") or it.get("_is_synthetic"):
-            return True                                   # item/wrapper-level taint
-        return _sample_is_synthetic(it.get("sample", it)) # sample (wrapper+nested) via canonical detector
+    def _marked_real(d) -> bool:
+        # An EXPLICIT real marker is is_synthetic is False under EITHER the canonical
+        # `_is_synthetic` key (what the producers stamp) or the `is_synthetic` alias the
+        # canonical detector also honors. A missing/None/ambiguous marker is NOT explicit-real.
+        return isinstance(d, dict) and (d.get("is_synthetic") is False
+                                        or d.get("_is_synthetic") is False)
 
-    return any(_item_synth(it) for it in items)
+    def _flagged_synth(d) -> bool:
+        # A POSITIVE synthetic flag at the item/wrapper level (the canonical detector only
+        # inspects the SAMPLE, so a wrapper-level taint must be checked here explicitly).
+        return isinstance(d, dict) and bool(d.get("is_synthetic") or d.get("_is_synthetic"))
+
+    def _explicitly_real(it) -> bool:
+        if not isinstance(it, dict):
+            return False                                  # unknown shape -> never explicitly real
+        sample = it.get("sample", it)
+        # A POSITIVE wrapper-level synthetic flag is decisive -> never explicitly real.
+        if _flagged_synth(it):
+            return False
+        # An EXPLICIT real marker at the ITEM/wrapper level OR inside its sample.
+        if not (_marked_real(it) or _marked_real(sample)):
+            return False                                  # missing/None/ambiguous marker -> NON-REAL
+        # AND the canonical detector sees no wrapper/nested synthetic flag in the sample.
+        return not _sample_is_synthetic(sample)
+
+    return not all(_explicitly_real(it) for it in items)
 
 
 def gate_artifact(team_markets: dict) -> None:
@@ -205,13 +237,23 @@ def _forecast_summary(forecast: dict) -> dict:
     return {"most_likely": forecast["most_likely"], "one_x_two": forecast["one_x_two"]}
 
 
-def _recent_form(results, team: str, *, n: int = 5) -> dict:
+def _recent_form(results, team: str, *, cutoff, n: int = 5) -> dict:
     """Last-``n`` PLAYED matches for ``team`` from the as-of ``results`` read — RAW history
     (Derived), NULL-safe + coverage-gapped when the team has no played history as-of-cutoff.
 
     Reuses the SHARED ``valid_played_results`` definition (finite/non-negative/integral,
     played) so the form set matches the model's row set; nothing is fabricated. Each entry is
-    ``{date, home_team, away_team, home_score, away_score}`` straight from the store."""
+    ``{date, home_team, away_team, home_score, away_score}`` straight from the store.
+
+    DATE BOUND (FIX F, defense-in-depth leakage guard). The store read is already
+    observed_at/valid_as_of gated, but nothing asserted the EMITTED form-match DATES are
+    <= cutoff — a future-dated row (one that slipped the store gate, e.g. a live-ingest row
+    with valid_as_of <= cutoff but a later calendar date) could otherwise surface as "recent
+    form". So we explicitly filter the team's matches to ``date <= cutoff`` (tz-safe, compared
+    on the calendar day) BEFORE the tail(n); if that empties the set -> an honest
+    coverage_gap. A future match can never surface as recent form."""
+    import pandas as pd
+
     from wcmodel.dashboard.schema import coverage_gap
     from wcmodel.data.features import valid_played_results
 
@@ -222,6 +264,16 @@ def _recent_form(results, team: str, *, n: int = 5) -> dict:
     mine = played.loc[mask].copy()
     if mine.empty:
         return coverage_gap("no played history as-of cutoff")
+    # Defense-in-depth: a match DATED after the cutoff can never be "recent form" (no
+    # look-ahead). Compare on the normalized calendar day with tz dropped (the cutoff may be
+    # tz-aware, e.g. "...Z"; the stored dates are tz-naive day strings).
+    cut = pd.Timestamp(str(cutoff))
+    if cut.tz is not None:
+        cut = cut.tz_localize(None)
+    cut = cut.normalize()
+    mine = mine[pd.to_datetime(mine["date"]).dt.tz_localize(None).dt.normalize() <= cut]
+    if mine.empty:
+        return coverage_gap("no played history as-of cutoff")
     mine = mine.sort_values("date").tail(n)
     return {"matches": [
         {"date": str(r.date), "home_team": r.home_team, "away_team": r.away_team,
@@ -230,7 +282,7 @@ def _recent_form(results, team: str, *, n: int = 5) -> dict:
     ]}
 
 
-def _fixture_why(posterior, *, home: str, away: str, date, xg_read, features, results):
+def _fixture_why(posterior, *, home: str, away: str, date, xg_read, features, results, cutoff):
     """The match-detail "why" for one fixture: team-strength posteriors (home + away),
     xG coverage-gated, rest_days (Phase-1 feature) NULL-safe, and recent form (raw history).
     Every absent input is an explicit ``coverage_gap`` / NULL — never imputed.
@@ -284,8 +336,8 @@ def _fixture_why(posterior, *, home: str, away: str, date, xg_read, features, re
                           "away": team_strength(posterior, away)},
         "xg": {"home": _xg_node(home, away), "away": _xg_node(away, home)},
         "rest_days": {"home": _rest_days(home), "away": _rest_days(away)},
-        "recent_form": {"home": _recent_form(results, home),
-                        "away": _recent_form(results, away)},
+        "recent_form": {"home": _recent_form(results, home, cutoff=cutoff),
+                        "away": _recent_form(results, away, cutoff=cutoff)},
     }
 
 
@@ -469,7 +521,8 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
             "home": home, "away": away, "date": str(date), "stage": "group",
             "forecast": forecast,
             "why": _fixture_why(posterior, home=home, away=away, date=date,
-                                xg_read=xg_read, features=features, results=results_read),
+                                xg_read=xg_read, features=features, results=results_read,
+                                cutoff=cutoff),
             "edge": edge_node,
         }
         fixture_details[detail["match_id"]] = detail
@@ -492,14 +545,24 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
     ko_rows = [_ko_row(m, bracket, tournament_view)
                for m in sorted(bracket.knockout_feeders)]
 
+    # STOP (FIX D): the HOMEPAGE (schedule.json) is gated as a true STOP before any write —
+    # each group row's forecast_summary headline+1X2 value-checked (or an honest gap), each
+    # edge node finite-sane (derived comparison, no companion), each KO occupant carrying
+    # {team, prob, se} (no naked occupant prob). A violating schedule is never persisted.
+    schedule_payload = {"group": schedule, "knockout": ko_rows}
+    gate_schedule(schedule_payload)
+
     # --- Track record: track_record(gated) when records supplied, else an honest coverage_gap
     # (the build NEVER re-runs the heavy walk-forward backtest).
     from wcmodel.dashboard.schema import coverage_gap
     from wcmodel.dashboard.track import track_record
 
-    if backtest_records:
+    # FIX E: take the metrics branch ONLY when there are ACTUAL records — a TRUTHY-but-EMPTY
+    # dict (empty bets/preds) would make clv_summary([]) return NaN, which gate_track then
+    # raises on. An empty records dict is an honest coverage_gap, not a NaN.
+    if backtest_records and (backtest_records.get("bets") or backtest_records.get("preds")):
         track = track_record(bets=backtest_records["bets"], preds=backtest_records["preds"])
-        gate_track(track)                            # STOP: never write a non-finite track metric
+        gate_track(track)                            # STOP: never write a non-finite/out-of-bounds metric
     else:
         track = coverage_gap("no backtest records supplied")
 
@@ -516,10 +579,16 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
     prov = Provenance(cutoff=str(cutoff), posterior_key=meta["key"], git=_git_rev(),
                       is_synthetic=is_synth, n_sims=sim.n_sims)
     bundle = out_root / str(cutoff).replace(":", "").replace(" ", "T")
+    # CLEAN REBUILD (FIX B). The bundle dir holds ONLY this build's stamped JSON (the glob
+    # contract). A bare mkdir(exist_ok=True) overwrites named files but leaves ORPHANED
+    # top-level/``fixtures/*.json`` from a prior/different build — a stale-provenance file the
+    # frontend would render AND a byte-reproducibility/§10 violation. So clear the per-cutoff
+    # bundle dir before writing, scoped EXACTLY to ``bundle`` (never out_root or above).
+    shutil.rmtree(bundle, ignore_errors=True)
     bundle.mkdir(parents=True, exist_ok=True)
 
     _write(bundle, "tournament.json", tournament_view, prov)
-    _write(bundle, "schedule.json", {"group": schedule, "knockout": ko_rows}, prov)
+    _write(bundle, "schedule.json", schedule_payload, prov)
     _write(bundle, "track.json", track, prov)
     _write(bundle, "meta.json",
            {"markets": list(next(iter(tournament_view.values())).keys())

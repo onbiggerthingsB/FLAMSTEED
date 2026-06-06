@@ -188,6 +188,46 @@ def _progression(data: dict, team: str, market: str) -> float:
     return data[team][market]["value"]
 
 
+def test_recent_form_excludes_future_dated_matches(tmp_path):
+    """FIX F (defense-in-depth leakage guard): ``_recent_form`` must never surface a match
+    DATED AFTER the cutoff as "recent form", even if that row slipped the store's
+    observed_at/valid_as_of gate. The store read is already date-gated, but nothing asserted
+    the EMITTED form-match dates are <= cutoff — so a future-dated row with valid_as_of <=
+    cutoff could surface. The fix filters the team's matches to date <= cutoff BEFORE tail(n).
+
+    RED before (no date filter -> the 2026-08-01 row appears in recent_form); GREEN after
+    (only the past row appears). If the filter empties the set -> coverage_gap."""
+    from wcmodel.dashboard.build import _recent_form
+
+    cutoff = "2026-06-12T00:00:00Z"
+    results = pd.DataFrame([
+        # a PAST played row (date < cutoff) — must appear in recent form.
+        {"date": pd.Timestamp("2026-06-01"), "home_team": "Brazil", "away_team": "Mexico",
+         "home_score": 2, "away_score": 1},
+        # a FUTURE played row (date AFTER cutoff) — must NOT appear (look-ahead).
+        {"date": pd.Timestamp("2026-08-01"), "home_team": "Brazil", "away_team": "Argentina",
+         "home_score": 3, "away_score": 0},
+    ])
+    form = _recent_form(results, "Brazil", cutoff=cutoff)
+    dates = {m["date"] for m in form["matches"]}
+    assert any(d.startswith("2026-06-01") for d in dates), "the normal past row must still appear"
+    assert not any(d.startswith("2026-08-01") for d in dates), (
+        "a future-dated match (date > cutoff) leaked into recent_form — look-ahead")
+
+
+def test_recent_form_gaps_when_only_future_matches(tmp_path):
+    """FIX F: when the date filter empties the set (the team has ONLY future-dated matches as
+    of the cutoff), recent_form is an honest coverage_gap, never a fabricated/empty list."""
+    from wcmodel.dashboard.build import _recent_form
+
+    results = pd.DataFrame([
+        {"date": pd.Timestamp("2026-08-01"), "home_team": "Brazil", "away_team": "Argentina",
+         "home_score": 3, "away_score": 0},
+    ])
+    form = _recent_form(results, "Brazil", cutoff="2026-06-12T00:00:00Z")
+    assert form.get("coverage_gap") is True
+
+
 @pytest.mark.slow
 def test_snapshot_is_leakage_safe_played_before_observed_after_does_not_leak(
         small_store, synthetic_tournament, tmp_path):

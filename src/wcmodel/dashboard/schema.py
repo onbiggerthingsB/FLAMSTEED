@@ -28,6 +28,36 @@ def _finite_number(x) -> bool:
     return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
 
 
+def _prob_in_unit(x) -> bool:
+    """A finite probability in [0, 1] (the no-naked / coherence range check)."""
+    return _finite_number(x) and 0.0 <= x <= 1.0
+
+
+def _check_most_likely_prob(ml: dict, *, where: str) -> None:
+    """SHARED (FIX C + FIX D): the headline ``most_likely.prob`` must be a finite number in
+    [0, 1] — never naked (missing) and never out-of-range/NaN. ``_write``'s ``sanitize_nans``
+    turns a NaN -> null BEFORE ``allow_nan=False``, so a NaN headline is MASKED to null on
+    disk; this gate is the only real STOP."""
+    if not isinstance(ml, dict) or "prob" not in ml:
+        raise ValueError(f"{where}: most_likely score is naked (no prob)")
+    if not _prob_in_unit(ml["prob"]):
+        raise ValueError(f"{where}: most_likely.prob {ml['prob']!r} is not a finite probability in [0,1]")
+
+
+def _check_1x2_distribution(oxt: dict, *, where: str, tol: float = 0.05) -> None:
+    """SHARED (FIX C + FIX D): the 1X2 split must show ALL THREE outcomes (never a lone
+    score), each a finite probability in [0,1], AND sum to ~1 — a coherent all-three
+    distribution. (No per-outcome CI — the distribution IS the uncertainty, per the approved
+    design.)"""
+    if not isinstance(oxt, dict) or not all(k in oxt for k in ("home", "draw", "away")):
+        raise ValueError(f"{where}: 1x2 must show all three outcomes, never a lone score")
+    vals = [oxt["home"], oxt["draw"], oxt["away"]]
+    if not all(_prob_in_unit(v) for v in vals):
+        raise ValueError(f"{where}: each 1x2 outcome must be a finite probability in [0,1] (got {vals!r})")
+    if abs(sum(vals) - 1.0) > tol:
+        raise ValueError(f"{where}: 1x2 outcomes must sum to ~1 (the distribution is the uncertainty); got {sum(vals)!r}")
+
+
 def assert_uncertainty_companion(node: dict) -> None:
     """Every emitted probability must carry a REAL uncertainty companion — a finite ``se``
     (an MC SE; 0.0 is valid for a certain p in {0,1}) or a ``ci`` of two finite bounds.
@@ -84,17 +114,100 @@ def gate_fixture_forecast(f: dict, *, tol: float = 0.05) -> None:
     total = sum(sum(row) for row in grid)
     if abs(total - 1.0) > tol:
         raise ValueError("fixture forecast: grid does not sum to ~1 (the scoreline distribution is the uncertainty)")
-    ml = f.get("most_likely") or {}
-    if "prob" not in ml:
-        raise ValueError("fixture forecast: most_likely score is naked (no prob)")
-    oxt = f.get("one_x_two") or {}
-    if not all(k in oxt for k in ("home", "draw", "away")):
-        raise ValueError("fixture forecast: 1x2 must show all three outcomes, never a lone score")
+    # The headline most-likely score must carry a finite prob in [0,1] (value-checked, not
+    # merely key-present — a NaN headline is masked to null on disk, so this is the only STOP).
+    _check_most_likely_prob(f.get("most_likely") or {}, where="fixture forecast")
+    # The 1X2 must be a coherent all-three distribution: each outcome finite in [0,1], sum ~1.
+    _check_1x2_distribution(f.get("one_x_two") or {}, where="fixture forecast", tol=tol)
+    # When a shortlist is present, every entry's prob is finite in [0,1] (no monotonicity).
+    shortlist = f.get("shortlist")
+    if shortlist is not None:
+        if not isinstance(shortlist, (list, tuple)):
+            raise ValueError("fixture forecast: shortlist must be a list of scoreline entries")
+        for entry in shortlist:
+            if not isinstance(entry, dict) or "prob" not in entry:
+                raise ValueError(f"fixture forecast: shortlist entry is naked (no prob): {entry!r}")
+            if not _prob_in_unit(entry["prob"]):
+                raise ValueError(
+                    f"fixture forecast: shortlist prob {entry['prob']!r} is not a finite probability in [0,1]")
+
+
+def _is_gap(node) -> bool:
+    """A coverage_gap node (or an explicit null/None) is an honest absence, EXEMPT from the
+    value checks — a gap is never a naked number."""
+    return node is None or (isinstance(node, dict) and node.get("coverage_gap"))
+
+
+def _check_edge_node(edge: dict, *, where: str) -> None:
+    """FIX D: a real (non-gap) edge node is a DERIVED model-vs-market comparison — finite-
+    sanity only, NO uncertainty companion (edges are derived comparisons by design):
+    ``edge``/``stake_signal`` finite numbers, ``entry_odds`` a finite decimal-odds number
+    > 1.0 (a decimal price below evens is impossible). Fields that may legitimately be absent
+    (e.g. a non-staked edge) are checked only when present."""
+    if _is_gap(edge):
+        return
+    if not isinstance(edge, dict):
+        raise ValueError(f"{where}: edge node must be a dict or a coverage_gap")
+    for k in ("edge", "stake_signal"):
+        if k in edge and not _finite_number(edge[k]):
+            raise ValueError(f"{where}: edge.{k} {edge[k]!r} must be a finite number")
+    if "entry_odds" in edge:
+        eo = edge["entry_odds"]
+        if not _finite_number(eo) or eo <= 1.0:
+            raise ValueError(f"{where}: edge.entry_odds {eo!r} must be a finite decimal-odds number > 1.0")
+
+
+def _check_occupants(occ, *, where: str) -> None:
+    """FIX D: a KO row's occupant-list (or a coverage_gap) — each occupant carries
+    ``{team, prob, se}`` with ``prob`` finite in [0,1] and a finite ``se`` (NO naked occupant
+    prob). A coverage_gap occupant-list is an honest absence (exempt)."""
+    if _is_gap(occ):
+        return
+    if not isinstance(occ, (list, tuple)):
+        raise ValueError(f"{where}: occupants must be a list of occupant nodes or a coverage_gap")
+    for o in occ:
+        if not isinstance(o, dict) or "prob" not in o:
+            raise ValueError(f"{where}: occupant is naked (no prob): {o!r}")
+        if not _prob_in_unit(o["prob"]):
+            raise ValueError(f"{where}: occupant prob {o['prob']!r} is not a finite probability in [0,1]")
+        if not _finite_number(o.get("se")):
+            raise ValueError(
+                f"{where}: occupant {o.get('team')!r} carries a prob but no finite se — a naked "
+                "occupant prob (gap the occupant-list instead of emitting it)")
+
+
+def gate_schedule(payload: dict, *, tol: float = 0.05) -> None:
+    """FIX D: the HOMEPAGE (``schedule.json`` = ``{"group": [...], "knockout": [...]}``) is a
+    true STOP — no naked number escapes. For each GROUP row's ``forecast_summary`` (when not a
+    coverage_gap): value-check the headline prob + the 1X2 triple (the SHARED helpers FIX C
+    uses, so C and D agree). For each row's ``edge`` node (when not a gap): finite-sanity only
+    (edges are DERIVED comparisons — NO uncertainty companion). For each KO row's
+    ``home_occupants``/``away_occupants`` (when not a gap): every occupant carries
+    ``{team, prob, se}`` with prob finite in [0,1] and a finite se (NO naked occupant prob)."""
+    for row in payload.get("group", []) or []:
+        fs = row.get("forecast_summary")
+        if not _is_gap(fs):
+            _check_most_likely_prob((fs or {}).get("most_likely") or {}, where="schedule group row")
+            _check_1x2_distribution((fs or {}).get("one_x_two") or {}, where="schedule group row", tol=tol)
+        _check_edge_node(row.get("edge"), where="schedule group row")
+    for row in payload.get("knockout", []) or []:
+        _check_occupants(row.get("home_occupants"), where="schedule KO row (home)")
+        _check_occupants(row.get("away_occupants"), where="schedule KO row (away)")
 
 
 def gate_track(t: dict) -> None:
     """Track-record metrics must be finite numbers or explicit null/coverage_gap — never a
-    NaN/inf token (the JSON gate uses allow_nan=False; a NaN must be sanitized to null first)."""
+    NaN/inf token (the JSON gate uses allow_nan=False; a NaN must be sanitized to null first)
+    — AND the headline metrics must be BOUNDED (FIX E): the 'too-good is a suspected bug' law
+    made structural. A coverage_gap track (or any coverage_gap subtree) and an explicit None
+    are EXEMPT — a gap/null is an honest absence, never a number to bound-check.
+
+    Bounds (when present and not None):
+      * ``beat_close_rate`` in [0,1] (a rate);
+      * each ``rps.{model,market,elo}`` finite and >= 0 (a Ranked Probability Score is >= 0);
+      * ``n_bets`` / ``n`` >= 0 (a count);
+      * a reliability bin's ``forecast_mean`` / ``empirical`` in [0,1] (probabilities)."""
+    # (1) finiteness everywhere (the JSON allow_nan=False prerequisite), gap subtrees exempt.
     def _check(x):
         if isinstance(x, dict):
             if x.get("coverage_gap"):
@@ -107,3 +220,34 @@ def gate_track(t: dict) -> None:
         elif isinstance(x, float) and not math.isfinite(x):
             raise ValueError(f"track metric is not finite ({x!r}) — sanitize NaN/inf to null first")
     _check(t)
+
+    # A coverage_gap track is an honest absence — no metrics to bound.
+    if not isinstance(t, dict) or t.get("coverage_gap"):
+        return
+
+    def _bounded(v, lo, hi, name):
+        if v is None:                                    # honest null -> exempt
+            return
+        if not _finite_number(v) or not (lo <= v <= hi):
+            raise ValueError(f"track metric {name}={v!r} out of bounds [{lo}, {hi}] (too-good/impossible)")
+
+    # (2) bounded headline metrics (only when the key is present; None stays exempt).
+    if "beat_close_rate" in t:
+        _bounded(t["beat_close_rate"], 0.0, 1.0, "beat_close_rate")
+    if "n_bets" in t:
+        _bounded(t["n_bets"], 0.0, float("inf"), "n_bets")
+    rps = t.get("rps")
+    if isinstance(rps, dict):
+        for k in ("model", "market", "elo"):
+            if k in rps:
+                _bounded(rps[k], 0.0, float("inf"), f"rps.{k}")
+    reliability = t.get("reliability")
+    if isinstance(reliability, (list, tuple)):
+        for b in reliability:
+            if not isinstance(b, dict):
+                continue
+            if "n" in b:
+                _bounded(b["n"], 0.0, float("inf"), "reliability.n")
+            for k in ("forecast_mean", "empirical"):
+                if k in b:
+                    _bounded(b[k], 0.0, 1.0, f"reliability.{k}")

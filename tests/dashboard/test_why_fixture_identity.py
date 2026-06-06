@@ -58,7 +58,8 @@ _STALE_FEATURES = pd.DataFrame([
 
 def _why_future():
     return _fixture_why(_FakePost(), home=_HOME, away=_AWAY, date=_FDATE,
-                        xg_read=_STALE_XG, features=_STALE_FEATURES, results=None)
+                        xg_read=_STALE_XG, features=_STALE_FEATURES, results=None,
+                        cutoff=_FDATE)
 
 
 def test_xg_gaps_for_a_future_fixture_never_a_stale_team_last_number():
@@ -99,7 +100,8 @@ def test_xg_is_emitted_when_the_fixture_identity_IS_covered():
          "team": _AWAY, "opponent": _HOME, "is_home": False, "xg": 0.8},
     ])], ignore_index=True)
     why = _fixture_why(_FakePost(), home=_HOME, away=_AWAY, date=_FDATE,
-                       xg_read=covered_xg, features=_STALE_FEATURES, results=None)
+                       xg_read=covered_xg, features=_STALE_FEATURES, results=None,
+                       cutoff=_FDATE)
     assert why["xg"]["home"] == {"value": 2.3}
     assert why["xg"]["away"] == {"value": 0.8}
 
@@ -114,6 +116,7 @@ def test_rest_days_is_emitted_when_the_fixture_identity_IS_a_played_row():
          "home_team": _HOME, "away_team": _AWAY, "rest_days": 5.0},
     ])], ignore_index=True)
     why = _fixture_why(_FakePost(), home=_HOME, away=_AWAY, date=_FDATE,
-                       xg_read=_STALE_XG, features=played_feats, results=None)
+                       xg_read=_STALE_XG, features=played_feats, results=None,
+                       cutoff=_FDATE)
     assert why["rest_days"]["home"] == {"value": 3.0}
     assert why["rest_days"]["away"] == {"value": 5.0}
