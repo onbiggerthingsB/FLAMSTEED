@@ -157,29 +157,56 @@ def live_snapshot_from_fixture(sample: dict, *, which: str = "bet_time",
     """DRY-RUN: build a live snapshot mapping from a fixture/synthetic sample — NO network.
 
     ``sample`` is the ``{bet_time, close}`` fixture mapping (or a synthetic one);
-    ``which`` selects the snapshot to treat as the CURRENT live one (``"bet_time"``
-    for the decision-time price, ``"close"`` for a near-kickoff refresh). The chosen
-    snapshot is re-exposed under a single ``"live"`` key + a ``_dry_run`` flag, so
-    ``entry_close_prices`` reads exactly one snapshot. The ``budget`` is NOT charged
-    (no real call happened).
+    ``which`` selects WHAT the dry-run pull exposes:
+
+      * ``"bet_time"`` (default) — the decision-time price as the CURRENT live one;
+      * ``"close"``              — a near-kickoff refresh as the current live one;
+        Both single-snapshot modes re-expose the chosen snapshot under a single
+        ``"live"`` key + a ``_dry_run`` flag, so ``entry_close_prices`` reads exactly
+        one snapshot (a single ``GET /odds`` is one point-in-time).
+      * ``"all"``                — the ACCUMULATED live snapshot history a ``read(now)``
+        would hold by kickoff: BOTH the early decision-time line (under ``bet_time``)
+        AND the kickoff close (under ``close``). This is the mapping the live DECISION
+        consumes (``decide_live``/``scan``): the bet_time line drives the edge/stake at
+        ``cutoff`` and the close is recorded for realized CLV. Every nested snapshot is
+        tainted, so a dry-run multi-snapshot pull is non-real exactly like the
+        single-snapshot ones. (No ``"live"`` alias here: every consumer iterates the
+        snapshot VALUES, so aliasing one snapshot under a second key would only
+        duplicate it in the candidate lists.)
+
+    The ``budget`` is NOT charged (no real call happened).
 
     NON-REAL TAINT (betting-safety, binding): a dry-run number is NOT a real pull, so
-    the output is stamped ``_is_synthetic = True`` (``_SYNTHETIC_KEY``) on BOTH the
-    wrapper AND the nested ``"live"`` snapshot — UNCONDITIONALLY, even off the REAL
-    fixture, since the *value* (fixture price replayed as "current") is not a live
-    quote. Therefore ``entry_close_prices(...).is_synthetic`` is True and
-    ``load_odds_snapshots`` REFUSES to persist it as real (the store boundary). The
-    non-real guarantee rides on ``_is_synthetic``, not on ``_dry_run``.
+    the output is stamped ``_is_synthetic = True`` (``_SYNTHETIC_KEY``) on the wrapper
+    AND EVERY nested snapshot — UNCONDITIONALLY, even off the REAL fixture, since the
+    *value* (fixture price replayed as "current") is not a live quote. Therefore
+    ``entry_close_prices(...).is_synthetic`` is True and ``load_odds_snapshots``
+    REFUSES to persist it as real (the store boundary). The non-real guarantee rides
+    on ``_is_synthetic``, not on ``_dry_run``.
     """
     from wcmodel.backtest.odds_ingest import _SYNTHETIC_KEY
 
-    # Shallow-copy the chosen snapshot before stamping the marker so we never mutate
-    # the caller's input sample (e.g. a shared/session fixture).
-    snap = dict(sample[which]) if isinstance(sample[which], dict) else sample[which]
-    if isinstance(snap, dict):
-        snap[_SYNTHETIC_KEY] = True
+    def _taint(snap):
+        """Shallow-copy a snapshot before stamping the marker so we NEVER mutate the
+        caller's input sample (e.g. a shared/session fixture), and stamp non-real."""
+        snap = dict(snap) if isinstance(snap, dict) else snap
+        if isinstance(snap, dict):
+            snap[_SYNTHETIC_KEY] = True
+        return snap
+
+    if which == "all":
+        # The ACCUMULATED dry-run pull: expose BOTH snapshots so the live decision
+        # prices a genuine entry (bet_time, <= cutoff) distinct from the close
+        # (recorded for CLV only). `decide_live`/`scan` iterate the mapping's snapshot
+        # values (no key is special), so the keys are descriptive. Every nested
+        # snapshot is tainted non-real (a dry-run multi-pull is not real odds).
+        return {"bet_time": _taint(sample["bet_time"]),
+                "close": _taint(sample["close"]),
+                _DRY_RUN_KEY: True, _SYNTHETIC_KEY: True}
+
     # The dry-run output is non-real BY CONSTRUCTION: stamp the synthetic marker on
     # the wrapper AND the nested snap so the store-write refuses it and
     # entry_close_prices reports is_synthetic (a dry-run number can never be mistaken
     # for, or persisted as, real). _dry_run is kept as an informational flag.
+    snap = _taint(sample[which])
     return {"live": snap, _DRY_RUN_KEY: True, _SYNTHETIC_KEY: True}

@@ -21,9 +21,18 @@ import numpy as np
 
 from wcmodel.config import load_config
 from wcmodel.backtest.clv import beat_close, clv_pct, clv_summary
+from wcmodel.backtest.report import MIN_STRATUM_N, render_stratum
 from wcmodel.backtest.staking import roi_metrics, settle_bet
 from wcmodel.backtest.validation import check_foresight_red
 from wcmodel.live.validation import AppendOnlyLedger
+
+#: The unmistakable NOT-REAL banner stamped on a synthetic/dry-run realized-CLV
+#: report (mirrors the scanner's ``scan._DRY_RUN_BANNER``): a paper realized-CLV
+#: report off the dry-run harness can never be mistaken for a funded forward number.
+DRY_RUN_BANNER = (
+    "DRY-RUN — NOT REAL / NOT A FORWARD EDGE CLAIM (Phase-5 synthetic/fixture "
+    "harness; realized CLV is PAPER and non-real until the feed is funded + flipped on)"
+)
 
 
 def paper_pnl(*, stake: float, decimal_odds: float, won: bool, venue: str,
@@ -67,7 +76,19 @@ class PaperClvTracker:
 
 
 def _stratify(records: list[dict], *, by: str) -> dict:
-    """Group settled signals by a tier key and fold CLV + ROI per stratum."""
+    """Group settled signals by a tier key and fold CLV + ROI per stratum, COVERAGE-
+    GAPPING a thin tier per spec §1.2 ("a thin stratum is a coverage gap, never
+    silently averaged").
+
+    REUSES the project's thin-stratum chokepoint (``report.render_stratum`` /
+    ``MIN_STRATUM_N`` = 30): each stratum is folded into ``{n_bets, clv_*, roi_*}`` and
+    routed THROUGH ``render_stratum``, so a tier with ``< MIN_STRATUM_N`` settled
+    signals renders as ``{"coverage_gap": True, "n_bets": k, "render":
+    "insufficient coverage (n=k)"}`` with NO CLV/ROI number, and a healthy tier renders
+    its metrics with ``coverage_gap=False``. A realized CLV on n=1 is meaningless +
+    misleading — exactly what §1.2 forbids — so the number is WITHHELD for thin tiers
+    via the SAME single ``< 30`` rule the backtest report enforces (one chokepoint,
+    never re-implemented, never bypassed)."""
     groups: dict[str, list] = {}
     for r in records:
         groups.setdefault(r.get(by, ""), []).append(r)
@@ -77,9 +98,13 @@ def _stratify(records: list[dict], *, by: str) -> dict:
                            for r in recs])
         roi = roi_metrics(pnls=[r["paper_pnl"] for r in recs],
                           stakes=[r["stake"] for r in recs], start=1.0)
-        out[k] = {"n": len(recs),
-                  **{f"clv_{kk}": vv for kk, vv in clv.items() if kk != "n_bets"},
-                  **{f"roi_{kk}": vv for kk, vv in roi.items()}}
+        # `render_stratum`/`stratum_is_coverage_gap` key on `n_bets` (the shared coverage
+        # denominator), so fold the count under `n_bets` and let the chokepoint decide:
+        # a thin tier yields the coverage-gap render (NO number); a healthy one its metrics.
+        stratum = {"n_bets": len(recs),
+                   **{f"clv_{kk}": vv for kk, vv in clv.items() if kk != "n_bets"},
+                   **{f"roi_{kk}": vv for kk, vv in roi.items()}}
+        out[k] = render_stratum(stratum)
     return out
 
 
@@ -99,11 +124,17 @@ def clv_report(records: list[dict], *, config: dict | None = None,
     if check_red:
         # REUSED Phase-4 gate: a suspiciously-good live CLV/ROI => SUSPECTED bug => STOP.
         check_foresight_red(summary, config=config or load_config())
+    is_synthetic = any(r.get("is_synthetic") for r in records)
     return {
         "summary": summary,                    # CLV-first
         "by_match_type": _stratify(records, by="match_type"),
         "by_confederation": _stratify(records, by="confederation"),
         "n_signals": len(records),
         "paper": True,                          # L2: simulated/paper, never real
-        "is_synthetic": any(r.get("is_synthetic") for r in records),
+        "is_synthetic": is_synthetic,
+        # NOT-REAL BANNER (betting-safety): when ANY settled signal is synthetic/dry-run
+        # the whole report carries an unmistakable banner (mirrors the scanner's report),
+        # so a PAPER realized-CLV number off the dry-run harness can never be mistaken
+        # for a funded forward edge. `None` on a (hypothetical) all-real ledger.
+        "banner": DRY_RUN_BANNER if is_synthetic else None,
     }
