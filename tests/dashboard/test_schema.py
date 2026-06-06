@@ -168,3 +168,17 @@ def test_gate_fixture_forecast_rejects_empty_or_ragged_grid():
             gate_fixture_forecast({**base, "grid": bad})
     # a valid rectangular numeric grid summing ~1 still passes
     gate_fixture_forecast({**base, "grid": [[0.5, 0.2], [0.2, 0.1]]})
+
+
+def test_gate_fixture_forecast_rejects_out_of_range_and_scalar_grid():
+    base = {"most_likely": {"home_goals": 0, "away_goals": 0, "prob": 1.0},
+            "one_x_two": {"home": 0.4, "draw": 0.3, "away": 0.3}}
+    for bad in (1,                       # top-level scalar (was TypeError)
+                "grid",                  # top-level string
+                [[2.0, -1.0]],           # cells cancel to ~1 but are out of [0,1]
+                [[-0.1, 1.1]],           # negative + >1 cells (sum ~1)
+                [[0.5, 0.6]]):           # in-range but sums to 1.1 (bad-sum, still rejected)
+        with pytest.raises(ValueError, match="(?i)grid|probab|sum"):
+            gate_fixture_forecast({**base, "grid": bad})
+    # a valid in-[0,1] rectangular grid summing ~1 still passes
+    gate_fixture_forecast({**base, "grid": [[0.5, 0.2], [0.2, 0.1]]})

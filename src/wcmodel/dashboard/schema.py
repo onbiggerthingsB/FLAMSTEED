@@ -72,13 +72,15 @@ def gate_fixture_forecast(f: dict, *, tol: float = 0.05) -> None:
     ALL THREE outcomes (never a lone score). (No per-outcome CI — the distribution is the
     uncertainty, per the approved design.)"""
     grid = f.get("grid")
-    if not grid or not all(isinstance(row, (list, tuple)) and row for row in grid):
-        raise ValueError("fixture forecast: grid must be a non-empty list of non-empty rows")
+    if not isinstance(grid, (list, tuple)) or not grid:
+        raise ValueError("fixture forecast: grid must be a non-empty list of rows")
+    if not all(isinstance(row, (list, tuple)) and row for row in grid):
+        raise ValueError("fixture forecast: grid rows must be non-empty lists")
     width = len(grid[0])
     if not all(len(row) == width for row in grid):
         raise ValueError("fixture forecast: grid must be rectangular (all rows equal length)")
-    if not all(_finite_number(c) for row in grid for c in row):
-        raise ValueError("fixture forecast: every grid cell must be a finite number")
+    if not all(_finite_number(c) and 0.0 <= c <= 1.0 for row in grid for c in row):
+        raise ValueError("fixture forecast: every grid cell must be a probability in [0, 1]")
     total = sum(sum(row) for row in grid)
     if abs(total - 1.0) > tol:
         raise ValueError("fixture forecast: grid does not sum to ~1 (the scoreline distribution is the uncertainty)")
