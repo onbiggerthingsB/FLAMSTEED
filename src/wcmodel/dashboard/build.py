@@ -133,12 +133,20 @@ def _match_id(home: str, away: str, date) -> str:
 
 
 def _edge_key(home: str, away: str, date) -> tuple:
-    """The ``edges_by_event`` lookup key for a fixture: ``(home, away, commence_date)`` where
-    the date is a calendar ``date`` (the scanner derives the same via ``event_key``). A
-    fixture date string is day-resolution, so we coerce to a ``date`` for an exact join."""
+    """The ``edges_by_event`` lookup key for a fixture: ``(home, away, commence_date-as-str)``.
+
+    KEY-IDENTITY MATCH (C5 FOCAL Codex). ``edges_by_event`` keys on ``tuple(opp["event_key"])``,
+    and the scan opportunity's ``event_key`` comes from ``LiveDecision`` which STRINGIFIES the
+    commence date: ``decide_live`` builds ``event_key=[home, away, str(ekey[2])]`` where
+    ``ekey[2]`` is the ``odds_ingest.event_key`` UTC ``datetime.date``. So the live key's third
+    element is the ISO ``"YYYY-MM-DD"`` STRING, never a ``date`` object. We therefore stringify
+    the fixture date the SAME way — ``str(pd.Timestamp(str(date)).date())`` -> ``"YYYY-MM-DD"``
+    — so this key is BYTE-IDENTICAL to ``edges_by_event``'s key and the edge ACTUALLY ATTACHES.
+    (Returning a ``date`` object made every lookup miss, silently turning every edge into a
+    coverage_gap — the whole model-vs-market overlay was dead on real scan output.)"""
     import pandas as pd
 
-    return (home, away, pd.Timestamp(str(date)).date())
+    return (home, away, str(pd.Timestamp(str(date)).date()))
 
 
 def _forecast_summary(forecast: dict) -> dict:

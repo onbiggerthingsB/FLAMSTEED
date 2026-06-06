@@ -29,3 +29,70 @@ def test_full_bundle_emitted_gated_and_stamped(small_store, synthetic_tournament
     # track is an honest coverage-gap when no backtest records supplied
     track = json.loads((b / "track.json").read_text())["data"]
     assert track.get("coverage_gap") is True
+
+
+def _is_real_edge(node: dict) -> bool:
+    """A REAL (attached) edge node carries the decision-time fields and is NOT a gap."""
+    return (
+        not node.get("coverage_gap")
+        and node.get("is_synthetic") is True
+        and {"staked", "edge", "stake_signal", "entry_odds"} <= set(node)
+    )
+
+
+@pytest.mark.slow
+def test_edge_actually_attaches_to_matching_fixture(small_store, synthetic_tournament,
+                                                    tmp_path, cfg):
+    """C5 FOCAL: the live edge ACTUALLY ATTACHES to the matching group fixture.
+
+    The synthetic odds sample's identity (home/away + UTC commence DATE) is chosen to
+    EXACTLY match a real group fixture in ``synthetic_tournament`` (``Brazil`` vs
+    ``Mexico`` on ``2024-05-02`` — see conftest ``_FIXTURE_DATES``), so the edge SHOULD
+    attach. This is the assertion the original e2e never made: it only checked the bundle
+    was emitted/stamped, never that an edge survived the lookup. Before the key fix,
+    ``_edge_key`` built the lookup key with a ``datetime.date`` object while the scan's
+    ``event_key`` (stringified by ``decide_live``) keys ``edges_by_event`` with a date
+    STRING — so the lookup ALWAYS missed and EVERY edge silently became a coverage_gap.
+
+    A genuinely-absent fixture (no odds item) still gaps HONESTLY — the fix attaches a
+    REAL edge only where one exists, never fabricates one.
+    """
+    # commence DATE == the (Brazil, Mexico) group fixture date in conftest (_FIXTURE_DATES).
+    # 6h-before-kickoff entry is well within stale_snapshot_seconds (86400), so bettable.
+    s = synthetic_odds_sample(home="Brazil", away="Mexico",
+                              commence="2024-05-02T19:00:00Z",
+                              entry=(2.5, 3.4, 3.0), close=(2.1, 3.5, 3.4), seed=0)
+    b = build_snapshot("2026-06-12T12:00:00Z", store=small_store,
+                       items=[{"sample": s["sample"], "liquidity": 50.0}],
+                       config=cfg, fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0,
+                                               "cache_dir": str(tmp_path / "fc")},
+                       tournament=synthetic_tournament, out_root=tmp_path / "out")
+
+    # The matching fixture's per-fixture detail carries a REAL edge (NOT a coverage_gap).
+    matched = None
+    for p in (b / "fixtures").glob("*.json"):
+        d = json.loads(p.read_text())["data"]
+        if d["home"] == "Brazil" and d["away"] == "Mexico":
+            matched = d
+    assert matched is not None, "the Brazil-vs-Mexico group fixture was not emitted"
+    assert _is_real_edge(matched["edge"]), (
+        f"edge did NOT attach to the matching fixture; got {matched['edge']!r} "
+        "(the edge key never matched edges_by_event's stringified-date key)"
+    )
+
+    # And the schedule ROW for the same fixture carries the same REAL edge.
+    sched = json.loads((b / "schedule.json").read_text())["data"]["group"]
+    rows = [r for r in sched if r["home"] == "Brazil" and r["away"] == "Mexico"]
+    assert rows and _is_real_edge(rows[0]["edge"]), "edge did NOT attach to the schedule row"
+
+    # CONTROL: a fixture with NO live odds item still gaps HONESTLY (no fabricated edge).
+    other = None
+    for p in (b / "fixtures").glob("*.json"):
+        d = json.loads(p.read_text())["data"]
+        if not (d["home"] == "Brazil" and d["away"] == "Mexico"):
+            other = d
+            break
+    assert other is not None
+    assert other["edge"].get("coverage_gap") is True, (
+        "a fixture with no live odds must stay an honest coverage_gap"
+    )
