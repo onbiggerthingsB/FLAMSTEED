@@ -1,3 +1,5 @@
+import pytest
+
 from wcmodel.dashboard.edges import edges_by_event
 
 
@@ -42,3 +44,30 @@ def test_taint_propagates_if_either_ranked_or_opp_is_synthetic():
         non_bets = {}
     out = edges_by_event(_Mixed())
     assert out[("A", "B", "2026-06-11")]["is_synthetic"] is True   # opp-level taint wins
+
+
+def test_missing_model_fails_loud_not_silently_none():
+    class _NoModel:
+        is_synthetic = True
+        opportunities = [{
+            "event_key": ["A", "B", "2026-06-11"], "staked": "home", "edge": 0.02,
+            "liquidity": 10.0, "stake_signal": 0.5, "entry_odds": 2.0, "close_odds": 1.9,
+            "is_synthetic": True,   # NOTE: no "model" -> a contract break must KeyError
+        }]
+        non_bets = {}
+    with pytest.raises(KeyError):
+        edges_by_event(_NoModel())
+
+
+def test_missing_opp_taint_defaults_NON_REAL_never_silently_real():
+    class _NoTaint:
+        is_synthetic = False        # ranked-level says real...
+        opportunities = [{
+            "event_key": ["A", "B", "2026-06-11"], "staked": "home", "edge": 0.02,
+            "liquidity": 10.0, "stake_signal": 0.5, "entry_odds": 2.0, "close_odds": 1.9,
+            "model": {"home": 0.5, "draw": 0.3, "away": 0.2},
+            # NOTE: no "is_synthetic" on the opp -> must FAIL SAFE to True, not silently real
+        }]
+        non_bets = {}
+    out = edges_by_event(_NoTaint())
+    assert out[("A", "B", "2026-06-11")]["is_synthetic"] is True   # fail-safe NON-REAL
