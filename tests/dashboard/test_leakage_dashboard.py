@@ -171,15 +171,17 @@ def test_snapshot_is_leakage_safe_played_before_observed_after_does_not_leak(
     below) proves the result genuinely changes the sim conditioning, so this invariance is
     non-vacuous.
 
-    Distinct out_roots force a genuine re-fit per build (the fit cache lands under each
-    out_root), so build #2 re-fits against the mutated store rather than short-circuiting on
-    a shared cache hit — a real leak would surface here."""
+    EXPLICIT DISTINCT cache_dir per build forces a genuine re-fit (since C4, the DEFAULT fit
+    cache lives OUTSIDE out_root in the shared paths.cache, so distinct out_roots alone would
+    now SHARE the default cache and short-circuit build #2 — making this canary VACUOUS). With
+    a distinct cache_dir per build, build #2 re-fits against the MUTATED store rather than
+    short-circuiting on a shared cache hit, so a real leak would surface here."""
     fk = {"draws": 60, "advi_iters": 1500, "seed": 0}
 
     # Snapshot #1 at C, BEFORE the result is recorded (the game is unplayed-as-of-read at C
-    # -> the sim simulates it).
-    b1 = build_snapshot(_C, store=small_store, fit_kwargs=fk, items=[],
-                        out_root=tmp_path / "asof_c_1", tournament=synthetic_tournament)
+    # -> the sim simulates it). EXPLICIT distinct cache_dir (cache_a) so this build re-fits.
+    b1 = build_snapshot(_C, store=small_store, fit_kwargs={**fk, "cache_dir": str(tmp_path / "cache_a")},
+                        items=[], out_root=tmp_path / "asof_c_1", tournament=synthetic_tournament)
     asof_c = _bundle_bytes(b1)
 
     # Record the played-before/valid-before/observed-after result: invisible at C (observed >
@@ -192,10 +194,11 @@ def test_snapshot_is_leakage_safe_played_before_observed_after_does_not_leak(
     # alone includes it; read(C) excludes it), so the invariance below tests THAT gate.
     _assert_gated_solely_by_observed_at(small_store)
 
-    # Snapshot #2 at the SAME C (distinct out_root -> a real re-fit against the mutated
-    # store). The post-C-observed result must not leak: the FULL as-of-C bundle is unchanged.
-    b2 = build_snapshot(_C, store=small_store, fit_kwargs=fk, items=[],
-                        out_root=tmp_path / "asof_c_2", tournament=synthetic_tournament)
+    # Snapshot #2 at the SAME C, with a DISTINCT cache_dir (cache_b) -> a genuine re-fit
+    # against the MUTATED store (no shared-cache short-circuit). The post-C-observed result
+    # must not leak: the FULL as-of-C bundle is unchanged.
+    b2 = build_snapshot(_C, store=small_store, fit_kwargs={**fk, "cache_dir": str(tmp_path / "cache_b")},
+                        items=[], out_root=tmp_path / "asof_c_2", tournament=synthetic_tournament)
     asof_c_again = _bundle_bytes(b2)
     assert set(asof_c_again) == set(asof_c)              # same set of artifact filenames
     assert asof_c_again == asof_c                        # byte-identical FULL bundle (no leak)
@@ -218,23 +221,26 @@ def test_positive_control_result_causally_changes_progression_at_fixed_cutoff(
     is what makes the as-of-C invariance (FIX 1) meaningful: the result is load-bearing, so
     its ABSENCE from the as-of-C bundle is a real (not vacuous) guarantee.
 
-    Distinct out_roots force a genuine re-fit for each build (no shared-cache short-circuit)."""
+    EXPLICIT DISTINCT cache_dir per build forces a genuine re-fit (since C4 the default cache
+    lives OUTSIDE out_root in paths.cache, so distinct out_roots alone would now SHARE it and
+    short-circuit the WITH-RESULT build — making this control vacuous). Distinct cache_dirs
+    keep each build a real re-fit against its own store."""
     fk = {"draws": 60, "advi_iters": 1500, "seed": 0}
 
     # BASELINE at C2: the Brazil-Mexico result is NOT in the store yet, so it is invisible at
-    # C2 too (the sim SIMULATES that group fixture).
-    b_base = build_snapshot(_C2, store=small_store, fit_kwargs=fk, items=[],
-                            out_root=tmp_path / "c2_baseline", tournament=synthetic_tournament)
+    # C2 too (the sim SIMULATES that group fixture). EXPLICIT distinct cache_dir (cache_a).
+    b_base = build_snapshot(_C2, store=small_store, fit_kwargs={**fk, "cache_dir": str(tmp_path / "cache_a")},
+                            items=[], out_root=tmp_path / "c2_baseline", tournament=synthetic_tournament)
     base = _data_payload(b_base)
 
     # Record the result. observed_at = D_observed (2026-06-26) <= C2 (2026-07-01), so it is
     # VISIBLE at C2 -> the sim FIXES the Brazil-Mexico group fixture to 0-5.
     _write_played_before_observed_after(small_store)
 
-    # WITH-RESULT at the SAME cutoff C2 (distinct out_root -> a real re-fit). Identical
-    # cutoff/decay/as_of; the ONLY change vs BASELINE is the now-visible result.
-    b_with = build_snapshot(_C2, store=small_store, fit_kwargs=fk, items=[],
-                            out_root=tmp_path / "c2_with_result",
+    # WITH-RESULT at the SAME cutoff C2, with a DISTINCT cache_dir (cache_b) -> a real re-fit.
+    # Identical cutoff/decay/as_of; the ONLY change vs BASELINE is the now-visible result.
+    b_with = build_snapshot(_C2, store=small_store, fit_kwargs={**fk, "cache_dir": str(tmp_path / "cache_b")},
+                            items=[], out_root=tmp_path / "c2_with_result",
                             tournament=synthetic_tournament)
     with_result = _data_payload(b_with)
 
@@ -269,12 +275,18 @@ def test_snapshot_is_reproducible_same_cutoff_seed_byte_identical(
         small_store, synthetic_tournament, tmp_path):
     """Same cutoff+seed -> byte-identical bundle (determinism), asserted over the ENTIRE
     bundle (every *.json, not just tournament.json), so 'byte-identical bundle' is actually
-    asserted."""
+    asserted.
+
+    EXPLICIT DISTINCT cache_dir per build forces a genuine fresh re-fit for EACH build (since
+    C4 the default cache lives OUTSIDE out_root, so distinct out_roots alone would share it).
+    So byte-identical here means the determinism survives two INDEPENDENT fits at the same
+    cutoff+seed (content-addressed -> same posterior key -> identical bytes), not a trivial
+    re-read of one shared cache entry."""
     fk = {"draws": 60, "advi_iters": 1500, "seed": 0}
-    a = build_snapshot(_C, store=small_store, fit_kwargs=fk, items=[],
-                       out_root=tmp_path / "a", tournament=synthetic_tournament)
-    b = build_snapshot(_C, store=small_store, fit_kwargs=fk, items=[],
-                       out_root=tmp_path / "b", tournament=synthetic_tournament)
+    a = build_snapshot(_C, store=small_store, fit_kwargs={**fk, "cache_dir": str(tmp_path / "cache_a")},
+                       items=[], out_root=tmp_path / "a", tournament=synthetic_tournament)
+    b = build_snapshot(_C, store=small_store, fit_kwargs={**fk, "cache_dir": str(tmp_path / "cache_b")},
+                       items=[], out_root=tmp_path / "b", tournament=synthetic_tournament)
     bundle_a, bundle_b = _bundle_bytes(a), _bundle_bytes(b)
     assert set(bundle_a) == set(bundle_b)               # same artifact filenames
     assert bundle_a == bundle_b                         # byte-identical FULL bundle

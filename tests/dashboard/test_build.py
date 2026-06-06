@@ -74,3 +74,31 @@ def test_bundle_taint_catches_wrapper_level_and_bare_items():
     assert _bundle_is_synthetic([{"_is_synthetic": True}]) is True
     # all-explicitly-real (no taint anywhere) -> real
     assert _bundle_is_synthetic([{"sample": {"_is_synthetic": False}}]) is False
+
+
+@pytest.mark.slow
+def test_bundle_dir_contains_only_stamped_artifacts(small_store, synthetic_tournament, tmp_path):
+    import json
+    from wcmodel.dashboard.build import build_snapshot
+    # synthetic_tournament: the compact small_store posterior covers only the PANEL teams, so
+    # the real 48-team draw would KeyError in RateBook(posterior) (see conftest). The bundle
+    # COMPOSITION (only stamped *.json, no _fit_cache sidecar) is independent of which bracket
+    # is simulated, so we use the same synthetic bracket every other small_store build uses.
+    b = build_snapshot("2026-06-12T00:00:00Z", store=small_store, items=[],
+                       fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0},
+                       out_root=tmp_path, tournament=synthetic_tournament)
+    arts = list(b.glob("*.json"))
+    assert arts, "bundle must contain at least one artifact"
+    for p in arts:                                  # every top-level json is a stamped artifact
+        env = json.loads(p.read_text())
+        assert "provenance" in env and "data" in env
+    assert not (b / "_fit_cache").exists()          # the fit cache is NOT a sidecar inside the bundle
+    # no stray non-artifact dirs in the bundle
+    assert all(child.suffix == ".json" or child.is_dir() and child.name == "fixtures"
+               for child in b.iterdir())
+    # AND the cache is OUT of the whole output tree: out_root (the dashboard output dir that a
+    # production build reuses across cutoffs) holds ONLY per-cutoff bundle subdirs, never a
+    # `_fit_cache` sidecar. RED before C4 (default cache = out_root/_fit_cache pollutes the
+    # output dir); GREEN after (default cache = paths.cache, OUTSIDE out_root). A reader
+    # globbing the output tree for stamped bundles never trips over a cache dir.
+    assert not (tmp_path / "_fit_cache").exists()

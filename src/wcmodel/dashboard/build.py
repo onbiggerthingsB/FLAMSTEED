@@ -24,11 +24,16 @@ dashboard-layer analog of the P2-P5 leakage canaries (``test_leakage_dashboard.p
 GATES, stamps, and writes.
 
 REPRODUCIBLE. ``cached_fit`` is content-addressed + seeded and ``simulate`` is seeded, so
-the same ``cutoff`` + ``seed`` yields a byte-identical bundle. The fit cache defaults to a
-directory UNDER ``out_root`` (never inside the bundle dir), so two builds into distinct
-``out_root``s each run a genuine fresh fit — which is what keeps the leakage canary
-NON-VACUOUS (the post-cutoff-mutation build re-fits against the mutated store rather than
-short-circuiting on a shared cache hit)."""
+the same ``cutoff`` + ``seed`` yields a byte-identical bundle. The fit cache defaults to the
+shared project cache ``paths.cache`` — OUTSIDE the dashboard output tree entirely (never
+under ``out_root``, never inside the per-cutoff bundle dir) — so a production run reuses the
+content-addressed posteriors across cutoffs while the output tree holds ONLY stamped bundle
+dirs. Because the default cache is no longer under ``out_root``, two builds into distinct
+``out_root``s now SHARE that default cache; the leakage/reproducibility canaries that depend
+on a genuine fresh re-fit therefore pass an EXPLICIT, DISTINCT ``fit_kwargs["cache_dir"]`` per
+build (``cache_dir`` always wins over the default) so each build re-fits rather than
+short-circuiting on a shared cache hit — which is what keeps the leakage canary NON-VACUOUS
+(the post-cutoff-mutation build re-fits against the mutated store)."""
 from __future__ import annotations
 
 import json
@@ -117,6 +122,13 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
     """Build + write one snapshot bundle for ``cutoff``. Returns the bundle dir. Heavy compute
     is delegated to cached_fit/simulate/scan; build.py only assembles, GATES, stamps, writes.
 
+    GLOB CONTRACT. The snapshot bundle dir contains ONLY stamped JSON artifacts (top-level
+    ``*.json`` + a ``fixtures/`` dir once wired); model fit caches live OUTSIDE the bundle
+    (default ``paths.cache``, the shared project cache), so a reader globbing the bundle's
+    ``*.json`` never picks up a cache file. The fit cache default is OUTSIDE the dashboard
+    ``out_root`` tree entirely (not just outside the leaf bundle dir), so the whole output
+    tree a production run reuses across cutoffs holds only stamped bundle subdirs.
+
     ``tournament`` (default ``None`` -> the verified ``config/tournament_2026.yaml``) is
     threaded straight to ``SimConfig`` so a minimal synthetic bracket can be simulated over a
     compact posterior (the leakage/repro canaries pass one; production passes nothing and
@@ -129,12 +141,16 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
     cfg = config or load_config()
     fk = fit_kwargs or {}
     out_root = Path(out_root or cfg["dashboard"]["output_dir"])
-    # The fit cache defaults UNDER out_root (never inside the per-cutoff bundle dir, so the
-    # cache files never pollute the JSON bundle). Routing it to out_root means two builds
-    # into distinct out_roots each run a fresh fit -> the leakage canary's post-cutoff-
-    # mutation build genuinely re-fits against the mutated store instead of short-circuiting
-    # on a shared cache hit (non-vacuity). An explicit fit_kwargs["cache_dir"] still wins.
-    fit_cache = fk.get("cache_dir", str(out_root / "_fit_cache"))
+    # The fit cache defaults to the shared project cache (paths.cache) — OUTSIDE the dashboard
+    # output tree entirely, never under out_root and never inside the per-cutoff bundle dir.
+    # So the bundle dir holds ONLY stamped JSON artifacts (a frontend globbing the bundle's
+    # *.json never trips over a cache file) AND a production run reuses the content-addressed
+    # posteriors across cutoffs. CONSEQUENCE FOR THE CANARIES: because the default is no longer
+    # under out_root, two builds into distinct out_roots now SHARE this default cache; the
+    # leakage/repro canaries that must genuinely RE-FIT therefore pass an EXPLICIT, DISTINCT
+    # fit_kwargs["cache_dir"] per build (cache_dir always wins) so each build re-fits instead
+    # of short-circuiting on a shared cache hit (keeps the leakage canary NON-VACUOUS).
+    fit_cache = fk.get("cache_dir", cfg["paths"]["cache"])
     posterior, meta = cached_fit(
         cutoff=cutoff, store=store, backend=fk.get("backend", "advi"),
         draws=fk.get("draws", 200), seed=fk.get("seed", cfg["seed"]),
