@@ -4,6 +4,18 @@ import CoverageGap from '../../src/components/CoverageGap.svelte';
 import CredibleInterval from '../../src/components/CredibleInterval.svelte';
 import EdgeChip from '../../src/components/EdgeChip.svelte';
 import HonestyBar from '../../src/components/HonestyBar.svelte';
+import WinBar from '../../src/components/WinBar.svelte';
+
+test('WinBar: every visible probability sits inside a data-uncertainty region (no naked legend)', () => {
+  // RED before the fix: the legend readout (H 45% ...) lived OUTSIDE the data-uncertainty
+  // container, so a visible probability escaped the no-naked-number contract.
+  const { container } = render(WinBar, { model: { home: 0.45, draw: 0.27, away: 0.28 } });
+  const pctNodes = [...container.querySelectorAll('span')].filter((n) => /\d%/.test(n.textContent ?? ''));
+  expect(pctNodes.length).toBeGreaterThan(0);                 // the legend readouts exist
+  for (const n of pctNodes) {
+    expect(n.closest('[data-uncertainty]')).not.toBeNull();   // ...and each is inside the marker
+  }
+});
 
 test('Estimate renders value with its SE companion and the no-naked markers', () => {
   const { container } = render(Estimate, { value: 0.288, se: 0.0032, label: 'champion' });

@@ -9,19 +9,25 @@
     { k: 'away', v: model.away, c: 'var(--good)' },
   ]);
 </script>
-<div class="winbar" data-uncertainty="distribution" role="img" aria-label="win/draw/loss distribution">
-  {#each seg as s}
-    <span class="s" style="flex:{s.v}; background:{s.c}" title="{s.k} {pct(s.v)}"></span>
-  {/each}
-  {#if line}
-    {#each [line.home, line.home + line.draw] as edge}
-      <span class="ghost" style="left:{edge * 100}%" title="sharp line"></span>
+<!-- The 1X2 distribution IS the uncertainty (approved design). The bar AND its legend
+     readout both live INSIDE one data-uncertainty="distribution" region, so no visible
+     probability ever escapes the no-naked-number contract (the legend % is a readout of
+     the distribution, not a standalone point estimate). -->
+<div class="winbar-wrap" data-uncertainty="distribution">
+  <div class="winbar" role="img" aria-label="win/draw/loss distribution">
+    {#each seg as s}
+      <span class="s" style="flex:{s.v}; background:{s.c}" title="{s.k} {pct(s.v)}"></span>
     {/each}
-  {/if}
-</div>
-<div class="legend muted">
-  <span>H {pct(model.home)}</span><span>D {pct(model.draw)}</span><span>A {pct(model.away)}</span>
-  {#if line}<span class="ln">line: H {pct(line.home)} · D {pct(line.draw)} · A {pct(line.away)}</span>{/if}
+    {#if line}
+      {#each [line.home, line.home + line.draw] as edge}
+        <span class="ghost" style="left:{edge * 100}%" title="sharp line"></span>
+      {/each}
+    {/if}
+  </div>
+  <div class="legend muted">
+    <span>H {pct(model.home)}</span><span>D {pct(model.draw)}</span><span>A {pct(model.away)}</span>
+    {#if line}<span class="ln">line: H {pct(line.home)} · D {pct(line.draw)} · A {pct(line.away)}</span>{/if}
+  </div>
 </div>
 <style>
   .winbar { position: relative; display: flex; height: 20px; border-radius: 6px; overflow: hidden; }
