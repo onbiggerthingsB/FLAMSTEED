@@ -142,3 +142,16 @@ def test_gate_track_recursion_inf_none_and_coverage_gap():
         gate_track({"a": {"b": [1.0, float("inf")]}})                                 # nested inf
     with pytest.raises(ValueError, match="(?i)finite|nan"):
         gate_track({"deep": {"deeper": {"x": float("nan")}}})                         # nested NaN
+
+
+def test_gate_fixture_forecast_rejects_non_finite_or_nonnumeric_grid_cells():
+    base = {"most_likely": {"home_goals": 0, "away_goals": 0, "prob": 1.0},
+            "one_x_two": {"home": 0.4, "draw": 0.3, "away": 0.3}}
+    for bad_grid in ([[float("nan")]],            # NaN cell would slip the sum check
+                     [[float("inf")]],            # inf cell
+                     [[0.5, "x"]],                 # non-numeric cell (was TypeError)
+                     [[0.5, None]]):               # None cell (was TypeError)
+        with pytest.raises(ValueError, match="(?i)grid|finite|numeric"):
+            gate_fixture_forecast({**base, "grid": bad_grid})
+    # a valid numeric grid summing ~1 still passes
+    gate_fixture_forecast({**base, "grid": [[0.5, 0.2], [0.2, 0.1]]})

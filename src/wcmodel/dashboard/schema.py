@@ -78,6 +78,9 @@ def gate_fixture_forecast(f: dict, *, tol: float = 0.05) -> None:
     if not (isinstance(grid, (list, tuple))
             and all(isinstance(row, (list, tuple)) for row in grid)):
         raise ValueError("fixture forecast: grid must be a list of numeric rows")
+    for row in grid:
+        if not all(_finite_number(c) for c in row):
+            raise ValueError("fixture forecast: every grid cell must be a finite number")
     if abs(sum(sum(row) for row in grid) - 1.0) > tol:
         raise ValueError("fixture forecast: grid missing or does not sum to ~1 "
                          "(the scoreline distribution is the uncertainty)")
