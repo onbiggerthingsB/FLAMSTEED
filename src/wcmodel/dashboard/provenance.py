@@ -9,10 +9,12 @@ from wcmodel.dashboard import DRY_RUN_BANNER
 
 def _git_rev() -> str:
     try:
+        # `timeout=` so a wedged git can never hang the build; the broad except below
+        # also catches subprocess.TimeoutExpired -> the "unknown" sentinel.
         return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], text=True
+            ["git", "rev-parse", "--short", "HEAD"], text=True, timeout=5
         ).strip()
-    except Exception:                      # detached / no-git env -> explicit sentinel
+    except Exception:                      # detached / no-git / timeout -> explicit sentinel
         return "unknown"
 
 
@@ -23,6 +25,9 @@ class Provenance:
     cutoff: str
     posterior_key: str
     git: str
+    # `is_synthetic` is intentionally a REQUIRED field with NO default: a forgotten arg
+    # must fail loud, never silently default to `False` (which would let a synthetic
+    # bundle read as REAL — the exact confusion the banner exists to prevent).
     is_synthetic: bool
     n_sims: int
 
