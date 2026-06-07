@@ -29,7 +29,16 @@ test('Tournament orders columns as the coherence ladder (shallow → deep)', () 
   const headers = Array.from(container.querySelectorAll('thead th')).map((h) => h.textContent?.trim());
   // first header is the team column; the rest are progression markets in ladder order.
   const cols = headers.slice(1);
-  const idx = (label: string) => cols.indexOf(label.replace(/_/g, ' '));
+  // Readable labels (the T11 header pass): market key → human label.
+  const LABEL: Record<string, string> = {
+    advance_from_group: 'Advance',
+    reach_r16: 'R16',
+    reach_qf: 'QF',
+    reach_sf: 'SF',
+    reach_final: 'Final',
+    champion: 'Champion',
+  };
+  const idx = (market: string) => cols.indexOf(LABEL[market]);
   const chain = ['advance_from_group', 'reach_r16', 'reach_qf', 'reach_sf', 'reach_final', 'champion'];
   const positions = chain.map(idx).filter((p) => p >= 0);
   expect(positions.length).toBeGreaterThan(1);

@@ -9,8 +9,14 @@ const dest = join(root, 'public', 'bundle');
 
 let source = null;
 if (existsSync(live)) {
-  const dirs = readdirSync(live).filter((d) => statSync(join(live, d)).isDirectory()).sort();
-  if (dirs.length) source = join(live, dirs[dirs.length - 1]);
+  // Pick the NEWEST live bundle dir by mtime, not lexical order: the dir names are ISO
+  // cutoffs today (so lexical == chronological), but mtime is robust if a future
+  // non-ISO dir name is ever introduced — a freshly-written bundle always wins.
+  const dirs = readdirSync(live)
+    .map((d) => ({ name: d, path: join(live, d) }))
+    .filter((d) => statSync(d.path).isDirectory())
+    .sort((a, b) => statSync(a.path).mtimeMs - statSync(b.path).mtimeMs);
+  if (dirs.length) source = dirs[dirs.length - 1].path;
 }
 if (!source) source = existsSync(fixture) ? fixture : null;
 if (!source) { console.warn('no bundle found (live or fixture)'); process.exit(0); }

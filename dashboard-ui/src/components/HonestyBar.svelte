@@ -10,6 +10,18 @@
   {/if}
 </header>
 <style>
-  .bar { display: flex; gap: 16px; align-items: center; padding: 8px 16px; background: var(--card); border-bottom: 1px solid var(--line); font-size: 0.85em; }
-  .dryrun { margin-left: auto; color: #1b1d22; background: var(--warn); padding: 2px 10px; border-radius: 999px; font-weight: 600; }
+  /* Persistent honesty bar: as-of + version always visible at the very top. */
+  .bar {
+    display: flex; gap: var(--space-4); align-items: center; flex-wrap: wrap;
+    padding: var(--space-2) var(--space-5); background: var(--card);
+    border-bottom: 1px solid var(--line); font-size: var(--fs-sm);
+    max-width: 1100px; margin: 0 auto; width: 100%;
+  }
+  .asof strong { font-weight: 650; }
+  .ver { font-variant-numeric: tabular-nums; }
+  .dryrun {
+    margin-left: auto; color: #1b1d22; background: var(--warn);
+    padding: 2px 10px; border-radius: 999px; font-weight: 700;
+    font-size: 0.78em; letter-spacing: 0.03em;
+  }
 </style>

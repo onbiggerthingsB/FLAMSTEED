@@ -888,3 +888,49 @@ Implemented on branch `phase3-monte-carlo`.
   the pre-funding `decision_ts` follow-up + funding-flip runbook already documented in the
   Phase 5 section above — v1 ships synthetic only; no number in a dashboard snapshot is a
   real CLV/ROI claim.
+
+## Dashboard frontend viewer (Plan 2)
+
+- **A dependency-light Svelte + Vite + TypeScript STATIC viewer (`dashboard-ui/`).** No UI kit,
+  no CSS framework, no state library — plain Svelte 5 components, a hash router, and a small
+  set of CSS tokens (`src/app.css`). It renders the Plan-1 JSON bundles and **recomputes
+  NOTHING**: there is no model in the browser, so the viewer is **leakage-safe by
+  construction** (a snapshot is already a leakage-gated `read(cutoff)` from the data layer
+  above; the UI only displays it). `src/lib/types.ts` mirrors the bundle envelope contract;
+  the serializer (`wcmodel.dashboard`) remains ground truth.
+- **The uncertainty-grammar markers (the no-naked-numbers rule made STRUCTURAL in the UI).**
+  Every probability-shaped token (`45%`, `6.9%`) renders inside ONE of three conscious markers,
+  or the render guard fails:
+  - `data-estimate` + `data-uncertainty` — a point estimate carrying its `±` companion
+    (`Estimate` / `CredibleInterval`); the companion lives in its own marked node.
+  - `data-uncertainty="distribution"` — the distribution IS the uncertainty (`WinBar` /
+    `ScorelineGrid` / `ScorePill`'s "1–0 · 12%"); no separate `±` companion, by approved design.
+  - `data-coverage-gap` — an honest absence ("insufficient coverage"), never a number.
+- **The reviewed `data-derived` exemption (NON-FORECAST numbers ONLY).** `data-derived` is a
+  consciously-reviewed exemption for DERIVED signals (the EdgeChip's edge %, the ¼-Kelly stake
+  signal, entry odds) and BACKWARD-LOOKING track performance (beat-close rate, CLV, RPS,
+  reliability) — these are not posteriors, so they carry no `±` by design. It MUST NEVER wrap a
+  forward-looking forecast probability; the guard cannot infer semantics from markup, so every
+  new `data-derived` use is a manual review checkpoint, not a free pass.
+- **The no-naked-number render guard + the NON-REAL e2e (the load-bearing tests).**
+  `tests/no-naked-number.test.ts` walks the rendered DOM of EVERY surface and asserts no `%`
+  (visible text OR `title`/`aria-label` attribute) escapes the marker set; its non-vacuity
+  block proves it has teeth (the SAME function must catch a deliberately-naked `<span>45%</span>`
+  and a `data-estimate` with no `±` companion). The Playwright `tests/e2e/smoke.spec.ts`
+  enforces the honesty posture: the `DRY-RUN · SYNTHETIC ODDS · NOT REAL` banner is visible on
+  load AND persists across drill-down, there is NO bet/stake/buy/order affordance anywhere
+  (the stake is a read-only SIGNAL, not a control), and the real-edge match detail drill-down
+  renders the edge + stake without any commerce-shaped control.
+- **Data flow (`copy-bundle.mjs` → `public/bundle/`).** `dev`/`build`/`e2e` first run
+  `scripts/copy-bundle.mjs`, which copies the NEWEST live `data/dashboard/<cutoff>/` dir
+  (selected by directory `mtime`, robust to a future non-ISO dir name) into `public/bundle/`,
+  falling back to the committed synthetic fixture (`tests/fixtures/bundle/`) so the app, unit
+  tests, and e2e always have data offline. Requires Node ≥ 20.11 (`import.meta.dirname`; pinned
+  in `package.json` `engines`).
+- **v1 scope = four surfaces.** Schedule (landing, with a next-up anchor onto the first
+  `upcoming` group fixture per spec D6), Match-detail (fetched on drill-down), Tournament
+  progression (the coherence ladder, readable column labels), and Track record. The
+  bracket-tree visualization, the ghosted sharp-line in the win-bar (needs a Plan-1 data-layer
+  follow-up to emit the de-vigged market 1X2), and the real-feed flip (gated on the
+  funding-flip checklist) are PROGRESSIVE / out of scope per spec §7. The viewer is
+  feed-agnostic: flipping to a real feed is a data-layer change, not a UI change.

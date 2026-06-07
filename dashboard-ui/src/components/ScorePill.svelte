@@ -15,7 +15,8 @@
 </span>
 
 <style>
+  /* The score is the visual anchor of its row; the probability rides quietly beside it. */
   .scorepill { display: inline-flex; align-items: baseline; gap: 6px; }
-  .score { font-size: 1.15em; }
-  .prob { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .score { font-size: 1.2em; font-weight: 650; letter-spacing: -0.01em; }
+  .prob { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 0.9em; }
 </style>

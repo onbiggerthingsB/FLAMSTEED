@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import type { ScheduleData } from '../lib/types';
   import { isGap } from '../lib/guards';
   import { formatDate } from '../lib/format';
@@ -11,6 +12,20 @@
   let { data }: { data: ScheduleData } = $props();
   const STAGES = ['group', 'knockout'] as const;
   let stage = $state<'group' | 'knockout'>('group');
+
+  // Next-up anchor (spec D6): the FIRST group row still 'upcoming' is the next fixture.
+  // Mark exactly that row [data-nextup] and scroll it into view on mount so the landing
+  // opens on what matters now. All-played → no anchor (nextupId stays null).
+  let listEl = $state<HTMLElement | null>(null);
+  const nextupId = $derived(data.group.find((r) => r.status === 'upcoming')?.match_id ?? null);
+  onMount(() => {
+    // Guarded: jsdom (vitest) has no scrollIntoView. The marker is what the test asserts;
+    // the scroll is a best-effort browser nicety, never load-bearing.
+    const el = listEl?.querySelector('[data-nextup]');
+    if (el instanceof HTMLElement && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ block: 'center' });
+    }
+  });
 </script>
 
 <div class="nav">
@@ -20,9 +35,18 @@
 </div>
 
 {#if stage === 'group'}
-  <ul class="rows">
+  <ul class="rows" bind:this={listEl}>
     {#each data.group as r (r.match_id)}
-      <li class="card row" data-row="group" data-status={r.status}>
+      <li
+        class="card row"
+        class:nextup={r.match_id === nextupId}
+        data-row="group"
+        data-status={r.status}
+        data-match-id={r.match_id}
+        data-nextup={r.match_id === nextupId ? '' : undefined}
+        aria-current={r.match_id === nextupId ? 'true' : undefined}
+      >
+        {#if r.match_id === nextupId}<span class="nextup-tag">next up</span>{/if}
         <span class="teams">{r.home} <span class="muted">v</span> {r.away}</span>
         <span class="date muted">{formatDate(r.date)}</span>
         {#if isGap(r.forecast_summary)}
@@ -68,16 +92,30 @@
 {/if}
 
 <style>
-  .nav { display: flex; gap: 8px; margin-bottom: 12px; }
-  .nav button { background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 999px; padding: 4px 14px; cursor: pointer; }
-  .nav .active { border-color: var(--accent); color: var(--accent); }
-  .rows { list-style: none; padding: 0; display: grid; gap: 10px; }
-  .row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
-  .row[data-status="played"] { opacity: 0.6; }
-  .teams { font-weight: 600; min-width: 220px; }
+  .nav { display: flex; gap: 8px; margin-bottom: var(--space-4); }
+  .nav button {
+    background: transparent; color: var(--muted); border: 1px solid var(--line);
+    border-radius: 999px; padding: 5px 16px; cursor: pointer; font: inherit;
+    transition: color 0.12s ease, border-color 0.12s ease;
+  }
+  .nav button:hover { color: var(--ink); }
+  .nav .active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .rows { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--space-3); }
+  .row { display: flex; gap: var(--space-4); align-items: center; flex-wrap: wrap; }
+  .row[data-status="played"] { opacity: 0.55; }
+  /* The next-up fixture is the quiet anchor: one accent-tinted left edge, never loud. */
+  .row.nextup { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); box-shadow: inset 3px 0 0 var(--accent); opacity: 1; }
+  .nextup-tag {
+    align-self: center; color: var(--accent); background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    border-radius: 999px; padding: 1px 9px; font-size: 0.72em; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+  }
+  .teams { font-weight: 600; min-width: 200px; }
   .score { display: inline-flex; align-items: baseline; gap: 6px; }
   .dist { min-width: 200px; flex: 1; }
-  .more { margin-left: auto; color: var(--accent); text-decoration: none; }
-  .occ { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; width: 100%; }
+  .more { margin-left: auto; color: var(--accent); text-decoration: none; font-size: 0.9em; }
+  .more:hover { text-decoration: underline; }
+  .occ { display: flex; gap: var(--space-3); align-items: baseline; flex-wrap: wrap; width: 100%; }
   .oc { font-size: 0.9em; }
 </style>

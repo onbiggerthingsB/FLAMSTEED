@@ -48,8 +48,15 @@
 {/if}
 
 <style>
-  nav { display: flex; gap: 16px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
-  nav a { color: var(--accent); text-decoration: none; }
-  main { padding: 16px; max-width: 1100px; margin: 0 auto; }
-  .err { color: var(--warn); padding: 16px; } .load { padding: 16px; }
+  nav {
+    display: flex; gap: var(--space-5); padding: var(--space-3) var(--space-5);
+    border-bottom: 1px solid var(--line); max-width: 1100px; margin: 0 auto; width: 100%;
+  }
+  nav a {
+    color: var(--muted); text-decoration: none; font-size: var(--fs-sm); font-weight: 500;
+    padding: var(--space-1) 0; border-bottom: 2px solid transparent; transition: color 0.12s ease;
+  }
+  nav a:hover { color: var(--ink); }
+  main { padding: var(--space-5); max-width: 1100px; margin: 0 auto; }
+  .err { color: var(--warn); padding: var(--space-5); } .load { padding: var(--space-5); }
 </style>

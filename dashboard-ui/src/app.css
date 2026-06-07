@@ -1,10 +1,71 @@
+/* Clean + honest (spec §D4): airy cards, ONE accent, a readable score that wears its %,
+   the sharp line ghosted, the edge a quiet chip. NOT dense / monospace / "tax form".
+   Dependency-free: tokens + a small type scale, no UI kit. The data-* contract that the
+   no-naked-number guard depends on lives in the components — CSS never touches it. */
 :root {
-  --bg: #0f1115; --card: #171a21; --ink: #e8eaed; --muted: #9aa0a8;
-  --accent: #4f8cff; --line: #2a2f3a; --good: #39d98a; --warn: #ffb020;
-  --radius: 14px; --pad: 16px;
+  /* Surface + ink */
+  --bg: #0f1115;
+  --card: #171a21;
+  --ink: #e8eaed;
+  --muted: #9aa0a8;
+  --line: #2a2f3a;
+
+  /* ONE accent (plus its soft tint), and the two semantic signal colours. */
+  --accent: #4f8cff;
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --good: #39d98a;
+  --warn: #ffb020;
+
+  /* Shape + an airy spacing scale (the cards breathe). */
+  --radius: 14px;
+  --pad: 18px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* Type: a quiet, readable scale; tabular numerals so probabilities line up. */
+  --fs-sm: 0.85rem;
+  --fs-base: 1rem;
+  --fs-lg: 1.25rem;
+  --fs-xl: 1.6rem;
+
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color-scheme: dark;
 }
+
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: var(--pad); }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Headings: a calm hierarchy — present, never shouting. */
+h2 { font-size: var(--fs-xl); font-weight: 650; margin: 0 0 var(--space-3); letter-spacing: -0.01em; }
+h3 { font-size: var(--fs-lg); font-weight: 600; margin: 0 0 var(--space-3); }
+h4 { font-size: var(--fs-base); font-weight: 600; color: var(--muted); margin: var(--space-4) 0 var(--space-2); }
+
+/* Cards: the airy container. Generous padding, soft border, gentle lift. */
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--pad);
+}
+
+/* Secondary text is muted, not hidden — the rigor stays legible. */
 .muted { color: var(--muted); }
+
+/* Numerals align in columns (estimates, scores, tables read cleanly). */
+table, .metrics, .score, .prob, .val { font-variant-numeric: tabular-nums; }
+
+a { color: var(--accent); }
+::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
