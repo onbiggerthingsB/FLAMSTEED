@@ -934,3 +934,27 @@ Implemented on branch `phase3-monte-carlo`.
   follow-up to emit the de-vigged market 1X2), and the real-feed flip (gated on the
   funding-flip checklist) are PROGRESSIVE / out of scope per spec §7. The viewer is
   feed-agnostic: flipping to a real feed is a data-layer change, not a UI change.
+- **Convergence-review hardening (fail-safe honesty + crash-safety — the viewer does not trust
+  the producer).** Mirrors Plan 1's fail-safe taint discipline at the render layer:
+  - **The NON-REAL banner is gated on `provenance.is_synthetic`, NOT banner-presence.** A
+    synthetic bundle with a missing/empty `banner` STILL renders the DRY-RUN chip (with a
+    hardcoded `DRY-RUN · SYNTHETIC ODDS · NOT REAL` fallback); the on-screen claim is sourced
+    from the producer's banner when present. A synthetic bundle can never silently read as REAL.
+  - **Value components degrade, never crash.** `CredibleInterval` renders `—` for a
+    null/non-finite value or a missing/degenerate CI (it never crashes the match-detail
+    surface, mirroring `Estimate`). `ScorelineGrid` degrades to a `CoverageGap` for an empty /
+    non-rectangular / all-zero grid — never `NaN%` / divide-by-zero — and clamps each cell's
+    intensity ratio to [0,1]. `WinBar` clamps each segment's visual flex to `max(0, v)`; this is
+    a **render-only** clamp that never recomputes/normalizes the probabilities (a model recompute
+    is forbidden in a read-only viewer — the data layer already gates sum≈1 + [0,1]).
+  - **The no-naked-number guard now covers the composed `App` shell + `HonestyBar`** (not just
+    the four surfaces in isolation), with a non-vacuity proof that a hypothetical `%` in the
+    honesty bar (text OR `title`) would be caught — closing the bar's blind spot. The NON-REAL
+    e2e visits **all routes** (Schedule, match detail, Tournament, Track), asserting the banner
+    persists and there is no bet affordance on each.
+  - **Type fidelity to the serializer's conditional emission.** `TournamentData`'s inner market
+    map is `Partial` (the serializer emits a market node only `if m in prog.columns`) and
+    `KoRow.stage` is `string | null` (serializer `match_round.get()` may be `None`); the
+    surfaces read these null-safely (Schedule renders a `TBD round` placeholder for a null
+    stage). The dead `oddsToImplied` (`1/odds`) helper was removed — a latent recompute foothold
+    with no use in a read-only viewer.

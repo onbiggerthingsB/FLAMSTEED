@@ -1,4 +1,4 @@
-import { pct, pctPlusMinus, ciText, edgeChip, oddsToImplied, formatDate } from '../../src/lib/format';
+import { pct, pctPlusMinus, ciText, edgeChip, formatDate } from '../../src/lib/format';
 
 test('pct formats a probability', () => {
   expect(pct(0.147)).toBe('15%');
@@ -21,10 +21,6 @@ test('edgeChip shows a signed edge', () => {
   expect(edgeChip(0.0686)).toBe('▲ +6.9%');
   expect(edgeChip(-0.02)).toBe('▼ −2.0%');
   expect(edgeChip(0)).toBe('no edge');
-});
-
-test('oddsToImplied inverts decimal odds', () => {
-  expect(oddsToImplied(2.0)).toBe(0.5);
 });
 
 test('formatDate strips a trailing time', () => {

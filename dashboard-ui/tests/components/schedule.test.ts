@@ -25,6 +25,19 @@ test('Schedule renders KO rows as probable occupants with SE, or a gap', async (
   expect(ko.length).toBe(sch.data.knockout.length);
 });
 
+// FIX G (a11y): the stage toggle buttons expose their pressed state to assistive tech.
+test('Schedule stage toggle buttons carry aria-pressed reflecting the active stage', async () => {
+  const { getByRole } = render(Schedule, { data: sch.data });
+  const group = getByRole('button', { name: 'group' });
+  const knockout = getByRole('button', { name: 'knockout' });
+  // Default stage is group.
+  expect(group.getAttribute('aria-pressed')).toBe('true');
+  expect(knockout.getAttribute('aria-pressed')).toBe('false');
+  await fireEvent.click(knockout);
+  expect(group.getAttribute('aria-pressed')).toBe('false');
+  expect(knockout.getAttribute('aria-pressed')).toBe('true');
+});
+
 // ── Next-up anchor (spec D6) ────────────────────────────────────────────────────
 // The Schedule landing anchors to the NEXT-UP fixture: the FIRST group row whose
 // status is 'upcoming' is marked [data-nextup] (and scrolled into view on mount). The

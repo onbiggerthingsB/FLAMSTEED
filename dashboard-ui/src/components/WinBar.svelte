@@ -15,8 +15,13 @@
      the distribution, not a standalone point estimate). -->
 <div class="winbar-wrap" data-uncertainty="distribution">
   <div class="winbar" role="img" aria-label="win/draw/loss distribution">
+    <!-- FIX F (defense-in-depth, VISUAL only): clamp the flex weight to max(0, v) so a
+         non-normalized / out-of-[0,1] one_x_two from a bad bundle can never paint a
+         negative or oversized segment. This does NOT recompute/normalize the probabilities
+         (that would be a forbidden model recompute) — the title still shows the RAW pct();
+         the data layer already gates sum~1 + [0,1]. Belt-and-suspenders on the render. -->
     {#each seg as s}
-      <span class="s" style="flex:{s.v}; background:{s.c}" title="{s.k} {pct(s.v)}"></span>
+      <span class="s" style="flex:{Math.max(0, s.v)}; background:{s.c}" title="{s.k} {pct(s.v)}"></span>
     {/each}
     {#if line}
       {#each [line.home, line.home + line.draw] as edge}

@@ -30,7 +30,7 @@
 
 <div class="nav">
   {#each STAGES as s}
-    <button class:active={stage === s} onclick={() => (stage = s)}>{s}</button>
+    <button class:active={stage === s} aria-pressed={stage === s} onclick={() => (stage = s)}>{s}</button>
   {/each}
 </div>
 
@@ -71,7 +71,9 @@
   <ul class="rows">
     {#each data.knockout as k (k.match)}
       <li class="card row" data-row="ko">
-        <span class="teams">{k.stage} · {k.home_ref} v {k.away_ref}</span>
+        <!-- stage may be null (serializer match_round.get() → None); render a placeholder,
+             never a raw "null" or a dangling "· " separator. -->
+        <span class="teams">{k.stage ?? 'TBD round'} · {k.home_ref} v {k.away_ref}</span>
         {#each [['home', k.home_occupants] as const, ['away', k.away_occupants] as const] as [side, occ]}
           <div class="occ">
             <span class="muted side">{side}:</span>

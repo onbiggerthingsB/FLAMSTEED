@@ -18,5 +18,9 @@ test('fixture envelopes match the typed contract', () => {
 
   const tour = load<TournamentData>('tournament.json');
   const team = Object.keys(tour.data)[0];
-  expect(typeof tour.data[team].champion.value === 'number' || tour.data[team].champion.value === null).toBe(true);
+  // The serializer emits a market node only `if m in prog.columns`, so a market key may be
+  // absent — the inner map is Partial. Read it null-safely (mirrors the surfaces' `?.`).
+  const champion = tour.data[team]?.champion;
+  expect(champion).toBeDefined(); // the committed fixture DOES carry champion for every team
+  expect(typeof champion?.value === 'number' || champion?.value === null).toBe(true);
 });

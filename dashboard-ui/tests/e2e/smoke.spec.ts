@@ -89,3 +89,24 @@ test('(c) drill into the REAL-EDGE match detail: edge + stake render, NO bet aff
   // … and the honesty banner persists across the drill-down (it's app-shell-level).
   await expect(page.getByText(BANNER)).toBeVisible();
 });
+
+// (d) FIX E: the Tournament + Track routes were never visited — extend the honesty invariants
+// to EVERY surface, not just the homepage + one match. On each route the persistent NON-REAL
+// banner must remain AND there must be no bet/stake/buy/order affordance.
+test('(d) Tournament route: NON-REAL banner persists AND no bet affordance', async ({ page }) => {
+  await page.goto('/#/tournament');
+  await waitForApp(page);
+  // Sanity: the progression table actually rendered (the route really switched).
+  await expect(page.locator('table.prog')).toBeVisible();
+  await expect(page.getByText(BANNER)).toBeVisible();
+  await assertNoBetAffordance(page);
+});
+
+test('(e) Track route: NON-REAL banner persists AND no bet affordance', async ({ page }) => {
+  await page.goto('/#/track');
+  await waitForApp(page);
+  // Sanity: the Track surface actually rendered (heading present on either gap or stats path).
+  await expect(page.getByRole('heading', { name: /Track record/ })).toBeVisible();
+  await expect(page.getByText(BANNER)).toBeVisible();
+  await assertNoBetAffordance(page);
+});

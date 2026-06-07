@@ -35,6 +35,4 @@ export function edgeChip(edge: number | null | undefined): string {
   return `${edge > 0 ? '▲' : '▼'} ${signed(edge)}%`;
 }
 
-export function oddsToImplied(odds: number): number { return 1 / odds; }
-
 export function formatDate(d: string): string { return d.split(' ')[0]; }

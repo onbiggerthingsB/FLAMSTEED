@@ -31,6 +31,8 @@ import Tournament from '../src/surfaces/Tournament.svelte';
 import Track from '../src/surfaces/Track.svelte';
 import MatchDetail from '../src/surfaces/MatchDetail.svelte';
 import WinBar from '../src/components/WinBar.svelte';
+import HonestyBar from '../src/components/HonestyBar.svelte';
+import App from '../src/App.svelte';
 
 const dir = resolve(__dirname, 'fixtures/bundle');
 const J = (f: string) => JSON.parse(readFileSync(resolve(dir, f), 'utf8'));
@@ -243,6 +245,56 @@ describe('no naked numbers — every surface honours the uncertainty/gap/derived
     // Sanity: a derived % (the edge chip and/or stake signal) actually rendered.
     expect(PCT.test(container.textContent ?? '')).toBe(true);
     assertNoNakedNumbers(container);
+  });
+
+  // ── FIX D: run the App SHELL + HonestyBar through the SAME guard ────────────────
+  // The guard previously rendered only the four surfaces + WinBar in isolation — never
+  // the composed shell or the honesty bar, so a future % in the bar / banner was an
+  // unguarded blind spot. These close that: the SAME assertNoNakedNumbers scans the
+  // shell + bar (incl. title/aria-label attributes), so a % smuggled into the honesty
+  // bar/banner WOULD be caught.
+
+  test('HonestyBar (synthetic provenance incl. banner) has no naked numbers', () => {
+    // The synthetic banner text + as-of + "20,000 sims" version readout: today none carry
+    // a %, so the guard passes. A future % in the bar/banner (visible OR in the title attr)
+    // would be caught by invariants (2)/(3) — proving the bar is no longer a blind spot.
+    const { container } = render(HonestyBar, {
+      provenance: {
+        as_of: '2026-06-06T19:31:22Z',
+        posterior_key: '123a88ae08fd5ae5',
+        git: 'eb4b7b1',
+        is_synthetic: true,
+        n_sims: 20000,
+        banner: 'DRY-RUN · SYNTHETIC ODDS · NOT REAL — no real odds were sourced, no bet placed.',
+      },
+    });
+    // Sanity: the DRY-RUN chip (with its banner title attribute) actually rendered.
+    expect(container.querySelector('.dryrun')).not.toBeNull();
+    assertNoNakedNumbers(container);
+  });
+
+  test('the composed App shell (over the fixture bundle) has no naked numbers', async () => {
+    // Mock fetch over the committed fixture (as app.test.ts does), render the WHOLE App, and
+    // run the composed shell — HonestyBar + nav + the landing Schedule surface — through the
+    // SAME guard. This covers the shell that the isolated surface tests never exercised.
+    location.hash = '';
+    const { container } = render(App);
+    // Let onMount's loadBundle resolve so the bar + nav + landing surface are all mounted.
+    await waitFor(() => expect(container.querySelector('header.bar')).not.toBeNull());
+    await waitFor(() => expect(container.querySelector('nav')).not.toBeNull());
+    await waitFor(() => expect(container.querySelector('[data-row="group"]')).not.toBeNull());
+    assertNoNakedNumbers(container);
+  });
+
+  test('NON-VACUITY (shell): a hypothetical % smuggled into the honesty bar IS caught', () => {
+    // Prove the shell coverage is non-vacuous: inject a naked % into a bar-shaped node with
+    // NO marker (mirroring a future regression where a % leaks into the honesty bar text or
+    // a title attr) and confirm the SAME guard throws. This is what gives FIX D teeth.
+    const host = document.createElement('div');
+    host.innerHTML = '<header class="bar"><span class="ver muted">model x · 45% sims</span></header>';
+    expect(() => assertNoNakedNumbers(host)).toThrow(/naked % text/);
+    host.innerHTML = '<header class="bar"><span class="dryrun" title="hit-rate 45%">DRY-RUN</span></header>';
+    expect(() => assertNoNakedNumbers(host)).toThrow(/naked % in @title/);
   });
 });
 

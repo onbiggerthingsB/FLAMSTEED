@@ -19,3 +19,15 @@ test('App loads the bundle and shows the honesty bar + schedule landing', async 
   await waitFor(() => expect(screen.getByText(/DRY-RUN/)).toBeInTheDocument());
   expect(screen.getByRole('navigation')).toBeInTheDocument();   // surface nav
 });
+
+// FIX G (a11y): the active surface link carries aria-current="page".
+test('App nav marks the active surface link with aria-current="page"', async () => {
+  location.hash = '#/tournament';
+  render(App);
+  await waitFor(() => expect(screen.getByText(/DRY-RUN/)).toBeInTheDocument());
+  const active = screen.getByRole('link', { name: 'Tournament' });
+  expect(active.getAttribute('aria-current')).toBe('page');
+  // Non-active links carry no aria-current.
+  expect(screen.getByRole('link', { name: 'Schedule' }).getAttribute('aria-current')).toBeNull();
+  expect(screen.getByRole('link', { name: 'Track record' }).getAttribute('aria-current')).toBeNull();
+});

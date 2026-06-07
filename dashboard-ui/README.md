@@ -12,6 +12,18 @@ top of every surface shows the snapshot's as-of timestamp, the model/posterior v
 while the bundle is synthetic — an unmissable `DRY-RUN · SYNTHETIC ODDS · NOT REAL` chip. No
 real odds are sourced, no bet is placed, and no number is a real CLV/ROI claim.
 
+**Fail-safe honesty (the viewer does not trust the producer).** The NON-REAL chip is gated on
+the authoritative `provenance.is_synthetic` flag, **not** on banner-presence — a synthetic
+bundle with a missing/empty `banner` still shows the chip (with a hardcoded fallback string),
+so it can never silently read as REAL. The on-screen claim is sourced from the producer's
+banner when present, with a safe default otherwise. In the same spirit, the value components
+degrade rather than crash on bad input: `CredibleInterval` renders `—` for a null/non-finite
+value or a missing/degenerate CI (it never crashes the whole match-detail surface), and
+`ScorelineGrid` degrades to a coverage gap for an empty / non-rectangular / all-zero grid
+(never `NaN%` / divide-by-zero). `WinBar` clamps each visual segment to `max(0, v)` so a
+non-normalized `one_x_two` can't paint a negative/oversized bar — a **visual-only** clamp that
+never recomputes the probabilities (the data layer already gates sum≈1 + [0,1]).
+
 ## Stack
 
 Dependency-light **Svelte 5 + Vite + TypeScript**. No UI kit, no CSS framework, no state
@@ -85,7 +97,12 @@ or the guard fails:
 
 The guard (`tests/no-naked-number.test.ts`) also catches `%`s smuggled into `title` /
 `aria-label` attributes, and its non-vacuity block proves it has teeth (it must catch a
-deliberately-naked `<span>45%</span>`).
+deliberately-naked `<span>45%</span>`). Coverage now includes the **composed `App` shell** (over
+the fixture bundle) and the **`HonestyBar`** — so the honesty bar / banner is no longer an
+unguarded blind spot; a future `%` leaked into the bar (visible OR in a `title` attr) is caught.
+The NON-REAL e2e (`tests/e2e/smoke.spec.ts`) visits **every route** — Schedule, the match
+detail, **Tournament, and Track** — asserting the NON-REAL banner persists and there is no
+bet/stake/buy/order affordance on any of them.
 
 ## Known gaps / progressive
 

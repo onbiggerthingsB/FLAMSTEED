@@ -32,7 +32,11 @@
 {:else}
   <HonestyBar provenance={bundle.meta.provenance} />
   <nav aria-label="surfaces">
-    <a href="#/">Schedule</a><a href="#/tournament">Tournament</a><a href="#/track">Track record</a>
+    <a href="#/" aria-current={route.name === 'schedule' ? 'page' : undefined}>Schedule</a><a
+      href="#/tournament"
+      aria-current={route.name === 'tournament' ? 'page' : undefined}>Tournament</a><a
+      href="#/track"
+      aria-current={route.name === 'track' ? 'page' : undefined}>Track record</a>
   </nav>
   <main>
     {#if route.name === 'schedule'}
@@ -57,6 +61,7 @@
     padding: var(--space-1) 0; border-bottom: 2px solid transparent; transition: color 0.12s ease;
   }
   nav a:hover { color: var(--ink); }
+  nav a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
   main { padding: var(--space-5); max-width: 1100px; margin: 0 auto; }
   .err { color: var(--warn); padding: var(--space-5); } .load { padding: var(--space-5); }
 </style>

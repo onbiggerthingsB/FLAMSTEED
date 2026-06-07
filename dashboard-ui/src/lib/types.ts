@@ -40,7 +40,10 @@ export interface MetaData {
   provenance_note: string;
 }
 
-export type TournamentData = Record<string, Record<string, ValueSe>>;
+// The serializer emits a market node only `if m in prog.columns`, so a given team may be
+// MISSING any particular market key. Mirror that REAL conditional emission: the inner
+// market map is partial (a key may be absent). Surfaces read it null-safely (`?.`).
+export type TournamentData = Record<string, Partial<Record<string, ValueSe>>>;
 
 export interface MostLikely {
   home_goals: number;
@@ -81,7 +84,9 @@ export interface Occupant {
 }
 export interface KoRow {
   match: number;
-  stage: string;
+  // The serializer uses match_round.get() which can be None → stage may be null. Mirror it;
+  // Schedule renders a placeholder when null (never a raw "null"/blank-with-separator).
+  stage: string | null;
   status: 'upcoming';
   home_ref: string;
   away_ref: string;
