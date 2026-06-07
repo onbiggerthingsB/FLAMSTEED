@@ -161,6 +161,70 @@ def test_eval_window_bounds_iterate_provided_cutoffs():
     assert bounds[1] == (pd.Timestamp("2024-06-01"), pd.Timestamp("2024-07-01"))
 
 
+class _StubBase:
+    """A baseline posterior stub that prices EVERY fixture with a valid 1X2 — so the
+    fixture is baseline-priceable and a candidate failure on it is a real instability
+    (NOT a symmetric structural absence)."""
+    def predict_1x2(self, home, away, neutral=False, max_goals=10, covariates=None,
+                    host_factor=None):
+        return {"home": 0.4, "draw": 0.3, "away": 0.3}
+
+
+class _StubUnstableCandidate:
+    """A candidate posterior stub that is UNSTABLE on the first fixture it sees —
+    it raises ``ValueError('non-finite predictive grid')`` exactly as a diverged fit
+    does through the posterior/widening guards — and prices every later fixture with
+    a valid 1X2. Proves the ablation treats the failure as a NaN paired delta (paired
+    + counted, NOT dropped) and rejects, instead of crashing or scoring the survivors."""
+    def __init__(self):
+        self._n = 0
+
+    def predict_1x2(self, home, away, neutral=False, max_goals=10, covariates=None,
+                    host_factor=None):
+        self._n += 1
+        if self._n == 1:
+            raise ValueError("non-finite predictive grid")
+        return {"home": 0.4, "draw": 0.3, "away": 0.3}
+
+
+@pytest.mark.slow
+def test_unstable_candidate_window_is_paired_nan_not_dropped(small_store):
+    """FAIL-SAFE (ablation crash-safety, RED->GREEN): a candidate that raises a
+    non-finite-predictive ValueError on a baseline-priceable eval fixture must NOT
+    crash the run and must NOT be silently scored on the surviving fixtures
+    (survivorship bias). The failing fixture is recorded as a NaN PAIRED difference
+    (still counted, kept paired) so the window's ``mean_d``/``p`` go NaN and the
+    verdict fail-safe REJECTS, and the instability is counted for the loud log."""
+    from wcmodel.backtest.ablation import (
+        _paired_rps_over_window, _played_in_window, _sign_flip_p, _verdict,
+    )
+    cfg = load_config()
+    lo, hi = pd.Timestamp("2024-06-01"), pd.Timestamp("2024-07-01")
+    # Sanity: the window has at least 2 played fixtures so "survivors" exist to NOT
+    # score on (the failing one + at least one valid one).
+    n_played = len(_played_in_window(small_store, lo=lo, hi=hi))
+    assert n_played >= 2, "need >=2 eval fixtures to prove survivors are not scored"
+
+    d, br, cr, cp, oc, n_unstable = _paired_rps_over_window(
+        store=small_store, base_post=_StubBase(),
+        cand_post=_StubUnstableCandidate(),
+        enabled=["rest_days"], cfg=cfg, lo=lo, hi=hi)
+
+    # The candidate was unstable on exactly the first fixture; it was COUNTED, not
+    # dropped — the paired difference list carries a NaN for it.
+    assert n_unstable == 1
+    assert any(x != x for x in d), "the failing fixture must be a NaN paired delta"
+    # Survivors were NOT silently scored into a clean metric: a NaN in d poisons the
+    # window -> mean_d/p NaN -> verdict reject (no crash, no survivorship score).
+    mean_d, p = _sign_flip_p(d, shuffles=200, seed=0)
+    assert np.isnan(mean_d) and np.isnan(p)
+    assert _verdict(mean_d=mean_d, p_value=p, baseline_clv=0.0,
+                    candidate_clv=0.0, tol=1e-6) == "reject"
+    # The candidate RPS list also carries the NaN (its mean is therefore NaN, never a
+    # flattering survivors-only average).
+    assert any(x != x for x in cr)
+
+
 # --------------------------------------------------------------------------- #
 # Paired-eval integration tests (real fit) — slow.                            #
 # --------------------------------------------------------------------------- #
@@ -275,10 +339,10 @@ def test_candidate_covariate_actually_changes_per_fixture_rps(small_store):
     # Candidate scored WITH covariate vs the candidate scored as-if covariate-free:
     # run the paired scorer with the covariate (enabled=["rest_days"]) and with no
     # covariate (enabled=[]) — same posterior, same fixtures.
-    d_with, _, cand_with, _, _ = _paired_rps_over_window(
+    d_with, _, cand_with, _, _, _ = _paired_rps_over_window(
         store=small_store, base_post=base_post, cand_post=cand_post,
         enabled=["rest_days"], cfg=cfg, lo=lo, hi=hi)
-    _, _, cand_free, _, _ = _paired_rps_over_window(
+    _, _, cand_free, _, _, _ = _paired_rps_over_window(
         store=small_store, base_post=base_post, cand_post=cand_post,
         enabled=[], cfg=cfg, lo=lo, hi=hi)
     assert len(cand_with) == len(cand_free) and len(cand_with) > 0

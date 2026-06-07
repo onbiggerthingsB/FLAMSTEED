@@ -64,6 +64,7 @@ known-outcome matches in the forward window.
 from __future__ import annotations
 
 import copy
+import logging
 import math
 
 import numpy as np
@@ -86,6 +87,10 @@ _DEFAULT_CLV_TOL = 1e-3
 
 #: Accept bar on the PAIRED permutation p-value (the uplift gate).
 _PAIRED_P_ACCEPT = 0.05
+
+#: Module logger for the LOUD candidate-instability log (a diverged fit is never
+#: silent — it is reported per cutoff with the fixture count, then REJECTED).
+_LOG = logging.getLogger(__name__)
 
 
 def _is_bad(x) -> bool:
@@ -238,19 +243,48 @@ def _fixture_covariates(*, enabled, panel, home, away, fixture_date):
     return cov
 
 
+def _finite_1x2(p) -> bool:
+    """True iff ``p`` is a 1X2 prob dict with three FINITE entries.
+
+    A diverged candidate fit can return a forecast whose probabilities are NaN/inf
+    (an upstream goal-rate overflow), which is just as unusable as one that raised.
+    Treat a non-finite forecast the SAME as a crash (FIX: ablation crash-safety)."""
+    if not isinstance(p, dict):
+        return False
+    try:
+        return all(math.isfinite(float(p[k])) for k in ("home", "draw", "away"))
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
 def _paired_rps_over_window(*, store, base_post, cand_post, enabled, cfg,
                             lo, hi):
     """Score the BASELINE and CANDIDATE over the SAME OOS fixtures in ``[lo, hi)``.
 
-    Returns ``(d_list, base_rps_list, cand_rps_list, cand_probs, outcomes)`` —
-    ``d_i = rps_baseline_i − rps_candidate_i`` per eval fixture, plus the per-arm
-    RPS lists, the candidate's per-fixture prob dicts and the realised outcomes
-    (for the sanity null). The candidate's ``predict_1x2`` is called WITH the
-    leakage-safe per-fixture covariates; the baseline WITHOUT — over the IDENTICAL
-    fixture and outcome, so the delta is paired."""
+    Returns ``(d_list, base_rps_list, cand_rps_list, cand_probs, outcomes,
+    n_cand_unstable)`` — ``d_i = rps_baseline_i − rps_candidate_i`` per eval
+    fixture, plus the per-arm RPS lists, the candidate's per-fixture prob dicts,
+    the realised outcomes (for the sanity null), and the COUNT of eval fixtures on
+    which the candidate was UNSTABLE. The candidate's ``predict_1x2`` is called WITH
+    the leakage-safe per-fixture covariates; the baseline WITHOUT — over the
+    IDENTICAL fixture and outcome, so the delta is paired.
+
+    CRASH-SAFETY (FIX: candidate instability => REJECT, never a crash, never
+    survivorship bias). A KeyError on EITHER arm means the team is absent from the
+    as-of-cutoff fit (no model price in either arm) -> the fixture is structurally
+    unscoreable in BOTH arms and is skipped symmetrically (NOT an instability). But
+    if the CANDIDATE's ``predict_1x2`` RAISES a ValueError (a non-finite predictive
+    grid — the diverged-fit overflow guarded in posterior/widening) OR returns a
+    non-finite forecast, that candidate is UNSTABLE on a fixture the baseline CAN
+    price. We do NOT drop that fixture and score the candidate on the survivors —
+    that is survivorship bias (it would flatter an unstable candidate by hiding its
+    worst forecasts). Instead we record a NaN paired difference for it (keeping the
+    comparison PAIRED and the fixture COUNTED) so the window's ``mean_d``/``p`` go
+    NaN and the verdict fail-safe REJECTS (an unmeasurable arm is never accepted),
+    and we count it for a loud caller-side log."""
     eval_set = _played_in_window(store, lo=lo, hi=hi)
     if eval_set.empty:
-        return [], [], [], [], []
+        return [], [], [], [], [], 0
 
     # The leakage-safe < cutoff panel (rest_days history), built ONCE per cutoff
     # for the per-fixture covariate derivation.
@@ -260,27 +294,57 @@ def _paired_rps_over_window(*, store, base_post, cand_post, enabled, cfg,
         panel = None
 
     d_list, base_rps_list, cand_rps_list, cand_probs, outcomes = [], [], [], [], []
+    n_cand_unstable = 0
     for r in eval_set.itertuples(index=False):
         home, away = r.home_team, r.away_team
+        # BASELINE forecast. A KeyError is a structural absence (team not in the
+        # as-of-cutoff fit). A ValueError (non-finite predictive) or a non-finite
+        # forecast means the BASELINE itself is unscoreable on this fixture — there
+        # is no usable reference price, so the fixture cannot be paired in EITHER
+        # arm; skip it symmetrically (same as KeyError). This is NOT survivorship
+        # bias for the candidate: the candidate fixture is dropped TOO (the pairing
+        # is preserved), and a baseline instability is an unrelated reference
+        # failure, not a candidate flaw. (The candidate's own instability, below,
+        # is handled the opposite way — kept as a NaN paired delta -> reject.)
         try:
             base_p = model_fair_1x2(base_post, home=home, away=away, neutral=True)
-        except KeyError:
-            continue  # a team absent from the as-of-cutoff fit -> no model price
+        except (KeyError, ValueError):
+            continue
+        if not _finite_1x2(base_p):
+            continue  # baseline non-finite forecast -> no reference price; skip both
         cov = _fixture_covariates(enabled=enabled, panel=panel,
                                   home=home, away=away, fixture_date=r.date)
+        outcome = _settle_outcome(int(r.home_score), int(r.away_score))
+        r_base = rps(base_p, outcome)
+        # The CANDIDATE forecast on the SAME fixture. A ValueError (non-finite
+        # predictive grid from a diverged fit) or a non-finite forecast is an
+        # UNSTABLE candidate on a baseline-priceable fixture: poison this paired
+        # difference with NaN (paired + counted, NOT dropped) so the verdict rejects.
         try:
             cand_p = cand_post.predict_1x2(home, away, neutral=True, covariates=cov)
         except KeyError:
+            continue  # symmetric structural absence (no price in either arm)
+        except ValueError:
+            cand_p = None  # diverged-fit non-finite predictive -> unstable
+        if not _finite_1x2(cand_p):
+            n_cand_unstable += 1
+            base_rps_list.append(r_base)
+            cand_rps_list.append(float("nan"))
+            d_list.append(float("nan"))      # NaN paired delta -> window mean_d/p NaN -> reject
+            # NB: we do NOT append to cand_probs/outcomes here — those two pair up to
+            # feed the (sanity-only) candidate-vs-chance null, and there is no valid
+            # candidate prob for an unstable fixture. The d_list NaN above is what
+            # drives the verdict (-> reject); the null is a non-gating field. Keeping
+            # cand_probs and outcomes EQUAL-LENGTH preserves permutation_null's
+            # explicit no-zip-truncation contract.
             continue
-        outcome = _settle_outcome(int(r.home_score), int(r.away_score))
-        r_base = rps(base_p, outcome)
         r_cand = rps(cand_p, outcome)
         base_rps_list.append(r_base)
         cand_rps_list.append(r_cand)
         d_list.append(r_base - r_cand)
         cand_probs.append(cand_p)
         outcomes.append(outcome)
-    return d_list, base_rps_list, cand_rps_list, cand_probs, outcomes
+    return d_list, base_rps_list, cand_rps_list, cand_probs, outcomes, n_cand_unstable
 
 
 def _sign_flip_p(d_list, *, shuffles, seed) -> tuple[float, float]:
@@ -432,6 +496,7 @@ def run_ablation(store, odds_samples: list[dict], *, candidates: list[str],
 
         # PAIRED RPS eval over the common OOS fixture set per cutoff window.
         d_all, base_rps_all, cand_rps_all, cand_probs_all, outcomes_all = [], [], [], [], []
+        n_unstable_total = 0
         for (lo, hi) in windows:
             base_post = baseline_posts.get(lo)
             cand_post = _fit_arm(store, enabled=[candidate], base_config=cfg,
@@ -439,12 +504,25 @@ def run_ablation(store, odds_samples: list[dict], *, candidates: list[str],
                                  cache_dir=cache_dir, cutoff=lo)
             if base_post is None or cand_post is None:
                 continue
-            d, br, cr, cp, oc = _paired_rps_over_window(
+            d, br, cr, cp, oc, n_unstable = _paired_rps_over_window(
                 store=store, base_post=base_post, cand_post=cand_post,
                 enabled=[candidate], cfg=cfg, lo=lo, hi=hi,
             )
             d_all.extend(d); base_rps_all.extend(br); cand_rps_all.extend(cr)
             cand_probs_all.extend(cp); outcomes_all.extend(oc)
+            # LOUD per-cutoff log of an UNSTABLE candidate: a non-finite forecast on
+            # a baseline-priceable fixture poisons this window's paired delta with
+            # NaN (-> verdict reject). Report how many fixtures failed and at which
+            # cutoff so a diverged fit is never silent.
+            if n_unstable:
+                n_unstable_total += n_unstable
+                _LOG.warning(
+                    "ablation: candidate %r UNSTABLE on %d/%d eval fixtures at cutoff "
+                    "%s (non-finite predictive grid) -> window paired delta NaN -> "
+                    "candidate will be REJECTED (not scored on the survivors)",
+                    candidate, n_unstable, n_unstable + len([x for x in d if x == x]),
+                    pd.Timestamp(lo).date(),
+                )
 
         n_eval = len(d_all)
         n_eval_total += n_eval
@@ -476,6 +554,7 @@ def run_ablation(store, odds_samples: list[dict], *, candidates: list[str],
             "candidate_rps": candidate_rps,
             "delta_rps": mean_d,                 # alias: paired mean RPS improvement
             "n_eval": n_eval,
+            "n_unstable": n_unstable_total,      # fixtures the candidate NaNed on (-> reject)
             "null_p": null_p,                    # sanity field only (NOT the gate)
             "baseline_clv": baseline_clv,
             "candidate_clv": candidate_clv,
