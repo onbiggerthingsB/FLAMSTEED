@@ -29,6 +29,11 @@
     </h3>
     <p class="muted note">Backward-looking performance — not a forecast.</p>
 
+    <!-- Backward-looking performance stats (CLV / RPS / reliability) — NOT forecasts.
+         They are consciously exempt from the ±-companion rule, so the whole metrics
+         region carries data-derived: the no-naked-number guard exempts these % readouts
+         EXPLICITLY (never by accident) while still catching a stray naked forecast. -->
+    <div data-derived="performance">
     <!-- CLV first: the spec's primary number. -->
     <ul class="metrics">
       <li>beat-close rate: <strong>{pct(data.beat_close_rate)}</strong></li>
@@ -56,6 +61,7 @@
         {/each}
       </tbody>
     </table>
+    </div>
   </div>
 {/if}
 

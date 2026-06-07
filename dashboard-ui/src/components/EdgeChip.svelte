@@ -4,7 +4,11 @@
   const label = $derived(edgeChip(edge));
   const positive = $derived(edge !== null && edge > 0);
 </script>
-<span class="chip" class:pos={positive} class:none={label === 'no edge'} title={isSynthetic ? 'NON-REAL (synthetic odds)' : ''}>
+<!-- The edge is a DERIVED signal (model prob vs de-vigged line), NOT a forecast
+     posterior — so it is consciously exempt from the ±-companion rule and carries
+     data-derived so the no-naked-number guard can exempt it EXPLICITLY (never by
+     accident). The "%" here is the edge, e.g. "▲ +6.9%". -->
+<span class="chip" data-derived="edge" class:pos={positive} class:none={label === 'no edge'} title={isSynthetic ? 'NON-REAL (synthetic odds)' : ''}>
   {label}{#if isSynthetic && label !== 'no edge'}<span class="nr"> · NON-REAL</span>{/if}
 </span>
 <style>

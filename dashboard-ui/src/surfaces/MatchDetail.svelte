@@ -79,9 +79,12 @@
       <p>
         side: <strong>{d.edge.staked}</strong>
         · <EdgeChip edge={d.edge.edge} isSynthetic={d.edge.is_synthetic} />
-        <!-- stake_signal is a DERIVED ¼-Kelly signal (not a posterior estimate), shown plainly. -->
-        · ¼-Kelly stake signal {pct(d.edge.stake_signal, 1)}
-        · entry odds {d.edge.entry_odds}
+        <!-- stake_signal is a DERIVED ¼-Kelly signal and entry_odds is a market datum —
+             neither is a posterior forecast, so both are consciously exempt from the
+             ±-companion rule and live inside data-derived so the no-naked-number guard
+             exempts them EXPLICITLY (never by accident). It is a read-only SIGNAL, not a
+             control: there is no bet/stake/order affordance anywhere. -->
+        · <span data-derived="stake">¼-Kelly stake signal {pct(d.edge.stake_signal, 1)} · entry odds {d.edge.entry_odds}</span>
       </p>
     {/if}
   </section>
