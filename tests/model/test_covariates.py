@@ -1,6 +1,6 @@
 import numpy as np
 from wcmodel.config import load_config
-from wcmodel.model.scoreline import DesignData
+from wcmodel.model.scoreline import DesignData, DixonColesModel
 
 
 def test_config_has_covariate_block_with_defaults():
@@ -72,3 +72,44 @@ def test_apply_is_always_finite_and_bounded():
     t2 = CovariateTransform.fit("x", np.array([5.0, 5.0 + 1e-13, 5.0]))
     z2, _ = t2.apply(np.array([5.0]))
     assert np.all(np.isfinite(z2)) and np.all(np.abs(z2) <= 10.0)
+
+
+# ---- T2: masked covariate terms in the scoreline log-rate ----
+#
+# Both DesignData below pass EVERY required field (home_idx/away_idx/home_goals/
+# away_goals/neutral/n_teams/teams/weight/home_provisional/away_provisional) —
+# the frozen dataclass has no defaults for those — plus cov/cov_mask. The plan's
+# snippets predate that signature; these constructors are the adapted form.
+
+
+def test_rates_add_rest_term_to_attacking_rate():
+    # Two matches; team0 has +1 sd rest at home in match0. With an enabled
+    # rest_days covariate a beta coefficient is added to the model.
+    d = DesignData(
+        home_idx=np.array([0, 1]), away_idx=np.array([1, 0]),
+        home_goals=np.array([1, 0]), away_goals=np.array([0, 1]),
+        neutral=np.array([False, False]), n_teams=2,
+        teams=["A", "B"], weight=np.ones(2),
+        home_provisional=np.zeros(2, bool), away_provisional=np.zeros(2, bool),
+        cov={"rest_days": np.array([1.0, 0.0]),
+             "rest_days__away": np.array([0.0, 1.0])},
+        cov_mask={"rest_days": np.array([1.0, 1.0]),
+                  "rest_days__away": np.array([1.0, 1.0])},
+    )
+    cfg = load_config()
+    cfg["model"]["covariates"]["enabled"] = ["rest_days"]
+    m = DixonColesModel().build(d, weight=np.ones(2), config=cfg)
+    names = {v.name for v in m.free_RVs}
+    assert "beta_rest_days" in names   # a coefficient was added for the enabled covariate
+
+
+def test_enabled_empty_adds_no_covariate_params():
+    d = DesignData(
+        home_idx=np.array([0]), away_idx=np.array([1]),
+        home_goals=np.array([1]), away_goals=np.array([0]),
+        neutral=np.array([False]), n_teams=2,
+        teams=["A", "B"], weight=np.ones(1),
+        home_provisional=np.zeros(1, bool), away_provisional=np.zeros(1, bool),
+    )
+    m = DixonColesModel().build(d, weight=np.ones(1), config=load_config())
+    assert not any(v.name.startswith("beta_") for v in m.free_RVs)   # baseline unchanged

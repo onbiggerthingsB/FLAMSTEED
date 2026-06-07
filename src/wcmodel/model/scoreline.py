@@ -29,12 +29,73 @@ from wcmodel.model.volatility_diagnostic import count_volatility_arm
 from wcmodel.model.widening import likelihood_weight
 
 
-def _rates(d: DesignData, att, defe, mu, home_adv):
-    # log lambda_home = mu + home_adv*(non-neutral) + att[home] - def[away]
-    # log lambda_away = mu + att[away] - def[home]   (no home term)
+# Which side(s) a covariate modifies. A per-team covariate's array (d.cov[name])
+# is the HOME team's value for that feature; the AWAY team's own value for the
+# same feature is supplied as "<name>__away" in d.cov (assembled upstream from
+# the panel's home/away rows). Per-match covariates use a single array applied to
+# both rates. A name absent from BOTH sets is ignored (no offset) — adding a new
+# covariate requires classifying it here, so it can never silently no-op.
+_PER_TEAM_COVS = {"rest_days", "travel_km"}
+_PER_MATCH_COVS = {"altitude_m"}
+
+
+def _covariate_betas(d: DesignData, p_cov: dict):
+    """Return {name: (beta_RV, miss_beta_RV_or_None)} for each enabled covariate
+    that is actually present in d.cov.
+
+    No-op when enabled is empty OR no enabled covariate is in d.cov: returns {},
+    so NO beta_* RV is created and _cov_offset contributes exactly 0.0 — the
+    linear predictor (and the set of model RVs) is byte-identical to today.
+    """
+    betas = {}
+    for name in p_cov.get("enabled", []):
+        if name not in d.cov:
+            continue  # enabled but no data supplied -> add nothing (still baseline)
+        beta = pm.Normal(f"beta_{name}", 0.0, p_cov["beta_scale"])
+        miss = (
+            pm.Normal(f"beta_{name}_miss", 0.0, p_cov["beta_scale"])
+            if name in p_cov.get("missing_indicator_for", [])
+            else None
+        )
+        betas[name] = (beta, miss)
+    return betas
+
+
+def _cov_offset(d: DesignData, betas, side):  # side in {"home", "away"}
+    """Sum of covariate contributions for one side's log-rate.
+
+    Each term is beta * x * mask, so a row where the feature is MISSING
+    (mask == 0) contributes EXACTLY zero — the standardized value is never
+    imputed. The optional missing-indicator term miss * (1 - mask) lets the
+    model carry a separate intercept shift for missing rows without imputing x.
+    For a per-team covariate the "home" side reads d.cov[name] (the home team's
+    own feature) and the "away" side reads d.cov["<name>__away"] (the away team's
+    own feature); a per-match covariate uses the single d.cov[name] on both sides.
+    """
+    off = 0.0
+    for name, (beta, miss) in betas.items():
+        if name in _PER_TEAM_COVS:
+            key = name if side == "home" else f"{name}__away"
+        else:  # per-match: same array both sides
+            key = name
+        x = pt.as_tensor_variable(d.cov[key])
+        mask = pt.as_tensor_variable(d.cov_mask[key])
+        off = off + beta * x * mask
+        if miss is not None:
+            off = off + miss * (1.0 - mask)
+    return off
+
+
+def _rates(d: DesignData, att, defe, mu, home_adv, betas=None):
+    # log lambda_home = mu + home_adv*(non-neutral) + att[home] - def[away] + home_off
+    # log lambda_away = mu + att[away] - def[home] + away_off   (no home term)
+    # home_off/away_off are the masked covariate offsets (0.0 when betas is empty/
+    # None), so with no enabled covariates the rates are byte-identical to today.
     neutral = d.neutral.astype(float)
-    log_lh = mu + home_adv * (1.0 - neutral) + att[d.home_idx] - defe[d.away_idx]
-    log_la = mu + att[d.away_idx] - defe[d.home_idx]
+    home_off = _cov_offset(d, betas, "home") if betas else 0.0
+    away_off = _cov_offset(d, betas, "away") if betas else 0.0
+    log_lh = mu + home_adv * (1.0 - neutral) + att[d.home_idx] - defe[d.away_idx] + home_off
+    log_la = mu + att[d.away_idx] - defe[d.home_idx] + away_off
     return pt.exp(log_lh), pt.exp(log_la)
 
 
@@ -57,9 +118,13 @@ class ScorelineModel(ABC):
 
 class DixonColesModel(ScorelineModel):
     def build(self, d, weight, config=None):
-        p = (config or load_config())["model"]["prior"]
+        cfg = config or load_config()
+        p = cfg["model"]["prior"]
         with pm.Model() as m:
             att, defe, mu, home_adv = _priors(d, p)
+            # No-op when covariates.enabled == [] (or none present in d.cov):
+            # betas == {} -> _rates adds a 0.0 offset, RV set unchanged.
+            betas = _covariate_betas(d, cfg["model"]["covariates"])
             # rho CONTRACT (likelihoods.dc_loglik_pt): a tau cell <= 0 -> log(tau)
             # = NaN. This TruncatedNormal keeps |rho| small (<=0.15) so that for
             # realistic international goal rates (~<=2.5 each, lh*la <~ 6.25)
@@ -74,7 +139,7 @@ class DixonColesModel(ScorelineModel):
             rho = pm.TruncatedNormal(
                 "rho", mu=0.0, sigma=p["rho_scale"], lower=-0.15, upper=0.15
             )
-            lh, la = _rates(d, att, defe, mu, home_adv)
+            lh, la = _rates(d, att, defe, mu, home_adv, betas=betas)
             ll = dc_loglik_pt(d.home_goals, d.away_goals, lh, la, rho)
             pm.Potential("like", pt.sum(pt.as_tensor_variable(weight) * ll))
         return m
@@ -82,19 +147,23 @@ class DixonColesModel(ScorelineModel):
 
 class BivariatePoissonModel(ScorelineModel):
     def build(self, d, weight, config=None):
-        p = (config or load_config())["model"]["prior"]
+        cfg = config or load_config()
+        p = cfg["model"]["prior"]
         # kmax = max over matches of min(home,away) goals (the convolution depth).
         # bp_loglik_pt handles kmax==0 as the independent case.
         kmax = int(np.minimum(d.home_goals, d.away_goals).max()) if len(d.home_goals) else 0
         with pm.Model() as m:
             att, defe, mu, home_adv = _priors(d, p)
+            # No-op when covariates.enabled == [] (or none present in d.cov):
+            # betas == {} -> _rates adds a 0.0 offset, RV set unchanged.
+            betas = _covariate_betas(d, cfg["model"]["covariates"])
             # l3 CONTRACT (likelihoods.bp_loglik_pt): l3 must be > 0 when kmax>0
             # (the k=0 term computes 0*log(l3); l3=0 yields NaN in the vectorized
             # graph). Parameterise l3 = exp(log_l3) so l3>0 ALWAYS. Centered at
             # log(0.1): a small covariance default, consistent with rho_scale.
             log_l3 = pm.Normal("log_lambda3", np.log(0.1), p["rho_scale"])
             l3 = pt.exp(log_l3)
-            lh, la = _rates(d, att, defe, mu, home_adv)
+            lh, la = _rates(d, att, defe, mu, home_adv, betas=betas)
             ll = bp_loglik_pt(d.home_goals, d.away_goals, lh, la, l3, kmax)
             pm.Potential("like", pt.sum(pt.as_tensor_variable(weight) * ll))
         return m
