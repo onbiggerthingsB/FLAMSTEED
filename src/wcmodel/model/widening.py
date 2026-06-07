@@ -162,6 +162,20 @@ def inflate_predictive(
     representable score) there is no interior max-entropy solution and nothing to
     widen on that axis, so the grid is returned unchanged.
 
+    A NON-FINITE input ``grid`` (any NaN/inf cell), a grid that does NOT sum to a
+    POSITIVE finite total (e.g. all-zeros — the upstream goal-rate overflow that
+    underflowed a per-draw scoreline pmf, before its ``0/0 = NaN`` renorm), or a
+    non-finite marginal mean derived from it, is a BROKEN predictive and raises
+    ``ValueError("non-finite predictive grid")``. This is a DELIBERATE fail-safe:
+    the edge-guard below tests the means with ``<=`` / ``>=``, which NaN silently
+    fails (and an all-zeros grid has finite means 0 that would trip the legitimate
+    zero-mean no-op), so a broken grid would otherwise sail through into ``brentq``
+    and crash cryptically — or silently no-op and propagate a degenerate forecast.
+    Surfacing it LOUD and TYPED lets the ablation gate catch it and REJECT the
+    candidate honestly (a fabricated/unmeasurable result is forbidden). A VALID pmf
+    with all mass on 0-0 (``grid[0,0]==1``, sum 1, mean 0) is NOT broken — it sums to
+    a positive total and legitimately trips the zero-mean no-op below, unchanged.
+
     PHASE-4-TUNABLE. The dispersion/magnitude (here ``alpha = strength``, the mix
     weight) and the (a)-vs-(c) selection are calibration-harness knobs. This is a
     valid DEFAULT FORM, NOT a frozen choice; only the EXACT mean-preservation (and
@@ -187,8 +201,26 @@ def inflate_predictive(
     n_home, n_away = grid.shape
     home_support = np.arange(n_home)
     away_support = np.arange(n_away)
+    # FAIL-SAFE (defense-in-depth, NaN-blind edge-guard fix). A NON-FINITE input
+    # grid (e.g. an upstream lambda overflow that underflowed the per-draw scoreline
+    # pmf to all-zeros -> 0/0 = NaN; see predict_scoreline) yields NaN marginal
+    # means, and the edge-guard below compares mh/ma with `<=` / `>=` — comparisons
+    # that NaN SILENTLY FAILS (every comparison is False), so NaN sails past the
+    # guard into `_max_entropy_pmf` -> `brentq` and dies with a cryptic
+    # "function value at x=-700.0 is NaN" deep in scipy. A non-finite predictive is
+    # a BROKEN forecast, not something to "widen" — surface it LOUD and TYPED so the
+    # caller (the ablation gate) can catch it and REJECT honestly, never silently
+    # widen-nothing-and-return-a-NaN-grid. Mirrors this file's fail-loud convention.
+    grid_total = grid.sum()
+    if not np.all(np.isfinite(grid)) or not (np.isfinite(grid_total) and grid_total > 0.0):
+        raise ValueError("non-finite predictive grid")
     mh = float((grid.sum(axis=1) * home_support).sum())
     ma = float((grid.sum(axis=0) * away_support).sum())
+    # A non-finite marginal mean (NaN/inf) likewise cannot drive the exp-tilt solve;
+    # the finite-grid check above already rules this out, but assert it explicitly so
+    # the brentq target is GUARANTEED finite at the call site (no NaN reaches scipy).
+    if not (np.isfinite(mh) and np.isfinite(ma)):
+        raise ValueError("non-finite predictive grid")
 
     # A marginal mean at the support edge (0 or K) has no interior exp-tilt
     # solution and no spread to add on that axis; leave the grid untouched.

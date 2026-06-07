@@ -156,6 +156,28 @@ class Posterior:
             # _build_covariates only fits transforms for classified covariates.
         return home_off, away_off
 
+    @staticmethod
+    def _renorm_draw(g: np.ndarray) -> np.ndarray:
+        """Renormalize ONE per-draw scoreline grid, failing LOUD on a degenerate one.
+
+        FAIL-SAFE (defense-in-depth). A diverged/under-converged fit can push a
+        covariate offset (e.g. a large ``beta_rest_days`` on a clamped ``z``) so
+        far that ``lambda = exp(...)`` OVERFLOWS to ``inf`` -> the truncated
+        ``poisson.pmf(0..max_goals, lambda)`` underflows to all-zeros (or carries a
+        NaN), so ``g.sum()`` is ``0`` or non-finite and ``g / g.sum()`` is the
+        ``0/0 = NaN`` grid behind the original crash (the ``:196`` divide warning).
+        Such a draw's forecast is UNUSABLE: detect it and raise the SAME typed error
+        ``inflate_predictive`` raises, so the per-draw instability surfaces HONESTLY
+        at its source instead of (a) silently averaging a NaN into the mean grid and
+        crashing later in ``brentq``, or (b) being papered over by clamping lambda to
+        fabricate an all-(max,max) "forecast" that hides the divergence. The caller
+        (the ablation gate) catches the ValueError and REJECTs the unstable candidate.
+        """
+        total = g.sum()
+        if not np.isfinite(total) or total <= 0.0 or not np.all(np.isfinite(g)):
+            raise ValueError("non-finite predictive grid")
+        return g / total
+
     def predict_scoreline(self, home, away, neutral=False, max_goals=10, covariates=None,
                           host_factor=None):
         hi, ai = self._idx[home], self._idx[away]      # KeyError if unknown team
@@ -193,7 +215,7 @@ class Posterior:
                 for (x, y) in ((0, 0), (0, 1), (1, 0), (1, 1)):
                     g[x, y] *= dc_tau_np(x, y, float(lh[s]), float(la[s]), float(rho[s]))
                 g = np.clip(g, 0.0, None)            # tau<0 guard: no negative prob
-                grids[s] = g / g.sum()               # DC quasi-likelihood -> renorm
+                grids[s] = self._renorm_draw(g)      # DC quasi-likelihood -> renorm
         else:  # bivariate_poisson
             l3 = np.exp(self._post("log_lambda3"))
             for s in range(S):
@@ -206,7 +228,7 @@ class Posterior:
                         for x in range(n)
                     ]
                 )
-                grids[s] = g / g.sum()               # proper joint pmf -> renorm tail only
+                grids[s] = self._renorm_draw(g)      # proper joint pmf -> renorm tail only
         grid = grids.mean(0)                         # average across draws (param uncertainty)
         prov = (home in self.provisional_teams) or (away in self.provisional_teams)
         if self._cfg["widening"]["mechanism"] == "c" and prov:

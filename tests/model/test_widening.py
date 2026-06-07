@@ -257,6 +257,33 @@ def test_inflate_out_of_range_strength_raises_even_when_not_provisional():
         inflate_predictive(grid, is_provisional=False, strength=-0.1)
 
 
+def test_inflate_rejects_non_finite_grid_loud_and_typed():
+    """FAIL-SAFE (defense-in-depth): a NON-FINITE input grid is a BROKEN predictive
+    (e.g. an upstream goal-rate overflow that underflowed a per-draw scoreline pmf to
+    all-zeros -> 0/0 = NaN) and must FAIL LOUD + TYPED — ``ValueError("non-finite
+    predictive grid")`` — NOT silently widen-nothing and return a NaN grid.
+
+    RED before the fix: the NaN-blind edge-guard (``mh <= eps`` etc.) lets a NaN
+    marginal mean through (NaN fails every comparison) into ``_max_entropy_pmf`` ->
+    ``brentq``, which dies with a cryptic 'function value at x=-700.0 is NaN'. GREEN:
+    the explicit finiteness check raises the typed error the ablation gate catches."""
+    grid = _poisson_grid(1.6, 0.9, n=11)
+    # A single NaN cell makes the marginal means NaN -> must raise (not crash in scipy).
+    bad = grid.copy()
+    bad[3, 4] = np.nan
+    with pytest.raises(ValueError, match="non-finite predictive grid"):
+        inflate_predictive(bad, is_provisional=True, strength=0.5)
+    # An all-zeros grid (the 0/0 underflow signature) -> NaN means -> typed raise.
+    allzero = np.zeros((11, 11))
+    with pytest.raises(ValueError, match="non-finite predictive grid"):
+        inflate_predictive(allzero, is_provisional=True, strength=0.5)
+    # An inf cell is likewise non-finite -> typed raise.
+    infgrid = grid.copy()
+    infgrid[0, 0] = np.inf
+    with pytest.raises(ValueError, match="non-finite predictive grid"):
+        inflate_predictive(infgrid, is_provisional=True, strength=0.5)
+
+
 def test_inflate_noop_when_marginal_mean_near_zero():
     """No-op guard: a marginal mean at the support edge (~0, all mass at 0 goals)
     has no interior max-entropy solution and nothing to widen, so the grid is
