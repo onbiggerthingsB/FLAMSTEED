@@ -8,7 +8,7 @@ per-team provisional flags from both perspectives. No score is imputed — the
 Phase-1 played filter guarantees integer goals.
 """
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
@@ -44,17 +44,27 @@ class DesignData:
     teams is the sorted unique team universe; home_idx/away_idx index into it.
     All arrays are length-n (one entry per match) and aligned to match_panel row
     order, so home_idx[i]/away_idx[i] et al. all describe match_panel row i.
+
+    cov / cov_mask are OPTIONAL pre-match covariates (T0 scaffold): name ->
+    standardized per-row value (already masked to 0 where absent), and name ->
+    1.0-where-observed mask. Both default empty, so the model is byte-identical
+    to today's baseline when model.covariates.enabled == [] (no covariate terms).
+    They are the ONLY defaulted fields — every other field stays required, so a
+    mis-shaped DesignData can't be built by accident; build_design supplies them
+    all by keyword.
     """
-    teams: list[str]
-    n_teams: int
     home_idx: np.ndarray
     away_idx: np.ndarray
     home_goals: np.ndarray
     away_goals: np.ndarray
     neutral: np.ndarray
+    n_teams: int
+    teams: list[str]
     weight: np.ndarray
     home_provisional: np.ndarray
     away_provisional: np.ndarray
+    cov: dict[str, np.ndarray] = field(default_factory=dict)        # name -> standardized per-row value (already masked to 0 where absent)
+    cov_mask: dict[str, np.ndarray] = field(default_factory=dict)   # name -> 1.0 where observed, else 0.0
 
 def build_design(match_panel: pd.DataFrame) -> DesignData:
     teams = sorted(set(match_panel["home_team"]) | set(match_panel["away_team"]))

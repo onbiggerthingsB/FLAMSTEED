@@ -40,6 +40,12 @@ statsbomb:
   open_data_version: "statsbombpy-1.18.0@2026-06-03"
 model:
   likelihood: dixon_coles            # dixon_coles | bivariate_poisson  (P4 DOF #8)
+  covariates:
+    enabled: []                       # e.g. ["rest_days"] — empty = baseline, no covariate terms
+    beta_scale: 0.25                  # Normal(0, beta_scale) prior on each standardized coefficient
+    host_k: 0.5                       # apply k * home_adv to 2026 host home games (0 = neutral, 1 = full)
+    hosts: ["United States", "Mexico", "Canada"]   # 2026 host nations (match tournament_2026.yaml names)
+    missing_indicator_for: ["travel_km", "altitude_m"]   # add a per-cov missingness indicator (Q1)
   prior:
     sigma_att: 0.5                   # HalfNormal scale, attack hyperprior  (P4 DOF #6)
     sigma_def: 0.5                   # HalfNormal scale, defense hyperprior (P4 DOF #6)
