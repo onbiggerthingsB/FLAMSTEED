@@ -30,6 +30,7 @@ import Schedule from '../src/surfaces/Schedule.svelte';
 import Tournament from '../src/surfaces/Tournament.svelte';
 import Track from '../src/surfaces/Track.svelte';
 import MatchDetail from '../src/surfaces/MatchDetail.svelte';
+import WinBar from '../src/components/WinBar.svelte';
 
 const dir = resolve(__dirname, 'fixtures/bundle');
 const J = (f: string) => JSON.parse(readFileSync(resolve(dir, f), 'utf8'));
@@ -44,18 +45,34 @@ const PCT = /\d+(\.\d+)?\s*%/;
 // SEPARATELY guarantees that estimate carries a [data-uncertainty] ± companion (or
 // is a "—" null). So a % inside a [data-estimate] is never naked: its uncertainty is
 // enforced by (1). A bare "45%" with no [data-estimate] ancestor still has no escape.
+//
+// MARKER-DISCIPLINE NOTE on [data-derived] (FIX 3 — read before adding any new use):
+//   [data-derived] is a CONSCIOUSLY-REVIEWED exemption for NON-FORECAST numbers ONLY —
+//   namely DERIVED signals (the EdgeChip's edge %, the ¼-Kelly stake signal, entry odds)
+//   and BACKWARD-LOOKING performance stats (the Track record: beat-close rate, CLV, RPS,
+//   reliability bins). These are not posteriors, so they carry no ± companion by design.
+//   It must NEVER wrap a FORWARD-LOOKING FORECAST probability — a forecast must keep its
+//   uncertainty companion (± / "distribution" region / coverage-gap). The guard cannot
+//   infer semantics from markup, so it CANNOT tell a derived % from a smuggled forecast %;
+//   every new [data-derived] use is therefore a manual review checkpoint, not a free pass.
 const EXEMPT = '[data-uncertainty], [data-coverage-gap], [data-derived], [data-estimate]';
 
 /**
  * The load-bearing guard. Factored out so the REAL surfaces (which must pass) and a
  * deliberately-naked snippet (which must be caught) exercise IDENTICAL logic.
  *
- * Two invariants:
+ * Three invariants:
  *  (1) Every [data-estimate] either contains a [data-uncertainty] companion, OR its
  *      text is exactly "—" (a null — not a naked number), OR it sits inside a gap.
  *      A bare "29%" with no ± companion is a naked estimate and fails.
  *  (2) Every element whose OWN text node shows a % is covered by an ancestor (or self)
  *      in the conscious exemption set. No probability % floats free.
+ *  (3) [FIX 6] Every element whose `title` or `aria-label` ATTRIBUTE shows a % must
+ *      ALSO be inside the exemption set. A `<span title="45%">` with no marker is a
+ *      naked attribute % — the same loophole as visible text, just hidden in metadata
+ *      (hover tooltips, SR labels) — and is caught. Today's attribute %s (WinBar /
+ *      ScorelineGrid titles) all live inside data-uncertainty="distribution", so they
+ *      pass; this closes the door on FUTURE forecasts leaking a % via an attribute.
  */
 function assertNoNakedNumbers(container: HTMLElement) {
   // (1) every estimate carries an uncertainty companion (or is a null em-dash, or inside a gap).
@@ -78,6 +95,18 @@ function assertNoNakedNumbers(container: HTMLElement) {
     if (!PCT.test(ownText)) return;
     const ok = el.closest(EXEMPT) !== null || el.matches('[data-estimate]');
     expect(ok, `naked % text (outside ${EXEMPT}): "${ownText.trim()}"`).toBeTruthy();
+  });
+
+  // (3) [FIX 6] every element with a %-shaped token in title / aria-label is exempt too.
+  // A % smuggled into an attribute (hover tooltip, SR label) is just as naked as visible
+  // text — close that loophole so a future forecast can't leak a probability via metadata.
+  container.querySelectorAll('[title], [aria-label]').forEach((el) => {
+    for (const attr of ['title', 'aria-label'] as const) {
+      const val = el.getAttribute(attr);
+      if (!val || !PCT.test(val)) continue;
+      const ok = el.closest(EXEMPT) !== null || el.matches('[data-estimate]');
+      expect(ok, `naked % in @${attr} (outside ${EXEMPT}): "${val.trim()}"`).toBeTruthy();
+    }
   });
 }
 
@@ -125,6 +154,72 @@ describe('no naked numbers — every surface honours the uncertainty/gap/derived
     const { container } = render(Track, { data: real });
     // Sanity: real % readouts actually render here.
     expect(PCT.test(container.textContent ?? '')).toBe(true);
+    assertNoNakedNumbers(container);
+  });
+
+  // ── FIX 2: the previously-UNEXERCISED %-bearing / marker states ────────────────
+  // Each runs through the SAME assertNoNakedNumbers so it is real coverage, not a
+  // bespoke assertion. A naked-number regression in any of these states would fail.
+
+  test('Tournament with a NULL progression cell renders "—" (not a naked number)', () => {
+    // Clone the real tournament data, then NULL OUT one market cell so Estimate must
+    // render the em-dash null path ("—", no % and no ±). The guard must still pass AND
+    // the "—" must not be (mis)read as a naked number.
+    const data = J('tournament.json').data;
+    data.Brazil.champion = { value: null, se: null }; // a null progression cell
+    const { container } = render(Tournament, { data, markets: J('meta.json').data.markets });
+    // Sanity: a "—" null estimate actually rendered (else this state is vacuous).
+    const dashed = Array.from(container.querySelectorAll('[data-estimate]')).some(
+      (e) => (e.textContent ?? '').trim() === '—',
+    );
+    expect(dashed, 'expected at least one "—" null estimate cell').toBe(true);
+    assertNoNakedNumbers(container);
+  });
+
+  test('Schedule GROUP row with a gapped forecast_summary renders CoverageGap (no naked %)', () => {
+    // Clone the real schedule and force a row's forecast_summary to a coverage gap so the
+    // CoverageGap branch (not the ScorePill/WinBar branch) renders — a previously-unexercised
+    // %-free state. The guard must pass and no naked % may appear.
+    const sched = J('schedule.json').data;
+    sched.group = sched.group.map((r: Record<string, unknown>, i: number) =>
+      i === 1
+        ? { ...r, forecast_summary: { coverage_gap: true, reason: 'forecast gap (test state)' } }
+        : r,
+    );
+    const { container } = render(Schedule, { data: sched });
+    // Sanity: the coverage-gap branch actually rendered.
+    expect(container.querySelector('[data-coverage-gap]')).not.toBeNull();
+    assertNoNakedNumbers(container);
+  });
+
+  test('Schedule KNOCKOUT row with a gapped home_occupants list renders CoverageGap (no naked %)', async () => {
+    // Force a KO row's home_occupants to a coverage gap so the occupant-gap branch renders
+    // (the leaner {coverage_gap, reason} shape) — exercises the gap path inside knockout.
+    const sched = J('schedule.json').data;
+    sched.knockout = sched.knockout.map((k: Record<string, unknown>) => ({
+      ...k,
+      home_occupants: { coverage_gap: true, reason: 'occupants gap (test state)' },
+    }));
+    const { container, getByRole } = render(Schedule, { data: sched });
+    await fireEvent.click(getByRole('button', { name: 'knockout' }));
+    // Sanity: a coverage gap rendered in the KO view, AND the away occupants still show %s.
+    await waitFor(() => expect(container.querySelector('[data-coverage-gap]')).not.toBeNull());
+    expect(container.querySelector('[data-estimate]')).not.toBeNull(); // away side still has estimates
+    assertNoNakedNumbers(container);
+  });
+
+  test('WinBar WITH a de-vigged line: the line-legend %s live inside the distribution region', () => {
+    // Pass a `line` so the ghosted-sharp-line legend ("line: H .. · D .. · A ..") renders.
+    // Those line %s are emitted INSIDE data-uncertainty="distribution" (same region as the
+    // model legend + bar-segment title %s), so the guard must pass — proving the line path,
+    // which the bundle surfaces never feed today, is itself naked-number-safe.
+    const model = { home: 0.3485557140956659, draw: 0.25864067803992613, away: 0.3928036078644081 };
+    const line = { home: 0.34, draw: 0.27, away: 0.39 };
+    const { container } = render(WinBar, { model, line });
+    // Sanity: the line legend actually rendered a % (else this state is vacuous).
+    const legend = container.querySelector('.ln');
+    expect(legend, 'expected the de-vigged line legend to render').not.toBeNull();
+    expect(PCT.test(legend?.textContent ?? '')).toBe(true);
     assertNoNakedNumbers(container);
   });
 
@@ -181,6 +276,24 @@ describe('NON-VACUITY: the guard catches naked numbers (proves it has teeth)', (
   test('the SAME naked span IS accepted once wrapped in a conscious marker (control)', () => {
     // Confirms the guard exempts ONLY the marked case — it is selective, not blanket-permissive.
     host.innerHTML = '<span data-derived="edge">▲ +6.9%</span>';
+    expect(() => assertNoNakedNumbers(host)).not.toThrow();
+  });
+
+  // [FIX 6] ATTRIBUTE non-vacuity: a % smuggled into title / aria-label with NO marker
+  // must be caught exactly like visible text — this is what gives invariant (3) teeth.
+  test('a <span title="45%"> with NO marker is flagged (attribute loophole closed)', () => {
+    host.innerHTML = '<span title="45%">x</span>';
+    expect(() => assertNoNakedNumbers(host)).toThrow(/naked % in @title/);
+  });
+
+  test('a naked aria-label="home 45%" with NO marker is flagged', () => {
+    host.innerHTML = '<div aria-label="home 45%">x</div>';
+    expect(() => assertNoNakedNumbers(host)).toThrow(/naked % in @aria-label/);
+  });
+
+  test('the SAME attribute % IS accepted once inside a marked region (control)', () => {
+    // Mirrors the real WinBar/ScorelineGrid case: a title % is fine inside the distribution region.
+    host.innerHTML = '<div data-uncertainty="distribution"><span title="home 45%">x</span></div>';
     expect(() => assertNoNakedNumbers(host)).not.toThrow();
   });
 });

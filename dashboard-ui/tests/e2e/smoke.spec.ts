@@ -1,31 +1,32 @@
 // T10 NON-REAL e2e smoke — fast, deterministic, offline (synthetic fixture bundle).
 //
-// Three load-bearing honesty invariants for a signal-only / paper dashboard:
+// Load-bearing honesty invariants for a signal-only / paper dashboard:
 //   (a) the persistent DRY-RUN / NON-REAL banner is visible on load;
 //   (b) there is NO bet / stake / buy / order BUTTON or form affordance anywhere —
 //       the stake is a read-only SIGNAL, not a control (signal-only is absolute);
-//   (c) drill-down works (Schedule → a match detail) AND the banner persists.
+//   (c) drill-down into the REAL-EDGE match detail works AND the same no-affordance
+//       invariant holds on that edge-bearing detail page (where the edge + ¼-Kelly
+//       stake actually render — the most likely place a bet control would creep in)
+//       AND the NON-REAL banner persists.
 
 import { test, expect, type Page } from '@playwright/test';
 
 const BANNER = /DRY-RUN · SYNTHETIC ODDS · NOT REAL/;
+// The fixture row that carries a REAL edge / stake / entry-odds (see tests/fixtures/bundle/schedule.json).
+// The FIRST group row (Brazil v Argentina) is an edge-coverage-GAP fixture, so drilling
+// the first link would never cover the MatchDetail that renders the edge + ¼-Kelly stake.
+const REAL_EDGE_ID = 'Brazil__Mexico__2024-05-02';
 
 async function waitForApp(page: Page) {
   // The app loads the bundle async; the banner only renders once provenance is in.
   await expect(page.getByText(BANNER)).toBeVisible();
 }
 
-test('(a) the NON-REAL honesty banner is visible on load', async ({ page }) => {
-  await page.goto('/');
-  await waitForApp(page);
-});
-
-test('(b) there is NO bet/stake/buy/order action affordance anywhere', async ({ page }) => {
-  await page.goto('/');
-  await waitForApp(page);
-
+// The signal-only invariant, factored out so it is enforced IDENTICALLY on the homepage
+// AND on the edge-bearing detail page: no interactive affordance that places/sizes/stages
+// a bet, and the stake signal (if present) is a read-only readout with no interactive ancestor.
+async function assertNoBetAffordance(page: Page) {
   // No actionable control (button or link styled as an action) that places/sizes a bet.
-  // The stake_signal renders as plain read-only text inside data-derived — never a control.
   const betButtons = page.getByRole('button', { name: /bet|buy|order|stake|place|wager/i });
   await expect(betButtons).toHaveCount(0);
   const betLinks = page.getByRole('link', { name: /bet|buy|order|stake now|place|wager/i });
@@ -39,28 +40,49 @@ test('(b) there is NO bet/stake/buy/order action affordance anywhere', async ({ 
   ).toHaveCount(0);
 
   // The stake signal, if present, is plain text (read-only), not an interactive control.
-  // (It only renders on a real-edge fixture; if present it must NOT be a button.)
   const stakeText = page.getByText(/¼-Kelly stake signal/);
   if (await stakeText.count()) {
     await expect(stakeText.first()).toBeVisible();
-    // Its nearest interactive ancestor (if any) must not be a button/role=button.
+    // Its nearest interactive ancestor (if any) must not be a control — a read-only SIGNAL.
     const isControl = await stakeText.first().evaluate((el) => {
       const ctrl = el.closest('button,[role="button"],a[href],input,form');
       return ctrl !== null;
     });
     expect(isControl, 'stake signal must be a read-only readout, not a control').toBe(false);
   }
+}
+
+test('(a) the NON-REAL honesty banner is visible on load', async ({ page }) => {
+  await page.goto('/');
+  await waitForApp(page);
 });
 
-test('(c) drill from schedule into a match detail; banner persists', async ({ page }) => {
+test('(b) there is NO bet/stake/buy/order action affordance on the homepage', async ({ page }) => {
+  await page.goto('/');
+  await waitForApp(page);
+  await assertNoBetAffordance(page);
+});
+
+test('(c) drill into the REAL-EDGE match detail: edge + stake render, NO bet affordance, banner persists', async ({
+  page,
+}) => {
   await page.goto('/');
   await waitForApp(page);
 
-  // Schedule renders "detail →" links per fixture row.
-  await page.getByRole('link', { name: /detail/ }).first().click();
+  // Drill into the REAL-EDGE row specifically (Brazil v Mexico) — NOT the first row, which is
+  // an edge-coverage-gap fixture. Click that row's detail link by its #/match/<id> href.
+  await page.locator(`a[href="#/match/${REAL_EDGE_ID}"]`).click();
 
   // The match-detail surface is up …
   await expect(page.getByText(/Most likely score/)).toBeVisible();
+
+  // … and the edge / ¼-Kelly stake actually render here (this is the page that surfaces them) …
+  await expect(page.getByText(/¼-Kelly stake signal/)).toBeVisible();
+
+  // … yet there is STILL no bet/stake/order control: the stake is a read-only SIGNAL even on
+  // the edge-bearing detail page (the most likely place a bet affordance would be added) …
+  await assertNoBetAffordance(page);
+
   // … and the honesty banner persists across the drill-down (it's app-shell-level).
   await expect(page.getByText(BANNER)).toBeVisible();
 });
