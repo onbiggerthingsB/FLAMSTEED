@@ -76,7 +76,10 @@ test('(c) drill into the REAL-EDGE match detail: edge + stake render, NO bet aff
   // The match-detail surface is up …
   await expect(page.getByText(/Most likely score/)).toBeVisible();
 
-  // … and the edge / ¼-Kelly stake actually render here (this is the page that surfaces them) …
+  // … and the edge / ¼-Kelly stake actually render here (this is the page that surfaces them).
+  // Pin the EDGE chip explicitly (data-derived="edge"), not just the stake text — otherwise
+  // removing <EdgeChip> while keeping the stake readout would slip past this smoke (Codex 5).
+  await expect(page.locator('[data-derived="edge"]')).toBeVisible();
   await expect(page.getByText(/¼-Kelly stake signal/)).toBeVisible();
 
   // … yet there is STILL no bet/stake/order control: the stake is a read-only SIGNAL even on
