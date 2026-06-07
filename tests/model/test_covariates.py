@@ -271,3 +271,85 @@ def test_fit_with_no_covariates_persists_empty_transforms(small_store):
                advi_iters=500, seed=0)
     assert post.covariate_transforms == {}                   # nothing fitted
     assert "beta_rest_days" not in post.idata.posterior      # no covariate coefficient
+
+
+# ---- T4: predict consumes per-fixture covariates via the PERSISTED transform ----
+#
+# NOTE (real signature): the plan snippet calls fit(small_features, cutoff=...);
+# the SHIPPED fit is fit(cutoff, store, *, backend, draws, seed, advi_iters,
+# config) (mirrored from T3). predict recomputes lh/la from the stacked posterior
+# and must add the SAME masked, standardized covariate offset using the PERSISTED
+# training transform + the betas READ from idata + this fixture's raw covariate
+# values (passed by the caller) — an as-of-cutoff forecast that reflects the
+# covariates with NO refit.
+
+
+@pytest.mark.slow
+def test_predict_uses_rest_covariate_monotonically(small_store):
+    # Supplying covariates must CHANGE the forecast (non-vacuity) and keep it a
+    # proper 1X2 distribution that sums to 1 (integration). Whatever the SIGN of
+    # the fitted beta, a different per-fixture rest profile must move the forecast.
+    import copy
+    cfg = copy.deepcopy(load_config())
+    cfg["model"]["covariates"]["enabled"] = ["rest_days"]
+    from wcmodel.model.scoreline import fit
+    post = fit("2024-06-01", small_store, config=cfg, backend="advi",
+               draws=60, advi_iters=800, seed=0)
+    teams = list(post._idx)[:2]
+    base = post.predict_1x2(teams[0], teams[1], neutral=True)            # no covariates supplied
+    rested = post.predict_1x2(teams[0], teams[1], neutral=True,
+                              covariates={"rest_days": 9.0, "rest_days__away": 2.0})
+    assert abs(rested["home"] - base["home"]) > 1e-6                     # non-vacuity: forecast moved
+    assert abs(rested["home"] + rested["draw"] + rested["away"] - 1.0) < 1e-6  # proper distribution
+
+
+@pytest.mark.slow
+def test_predict_covariates_none_is_byte_identical_to_baseline(small_store):
+    # covariates=None (the default) must be byte-identical to today's prediction,
+    # even when the model carries fitted betas — a covariate is only ever applied
+    # when the caller supplies a value for THIS fixture.
+    import copy
+    cfg = copy.deepcopy(load_config())
+    cfg["model"]["covariates"]["enabled"] = ["rest_days"]
+    from wcmodel.model.scoreline import fit
+    post = fit("2024-06-01", small_store, config=cfg, backend="advi",
+               draws=60, advi_iters=800, seed=0)
+    teams = list(post._idx)[:2]
+    g_default = post.predict_scoreline(teams[0], teams[1], neutral=True)
+    g_none = post.predict_scoreline(teams[0], teams[1], neutral=True, covariates=None)
+    g_empty = post.predict_scoreline(teams[0], teams[1], neutral=True, covariates={})
+    assert np.array_equal(g_default, g_none)                            # None == default
+    assert np.array_equal(g_default, g_empty)                          # empty dict == no shift
+
+
+@pytest.mark.slow
+def test_predict_missing_covariate_value_is_exact_zero_shift(small_store):
+    # A supplied-but-None/NaN covariate value masks to 0 -> EXACTLY no shift,
+    # byte-identical to supplying nothing (a missing fixture covariate never moves
+    # the forecast). travel_km is enabled SPECIFICALLY because it carries a fitted
+    # beta_travel_km_miss (missing_indicator_for) — so this also proves the miss
+    # intercept does NOT fire at predict time for a missing value (true zero-shift,
+    # not a "+miss" shift).
+    import copy
+    cfg = copy.deepcopy(load_config())
+    cfg["model"]["covariates"]["enabled"] = ["travel_km"]
+    from wcmodel.model.scoreline import fit
+    post = fit("2024-06-01", small_store, config=cfg, backend="advi",
+               draws=60, advi_iters=800, seed=0)
+    assert "beta_travel_km_miss" in post.idata.posterior              # miss intercept WAS fitted
+    teams = list(post._idx)[:2]
+    g_base = post.predict_scoreline(teams[0], teams[1], neutral=True)
+    g_none_val = post.predict_scoreline(teams[0], teams[1], neutral=True,
+                                        covariates={"travel_km": None})
+    g_nan_val = post.predict_scoreline(teams[0], teams[1], neutral=True,
+                                       covariates={"travel_km": np.nan})
+    g_none_away = post.predict_scoreline(teams[0], teams[1], neutral=True,
+                                         covariates={"travel_km__away": None})
+    assert np.array_equal(g_base, g_none_val)                          # None value -> zero shift
+    assert np.array_equal(g_base, g_nan_val)                           # NaN value -> zero shift
+    assert np.array_equal(g_base, g_none_away)                         # missing away value -> zero shift
+    # An OBSERVED travel value DOES move the forecast (non-vacuity guard: proves the
+    # zero-shift above is "masked", not "covariate path silently dead").
+    g_obs = post.predict_scoreline(teams[0], teams[1], neutral=True,
+                                    covariates={"travel_km": 5000.0})
+    assert not np.array_equal(g_base, g_obs)
