@@ -21,6 +21,7 @@ import pytensor.tensor as pt
 
 from wcmodel.config import load_config
 from wcmodel.data import features
+from wcmodel.model.covariates import CovariateTransform
 from wcmodel.model.inference import sample
 from wcmodel.model.likelihoods import bp_loglik_pt, dc_loglik_pt
 from wcmodel.model.panel import DesignData, build_design, to_match_panel
@@ -37,6 +38,44 @@ from wcmodel.model.widening import likelihood_weight
 # covariate requires classifying it here, so it can never silently no-op.
 _PER_TEAM_COVS = {"rest_days", "travel_km"}
 _PER_MATCH_COVS = {"altitude_m"}
+
+
+def _build_covariates(mp, p_cov: dict):
+    """Assemble the leakage-safe covariate transforms + cov/cov_mask design arrays
+    from the < cutoff TRAINING panel ``mp``.
+
+    For each enabled covariate present in the panel, ONE CovariateTransform is fit
+    on the HOME-side training column (``mp[name]``) and then applied to BOTH sides:
+    the home column -> cov[name], and (for a per-team covariate) the away team's own
+    column ``mp[f"{name}__away"]`` -> cov[f"{name}__away"], via the SAME fitted
+    transform (home + away share one standardization). The transform is fit on the
+    SAME rows the model trains on, so it can never see past the cutoff
+    (leakage-safe). A per-match covariate has no ``__away`` column (identical on both
+    rows), so only the single array is produced.
+
+    Returns ``(cov, cov_mask, transforms)``: the per-name standardized arrays, their
+    masks, and ``{name: CovariateTransform}`` for the Posterior to persist. All
+    empty when ``enabled == []`` (or no enabled covariate column is in the panel),
+    so the design is byte-identical to today's baseline.
+    """
+    cov: dict = {}
+    cov_mask: dict = {}
+    transforms: dict = {}
+    for name in p_cov.get("enabled", []):
+        if name not in mp.columns:
+            continue  # enabled but not produced upstream -> no covariate term
+        train = mp[name].to_numpy()
+        t = CovariateTransform.fit(name, train)        # fit on < cutoff training rows
+        transforms[name] = t
+        z, mask = t.apply(train)
+        cov[name] = z
+        cov_mask[name] = mask
+        away_col = f"{name}__away"                      # per-team covariate: away side
+        if away_col in mp.columns:                      # (per-match has no __away col)
+            z_away, mask_away = t.apply(mp[away_col].to_numpy())  # SAME fitted transform
+            cov[away_col] = z_away
+            cov_mask[away_col] = mask_away
+    return cov, cov_mask, transforms
 
 
 def _covariate_betas(d: DesignData, p_cov: dict):
@@ -255,7 +294,12 @@ def fit(
     seed = cfg["seed"] if seed is None else seed
     feats = features.build(cutoff, store, cfg)            # leakage-safe panel ONLY
     mp = to_match_panel(feats)
-    d = build_design(mp)
+    # Build the leakage-safe covariate transforms on the SAME < cutoff training
+    # panel `mp` (before build_design / sampling), and thread the standardized
+    # arrays + masks into the design. Empty dicts when covariates.enabled == [],
+    # so the design (and the fitted model) is byte-identical to today's baseline.
+    cov, cov_mask, cov_transforms = _build_covariates(mp, cfg["model"]["covariates"])
+    d = build_design(mp, cov=cov, cov_mask=cov_mask)
     w = likelihood_weight(
         d,
         mechanism=cfg["model"]["widening"]["mechanism"],
@@ -279,4 +323,7 @@ def fit(
     # K/T params it feeds to compute_elo_history move.
     arm = count_volatility_arm(store, cutoff, d.teams, config=cfg)
     prov = set(arm.loc[arm["volatility_flag"] | arm["few_games_flag"], "team"])
-    return Posterior(idata, d.teams, likelihood, provisional_teams=prov, config=cfg)
+    return Posterior(
+        idata, d.teams, likelihood, provisional_teams=prov, config=cfg,
+        covariate_transforms=cov_transforms,    # persist for predict (T4) to reuse
+    )

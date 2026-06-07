@@ -229,3 +229,45 @@ def test_enabled_empty_adds_no_covariate_params():
     )
     m = DixonColesModel().build(d, weight=np.ones(1), config=load_config())
     assert not any(v.name.startswith("beta_") for v in m.free_RVs)   # baseline unchanged
+
+
+# ---- T3: fit() builds + persists the transform; threads cov into the design ----
+#
+# NOTE (real signature): the plan snippet calls fit(small_features, cutoff=...);
+# the SHIPPED fit is fit(cutoff, store, *, backend, draws, seed, advi_iters,
+# config) and reads features.build(cutoff, store, cfg) internally. The small_store
+# fixture's features panel carries a rest_days column, so we enable rest_days and
+# pass the store. ADVI keeps it fast; still a real end-to-end fit -> slow.
+
+
+def test_panel_carries_per_team_covariate_home_and_away_columns(small_store):
+    # to_match_panel must carry rest_days (home team's value) and rest_days__away
+    # (the away team's OWN value) onto each match row. Fast: no sampling.
+    from wcmodel.data import features
+    from wcmodel.model.panel import to_match_panel
+    mp = to_match_panel(features.build("2024-06-01", small_store, load_config()))
+    assert "rest_days" in mp.columns and "rest_days__away" in mp.columns
+    # Per-match altitude is identical on both rows -> carried once, no __away.
+    assert "altitude_m" in mp.columns and "altitude_m__away" not in mp.columns
+
+
+@pytest.mark.slow
+def test_fit_persists_covariate_transforms_and_uses_them(small_store):
+    import copy
+    cfg = copy.deepcopy(load_config())
+    cfg["model"]["covariates"]["enabled"] = ["rest_days"]    # enable rest_days
+    from wcmodel.model.scoreline import fit
+    post = fit("2024-06-01", small_store, config=cfg, backend="advi",
+               draws=40, advi_iters=500, seed=0)
+    assert "rest_days" in post.covariate_transforms          # transform persisted
+    assert "beta_rest_days" in post.idata.posterior          # coefficient fitted
+
+
+@pytest.mark.slow
+def test_fit_with_no_covariates_persists_empty_transforms(small_store):
+    # enabled == [] (the default): no transform fitted, no beta RV -> the baseline.
+    from wcmodel.model.scoreline import fit
+    post = fit("2024-06-01", small_store, backend="advi", draws=40,
+               advi_iters=500, seed=0)
+    assert post.covariate_transforms == {}                   # nothing fitted
+    assert "beta_rest_days" not in post.idata.posterior      # no covariate coefficient

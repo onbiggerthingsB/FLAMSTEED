@@ -12,6 +12,17 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+# Covariate columns carried from the (two-row-per-match) features frame onto the
+# (one-row-per-match) panel. A PER-TEAM covariate is read on BOTH sides — the
+# HOME team's value lands on `name` (from the is_home row) and the AWAY team's own
+# value on `name__away` (from the away row). A PER-MATCH covariate is identical on
+# both rows, so it is carried once onto `name`. These mirror scoreline.py's
+# _PER_TEAM_COVS / _PER_MATCH_COVS (kept duplicated here, not imported, to avoid a
+# panel->scoreline import cycle; both must stay in sync — a new covariate is added
+# to both). A covariate absent from the features frame is simply not carried.
+_PER_TEAM_COVS = ("rest_days", "travel_km")
+_PER_MATCH_COVS = ("altitude_m",)
+
 def to_match_panel(features_df: pd.DataFrame) -> pd.DataFrame:
     if features_df.empty:
         return pd.DataFrame(columns=[
@@ -29,6 +40,20 @@ def to_match_panel(features_df: pd.DataFrame) -> pd.DataFrame:
     out = base.merge(hp, on="match_id").merge(ap, on="match_id")
     out["home_goals"] = out["home_goals"].astype(int)
     out["away_goals"] = out["away_goals"].astype(int)
+    # Carry pre-match covariates onto the match row. The HOME team's value (the
+    # is_home row) lands on `name`; for a per-team covariate the AWAY team's own
+    # value (the away row) lands on `name__away`. Per-match covariates are identical
+    # on both rows -> carried once. Missing/absent values stay NaN; the leakage-safe
+    # CovariateTransform (applied in fit()) masks them to a zero contribution.
+    away_rows = features_df[~features_df["is_home"]]
+    for name in (*_PER_TEAM_COVS, *_PER_MATCH_COVS):
+        if name not in features_df.columns:
+            continue
+        h = home.set_index("match_id")[name].rename(name)
+        out = out.merge(h, on="match_id", how="left")
+        if name in _PER_TEAM_COVS:
+            a = away_rows.set_index("match_id")[name].rename(f"{name}__away")
+            out = out.merge(a, on="match_id", how="left")
     if len(out) != home["match_id"].nunique():
         raise ValueError(
             f"to_match_panel row count {len(out)} != distinct home matches "
@@ -66,7 +91,18 @@ class DesignData:
     cov: dict[str, np.ndarray] = field(default_factory=dict)        # name -> standardized per-row value (already masked to 0 where absent)
     cov_mask: dict[str, np.ndarray] = field(default_factory=dict)   # name -> 1.0 where observed, else 0.0
 
-def build_design(match_panel: pd.DataFrame) -> DesignData:
+def build_design(
+    match_panel: pd.DataFrame,
+    cov: dict[str, np.ndarray] | None = None,
+    cov_mask: dict[str, np.ndarray] | None = None,
+) -> DesignData:
+    """Match-level numpy design from the panel.
+
+    ``cov`` / ``cov_mask`` are the OPTIONAL standardized covariate arrays + masks
+    assembled upstream (in ``fit()``) from a leakage-safe ``CovariateTransform``.
+    Both default to empty dicts, so omitting them yields a DesignData byte-identical
+    to today's baseline (no covariate terms) — the no-covariate path is unchanged.
+    """
     teams = sorted(set(match_panel["home_team"]) | set(match_panel["away_team"]))
     idx = {t: i for i, t in enumerate(teams)}
     return DesignData(
@@ -79,4 +115,6 @@ def build_design(match_panel: pd.DataFrame) -> DesignData:
         weight=match_panel["weight"].to_numpy(dtype=float),
         home_provisional=match_panel["home_provisional"].to_numpy(dtype=bool),
         away_provisional=match_panel["away_provisional"].to_numpy(dtype=bool),
+        cov=dict(cov) if cov else {},
+        cov_mask=dict(cov_mask) if cov_mask else {},
     )

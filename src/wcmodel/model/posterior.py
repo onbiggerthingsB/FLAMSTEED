@@ -34,12 +34,19 @@ from wcmodel.model.widening import inflate_predictive
 class Posterior:
     """Fitted scoreline posterior + per-fixture predictive scoreline grids."""
 
-    def __init__(self, idata, teams, likelihood, provisional_teams=None, config=None):
+    def __init__(self, idata, teams, likelihood, provisional_teams=None,
+                 config=None, covariate_transforms=None):
         self.idata = idata
         self.teams = list(teams)
         self._idx = {t: i for i, t in enumerate(self.teams)}
         self.likelihood = likelihood
         self.provisional_teams = set(provisional_teams or ())
+        # The leakage-safe CovariateTransform fitted PER enabled covariate on the
+        # < cutoff training rows (set by fit()). predict (T4) reuses these so the
+        # exact same standardization is applied to a future fixture's covariate —
+        # the single source of truth that keeps fit/predict consistent. Empty {}
+        # when no covariate is enabled (the baseline path).
+        self.covariate_transforms = dict(covariate_transforms or {})
         self._cfg = (config or load_config())["model"]
         # Fail loud on a bad widening config at CONSTRUCTION -- not at predict
         # time. predict_scoreline only routes through inflate_predictive (which
