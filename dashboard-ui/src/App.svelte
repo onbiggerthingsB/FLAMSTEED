@@ -42,7 +42,11 @@
     {#if route.name === 'schedule'}
       <Schedule data={bundle.schedule.data} />
     {:else if route.name === 'tournament'}
-      <Tournament data={bundle.tournament.data} markets={bundle.meta.data.markets} />
+      <Tournament
+        data={bundle.tournament.data}
+        markets={bundle.meta.data.markets}
+        knockout={bundle.schedule.data.knockout}
+      />
     {:else if route.name === 'track'}
       <Track data={bundle.track.data} />
     {:else if route.name === 'match'}
