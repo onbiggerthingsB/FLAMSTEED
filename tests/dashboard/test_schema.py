@@ -128,6 +128,41 @@ def test_gate_schedule_exempts_coverage_gap_forecast_summary():
     gate_schedule({"group": [row], "knockout": []})  # a gap is an honest absence, not a naked number
 
 
+def test_gate_schedule_accepts_a_valid_market_1x2_ghost_line():
+    """GHOST LINE: a GROUP row's forecast_summary may carry a DERIVED ``market_1x2`` (the
+    de-vigged ENTRY market line, ghosted into the win-bar). When present it must be a coherent
+    all-three sum~1 distribution — but it is a DERIVED comparison, so NO uncertainty companion
+    is required (like the edge). A valid line passes."""
+    row = _good_group_row()
+    row["forecast_summary"]["market_1x2"] = {"home": 0.58, "draw": 0.25, "away": 0.17}
+    gate_schedule({"group": [row], "knockout": []})  # no raise
+
+
+def test_gate_schedule_rejects_incoherent_market_1x2_ghost_line():
+    """A degenerate ``market_1x2`` (does not sum to ~1) is STOPPED — the derived line must
+    still be a coherent distribution, value-checked like the model 1X2 (minus the companion)."""
+    row = _good_group_row()
+    row["forecast_summary"]["market_1x2"] = {"home": 0.5, "draw": 0.5, "away": 0.5}  # sums 1.5
+    with pytest.raises(ValueError, match="(?i)market|1x2|sum|distribution"):
+        gate_schedule({"group": [row], "knockout": []})
+
+
+def test_gate_schedule_rejects_lone_market_1x2_outcome():
+    """A ``market_1x2`` missing an outcome is a lone score, not a distribution — STOPPED."""
+    row = _good_group_row()
+    row["forecast_summary"]["market_1x2"] = {"home": 0.6, "away": 0.4}  # no draw
+    with pytest.raises(ValueError, match="(?i)market|1x2|three|outcome"):
+        gate_schedule({"group": [row], "knockout": []})
+
+
+def test_gate_schedule_absent_market_1x2_is_fine():
+    """The ghost line is OPTIONAL: a forecast_summary with no ``market_1x2`` (the no-edge /
+    coverage-gap-edge case) passes — the market line is omitted, never required."""
+    row = _good_group_row()
+    assert "market_1x2" not in row["forecast_summary"]
+    gate_schedule({"group": [row], "knockout": []})  # no raise
+
+
 def test_gate_schedule_rejects_bad_edge_entry_odds():
     """FIX D: a real edge node's entry_odds must be a finite decimal-odds number > 1.0."""
     row = _good_group_row()

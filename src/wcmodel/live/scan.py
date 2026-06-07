@@ -182,7 +182,14 @@ def scan(store, items: list[dict], *, cutoff, config: dict | None = None,
             "event_key": d.event_key, "staked": d.staked, "edge": d.edge[d.staked],
             "liquidity": liquidity, "stake_signal": d.stake,
             "entry_odds": d.entry_odds[d.staked], "close_odds": d.close_odds[d.staked],
-            "model": d.model, "is_synthetic": d.is_synthetic,
+            "model": d.model,
+            # The de-vigged ENTRY market 1X2 the LiveDecision already computed
+            # (`market_fair_1x2(ENTRY odds)`) — the SAME de-vigged ENTRY that DROVE the edge
+            # (`edge = model_fair - market_entry`). Carried so the dashboard can ghost the
+            # sharp line into the win-bar (a DERIVED comparison, leakage-safe: the ENTRY is
+            # <= cutoff, NEVER the close). The dashboard edge node re-gates + emits it.
+            "market_1x2": dict(d.market_entry),
+            "is_synthetic": d.is_synthetic,
         })
 
     opportunities.sort(key=rank_key, reverse=True)

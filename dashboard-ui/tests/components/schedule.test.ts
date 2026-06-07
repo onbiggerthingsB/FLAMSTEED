@@ -17,6 +17,35 @@ test('Schedule renders group rows with a forecast + edge, and links to match det
   expect((first.querySelector('a[href^="#/match/"]') as HTMLAnchorElement)).toBeTruthy();
 });
 
+// ── GHOST LINE (spec §4) ──────────────────────────────────────────────────────────
+// A group row whose forecast_summary carries the de-vigged ENTRY market_1x2 ghosts the
+// sharp line into its WinBar: the `.ghost` markers + the "line: H .. · D .. · A .." legend
+// render INSIDE the marked distribution region. The committed Brazil-Mexico row carries a
+// market_1x2 (mirrors its edge's de-vig); a gapped-edge row carries none -> no line.
+test('Schedule ghosts the de-vigged market line into the WinBar for a row that carries market_1x2', () => {
+  const { container } = render(Schedule, { data: sch.data });
+  // The Brazil-Mexico row (real edge -> market_1x2) is the one with a line.
+  const row = container.querySelector('[data-match-id="Brazil__Mexico__2024-05-02"]') as HTMLElement;
+  expect(row).toBeTruthy();
+  // The ghosted sharp-line markers + the "line:" legend live inside the distribution region.
+  expect(row.querySelector('.ghost')).toBeTruthy(); // the ghost markers painted
+  expect(row.textContent).toMatch(/line:\s*H/); // the line legend readout rendered
+  // The line legend % sits INSIDE the marked distribution region (no naked number).
+  const legend = row.querySelector('.ln') as HTMLElement;
+  expect(legend).toBeTruthy();
+  expect(legend.closest('[data-uncertainty="distribution"]')).toBeTruthy();
+});
+
+test('Schedule renders NO ghost line for a row whose forecast_summary has no market_1x2', () => {
+  const { container } = render(Schedule, { data: sch.data });
+  // Brazil-Argentina is a coverage-gap edge -> no market_1x2 -> no ghosted line.
+  const row = container.querySelector('[data-match-id="Brazil__Argentina__2024-05-01"]') as HTMLElement;
+  expect(row).toBeTruthy();
+  expect(row.querySelector('.ghost')).toBeNull();
+  expect(row.querySelector('.ln')).toBeNull();
+  expect(row.textContent).not.toMatch(/line:\s*H/);
+});
+
 test('Schedule renders KO rows as probable occupants with SE, or a gap', async () => {
   const { container, getByRole } = render(Schedule, { data: sch.data });
   // The stage navigator gates KO rows; switch to the knockout stage to reveal them.

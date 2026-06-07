@@ -38,7 +38,10 @@
     <div class="shortlist muted">
       {#each d.forecast.shortlist as s}<ScorePill ml={s} />{/each}
     </div>
-    <WinBar model={d.forecast.one_x_two} />
+    <!-- GHOST LINE: ghost the de-vigged ENTRY market 1X2 into the win-bar as the `line`
+         prop. The market line lives on the edge node (a DERIVED comparison, present only when
+         the edge is a real, non-gap node that carries it); a coverage-gap edge has no line. -->
+    <WinBar model={d.forecast.one_x_two} line={isGap(d.edge) ? null : (d.edge.market_1x2 ?? null)} />
     <ScorelineGrid grid={d.forecast.grid} home={d.home} away={d.away} />
   </section>
 

@@ -57,3 +57,27 @@ test('Match detail renders a REAL edge through EdgeChip (not a naked number)', a
   // chip (▲/▼ + signed %) lives inside the edge section
   expect(within(edgeSection).getByText(/▲|▼|no edge/)).toBeInTheDocument();
 });
+
+// ── GHOST LINE (spec §4) ──────────────────────────────────────────────────────────
+// When the fixture's edge carries the de-vigged ENTRY market_1x2, the MatchDetail WinBar
+// ghosts that sharp line: the `.ghost` markers + the "line:" legend render inside the
+// marked distribution region. The committed Brazil-Mexico detail carries the line.
+test('Match detail ghosts the de-vigged market line into the WinBar when the edge carries market_1x2', async () => {
+  const { container } = render(MatchDetail, { baseUrl: '/bundle', matchId: realEdgeId });
+  await waitFor(() => expect(container.querySelector('[data-uncertainty="distribution"]')).toBeInTheDocument());
+  // The ghosted sharp-line markers painted inside the win-bar.
+  await waitFor(() => expect(container.querySelector('.ghost')).toBeTruthy());
+  // The "line:" legend readout rendered and sits inside the marked distribution region.
+  const legend = container.querySelector('.ln') as HTMLElement;
+  expect(legend).toBeTruthy();
+  expect(legend.textContent).toMatch(/line:\s*H/);
+  expect(legend.closest('[data-uncertainty="distribution"]')).toBeTruthy();
+});
+
+test('Match detail renders NO ghost line when the edge is a coverage gap', async () => {
+  const { container } = render(MatchDetail, { baseUrl: '/bundle', matchId: gappedEdgeId });
+  await waitFor(() => expect(container.querySelector('[data-uncertainty="distribution"]')).toBeInTheDocument());
+  // A gapped-edge fixture carries no market_1x2 -> the WinBar shows no ghosted line.
+  expect(container.querySelector('.ghost')).toBeNull();
+  expect(container.querySelector('.ln')).toBeNull();
+});

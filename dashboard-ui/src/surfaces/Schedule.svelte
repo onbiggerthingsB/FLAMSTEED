@@ -55,8 +55,16 @@
           <!-- Most-likely score + its prob as ONE distribution readout ("1–0 · 15%"); the
                scoreline distribution is the uncertainty (no "±?", no naked score/%). -->
           <span class="score"><ScorePill ml={r.forecast_summary.most_likely} /></span>
-          <!-- The 1X2 distribution IS the uncertainty; WinBar wraps it in a marked region. -->
-          <span class="dist"><WinBar model={r.forecast_summary.one_x_two} /></span>
+          <!-- The 1X2 distribution IS the uncertainty; WinBar wraps it in a marked region.
+               GHOST LINE: the de-vigged ENTRY market 1X2 (forecast_summary.market_1x2, a
+               DERIVED comparison present only where a real edge carries it) is ghosted into
+               the bar as the `line` prop — the sharp line vs the model, inside the marked
+               distribution region (the no-naked-number guard exempts the line legend). -->
+          <span class="dist"
+            ><WinBar
+              model={r.forecast_summary.one_x_two}
+              line={r.forecast_summary.market_1x2 ?? null}
+            /></span>
         {/if}
         {#if isGap(r.edge)}
           <CoverageGap reason={r.edge.reason} />

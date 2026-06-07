@@ -138,10 +138,26 @@ def test_utc_crossing_fixture_edge_attaches_end_to_end(small_store, utc_crossing
         "(the local-date edge key missed the UTC-date scan key -> silent coverage_gap)"
     )
 
-    # The schedule ROW for the same fixture carries the same REAL edge.
+    # GHOST LINE (end-to-end): the real edge node carries the de-vigged ENTRY market 1X2 — a
+    # finite, all-three, sum~1 DERIVED distribution computed from the ENTRY odds (the (2.5,
+    # 3.4, 3.0) decision-time prices <= cutoff), NEVER the close. This proves the WHOLE
+    # serializer path (decide -> scan -> edges_by_event -> build) emits the line from REAL
+    # entry odds, leakage-safe.
+    line = matched["edge"].get("market_1x2")
+    assert isinstance(line, dict) and set(line) == {"home", "draw", "away"}, (
+        f"the real edge did NOT carry a de-vigged ENTRY market 1X2; got {line!r}")
+    assert all(isinstance(line[o], float) and 0.0 <= line[o] <= 1.0 for o in line)
+    assert abs(sum(line.values()) - 1.0) < 1e-6, f"market 1X2 must sum to ~1; got {sum(line.values())!r}"
+
+    # The schedule ROW for the same fixture carries the same REAL edge AND ghosts the line
+    # into its forecast_summary (forecast_summary.market_1x2 == the edge's market_1x2).
     sched = json.loads((b / "schedule.json").read_text())["data"]["group"]
     rows = [r for r in sched if r["home"] == "Brazil" and r["away"] == "Mexico"]
     assert rows and _is_real_edge(rows[0]["edge"]), "edge did NOT attach to the schedule row"
+    fs = rows[0]["forecast_summary"]
+    assert fs.get("market_1x2") == line, (
+        f"the de-vigged ENTRY line was NOT ghosted into the row summary; "
+        f"forecast_summary.market_1x2={fs.get('market_1x2')!r} edge.market_1x2={line!r}")
 
     # CONTROL: a fixture with NO live odds item still gaps HONESTLY (no fabricated edge).
     other = None
@@ -154,3 +170,10 @@ def test_utc_crossing_fixture_edge_attaches_end_to_end(small_store, utc_crossing
     assert other["edge"].get("coverage_gap") is True, (
         "a fixture with no live odds must stay an honest coverage_gap"
     )
+    # GHOST LINE control: a coverage-gap edge (no live odds) emits NO market line — the row
+    # summary for that fixture carries no market_1x2 (the line is omitted, never fabricated).
+    other_row = next(r for r in sched if not (r["home"] == "Brazil" and r["away"] == "Mexico")
+                     and r.get("edge", {}).get("coverage_gap") is True)
+    other_fs = other_row.get("forecast_summary", {})
+    assert "market_1x2" not in other_fs, (
+        f"a market line leaked onto a coverage-gap fixture: {other_fs.get('market_1x2')!r}")
