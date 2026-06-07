@@ -51,6 +51,29 @@ def _covariate_betas(d: DesignData, p_cov: dict):
     for name in p_cov.get("enabled", []):
         if name not in d.cov:
             continue  # enabled but no data supplied -> add nothing (still baseline)
+        # FIX 1 (taxonomy): a covariate present in d.cov MUST be declared in
+        # exactly one of the two side-wiring sets. Without this guard a typo'd or
+        # undeclared name falls through _cov_offset's per-match `else` branch and
+        # is silently mis-wired as a symmetric per-match term. Fail loud instead.
+        if name not in (_PER_TEAM_COVS | _PER_MATCH_COVS):
+            raise ValueError(
+                f"unknown covariate {name!r}: not in _PER_TEAM_COVS or _PER_MATCH_COVS"
+            )
+        # FIX 3 (per-team both-sides): a per-team covariate is read on BOTH sides
+        # — home reads d.cov[name], away reads d.cov[f"{name}__away"] — each with a
+        # matching cov_mask key. Validate both arrays/masks exist up front so a
+        # caller that supplies only one side fails clearly here, not with a deep
+        # KeyError inside _cov_offset. (T3's fit() always supplies both.)
+        if name in _PER_TEAM_COVS:
+            away_key = f"{name}__away"
+            if away_key not in d.cov or away_key not in d.cov_mask:
+                raise ValueError(
+                    f"per-team covariate {name!r} missing its '__away' array/mask in DesignData.cov"
+                )
+            if name not in d.cov_mask:
+                raise ValueError(
+                    f"per-team covariate {name!r} missing its home mask in DesignData.cov_mask"
+                )
         beta = pm.Normal(f"beta_{name}", 0.0, p_cov["beta_scale"])
         miss = (
             pm.Normal(f"beta_{name}_miss", 0.0, p_cov["beta_scale"])

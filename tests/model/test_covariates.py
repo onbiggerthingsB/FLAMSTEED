@@ -1,4 +1,6 @@
 import numpy as np
+import pytensor
+import pytest
 from wcmodel.config import load_config
 from wcmodel.model.scoreline import DesignData, DixonColesModel
 
@@ -101,6 +103,120 @@ def test_rates_add_rest_term_to_attacking_rate():
     m = DixonColesModel().build(d, weight=np.ones(2), config=cfg)
     names = {v.name for v in m.free_RVs}
     assert "beta_rest_days" in names   # a coefficient was added for the enabled covariate
+
+
+# ---- T2 hardening (Codex): the rest term is NON-VACUOUS ----
+#
+# The existence check above proves only that a beta_rest_days RV exists — it does
+# NOT prove the covariate actually reaches the rate / the likelihood. These two
+# tests pin that: we compile the `like` POTENTIAL tensor on its own (a function of
+# the model's free RVs) and evaluate it at two beta values while holding att/def/
+# mu/home_adv/rho FIXED at identical values. Because the `like` Potential is built
+# only from the rate→likelihood path, the beta_rest_days PRIOR (a separate logp
+# term) is NOT inside it — so any change in `like` must come from the covariate
+# entering the LIKELIHOOD, not from the prior. mask==1 -> `like` MUST change;
+# mask==0 (missing) -> `like` MUST be invariant (exactly zero contribution).
+
+
+def _build_rest_model(mask_val):
+    # One std-unit of HOME rest in match0, zero away contribution, so a non-zero
+    # beta moves the home attacking rate (hence the DC likelihood) in match0.
+    # mask_val toggles observed (1.0) vs missing (0.0) for the rest_days arrays.
+    d = DesignData(
+        home_idx=np.array([0, 1]), away_idx=np.array([1, 0]),
+        home_goals=np.array([3, 0]), away_goals=np.array([0, 1]),
+        neutral=np.array([False, False]), n_teams=2,
+        teams=["A", "B"], weight=np.ones(2),
+        home_provisional=np.zeros(2, bool), away_provisional=np.zeros(2, bool),
+        cov={"rest_days": np.array([1.5, 0.0]),
+             "rest_days__away": np.array([0.0, 0.0])},
+        cov_mask={"rest_days": np.array([mask_val, mask_val]),
+                  "rest_days__away": np.array([mask_val, mask_val])},
+    )
+    cfg = load_config()
+    cfg["model"]["covariates"]["enabled"] = ["rest_days"]
+    return DixonColesModel().build(d, weight=np.ones(2), config=cfg)
+
+
+def _like_evaluator(m):
+    """Return a fn(beta) -> float value of ONLY the `like` Potential, with every
+    other RV held at a fixed reference point. Isolates the likelihood from the
+    beta prior: the prior is a separate logp term, never part of this tensor."""
+    like = m["like"]
+    rvs = {v.name: v for v in m.free_RVs}
+    fn = pytensor.function(list(rvs.values()), like, on_unused_input="ignore")
+    order = list(rvs.keys())
+
+    def at(beta):
+        fixed = dict(
+            sigma_att=np.array(1.0), sigma_def=np.array(1.0),
+            att_raw=np.array([0.1, -0.1]), def_raw=np.array([0.05, -0.05]),
+            mu=np.array(0.0), home_adv=np.array(0.2),
+            beta_rest_days=np.array(float(beta)), rho=np.array(0.0),
+        )
+        return float(fn(*[fixed[k] for k in order]))
+
+    return at
+
+
+def test_rest_term_enters_the_likelihood_when_observed():
+    # mask==1: the covariate is observed, so changing beta_rest_days (holding all
+    # other RVs fixed) MUST change the `like` Potential — proving the term reaches
+    # the LIKELIHOOD, not just the prior. Fast: graph eval, no NUTS.
+    at = _like_evaluator(_build_rest_model(mask_val=1.0))
+    base, moved = at(0.0), at(0.5)
+    assert abs(moved - base) > 1e-6   # the covariate term enters the rate/likelihood
+
+
+def test_rest_term_is_exactly_zero_in_the_likelihood_when_missing():
+    # mask==0: identical setup but the rest_days rows are MISSING. The `like`
+    # Potential MUST be invariant to beta_rest_days — masked rows contribute
+    # EXACTLY zero to the likelihood (no imputation), the complement of the
+    # observed case above.
+    at = _like_evaluator(_build_rest_model(mask_val=0.0))
+    assert at(0.5) == at(0.0)   # missing -> exactly zero contribution, bit-for-bit
+
+
+# ---- T2 hardening (Codex): taxonomy + per-team both-sides guards ----
+
+
+def _designdata_with_cov(cov, cov_mask):
+    return DesignData(
+        home_idx=np.array([0, 1]), away_idx=np.array([1, 0]),
+        home_goals=np.array([1, 0]), away_goals=np.array([0, 1]),
+        neutral=np.array([False, False]), n_teams=2,
+        teams=["A", "B"], weight=np.ones(2),
+        home_provisional=np.zeros(2, bool), away_provisional=np.zeros(2, bool),
+        cov=cov, cov_mask=cov_mask,
+    )
+
+
+def test_undeclared_covariate_raises_not_silently_per_match():
+    # FIX 1: an enabled covariate present in d.cov but absent from BOTH
+    # _PER_TEAM_COVS and _PER_MATCH_COVS must FAIL LOUD — never silently fall into
+    # the per-match (symmetric) branch as if it were declared.
+    d = _designdata_with_cov(
+        cov={"mystery_feature": np.array([1.0, 0.0])},
+        cov_mask={"mystery_feature": np.array([1.0, 1.0])},
+    )
+    cfg = load_config()
+    cfg["model"]["covariates"]["enabled"] = ["mystery_feature"]
+    with pytest.raises(ValueError, match="unknown covariate 'mystery_feature'"):
+        DixonColesModel().build(d, weight=np.ones(2), config=cfg)
+
+
+def test_per_team_covariate_missing_away_side_raises_early():
+    # FIX 3: a per-team covariate must supply BOTH the home array/mask and the
+    # '__away' array/mask. A caller that omits the away side fails clearly at
+    # build time, not with a deep KeyError later inside _cov_offset.
+    d = _designdata_with_cov(
+        cov={"rest_days": np.array([1.0, 0.0])},          # no rest_days__away
+        cov_mask={"rest_days": np.array([1.0, 1.0])},
+    )
+    cfg = load_config()
+    cfg["model"]["covariates"]["enabled"] = ["rest_days"]
+    with pytest.raises(ValueError, match="missing its '__away'"):
+        DixonColesModel().build(d, weight=np.ones(2), config=cfg)
 
 
 def test_enabled_empty_adds_no_covariate_params():
