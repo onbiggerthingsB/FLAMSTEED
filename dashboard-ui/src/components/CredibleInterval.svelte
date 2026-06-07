@@ -12,7 +12,8 @@
       Array.isArray(ci) &&
       ci.length === 2 &&
       Number.isFinite(ci[0]) &&
-      Number.isFinite(ci[1]),
+      Number.isFinite(ci[1]) &&
+      ci[0] <= ci[1], // a reversed [hi, lo] interval is corrupt → degrade to "—"
   );
 </script>
 

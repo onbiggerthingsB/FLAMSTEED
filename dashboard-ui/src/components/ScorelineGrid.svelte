@@ -11,6 +11,7 @@
     Array.isArray(grid) &&
       grid.length > 0 &&
       grid.every((row) => Array.isArray(row) && row.length > 0) &&
+      grid.every((row) => row.length === grid[0].length) && // rectangular — a ragged grid is corrupt
       grid.flat().every((p) => Number.isFinite(p)),
   );
   const max = $derived(valid ? Math.max(...grid.flat()) : 0);

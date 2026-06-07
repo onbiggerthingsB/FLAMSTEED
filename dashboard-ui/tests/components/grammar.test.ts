@@ -95,6 +95,12 @@ test('CredibleInterval with a missing/degenerate ci renders "—" (degrades, no 
   expect((container.querySelector('[data-estimate]')!.textContent ?? '').trim()).toBe('—');
 });
 
+test('CredibleInterval with a REVERSED ci [hi, lo] degrades to "—" (corrupt interval)', () => {
+  // A reversed interval is a data bug, not a tight one — degrade rather than render "[1.15, -0.70]".
+  const { container } = render(CredibleInterval, { value: 0.5, ci: [1.15, -0.7], label: 'x' });
+  expect((container.querySelector('[data-estimate]')!.textContent ?? '').trim()).toBe('—');
+});
+
 // ── FIX C: ScorelineGrid degenerate/empty-grid guard (crash-safety) ──
 // An empty / all-zero / non-rectangular grid used to yield -Infinity/0 → NaN% / ÷0 cell
 // backgrounds. It must degrade to a CoverageGap, never NaN%/÷0, never throw.
@@ -147,6 +153,13 @@ test('ScorelineGrid with an all-zero grid degrades to a coverage gap (no ÷0)', 
   const { container } = render(ScorelineGrid, { grid: [[0, 0], [0, 0]], home: 'Brazil', away: 'Mexico' });
   expect(container.querySelector('[data-coverage-gap]')).not.toBeNull();
   expect(container.innerHTML).not.toContain('NaN');
+});
+
+test('ScorelineGrid with a NON-RECTANGULAR (ragged) grid degrades to a coverage gap', () => {
+  // A ragged grid is a corrupt distribution → gap, never a lopsided render.
+  const { container } = render(ScorelineGrid, { grid: [[0.1, 0.2], [0.3]], home: 'Brazil', away: 'Mexico' });
+  expect(container.querySelector('[data-coverage-gap]')).not.toBeNull();
+  expect(container.querySelector('table')).toBeNull();
 });
 
 test('EdgeChip is a derived comparison, NOT a data-estimate', () => {
