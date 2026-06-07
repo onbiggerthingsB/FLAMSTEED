@@ -44,6 +44,23 @@ def _check_most_likely_prob(ml: dict, *, where: str) -> None:
         raise ValueError(f"{where}: most_likely.prob {ml['prob']!r} is not a finite probability in [0,1]")
 
 
+def _check_shortlist_probs(shortlist, *, where: str) -> None:
+    """SHARED: every shortlist entry is a ``{home_goals, away_goals, prob}`` with ``prob`` a
+    finite probability in [0,1] — never a naked entry (missing prob) and never out-of-range/NaN.
+    A scoreline shortlist (the spec-D3 "predicted score = shortlist, never a lone score") is the
+    distribution-as-uncertainty, so there is NO monotonicity / sum constraint here — only the
+    per-entry prob bound. This is the IDENTICAL discipline ``gate_fixture_forecast`` applies to
+    the full forecast's shortlist; ``gate_schedule`` reuses it for the row's projected top-3."""
+    if not isinstance(shortlist, (list, tuple)):
+        raise ValueError(f"{where}: shortlist must be a list of scoreline entries")
+    for entry in shortlist:
+        if not isinstance(entry, dict) or "prob" not in entry:
+            raise ValueError(f"{where}: shortlist entry is naked (no prob): {entry!r}")
+        if not _prob_in_unit(entry["prob"]):
+            raise ValueError(
+                f"{where}: shortlist prob {entry['prob']!r} is not a finite probability in [0,1]")
+
+
 def _check_1x2_distribution(oxt: dict, *, where: str, tol: float = 0.05) -> None:
     """SHARED (FIX C + FIX D): the 1X2 split must show ALL THREE outcomes (never a lone
     score), each a finite probability in [0,1], AND sum to ~1 — a coherent all-three
@@ -122,14 +139,7 @@ def gate_fixture_forecast(f: dict, *, tol: float = 0.05) -> None:
     # When a shortlist is present, every entry's prob is finite in [0,1] (no monotonicity).
     shortlist = f.get("shortlist")
     if shortlist is not None:
-        if not isinstance(shortlist, (list, tuple)):
-            raise ValueError("fixture forecast: shortlist must be a list of scoreline entries")
-        for entry in shortlist:
-            if not isinstance(entry, dict) or "prob" not in entry:
-                raise ValueError(f"fixture forecast: shortlist entry is naked (no prob): {entry!r}")
-            if not _prob_in_unit(entry["prob"]):
-                raise ValueError(
-                    f"fixture forecast: shortlist prob {entry['prob']!r} is not a finite probability in [0,1]")
+        _check_shortlist_probs(shortlist, where="fixture forecast")
 
 
 def _is_gap(node) -> bool:
@@ -179,8 +189,10 @@ def _check_occupants(occ, *, where: str) -> None:
 def gate_schedule(payload: dict, *, tol: float = 0.05) -> None:
     """FIX D: the HOMEPAGE (``schedule.json`` = ``{"group": [...], "knockout": [...]}``) is a
     true STOP — no naked number escapes. For each GROUP row's ``forecast_summary`` (when not a
-    coverage_gap): value-check the headline prob + the 1X2 triple (the SHARED helpers FIX C
-    uses, so C and D agree). For each row's ``edge`` node (when not a gap): finite-sanity only
+    coverage_gap): value-check the headline prob + the 1X2 triple + the top-3 scoreline
+    SHORTLIST (the SHARED helpers FIX C uses, so C and D agree — every shortlist entry's prob
+    is a finite probability in [0,1], spec D3 "predicted score = shortlist, never a lone score"
+    projected into the row). For each row's ``edge`` node (when not a gap): finite-sanity only
     (edges are DERIVED comparisons — NO uncertainty companion). For each KO row's
     ``home_occupants``/``away_occupants`` (when not a gap): every occupant carries
     ``{team, prob, se}`` with prob finite in [0,1] and a finite se (NO naked occupant prob)."""
@@ -189,6 +201,11 @@ def gate_schedule(payload: dict, *, tol: float = 0.05) -> None:
         if not _is_gap(fs):
             _check_most_likely_prob((fs or {}).get("most_likely") or {}, where="schedule group row")
             _check_1x2_distribution((fs or {}).get("one_x_two") or {}, where="schedule group row", tol=tol)
+            # The row's projected top-3 shortlist: every entry's prob finite in [0,1] (same
+            # discipline as the fixture gate; STOP on a bad shortlist prob). When present.
+            shortlist = (fs or {}).get("shortlist")
+            if shortlist is not None:
+                _check_shortlist_probs(shortlist, where="schedule group row")
         _check_edge_node(row.get("edge"), where="schedule group row")
     for row in payload.get("knockout", []) or []:
         _check_occupants(row.get("home_occupants"), where="schedule KO row (home)")

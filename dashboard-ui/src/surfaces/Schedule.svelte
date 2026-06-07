@@ -52,11 +52,20 @@
         {#if isGap(r.forecast_summary)}
           <CoverageGap reason={r.forecast_summary.reason} />
         {:else}
-          <!-- Most-likely score + its prob as ONE distribution readout ("1–0 · 15%"); the
-               scoreline distribution is the uncertainty (no "±?", no naked score/%). -->
-          <span class="score"><ScorePill ml={r.forecast_summary.most_likely} /></span>
+          <!-- Spec D3: LEAD with the differentiated signal — the 1X2 split as the PRIMARY
+               forecast element, then the top-3 scoreline SHORTLIST ("predicted score =
+               shortlist, never a lone score"). -->
           <!-- The 1X2 distribution IS the uncertainty; WinBar wraps it in a marked region. -->
           <span class="dist"><WinBar model={r.forecast_summary.one_x_two} /></span>
+          <!-- The top-3 shortlist, each a distribution-marked "h–a · p%" ScorePill. This
+               replaces the single lone score: the predicted score is a shortlist. Every
+               ScorePill prob stays inside data-uncertainty="distribution". -->
+          <span class="shortlist">
+            <span class="muted label">most likely:</span>
+            {#each r.forecast_summary.shortlist as ml, i (`${ml.home_goals}-${ml.away_goals}-${i}`)}
+              <ScorePill {ml} />
+            {/each}
+          </span>
         {/if}
         {#if isGap(r.edge)}
           <CoverageGap reason={r.edge.reason} />
@@ -114,8 +123,11 @@
     letter-spacing: 0.04em; text-transform: uppercase;
   }
   .teams { font-weight: 600; min-width: 200px; }
-  .score { display: inline-flex; align-items: baseline; gap: 6px; }
+  /* The 1X2 split leads as the primary forecast element. */
   .dist { min-width: 200px; flex: 1; }
+  /* The top-3 shortlist: a compact row of distribution-marked ScorePills. */
+  .shortlist { display: inline-flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .shortlist .label { font-size: 0.8em; letter-spacing: 0.02em; }
   .more { margin-left: auto; color: var(--accent); text-decoration: none; font-size: 0.9em; }
   .more:hover { text-decoration: underline; }
   .occ { display: flex; gap: var(--space-3); align-items: baseline; flex-wrap: wrap; width: 100%; }

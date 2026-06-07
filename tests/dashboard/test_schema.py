@@ -89,6 +89,12 @@ def _good_group_row():
         "forecast_summary": {
             "most_likely": {"home_goals": 1, "away_goals": 0, "prob": 0.12},
             "one_x_two": {"home": 0.7, "draw": 0.2, "away": 0.1},
+            # Spec D3: the row leads with the 1X2 split + the top-3 scoreline shortlist.
+            "shortlist": [
+                {"home_goals": 1, "away_goals": 0, "prob": 0.12},
+                {"home_goals": 0, "away_goals": 0, "prob": 0.10},
+                {"home_goals": 2, "away_goals": 1, "prob": 0.08},
+            ],
         },
         "edge": {"coverage_gap": True, "reason": "no live edge"},
     }
@@ -126,6 +132,25 @@ def test_gate_schedule_exempts_coverage_gap_forecast_summary():
     row = _good_group_row()
     row["forecast_summary"] = {"coverage_gap": True, "reason": "no forecast for this fixture"}
     gate_schedule({"group": [row], "knockout": []})  # a gap is an honest absence, not a naked number
+
+
+def test_gate_schedule_rejects_nan_shortlist_prob():
+    """Spec D3 (presentation): a GROUP row's forecast_summary now carries the projected top-3
+    scoreline shortlist; every entry's prob is value-checked (same discipline as the fixture
+    gate). A NaN/out-of-range shortlist prob STOPS the build before any write."""
+    row = _good_group_row()
+    row["forecast_summary"]["shortlist"][1]["prob"] = float("nan")
+    with pytest.raises(ValueError, match="(?i)shortlist|prob|finite"):
+        gate_schedule({"group": [row], "knockout": []})
+
+
+def test_gate_schedule_rejects_naked_shortlist_entry():
+    """A shortlist entry carrying no prob is a naked number — must raise (same discipline as the
+    headline most_likely / the fixture gate's shortlist check)."""
+    row = _good_group_row()
+    row["forecast_summary"]["shortlist"][0] = {"home_goals": 1, "away_goals": 0}  # no prob
+    with pytest.raises(ValueError, match="(?i)shortlist|prob|naked"):
+        gate_schedule({"group": [row], "knockout": []})
 
 
 def test_gate_schedule_rejects_bad_edge_entry_odds():

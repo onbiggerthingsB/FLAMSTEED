@@ -26,7 +26,24 @@
             "home": 0.33367202998054113,
             "draw": 0.250592462900576,
             "away": 0.4157355071188827
-          }
+          },
+          "shortlist": [
+            {
+              "home_goals": 0,
+              "away_goals": 0,
+              "prob": 0.14745894398130707
+            },
+            {
+              "home_goals": 0,
+              "away_goals": 1,
+              "prob": 0.10810624803356751
+            },
+            {
+              "home_goals": 1,
+              "away_goals": 0,
+              "prob": 0.10520775170324474
+            }
+          ]
         },
         "edge": {
           "coverage_gap": true,
@@ -51,7 +68,24 @@
             "home": 0.3485557140956659,
             "draw": 0.25864067803992613,
             "away": 0.3928036078644081
-          }
+          },
+          "shortlist": [
+            {
+              "home_goals": 0,
+              "away_goals": 0,
+              "prob": 0.16842934884799962
+            },
+            {
+              "home_goals": 0,
+              "away_goals": 1,
+              "prob": 0.11227435530566762
+            },
+            {
+              "home_goals": 1,
+              "away_goals": 0,
+              "prob": 0.09159810182911775
+            }
+          ]
         },
         "edge": {
           "staked": "away",
@@ -79,7 +113,24 @@
             "home": 0.47788257354213237,
             "draw": 0.25633042817760265,
             "away": 0.265786998280265
-          }
+          },
+          "shortlist": [
+            {
+              "home_goals": 0,
+              "away_goals": 0,
+              "prob": 0.1526011212853481
+            },
+            {
+              "home_goals": 1,
+              "away_goals": 0,
+              "prob": 0.11627201516081137
+            },
+            {
+              "home_goals": 0,
+              "away_goals": 1,
+              "prob": 0.10699324934084632
+            }
+          ]
         },
         "edge": {
           "coverage_gap": true,
@@ -104,7 +155,24 @@
             "home": 0.4399551050559352,
             "draw": 0.24254766695466792,
             "away": 0.3174972279893969
-          }
+          },
+          "shortlist": [
+            {
+              "home_goals": 0,
+              "away_goals": 0,
+              "prob": 0.15115696059003259
+            },
+            {
+              "home_goals": 1,
+              "away_goals": 0,
+              "prob": 0.11050406025484931
+            },
+            {
+              "home_goals": 0,
+              "away_goals": 1,
+              "prob": 0.09453143045118563
+            }
+          ]
         },
         "edge": {
           "coverage_gap": true,
@@ -129,7 +197,24 @@
             "home": 0.37628864460766187,
             "draw": 0.2867010243861976,
             "away": 0.3370103310061405
-          }
+          },
+          "shortlist": [
+            {
+              "home_goals": 0,
+              "away_goals": 0,
+              "prob": 0.1765546691535645
+            },
+            {
+              "home_goals": 0,
+              "away_goals": 1,
+              "prob": 0.12097606073042458
+            },
+            {
+              "home_goals": 1,
+              "away_goals": 0,
+              "prob": 0.11216551062631307
+            }
+          ]
         },
         "edge": {
           "coverage_gap": true,
@@ -154,7 +239,24 @@
             "home": 0.43297094940916464,
             "draw": 0.2807135098719821,
             "away": 0.2863155407188531
-          }
+          },
+          "shortlist": [
+            {
+              "home_goals": 0,
+              "away_goals": 0,
+              "prob": 0.18223812885768623
+            },
+            {
+              "home_goals": 1,
+              "away_goals": 0,
+              "prob": 0.12584901880383528
+            },
+            {
+              "home_goals": 0,
+              "away_goals": 1,
+              "prob": 0.10612962346040836
+            }
+          ]
         },
         "edge": {
           "coverage_gap": true,

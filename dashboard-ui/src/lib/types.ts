@@ -58,6 +58,10 @@ export interface OneXTwo {
 export interface ForecastSummary {
   most_likely: MostLikely;
   one_x_two: OneXTwo;
+  // Spec D3: the row leads with the 1X2 split + the top-3 scoreline shortlist ("predicted
+  // score = shortlist, never a lone score"). A pure projection of the gated forecast's
+  // already-computed shortlist (top-3); the serializer GATES every entry's prob in [0,1].
+  shortlist: MostLikely[];
 }
 export interface EdgeNode {
   staked: 'home' | 'draw' | 'away';
