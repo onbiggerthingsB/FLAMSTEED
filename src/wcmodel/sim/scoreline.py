@@ -38,15 +38,25 @@ class RateBook:
             self.l3 = np.exp(p["log_lambda3"].stack(s=("chain", "draw")).values)
         self.n_draws = self.mu.shape[-1]
 
-    def rates(self, home, away, neutral, draw):
+    def rates(self, home, away, neutral, draw, host_factor=None):
         # Mirrors scoreline._rates EXACTLY:
         #   log lambda_home = mu + home_adv*(1-neutral) + att[home] - def[away]
         #   log lambda_away = mu +                        att[away] - def[home]
         # home_adv enters ONLY the non-neutral home rate; away has no home term.
+        #
+        # T5 host advantage: ``host_factor`` is a PREDICTION-time scalar (= k from config)
+        # on the ALREADY-FITTED home_adv — NO new fitted parameter. The 2026 hosts actually
+        # play at home, but WC group fixtures are simulated neutral=True (home_adv zeroed);
+        # for a host's HOME game the sim instead carries k*home_adv. When ``host_factor is
+        # not None`` the home term is ``host_factor * home_adv``; else it is the existing
+        # ``(0 if neutral else home_adv)`` — so host_factor=None (the default) is
+        # byte-identical to today's rates and the canary's neutral default is unchanged.
         hi, ai = self._idx[home], self._idx[away]   # KeyError on unknown team
         s = draw
+        home_term = (host_factor * self.home_adv[s] if host_factor is not None
+                     else (0.0 if neutral else self.home_adv[s]))
         lh = np.exp(
-            self.mu[s] + (0.0 if neutral else self.home_adv[s])
+            self.mu[s] + home_term
             + self.att[hi, s] - self.defe[ai, s]
         )
         la = np.exp(self.mu[s] + self.att[ai, s] - self.defe[hi, s])

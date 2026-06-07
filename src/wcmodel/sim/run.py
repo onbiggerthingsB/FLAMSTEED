@@ -41,7 +41,7 @@ import pandas as pd
 
 from wcmodel.config import load_config
 from wcmodel.data.features import valid_played_results
-from wcmodel.data.tournament import load_tournament
+from wcmodel.data.tournament import host_factor_map, load_tournament
 from wcmodel.sim.bracket import build_bracket
 from wcmodel.sim.tournament import simulate_tournament
 
@@ -250,6 +250,13 @@ def simulate(cutoff, posterior, store, config: SimConfig):
     bracket = build_bracket(tournament)
     group_dates, ko_dates = _fixture_dates(tournament)
     played = _build_played(store, cutoff, group_dates, ko_dates)
+    # T5 host advantage: {(home, away): k*home_adv multiplier} for the GROUP fixtures that
+    # are host-home (a 2026 host playing at a venue in its OWN country — host_factor_map
+    # reads the draw's venues block + config hosts/host_k). Every other fixture stays
+    # neutral. An empty map (no venues block / no hosts at home) is byte-identical to the
+    # pre-T5 neutral sim. host_factor is a prediction-time scalar on the already-fitted
+    # home_adv — NO new fitted DOF, no likelihood/identifiability change.
+    host_factors = host_factor_map(tournament, load_config())
     if config.cache_dir is not None:
         # Imported lazily so the (default) uncached path keeps no dependency on the
         # cache module / its parquet round-trip.
@@ -265,6 +272,7 @@ def simulate(cutoff, posterior, store, config: SimConfig):
             et_scale=config.et_scale,
             pen_home_prob=config.pen_home_prob,
             played=played,
+            host_factors=host_factors,
             cache_dir=config.cache_dir,
         )
         return result
@@ -277,4 +285,5 @@ def simulate(cutoff, posterior, store, config: SimConfig):
         et_scale=config.et_scale,
         pen_home_prob=config.pen_home_prob,
         played=played,
+        host_factors=host_factors,
     )

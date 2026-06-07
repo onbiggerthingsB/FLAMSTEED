@@ -389,3 +389,89 @@ def test_predict_supplied_missing_miss_indicator_covariate_fires_beta_miss(small
     g_obs = post.predict_scoreline(teams[0], teams[1], neutral=True,
                                     covariates={"travel_km": 5000.0})
     assert not np.array_equal(g_base, g_obs)                           # observed value shifts the forecast
+
+
+# ---- T5: host advantage = k * home_adv for the 2026 hosts' home games ----
+#
+# host_factor is a PREDICTION-time scalar on the ALREADY-FITTED home_adv: it adds NO
+# new fitted parameter (no new RV, no likelihood/identifiability change). The 2026
+# hosts (USA/Mexico/Canada) actually play at home, but the dashboard/sim build every
+# WC fixture neutral=True, zeroing the fitted home_adv. T5 lets a host's home game
+# carry k*home_adv (k from config, default 0.5). host_factor=None (the default) is
+# byte-identical to today's predict; the home term is host_factor*home_adv when
+# host_factor is not None, else (0 if neutral else home_adv). It COMPOSES with the
+# T4 covariate offsets (both add to the home log-rate exponent).
+
+
+@pytest.mark.slow
+def test_host_factor_applies_partial_home_advantage(small_store):
+    # The plan's monotonicity gate: neutral (k=0) < host_factor=0.5 < full (k=1) for
+    # the home-win prob. With home_adv fitted >= 0 (the home_loc=0.25 prior), a larger
+    # multiplier on the home log-rate strictly raises the home-win mass. No covariate
+    # is enabled here — this exercises ONLY the host_factor scalar on home_adv.
+    from wcmodel.model.scoreline import fit
+    post = fit("2024-06-01", small_store, backend="advi", draws=60,
+               advi_iters=800, seed=0)
+    a, b = list(post._idx)[:2]
+    neutral = post.predict_1x2(a, b, neutral=True)["home"]          # k=0: no home term
+    full = post.predict_1x2(a, b, neutral=False)["home"]            # k=1 equivalent: full home_adv
+    half = post.predict_1x2(a, b, host_factor=0.5)["home"]          # k=0.5: half home_adv
+    assert neutral < half < full                                   # 0 < 0.5*home_adv < full home_adv
+
+
+@pytest.mark.slow
+def test_host_factor_one_equals_non_neutral_and_zero_equals_neutral(small_store):
+    # host_factor is EXACTLY a scalar on home_adv: k=1.0 reproduces the non-neutral
+    # (full home_adv) grid byte-for-byte, and k=0.0 reproduces the neutral grid. This
+    # pins host_factor to home_adv with no other moving part (the focal identifiability
+    # claim: the only knob is k; home_adv is reused, never re-estimated).
+    from wcmodel.model.scoreline import fit
+    post = fit("2024-06-01", small_store, backend="advi", draws=60,
+               advi_iters=800, seed=0)
+    a, b = list(post._idx)[:2]
+    g_full = post.predict_scoreline(a, b, neutral=False)
+    g_k1 = post.predict_scoreline(a, b, host_factor=1.0)
+    g_neutral = post.predict_scoreline(a, b, neutral=True)
+    g_k0 = post.predict_scoreline(a, b, host_factor=0.0)
+    assert np.array_equal(g_full, g_k1)                            # k=1 == full home_adv
+    assert np.array_equal(g_neutral, g_k0)                         # k=0 == neutral
+
+
+@pytest.mark.slow
+def test_host_factor_none_is_byte_identical_to_baseline(small_store):
+    # host_factor=None (the default) must be byte-identical to today's predict — the
+    # neutral= path is unchanged when no host factor is supplied. This is the no-DOF /
+    # no-regression guard: a non-host fixture (host_factor never set) is untouched.
+    from wcmodel.model.scoreline import fit
+    post = fit("2024-06-01", small_store, backend="advi", draws=60,
+               advi_iters=800, seed=0)
+    a, b = list(post._idx)[:2]
+    g_default = post.predict_scoreline(a, b, neutral=True)
+    g_none = post.predict_scoreline(a, b, neutral=True, host_factor=None)
+    assert np.array_equal(g_default, g_none)                       # None == today's predict
+    p_default = post.predict_1x2(a, b, neutral=True)
+    p_none = post.predict_1x2(a, b, neutral=True, host_factor=None)
+    assert p_default == p_none
+
+
+def test_host_home_factor_detection(monkeypatch):
+    # FAST host-home detection (no fit): the host-home test is HOME team is a host
+    # nation AND the venue's country == that nation. A host playing AWAY, a host at
+    # an OUT-OF-COUNTRY venue (USA playing in Mexico), and a non-host all stay neutral
+    # (factor is None). Only a host at an in-country venue gets host_k.
+    from wcmodel.data.tournament import host_home_factor
+    cfg = load_config()
+    venue_country = {"Mexico City": "MX", "Atlanta": "US", "Toronto": "CA"}
+    k = cfg["model"]["covariates"]["host_k"]
+    # Mexico (host) at a Mexican venue -> host-home: k.
+    assert host_home_factor("Mexico", "South Africa", "Mexico City", venue_country, cfg) == k
+    # USA (host) playing IN Mexico -> NOT host-home (venue country != USA): None.
+    assert host_home_factor("United States", "Mexico", "Mexico City", venue_country, cfg) is None
+    # Host as the AWAY team at its own venue -> NOT host-home (home team is not host): None.
+    assert host_home_factor("South Africa", "Mexico", "Mexico City", venue_country, cfg) is None
+    # USA (host) at a US venue -> host-home: k.
+    assert host_home_factor("United States", "Brazil", "Atlanta", venue_country, cfg) == k
+    # Non-host home team at any venue -> neutral: None.
+    assert host_home_factor("Brazil", "Argentina", "Atlanta", venue_country, cfg) is None
+    # Unknown venue (no country) -> None (cannot be in-country).
+    assert host_home_factor("Mexico", "Brazil", "Nowhere", venue_country, cfg) is None

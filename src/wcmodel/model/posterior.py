@@ -156,7 +156,8 @@ class Posterior:
             # _build_covariates only fits transforms for classified covariates.
         return home_off, away_off
 
-    def predict_scoreline(self, home, away, neutral=False, max_goals=10, covariates=None):
+    def predict_scoreline(self, home, away, neutral=False, max_goals=10, covariates=None,
+                          host_factor=None):
         hi, ai = self._idx[home], self._idx[away]      # KeyError if unknown team
         att = self._post("att")
         defe = self._post("def")
@@ -169,9 +170,20 @@ class Posterior:
         # (0.0, 0.0) when covariates is None/empty -> exponents byte-identical to
         # the baseline (no covariate shift), so the default path is unchanged.
         home_off, away_off = self._covariate_offsets(covariates)
-        # log lambda_home = mu + home_adv*(non-neutral) + att[home] - def[away] + home_off
+        # Host advantage (T5): a PREDICTION-time scalar `host_factor` (= k from config)
+        # on the ALREADY-FITTED home_adv — it adds NO new fitted parameter, never
+        # touches the likelihood/identifiability (no new RV). The 2026 hosts actually
+        # play at home, but every WC fixture is built neutral=True (home_adv zeroed);
+        # for a host's HOME game we instead carry k*home_adv. When `host_factor is not
+        # None`, the home term is `host_factor * home_adv`; else it is the existing
+        # `(0 if neutral else home_adv)` — so host_factor=None (the default) is
+        # BYTE-IDENTICAL to today's predict. The host term composes additively with the
+        # T4 covariate home_off (both add to the home log-rate exponent).
+        home_term = host_factor * home_adv if host_factor is not None else (
+            0.0 if neutral else home_adv)
+        # log lambda_home = mu + home_term + att[home] - def[away] + home_off
         # log lambda_away = mu + att[away] - def[home] + away_off   (no home term)
-        lh = np.exp(mu + (0.0 if neutral else home_adv) + att[hi] - defe[ai] + home_off)  # (S,)
+        lh = np.exp(mu + home_term + att[hi] - defe[ai] + home_off)  # (S,)
         la = np.exp(mu + att[ai] - defe[hi] + away_off)                                   # (S,)
         grids = np.empty((S, n, n))
         if self.likelihood == "dixon_coles":
@@ -203,8 +215,10 @@ class Posterior:
             )
         return grid / grid.sum()
 
-    def predict_1x2(self, home, away, neutral=False, max_goals=10, covariates=None):
-        g = self.predict_scoreline(home, away, neutral, max_goals, covariates)   # g[h, a]
+    def predict_1x2(self, home, away, neutral=False, max_goals=10, covariates=None,
+                    host_factor=None):
+        g = self.predict_scoreline(home, away, neutral, max_goals, covariates,
+                                   host_factor)                                  # g[h, a]
         return {
             "home": float(np.tril(g, -1).sum()),   # home goals > away goals (lower triangle)
             "draw": float(np.trace(g)),            # home goals == away goals (diagonal)

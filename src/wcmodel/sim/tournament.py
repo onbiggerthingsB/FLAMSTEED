@@ -142,10 +142,12 @@ class _FixtureSampler:
         self._draw = draw
         self._cfg = cfg
 
-    def score(self, home, away, *, neutral, rng):
+    def score(self, home, away, *, neutral, rng, host_factor=None):
         # RAW per-draw rates (NO predict_scoreline averaging, NO (c) widening) at the one
-        # fixed draw -> raw DC/BP pmf sample. Focal properties #1 and #2.
-        lh, la = self._rb.rates(home, away, neutral, draw=self._draw)
+        # fixed draw -> raw DC/BP pmf sample. Focal properties #1 and #2. ``host_factor``
+        # (T5) is the prediction-time scalar on the fitted home_adv for a 2026 host's HOME
+        # group game (k*home_adv); None -> the existing neutral/home_adv behaviour.
+        lh, la = self._rb.rates(home, away, neutral, draw=self._draw, host_factor=host_factor)
         return self._sample_at(lh, la, rng)
 
     def knockout_sampler(self, home, away, *, neutral):
@@ -230,7 +232,8 @@ def _resolve_feeder(ref, *, group_rankings, third_by_match, winners, losers, mat
     raise ValueError(f"unrecognised feeder token {ref!r} for match {match_no}")
 
 
-def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None):
+def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None,
+                 host_factors=None):
     """Simulate ONE tournament at a single fixed posterior ``draw``.
 
     Returns ``{"depth": {team: furthest_depth}, "groups": {team: placing}, "champion":
@@ -270,6 +273,12 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None)
     in so ``simulate_tournament`` computes it ONCE per run rather than per sim; if omitted
     (direct call) it is computed here. Behaviour is identical either way."""
     played = played or {}
+    # T5 host advantage: {(home, away): k} for the GROUP fixtures that are host-home (a
+    # 2026 host playing at a venue in its OWN country). A fixture absent from this map is
+    # neutral. None/{} (the default) -> every fixture neutral -> byte-identical to the
+    # pre-T5 sim (the leakage canary's neutral default is unchanged). host_factor is a
+    # prediction-time scalar on the fitted home_adv — NO new fitted parameter/DOF.
+    host_factors = host_factors or {}
     played_groups = played.get("groups", {})             # {(home, away): (hg, ag)}
     played_ko_results = played.get("knockout_results", {})  # {(home, away, date): (hg, ag)}
     ko_match_dates = played.get("match_dates", {})          # {match_no: date}
@@ -302,9 +311,14 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None)
         teams = bracket.groups[g]
         # A fixture decided as-of-cutoff (in played_groups) uses its ACTUAL score and is
         # NOT sampled (consumes no RNG); every other fixture is sampled at this draw.
+        # A host-home fixture (in host_factors) is sampled with host_factor=k*home_adv;
+        # every other fixture stays neutral (cfg.neutral). A fixture decided as-of-cutoff
+        # uses its ACTUAL score and is not sampled at all. host_factors.get(...) is None
+        # for a neutral fixture, so score() falls back to the cfg.neutral home term.
         results = {
             (home, away): (played_groups[(home, away)] if (home, away) in played_groups
-                           else sampler.score(home, away, neutral=cfg.neutral, rng=rng))
+                           else sampler.score(home, away, neutral=cfg.neutral, rng=rng,
+                                              host_factor=host_factors.get((home, away))))
             for home, away in fixtures
         }
         ranking, used = rank_group(teams, results, rng=rng, _return_random_used=True)
@@ -394,7 +408,7 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None)
 
 
 def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale,
-                        pen_home_prob, played=None):
+                        pen_home_prob, played=None, host_factors=None):
     """Run ``n_sims`` full-posterior MC tournaments over ``bracket`` -> ``SimResult``.
 
     Focal property #3 (seeded determinism): ``SeedSequence(seed).spawn(n_sims)`` derives
@@ -415,7 +429,15 @@ def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale
     forwarded to ``simulate_one``, which pins those fixtures to their actual results instead
     of sampling them; ``played=None`` simulates every fixture. The same ``played`` set is
     pinned in every sim, so fixing consumes no RNG and a leakage-free run is bit-identical
-    across runs that pin the identical set."""
+    across runs that pin the identical set.
+
+    ``host_factors`` (T5 host advantage: ``{(home, away): k}`` for the GROUP fixtures that
+    are host-home — a 2026 host playing at a venue in its own country) is forwarded to
+    every ``simulate_one`` so a host's home game samples with ``k*home_adv`` instead of the
+    neutral default. ``None`` (the default) keeps every fixture neutral, byte-identical to
+    the pre-T5 sim. It is the SAME map in every sim, so it never touches RNG consumption —
+    the seeded determinism / leakage invariance is unchanged. ``k`` is a prediction-time
+    scalar on the already-fitted ``home_adv``: NO new fitted parameter enters the sim."""
     ratebook = RateBook(posterior)
     cfg = _Cfg(max_goals=max_goals, et_scale=et_scale, pen_home_prob=pen_home_prob)
     teams = list(posterior.teams)
@@ -441,7 +463,7 @@ def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale
         rng = np.random.default_rng(child)                 # the ONLY RNG inside the sim
         s = int(rng.integers(ratebook.n_draws))            # ONE posterior draw, fixed for the sim
         out = simulate_one(bracket, ratebook, draw=s, rng=rng, cfg=cfg, played=played,
-                           depths=depths)
+                           depths=depths, host_factors=host_factors)
         random_tail_hits += int(out["random_tail"])
 
         # Per-group placing markets: bucket the 0-based group finish to first/second/third/
