@@ -86,26 +86,32 @@ class Posterior:
         """Per-fixture covariate offsets (home_off, away_off), each shape (S,).
 
         Mirrors the FIT-time linear predictor (scoreline._cov_offset) at PREDICT
-        time: for each persisted covariate transform whose value is supplied for
-        THIS fixture, add ``beta * z * mask (+ miss * (1 - mask))`` to the correct
-        side's log-rate exponent. The transform is the PERSISTED training one (NOT
-        re-fit on predict data — re-fitting would leak / mis-scale), and the betas
-        are READ from idata via ``_post`` (the SAME params the model fitted, never
-        re-estimated). Side wiring: a per-team covariate's supplied value moves the
-        HOME rate (``name``) and its ``"<name>__away"`` value moves the AWAY rate;
-        a per-match covariate's single value moves BOTH rates.
+        time EXACTLY: for each persisted covariate transform whose value is supplied
+        for THIS fixture, add ``beta * z * mask (+ beta_<name>_miss * (1 - mask))``
+        to the correct side's log-rate exponent — the same per-term formula fit
+        used. The transform is the PERSISTED training one (NOT re-fit on predict
+        data — re-fitting would leak / mis-scale), and the betas are READ from idata
+        via ``_post`` (the SAME params the model fitted, never re-estimated). Side
+        wiring: a per-team covariate's supplied value moves the HOME rate (``name``)
+        and its ``"<name>__away"`` value moves the AWAY rate; a per-match
+        covariate's single value moves BOTH rates.
 
-        A covariate NOT supplied (key absent), or supplied as None/NaN, is a TRUE
-        zero shift: apply() masks a non-finite value to 0.0, and a masked side
-        contributes EXACTLY nothing — NOT even the ``beta_<name>_miss`` intercept.
-        (At predict time we are forecasting a specific future fixture; a covariate
-        the caller does not have must leave the forecast at baseline, so a missing
-        fixture covariate never moves it — the plan's focal "missing → true
-        zero-shift".) The miss intercept therefore only ever rides an OBSERVED
-        value's term, where ``(1 - mask) == 0``, so it contributes 0 there too and
-        the term reduces to ``beta * z``. Returns ``(0.0, 0.0)`` when no covariate
-        is enabled OR none is supplied, keeping ``covariates`` defaulting to None
-        byte-identical to the baseline prediction.
+        A SUPPLIED-but-missing value (None / NaN) standardizes to ``z=0, mask=0``,
+        so the masked ``beta * z * mask`` term is 0 and the behavior depends on
+        whether the covariate carries a miss indicator (it is in
+        ``missing_indicator_for``):
+          * WITH a miss indicator (``travel_km``, ``altitude_m``): the supplied-
+            missing value contributes ``beta_<name>_miss * (1 - 0) = beta_<name>_miss``
+            — the SAME shift fit applied to a missing-feature match. This is the
+            fit/predict consistency fix: a supplied-missing covariate is NOT a true
+            zero shift when the model carries a miss intercept.
+          * WITHOUT a miss indicator (``rest_days``): there is no ``beta_<name>_miss``
+            RV, so the term reduces to ``beta * z * 0 = 0`` — an EXACT zero shift.
+        An OBSERVED value gives ``beta * z + beta_miss * 0 = beta * z`` (the miss
+        term's ``(1 - mask) == 0``). Returns ``(0.0, 0.0)`` when no covariate is
+        enabled OR ``covariates`` is None/empty — that baseline escape hatch is
+        SEPARATE from a supplied-but-missing value and stays byte-identical to the
+        baseline prediction (the caller supplies nothing -> no term on either side).
         """
         home_off = 0.0
         away_off = 0.0
@@ -113,22 +119,25 @@ class Posterior:
             return home_off, away_off
 
         def _term(name, raw_value):
-            # Standardize this fixture's raw value with the PERSISTED transform;
+            # Standardize this fixture's raw value with the PERSISTED transform and
+            # build the per-side term EXACTLY as fit-time _cov_offset does:
+            #   beta * z * mask  (+ beta_<name>_miss * (1 - mask)  if the indicator exists)
             # apply() returns (z, mask) as length-1 float arrays. A None/NaN value
-            # -> mask 0.0 -> EXACT zero contribution (no shift, never imputed, and
-            # no miss intercept either — a missing fixture covariate cannot move the
-            # forecast). Only an OBSERVED value adds beta * z (+ miss * (1-mask),
-            # which is 0 when observed); so the miss term never fires at predict.
+            # standardizes to z=0, mask=0, so the masked beta term is 0 either way;
+            # the miss intercept (when the covariate is in missing_indicator_for)
+            # rides (1 - mask) and therefore FIRES on a supplied-missing value — the
+            # same shift fit applied to a missing-feature match. A covariate with NO
+            # miss indicator falls back to beta * z * 0 == 0 (exact zero, unchanged).
+            # An OBSERVED value gives beta * z + beta_miss * 0 == beta * z. This
+            # mirrors fit so predict is consistent with how the betas were estimated.
             v = np.nan if raw_value is None else raw_value
             t = self.covariate_transforms[name]
-            z, mask = t.apply(np.array([v], dtype=float))   # (1,), (1,)
-            if mask[0] == 0.0:                               # missing -> true zero shift
-                return 0.0
+            z, mask = t.apply(np.array([v], dtype=float))   # (1,), (1,); NaN -> z=0,mask=0
             beta = self._post(f"beta_{name}")               # (S,), read from idata
-            term = beta * z[0] * mask[0]                     # (S,); observed
+            term = beta * z[0] * mask[0]                     # (S,); 0 when missing
             miss_name = f"beta_{name}_miss"
-            if miss_name in self.idata.posterior:            # 0 when observed, kept for parity
-                term = term + self._post(miss_name) * (1.0 - mask[0])
+            if miss_name in self.idata.posterior:            # only for missing_indicator_for covs
+                term = term + self._post(miss_name) * (1.0 - mask[0])  # fires when mask==0
             return term
 
         for name in self.covariate_transforms:

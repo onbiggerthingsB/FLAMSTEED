@@ -323,13 +323,48 @@ def test_predict_covariates_none_is_byte_identical_to_baseline(small_store):
 
 
 @pytest.mark.slow
-def test_predict_missing_covariate_value_is_exact_zero_shift(small_store):
-    # A supplied-but-None/NaN covariate value masks to 0 -> EXACTLY no shift,
-    # byte-identical to supplying nothing (a missing fixture covariate never moves
-    # the forecast). travel_km is enabled SPECIFICALLY because it carries a fitted
-    # beta_travel_km_miss (missing_indicator_for) — so this also proves the miss
-    # intercept does NOT fire at predict time for a missing value (true zero-shift,
-    # not a "+miss" shift).
+def test_predict_missing_no_indicator_covariate_is_exact_zero_shift(small_store):
+    # A NO-miss-indicator covariate (rest_days is NOT in missing_indicator_for):
+    # a supplied-but-None covariate value masks to 0 -> EXACTLY no shift, because
+    # the term reduces to beta * z * 0 == 0 and there is no beta_rest_days_miss to
+    # fire. So a supplied-missing rest_days is byte-identical to supplying nothing.
+    # This is the complement of the miss-indicator case below: no indicator -> the
+    # only possible contribution is the masked beta*z term, which a missing value
+    # zeroes exactly. (Mirrors fit: rest_days has no miss term, so a masked row
+    # contributes exactly zero at fit too.)
+    import copy
+    cfg = copy.deepcopy(load_config())
+    cfg["model"]["covariates"]["enabled"] = ["rest_days"]
+    from wcmodel.model.scoreline import fit
+    post = fit("2024-06-01", small_store, config=cfg, backend="advi",
+               draws=60, advi_iters=800, seed=0)
+    assert "beta_rest_days_miss" not in post.idata.posterior           # NO miss intercept fitted
+    teams = list(post._idx)[:2]
+    g_base = post.predict_scoreline(teams[0], teams[1], neutral=True)
+    g_none = post.predict_scoreline(teams[0], teams[1], neutral=True,
+                                    covariates={"rest_days": None, "rest_days__away": None})
+    g_nan = post.predict_scoreline(teams[0], teams[1], neutral=True,
+                                   covariates={"rest_days": np.nan, "rest_days__away": np.nan})
+    assert np.array_equal(g_base, g_none)                              # None -> exactly zero shift
+    assert np.array_equal(g_base, g_nan)                               # NaN  -> exactly zero shift
+    # predict_1x2 form too: supplied-missing == covariates=None for a no-indicator cov.
+    p_base = post.predict_1x2(teams[0], teams[1], neutral=True, covariates=None)
+    p_none = post.predict_1x2(teams[0], teams[1], neutral=True,
+                              covariates={"rest_days": None, "rest_days__away": None})
+    assert p_base == p_none
+
+
+@pytest.mark.slow
+def test_predict_supplied_missing_miss_indicator_covariate_fires_beta_miss(small_store):
+    # FIT/PREDICT CONSISTENCY: a miss-indicator covariate (travel_km IS in
+    # missing_indicator_for, so beta_travel_km_miss is fitted) treats a SUPPLIED
+    # missing value (NaN / absent) EXACTLY as fit treated a missing-feature match:
+    # the per-side term is beta*z*mask + beta_miss*(1-mask), so mask==0 -> the
+    # term is beta_miss (NOT zero). Therefore a supplied-missing travel_km MUST
+    # MOVE the forecast away from covariates=None (which short-circuits to baseline,
+    # adding nothing on either side). This assertion is RED before the fit/predict
+    # fix (predict used to early-return 0 for a masked value, dropping beta_miss) —
+    # the non-vacuity guard that proves the bug is actually corrected.
     import copy
     cfg = copy.deepcopy(load_config())
     cfg["model"]["covariates"]["enabled"] = ["travel_km"]
@@ -338,18 +373,19 @@ def test_predict_missing_covariate_value_is_exact_zero_shift(small_store):
                draws=60, advi_iters=800, seed=0)
     assert "beta_travel_km_miss" in post.idata.posterior              # miss intercept WAS fitted
     teams = list(post._idx)[:2]
-    g_base = post.predict_scoreline(teams[0], teams[1], neutral=True)
-    g_none_val = post.predict_scoreline(teams[0], teams[1], neutral=True,
-                                        covariates={"travel_km": None})
-    g_nan_val = post.predict_scoreline(teams[0], teams[1], neutral=True,
-                                       covariates={"travel_km": np.nan})
-    g_none_away = post.predict_scoreline(teams[0], teams[1], neutral=True,
-                                         covariates={"travel_km__away": None})
-    assert np.array_equal(g_base, g_none_val)                          # None value -> zero shift
-    assert np.array_equal(g_base, g_nan_val)                           # NaN value -> zero shift
-    assert np.array_equal(g_base, g_none_away)                         # missing away value -> zero shift
-    # An OBSERVED travel value DOES move the forecast (non-vacuity guard: proves the
-    # zero-shift above is "masked", not "covariate path silently dead").
+    g_base = post.predict_scoreline(teams[0], teams[1], neutral=True)  # covariates=None -> baseline
+    # SUPPLIED-MISSING on BOTH sides: beta_travel_km_miss fires on home AND away,
+    # so the grid must differ from baseline (the miss term is a real, non-zero shift).
+    g_nan = post.predict_scoreline(teams[0], teams[1], neutral=True,
+                                   covariates={"travel_km": float("nan"),
+                                               "travel_km__away": float("nan")})
+    assert not np.array_equal(g_base, g_nan)                           # miss term fires -> moved (RED pre-fix)
+    p_nan = post.predict_1x2(teams[0], teams[1], neutral=True,
+                             covariates={"travel_km": float("nan"),
+                                         "travel_km__away": float("nan")})
+    assert abs(p_nan["home"] + p_nan["draw"] + p_nan["away"] - 1.0) < 1e-9  # still a proper distribution
+    # An OBSERVED travel value ALSO moves the forecast (term reduces to beta*z, the
+    # (1-mask)==0 branch zeroes the miss term) — mirrors fit's formula for observed.
     g_obs = post.predict_scoreline(teams[0], teams[1], neutral=True,
                                     covariates={"travel_km": 5000.0})
-    assert not np.array_equal(g_base, g_obs)
+    assert not np.array_equal(g_base, g_obs)                           # observed value shifts the forecast
