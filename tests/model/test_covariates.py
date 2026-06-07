@@ -30,7 +30,7 @@ from wcmodel.model.covariates import CovariateTransform
 
 
 def test_transform_standardizes_on_observed_and_masks_missing_to_zero():
-    train = np.array([2.0, 4.0, 6.0, np.nan])        # mean_obs=4, sd_obs=2 (ddof=0 over observed)
+    train = np.array([2.0, 4.0, 6.0, np.nan])        # mean_obs=4; ddof=1 (sample std) -> sd=2.0
     t = CovariateTransform.fit("rest_days", train)
     assert abs(t.mean - 4.0) < 1e-9 and abs(t.sd - 2.0) < 1e-9
     z, mask = t.apply(np.array([4.0, 6.0, np.nan]))
@@ -48,3 +48,27 @@ def test_transform_all_missing_yields_all_masked():
     t = CovariateTransform.fit("x", np.array([np.nan, np.nan]))
     z, mask = t.apply(np.array([np.nan, 1.0]))
     assert np.allclose(mask, [0.0, 0.0])             # never observed in train -> never trusted at predict
+    assert np.all(np.isfinite(z))                    # z must be finite, not inf/nan...
+    assert np.all(z == 0.0)                          # ...and an exact zero contribution
+
+
+def test_transform_single_observed_has_no_signal_and_is_finite():
+    t = CovariateTransform.fit("x", np.array([7.0]))     # one observed row -> no spread
+    assert t.sd == 0.0
+    z, mask = t.apply(np.array([7.0, np.nan]))
+    assert np.allclose(mask, [1.0, 0.0])             # the lone row is "observed" but...
+    assert np.all(np.isfinite(z)) and np.all(z == 0.0)   # ...sd=0 -> zero signal, no NaN
+
+
+def test_apply_is_always_finite_and_bounded():
+    # 1) Overflowing-but-finite train input: mean/sd overflow to inf -> NO SIGNAL.
+    t = CovariateTransform.fit("x", np.array([1e200, -1e200, 3e200]))
+    z, mask = t.apply(np.array([1e200, -1e200, 3e200]))
+    assert np.all(np.isfinite(z)) and np.all(np.abs(z) <= 10.0)   # never inf/nan, bounded
+    assert np.all(mask == 0.0)                                    # untrustworthy -> masked
+
+    # 2) Near-constant train (tiny positive sd) -> enormous z would overflow exp(rate);
+    #    the 10-sigma clamp keeps apply() finite + bounded instead of blowing up.
+    t2 = CovariateTransform.fit("x", np.array([5.0, 5.0 + 1e-13, 5.0]))
+    z2, _ = t2.apply(np.array([5.0]))
+    assert np.all(np.isfinite(z2)) and np.all(np.abs(z2) <= 10.0)
