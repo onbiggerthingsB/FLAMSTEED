@@ -1073,6 +1073,16 @@ has NOT been run — so this is "wired, not yet validated, not bet."
   intent — "the edge AFTER the shrink clears edge_threshold"), and `stake_fraction` is called only
   to SIZE the bet (passed `edge_threshold=0.0` so it never re-gates on the DIFFERENT staking
   trigger `backtest.edge_threshold`). The T3 shrink-suppression test pins this.
+- `kelly_fraction` is threaded END-TO-END (single source of truth = lockbox DOF #9): the runner
+  reads `cfg["backtest"]["kelly_fraction"]` and passes it through `score_totals_row` ->
+  `totals_edges`; the 0.25 literal in `totals_edge.py`/`totals_backtest.py` is only the fallback
+  default when a caller does not override (pinned by the kelly-plumbing tests).
+- **Uncertainty-shrink is INERT in the runner (`se=0.0`):** `scripts/run_totals_backtest.py` calls
+  `score_totals_row(..., se=0.0)`, so `shrink = 1/(1 + k·0) = 1` — the pick is gated on the RAW
+  edge vs `edge_threshold` and the stake is un-shrunk ¼-Kelly. The shrink machinery is wired and
+  unit-tested (T3), but a per-LINE predictive standard error (the `se` that would make it bite) is
+  NOT yet computed in the runner — that is a deliberate FOLLOW-UP. Until then the totals edge is
+  raw-edge-gated; the noisy-thin-edge suppression the shrink provides is not active on real runs.
 
 ### Calibration gate dependency (why the verdict is held)
 
@@ -1094,6 +1104,28 @@ calibration_table` bins model `P(over)` vs the realized over-rate over ALL scora
   `LockboxRegistry.evaluate_on_lockbox`. The ops runner uses a TEMP COPY of `config/lockbox.json`
   by default — an ops re-run NEVER burns the committed single shot (`--use-real-lockbox` is the
   deliberate one-time burn, only after the calibration gate clears).
+- **CLV gate vs ROI denominators differ (by design):** `avg_clv`/`beat_close_rate` are computed
+  ONLY over bets that have a non-None close price (a bet whose close line was a coverage gap carries
+  `clv=None` and is EXCLUDED from the CLV stats), whereas `roi = total pnl / total staked` is over
+  ALL placed bets (every bet settles against the realized total, close or no close). So the CLV
+  gate is over the close-COVERED subset while ROI is over the full bet set — a close-coverage gap
+  shrinks the CLV sample without dropping the bet from ROI. (`aggregate_totals` in
+  `backtest/totals_backtest.py`.)
+
+### Venue fidelity in the runner (real per-fixture neutral flag)
+
+- The totals edge is the model price vs the soft-book price, so the model price must use the REAL
+  venue. `scripts/run_totals_backtest.py` carries a per-fixture `neutral` flag via the runner-LOCAL
+  `_fixture_neutral(home, away, ko, tier, sport)` lookup, threaded into `score_totals_row` ->
+  `predict_scoreline`. Euro-2024 GROUP games (tier `marquee`) were on NEUTRAL German grounds (the
+  listed home team is not the host) -> `neutral=True`; Nations League (`mid`) and WCQ (`thin`) ties
+  are at the listed home team's own ground -> `neutral=False`, so the fitted `home_adv` applies
+  (e.g. Germany v Hungary, Kazakhstan v Wales, Liechtenstein v Belgium, Faroe Islands v Croatia are
+  NOT forced neutral). Per-fixture exceptions live in `_VENUE_OVERRIDES`. The lookup is LOCAL to the
+  totals runner and does NOT change `clv_validation.STRATIFIED_MATCHES` (its 5-tuple arity — and the
+  `accuracy` subcommand that unpacks it — are untouched). The runner banner prints the neutral/host
+  split. (Previously the runner hardcoded `neutral=True` for every fixture, zeroing `home_adv` even
+  for genuine hosts and mis-specifying the compared model price.)
 
 ### Soft-book-limits caveat
 

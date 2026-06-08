@@ -299,6 +299,7 @@ def cmd_run(args) -> int:
     totals_cfg = cfg["markets"]["totals"]
     lines = list(totals_cfg["lines"])
     edge_threshold = float(totals_cfg["edge_threshold"])
+    kelly_fraction = float(cfg["backtest"]["kelly_fraction"])   # ¼-Kelly (lockbox DOF #9) — single source of truth
     soft_books = list(totals_cfg["soft_books"])
     sharp_book = totals_cfg["sharp_book"]
     regions = cfg["live"].get("regions", "eu")
@@ -319,6 +320,12 @@ def cmd_run(args) -> int:
           f"{_n_host} genuine HOST (NL/WCQ at the home ground) -> host games keep the fitted "
           "home_adv (NOT forced neutral). The totals edge is priced vs the correctly-specified "
           "model. (assumption documented in ASSUMPTIONS.md > Totals; overrides in _VENUE_OVERRIDES)")
+    print(f"[shrink] se=0.0 -> uncertainty-shrink is INERT this run (shrink=1): picks are gated on "
+          "the RAW edge vs edge_threshold and stake is un-shrunk ¼-Kelly. A per-LINE predictive SE "
+          "(the se that would make the shrink bite) is a documented FOLLOW-UP (ASSUMPTIONS.md).")
+    print("[coverage] CLV gate (avg_clv/beat_close) is over CLOSE-COVERED bets only (a gap-close "
+          "bet carries clv=None, excluded); ROI is over ALL placed bets (every bet settles). The "
+          "CLV denominator can be smaller than the ROI denominator — by design (ASSUMPTIONS.md).")
     if not cfg["live"]["signal_only"]:
         print("[ABORT] live.signal_only is False — refusing to run a totals signal without the "
               "signal-only invariant.", file=sys.stderr)
@@ -404,7 +411,8 @@ def cmd_run(args) -> int:
                              f"{max_train.date()} (realised matchday NOT in train).")
         for row in by_cutoff[cutoff_str]:
             try:
-                res = score_totals_row(post, row, lines=lines, edge_threshold=edge_threshold, se=0.0)
+                res = score_totals_row(post, row, lines=lines, edge_threshold=edge_threshold,
+                                       se=0.0, kelly_fraction=kelly_fraction)
             except KeyError:
                 gaps.append(f"[{row['tier']}] {row['home']} v {row['away']} [no model price]")
                 continue

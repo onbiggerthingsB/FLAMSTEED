@@ -21,13 +21,19 @@ def _settle_total(line: float, side: str, *, home_goals: int, away_goals: int) -
     return (total > line) if side == "over" else (total < line)
 
 
-def score_totals_row(posterior, row: dict, *, lines, edge_threshold: float, se: float = 0.0) -> dict:
+def score_totals_row(posterior, row: dict, *, lines, edge_threshold: float, se: float = 0.0,
+                     kelly_fraction: float = 0.25) -> dict:
     """Score one fixture: derive totals probs from the model grid, place +EV picks vs ENTRY odds,
     settle vs the realized total, compute pnl (unit stake fraction) + CLV. Returns ``{"bets": [...]}``.
-    A pick with no matching close line gets ``clv=None`` (recorded, not crashed)."""
+    A pick with no matching close line gets ``clv=None`` (recorded, not crashed).
+
+    ``kelly_fraction`` (the project ¼-Kelly, lockbox DOF #9, default 0.25) is threaded to
+    ``totals_edges`` so the runner can pass ``cfg["backtest"]["kelly_fraction"]`` as the single
+    source of truth (it is NOT silently pinned to the 0.25 default)."""
     grid = posterior.predict_scoreline(row["home"], row["away"], neutral=row.get("neutral", True))
     mp = totals_probs(grid, lines=lines)
-    picks = totals_edges(mp, row["entry"], edge_threshold=edge_threshold, se=se)
+    picks = totals_edges(mp, row["entry"], edge_threshold=edge_threshold, se=se,
+                         kelly_fraction=kelly_fraction)
     hg, ag = row["home_goals"], row["away_goals"]
     bets = []
     for p in picks:
@@ -36,7 +42,9 @@ def score_totals_row(posterior, row: dict, *, lines, edge_threshold: float, se: 
         pnl = p["stake"] * (p["odds"] - 1.0) if won else -p["stake"]
         close_line = row.get("close", {}).get(p["line"])
         close_odds = close_line.get(f"{p['side']}_odds") if close_line else None
-        clv = clv_pct(entry_odds=p["odds"], close_odds=close_odds) if close_odds else None
+        # Gap sentinel = a MISSING close price (None), not a falsy-but-present one: use
+        # ``is not None`` so a 0/0.0 is not silently masked as a coverage gap.
+        clv = clv_pct(entry_odds=p["odds"], close_odds=close_odds) if close_odds is not None else None
         bets.append({**p, "won": won, "pnl": float(pnl), "clv": clv})
     return {"home": row["home"], "away": row["away"], "bets": bets}
 

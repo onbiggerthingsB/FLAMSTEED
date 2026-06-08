@@ -12,8 +12,10 @@ kwarg (commission is applied later, at settlement, by ``staking.settle_bet`` —
 decision is made HERE on the uncertainty-shrunk edge vs ``edge_threshold``; ``stake_fraction`` is then
 called purely to SIZE the bet (¼-Kelly × shrink), so it is passed ``edge_threshold=0.0`` to avoid a
 second, redundant gate on a DIFFERENT threshold (the staking trigger ``backtest.edge_threshold``).
-``totals_edges`` stays pure/testable by taking the already-resolved ``kelly_fraction`` as an argument
-(the harness/runner reads it from ``cfg["backtest"]``).
+``totals_edges`` stays pure/testable by taking the already-resolved ``kelly_fraction`` as an argument.
+It is threaded end-to-end (single source of truth = lockbox DOF #9): the runner reads
+``cfg["backtest"]["kelly_fraction"]`` and passes it through ``score_totals_row`` -> ``totals_edges``;
+the 0.25 here is only the fallback default when a caller does not override.
 """
 from __future__ import annotations
 
