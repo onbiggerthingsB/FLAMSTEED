@@ -72,6 +72,35 @@ def parse_snapshot(snapshot: dict) -> list[dict]:
     return rows
 
 
+def parse_totals_snapshot(event: dict) -> dict:
+    """Parse ONE Odds-API event's ``totals`` market into per-book, per-line over/under decimals.
+
+    Returns ``{"home_team","away_team","commence_time","books": {book: {line: {over_odds, under_odds}}}}``.
+    A line is emitted ONLY when BOTH Over and Under are present (a half-priced line is dropped — never
+    a one-sided bet). Non-``totals`` markets are ignored. Pure; no network.
+    """
+    books: dict[str, dict[float, dict[str, float]]] = {}
+    for book in event.get("bookmakers", []) or []:
+        bkey = book.get("key")
+        per_line: dict[float, dict[str, float]] = {}
+        for market in book.get("markets", []) or []:
+            if market.get("key") != "totals":
+                continue
+            for o in market.get("outcomes", []) or []:
+                pt = o.get("point")
+                name = (o.get("name") or "").lower()
+                price = o.get("price")
+                if pt is None or price is None or name not in ("over", "under"):
+                    continue
+                per_line.setdefault(float(pt), {})[f"{name}_odds"] = float(price)
+        # keep only complete (both-sided) lines
+        complete = {L: v for L, v in per_line.items() if "over_odds" in v and "under_odds" in v}
+        if complete:
+            books[bkey] = complete
+    return {"home_team": event.get("home_team"), "away_team": event.get("away_team"),
+            "commence_time": event.get("commence_time"), "books": books}
+
+
 def extract_closing_prices(sample: dict, bookmaker: str) -> dict:
     """Pick the closing snapshot (latest timestamp <= commence_time) and return
     that bookmaker's h2h prices. Pure; no network.

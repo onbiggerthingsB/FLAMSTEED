@@ -1042,3 +1042,101 @@ Honest status:
   gated follow-ups. `scripts/run_real_ablation.py` is the committed, crash-safe recipe
   (`advi_iters` set to the converged config default with the wall-clock caveat inline);
   re-running it once the odds feed is funded yields the RPS + CLV verdict.
+
+## Totals (O/U goals) +EV edge (markets/totals, T0–T8)
+
+A SECOND betting surface read off the SAME scoreline grid the 1X2 model already produces: the
+model's Over/Under-total-goals fair prices are compared to soft-book totals odds to find +EV bets,
+validated on a leakage-safe paper-CLV backtest. The model NEVER ingests the odds. Status: BUILT +
+unit-tested; the real-data verdict run is GATED (the calibration-trust gate + plan T8 Step 5) and
+has NOT been run — so this is "wired, not yet validated, not bet."
+
+### Market-prior-free framing (the binding invariant)
+
+- The odds are NEVER fed into the fit. `cached_fit` reads ONLY the martj42 store as-of cutoff;
+  `markets/derived.totals_probs(grid, lines)` takes ONLY the normalized scoreline grid (`g[h,a]`
+  from `posterior.predict_scoreline`) — no model, no odds — so `P(over L)=Σ g[h,a]` over `h+a>L`
+  and `over+under==1` exactly. Odds enter at EXACTLY ONE place, `markets/totals_edge.totals_edges`,
+  AFTER the grid is computed (the model is compared to the market, never primed by it).
+
+### The +EV edge metric + threshold
+
+- `edge = model_prob * soft_book_odds - 1` — expected profit per unit at the RAW offered price
+  (vig included: +EV value betting must overcome the vig, not de-vig it away).
+- A side is BET only when the UNCERTAINTY-SHRUNK edge `edge * shrink(se)` clears
+  `markets.totals.edge_threshold` (default 0.03). The stake is the project's ¼-Kelly ×
+  uncertainty-shrink (`backtest.staking.stake_fraction`, `kelly_fraction` from `cfg.backtest`).
+- DEVIATION from the plan's draft code (noted honestly): the plan gated on the RAW edge and relied
+  on `stake_fraction` to suppress a thin noisy edge, but the real `stake_fraction` SCALES the stake
+  by the shrink (never zeroes a positive Kelly) and REQUIRES `kelly_fraction`/`edge_threshold`
+  kwargs. So the bettable decision is made on the shrunk edge vs the threshold (the plan's stated
+  intent — "the edge AFTER the shrink clears edge_threshold"), and `stake_fraction` is called only
+  to SIZE the bet (passed `edge_threshold=0.0` so it never re-gates on the DIFFERENT staking
+  trigger `backtest.edge_threshold`). The T3 shrink-suppression test pins this.
+- `kelly_fraction` is threaded END-TO-END (single source of truth = lockbox DOF #9): the runner
+  reads `cfg["backtest"]["kelly_fraction"]` and passes it through `score_totals_row` ->
+  `totals_edges`; the 0.25 literal in `totals_edge.py`/`totals_backtest.py` is only the fallback
+  default when a caller does not override (pinned by the kelly-plumbing tests).
+- **Uncertainty-shrink is INERT in the runner (`se=0.0`):** `scripts/run_totals_backtest.py` calls
+  `score_totals_row(..., se=0.0)`, so `shrink = 1/(1 + k·0) = 1` — the pick is gated on the RAW
+  edge vs `edge_threshold` and the stake is un-shrunk ¼-Kelly. The shrink machinery is wired and
+  unit-tested (T3), but a per-LINE predictive standard error (the `se` that would make it bite) is
+  NOT yet computed in the runner — that is a deliberate FOLLOW-UP. Until then the totals edge is
+  raw-edge-gated; the noisy-thin-edge suppression the shrink provides is not active on real runs.
+
+### Calibration gate dependency (why the verdict is held)
+
+- The edge is only as trustworthy as the goal distribution. `backtest.totals_backtest.
+calibration_table` bins model `P(over)` vs the realized over-rate over ALL scorable fixture/lines
+  (NOT only bet ones — unbiased by the bet filter); under-confidence shows as `predicted` pulled
+  toward 0.5 vs a more extreme `observed`. If the overnight production calibration run finds the
+  goal distribution under-confident, the sharpening (raise `prior.sigma_att/def` / lower
+  `widening.strength`) + re-validation come FIRST. The verdict run (plan T8 Step 5) is HELD on this.
+
+### CLV-is-the-gate accept + the single-use lockbox
+
+- `totals_verdict(agg, paired_p)` accepts iff `avg_clv>0` AND `roi>=0` AND a one-sided sign-flip
+  permutation `paired_p<0.05` on the per-bet CLV; ANY NaN/None -> REJECT (fail-safe), mirroring
+  the 1X2 ablation discipline. CLV (entry vs the soft-book CLOSE on the bet line) is the leading
+  indicator; the realized total only SETTLES the bet (never informs the pick — pinned by the
+  leakage canary `test_totals_leakage.py`, which is non-vacuous: a real bet is asserted placed).
+- The final accept is computed ONCE on the held-out lockbox slice via
+  `LockboxRegistry.evaluate_on_lockbox`. The ops runner uses a TEMP COPY of `config/lockbox.json`
+  by default — an ops re-run NEVER burns the committed single shot (`--use-real-lockbox` is the
+  deliberate one-time burn, only after the calibration gate clears).
+- **CLV gate vs ROI denominators differ (by design):** `avg_clv`/`beat_close_rate` are computed
+  ONLY over bets that have a non-None close price (a bet whose close line was a coverage gap carries
+  `clv=None` and is EXCLUDED from the CLV stats), whereas `roi = total pnl / total staked` is over
+  ALL placed bets (every bet settles against the realized total, close or no close). So the CLV
+  gate is over the close-COVERED subset while ROI is over the full bet set — a close-coverage gap
+  shrinks the CLV sample without dropping the bet from ROI. (`aggregate_totals` in
+  `backtest/totals_backtest.py`.)
+
+### Venue fidelity in the runner (real per-fixture neutral flag)
+
+- The totals edge is the model price vs the soft-book price, so the model price must use the REAL
+  venue. `scripts/run_totals_backtest.py` carries a per-fixture `neutral` flag via the runner-LOCAL
+  `_fixture_neutral(home, away, ko, tier, sport)` lookup, threaded into `score_totals_row` ->
+  `predict_scoreline`. Euro-2024 GROUP games (tier `marquee`) were on NEUTRAL German grounds (the
+  listed home team is not the host) -> `neutral=True`; Nations League (`mid`) and WCQ (`thin`) ties
+  are at the listed home team's own ground -> `neutral=False`, so the fitted `home_adv` applies
+  (e.g. Germany v Hungary, Kazakhstan v Wales, Liechtenstein v Belgium, Faroe Islands v Croatia are
+  NOT forced neutral). Per-fixture exceptions live in `_VENUE_OVERRIDES`. The lookup is LOCAL to the
+  totals runner and does NOT change `clv_validation.STRATIFIED_MATCHES` (its 5-tuple arity — and the
+  `accuracy` subcommand that unpacks it — are untouched). The runner banner prints the neutral/host
+  split. (Previously the runner hardcoded `neutral=True` for every fixture, zeroing `home_adv` even
+  for genuine hosts and mis-specifying the compared model price.)
+
+### Soft-book-limits caveat
+
+- The edge is priced vs soft books (`markets.totals.soft_books`: bet365/draftkings/fanduel) — the
+  venues we'd actually transact. Pinnacle is the SHARP reference ONLY (printed for context, NEVER
+  fed to the model, NEVER bet). Soft books limit/ban consistent +EV winners, so a backtested
+  soft-book edge can be unrealizable at scale; this is a known caveat, not modeled here (signal-only).
+
+### Totals-only (BTTS / correct-score deferred)
+
+- `markets/derived.py` ships ONLY `totals_probs` (the package is built general but only totals is
+  wired now). BTTS, correct-score, and other grid-derived markets are deferred — adding them is a
+  new `derived.py` function + a new edge calculator, no change to the fit or the leakage/lockbox
+  machinery.

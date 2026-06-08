@@ -134,6 +134,12 @@ live:
     min_liquidity: 0.0             # liquidity floor; markets below are coverage-gapped (0 = keep all in dry-run)
     progression_coverage_gated: true  # outright/progression surface is SECONDARY + coverage-gated (sub-threshold = gap)
   ledger_path: reports/live_paper_ledger.jsonl
+markets:
+  totals:
+    lines: [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]   # O/U goal lines derived from the scoreline grid
+    edge_threshold: 0.03                      # min +EV (model_prob*odds - 1) AFTER uncertainty shrink to bet
+    soft_books: ["bet365", "draftkings", "fanduel"]   # the betting venue(s); +EV is vs THESE prices
+    sharp_book: "pinnacle"                    # sharp reference ONLY (never bet, never enters the model)
 dashboard:
   dry_run: true               # synthetic-odds posture; the real-feed flip is gated (ASSUMPTIONS)
   output_dir: data/dashboard  # snapshot bundles land here (under the gitignored /data/)
