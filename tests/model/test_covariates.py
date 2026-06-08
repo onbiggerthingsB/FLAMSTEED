@@ -3,6 +3,7 @@ import pytensor
 import pytest
 from wcmodel.config import load_config
 from wcmodel.model.scoreline import DesignData, DixonColesModel
+from wcmodel.data.tournament import HOST_COUNTRY_BY_TEAM
 
 
 def test_config_has_covariate_block_with_defaults():
@@ -11,6 +12,33 @@ def test_config_has_covariate_block_with_defaults():
     assert cov["beta_scale"] == 0.25                 # tight regularizing prior on each coefficient
     assert cov["host_k"] == 0.5                       # host magnitude default (Q2)
     assert cov["missing_indicator_for"] == ["travel_km", "altitude_m"]  # Q1
+
+
+def test_config_hosts_field_matches_the_host_country_constant():
+    # CONVERGENCE-REVIEW GUARD (dead-config drift): host detection in
+    # data/tournament.py keys on the HOST_COUNTRY_BY_TEAM constant, NOT on the
+    # config `hosts` list (only host_k is read from config). Pin the two together so
+    # the config field is load-bearing — a future edit that drifts the config from
+    # the code constant fails CI — rather than silently inert.
+    cfg_hosts = set(load_config()["model"]["covariates"]["hosts"])
+    assert cfg_hosts == set(HOST_COUNTRY_BY_TEAM), (
+        "config covariates.hosts must match HOST_COUNTRY_BY_TEAM keys "
+        f"(config={sorted(cfg_hosts)}, constant={sorted(HOST_COUNTRY_BY_TEAM)})"
+    )
+
+
+def test_covariates_stay_disabled_until_the_sim_threads_them():
+    # CONVERGENCE-REVIEW TRIPWIRE (sim covariate-blindness): the Monte-Carlo sim
+    # (sim/scoreline.py::RateBook.rates) threads ONLY host_factor, never the
+    # covariate offset (the whole sim/ tree has zero covariate references). So
+    # enabling ANY covariate would make the dashboard per-fixture cards (which DO
+    # apply covariates via fixtures.fixture_forecast) DISAGREE with the champion/
+    # advance progression numbers (from the sim). The SHIPPED default must stay
+    # enabled:[] until the sim threads covariates (see ASSUMPTIONS "pre-enable
+    # requirement"). NOTE: the ablation sets enabled per-arm at runtime via
+    # _arm_config and scores via predict_1x2 (NOT the sim), so it is unaffected by
+    # this guard. Do NOT delete this test to enable a covariate — thread the sim first.
+    assert load_config()["model"]["covariates"]["enabled"] == []
 
 
 def test_designdata_accepts_optional_covariates_defaulting_empty():

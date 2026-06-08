@@ -980,8 +980,13 @@ baseline** (no covariate ⇒ no offset term ⇒ identical log-rates; proven by
   (an effect on the log-goal-rate larger than ~0.25/σ is implausible). Per-team covariates
   (`rest_days`, `travel_km`) shift the POSSESSING team's rate; per-match (`altitude_m`) shifts
   both sides symmetrically.
-- **Host advantage:** `host_factor = host_k · home_adv` (`host_k=0.5` default) is applied to the
-  6 fixtures where a 2026 host (USA/Mexico/Canada) plays at home in-country. It REUSES the
+- **Host advantage:** `host_factor = host_k · home_adv` (`host_k=0.5` default) is applied to
+  6 of the 9 in-country host group games (USA/Mexico/Canada). **Scope caveat (convergence
+  review):** host detection keys on the HOME slot only, so the 3 games where a host plays at home
+  as the schedule AWAY team (Czech Republic v Mexico @ Mexico City, Turkey v USA @ LA,
+  Switzerland v Canada @ Vancouver) are currently modeled NEUTRAL — crediting the away-side host
+  needs the host term to attach to the away rate, folded into the Phase-5 `k`-tuning follow-up.
+  It REUSES the
   already-fitted `home_adv` — **no new fitted DOF**, never touches the likelihood/identifiability.
   Bounds: `host_k=0` ⇒ hosts neutral like everyone else; `host_k=1` ⇒ hosts get the full
   estimated home advantage. Raising `k` monotonically lifts the three hosts' win prob in their
@@ -989,6 +994,17 @@ baseline** (no covariate ⇒ no offset term ⇒ identical log-rates; proven by
   table + data-driven `k` tuning is DEFERRED to Phase 5** (tune `k` from real 2026 host results
   as they arrive), per the covariate design spec; until then `k=0.5` is a documented assumption,
   NOT a fitted value.
+- **Pre-enable requirement (convergence review) — the Monte-Carlo sim is covariate-blind.**
+  `sim/scoreline.py::RateBook.rates` threads ONLY `host_factor`, never the covariate offset (the
+  whole `sim/` tree has zero covariate references). With `enabled: []` this is a no-op (sim and
+  cards are both baseline), but the moment ANY covariate is enabled the dashboard per-fixture
+  cards (which DO apply covariates via `fixtures.fixture_forecast`) would DISAGREE with the
+  champion/advance progression numbers (which come from the sim). So a covariate must NOT leave
+  `enabled: []` until the sim threads the same per-fixture covariate offset. A tripwire test
+  (`test_covariates_stay_disabled_until_the_sim_threads_them`) pins the shipped default to `[]`;
+  the ablation is unaffected (it scores via `predict_1x2`, never the sim). The previously-dead
+  `hosts` config field is now guarded by `test_config_hosts_field_matches_the_host_country_constant`
+  (config↔constant agreement) so it can no longer silently drift from the code.
 
 ### rest_days ablation verdict (M-T8): UNVALIDATED → keep `enabled: []`
 
