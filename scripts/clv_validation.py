@@ -1000,6 +1000,11 @@ def cmd_accuracy(args) -> int:
     # comp, no tier). The STRATIFIED path carries a per-match (tier, sport_key).
     if is_stratified:
         match_specs = [(h, a, ko, tier, sp) for (h, a, ko, tier, sp) in STRATIFIED_MATCHES]
+    elif match_set == "euro":
+        # The 5 UEFA Euro-2024 fixtures (the marquee tier) — for a SINGLE-fit cluster diagnostic
+        # (pair with --cutoff 2024-06-14 so all 5 share one leakage-safe production fit).
+        match_specs = [(h, a, ko, tier, sp) for (h, a, ko, tier, sp) in STRATIFIED_MATCHES
+                       if tier == "marquee"]
     else:
         match_specs = [(h, a, ko, "pilot", SPORT) for (h, a, ko) in PILOT_MATCHES]
     n_matches = min(args.matches, len(match_specs))
@@ -1087,8 +1092,19 @@ def cmd_accuracy(args) -> int:
     per_match = []
     # Group fixtures by matchday cutoff so the posterior is fit ONCE per cutoff.
     by_cutoff: dict[str, list] = {}
+    override_cutoff = getattr(args, "cutoff", None)
+    if override_cutoff:
+        print(f"[fit] SINGLE shared cutoff {override_cutoff} for ALL {len(rows)} matches "
+              "(ONE cluster fit; each match must kick off strictly after it).")
     for row in rows:
-        cutoff = pd.Timestamp(row["ko"][:10]).normalize()
+        if override_cutoff:
+            cutoff = pd.Timestamp(override_cutoff).normalize()
+            # LEAKAGE: a scored match MUST be after the shared cutoff (else it would be in train).
+            assert pd.Timestamp(row["ko"][:10]).normalize() > cutoff, (
+                f"LEAKAGE: {row['home']} v {row['away']} ({row['ko'][:10]}) does NOT kick off "
+                f"after the shared cutoff {cutoff.date()} — it would be in the training window")
+        else:
+            cutoff = pd.Timestamp(row["ko"][:10]).normalize()
         by_cutoff.setdefault(str(cutoff), []).append(row)
 
     n_advi_fits = 0
@@ -1184,6 +1200,37 @@ def cmd_accuracy(args) -> int:
     agg_market = sum(p["rps_market"] for p in per_match) / n
     agg_uniform = sum(p["rps_uniform"] for p in per_match) / n
     n_beat = sum(1 for p in per_match if p["rps_model"] < p["rps_market"] - 1e-9)
+
+    # --- CONFIDENCE / UNDER-CONFIDENCE diagnostic (the calibration question): is the model's
+    #     top pick systematically LESS confident than the sharp market on the SAME games? If so,
+    #     sharpening (raise prior.sigma_att/def or lower widening.strength) is the indicated lever.
+    def _top(d):
+        return max(d["home"], d["draw"], d["away"])
+
+    def _argmax(d):
+        return max(("home", "draw", "away"), key=lambda k: d[k])
+
+    mean_model_top = sum(_top(p["model"]) for p in per_match) / n
+    mean_market_top = sum(_top(p["market"]) for p in per_match) / n
+    model_fav_hit = sum(1 for p in per_match if _argmax(p["model"]) == p["outcome"]) / n
+    market_fav_hit = sum(1 for p in per_match if _argmax(p["market"]) == p["outcome"]) / n
+    conf_gap = mean_market_top - mean_model_top
+    print("\n" + "=" * 78)
+    print("CONFIDENCE / CALIBRATION DIAGNOSTIC — is the model UNDER-CONFIDENT?")
+    print("=" * 78)
+    print(f"  mean MODEL  top-prob : {mean_model_top:.3f}   (avg confidence the model puts on its pick)")
+    print(f"  mean MARKET top-prob : {mean_market_top:.3f}   (the sharp market's avg confidence)")
+    print(f"  MODEL  pick hit-rate : {model_fav_hit:.3f}   (how often the model's top pick won)")
+    print(f"  MARKET pick hit-rate : {market_fav_hit:.3f}")
+    if conf_gap > 0.05:
+        print(f"  -> UNDER-CONFIDENT by ~{conf_gap:.3f}: the model's top-prob trails the market's. "
+              "SHARPEN (raise prior.sigma_att/def and/or lower widening.strength), then re-validate.")
+    elif conf_gap < -0.05:
+        print(f"  -> OVER-CONFIDENT by ~{-conf_gap:.3f}: the model's top-prob exceeds the market's.")
+    else:
+        print(f"  -> ROUGHLY MATCHED (|gap| {abs(conf_gap):.3f} <= 0.05): no clear under/over-confidence; "
+              "the flatness is calibrated, not a bug. No sharpening indicated.")
+    print("  (small n -> directional; compares model vs the sharp market's confidence on the SAME games)")
 
     # --- PER-TIER breakdown (the map of where the model stands by market liquidity). The
     #     key question: does the model-minus-market gap SHRINK on thinner markets (mid/thin)
@@ -1332,10 +1379,11 @@ def main() -> int:
                     help="number of pilot matches (<= 8; each costs 2 paid calls)")
     ap_acc = sub.add_parser("accuracy",
                             help="model RPS vs market(close) RPS vs uniform (cache-first, ZERO credits unless --pull)")
-    ap_acc.add_argument("--match-set", choices=["pilot", "stratified"], default="pilot",
+    ap_acc.add_argument("--match-set", choices=["pilot", "stratified", "euro"], default="pilot",
                         help="pilot = the 8 WC-2022 marquee matches (default); stratified = "
                              "the tier-tagged internationals (marquee Euro-2024 / mid Nations-"
-                             "League / thin WC-qualifiers) with per-tier + overall RPS")
+                             "League / thin WC-qualifiers) with per-tier + overall RPS; euro = "
+                             "just the 5 UEFA Euro-2024 fixtures (use with --cutoff for ONE fit)")
     ap_acc.add_argument("--matches", type=int, default=20,
                         help="cap on matches to score (pilot <= 8; stratified <= 15)")
     ap_acc.add_argument("--pull", action="store_true",
@@ -1348,6 +1396,10 @@ def main() -> int:
                         help="override ADVI iterations for the per-cutoff fit (only with --fast; default 2000 coarse)")
     ap_acc.add_argument("--rebuild-store", action="store_true",
                         help="force-rebuild the persistent martj42 store (default: reuse if present)")
+    ap_acc.add_argument("--cutoff", default=None,
+                        help="single shared as-of cutoff (YYYY-MM-DD) for ALL scored matches -> ONE "
+                             "leakage-safe cluster fit (bounded + robust) instead of one fit per "
+                             "matchday. Every scored match MUST kick off strictly after this cutoff.")
     args = ap.parse_args()
     return {"dry": cmd_dry, "probe": cmd_probe, "pilot": cmd_pilot,
             "accuracy": cmd_accuracy}[args.cmd](args)
