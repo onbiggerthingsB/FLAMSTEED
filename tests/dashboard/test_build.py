@@ -283,3 +283,41 @@ def test_schedule_gate_is_wired_and_real_occupants_carry_se(small_store, synthet
                     assert isinstance(o["se"], (int, float)) and math.isfinite(o["se"]), \
                         f"occupant {o['team']!r} se is not finite — would false-raise the gate"
     assert saw_occupant, "no real occupant nodes emitted — the occupant-se gate was never exercised"
+
+
+@pytest.mark.slow
+def test_schedule_forecast_summary_carries_top3_shortlist(small_store, synthetic_tournament,
+                                                          tmp_path):
+    """Spec D3 (presentation): each GROUP row's forecast_summary now LEADS with the 1X2 split +
+    the top-3 scoreline SHORTLIST ("predicted score = shortlist, never a lone score"). The
+    serializer PROJECTS ``forecast["shortlist"][:3]`` into the row summary — a pure projection
+    of the already-computed + gated forecast (no forecast/probability recomputed). Assert every
+    non-gap row's forecast_summary carries a shortlist of <=3 entries, each a
+    ``{home_goals, away_goals, prob}`` with ``prob`` a finite probability in [0,1], and that the
+    headline most_likely is the shortlist's first (most-likely) entry."""
+    from wcmodel.dashboard.build import build_snapshot
+    b = build_snapshot("2026-06-12T12:00:00Z", store=small_store, items=[],
+                       fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0,
+                                   "cache_dir": str(tmp_path / "fc")},
+                       out_root=tmp_path / "out", tournament=synthetic_tournament)
+    sched = json.loads((b / "schedule.json").read_text())["data"]
+    saw_shortlist = False
+    for row in sched["group"]:
+        fs = row["forecast_summary"]
+        if fs.get("coverage_gap"):                      # a gap row carries no shortlist (honest absence)
+            continue
+        sl = fs.get("shortlist")
+        saw_shortlist = True
+        assert isinstance(sl, list) and 0 < len(sl) <= 3, \
+            f"forecast_summary shortlist must be a 1..3-entry list (top-3 projection), got {sl!r}"
+        for entry in sl:
+            assert {"home_goals", "away_goals", "prob"} <= set(entry), \
+                f"shortlist entry must be a scoreline {{home_goals, away_goals, prob}}: {entry!r}"
+            p = entry["prob"]
+            assert isinstance(p, (int, float)) and math.isfinite(p) and 0.0 <= p <= 1.0, \
+                f"shortlist prob {p!r} is not a finite probability in [0,1]"
+        # The headline most_likely IS the shortlist's first (most-likely) entry — same scoreline.
+        ml = fs["most_likely"]
+        assert (ml["home_goals"], ml["away_goals"]) == (sl[0]["home_goals"], sl[0]["away_goals"]), \
+            f"most_likely must be the shortlist's top entry: {ml!r} vs {sl[0]!r}"
+    assert saw_shortlist, "no non-gap forecast_summary emitted — the shortlist projection was never exercised"

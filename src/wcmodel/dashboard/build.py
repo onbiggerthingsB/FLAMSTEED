@@ -231,10 +231,18 @@ def _edge_key(home: str, away: str, date, *, time=None) -> tuple:
 
 def _forecast_summary(forecast: dict) -> dict:
     """The schedule-ROW projection of an already-gated full ``fixture_forecast``: the
-    most-likely score (WITH its prob — never naked) + the full 1X2 split. The grid lives
-    only in the per-fixture detail; the row carries the headline. No separate gate is needed
-    — this is a pure projection of a forecast the detail already gated."""
-    return {"most_likely": forecast["most_likely"], "one_x_two": forecast["one_x_two"]}
+    most-likely score (WITH its prob — never naked), the full 1X2 split, AND the top-3
+    scoreline shortlist (spec D3: "predicted score = shortlist, never a lone score"). The
+    grid lives only in the per-fixture detail; the row leads with the 1X2 split + the
+    shortlist. This is a PURE PROJECTION of a forecast the detail already gated — the
+    shortlist was already computed + gated upstream (``fixture_forecast`` ->
+    ``scoreline_shortlist``); we merely take its top-3 for the row. No forecast/probability
+    is recomputed here; ``gate_schedule`` re-validates the projected shortlist as a true STOP."""
+    return {
+        "most_likely": forecast["most_likely"],
+        "one_x_two": forecast["one_x_two"],
+        "shortlist": forecast["shortlist"][:3],
+    }
 
 
 def _recent_form(results, team: str, *, cutoff, n: int = 5) -> dict:

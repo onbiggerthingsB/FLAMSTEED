@@ -7,13 +7,23 @@ import type { Envelope, ScheduleData } from '../../src/lib/types';
 const dir = resolve(__dirname, '../fixtures/bundle');
 const sch: Envelope<ScheduleData> = JSON.parse(readFileSync(resolve(dir, 'schedule.json'), 'utf8'));
 
-test('Schedule renders group rows with a forecast + edge, and links to match detail', () => {
+test('Schedule group row LEADS with the 1X2 split + the top-3 scoreline shortlist, and links to detail', () => {
   const { container } = render(Schedule, { data: sch.data });
   const rows = container.querySelectorAll('[data-row="group"]');
   expect(rows.length).toBe(sch.data.group.length);
-  // every rendered most-likely score carries its probability (no naked score)
-  const first = rows[0];
-  expect(within(first as HTMLElement).getAllByText(/%/).length).toBeGreaterThan(0);
+  const first = rows[0] as HTMLElement;
+  // (1) The 1X2 split (WinBar) leads as the PRIMARY forecast element — its distribution region
+  //     is present (the win/draw/loss bar + legend live inside data-uncertainty="distribution").
+  const winbar = first.querySelector('.winbar-wrap[data-uncertainty="distribution"]');
+  expect(winbar, 'expected the WinBar (1X2 split) to lead the row').toBeTruthy();
+  expect(within(first).getByRole('img', { name: /win\/draw\/loss/i })).toBeTruthy();
+  // (2) The top-3 shortlist renders as 3 ScorePills — each a distribution-marked "h–a · p%"
+  //     readout (replaces the single lone score; the predicted score IS a shortlist, spec D3).
+  const pills = first.querySelectorAll('.shortlist .scorepill[data-uncertainty="distribution"]');
+  expect(pills.length).toBe(3);
+  // Each pill carries its probability % (no naked score); 3 distribution-marked score readouts.
+  pills.forEach((p) => expect(/%/.test(p.textContent ?? '')).toBe(true));
+  // (3) The detail link is preserved.
   expect((first.querySelector('a[href^="#/match/"]') as HTMLAnchorElement)).toBeTruthy();
 });
 
