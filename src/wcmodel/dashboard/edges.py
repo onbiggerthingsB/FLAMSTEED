@@ -20,8 +20,49 @@ WHAT THE DASHBOARD EDGE NODE DELIBERATELY OMITS (C5 FOCAL Codex):
     scan opportunity); the dashboard node carries only the decision-time fields the spec
     enumerates.
 
-So the dashboard edge node = exactly ``{staked, edge, stake_signal, entry_odds, is_synthetic}``."""
+WHAT THE EDGE NODE DOES CARRY (the GHOST LINE — spec §4 "ghost the sharp line into the
+win-bar"). When the scan opportunity carries a VALID ``market_1x2`` — the de-vigged ENTRY
+market 1X2 that the ``LiveDecision`` already computed via ``market_fair_1x2(ENTRY odds)`` —
+the node emits it as ``market_1x2 = {home, draw, away}``. This is the SAME de-vigged ENTRY
+distribution that DROVE the edge (``edge = model_fair - market_entry``), so it is:
+
+  * LEAKAGE-SAFE — it is the de-vig of the DECISION-TIME ENTRY (<= cutoff), NEVER the close
+    (which is post-cutoff and deliberately omitted above). The edge already trusts it.
+  * a DERIVED COMPARISON, NOT a forecast estimate (like the edge itself) — so it carries NO
+    uncertainty companion BY DESIGN; the frontend ghosts it into the win-bar inside a
+    data-derived/distribution region (the no-naked-number guard exempts it consciously).
+
+It is emitted ONLY where a VALID line exists — finite, all-three, each in [0, 1], summing to
+~1 (the de-vig is a distribution). A missing or degenerate market 1X2 (a coverage-gap edge,
+or an unsafe number) emits NO market line — never a fabricated/unsafe one.
+
+So the dashboard edge node = the decision-time fields ``{staked, edge, stake_signal,
+entry_odds, is_synthetic}`` PLUS the derived ``market_1x2`` WHEN a valid de-vigged ENTRY line
+exists (else omitted)."""
 from __future__ import annotations
+
+import math
+
+_OUTCOMES = ("home", "draw", "away")
+
+
+def _safe_market_1x2(m) -> dict | None:
+    """Return a fresh ``{home, draw, away}`` of floats IFF ``m`` is a valid de-vigged ENTRY
+    1X2 distribution — finite, all three outcomes, each in [0, 1], summing to ~1 — else
+    ``None`` (omit the line). A DERIVED comparison gated like the edge: finiteness + [0,1] +
+    sum~1, NO uncertainty companion (by design). Coerces the source so a mutated source never
+    mutates the bundle; never fabricates a number."""
+    if not isinstance(m, dict) or not all(o in m for o in _OUTCOMES):
+        return None
+    try:
+        vals = {o: float(m[o]) for o in _OUTCOMES}
+    except (TypeError, ValueError):
+        return None
+    if not all(math.isfinite(v) and 0.0 <= v <= 1.0 for v in vals.values()):
+        return None
+    if abs(sum(vals.values()) - 1.0) > 1e-6:
+        return None
+    return vals
 
 
 def edges_by_event(ranked) -> dict:
@@ -39,7 +80,7 @@ def edges_by_event(ranked) -> dict:
     ranked_synth = bool(getattr(ranked, "is_synthetic", False))
     for opp in getattr(ranked, "opportunities", []):
         key = tuple(opp["event_key"])
-        out[key] = {
+        node = {
             "staked": opp["staked"],
             "edge": float(opp["edge"]),
             "stake_signal": float(opp["stake_signal"]),   # a SIGNAL, not a placed stake
@@ -48,4 +89,12 @@ def edges_by_event(ranked) -> dict:
             # to NON-REAL — a missing/changed opp taint defaults True, never silently real.
             "is_synthetic": ranked_synth or bool(opp.get("is_synthetic", True)),
         }
+        # GHOST LINE: the de-vigged ENTRY market 1X2 (DERIVED comparison, leakage-safe — the
+        # de-vig of the decision-time ENTRY odds <= cutoff that DROVE the edge, NEVER the
+        # close). Emitted ONLY when valid (finite/[0,1]/sum~1); a missing/degenerate line is
+        # OMITTED (no market line), never fabricated. NO uncertainty companion (derived).
+        market_1x2 = _safe_market_1x2(opp.get("market_1x2"))
+        if market_1x2 is not None:
+            node["market_1x2"] = market_1x2
+        out[key] = node
     return out

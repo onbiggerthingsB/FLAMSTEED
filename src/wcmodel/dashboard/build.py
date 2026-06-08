@@ -229,7 +229,7 @@ def _edge_key(home: str, away: str, date, *, time=None) -> tuple:
     return (home, away, _fixture_utc_commence_date(date, time))
 
 
-def _forecast_summary(forecast: dict) -> dict:
+def _forecast_summary(forecast: dict, edge: dict | None = None) -> dict:
     """The schedule-ROW projection of an already-gated full ``fixture_forecast``: the
     most-likely score (WITH its prob — never naked), the full 1X2 split, AND the top-3
     scoreline shortlist (spec D3: "predicted score = shortlist, never a lone score"). The
@@ -237,12 +237,26 @@ def _forecast_summary(forecast: dict) -> dict:
     shortlist. This is a PURE PROJECTION of a forecast the detail already gated — the
     shortlist was already computed + gated upstream (``fixture_forecast`` ->
     ``scoreline_shortlist``); we merely take its top-3 for the row. No forecast/probability
-    is recomputed here; ``gate_schedule`` re-validates the projected shortlist as a true STOP."""
-    return {
+    is recomputed here; ``gate_schedule`` re-validates the projected shortlist as a true STOP.
+
+    GHOST LINE (spec §4). When the row's ``edge`` node carries the de-vigged ENTRY
+    ``market_1x2`` — the DERIVED model-vs-market comparison the edge was priced against
+    (``edge = model_fair - market_entry``, leakage-safe: the ENTRY is <= cutoff, NEVER the
+    close) — it rides ALONGSIDE the model line into the summary so the frontend can ghost the
+    sharp line into the win-bar. It is a DERIVED comparison (like the edge), NOT a forecast
+    estimate, so it carries NO uncertainty companion; ``gate_schedule`` still value-checks it
+    as a coherent all-three sum~1 distribution. Emitted ONLY when a valid line exists (the
+    edge node already gated it in ``edges_by_event``); a coverage-gap / line-less edge yields
+    NO market line — never a fabricated one. Presentation only: no model/sim recompute."""
+    summary = {
         "most_likely": forecast["most_likely"],
         "one_x_two": forecast["one_x_two"],
         "shortlist": forecast["shortlist"][:3],
     }
+    market_1x2 = (edge or {}).get("market_1x2") if isinstance(edge, dict) else None
+    if isinstance(market_1x2, dict):
+        summary["market_1x2"] = market_1x2
+    return summary
 
 
 def _recent_form(results, team: str, *, cutoff, n: int = 5) -> dict:
@@ -564,7 +578,9 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
         }
         fixture_details[detail["match_id"]] = detail
         by_pair_date[(home, away, str(date))] = {
-            "forecast_summary": _forecast_summary(forecast), "edge": edge_node,
+            # GHOST LINE: the edge node's de-vigged ENTRY market_1x2 (when present) rides into
+            # the row summary so the frontend ghosts the sharp line into the win-bar.
+            "forecast_summary": _forecast_summary(forecast, edge_node), "edge": edge_node,
             "match_id": detail["match_id"],
         }
 

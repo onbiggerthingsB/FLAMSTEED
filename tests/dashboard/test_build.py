@@ -1,8 +1,57 @@
 import json
 import math
 import pytest
-from wcmodel.dashboard.build import _write, gate_artifact, sanitize_nans, stringify_keys
+from wcmodel.dashboard.build import (
+    _forecast_summary, _write, gate_artifact, sanitize_nans, stringify_keys,
+)
 from wcmodel.dashboard.provenance import Provenance
+
+
+_FORECAST = {
+    "most_likely": {"home_goals": 1, "away_goals": 0, "prob": 0.12},
+    "one_x_two": {"home": 0.50, "draw": 0.28, "away": 0.22},
+    "grid": [[0.1, 0.1], [0.1, 0.1]],
+    # The row summary leads with the top-3 shortlist (spec D3); most_likely == shortlist[0].
+    "shortlist": [
+        {"home_goals": 1, "away_goals": 0, "prob": 0.12},
+        {"home_goals": 0, "away_goals": 0, "prob": 0.11},
+        {"home_goals": 1, "away_goals": 1, "prob": 0.10},
+    ],
+}
+
+
+def test_forecast_summary_projects_market_1x2_from_a_real_edge():
+    """GHOST LINE: when the row's edge node carries the de-vigged ENTRY ``market_1x2`` (a
+    DERIVED comparison), ``_forecast_summary`` projects it into the row summary so the
+    frontend can ghost the sharp line into the win-bar. The model 1X2 + headline are still
+    carried; the market line rides ALONGSIDE (presentation only, no model/sim change)."""
+    edge = {"staked": "home", "edge": 0.04, "stake_signal": 0.5, "entry_odds": 2.0,
+            "is_synthetic": True, "market_1x2": {"home": 0.46, "draw": 0.30, "away": 0.24}}
+    fs = _forecast_summary(_FORECAST, edge)
+    assert fs["most_likely"] == _FORECAST["most_likely"]
+    assert fs["one_x_two"] == _FORECAST["one_x_two"]              # the MODEL line stays
+    assert fs["market_1x2"] == {"home": 0.46, "draw": 0.30, "away": 0.24}  # the DERIVED line rides in
+
+
+def test_forecast_summary_omits_market_1x2_on_a_gap_or_lineless_edge():
+    """No market line when there is no valid edge line: a coverage-gap edge, a None edge, or a
+    real edge that carries no ``market_1x2`` all yield a summary with NO ``market_1x2`` (the
+    line is omitted, never fabricated)."""
+    gap = {"coverage_gap": True, "reason": "no live edge for this fixture as-of cutoff"}
+    lineless = {"staked": "home", "edge": 0.04, "stake_signal": 0.5, "entry_odds": 2.0,
+                "is_synthetic": True}                            # a real edge, but no market_1x2
+    for edge in (gap, None, lineless):
+        fs = _forecast_summary(_FORECAST, edge)
+        assert "market_1x2" not in fs, f"a market line leaked from a line-less edge: {edge!r}"
+        assert fs["one_x_two"] == _FORECAST["one_x_two"]         # the model summary is unchanged
+
+
+def test_forecast_summary_back_compat_no_edge_arg():
+    """``_forecast_summary`` stays callable with no edge (defaults to no market line) so any
+    caller that does not have an edge in scope keeps working."""
+    fs = _forecast_summary(_FORECAST)
+    assert "market_1x2" not in fs
+    assert set(fs) == {"most_likely", "one_x_two", "shortlist"}  # row always carries the D3 shortlist
 
 
 def test_gate_rejects_a_naked_or_incoherent_artifact():

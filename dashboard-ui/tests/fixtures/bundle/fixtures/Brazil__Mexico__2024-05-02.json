@@ -349,7 +349,12 @@
       "edge": 0.06855933654933044,
       "stake_signal": 0.013677718224615837,
       "entry_odds": 3.0,
-      "is_synthetic": true
+      "is_synthetic": true,
+      "market_1x2": {
+        "home": 0.38791159436502776,
+        "draw": 0.2878441343198944,
+        "away": 0.32424427131507766
+      }
     }
   }
 }

@@ -62,6 +62,13 @@ export interface ForecastSummary {
   // score = shortlist, never a lone score"). A pure projection of the gated forecast's
   // already-computed shortlist (top-3); the serializer GATES every entry's prob in [0,1].
   shortlist: MostLikely[];
+  // GHOST LINE: the OPTIONAL de-vigged ENTRY market 1X2 — a DERIVED model-vs-market
+  // comparison (the de-vig of the decision-time ENTRY odds the edge was priced against),
+  // ghosted into the WinBar as the `line` prop. Present ONLY where a real (non-gap) edge
+  // carries a valid line; the serializer omits it otherwise. NOT a forecast estimate — it
+  // carries no ± companion (derived, by design); the WinBar renders it inside the marked
+  // distribution region so the no-naked-number guard exempts it.
+  market_1x2?: OneXTwo;
 }
 export interface EdgeNode {
   staked: 'home' | 'draw' | 'away';
@@ -69,6 +76,10 @@ export interface EdgeNode {
   stake_signal: number;
   entry_odds: number;
   is_synthetic: boolean;
+  // GHOST LINE: the de-vigged ENTRY market 1X2 the edge was priced against (the DERIVED
+  // model-vs-market comparison). Present only where the serializer emitted a valid line;
+  // MatchDetail ghosts it into the WinBar as the `line` prop. No ± companion (derived).
+  market_1x2?: OneXTwo;
 }
 export interface GroupRow {
   home: string;

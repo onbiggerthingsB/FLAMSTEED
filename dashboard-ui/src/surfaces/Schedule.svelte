@@ -55,8 +55,16 @@
           <!-- Spec D3: LEAD with the differentiated signal — the 1X2 split as the PRIMARY
                forecast element, then the top-3 scoreline SHORTLIST ("predicted score =
                shortlist, never a lone score"). -->
-          <!-- The 1X2 distribution IS the uncertainty; WinBar wraps it in a marked region. -->
-          <span class="dist"><WinBar model={r.forecast_summary.one_x_two} /></span>
+          <!-- The 1X2 distribution IS the uncertainty; WinBar wraps it in a marked region.
+               GHOST LINE: the de-vigged ENTRY market 1X2 (forecast_summary.market_1x2, a
+               DERIVED comparison present only where a real edge carries it) is ghosted into
+               the bar as the `line` prop — the sharp line vs the model, inside the marked
+               distribution region (the no-naked-number guard exempts the line legend). -->
+          <span class="dist"
+            ><WinBar
+              model={r.forecast_summary.one_x_two}
+              line={r.forecast_summary.market_1x2 ?? null}
+            /></span>
           <!-- The top-3 shortlist, each a distribution-marked "h–a · p%" ScorePill. This
                replaces the single lone score: the predicted score is a shortlist. Every
                ScorePill prob stays inside data-uncertainty="distribution". -->

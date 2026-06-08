@@ -206,6 +206,13 @@ def gate_schedule(payload: dict, *, tol: float = 0.05) -> None:
             shortlist = (fs or {}).get("shortlist")
             if shortlist is not None:
                 _check_shortlist_probs(shortlist, where="schedule group row")
+            # GHOST LINE: the OPTIONAL de-vigged ENTRY market 1X2 (a DERIVED comparison ghosted
+            # into the win-bar). When present it must be a coherent all-three sum~1 distribution
+            # — value-checked like the model 1X2 — but it carries NO uncertainty companion (a
+            # derived comparison, like the edge, by design). Absent -> nothing to check.
+            market = (fs or {}).get("market_1x2")
+            if market is not None:
+                _check_1x2_distribution(market, where="schedule group row market_1x2 (ghost line)", tol=tol)
         _check_edge_node(row.get("edge"), where="schedule group row")
     for row in payload.get("knockout", []) or []:
         _check_occupants(row.get("home_occupants"), where="schedule KO row (home)")
