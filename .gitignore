@@ -18,3 +18,9 @@ venv/
 # temp file). The registry JSON itself IS committed; these transient siblings are not.
 /config/lockbox.lock
 /config/lockbox.json.tmp
+
+# Secrets — API keys NEVER get committed. Provide keys via a local .env at the repo
+# root (e.g. THE_ODDS_API_KEY=...); the gated adapters read them, the file stays local.
+.env
+.env.*
+!.env.example
