@@ -111,6 +111,39 @@ MAX_PAID_CALLS = 2 * len(STRATIFIED_MATCHES)
 
 
 # --------------------------------------------------------------------------- #
+# Per-fixture venue fidelity (LOCAL to the totals runner — does NOT touch the shared
+# STRATIFIED_MATCHES tuple arity, so the clv_validation `accuracy` subcommand is untouched).
+#
+# The totals edge is the model price vs the soft-book price, so the model price must use the REAL
+# venue: forcing neutral=True everywhere zeros the fitted ``home_adv`` even for genuine HOST games
+# (e.g. Germany v Hungary, Kazakhstan v Wales, Liechtenstein v Belgium, Faroe Islands v Croatia —
+# the listed home side hosts the tie), mis-specifying the model price the edge is compared against.
+#
+# Basis for the curated set (clv_validation.STRATIFIED_MATCHES):
+#   * marquee = UEFA Euro 2024 GROUP games, all played on NEUTRAL German grounds; the listed home
+#     team is NOT the tournament host (Germany), so these are genuinely neutral -> neutral=True.
+#   * mid = UEFA Nations League 2024 and thin = FIFA WCQ (Europe) — both played at the listed home
+#     team's own ground (a genuine host) -> neutral=False (the fitted home_adv applies).
+# Any per-fixture exception (a host playing at a neutral site, a relocation) goes in _VENUE_OVERRIDES.
+_VENUE_OVERRIDES: dict[tuple[str, str, str], bool] = {
+    # (home, away, kickoff_iso): neutral — add genuine exceptions here (none in the current set).
+}
+_NEUTRAL_GROUND_TIERS = frozenset({"marquee"})   # Euro 2024 group games on neutral German grounds
+
+
+def _fixture_neutral(home: str, away: str, ko: str, tier: str, sport: str) -> bool:
+    """Real venue for one curated fixture: True iff played on a neutral ground (no home_adv).
+
+    Looks up an explicit per-fixture override first, else falls back to the tier basis above
+    (marquee Euro-2024 group games = neutral; Nations League / WCQ = the listed home team hosts).
+    """
+    override = _VENUE_OVERRIDES.get((home, away, ko))
+    if override is not None:
+        return override
+    return tier in _NEUTRAL_GROUND_TIERS
+
+
+# --------------------------------------------------------------------------- #
 # Store assembly (persistent; leakage-neutral — read strictly as-of cutoff).
 # --------------------------------------------------------------------------- #
 def get_persistent_store(*, rebuild: bool = False) -> BitemporalStore:
@@ -278,6 +311,14 @@ def cmd_run(args) -> int:
           f"sharp_book={sharp_book} (sharp = reference ONLY, never fed to the model)")
     print(f"[safety] live.signal_only={cfg['live']['signal_only']} live.dry_run={cfg['live']['dry_run']} "
           "-> NO bet path; this prints signals + a paper verdict only.")
+    _venue_flags = [_fixture_neutral(h, a, ko, tier, sp)
+                    for h, a, ko, tier, sp in STRATIFIED_MATCHES]
+    _n_neutral = sum(1 for f in _venue_flags if f)
+    _n_host = len(_venue_flags) - _n_neutral
+    print(f"[venue] per-fixture REAL venue: {_n_neutral} neutral-ground (Euro-2024 group), "
+          f"{_n_host} genuine HOST (NL/WCQ at the home ground) -> host games keep the fitted "
+          "home_adv (NOT forced neutral). The totals edge is priced vs the correctly-specified "
+          "model. (assumption documented in ASSUMPTIONS.md > Totals; overrides in _VENUE_OVERRIDES)")
     if not cfg["live"]["signal_only"]:
         print("[ABORT] live.signal_only is False — refusing to run a totals signal without the "
               "signal-only invariant.", file=sys.stderr)
@@ -317,7 +358,9 @@ def cmd_run(args) -> int:
             continue
         entry, close = payload
         rows.append({
-            "home": home, "away": away, "neutral": True, "tier": tier, "ko": ko,
+            "home": home, "away": away,
+            "neutral": _fixture_neutral(home, away, ko, tier, sport),
+            "tier": tier, "ko": ko,
             "home_goals": int(rr0.home_score), "away_goals": int(rr0.away_score),
             "entry": entry, "close": close,
             "entry_sharp": rec.get("entry_sharp", {}), "close_sharp": rec.get("close_sharp", {}),
