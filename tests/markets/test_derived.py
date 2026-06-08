@@ -33,3 +33,24 @@ def test_totals_probs_rejects_degenerate_grid():
         totals_probs(np.zeros((3, 3)), lines=[2.5])          # sums to 0
     with pytest.raises(ValueError):
         totals_probs(np.full((3, 3), np.nan), lines=[2.5])   # non-finite
+
+
+def test_totals_probs_rejects_negative_pmf():
+    # a cell < 0 is not a valid pmf -> raise rather than price off it
+    g = np.zeros((3, 3)); g[0, 0] = 1.2; g[1, 1] = -0.2
+    with pytest.raises(ValueError):
+        totals_probs(g, lines=[1.5])
+
+
+def test_totals_probs_raises_on_line_at_or_above_grid_bound():
+    # A 6x6 grid represents totals 0..10; the max representable total is (n-1)*2 = 10.
+    # A line AT/ABOVE the bound has zero representable over-cells -> it would silently return
+    # over=0.0 (a WRONG price), so it must RAISE (coverage/config error, never a fabricated price).
+    g = np.zeros((6, 6)); g[2, 2] = 1.0
+    with pytest.raises(ValueError):
+        totals_probs(g, lines=[10.0])          # line == (n-1)*2 bound
+    with pytest.raises(ValueError):
+        totals_probs(g, lines=[2.5, 12.5])     # one in-grid line, one above the bound
+    # a line just BELOW the bound is fine (still representable: total 10 > 9.5)
+    out = totals_probs(g, lines=[9.5])
+    assert 0.0 <= out[9.5]["over"] <= 1.0
