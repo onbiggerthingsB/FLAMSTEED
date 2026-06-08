@@ -21,6 +21,7 @@ import pytensor.tensor as pt
 
 from wcmodel.config import load_config
 from wcmodel.data import features
+from wcmodel.model.covariates import CovariateTransform
 from wcmodel.model.inference import sample
 from wcmodel.model.likelihoods import bp_loglik_pt, dc_loglik_pt
 from wcmodel.model.panel import DesignData, build_design, to_match_panel
@@ -29,12 +30,134 @@ from wcmodel.model.volatility_diagnostic import count_volatility_arm
 from wcmodel.model.widening import likelihood_weight
 
 
-def _rates(d: DesignData, att, defe, mu, home_adv):
-    # log lambda_home = mu + home_adv*(non-neutral) + att[home] - def[away]
-    # log lambda_away = mu + att[away] - def[home]   (no home term)
+# Which side(s) a covariate modifies. A per-team covariate's array (d.cov[name])
+# is the HOME team's value for that feature; the AWAY team's own value for the
+# same feature is supplied as "<name>__away" in d.cov (assembled upstream from
+# the panel's home/away rows). Per-match covariates use a single array applied to
+# both rates. A name absent from BOTH sets is ignored (no offset) — adding a new
+# covariate requires classifying it here, so it can never silently no-op.
+_PER_TEAM_COVS = {"rest_days", "travel_km"}
+_PER_MATCH_COVS = {"altitude_m"}
+
+
+def _build_covariates(mp, p_cov: dict):
+    """Assemble the leakage-safe covariate transforms + cov/cov_mask design arrays
+    from the < cutoff TRAINING panel ``mp``.
+
+    For each enabled covariate present in the panel, ONE CovariateTransform is fit
+    on the HOME-side training column (``mp[name]``) and then applied to BOTH sides:
+    the home column -> cov[name], and (for a per-team covariate) the away team's own
+    column ``mp[f"{name}__away"]`` -> cov[f"{name}__away"], via the SAME fitted
+    transform (home + away share one standardization). The transform is fit on the
+    SAME rows the model trains on, so it can never see past the cutoff
+    (leakage-safe). A per-match covariate has no ``__away`` column (identical on both
+    rows), so only the single array is produced.
+
+    Returns ``(cov, cov_mask, transforms)``: the per-name standardized arrays, their
+    masks, and ``{name: CovariateTransform}`` for the Posterior to persist. All
+    empty when ``enabled == []`` (or no enabled covariate column is in the panel),
+    so the design is byte-identical to today's baseline.
+    """
+    cov: dict = {}
+    cov_mask: dict = {}
+    transforms: dict = {}
+    for name in p_cov.get("enabled", []):
+        if name not in mp.columns:
+            continue  # enabled but not produced upstream -> no covariate term
+        train = mp[name].to_numpy()
+        t = CovariateTransform.fit(name, train)        # fit on < cutoff training rows
+        transforms[name] = t
+        z, mask = t.apply(train)
+        cov[name] = z
+        cov_mask[name] = mask
+        away_col = f"{name}__away"                      # per-team covariate: away side
+        if away_col in mp.columns:                      # (per-match has no __away col)
+            z_away, mask_away = t.apply(mp[away_col].to_numpy())  # SAME fitted transform
+            cov[away_col] = z_away
+            cov_mask[away_col] = mask_away
+    return cov, cov_mask, transforms
+
+
+def _covariate_betas(d: DesignData, p_cov: dict):
+    """Return {name: (beta_RV, miss_beta_RV_or_None)} for each enabled covariate
+    that is actually present in d.cov.
+
+    No-op when enabled is empty OR no enabled covariate is in d.cov: returns {},
+    so NO beta_* RV is created and _cov_offset contributes exactly 0.0 — the
+    linear predictor (and the set of model RVs) is byte-identical to today.
+    """
+    betas = {}
+    for name in p_cov.get("enabled", []):
+        if name not in d.cov:
+            continue  # enabled but no data supplied -> add nothing (still baseline)
+        # FIX 1 (taxonomy): a covariate present in d.cov MUST be declared in
+        # exactly one of the two side-wiring sets. Without this guard a typo'd or
+        # undeclared name falls through _cov_offset's per-match `else` branch and
+        # is silently mis-wired as a symmetric per-match term. Fail loud instead.
+        if name not in (_PER_TEAM_COVS | _PER_MATCH_COVS):
+            raise ValueError(
+                f"unknown covariate {name!r}: not in _PER_TEAM_COVS or _PER_MATCH_COVS"
+            )
+        # FIX 3 (per-team both-sides): a per-team covariate is read on BOTH sides
+        # — home reads d.cov[name], away reads d.cov[f"{name}__away"] — each with a
+        # matching cov_mask key. Validate both arrays/masks exist up front so a
+        # caller that supplies only one side fails clearly here, not with a deep
+        # KeyError inside _cov_offset. (T3's fit() always supplies both.)
+        if name in _PER_TEAM_COVS:
+            away_key = f"{name}__away"
+            if away_key not in d.cov or away_key not in d.cov_mask:
+                raise ValueError(
+                    f"per-team covariate {name!r} missing its '__away' array/mask in DesignData.cov"
+                )
+            if name not in d.cov_mask:
+                raise ValueError(
+                    f"per-team covariate {name!r} missing its home mask in DesignData.cov_mask"
+                )
+        beta = pm.Normal(f"beta_{name}", 0.0, p_cov["beta_scale"])
+        miss = (
+            pm.Normal(f"beta_{name}_miss", 0.0, p_cov["beta_scale"])
+            if name in p_cov.get("missing_indicator_for", [])
+            else None
+        )
+        betas[name] = (beta, miss)
+    return betas
+
+
+def _cov_offset(d: DesignData, betas, side):  # side in {"home", "away"}
+    """Sum of covariate contributions for one side's log-rate.
+
+    Each term is beta * x * mask, so a row where the feature is MISSING
+    (mask == 0) contributes EXACTLY zero — the standardized value is never
+    imputed. The optional missing-indicator term miss * (1 - mask) lets the
+    model carry a separate intercept shift for missing rows without imputing x.
+    For a per-team covariate the "home" side reads d.cov[name] (the home team's
+    own feature) and the "away" side reads d.cov["<name>__away"] (the away team's
+    own feature); a per-match covariate uses the single d.cov[name] on both sides.
+    """
+    off = 0.0
+    for name, (beta, miss) in betas.items():
+        if name in _PER_TEAM_COVS:
+            key = name if side == "home" else f"{name}__away"
+        else:  # per-match: same array both sides
+            key = name
+        x = pt.as_tensor_variable(d.cov[key])
+        mask = pt.as_tensor_variable(d.cov_mask[key])
+        off = off + beta * x * mask
+        if miss is not None:
+            off = off + miss * (1.0 - mask)
+    return off
+
+
+def _rates(d: DesignData, att, defe, mu, home_adv, betas=None):
+    # log lambda_home = mu + home_adv*(non-neutral) + att[home] - def[away] + home_off
+    # log lambda_away = mu + att[away] - def[home] + away_off   (no home term)
+    # home_off/away_off are the masked covariate offsets (0.0 when betas is empty/
+    # None), so with no enabled covariates the rates are byte-identical to today.
     neutral = d.neutral.astype(float)
-    log_lh = mu + home_adv * (1.0 - neutral) + att[d.home_idx] - defe[d.away_idx]
-    log_la = mu + att[d.away_idx] - defe[d.home_idx]
+    home_off = _cov_offset(d, betas, "home") if betas else 0.0
+    away_off = _cov_offset(d, betas, "away") if betas else 0.0
+    log_lh = mu + home_adv * (1.0 - neutral) + att[d.home_idx] - defe[d.away_idx] + home_off
+    log_la = mu + att[d.away_idx] - defe[d.home_idx] + away_off
     return pt.exp(log_lh), pt.exp(log_la)
 
 
@@ -57,9 +180,13 @@ class ScorelineModel(ABC):
 
 class DixonColesModel(ScorelineModel):
     def build(self, d, weight, config=None):
-        p = (config or load_config())["model"]["prior"]
+        cfg = config or load_config()
+        p = cfg["model"]["prior"]
         with pm.Model() as m:
             att, defe, mu, home_adv = _priors(d, p)
+            # No-op when covariates.enabled == [] (or none present in d.cov):
+            # betas == {} -> _rates adds a 0.0 offset, RV set unchanged.
+            betas = _covariate_betas(d, cfg["model"]["covariates"])
             # rho CONTRACT (likelihoods.dc_loglik_pt): a tau cell <= 0 -> log(tau)
             # = NaN. This TruncatedNormal keeps |rho| small (<=0.15) so that for
             # realistic international goal rates (~<=2.5 each, lh*la <~ 6.25)
@@ -74,7 +201,7 @@ class DixonColesModel(ScorelineModel):
             rho = pm.TruncatedNormal(
                 "rho", mu=0.0, sigma=p["rho_scale"], lower=-0.15, upper=0.15
             )
-            lh, la = _rates(d, att, defe, mu, home_adv)
+            lh, la = _rates(d, att, defe, mu, home_adv, betas=betas)
             ll = dc_loglik_pt(d.home_goals, d.away_goals, lh, la, rho)
             pm.Potential("like", pt.sum(pt.as_tensor_variable(weight) * ll))
         return m
@@ -82,19 +209,23 @@ class DixonColesModel(ScorelineModel):
 
 class BivariatePoissonModel(ScorelineModel):
     def build(self, d, weight, config=None):
-        p = (config or load_config())["model"]["prior"]
+        cfg = config or load_config()
+        p = cfg["model"]["prior"]
         # kmax = max over matches of min(home,away) goals (the convolution depth).
         # bp_loglik_pt handles kmax==0 as the independent case.
         kmax = int(np.minimum(d.home_goals, d.away_goals).max()) if len(d.home_goals) else 0
         with pm.Model() as m:
             att, defe, mu, home_adv = _priors(d, p)
+            # No-op when covariates.enabled == [] (or none present in d.cov):
+            # betas == {} -> _rates adds a 0.0 offset, RV set unchanged.
+            betas = _covariate_betas(d, cfg["model"]["covariates"])
             # l3 CONTRACT (likelihoods.bp_loglik_pt): l3 must be > 0 when kmax>0
             # (the k=0 term computes 0*log(l3); l3=0 yields NaN in the vectorized
             # graph). Parameterise l3 = exp(log_l3) so l3>0 ALWAYS. Centered at
             # log(0.1): a small covariance default, consistent with rho_scale.
             log_l3 = pm.Normal("log_lambda3", np.log(0.1), p["rho_scale"])
             l3 = pt.exp(log_l3)
-            lh, la = _rates(d, att, defe, mu, home_adv)
+            lh, la = _rates(d, att, defe, mu, home_adv, betas=betas)
             ll = bp_loglik_pt(d.home_goals, d.away_goals, lh, la, l3, kmax)
             pm.Potential("like", pt.sum(pt.as_tensor_variable(weight) * ll))
         return m
@@ -163,7 +294,12 @@ def fit(
     seed = cfg["seed"] if seed is None else seed
     feats = features.build(cutoff, store, cfg)            # leakage-safe panel ONLY
     mp = to_match_panel(feats)
-    d = build_design(mp)
+    # Build the leakage-safe covariate transforms on the SAME < cutoff training
+    # panel `mp` (before build_design / sampling), and thread the standardized
+    # arrays + masks into the design. Empty dicts when covariates.enabled == [],
+    # so the design (and the fitted model) is byte-identical to today's baseline.
+    cov, cov_mask, cov_transforms = _build_covariates(mp, cfg["model"]["covariates"])
+    d = build_design(mp, cov=cov, cov_mask=cov_mask)
     w = likelihood_weight(
         d,
         mechanism=cfg["model"]["widening"]["mechanism"],
@@ -187,4 +323,7 @@ def fit(
     # K/T params it feeds to compute_elo_history move.
     arm = count_volatility_arm(store, cutoff, d.teams, config=cfg)
     prov = set(arm.loc[arm["volatility_flag"] | arm["few_games_flag"], "team"])
-    return Posterior(idata, d.teams, likelihood, provisional_teams=prov, config=cfg)
+    return Posterior(
+        idata, d.teams, likelihood, provisional_teams=prov, config=cfg,
+        covariate_transforms=cov_transforms,    # persist for predict (T4) to reuse
+    )

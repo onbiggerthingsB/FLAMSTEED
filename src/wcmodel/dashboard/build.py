@@ -515,19 +515,29 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
         features = None                              # NULL-safe: rest_days simply coverage-gaps
 
     # --- Per-fixture forecasts (FULL, gated) + schedule rows. GROUP fixtures only feed
-    # build_schedule (the KO fixtures carry placeholder feeders + no date). neutral=True per
-    # the confirmed WC design (group stage is on neutral ground; the host exception is a
-    # downstream refinement, not modelled here).
+    # build_schedule (the KO fixtures carry placeholder feeders + no date). Default is
+    # neutral=True per the confirmed WC design (group stage is on neutral ground). T5
+    # EXCEPTION: a 2026 host's HOME group game (home team is a host nation AND the venue
+    # is in that nation — host_home_factor) carries host_factor = k*home_adv instead of
+    # neutral; every other fixture stays neutral. host_factor is a prediction-time scalar
+    # on the already-fitted home_adv — NO new fitted DOF.
+    from wcmodel.data.tournament import host_home_factor
     from wcmodel.dashboard.fixtures import build_schedule, fixture_forecast
 
     group_fixtures = [fx for fx in tdict["fixtures"] if fx.get("match") is None]
     schedule = build_schedule(group_fixtures, cutoff=str(cutoff))
+    # Venue {city: ISO-country} from the draw's venues block, for the host-home test.
+    # Absent on a synthetic tournament -> empty map -> every fixture stays neutral.
+    venue_country = {v["city"]: v.get("country") for v in tdict.get("venues", [])}
 
     fixture_details: dict[str, dict] = {}
     by_pair_date: dict[tuple, dict] = {}
     for fx in group_fixtures:
         home, away, date = fx["home"], fx["away"], fx["date"]
-        forecast = fixture_forecast(posterior, home=home, away=away, neutral=True)
+        # None for a neutral fixture; k (host_k) for a host playing at home in-country.
+        host_factor = host_home_factor(home, away, fx.get("venue"), venue_country, cfg)
+        forecast = fixture_forecast(posterior, home=home, away=away,
+                                    neutral=(host_factor is None), host_factor=host_factor)
         gate_fixture_forecast(forecast)              # STOP: never write a naked/degenerate forecast
         # The edge lookup keys on the fixture's UTC COMMENCE DATE (reconstructed from the
         # local date + local time-with-offset), matching the scan event_key — NOT the local

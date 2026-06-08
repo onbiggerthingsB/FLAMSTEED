@@ -209,6 +209,23 @@ def _played_hash(played) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 
+def _host_factors_hash(host_factors) -> str:
+    """Stable 16-hex hash of the T5 host-advantage map ``{(home, away): k}`` (or ``"none"``).
+
+    STALE-SERVE GUARD: ``host_factors`` is OUTPUT-AFFECTING content — a host's home group
+    game is sampled with ``k*home_adv`` instead of neutral, so two runs differing only in
+    the host map (or in ``k``) must NOT share a cache key. The tuple keys are not
+    JSON-native, so each entry is canonicalized to ``(repr(key), k)`` and key-sorted (the
+    same insertion-order-independent form as ``_played_hash``), so a different host set or
+    a different ``k`` yields a different digest -> a different key -> a MISS. ``None``/empty
+    (the neutral default) hashes to ``"none"``, stable and distinct from any host map."""
+    if not host_factors:
+        return "none"
+    canon = sorted((repr(k), float(v)) for k, v in host_factors.items())
+    blob = json.dumps(canon, sort_keys=True)
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
 def _read_table(path: Path, columns: list[str]) -> pd.DataFrame:
     """Reload a persisted progression/SE table BYTE-IDENTICAL to the cold compute.
 
@@ -222,7 +239,7 @@ def _read_table(path: Path, columns: list[str]) -> pd.DataFrame:
 
 
 def cached_sim(*, cutoff, posterior, bracket, n_sims, seed, max_goals, et_scale,
-               pen_home_prob, cache_dir, played=None):
+               pen_home_prob, cache_dir, played=None, host_factors=None):
     """Run ``simulate_tournament`` through the content-addressed sim cache.
 
     Returns ``(SimResult, {"cache_hit": bool, "key": str})``. On a HIT the
@@ -247,6 +264,9 @@ def cached_sim(*, cutoff, posterior, bracket, n_sims, seed, max_goals, et_scale,
         "et_scale": float(et_scale),
         "pen_home_prob": float(pen_home_prob),
         "played_hash": _played_hash(played),
+        # T5 host advantage is output-affecting (a host's home game samples with k*home_adv)
+        # -> in the key so a different host map / k MISSES instead of stale-serving neutral.
+        "host_factors_hash": _host_factors_hash(host_factors),
         "git": _git_commit(),
         # HEAD commit alone can't see uncommitted edits to the sim/aggregation code, so a
         # dirty working tree would otherwise HIT a result computed by since-edited code.
@@ -275,6 +295,7 @@ def cached_sim(*, cutoff, posterior, bracket, n_sims, seed, max_goals, et_scale,
     res = simulate_tournament(
         posterior, bracket=bracket, n_sims=n_sims, seed=seed, max_goals=max_goals,
         et_scale=et_scale, pen_home_prob=pen_home_prob, played=played,
+        host_factors=host_factors,
     )
     # Persist the tables with the team index as a column (reset_index) so the parquet
     # round-trip is lossless and the reload re-imposes the exact index + column order.

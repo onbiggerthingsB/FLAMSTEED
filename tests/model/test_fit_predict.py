@@ -100,6 +100,51 @@ def test_posterior_accepts_valid_widening_config():
 
 
 
+def test_predict_scoreline_rejects_degenerate_overflow_grid():
+    """FAIL-SAFE (degenerate-grid guard): a draw whose goal-rate ``lambda = exp(...)``
+    OVERFLOWS makes the truncated ``poisson.pmf(0..max_goals, lambda)`` underflow to
+    all-zeros -> ``g.sum() == 0`` -> ``g / g.sum() == 0/0 == NaN`` (the original
+    ``posterior.py:196`` divide warning). That per-draw forecast is UNUSABLE; the
+    guard must raise ``ValueError('non-finite predictive grid')`` at its SOURCE,
+    NOT (a) silently average a NaN into the mean grid (-> a later cryptic brentq
+    crash) nor (b) clamp lambda to fabricate an all-(max,max) 'forecast' that hides
+    the divergence. RED before the fix: the NaN grid propagates; GREEN: typed raise.
+
+    Built hand-made (NO sampling): a huge ``mu`` drives ``lh = exp(mu + ...)`` to
+    ``inf`` so the per-draw Poisson grid underflows — the exact divergence signature.
+    """
+    teams = ["A", "B"]
+    n_teams = len(teams)
+    posterior = {
+        "att": np.zeros((1, 2, n_teams)),
+        "def": np.zeros((1, 2, n_teams)),
+        "mu": np.full((1, 2), 800.0),     # exp(800) overflows -> grid underflows to 0
+        "home_adv": np.full((1, 2), 0.0),
+        "rho": np.zeros((1, 2)),
+    }
+    idata = az.from_dict({"posterior": posterior})
+    post = Posterior(idata, teams, "dixon_coles", provisional_teams=set())
+    with pytest.raises(ValueError, match="non-finite predictive grid"):
+        post.predict_scoreline("A", "B", neutral=True, max_goals=6)
+
+
+def test_renorm_draw_is_byte_identical_for_a_healthy_grid():
+    """BASELINE BYTE-IDENTITY (revert-proof): the degenerate-grid guard
+    (``Posterior._renorm_draw``) must be BIT-FOR-BIT the old ``g / g.sum()`` on any
+    HEALTHY per-draw grid (finite, positive sum). The fail-safe only RAISES on a
+    broken grid; it must never perturb a normal forecast — so a fit with no
+    covariate (no offset, same exponent) produces a byte-identical scoreline. Pinned
+    at the unit level so a future refactor that changes the renorm arithmetic is
+    caught without needing a slow end-to-end fit."""
+    from scipy.stats import poisson
+    xs = np.arange(7)
+    for (lh, la) in ((1.6, 0.9), (2.5, 1.8), (0.3, 3.1)):
+        g = poisson.pmf(xs, lh)[:, None] * poisson.pmf(xs, la)[None, :]
+        expected = g / g.sum()                      # the exact pre-guard operation
+        got = Posterior._renorm_draw(g)
+        assert np.array_equal(got, expected)        # bit-for-bit, no perturbation
+
+
 def _provisional_contrast_store(tmp_path):
     """Store with ONE team SETTLED at the cutoff but provisional early in its
     history, and ANOTHER team GENUINELY provisional at the cutoff.

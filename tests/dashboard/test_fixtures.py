@@ -4,10 +4,15 @@ from wcmodel.dashboard.fixtures import scoreline_shortlist, fixture_forecast
 
 class _FakePost:
     teams = ["Spain", "Morocco"]
-    def predict_scoreline(self, home, away, neutral=False, max_goals=10):
+    # Mirrors the real Posterior signature incl. the T5 host_factor kwarg (a host's home
+    # game carries k*home_adv); this fake is grid-fixed, so it ignores host_factor but
+    # must ACCEPT it to match the production signature fixture_forecast now calls.
+    def predict_scoreline(self, home, away, neutral=False, max_goals=10,
+                          covariates=None, host_factor=None):
         g = np.zeros((4, 4)); g[1, 0] = 0.5; g[2, 1] = 0.3; g[0, 0] = 0.2
         return g
-    def predict_1x2(self, home, away, neutral=False, max_goals=10):
+    def predict_1x2(self, home, away, neutral=False, max_goals=10,
+                    covariates=None, host_factor=None):
         return {"home": 0.8, "draw": 0.2, "away": 0.0}
 
 

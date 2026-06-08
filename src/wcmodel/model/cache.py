@@ -47,6 +47,7 @@ import xarray as xr
 from wcmodel.config import load_config
 from wcmodel.data import features
 from wcmodel.data.cache import _git_commit, content_key
+from wcmodel.model.covariates import CovariateTransform
 from wcmodel.model.panel import to_match_panel
 from wcmodel.model.posterior import Posterior
 from wcmodel.model.scoreline import fit
@@ -84,14 +85,56 @@ def _posterior_to_netcdf(post: Posterior, path: Path) -> None:
     ds.to_netcdf(path, engine="scipy")
 
 
+def _transforms_to_meta(transforms: dict) -> dict:
+    """Serialize ``{name: CovariateTransform}`` to a JSON-safe dict for the meta file.
+
+    The covariate offset at predict time is reconstructed from the PERSISTED
+    training transform (``name/mean/sd/any_observed`` — the leakage-safe
+    standardization fit on the < cutoff rows). A cache HIT that omitted these would
+    rebuild a Posterior with EMPTY ``covariate_transforms`` and silently return a
+    ZERO covariate offset (``Posterior._covariate_offsets`` short-circuits when
+    ``self.covariate_transforms`` is empty) — i.e. the cached candidate would
+    predict like the baseline, defeating the ablation. Persisting them makes a HIT
+    apply the exact same covariate shift a fresh fit would (FIX 3a).
+    """
+    return {
+        name: {"name": t.name, "mean": t.mean, "sd": t.sd,
+               "any_observed": bool(t.any_observed)}
+        for name, t in transforms.items()
+    }
+
+
+def _transforms_from_meta(meta_transforms: dict | None) -> dict:
+    """Rebuild ``{name: CovariateTransform}`` from the meta JSON (HIT path).
+
+    Empty/absent (a baseline fit, or a pre-FIX-3a meta file) -> ``{}``, so the
+    reconstructed Posterior is byte-identical to today's baseline (no covariate
+    term). Each persisted record rebuilds the frozen ``CovariateTransform`` so the
+    cached Posterior applies the SAME standardization at predict the fresh fit did.
+    """
+    out: dict = {}
+    for name, rec in (meta_transforms or {}).items():
+        out[name] = CovariateTransform(
+            name=rec["name"], mean=float(rec["mean"]), sd=float(rec["sd"]),
+            any_observed=bool(rec["any_observed"]),
+        )
+    return out
+
+
 def _posterior_from_netcdf(path: Path, *, teams, likelihood, provisional_teams,
-                           cfg) -> Posterior:
+                           cfg, covariate_transforms=None) -> Posterior:
     """Reconstruct a ``Posterior`` from a cached netCDF + meta fields.
 
     Reloads the posterior ``Dataset`` (scipy engine) into a one-group
     ``DataTree`` so ``Posterior._post`` (``idata.posterior[name].stack(...)``)
     works exactly as on a fresh fit. No features/Elo recompute -- ``teams`` /
     ``likelihood`` / ``provisional_teams`` come straight from the meta JSON.
+
+    ``covariate_transforms`` (FIX 3a) is the rebuilt ``{name: CovariateTransform}``
+    from the meta JSON, so a cached (HIT) candidate Posterior applies the SAME
+    leakage-safe covariate standardization at predict that a fresh fit would —
+    WITHOUT it a hit would short-circuit to a zero offset and predict like the
+    baseline. Empty/None for a baseline fit (no covariate term), unchanged.
 
     POSTERIOR-ONLY (NETCDF3 limitation). Only the ``posterior`` group is
     persisted/reloaded; ``sample_stats`` and ``observed_data`` are NOT cached.
@@ -106,6 +149,7 @@ def _posterior_from_netcdf(path: Path, *, teams, likelihood, provisional_teams,
     return Posterior(
         idata, teams, likelihood,
         provisional_teams=set(provisional_teams), config=cfg,
+        covariate_transforms=covariate_transforms or {},
     )
 
 
@@ -181,6 +225,10 @@ def cached_fit(*, cutoff, store, backend, draws, seed, advi_iters, cache_dir,
         post = _posterior_from_netcdf(
             nc, teams=meta["teams"], likelihood=meta["likelihood"],
             provisional_teams=meta["provisional_teams"], cfg=cfg,
+            # FIX 3a: rebuild the persisted covariate transforms so a HIT predicts
+            # WITH the covariate (not a zero offset). Absent on a baseline fit (or a
+            # pre-FIX-3a meta) -> {} -> baseline behaviour, unchanged.
+            covariate_transforms=_transforms_from_meta(meta.get("covariate_transforms")),
         )
         return post, {"cache_hit": True, "key": key}
 
@@ -190,10 +238,21 @@ def cached_fit(*, cutoff, store, backend, draws, seed, advi_iters, cache_dir,
     )
     _posterior_to_netcdf(post, nc)
     # Persist teams / likelihood / provisional_teams so a HIT reconstructs the
-    # full Posterior without recomputing features/Elo.
+    # full Posterior without recomputing features/Elo. FIX 3a: also persist the
+    # leakage-safe covariate transforms (name/mean/sd/any_observed per covariate)
+    # so a HIT can APPLY the covariate at predict — without them the reconstructed
+    # Posterior would carry an empty transform map and silently predict the
+    # baseline (zero covariate offset), which would make the ablation measure
+    # nothing on a cache hit.
+    # ``getattr`` defends the rare construction path / test stub that predates the
+    # covariate machinery: a real ``Posterior`` always carries ``covariate_transforms``
+    # (empty {} on a baseline fit), so this is a no-op there and a baseline-safe
+    # default ({}) for anything else.
     meta_path.write_text(json.dumps(
         {**params, "teams": list(post.teams), "likelihood": post.likelihood,
-         "provisional_teams": sorted(post.provisional_teams)},
+         "provisional_teams": sorted(post.provisional_teams),
+         "covariate_transforms": _transforms_to_meta(
+             getattr(post, "covariate_transforms", {}))},
         indent=2, default=str,
     ))
     return post, {"cache_hit": False, "key": key}

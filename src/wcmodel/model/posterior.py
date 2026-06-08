@@ -28,18 +28,32 @@ from scipy.stats import poisson
 
 from wcmodel.config import load_config
 from wcmodel.model.likelihoods import bp_loglik_np, dc_tau_np
+# Side-wiring taxonomy: which side(s) a covariate modifies. Imported from panel
+# (numpy/pandas-only, no import cycle) so predict reuses the SAME classification
+# the fit-time _cov_offset uses — a per-team covariate reads the home value on the
+# home rate and "<name>__away" on the away rate; a per-match covariate applies the
+# single value to BOTH rates. (scoreline.py keeps its own copy of these for the
+# build path; importing from scoreline here would cycle via Posterior.)
+from wcmodel.model.panel import _PER_MATCH_COVS, _PER_TEAM_COVS
 from wcmodel.model.widening import inflate_predictive
 
 
 class Posterior:
     """Fitted scoreline posterior + per-fixture predictive scoreline grids."""
 
-    def __init__(self, idata, teams, likelihood, provisional_teams=None, config=None):
+    def __init__(self, idata, teams, likelihood, provisional_teams=None,
+                 config=None, covariate_transforms=None):
         self.idata = idata
         self.teams = list(teams)
         self._idx = {t: i for i, t in enumerate(self.teams)}
         self.likelihood = likelihood
         self.provisional_teams = set(provisional_teams or ())
+        # The leakage-safe CovariateTransform fitted PER enabled covariate on the
+        # < cutoff training rows (set by fit()). predict (T4) reuses these so the
+        # exact same standardization is applied to a future fixture's covariate —
+        # the single source of truth that keeps fit/predict consistent. Empty {}
+        # when no covariate is enabled (the baseline path).
+        self.covariate_transforms = dict(covariate_transforms or {})
         self._cfg = (config or load_config())["model"]
         # Fail loud on a bad widening config at CONSTRUCTION -- not at predict
         # time. predict_scoreline only routes through inflate_predictive (which
@@ -68,7 +82,104 @@ class Posterior:
         # the installed arviz: stack moves the new `s` dim LAST.
         return self.idata.posterior[name].stack(s=("chain", "draw")).values
 
-    def predict_scoreline(self, home, away, neutral=False, max_goals=10):
+    def _covariate_offsets(self, covariates):
+        """Per-fixture covariate offsets (home_off, away_off), each shape (S,).
+
+        Mirrors the FIT-time linear predictor (scoreline._cov_offset) at PREDICT
+        time EXACTLY: for each persisted covariate transform whose value is supplied
+        for THIS fixture, add ``beta * z * mask (+ beta_<name>_miss * (1 - mask))``
+        to the correct side's log-rate exponent — the same per-term formula fit
+        used. The transform is the PERSISTED training one (NOT re-fit on predict
+        data — re-fitting would leak / mis-scale), and the betas are READ from idata
+        via ``_post`` (the SAME params the model fitted, never re-estimated). Side
+        wiring: a per-team covariate's supplied value moves the HOME rate (``name``)
+        and its ``"<name>__away"`` value moves the AWAY rate; a per-match
+        covariate's single value moves BOTH rates.
+
+        A SUPPLIED-but-missing value (None / NaN) standardizes to ``z=0, mask=0``,
+        so the masked ``beta * z * mask`` term is 0 and the behavior depends on
+        whether the covariate carries a miss indicator (it is in
+        ``missing_indicator_for``):
+          * WITH a miss indicator (``travel_km``, ``altitude_m``): the supplied-
+            missing value contributes ``beta_<name>_miss * (1 - 0) = beta_<name>_miss``
+            — the SAME shift fit applied to a missing-feature match. This is the
+            fit/predict consistency fix: a supplied-missing covariate is NOT a true
+            zero shift when the model carries a miss intercept.
+          * WITHOUT a miss indicator (``rest_days``): there is no ``beta_<name>_miss``
+            RV, so the term reduces to ``beta * z * 0 = 0`` — an EXACT zero shift.
+        An OBSERVED value gives ``beta * z + beta_miss * 0 = beta * z`` (the miss
+        term's ``(1 - mask) == 0``). Returns ``(0.0, 0.0)`` when no covariate is
+        enabled OR ``covariates`` is None/empty — that baseline escape hatch is
+        SEPARATE from a supplied-but-missing value and stays byte-identical to the
+        baseline prediction (the caller supplies nothing -> no term on either side).
+        """
+        home_off = 0.0
+        away_off = 0.0
+        if not covariates or not self.covariate_transforms:
+            return home_off, away_off
+
+        def _term(name, raw_value):
+            # Standardize this fixture's raw value with the PERSISTED transform and
+            # build the per-side term EXACTLY as fit-time _cov_offset does:
+            #   beta * z * mask  (+ beta_<name>_miss * (1 - mask)  if the indicator exists)
+            # apply() returns (z, mask) as length-1 float arrays. A None/NaN value
+            # standardizes to z=0, mask=0, so the masked beta term is 0 either way;
+            # the miss intercept (when the covariate is in missing_indicator_for)
+            # rides (1 - mask) and therefore FIRES on a supplied-missing value — the
+            # same shift fit applied to a missing-feature match. A covariate with NO
+            # miss indicator falls back to beta * z * 0 == 0 (exact zero, unchanged).
+            # An OBSERVED value gives beta * z + beta_miss * 0 == beta * z. This
+            # mirrors fit so predict is consistent with how the betas were estimated.
+            v = np.nan if raw_value is None else raw_value
+            t = self.covariate_transforms[name]
+            z, mask = t.apply(np.array([v], dtype=float))   # (1,), (1,); NaN -> z=0,mask=0
+            beta = self._post(f"beta_{name}")               # (S,), read from idata
+            term = beta * z[0] * mask[0]                     # (S,); 0 when missing
+            miss_name = f"beta_{name}_miss"
+            if miss_name in self.idata.posterior:            # only for missing_indicator_for covs
+                term = term + self._post(miss_name) * (1.0 - mask[0])  # fires when mask==0
+            return term
+
+        for name in self.covariate_transforms:
+            if name in _PER_TEAM_COVS:
+                if name in covariates:
+                    home_off = home_off + _term(name, covariates[name])
+                away_key = f"{name}__away"
+                if away_key in covariates:
+                    away_off = away_off + _term(name, covariates[away_key])
+            elif name in _PER_MATCH_COVS:
+                if name in covariates:                       # single value -> both sides
+                    shift = _term(name, covariates[name])
+                    home_off = home_off + shift
+                    away_off = away_off + shift
+            # A persisted transform whose name is in neither side-set cannot occur:
+            # _build_covariates only fits transforms for classified covariates.
+        return home_off, away_off
+
+    @staticmethod
+    def _renorm_draw(g: np.ndarray) -> np.ndarray:
+        """Renormalize ONE per-draw scoreline grid, failing LOUD on a degenerate one.
+
+        FAIL-SAFE (defense-in-depth). A diverged/under-converged fit can push a
+        covariate offset (e.g. a large ``beta_rest_days`` on a clamped ``z``) so
+        far that ``lambda = exp(...)`` OVERFLOWS to ``inf`` -> the truncated
+        ``poisson.pmf(0..max_goals, lambda)`` underflows to all-zeros (or carries a
+        NaN), so ``g.sum()`` is ``0`` or non-finite and ``g / g.sum()`` is the
+        ``0/0 = NaN`` grid behind the original crash (the ``:196`` divide warning).
+        Such a draw's forecast is UNUSABLE: detect it and raise the SAME typed error
+        ``inflate_predictive`` raises, so the per-draw instability surfaces HONESTLY
+        at its source instead of (a) silently averaging a NaN into the mean grid and
+        crashing later in ``brentq``, or (b) being papered over by clamping lambda to
+        fabricate an all-(max,max) "forecast" that hides the divergence. The caller
+        (the ablation gate) catches the ValueError and REJECTs the unstable candidate.
+        """
+        total = g.sum()
+        if not np.isfinite(total) or total <= 0.0 or not np.all(np.isfinite(g)):
+            raise ValueError("non-finite predictive grid")
+        return g / total
+
+    def predict_scoreline(self, home, away, neutral=False, max_goals=10, covariates=None,
+                          host_factor=None):
         hi, ai = self._idx[home], self._idx[away]      # KeyError if unknown team
         att = self._post("att")
         defe = self._post("def")
@@ -77,10 +188,25 @@ class Posterior:
         S = mu.shape[-1]
         n = max_goals + 1
         xs = np.arange(n)
-        # log lambda_home = mu + home_adv*(non-neutral) + att[home] - def[away]
-        # log lambda_away = mu + att[away] - def[home]   (no home term)
-        lh = np.exp(mu + (0.0 if neutral else home_adv) + att[hi] - defe[ai])  # (S,)
-        la = np.exp(mu + att[ai] - defe[hi])                                   # (S,)
+        # Per-fixture covariate offsets via the PERSISTED transform + idata betas.
+        # (0.0, 0.0) when covariates is None/empty -> exponents byte-identical to
+        # the baseline (no covariate shift), so the default path is unchanged.
+        home_off, away_off = self._covariate_offsets(covariates)
+        # Host advantage (T5): a PREDICTION-time scalar `host_factor` (= k from config)
+        # on the ALREADY-FITTED home_adv — it adds NO new fitted parameter, never
+        # touches the likelihood/identifiability (no new RV). The 2026 hosts actually
+        # play at home, but every WC fixture is built neutral=True (home_adv zeroed);
+        # for a host's HOME game we instead carry k*home_adv. When `host_factor is not
+        # None`, the home term is `host_factor * home_adv`; else it is the existing
+        # `(0 if neutral else home_adv)` — so host_factor=None (the default) is
+        # BYTE-IDENTICAL to today's predict. The host term composes additively with the
+        # T4 covariate home_off (both add to the home log-rate exponent).
+        home_term = host_factor * home_adv if host_factor is not None else (
+            0.0 if neutral else home_adv)
+        # log lambda_home = mu + home_term + att[home] - def[away] + home_off
+        # log lambda_away = mu + att[away] - def[home] + away_off   (no home term)
+        lh = np.exp(mu + home_term + att[hi] - defe[ai] + home_off)  # (S,)
+        la = np.exp(mu + att[ai] - defe[hi] + away_off)                                   # (S,)
         grids = np.empty((S, n, n))
         if self.likelihood == "dixon_coles":
             rho = self._post("rho")
@@ -89,7 +215,7 @@ class Posterior:
                 for (x, y) in ((0, 0), (0, 1), (1, 0), (1, 1)):
                     g[x, y] *= dc_tau_np(x, y, float(lh[s]), float(la[s]), float(rho[s]))
                 g = np.clip(g, 0.0, None)            # tau<0 guard: no negative prob
-                grids[s] = g / g.sum()               # DC quasi-likelihood -> renorm
+                grids[s] = self._renorm_draw(g)      # DC quasi-likelihood -> renorm
         else:  # bivariate_poisson
             l3 = np.exp(self._post("log_lambda3"))
             for s in range(S):
@@ -102,7 +228,7 @@ class Posterior:
                         for x in range(n)
                     ]
                 )
-                grids[s] = g / g.sum()               # proper joint pmf -> renorm tail only
+                grids[s] = self._renorm_draw(g)      # proper joint pmf -> renorm tail only
         grid = grids.mean(0)                         # average across draws (param uncertainty)
         prov = (home in self.provisional_teams) or (away in self.provisional_teams)
         if self._cfg["widening"]["mechanism"] == "c" and prov:
@@ -111,8 +237,10 @@ class Posterior:
             )
         return grid / grid.sum()
 
-    def predict_1x2(self, home, away, neutral=False, max_goals=10):
-        g = self.predict_scoreline(home, away, neutral, max_goals)   # g[h, a]
+    def predict_1x2(self, home, away, neutral=False, max_goals=10, covariates=None,
+                    host_factor=None):
+        g = self.predict_scoreline(home, away, neutral, max_goals, covariates,
+                                   host_factor)                                  # g[h, a]
         return {
             "home": float(np.tril(g, -1).sum()),   # home goals > away goals (lower triangle)
             "draw": float(np.trace(g)),            # home goals == away goals (diagonal)

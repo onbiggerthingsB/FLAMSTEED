@@ -41,7 +41,7 @@ import pandas as pd
 
 from wcmodel.config import load_config
 from wcmodel.data.features import valid_played_results
-from wcmodel.data.tournament import load_tournament
+from wcmodel.data.tournament import host_factor_map, load_tournament
 from wcmodel.sim.bracket import build_bracket
 from wcmodel.sim.tournament import simulate_tournament
 
@@ -70,13 +70,29 @@ class SimConfig:
     # whose every output-determining input is unchanged is loaded from disk instead of
     # re-simulated; ``None`` (the default) always computes fresh.
     cache_dir: str | Path | None = None
+    # T5 host-advantage config (the CALLER's cfg dict, NOT the disk default). This is the
+    # SINGLE SOURCE for the host_k the sim uses to build its host_factors map: it MUST be
+    # the same cfg the dashboard fixture forecasts read, so dashboard and sim agree on
+    # host_k for one ``build_snapshot(config=...)`` call AND the sensitivity sweep
+    # (varying host_k) actually changes the sim. ``None`` -> :func:`simulate` falls back
+    # to ``load_config()`` (the disk default) for a bare ``SimConfig(...)`` direct
+    # construction; :meth:`from_config` always captures the caller cfg so the production
+    # path threads it. The cache key folds in the resulting host_factors map
+    # (``_host_factors_hash``), so distinct host_k -> distinct host_factors -> distinct
+    # key (no stale serve across host_k values).
+    config: dict | None = None
 
     @classmethod
     def from_config(cls, config: dict | None = None, *, tournament=None, seed=None,
                     n_sims=None) -> "SimConfig":
         """Build a SimConfig from the project config ``sim:`` section (production
         params). ``tournament`` defaults to ``config/tournament_2026.yaml``; ``seed``
-        falls back to the global ``config["seed"]``."""
+        falls back to the global ``config["seed"]``.
+
+        The full resolved ``cfg`` is stored on the returned ``SimConfig.config`` so
+        :func:`simulate` derives ``host_factors`` from the CALLER's cfg (its ``host_k``),
+        not the disk default — keeping dashboard and sim on the same host_k for a single
+        ``build_snapshot(config=...)`` call and making the host_k sensitivity sweep real."""
         cfg = config or load_config()
         sim = cfg["sim"]
         return cls(
@@ -86,6 +102,7 @@ class SimConfig:
             max_goals=int(sim["max_goals"]),
             et_scale=float(sim["extra_time_scale"]),
             pen_home_prob=float(sim["penalty_home_prob"]),
+            config=cfg,
         )
 
 
@@ -250,6 +267,24 @@ def simulate(cutoff, posterior, store, config: SimConfig):
     bracket = build_bracket(tournament)
     group_dates, ko_dates = _fixture_dates(tournament)
     played = _build_played(store, cutoff, group_dates, ko_dates)
+    # T5 host advantage: {(home, away): k*home_adv multiplier} for the GROUP fixtures that
+    # are host-home (a 2026 host playing at a venue in its OWN country — host_factor_map
+    # reads the draw's venues block + config hosts/host_k). Every other fixture stays
+    # neutral. An empty map (no venues block / no hosts at home) is byte-identical to the
+    # pre-T5 neutral sim. host_factor is a prediction-time scalar on the already-fitted
+    # home_adv — NO new fitted DOF, no likelihood/identifiability change.
+    #
+    # SINGLE SOURCE for host_k: the CALLER's cfg (``config.config``), NOT ``load_config()``
+    # (the disk default). This is the same cfg ``dashboard/build.py`` threads into its
+    # per-fixture ``host_home_factor`` call, so the host_k used here (sim progression +
+    # ``_host_factors_hash`` cache key) EQUALS the host_k the dashboard fixture forecasts
+    # use for the SAME ``build_snapshot(config=...)`` call — dashboard and sim never
+    # disagree, and the host_k sensitivity sweep (k in {0, 0.5, 0.7, 1.0}) genuinely
+    # changes the sim + yields a distinct cache key per k (no stale serve). A bare
+    # ``SimConfig(...)`` with no ``config`` falls back to ``load_config()`` (unchanged
+    # legacy behaviour for direct construction).
+    host_cfg = config.config if config.config is not None else load_config()
+    host_factors = host_factor_map(tournament, host_cfg)
     if config.cache_dir is not None:
         # Imported lazily so the (default) uncached path keeps no dependency on the
         # cache module / its parquet round-trip.
@@ -265,6 +300,7 @@ def simulate(cutoff, posterior, store, config: SimConfig):
             et_scale=config.et_scale,
             pen_home_prob=config.pen_home_prob,
             played=played,
+            host_factors=host_factors,
             cache_dir=config.cache_dir,
         )
         return result
@@ -277,4 +313,5 @@ def simulate(cutoff, posterior, store, config: SimConfig):
         et_scale=config.et_scale,
         pen_home_prob=config.pen_home_prob,
         played=played,
+        host_factors=host_factors,
     )

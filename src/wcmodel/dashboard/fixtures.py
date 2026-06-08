@@ -18,10 +18,15 @@ def scoreline_shortlist(grid: np.ndarray, *, top: int = 6) -> list[dict]:
 
 
 def fixture_forecast(posterior, *, home: str, away: str, neutral: bool,
-                     max_goals: int = 10, top: int = 6) -> dict:
+                     max_goals: int = 10, top: int = 6, host_factor: float | None = None) -> dict:
     """The forecast for one fixture: most-likely score (with its prob), the shortlist, the
-    full joint grid, and the 1X2 split — the score never appears without its probability."""
-    grid = posterior.predict_scoreline(home, away, neutral, max_goals)
+    full joint grid, and the 1X2 split — the score never appears without its probability.
+
+    ``host_factor`` (T5) is the prediction-time multiplier on the fitted ``home_adv`` for a
+    2026 host's HOME game (``k*home_adv``); ``None`` (the default) keeps the existing
+    ``neutral`` behaviour byte-identical. When set, it overrides the ``neutral`` flag's
+    home term inside :meth:`Posterior.predict_scoreline` (the host plays at home)."""
+    grid = posterior.predict_scoreline(home, away, neutral, max_goals, host_factor=host_factor)
     shortlist = scoreline_shortlist(grid, top=top)
     return {
         "home": home, "away": away,
@@ -29,7 +34,8 @@ def fixture_forecast(posterior, *, home: str, away: str, neutral: bool,
         "shortlist": shortlist,
         "grid": [[float(grid[h, a]) for a in range(grid.shape[1])]
                  for h in range(grid.shape[0])],
-        "one_x_two": posterior.predict_1x2(home, away, neutral, max_goals),
+        "one_x_two": posterior.predict_1x2(home, away, neutral, max_goals,
+                                           host_factor=host_factor),
     }
 
 

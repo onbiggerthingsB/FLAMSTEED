@@ -237,6 +237,63 @@ HOST_COUNTRY_BY_TEAM = {
     "Canada": "CA",
 }
 
+
+def host_home_factor(home, away, venue_city, venue_country, cfg):
+    """The T5 host-advantage multiplier for one fixture, or ``None`` for neutral ground.
+
+    Returns ``cfg["model"]["covariates"]["host_k"]`` IFF the HOME team is a 2026 host
+    nation AND the fixture's venue is in **that same host's country**; otherwise
+    ``None`` (the fixture is modelled on neutral ground — the existing WC default).
+
+    This is the focal host-detection rule the predict path consumes as ``host_factor``
+    (a prediction-time scalar on the already-fitted ``home_adv`` — NO new fitted DOF).
+    It is deliberately STRICTER than the ``ingest_wc_group_fixtures`` neutral flag (which
+    fires when EITHER team is the venue's host): host advantage accrues to the HOME team
+    only, and only at a venue in its OWN country. So:
+
+      * a host playing AWAY (the host is ``away``)        -> ``None`` (home team is not a host);
+      * a host at an OUT-OF-COUNTRY venue (USA in Mexico) -> ``None`` (venue country != USA);
+      * a non-host home team                              -> ``None`` (not a host nation);
+      * a host at an in-country venue (Mexico in Mexico)  -> ``host_k``.
+
+    ``venue_country`` is the ``{city: ISO-country}`` map built from the draw's ``venues``
+    block (see :func:`host_factor_map`). An unknown/None venue country can never match a
+    host's code, so it correctly yields ``None``. The ``away`` argument is accepted for a
+    symmetric, self-documenting signature even though the rule is HOME-only (a future
+    refinement could read it; today it is intentionally unused)."""
+    host_code = HOST_COUNTRY_BY_TEAM.get(home)
+    if host_code is None:
+        return None                       # home team is not a 2026 host nation
+    if venue_country.get(venue_city) != host_code:
+        return None                       # venue is not in the host's own country
+    return cfg["model"]["covariates"]["host_k"]
+
+
+def host_factor_map(tournament, cfg):
+    """``{(home, away): host_factor}`` for every GROUP fixture that is host-home.
+
+    Walks the tournament's group fixtures (``match is None``), resolves each fixture's
+    venue to its ISO country via the draw's ``venues`` block, and records the per-fixture
+    :func:`host_home_factor` only for the host-home ones (a neutral fixture is simply
+    absent from the map, so a lookup miss == neutral). The sim threads this map so a
+    host's home group game carries ``k*home_adv`` while every other fixture stays neutral.
+
+    A tournament dict with no ``venues`` block (e.g. a tiny synthetic test bracket) yields
+    an EMPTY country map, so no fixture is ever host-home and the map is ``{}`` — the sim
+    is then byte-identical to its neutral default. Knockout fixtures (placeholder feeders,
+    no concrete home team) are skipped: host advantage in the KO bracket is out of scope
+    for T5 (the hosts' KO venues are not pre-assigned to a host)."""
+    venue_country = {v["city"]: v.get("country") for v in tournament.get("venues", [])}
+    out = {}
+    for fx in tournament.get("fixtures", []):
+        if fx.get("match") is not None:
+            continue                      # skip knockouts (placeholder feeders, no concrete home)
+        home, away = fx.get("home"), fx.get("away")
+        factor = host_home_factor(home, away, fx.get("venue"), venue_country, cfg)
+        if factor is not None:
+            out[(home, away)] = factor
+    return out
+
 #: The ``source`` tag stamped on ingested WC-2026 schedule rows (distinct from
 #: the historical martj42 ``results`` feed).
 WC2026_SOURCE = "wc2026_schedule"

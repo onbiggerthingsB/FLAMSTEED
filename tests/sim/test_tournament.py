@@ -49,7 +49,9 @@ class _StubRB:
             self.l3 = np.array([l3])
         if rho is not None:
             self.rho = np.array([rho])
-    def rates(self, home, away, neutral, draw):
+    # Accept the T5 host_factor kwarg to mirror the real RateBook.rates signature
+    # (a host's home game carries k*home_adv); this stub is rate-fixed so it ignores it.
+    def rates(self, home, away, neutral, draw, host_factor=None):
         return self._lh, self._la
 
 
@@ -107,7 +109,7 @@ class _DetRB:
     n_draws = 1
     rho = np.array([0.0])
 
-    def rates(self, home, away, neutral, draw):
+    def rates(self, home, away, neutral, draw, host_factor=None):
         return 1.4, 1.0
 
 
