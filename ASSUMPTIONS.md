@@ -958,3 +958,71 @@ Implemented on branch `phase3-monte-carlo`.
     surfaces read these null-safely (Schedule renders a `TBD round` placeholder for a null
     stage). The dead `oddsToImplied` (`1/odds`) helper was removed — a latent recompute foothold
     with no use in a read-only viewer.
+
+## Match-context covariates + host advantage (model extension, M-T0–M-T8)
+
+A leakage-safe, ablation-gated mechanism to add match-context covariates (`rest_days`,
+`travel_km`, `altitude_m`) and a host-nation home factor to the Dixon-Coles scoreline model.
+**Shipped DORMANT: `model.covariates.enabled: []` is BYTE-IDENTICAL to the pre-covariate
+baseline** (no covariate ⇒ no offset term ⇒ identical log-rates; proven by
+`test_predict_covariates_none_is_byte_identical_to_baseline`). Nothing is live in the forecast.
+
+- **The transform is the leakage gate.** `CovariateTransform` (`model/covariates.py`)
+  standardizes each covariate on the `< cutoff` TRAINING rows only (mean/sd from observed rows,
+  ddof=1), masks a missing value's CONTRIBUTION to exactly 0 (NEVER imputes a fabricated value),
+  forces finiteness, and clamps the standardized `z` to ±10σ (a sanity bound against
+  exp-overflow on a degenerate covariate, NOT imputation). The SAME fitted transform is used at
+  fit AND predict — one source of truth, so the covariate is fit/predict-consistent and
+  point-in-time safe. The M-T6 leakage canary proves a post-cutoff covariate revision cannot
+  move an as-of-cutoff forecast (non-vacuous: positive control + revert-proof + a
+  broken-gate-fails teeth proof).
+- **β prior:** each standardized coefficient is `Normal(0, beta_scale=0.25)` — tight by design
+  (an effect on the log-goal-rate larger than ~0.25/σ is implausible). Per-team covariates
+  (`rest_days`, `travel_km`) shift the POSSESSING team's rate; per-match (`altitude_m`) shifts
+  both sides symmetrically.
+- **Host advantage:** `host_factor = host_k · home_adv` (`host_k=0.5` default) is applied to the
+  6 fixtures where a 2026 host (USA/Mexico/Canada) plays at home in-country. It REUSES the
+  already-fitted `home_adv` — **no new fitted DOF**, never touches the likelihood/identifiability.
+  Bounds: `host_k=0` ⇒ hosts neutral like everyone else; `host_k=1` ⇒ hosts get the full
+  estimated home advantage. Raising `k` monotonically lifts the three hosts' win prob in their
+  home games and (via the sim) their advance/progression odds. **The empirical `k` sensitivity
+  table + data-driven `k` tuning is DEFERRED to Phase 5** (tune `k` from real 2026 host results
+  as they arrive), per the covariate design spec; until then `k=0.5` is a documented assumption,
+  NOT a fitted value.
+
+### rest_days ablation verdict (M-T8): UNVALIDATED → keep `enabled: []`
+
+The real paired-RPS ablation (`scripts/run_real_ablation.py`, candidate `enabled=["rest_days"]`
+vs baseline `[]`, real martj42 store, walk-forward cutoffs) was run. **It is NOT shipped.**
+Honest status:
+
+- **First run crashed — no verdict.** At `advi_iters=1500` the candidate's mean-field ADVI
+  DIVERGED on the larger (later-cutoff) windows — ELBO blew up to 17k/120k/85k vs baseline's
+  stable ~7k — driving `β_rest_days` to a runaway value ⇒ `exp(log-rate)` overflow ⇒ the
+  truncated Poisson scoreline grid underflowed to all-zeros ⇒ `g/g.sum()=0/0=NaN` ⇒ the
+  NaN-blind max-entropy widening edge-guard fed a NaN to `brentq` ⇒ crash. **Root cause =
+  under-converged ADVI (the config default is 30000 iters; the run used 1500), NOT a real
+  rest_days instability and NOT an unbounded prior** (the β prior is already tight; at a
+  converged cutoff β stays sane).
+- **Interim signal (the one cutoff we could afford to refit — `2024-06-01`, seed 0):** the
+  candidate converges fine — ELBO 9,581 ≈ baseline — and **`β_rest_days = −0.20 ± 0.61`**
+  (small, credibly spanning 0; a sign that rest_days carries little independent signal once team
+  strength is in the model). One cutoff/seed is NOT a verdict, but it points to ~no lift.
+- **Fail-safes added (defense-in-depth, TDD; commits `54bb8a3` + `baead55`) so the harness is
+  now honest-by-construction:** (1) `inflate_predictive` raises a typed `ValueError` on a
+  non-finite grid instead of NaN-crashing `brentq`; (2) `predict_scoreline` guards a degenerate
+  (non-finite / sum≈0) draw grid AT SOURCE and explicitly does NOT clamp λ to fabricate a fake
+  forecast; (3) the ablation wraps both arms' predicts — a candidate that produces a non-finite
+  forecast on any common-eval fixture is recorded as a PAIRED NaN (kept paired, counted via
+  `n_unstable`, NEVER dropped) ⇒ the existing NaN→REJECT path fires with a loud per-cutoff log.
+  So an unstable candidate REJECTS honestly; it can never crash the run, fabricate a forecast, or
+  be scored on surviving fixtures (no survivorship bias).
+- **Why not shipped now:** (a) a clean RPS verdict needs well-converged fits (~30k iters ⇒
+  multi-hour/overnight compute), deferred as a documented follow-up; (b) **the ship decision is
+  CLV-gated regardless** — with no funded odds feed CLV is `None`, so the formal accept gate
+  (`mean_d>0` AND `paired_p<0.05` AND CLV-not-worse) CANNOT clear on RPS alone; (c) the interim β
+  already hints ~0 signal. Conservative, honest outcome: **`rest_days` stays `enabled: []`**
+  ("tested, not validated, not shipped"). The converged re-run + the funded-CLV gate are the
+  gated follow-ups. `scripts/run_real_ablation.py` is the committed, crash-safe recipe
+  (`advi_iters` set to the converged config default with the wall-clock caveat inline);
+  re-running it once the odds feed is funded yields the RPS + CLV verdict.
