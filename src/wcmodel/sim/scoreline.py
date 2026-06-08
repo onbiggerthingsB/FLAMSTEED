@@ -31,6 +31,12 @@ class RateBook:
         self.defe = p["def"].stack(s=("chain", "draw")).values    # (n_teams, S)
         self.mu = p["mu"].stack(s=("chain", "draw")).values        # (S,)
         self.home_adv = p["home_adv"].stack(s=("chain", "draw")).values  # (S,)
+        # Neutral-venue calibration fraction k: a neutral game scores at the AVERAGE
+        # environment (mu + k*home_adv on both sides), MIRRORING predict_scoreline so
+        # the Monte-Carlo progression sim and the per-fixture grid agree (no card-vs-
+        # progression divergence). posterior._cfg IS the `model` block, so the key is
+        # read WITHOUT a leading "model".
+        self.neutral_home_adv_fraction = posterior._cfg["neutral_home_adv_fraction"]
         self.likelihood = posterior.likelihood
         if self.likelihood == "dixon_coles":
             self.rho = p["rho"].stack(s=("chain", "draw")).values  # (S,)
@@ -39,27 +45,33 @@ class RateBook:
         self.n_draws = self.mu.shape[-1]
 
     def rates(self, home, away, neutral, draw, host_factor=None):
-        # Mirrors scoreline._rates EXACTLY:
-        #   log lambda_home = mu + home_adv*(1-neutral) + att[home] - def[away]
-        #   log lambda_away = mu +                        att[away] - def[home]
-        # home_adv enters ONLY the non-neutral home rate; away has no home term.
-        #
-        # T5 host advantage: ``host_factor`` is a PREDICTION-time scalar (= k from config)
-        # on the ALREADY-FITTED home_adv — NO new fitted parameter. The 2026 hosts actually
-        # play at home, but WC group fixtures are simulated neutral=True (home_adv zeroed);
-        # for a host's HOME game the sim instead carries k*home_adv. When ``host_factor is
-        # not None`` the home term is ``host_factor * home_adv``; else it is the existing
-        # ``(0 if neutral else home_adv)`` — so host_factor=None (the default) is
-        # byte-identical to today's rates and the canary's neutral default is unchanged.
+        # Mirrors Posterior.predict_scoreline EXACTLY (the sim-must-mirror-predict
+        # discipline) — per-side home terms (home_term, away_term):
+        #   * host_factor set (T5): the 2026 hosts play a HOME game. A PREDICTION-time
+        #     scalar (= k from config) on the ALREADY-FITTED home_adv (no new fitted
+        #     parameter). Home carries host_factor*home_adv; the opponent stays at the
+        #     away rate (away_term=0). UNCHANGED.
+        #   * neutral (CALIBRATION FIX): a truly-neutral game scores at the AVERAGE
+        #     environment — k_neutral*home_adv on BOTH sides — not the bare away rate.
+        #     This is the IDENTICAL term predict_scoreline applies, so the progression
+        #     sim and the per-fixture grid agree.
+        #   * ordinary home/away: home carries the full home_adv; away has none. UNCHANGED.
+        #   log lambda_home = mu + home_term + att[home] - def[away]
+        #   log lambda_away = mu + away_term + att[away] - def[home]
         hi, ai = self._idx[home], self._idx[away]   # KeyError on unknown team
         s = draw
-        home_term = (host_factor * self.home_adv[s] if host_factor is not None
-                     else (0.0 if neutral else self.home_adv[s]))
+        if host_factor is not None:
+            home_term, away_term = host_factor * self.home_adv[s], 0.0
+        elif neutral:
+            k_neutral = self.neutral_home_adv_fraction
+            home_term = away_term = k_neutral * self.home_adv[s]
+        else:
+            home_term, away_term = self.home_adv[s], 0.0
         lh = np.exp(
             self.mu[s] + home_term
             + self.att[hi, s] - self.defe[ai, s]
         )
-        la = np.exp(self.mu[s] + self.att[ai, s] - self.defe[hi, s])
+        la = np.exp(self.mu[s] + away_term + self.att[ai, s] - self.defe[hi, s])
         return float(lh), float(la)
 
 
