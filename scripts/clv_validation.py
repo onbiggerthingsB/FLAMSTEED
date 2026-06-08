@@ -82,11 +82,13 @@ CLV_STORE_DIR = Path("data/clv_store")
 # re-run re-spends ZERO credits; only a genuinely-new fixture triggers a pull.
 ODDS_CACHE_PATH = Path("data/clv_odds_cache.json")
 
-# --- HARD CAP (BINDING). Each pilot match costs 2 paid historical-odds calls (entry +
-# close). 8 matches x 2 = 16 paid calls. We never issue more than MAX_PAID_CALLS paid
-# historical-odds calls; the CallBudget raises before the (MAX+1)-th. The cheap events-
-# list calls (1 credit each) are budgeted separately and small. ---
-MAX_PAID_CALLS = 16
+# --- HARD CAP (BINDING). Each match costs 2 paid historical-odds calls (entry + close).
+# The pilot (8 WC matches) -> 16 paid calls. The stratified set (15 internationals across
+# 3 tiers) -> 30 paid calls (~300 credits, well under the ~19.5k-credit paid balance). We
+# NEVER issue more than the effective cap; the CallBudget raises before the (cap+1)-th paid
+# call. The cheap events-list calls (1 credit each) are budgeted separately and small. ---
+MAX_PAID_CALLS = 16                    # pilot cap (8 matches x 2)
+MAX_PAID_CALLS_STRATIFIED = 30         # stratified cap (15 matches x 2 = 30; ~300 credits)
 
 # The 8 pilot matches: 2022 FIFA World Cup, all with martj42 results. martj42 names on the
 # left (== Odds-API names after reconciliation). Kickoff times are the real UTC kickoffs.
@@ -117,7 +119,65 @@ NAME_RECONCILE = {
     "Côte d'Ivoire": "Ivory Coast",
     "Cote d'Ivoire": "Ivory Coast",
     "Korea DPR": "North Korea",
+    # Stratified additions (verified against the events-list API names printed during the
+    # coverage probe; each is a confident 1:1 spelling reconciliation, never a fuzzy guess).
+    "Bosnia & Herzegovina": "Bosnia and Herzegovina",
+    "Bosnia and Herzegovina": "Bosnia and Herzegovina",
+    "Republic of Ireland": "Republic of Ireland",
+    "North Macedonia": "North Macedonia",
 }
+
+
+# --------------------------------------------------------------------------- #
+# STRATIFIED match set — internationals across THREE market-liquidity tiers, each
+# (a) with a real martj42 result and (b) confirmed Odds-API historical coverage
+# (probed cheaply; see the coverage report). Domestic/club comps are excluded —
+# the model trains ONLY on martj42 NATIONAL-TEAM results.
+#
+# Tier ladder (sharpest -> least efficient WITH odds coverage):
+#   * marquee — UEFA Euro 2024 group/KO. The sharpest international markets after the WC.
+#   * mid     — UEFA Nations League 2024 (top European sides; liquid but a notch below a major).
+#   * thin    — FIFA World Cup qualifiers (Europe, Sep 2025), skewed to lower-profile / minnow
+#               matchups. The thinnest international markets that STILL have Odds-API depth.
+#
+# COVERAGE HONESTY: international FRIENDLIES were the intended "thinnest" tier, but the Odds API
+# has NO historical odds depth for the ``soccer_int_friendlies`` key across every tested window
+# (the key is valid — 200, not 404 — but returns n=0 events). That tier is therefore an honest
+# COVERAGE GAP; WC-qualifier minnow games are the thinnest markets we can actually score. UEFA
+# Euro/WC qualifier keys also varied: the live ``soccer_uefa_euro_qualification`` returned n=0,
+# while ``soccer_fifa_world_cup_qualifiers_europe`` has solid Sep/Oct/Nov-2025 depth.
+#
+# Each entry: (martj42_home, martj42_away, kickoff_utc_iso, tier, sport_key). The martj42 names
+# are the LEFT side of NAME_RECONCILE (== reconciled Odds-API names). Kickoffs are the real UTC
+# kickoffs (Euro/NL evening slots 18:45Z; WC-qual likewise). Each tier spans favourites /
+# underdogs / draws so per-tier RPS is not one-sided by construction.
+SPORT_EURO = "soccer_uefa_european_championship"
+SPORT_NL = "soccer_uefa_nations_league"
+SPORT_WCQ_EU = "soccer_fifa_world_cup_qualifiers_europe"
+
+STRATIFIED_MATCHES = [
+    # (home, away, kickoff_utc_iso, tier, sport_key)
+    # --- MARQUEE: UEFA Euro 2024 ---
+    ("Spain", "Croatia", "2024-06-15T16:00:00Z", "marquee", SPORT_EURO),
+    ("Italy", "Albania", "2024-06-15T19:00:00Z", "marquee", SPORT_EURO),
+    ("Serbia", "England", "2024-06-16T19:00:00Z", "marquee", SPORT_EURO),
+    ("Austria", "France", "2024-06-17T19:00:00Z", "marquee", SPORT_EURO),
+    ("Portugal", "Czech Republic", "2024-06-18T19:00:00Z", "marquee", SPORT_EURO),
+    # --- MID: UEFA Nations League 2024 ---
+    ("Belgium", "Israel", "2024-09-06T18:45:00Z", "mid", SPORT_NL),
+    ("France", "Italy", "2024-09-06T18:45:00Z", "mid", SPORT_NL),
+    ("Germany", "Hungary", "2024-09-07T18:45:00Z", "mid", SPORT_NL),
+    ("Netherlands", "Bosnia and Herzegovina", "2024-09-07T18:45:00Z", "mid", SPORT_NL),
+    ("Republic of Ireland", "England", "2024-09-07T16:00:00Z", "mid", SPORT_NL),
+    # --- THIN: FIFA World Cup qualifiers (Europe, Sep 2025) — lower-profile / minnow markets ---
+    ("Liechtenstein", "Belgium", "2025-09-04T18:45:00Z", "thin", SPORT_WCQ_EU),
+    ("Lithuania", "Malta", "2025-09-04T16:00:00Z", "thin", SPORT_WCQ_EU),
+    ("Kazakhstan", "Wales", "2025-09-04T14:00:00Z", "thin", SPORT_WCQ_EU),
+    ("Luxembourg", "Northern Ireland", "2025-09-04T18:45:00Z", "thin", SPORT_WCQ_EU),
+    ("Faroe Islands", "Croatia", "2025-09-05T18:45:00Z", "thin", SPORT_WCQ_EU),
+]
+
+TIER_ORDER = ["marquee", "mid", "thin"]
 
 
 # --------------------------------------------------------------------------- #
@@ -422,21 +482,27 @@ def _http_get(url, params, budget: CallBudget | None) -> httpx.Response:
     return resp
 
 
-def fetch_events_list(api_key: str, date_iso: str, budget: CallBudget | None = None) -> list[dict]:
+def fetch_events_list(api_key: str, date_iso: str, budget: CallBudget | None = None,
+                      *, sport: str = SPORT) -> list[dict]:
     """GET /v4/historical/sports/{sport}/events?date= — the events knowable at ``date_iso``.
-    Cheap (~1 credit). Returns the ``data`` list of {id, commence_time, home_team, away_team}."""
-    url = f"{ODDSAPI_BASE}/historical/sports/{SPORT}/events"
+    Cheap (~1 credit). Returns the ``data`` list of {id, commence_time, home_team, away_team}.
+
+    ``sport`` defaults to the WC key (so the legacy pilot/probe path is byte-identical);
+    the stratified accuracy run passes the per-tier comp key (Euro / Nations League / WC
+    qualifiers). An unknown key 404s upstream and is surfaced as a coverage gap, never a guess.
+    """
+    url = f"{ODDSAPI_BASE}/historical/sports/{sport}/events"
     resp = _http_get(url, {"apiKey": api_key, "date": date_iso}, budget)
     body = resp.json()
     return body.get("data", body) if isinstance(body, dict) else body
 
 
 def fetch_event_odds(api_key: str, event_id: str, date_iso: str, *, regions: str,
-                     budget: CallBudget) -> dict:
+                     budget: CallBudget, sport: str = SPORT) -> dict:
     """GET /v4/historical/sports/{sport}/events/{eventId}/odds?date= — one snapshot for one
     event at ``date_iso`` (h2h, decimal). PAID (~10 credits) -> charged via ``budget``.
-    Returns the parsed JSON ({timestamp, data:[event]})."""
-    url = f"{ODDSAPI_BASE}/historical/sports/{SPORT}/events/{event_id}/odds"
+    Returns the parsed JSON ({timestamp, data:[event]}). ``sport`` defaults to the WC key."""
+    url = f"{ODDSAPI_BASE}/historical/sports/{sport}/events/{event_id}/odds"
     resp = _http_get(url, {"apiKey": api_key, "date": date_iso, "markets": "h2h",
                            "regions": regions, "oddsFormat": "decimal"}, budget)
     return resp.json()
@@ -551,14 +617,15 @@ def cmd_probe(args) -> int:
 # STEP 2 pilot — the HARD-CAPPED real pull + walkforward CLV.
 # =========================================================================== #
 def _find_event_id(api_key: str, home: str, away: str, kickoff_iso: str,
-                   budget: CallBudget) -> tuple[str | None, dict | None]:
+                   budget: CallBudget, *, sport: str = SPORT) -> tuple[str | None, dict | None]:
     """Resolve the Odds-API event id for one fixture via a cheap events-list call at
     kickoff-3h (events knowable then). Matches on reconciled (home, away, date). Returns
     (event_id, raw_event) or (None, None) -> coverage gap. The events-list call is cheap
-    (~1 credit) and charged against the budget too (defense-in-depth)."""
+    (~1 credit) and charged against the budget too (defense-in-depth). ``sport`` selects the
+    comp (WC / Euro / Nations League / WC-qualifiers) for the stratified run."""
     kickoff = datetime.fromisoformat(kickoff_iso.replace("Z", "+00:00"))
     list_date = (kickoff - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    events = fetch_events_list(api_key, list_date, budget)
+    events = fetch_events_list(api_key, list_date, budget, sport=sport)
     for ev in events:
         try:
             ck = (_canon(ev["home_team"]), _canon(ev["away_team"]), ev["commence_time"][:10])
@@ -840,7 +907,8 @@ def _result_outcome(home_score: int, away_score: int) -> str:
 
 
 def _resolve_sample_from_cache_or_pull(home, away, ko, *, api_key, book, regions,
-                                       paid_budget, list_budget, cache, allow_pull):
+                                       paid_budget, list_budget, cache, allow_pull,
+                                       sport=SPORT):
     """Return a REAL ``{entry, close}`` price record for one fixture.
 
     Cache-first: if the gitignored odds cache already holds this fixture's
@@ -848,7 +916,12 @@ def _resolve_sample_from_cache_or_pull(home, away, ko, *, api_key, book, regions
     Otherwise — and ONLY if ``allow_pull`` and the hard-capped budgets permit — we
     pull it via the SAME gated historical adapter the pilot uses, persist it, and
     return it. Returns ``(record, status)`` where status is one of
-    ``cache|pulled|gap:<reason>|budget``."""
+    ``cache|pulled|gap:<reason>|budget``.
+
+    ``sport`` selects the comp endpoint for the pull (WC / Euro / Nations League /
+    WC-qualifiers). The CACHE KEY stays ``home|away|date|regions|book`` (no sport):
+    (home, away, date) is unique per fixture across comps, so this is back-compatible
+    with the already-cached WC-2022 records (re-runs of those re-spend ZERO credits)."""
     ck = _odds_cache_key(home, away, ko, regions, book)
     if ck in cache:
         return cache[ck], "cache"
@@ -856,7 +929,7 @@ def _resolve_sample_from_cache_or_pull(home, away, ko, *, api_key, book, regions
         return None, "gap:not_cached_no_pull"
 
     try:
-        event_id, _ev = _find_event_id(api_key, home, away, ko, list_budget)
+        event_id, _ev = _find_event_id(api_key, home, away, ko, list_budget, sport=sport)
     except httpx.HTTPStatusError as exc:
         return None, f"gap:events_list_http_{exc.response.status_code}"
     if event_id is None:
@@ -869,9 +942,9 @@ def _resolve_sample_from_cache_or_pull(home, away, ko, *, api_key, book, regions
     close_date = (kickoff - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         entry_raw = fetch_event_odds(api_key, event_id, entry_date, regions=regions,
-                                     budget=paid_budget)
+                                     budget=paid_budget, sport=sport)
         close_raw = fetch_event_odds(api_key, event_id, close_date, regions=regions,
-                                     budget=paid_budget)
+                                     budget=paid_budget, sport=sport)
     except httpx.HTTPStatusError as exc:
         return None, f"gap:event_odds_http_{exc.response.status_code}"
 
@@ -890,7 +963,7 @@ def _resolve_sample_from_cache_or_pull(home, away, ko, *, api_key, book, regions
         "entry_ts": entry_snap["timestamp"], "close_ts": close_snap["timestamp"],
         "entry_book": _which_book(entry_snap["data"][0], book),
         "close_book": _which_book(close_snap["data"][0], book),
-        "regions": regions, "bookmaker": book,
+        "regions": regions, "bookmaker": book, "sport": sport,
     }
     cache[ck] = record
     return record, "pulled"
@@ -908,15 +981,29 @@ def cmd_accuracy(args) -> int:
     floor is ``rps`` on the (1/3,1/3,1/3) uniform. Credits: ZERO if the odds cache
     already covers the pilot matches; else a hard-capped pull that is then cached.
     """
+    match_set = getattr(args, "match_set", "pilot")
+    is_stratified = match_set == "stratified"
     print("=" * 78)
-    print("STEP 4 — ACCURACY: model RPS vs MARKET (de-vigged close) RPS vs UNIFORM")
+    if is_stratified:
+        print("STEP 4 — STRATIFIED ACCURACY: model RPS vs MARKET (de-vigged close) vs UNIFORM")
+        print("            across THREE market-liquidity tiers (marquee / mid / thin)")
+    else:
+        print("STEP 4 — ACCURACY: model RPS vs MARKET (de-vigged close) RPS vs UNIFORM")
     print("=" * 78)
     cfg = load_config()
     book = cfg["backtest"]["primary_bookmaker"]
     regions = "eu"
     devig = cfg["backtest"]["devig_method"]
-    n_matches = min(args.matches, len(PILOT_MATCHES))
     allow_pull = bool(args.pull)
+
+    # Resolve the match set. The PILOT path is byte-identical to before (WC-2022, single
+    # comp, no tier). The STRATIFIED path carries a per-match (tier, sport_key).
+    if is_stratified:
+        match_specs = [(h, a, ko, tier, sp) for (h, a, ko, tier, sp) in STRATIFIED_MATCHES]
+    else:
+        match_specs = [(h, a, ko, "pilot", SPORT) for (h, a, ko) in PILOT_MATCHES]
+    n_matches = min(args.matches, len(match_specs))
+    match_specs = match_specs[:n_matches]
 
     # Persistent store + shared on-disk caches => a 2nd run re-fits NOTHING.
     store = get_persistent_store(rebuild=bool(args.rebuild_store))
@@ -929,13 +1016,21 @@ def cmd_accuracy(args) -> int:
           f"(pull={'ON (hard-capped)' if allow_pull else 'OFF — cache-only, ZERO credits'})")
 
     api_key = _load_env_key() if allow_pull else None
-    paid_budget = CallBudget(max_calls=min(MAX_PAID_CALLS, 2 * n_matches))
+    # HARD CAP: <= cap paid event-odds calls, period (2 per match — entry+close). The cap
+    # is MAX_PAID_CALLS_STRATIFIED (30, for 15 matches) on the stratified set, else the
+    # pilot cap MAX_PAID_CALLS (16). The CallBudget STOPS before the (cap+1)-th paid call,
+    # so it can NEVER over-call the paid historical feed (binding credit discipline).
+    cap_ceiling = MAX_PAID_CALLS_STRATIFIED if is_stratified else MAX_PAID_CALLS
+    paid_budget = CallBudget(max_calls=min(cap_ceiling, 2 * n_matches))
     list_budget = CallBudget(max_calls=n_matches + 2)
+    print(f"[budget] HARD CAP: <= {paid_budget.max_calls} paid event-odds calls "
+          f"(~{paid_budget.max_calls * 10} credits) over {n_matches} matches; "
+          f"<= {list_budget.max_calls} cheap events-list calls.")
 
     rows: list[dict] = []
     gaps: list[str] = []
-    for home, away, ko in PILOT_MATCHES[:n_matches]:
-        label = f"{home} v {away} ({ko[:10]})"
+    for home, away, ko, tier, sport in match_specs:
+        label = f"[{tier}] {home} v {away} ({ko[:10]})"
         r = played[(played.home_team == home) & (played.away_team == away)
                    & (played.date == pd.Timestamp(ko[:10]))]
         if r.empty:
@@ -944,13 +1039,13 @@ def cmd_accuracy(args) -> int:
         rec, status = _resolve_sample_from_cache_or_pull(
             home, away, ko, api_key=api_key, book=book, regions=regions,
             paid_budget=paid_budget, list_budget=list_budget, cache=cache,
-            allow_pull=allow_pull)
+            allow_pull=allow_pull, sport=sport)
         if rec is None:
             gaps.append(f"{label} [{status}]")
             continue
         rr = r.iloc[0]
         rows.append({
-            "home": home, "away": away, "ko": ko, "rec": rec,
+            "home": home, "away": away, "ko": ko, "rec": rec, "tier": tier, "sport": sport,
             "home_score": int(rr.home_score), "away_score": int(rr.away_score),
             "tournament": rr.tournament, "status": status,
         })
@@ -997,6 +1092,7 @@ def cmd_accuracy(args) -> int:
         by_cutoff.setdefault(str(cutoff), []).append(row)
 
     n_advi_fits = 0
+    leakage_lines: list[str] = []
     for cutoff_str in sorted(by_cutoff):
         cutoff = pd.Timestamp(cutoff_str)
         post, meta = _model_cache.cached_fit(
@@ -1006,19 +1102,34 @@ def cmd_accuracy(args) -> int:
         )
         if not meta["cache_hit"]:
             n_advi_fits += 1
+        # LEAKAGE PROOF (per cutoff): the max martj42 training date < the matchday cutoff.
+        # ``cached_fit`` reads ``store.read(cutoff)`` then ``features.build`` restricts to
+        # ``< cutoff_day`` — so the realised matchday results can NEVER be in the train set.
+        asof = store.read("results", cutoff=cutoff_str)
+        asof_dates = pd.to_datetime(asof["date"])
+        train = valid_played_results(asof.assign(date=asof_dates))
+        max_train_date = pd.to_datetime(train["date"])
+        max_train_date = max_train_date[max_train_date < cutoff].max()
+        assert max_train_date < cutoff, (
+            f"LEAKAGE: training max {max_train_date} not < cutoff {cutoff}")
+        leakage_lines.append(
+            f"  [ok] cutoff={cutoff.date()}: max training date < cutoff = "
+            f"{max_train_date.date()} (strictly < matchday). Realised matchday results "
+            "NOT in train.")
         for row in by_cutoff[cutoff_str]:
             home, away = row["home"], row["away"]
             try:
                 model = model_fair_1x2(post, home=home, away=away, neutral=True)
             except KeyError:
-                gaps.append(f"{home} v {away} ({row['ko'][:10]}) [no model price]")
+                gaps.append(f"[{row['tier']}] {home} v {away} ({row['ko'][:10]}) "
+                            "[no model price]")
                 continue
             close = market_fair_1x2(row["rec"]["close"], method=devig)
             outcome = _result_outcome(row["home_score"], row["away_score"])
             per_match.append({
-                "home": home, "away": away, "date": row["ko"][:10],
+                "home": home, "away": away, "date": row["ko"][:10], "tier": row["tier"],
                 "result": f"{row['home_score']}-{row['away_score']}", "outcome": outcome,
-                "model": model, "market": close,
+                "model": model, "market": close, "rec": row["rec"],
                 "rps_model": rps(model, outcome),
                 "rps_market": rps(close, outcome),
                 "rps_uniform": rps(UNIFORM_1X2, outcome),
@@ -1030,6 +1141,29 @@ def cmd_accuracy(args) -> int:
         for g in gaps:
             print(f"  [gap] {g}")
         return 3
+
+    # --- LEAKAGE PROOF #1: max training date < matchday cutoff (printed per cutoff). ---
+    print("\n" + "=" * 78)
+    print("LEAKAGE PROOF #1 — max martj42 training date < matchday cutoff (per cutoff)")
+    print("=" * 78)
+    for ln in leakage_lines:
+        print(ln)
+
+    # --- LEAKAGE PROOF #2: entry_ts < close_ts <= kickoff per matched fixture (odds). ---
+    print("\n" + "=" * 78)
+    print("LEAKAGE PROOF #2 — entry_ts < close_ts <= kickoff per matched fixture (odds)")
+    print("=" * 78)
+    odds_leak_ok = True
+    for pm in per_match:
+        rec = pm["rec"]
+        et = datetime.fromisoformat(rec["entry_ts"].replace("Z", "+00:00"))
+        ct = datetime.fromisoformat(rec["close_ts"].replace("Z", "+00:00"))
+        ko = datetime.fromisoformat(rec["kickoff"].replace("Z", "+00:00"))
+        ok = et < ct <= ko
+        odds_leak_ok = odds_leak_ok and ok
+        print(f"  [{'ok' if ok else 'FAIL'}] [{pm['tier']}] {pm['home']} v {pm['away']}: "
+              f"entry {et} < close {ct} <= kickoff {ko}")
+    assert odds_leak_ok, "LEAKAGE: an odds sample failed entry_ts < close_ts <= kickoff"
 
     # --- Per-match table (sorted by the model's RPS — worst model miss first). ---
     print("\n" + "=" * 78)
@@ -1051,9 +1185,68 @@ def cmd_accuracy(args) -> int:
     agg_uniform = sum(p["rps_uniform"] for p in per_match) / n
     n_beat = sum(1 for p in per_match if p["rps_model"] < p["rps_market"] - 1e-9)
 
+    # --- PER-TIER breakdown (the map of where the model stands by market liquidity). The
+    #     key question: does the model-minus-market gap SHRINK on thinner markets (mid/thin)
+    #     vs the sharpest marquee tier? A per-tier model-beats-market is the AMBER guard. ---
+    if is_stratified:
+        present_tiers = [t for t in TIER_ORDER if any(p["tier"] == t for p in per_match)]
+        print("\n" + "=" * 78)
+        print("PER-TIER RPS (mean; lower = better) — the liquidity-stratified map")
+        print("=" * 78)
+        print(f"  {'tier':<9} {'n':>3} {'mRPS':>8} {'mktRPS':>8} {'uniRPS':>8} "
+              f"{'m-mkt':>8} {'beat':>6}")
+        print("  " + "-" * 60)
+        tier_amber: list[str] = []
+        for t in present_tiers:
+            tp = [p for p in per_match if p["tier"] == t]
+            tn = len(tp)
+            tm = sum(p["rps_model"] for p in tp) / tn
+            tk = sum(p["rps_market"] for p in tp) / tn
+            tu = sum(p["rps_uniform"] for p in tp) / tn
+            tb = sum(1 for p in tp if p["rps_model"] < p["rps_market"] - 1e-9)
+            tgap = tm - tk
+            print(f"  {t:<9} {tn:>3} {tm:>8.4f} {tk:>8.4f} {tu:>8.4f} {tgap:>+8.4f} "
+                  f"{tb:>3}/{tn}")
+            if tgap < 0:
+                tier_amber.append(
+                    f"{t}: model beat de-vigged ceiling by {-tgap:.4f} RPS (n={tn})")
+        print("\n  Reading: model-minus-market gap (m-mkt) is the headline. A POSITIVE gap = the "
+              "sharp\n  market is more accurate (expected). The question is whether the gap "
+              "SHRINKS\n  marquee -> mid -> thin (the model closing on the market where the "
+              "market is\n  less efficient). A NEGATIVE per-tier gap is the AMBER guard (below).")
+        if tier_amber:
+            print("\n  [AMBER] a tier shows the model BEATING the de-vigged market ceiling:")
+            for a in tier_amber:
+                print(f"    - {a}")
+            print("    On these per-tier n (tiny) a beat-the-ceiling is MORE LIKELY a "
+                  "leakage / de-vig\n    bug than skill. HAND-CHECK before trusting — NOT a "
+                  "win. (See worst-miss tables.)")
+        else:
+            print("\n  [ok] no tier shows the model beating the de-vigged ceiling — the "
+                  "market is at/near\n  the accuracy ceiling in every tier, as expected.")
+
+        # --- Per-tier worst model misses (largest model RPS) — model vs market vs result. ---
+        print("\n" + "=" * 78)
+        print("WORST MODEL MISSES per tier (largest model RPS): model 1X2 vs market vs result")
+        print("=" * 78)
+        for t in present_tiers:
+            tp = sorted((p for p in per_match if p["tier"] == t),
+                        key=lambda x: x["rps_model"], reverse=True)
+            print(f"\n  --- {t} (top {min(3, len(tp))} worst) ---")
+            for pm in tp[:3]:
+                mdl = {k: round(pm["model"][k], 3) for k in OUTCOMES}
+                mkt = {k: round(pm["market"][k], 3) for k in OUTCOMES}
+                print(f"  {pm['home']} v {pm['away']} ({pm['date']})  result "
+                      f"{pm['result']} ({pm['outcome']})")
+                print(f"    model 1X2 ={mdl}  RPS={pm['rps_model']:.4f}")
+                print(f"    market1X2 ={mkt}  RPS={pm['rps_market']:.4f}  "
+                      f"(m-mkt {pm['rps_model'] - pm['rps_market']:+.4f})")
+
+    set_label = ("stratified internationals (marquee/mid/thin)" if is_stratified
+                 else "2022-WC fixtures")
     rps_label = f"  [{coarse_tag}]" if is_coarse else ""
     print("\n" + "=" * 78)
-    print(f"AGGREGATE RPS over n={n} matched 2022-WC fixtures (mean; lower = better)"
+    print(f"AGGREGATE RPS over n={n} matched {set_label} (mean; lower = better)"
           + (f"  {coarse_tag}" if is_coarse else ""))
     print("=" * 78)
     print(f"  model   RPS : {agg_model:.4f}{rps_label}")
@@ -1139,14 +1332,20 @@ def main() -> int:
                     help="number of pilot matches (<= 8; each costs 2 paid calls)")
     ap_acc = sub.add_parser("accuracy",
                             help="model RPS vs market(close) RPS vs uniform (cache-first, ZERO credits unless --pull)")
-    ap_acc.add_argument("--matches", type=int, default=8,
-                        help="number of pilot matches to score (<= 8)")
+    ap_acc.add_argument("--match-set", choices=["pilot", "stratified"], default="pilot",
+                        help="pilot = the 8 WC-2022 marquee matches (default); stratified = "
+                             "the tier-tagged internationals (marquee Euro-2024 / mid Nations-"
+                             "League / thin WC-qualifiers) with per-tier + overall RPS")
+    ap_acc.add_argument("--matches", type=int, default=20,
+                        help="cap on matches to score (pilot <= 8; stratified <= 15)")
     ap_acc.add_argument("--pull", action="store_true",
                         help="allow a HARD-CAPPED real pull for fixtures not in the odds cache (else cache-only, ZERO credits)")
     ap_acc.add_argument("--fast", action="store_true",
                         help="COARSE smoke fit (advi_iters=2000, draws=200) — NOT production; every printed RPS is labelled COARSE-FIT. Default is PRODUCTION fidelity from cfg['model']['inference'].")
     ap_acc.add_argument("--draws", type=int, default=None,
                         help="override ADVI draws for the per-cutoff fit (default: cfg['model']['inference']['draws'], i.e. production)")
+    ap_acc.add_argument("--advi-iters", dest="advi_iters", type=int, default=None,
+                        help="override ADVI iterations for the per-cutoff fit (only with --fast; default 2000 coarse)")
     ap_acc.add_argument("--rebuild-store", action="store_true",
                         help="force-rebuild the persistent martj42 store (default: reuse if present)")
     args = ap.parse_args()
