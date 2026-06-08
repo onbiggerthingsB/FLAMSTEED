@@ -1,5 +1,7 @@
 import numpy as np
-from wcmodel.backtest.totals_backtest import score_totals_row, _settle_total
+from wcmodel.backtest.totals_backtest import (
+    score_totals_row, _settle_total, calibration_table,
+)
 
 
 class _StubPost:
@@ -29,3 +31,17 @@ def test_score_totals_row_settles_and_clv():
     assert b["won"] is True
     assert b["clv"] > 0.0                                                     # 2.10 entry vs 1.90 close
     assert b["pnl"] > 0.0                                                     # winning bet, positive pnl
+
+
+def test_calibration_table_bins_predicted_vs_realized():
+    # 4 fixtures at line 2.5; model P(over) vs whether over actually hit.
+    rows = [
+        {"line": 2.5, "p_over": 0.9, "over_hit": True},
+        {"line": 2.5, "p_over": 0.8, "over_hit": True},
+        {"line": 2.5, "p_over": 0.2, "over_hit": False},
+        {"line": 2.5, "p_over": 0.1, "over_hit": False},
+    ]
+    tab = calibration_table(rows, bins=[0.0, 0.5, 1.0])
+    # high-prob bin (>0.5): 2 fixtures, both hit -> observed 1.0; mean predicted ~0.85
+    hi = tab[(0.5, 1.0)]
+    assert hi["n"] == 2 and hi["observed"] == 1.0 and 0.8 <= hi["predicted"] <= 0.9

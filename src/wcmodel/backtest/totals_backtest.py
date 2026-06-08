@@ -60,3 +60,23 @@ def aggregate_totals(scored: list[dict]) -> dict:
     for L in sorted({b["line"] for b in bets}):
         by_line[L] = _agg([b for b in bets if b["line"] == L])
     return {"overall": _agg(bets), "by_line": by_line}
+
+
+def calibration_table(rows: list[dict], bins=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0)) -> dict:
+    """Reliability table for the model's P(over) vs realized over-rate, per predicted-prob bin.
+
+    ``rows``: ``[{"line","p_over","over_hit"}]`` (one per scorable fixture/line — NOT only bet ones,
+    so the diagnostic is unbiased by the bet filter). Returns ``{(lo, hi): {n, predicted, observed}}``
+    where predicted = mean model P(over) in the bin, observed = realized over-rate. Under-confidence
+    shows as predicted pulled toward 0.5 vs a more extreme observed.
+    """
+    edges = list(bins)
+    out: dict[tuple, dict] = {}
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        b = [r for r in rows if (lo <= r["p_over"] < hi) or (hi == edges[-1] and r["p_over"] == hi)]
+        if not b:
+            continue
+        out[(lo, hi)] = {"n": len(b),
+                         "predicted": float(np.mean([r["p_over"] for r in b])),
+                         "observed": float(np.mean([1.0 if r["over_hit"] else 0.0 for r in b]))}
+    return out
