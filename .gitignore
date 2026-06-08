@@ -24,3 +24,8 @@ venv/
 .env
 .env.*
 !.env.example
+
+# Paper ledgers (PAPER signal-only; never committed). The scanner appends +EV picks here;
+# the realized-CLV settle layer reads/extends it. The SCANNER is committed, the ledger is not.
+/reports/totals_paper_ledger.jsonl
+/reports/live_paper_ledger.jsonl
