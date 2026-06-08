@@ -128,6 +128,70 @@ def test_predict_scoreline_rejects_degenerate_overflow_grid():
         post.predict_scoreline("A", "B", neutral=True, max_goals=6)
 
 
+def _expected_dc_grid(mu, home_term, away_term, rho, n):
+    """Reference DC scoreline grid for a stub posterior (att=def=0, no covariates,
+    no widening), built straight from the rate definitions — the SAME arithmetic
+    predict_scoreline uses, so a match proves byte-identity of a given branch."""
+    from scipy.stats import poisson
+
+    from wcmodel.model.likelihoods import dc_tau_np
+    lh = np.exp(mu + home_term)
+    la = np.exp(mu + away_term)
+    xs = np.arange(n)
+    g = poisson.pmf(xs, lh)[:, None] * poisson.pmf(xs, la)[None, :]
+    for (x, y) in ((0, 0), (0, 1), (1, 0), (1, 1)):
+        g[x, y] *= dc_tau_np(x, y, float(lh), float(la), float(rho))
+    g = np.clip(g, 0.0, None)
+    g = g / g.sum()
+    return g / g.sum()
+
+
+def test_predict_scoreline_neutral_uses_average_environment():
+    """[LOAD-BEARING] A neutral game must score at the AVERAGE environment
+    ``mu + k*home_adv`` on BOTH sides (k = neutral_home_adv_fraction = 0.5), NOT the
+    bare away rate ``mu``. So E[total] rises to ~``2*exp(mu + 0.5*home_adv)`` (the
+    −0.34 g/game neutral under-prediction fix), while the non-neutral and host_factor
+    paths stay BYTE-IDENTICAL to the pre-fix code (the fix touches ONLY the neutral
+    branch). Hand-built stub posterior (NO sampling): att=def=0, scalar mu/home_adv/rho.
+    """
+    teams = ["A", "B"]
+    mu_v, ha_v = 0.10, 0.30
+    posterior = {
+        "att": np.zeros((1, 2, 2)),
+        "def": np.zeros((1, 2, 2)),
+        "mu": np.full((1, 2), mu_v),
+        "home_adv": np.full((1, 2), ha_v),
+        "rho": np.zeros((1, 2)),
+    }
+    idata = az.from_dict({"posterior": posterior})
+    post = Posterior(idata, teams, "dixon_coles", provisional_teams=set())
+    k = load_config()["model"]["neutral_home_adv_fraction"]
+    n = 11  # default max_goals=10 -> 11x11 grid
+
+    def e_total(g):
+        tot = np.arange(g.shape[0])[:, None] + np.arange(g.shape[1])[None, :]
+        return float((tot * g).sum())
+
+    # NEUTRAL (FIX): both sides at mu + k*home_adv -> E[total] ~ 2*exp(mu + k*home_adv).
+    g_neutral = post.predict_scoreline("A", "B", neutral=True)
+    exp_neutral_grid = _expected_dc_grid(mu_v, k * ha_v, k * ha_v, 0.0, n)
+    assert np.array_equal(g_neutral, exp_neutral_grid)
+    # The mean E[total] equals the analytic 2*exp(mu + k*home_adv) (DC tau is mean-
+    # preserving; the only deviation is the negligible finite-grid (max_goals=10)
+    # tail truncation, ~1e-5 at these small rates).
+    assert e_total(g_neutral) == pytest.approx(2 * np.exp(mu_v + k * ha_v), abs=1e-4)
+    # It is STRICTLY ABOVE the buggy away-rate total 2*exp(mu) — the actual fix.
+    assert e_total(g_neutral) > 2 * np.exp(mu_v) + 1e-6
+
+    # NON-NEUTRAL: UNCHANGED — home term = full home_adv, away term = 0 (byte-identical).
+    g_nonneutral = post.predict_scoreline("A", "B", neutral=False)
+    assert np.array_equal(g_nonneutral, _expected_dc_grid(mu_v, ha_v, 0.0, 0.0, n))
+
+    # HOST_FACTOR set: UNCHANGED — home term = host_factor*home_adv, away term = 0.
+    g_host = post.predict_scoreline("A", "B", host_factor=0.5)
+    assert np.array_equal(g_host, _expected_dc_grid(mu_v, 0.5 * ha_v, 0.0, 0.0, n))
+
+
 def test_renorm_draw_is_byte_identical_for_a_healthy_grid():
     """BASELINE BYTE-IDENTITY (revert-proof): the degenerate-grid guard
     (``Posterior._renorm_draw``) must be BIT-FOR-BIT the old ``g / g.sum()`` on any

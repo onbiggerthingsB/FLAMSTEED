@@ -449,20 +449,39 @@ def test_host_factor_applies_partial_home_advantage(small_store):
 
 @pytest.mark.slow
 def test_host_factor_one_equals_non_neutral_and_zero_equals_neutral(small_store):
-    # host_factor is EXACTLY a scalar on home_adv: k=1.0 reproduces the non-neutral
-    # (full home_adv) grid byte-for-byte, and k=0.0 reproduces the neutral grid. This
-    # pins host_factor to home_adv with no other moving part (the focal identifiability
-    # claim: the only knob is k; home_adv is reused, never re-estimated).
+    # host_factor is EXACTLY a scalar on the HOME side's home_adv: k=1.0 reproduces
+    # the non-neutral (full home_adv) grid byte-for-byte, and k=0.0 reproduces the
+    # bare-away grid (no home term on either side). This pins host_factor to home_adv
+    # with no other moving part (the focal identifiability claim: the only knob is k;
+    # home_adv is reused, never re-estimated).
+    #
+    # NB after the neutral-venue calibration fix, host_factor=0.0 is NO LONGER the
+    # same as neutral=True: a truly-neutral game now scores at the AVERAGE environment
+    # (k_neutral*home_adv on BOTH sides), whereas host_factor=0.0 zeros the home term
+    # on the home side only (the away side never had one). So neutral=True sits strictly
+    # above host_factor=0.0 in expected total. We assert that contrast explicitly.
+    from wcmodel.config import load_config
     from wcmodel.model.scoreline import fit
     post = fit("2024-06-01", small_store, backend="advi", draws=60,
                advi_iters=800, seed=0)
     a, b = list(post._idx)[:2]
     g_full = post.predict_scoreline(a, b, neutral=False)
     g_k1 = post.predict_scoreline(a, b, host_factor=1.0)
-    g_neutral = post.predict_scoreline(a, b, neutral=True)
     g_k0 = post.predict_scoreline(a, b, host_factor=0.0)
+    g_neutral = post.predict_scoreline(a, b, neutral=True)
     assert np.array_equal(g_full, g_k1)                            # k=1 == full home_adv
-    assert np.array_equal(g_neutral, g_k0)                         # k=0 == neutral
+
+    def e_total(g):
+        tot = np.arange(g.shape[0])[:, None] + np.arange(g.shape[1])[None, :]
+        return float((tot * g).sum())
+    # host_factor=0.0 -> bare away rate on both sides; neutral=True -> average
+    # environment (k_neutral*home_adv on both), so neutral scores strictly more.
+    k_neutral = load_config()["model"]["neutral_home_adv_fraction"]
+    assert k_neutral > 0
+    assert e_total(g_neutral) > e_total(g_k0) + 1e-9
+    # And host_factor=0.0 is the no-home-term grid (the OLD neutral handling).
+    g_k0_full = post.predict_scoreline(a, b, host_factor=0.0)
+    assert np.array_equal(g_k0, g_k0_full)
 
 
 @pytest.mark.slow

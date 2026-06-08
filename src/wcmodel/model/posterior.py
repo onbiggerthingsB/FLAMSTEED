@@ -192,21 +192,36 @@ class Posterior:
         # (0.0, 0.0) when covariates is None/empty -> exponents byte-identical to
         # the baseline (no covariate shift), so the default path is unchanged.
         home_off, away_off = self._covariate_offsets(covariates)
-        # Host advantage (T5): a PREDICTION-time scalar `host_factor` (= k from config)
-        # on the ALREADY-FITTED home_adv — it adds NO new fitted parameter, never
-        # touches the likelihood/identifiability (no new RV). The 2026 hosts actually
-        # play at home, but every WC fixture is built neutral=True (home_adv zeroed);
-        # for a host's HOME game we instead carry k*home_adv. When `host_factor is not
-        # None`, the home term is `host_factor * home_adv`; else it is the existing
-        # `(0 if neutral else home_adv)` — so host_factor=None (the default) is
-        # BYTE-IDENTICAL to today's predict. The host term composes additively with the
-        # T4 covariate home_off (both add to the home log-rate exponent).
-        home_term = host_factor * home_adv if host_factor is not None else (
-            0.0 if neutral else home_adv)
+        # Venue environment -> per-side home terms (home_term, away_term).
+        #   * host_factor set (T5): the 2026 hosts actually play a HOME game. A
+        #     PREDICTION-time scalar `host_factor` (= k from config) on the ALREADY-
+        #     FITTED home_adv — adds NO fitted parameter, never touches the
+        #     likelihood/identifiability. Home carries host_factor*home_adv; the
+        #     opponent stays at the away rate (away_term=0). UNCHANGED.
+        #   * neutral (CALIBRATION FIX): a truly-neutral game has NO host, so it
+        #     should score at the AVERAGE environment, not the away rate. Add
+        #     k_neutral*home_adv to BOTH sides (split the home edge evenly). This
+        #     raises E[total] to ~2*exp(mu + k*home_adv) and fixes the −0.34 g/game
+        #     neutral under-prediction; the boost is symmetric so 1X2 ~unchanged.
+        #     k_neutral = self._cfg["neutral_home_adv_fraction"] (self._cfg IS the
+        #     `model` block — see __init__ and the widening read below — so the key
+        #     is read WITHOUT a leading "model").
+        #   * ordinary home/away: home carries the full fitted home_adv; the away
+        #     side has no home term. UNCHANGED.
+        # A fixture is EITHER host-home OR neutral OR ordinary, so there is no
+        # conflict; the fix applies ONLY to the neutral branch (host_factor=None and
+        # neutral=True). host_factor=None + neutral=False stays byte-identical.
+        if host_factor is not None:
+            home_term, away_term = host_factor * home_adv, 0.0
+        elif neutral:
+            k_neutral = self._cfg["neutral_home_adv_fraction"]
+            home_term = away_term = k_neutral * home_adv
+        else:
+            home_term, away_term = home_adv, 0.0
         # log lambda_home = mu + home_term + att[home] - def[away] + home_off
-        # log lambda_away = mu + att[away] - def[home] + away_off   (no home term)
+        # log lambda_away = mu + away_term + att[away] - def[home] + away_off
         lh = np.exp(mu + home_term + att[hi] - defe[ai] + home_off)  # (S,)
-        la = np.exp(mu + att[ai] - defe[hi] + away_off)                                   # (S,)
+        la = np.exp(mu + away_term + att[ai] - defe[hi] + away_off)  # (S,)
         grids = np.empty((S, n, n))
         if self.likelihood == "dixon_coles":
             rho = self._post("rho")
