@@ -49,6 +49,37 @@ def test_m1_exact_ratings():
     assert a == pytest.approx(1508.6384400047307)   # 2-0 friendly, non-neutral (ha=100), K=16, G=1.5
     assert b == pytest.approx(1491.3615599952693)
 
+def test_elo_is_input_row_order_invariant():
+    """Reproducibility fix: ``compute_elo_history`` sorts by ``(date, match_id)``,
+    a TOTAL order fixed by content — so a SHUFFLED input frame yields the IDENTICAL
+    ratings/flags. Before the fix the sort was stable-on-``date`` only, so same-date
+    matches kept the incoming row order; the upstream DuckDB ``store.read`` returns
+    rows in a process-unstable order, which made the SAME data produce slightly
+    different ratings + ``provisional`` flags run-to-run and flipped the content-
+    addressed feature/posterior cache key (forcing a full re-fit every re-run).
+
+    Two SAME-DATE matches that share a team (so Elo is genuinely path-dependent
+    within the day) make this bite: the two input orderings would diverge under
+    the old stable-date sort, and must now agree exactly."""
+    rows = [
+        {"match_id": "a1", "date": "2024-03-01", "home_team": "X", "away_team": "Y",
+         "home_score": 3, "away_score": 0, "neutral": False, "match_type": "friendly"},
+        {"match_id": "a2", "date": "2024-03-01", "home_team": "X", "away_team": "Z",
+         "home_score": 0, "away_score": 2, "neutral": False, "match_type": "friendly"},
+        {"match_id": "a3", "date": "2024-03-01", "home_team": "Y", "away_team": "Z",
+         "home_score": 1, "away_score": 1, "neutral": True, "match_type": "wc_qualifier"},
+    ]
+    forward = pd.DataFrame(rows)
+    reversed_ = pd.DataFrame(list(reversed(rows)))
+    h_fwd = compute_elo_history(forward).sort_values(
+        ["match_id", "team"]).reset_index(drop=True)
+    h_rev = compute_elo_history(reversed_).sort_values(
+        ["match_id", "team"]).reset_index(drop=True)
+    assert h_fwd.equals(h_rev), (
+        "compute_elo_history must be invariant to input row order (sorted by "
+        "(date, match_id)) — else the cache key is non-reproducible")
+
+
 def test_mov_index_scheme():
     assert _mov_index(1) == 1.0
     assert _mov_index(2) == 1.5

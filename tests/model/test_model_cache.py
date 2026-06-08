@@ -13,10 +13,14 @@ deselected with -m 'not slow'.
 import copy
 from unittest import mock
 
+import pandas as pd
 import pytest
 
 from wcmodel.config import load_config
-from wcmodel.model.cache import cached_fit
+from wcmodel.data import features
+from wcmodel.data.features import _build_cache_key, build, build_cached
+from wcmodel.data.store import BitemporalStore, Policy
+from wcmodel.model.cache import _feature_hash, cached_fit
 
 
 class _FakePosterior:
@@ -99,6 +103,161 @@ def test_cache_key_tracks_passed_config_elo_block(small_store, tmp_path):
 
     # Passed-config elo NOW enters the key (D6: elo keyed from the passed cfg).
     assert m_a["key"] != m_b["key"]
+
+
+def test_feature_hash_is_row_order_invariant(small_store):
+    """The posterior cache key embeds ``_feature_hash``; it must depend ONLY on the
+    < cutoff panel CONTENT, never on the incidental read/build row order.
+
+    This test BITES (the prior version passed with OR without the stabilizer
+    because the fixture's panel order is already stable): we DIRECTLY feed the
+    SAME panel back in two DIFFERENT shuffled row orders by patching
+    ``features.build`` (the function ``_feature_hash`` routes through), and assert
+    the hash is identical. Without ``_feature_hash``'s ``sort_values("match_id")``
+    stabilizer this MUST fail — proven RED by deleting that line — so it pins the
+    fix it exists to protect. ``cache_dir`` is None so ``build_cached`` calls
+    ``build`` directly (no parquet round-trip that would re-canonicalize order)."""
+    cfg = load_config()
+    cutoff = "2025-03-01"
+    panel = build(cutoff, small_store, cfg)
+    assert "match_id" in panel.columns and len(panel) > 2
+
+    def _hash_with_shuffle(k):
+        shuffled = panel.sample(frac=1, random_state=k).reset_index(drop=True)
+        with mock.patch("wcmodel.data.features.build", return_value=shuffled):
+            return _feature_hash(cutoff, small_store, cfg)
+
+    # Two DIFFERENT shuffles of the IDENTICAL panel content must hash identically.
+    assert _hash_with_shuffle(1) == _hash_with_shuffle(7), (
+        "_feature_hash must be invariant to panel row order (sort-by-match_id)")
+
+
+def test_build_cache_key_is_read_order_invariant(small_store):
+    """``_build_cache_key`` must depend ONLY on the < cutoff result CONTENT, never
+    on the store's incidental ``store.read`` row order.
+
+    ``store.read`` resolves the point-in-time slice through a DuckDB window whose
+    OUTPUT order is process-unstable, so the key MUST sort by ``match_id`` before
+    hashing. We patch ``store.read`` to return the SAME rows shuffled two ways and
+    assert the key matches — removing the ``sort_values("match_id")`` in
+    ``_build_cache_key`` makes this FAIL."""
+    cfg = load_config()
+    cutoff = "2025-03-01"
+    real = small_store.read("results", cutoff=cutoff)
+    assert len(real) > 2
+
+    real_read = small_store.read
+
+    def _key_with_shuffle(k):
+        shuffled = real.sample(frac=1, random_state=k).reset_index(drop=True)
+
+        def _fake_read(name, *, cutoff):
+            if name == "results":
+                return shuffled.copy()
+            return real_read(name, cutoff=cutoff)
+
+        with mock.patch.object(small_store, "read", side_effect=_fake_read):
+            return _build_cache_key(cutoff, small_store, cfg)
+
+    assert _key_with_shuffle(2) == _key_with_shuffle(9), (
+        "_build_cache_key must be invariant to store.read row order")
+
+
+def test_build_cached_matches_build_and_hits_on_second_call(small_store, tmp_path):
+    """``features.build_cached`` (the panel-cache speed fix) must (a) return a panel
+    CONTENT-identical to a fresh ``features.build``, and (b) read from disk on the
+    2nd call (a HIT) instead of recomputing the per-cutoff Elo."""
+    cfg = load_config()
+    cutoff = "2025-03-01"
+    direct = features.build(cutoff, small_store, cfg)
+    miss = features.build_cached(cutoff, small_store, cfg, cache_dir=tmp_path)
+    # Exactly one panel parquet was written (the key is stable).
+    files = list(tmp_path.glob("featpanel-*.parquet"))
+    assert len(files) == 1
+    # A 2nd call returns the SAME panel from disk.
+    hit = features.build_cached(cutoff, small_store, cfg, cache_dir=tmp_path)
+    assert len(list(tmp_path.glob("featpanel-*.parquet"))) == 1   # no new file
+    # Content-identical to the fresh build (sorted + dtype-robust compare).
+    def _canon(df):
+        return df.sort_values("match_id").reset_index(drop=True) if "match_id" in df else df
+    a, b, c = _canon(direct), _canon(miss), _canon(hit)
+    assert list(a.columns) == list(b.columns) == list(c.columns)
+    assert a.shape == b.shape == c.shape
+    assert (a["match_id"].values == c["match_id"].values).all()
+    # VALUE equality on the columns the model actually consumes (via
+    # ``to_match_panel``): elo_pre / decay_weight(->weight) / provisional /
+    # neutral / home_score / away_score / match_type, plus the date the decay is
+    # derived from. A bare column/shape/match_id check (the pre-fix assertion) let
+    # a value-CORRUPTING serialization change through; this catches it.
+    model_cols = ["match_id", "date", "elo_pre", "decay_weight", "provisional",
+                  "neutral", "home_score", "away_score", "match_type"]
+    pd.testing.assert_frame_equal(a[model_cols], b[model_cols], check_dtype=False)
+    pd.testing.assert_frame_equal(a[model_cols], c[model_cols], check_dtype=False)
+
+
+def test_panel_cache_key_folds_cutoff_no_cross_day_collision(small_store, tmp_path):
+    """BLOCKING regression: ``_build_cache_key`` MUST fold the as-of ``cutoff`` so
+    two DIFFERENT-day cutoffs that share the SAME ``< cutoff_day`` result set do
+    NOT collide on the key.
+
+    ``build`` derives ``age_days = (cutoff - date)`` -> ``decay_weight`` /
+    ``in_feature_window`` from the cutoff itself, NOT from the ``< cutoff_day``
+    slice. On ``small_store`` cutoffs 2024-06-10 (A) and 2024-06-19 (B) straddle a
+    rest-day gap — no match is played between them (the prior match is 2024-06-05,
+    the next is 2024-06-20) — so both see the IDENTICAL ``< cutoff_day`` results,
+    but ``build`` assigns DIFFERENT decay weights (9 days apart). The pre-fix key
+    omitted the cutoff, so A and B collided and ``build_cached(B)`` served A's
+    wrongly-weighted panel — a mild look-ahead (the model fits on the wrong
+    weighting). Asserts (a) the keys differ, and (b) ``build_cached(B)``'s
+    ``decay_weight`` equals ``build(B)``'s (NOT ``build(A)``'s)."""
+    cfg = load_config()
+    A, B = "2024-06-10", "2024-06-19"
+
+    # (precondition) A and B genuinely share the < cutoff_day result set — no
+    # match played in the [A, B) gap, so only the cutoff (decay) differs.
+    from wcmodel.data.features import valid_played_results
+    res = small_store.read("results", cutoff=B)
+    res["date"] = pd.to_datetime(res["date"])
+    played = valid_played_results(res)
+    in_gap = played[(played["date"] >= pd.Timestamp(A))
+                    & (played["date"] < pd.Timestamp(B))]
+    assert in_gap.empty, "fixture changed: a match now falls in the [A,B) gap"
+
+    # (a) The keys must DIFFER now that the cutoff is folded in.
+    kA = _build_cache_key(A, small_store, cfg)
+    kB = _build_cache_key(B, small_store, cfg)
+    assert kA != kB, "cross-day cutoffs sharing a < cutoff_day slice must NOT collide"
+
+    # (b) build_cached(B) must serve B's panel (B's decay weights), not A's. Seed
+    #     the cache with A FIRST (the collision would have it served for B).
+    def _canon(df):
+        return df.sort_values("match_id").reset_index(drop=True)
+    pA = _canon(build_cached(A, small_store, cfg, cache_dir=tmp_path))
+    pB_cached = _canon(build_cached(B, small_store, cfg, cache_dir=tmp_path))
+    pB_fresh = _canon(build(B, small_store, cfg))
+    pd.testing.assert_series_equal(pB_cached["decay_weight"], pB_fresh["decay_weight"])
+    assert not pB_cached["decay_weight"].equals(pA["decay_weight"]), (
+        "build_cached(B) served A's decay weights — the collision fired")
+
+
+def test_panel_cache_key_folds_schema_version(small_store):
+    """Important: bumping ``PANEL_SCHEMA_VERSION`` must change the panel-cache key.
+
+    The key hashes the ``< cutoff`` inputs + config but NOT the code that builds
+    the panel, so a future ``build`` change that alters panel CONTENT (with no
+    elo/windows/data change and no commit) would serve a STALE panel.
+    ``PANEL_SCHEMA_VERSION`` is the manual invalidation lever — flipping it must
+    flip the key so a maintainer can force a clean miss."""
+    cfg = load_config()
+    cutoff = "2025-03-01"
+    k0 = _build_cache_key(cutoff, small_store, cfg)
+    orig = features.PANEL_SCHEMA_VERSION
+    try:
+        features.PANEL_SCHEMA_VERSION = orig + "-bumped"
+        k1 = _build_cache_key(cutoff, small_store, cfg)
+    finally:
+        features.PANEL_SCHEMA_VERSION = orig
+    assert k0 != k1, "a PANEL_SCHEMA_VERSION bump must invalidate the panel cache"
 
 
 @pytest.mark.slow

@@ -261,6 +261,7 @@ def fit(
     seed: int | None = None,
     advi_iters: int | None = None,
     config: dict | None = None,
+    feature_cache_dir=None,
 ) -> Posterior:
     """Fit the scoreline model on the leakage-safe per-cutoff panel -> Posterior.
 
@@ -292,7 +293,12 @@ def fit(
     tune = tune or inf["tune"]
     advi_iters = advi_iters or inf["advi_iters"]
     seed = cfg["seed"] if seed is None else seed
-    feats = features.build(cutoff, store, cfg)            # leakage-safe panel ONLY
+    # Route the panel build through the content-addressed feature-panel cache
+    # (``build_cached``): the per-cutoff Elo recompute over the full < cutoff
+    # history is ~5 min, so a re-fit that already paid it (or a sibling cutoff
+    # sharing the < cutoff slice) reads the panel from disk instead. With
+    # ``feature_cache_dir=None`` this is exactly ``features.build`` — unchanged.
+    feats = features.build_cached(cutoff, store, cfg, cache_dir=feature_cache_dir)
     mp = to_match_panel(feats)
     # Build the leakage-safe covariate transforms on the SAME < cutoff training
     # panel `mp` (before build_design / sampling), and thread the standardized

@@ -53,19 +53,36 @@ from wcmodel.model.posterior import Posterior
 from wcmodel.model.scoreline import fit
 
 
-def _feature_hash(cutoff, store, cfg) -> str:
+def _feature_hash(cutoff, store, cfg, feature_cache_dir=None) -> str:
     """Stable 16-hex hash of the leakage-safe match panel at ``cutoff``.
 
     Hashes the SAME panel ``fit`` consumes (``to_match_panel(features.build(
     cutoff, store, cfg))``), so a new or revised result before the cutoff (which
-    would change the fit) changes the hash -> a different key -> a miss. Built off
-    the row-and-index content hash so column/row order is irrelevant only insofar
-    as pandas' object hash is order-sensitive on rows -- the panel is emitted in a
-    deterministic order by ``to_match_panel`` (reset_index), so the hash is
-    reproducible across runs.
+    would change the fit) changes the hash -> a different key -> a miss.
+
+    ROW-ORDER STABILITY (the cross-run cache-hit fix). ``store.read`` resolves the
+    point-in-time slice through a DuckDB ``row_number()`` window whose OUTPUT row
+    order is NOT guaranteed stable across processes (verified: two fresh stores
+    built from the IDENTICAL parquet return the same rows in a DIFFERENT order).
+    ``to_match_panel`` preserves that order, so a bare ``hash_pandas_object`` over
+    the panel produced a DIFFERENT hash each run -> a different posterior key -> a
+    cache MISS + a full re-fit on every identical re-run. We therefore hash the
+    panel sorted by its stable content key (``match_id``) with the index DROPPED,
+    so the hash depends ONLY on the panel's CONTENT, not on DuckDB's incidental
+    read order. This changes the key VALUE (a one-time, deterministic re-key) but
+    NOT what it depends on: any new/revised < cutoff result still flips the hash
+    (the content changes), so it never serves a stale posterior. Leakage-safety is
+    untouched — ``features.build`` already restricts to the ``< cutoff`` slice.
     """
-    mp = to_match_panel(features.build(cutoff, store, cfg))
-    blob = pd.util.hash_pandas_object(mp, index=True).values.tobytes()
+    # Route through ``build_cached`` so computing the posterior KEY no longer pays
+    # the ~5-min Elo recompute on a panel-cache hit (the dominant cost). When no
+    # ``feature_cache_dir`` is threaded this is exactly ``features.build`` —
+    # behaviour-identical to before, just slower (the legacy path).
+    mp = to_match_panel(
+        features.build_cached(cutoff, store, cfg, cache_dir=feature_cache_dir))
+    if "match_id" in mp.columns and not mp.empty:
+        mp = mp.sort_values("match_id", kind="mergesort").reset_index(drop=True)
+    blob = pd.util.hash_pandas_object(mp, index=False).values.tobytes()
     return hashlib.sha256(blob).hexdigest()[:16]
 
 
@@ -154,7 +171,7 @@ def _posterior_from_netcdf(path: Path, *, teams, likelihood, provisional_teams,
 
 
 def _cache_key_params(*, cutoff, store, backend, draws, seed, advi_iters,
-                      likelihood, tune, cfg) -> dict:
+                      likelihood, tune, cfg, feature_cache_dir=None) -> dict:
     """Build the exhaustive content-key params for a posterior fit.
 
     D6: ``elo`` is now keyed from the PASSED ``cfg`` (not the global
@@ -176,13 +193,14 @@ def _cache_key_params(*, cutoff, store, backend, draws, seed, advi_iters,
         "model": cfg["model"],
         "elo": cfg["elo"],                       # D6: threaded cfg, not global disk
         "windows": cfg["windows"],
-        "feature_hash": _feature_hash(cutoff, store, cfg),
+        "feature_hash": _feature_hash(cutoff, store, cfg,
+                                      feature_cache_dir=feature_cache_dir),
         "git": _git_commit(),
     }
 
 
 def cached_fit(*, cutoff, store, backend, draws, seed, advi_iters, cache_dir,
-               likelihood=None, tune=None, config=None):
+               likelihood=None, tune=None, config=None, feature_cache_dir=None):
     """Fit ``scoreline.fit`` through the content-addressed posterior cache.
 
     Returns ``(Posterior, {"cache_hit": bool, "key": str})``. On a HIT the
@@ -204,6 +222,15 @@ def cached_fit(*, cutoff, store, backend, draws, seed, advi_iters, cache_dir,
     cfg = config or load_config()
     likelihood = likelihood or cfg["model"]["likelihood"]
     tune = tune if tune is not None else cfg["model"]["inference"]["tune"]
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    # The per-cutoff feature panel (the ~5-min Elo recompute) is itself cached on
+    # disk via ``features.build_cached``. Default that panel cache to the SAME dir
+    # as the posterior cache so a persistent ``cache_dir`` makes BOTH the panel
+    # AND the posterior reusable across runs. This does NOT change the posterior
+    # KEY: ``build_cached`` returns the identical panel ``build`` would, so the
+    # ``feature_hash`` is byte-identical whether or not the panel came from disk.
+    feature_cache_dir = feature_cache_dir if feature_cache_dir is not None else cache_dir
     # The key includes EVERYTHING that determines the posterior (any change ->
     # different key -> a miss, never a stale serve). `_cache_key_params` builds it.
     # D6 (Phase-4 Task 0): `elo` is keyed from the PASSED `cfg` now that
@@ -213,10 +240,9 @@ def cached_fit(*, cutoff, store, backend, draws, seed, advi_iters, cache_dir,
     params = _cache_key_params(
         cutoff=cutoff, store=store, backend=backend, draws=draws, seed=seed,
         advi_iters=advi_iters, likelihood=likelihood, tune=tune, cfg=cfg,
+        feature_cache_dir=feature_cache_dir,
     )
     key = content_key("posterior", params)
-    cache_dir = Path(cache_dir)
-    cache_dir.mkdir(parents=True, exist_ok=True)
     nc = cache_dir / f"posterior-{key}.nc"
     meta_path = cache_dir / f"posterior-{key}.meta.json"
 
@@ -235,6 +261,7 @@ def cached_fit(*, cutoff, store, backend, draws, seed, advi_iters, cache_dir,
     post = fit(
         cutoff, store, likelihood=likelihood, backend=backend, draws=draws,
         tune=tune, seed=seed, advi_iters=advi_iters, config=cfg,
+        feature_cache_dir=feature_cache_dir,
     )
     _posterior_to_netcdf(post, nc)
     # Persist teams / likelihood / provisional_teams so a HIT reconstructs the

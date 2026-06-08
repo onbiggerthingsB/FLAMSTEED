@@ -47,8 +47,24 @@ def compute_elo_history(matches: pd.DataFrame, config: dict | None = None) -> pd
     """Deterministic, point-in-time Elo over a results frame.
 
     Input columns: `match_id`, `date`, `home_team`, `away_team`, `home_score`,
-    `away_score`, `neutral`, `match_type`. Matches are processed in chronological
-    order (stable mergesort on `date`, so equal-date order is preserved).
+    `away_score`, `neutral`, `match_type`. Matches are processed in a DETERMINISTIC
+    chronological order: sorted by `(date, match_id)` so the sequence is a TOTAL
+    order fixed by content alone — NOT by the incoming row order.
+
+    WHY the `match_id` tiebreak matters (a reproducibility + cache-stability fix).
+    Elo is PATH-DEPENDENT within a day: a team playing twice on the same date (or
+    two same-date matches sharing a team via later windows) updates ratings in the
+    order the rows are processed. The upstream `store.read` resolves rows through a
+    DuckDB window whose OUTPUT ORDER is not stable across processes, so a bare
+    stable-sort-on-`date` (which PRESERVES that incidental order for equal dates)
+    made the SAME data produce slightly different ratings/`provisional` flags run-
+    to-run — observed as a 2-row `away_provisional` flip over the full martj42
+    history, which in turn flipped the content-addressed feature/posterior cache
+    key and forced a full re-fit on every identical re-run. Sorting by
+    `(date, match_id)` makes the within-day order content-deterministic, so the
+    ratings — and the cache key derived from them — are reproducible. Leakage-safe:
+    `match_id` is a knowable-at-kickoff identity, never an outcome, and the date
+    ordering (hence the strict-past training window) is unchanged.
 
     Returns two rows per match (home and away perspective) with columns
     `{match_id, date, team, opponent, is_home, neutral, rating_pre,
@@ -76,7 +92,15 @@ def compute_elo_history(matches: pd.DataFrame, config: dict | None = None) -> pd
     volatility_threshold = cfg["provisional_volatility_threshold"]
     volatility_window = int(cfg["volatility_window"])
 
-    ordered = matches.sort_values("date", kind="mergesort")
+    # Deterministic TOTAL order: (date, match_id). The `match_id` tiebreak fixes
+    # the within-day processing order by content (not by incidental input/read
+    # order), so the path-dependent Elo updates — and the cache key derived from
+    # them — are reproducible across runs. Falls back to a stable date-only sort
+    # if `match_id` is absent (e.g. a minimal test frame).
+    if "match_id" in matches.columns:
+        ordered = matches.sort_values(["date", "match_id"], kind="mergesort")
+    else:
+        ordered = matches.sort_values("date", kind="mergesort")
 
     ratings: dict[str, float] = {}
     games_played: dict[str, int] = {}

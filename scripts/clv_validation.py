@@ -40,10 +40,11 @@ per fixture. No bet, signal/paper only.
 from __future__ import annotations
 
 import argparse
+import json
+import math
 import os
 import statistics
 import sys
-import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -52,16 +53,34 @@ import pandas as pd
 
 from wcmodel.backtest.clv import clv_pct
 from wcmodel.backtest.odds_ingest import _SYNTHETIC_KEY, OUTCOMES, entry_close_prices
-from wcmodel.backtest.baselines import market_fair_1x2, model_fair_1x2
+from wcmodel.backtest.baselines import market_fair_1x2, model_fair_1x2, rps
 from wcmodel.backtest.walkforward import _sample_is_synthetic, walkforward
 from wcmodel.config import load_config
 from wcmodel.data.features import valid_played_results
 from wcmodel.data.sources.odds import ODDSAPI_BASE
 from wcmodel.data.sources.results import load_results
 from wcmodel.data.store import BitemporalStore
+import wcmodel.model.cache as _model_cache
 
 CACHE_DIR = Path("data/cache")
 SPORT = "soccer_fifa_world_cup"
+
+# A PERSISTENT martj42 store dir (gitignored under /data/). Building the store once
+# here — instead of a fresh ``tempfile.mkdtemp`` per run — keeps the content-
+# addressed feature/posterior caches STABLE across runs: a fresh temp store made
+# the DuckDB read order (and so the feature_hash) flip every run, forcing a full
+# re-fit; a persistent store + the now-row-order-stable hash means a 2nd identical
+# run HITS the on-disk panel + posterior caches and spends seconds, not ~50 min.
+# Still read STRICTLY as-of-cutoff (leakage-safe): the persistent store holds the
+# full martj42 history, but every fit reads ``store.read(cutoff)`` + ``date<cutoff``
+# exactly as before — persistence changes only WHERE the parquet lives, never WHICH
+# rows a cutoff can see.
+CLV_STORE_DIR = Path("data/clv_store")
+
+# Gitignored on-disk cache of the REAL pulled odds (one record per matched
+# fixture). The ``accuracy`` (and a cached ``pilot``) run reads this first so a
+# re-run re-spends ZERO credits; only a genuinely-new fixture triggers a pull.
+ODDS_CACHE_PATH = Path("data/clv_odds_cache.json")
 
 # --- HARD CAP (BINDING). Each pilot match costs 2 paid historical-odds calls (entry +
 # close). 8 matches x 2 = 16 paid calls. We never issue more than MAX_PAID_CALLS paid
@@ -141,6 +160,49 @@ def build_real_store(store_root: Path) -> BitemporalStore:
     store = BitemporalStore(root=store_root)
     load_results(store, cache_dir=CACHE_DIR)
     return store
+
+
+def get_persistent_store(*, rebuild: bool = False) -> BitemporalStore:
+    """Build the martj42 store ONCE into ``CLV_STORE_DIR`` and reuse it across runs.
+
+    If the persistent parquet already exists we attach to it WITHOUT re-writing
+    (so the store content — and the content-addressed feature/posterior cache keys
+    derived from it — stay byte-stable across runs, which is what lets a 2nd run
+    HIT the caches). ``rebuild=True`` (or a missing parquet) re-ingests from the
+    martj42 cache. The store still holds the full history and is read strictly
+    as-of-cutoff downstream, so persistence is leakage-neutral.
+    """
+    CLV_STORE_DIR.mkdir(parents=True, exist_ok=True)
+    results_parquet = CLV_STORE_DIR / "results.parquet"
+    if results_parquet.exists() and not rebuild:
+        return BitemporalStore(root=CLV_STORE_DIR)
+    # Fresh build: ingest once. (Remove a stale parquet so write() appends cleanly.)
+    if results_parquet.exists():
+        results_parquet.unlink()
+    return build_real_store(CLV_STORE_DIR)
+
+
+# --------------------------------------------------------------------------- #
+# Gitignored odds cache — a re-run re-spends ZERO credits.
+# --------------------------------------------------------------------------- #
+def _odds_cache_key(home: str, away: str, ko: str, regions: str, book: str) -> str:
+    return f"{home}|{away}|{ko[:10]}|{regions}|{book}"
+
+
+def _load_odds_cache() -> dict:
+    if ODDS_CACHE_PATH.exists():
+        try:
+            return json.loads(ODDS_CACHE_PATH.read_text())
+        except (ValueError, OSError):
+            return {}
+    return {}
+
+
+def _save_odds_cache(cache: dict) -> None:
+    ODDS_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = ODDS_CACHE_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(cache, indent=2, sort_keys=True, default=str))
+    tmp.replace(ODDS_CACHE_PATH)
 
 
 def _load_env_key() -> str:
@@ -231,9 +293,11 @@ def cmd_dry(args) -> int:
     print("=" * 78)
     cfg = load_config()
 
-    store_root = Path(tempfile.mkdtemp(prefix="wc-clv-dry-store-"))
-    print(f"[store] assembling real martj42 store at {store_root} ...")
-    store = build_real_store(store_root)
+    # Persistent store (built once, reused) so the content-addressed feature/
+    # posterior caches stay STABLE across runs — see CLV_STORE_DIR. Leakage-safe:
+    # still read strictly as-of-cutoff downstream.
+    store = get_persistent_store()
+    print(f"[store] persistent real martj42 store at {CLV_STORE_DIR} ...")
     cutoff_probe = "2026-06-07T00:00:00Z"
     played = _martj42_results_frame(store, cutoff_probe)
     print(f"[store] {len(played)} valid-played martj42 matches; range "
@@ -523,9 +587,10 @@ def cmd_pilot(args) -> int:
           f"<= {list_budget.max_calls} cheap events-list calls.")
 
     api_key = _load_env_key()
-    store_root = Path(tempfile.mkdtemp(prefix="wc-clv-pilot-store-"))
-    print(f"[store] assembling real martj42 store at {store_root} ...")
-    store = build_real_store(store_root)
+    # Persistent store (built once, reused) so a re-run HITS the on-disk feature/
+    # posterior caches instead of re-fitting (~50 min) from a fresh temp store.
+    store = get_persistent_store()
+    print(f"[store] persistent real martj42 store at {CLV_STORE_DIR} ...")
     played = _martj42_results_frame(store, "2026-06-07T00:00:00Z")
 
     samples: list[dict] = []
@@ -760,16 +825,333 @@ def cmd_pilot(args) -> int:
     return 0
 
 
+# =========================================================================== #
+# STEP 4 — ACCURACY: model RPS vs market RPS vs uniform (the forecast-accuracy job)
+# =========================================================================== #
+UNIFORM_1X2 = {"home": 1.0 / 3, "draw": 1.0 / 3, "away": 1.0 / 3}
+
+
+def _result_outcome(home_score: int, away_score: int) -> str:
+    if home_score > away_score:
+        return "home"
+    if home_score < away_score:
+        return "away"
+    return "draw"
+
+
+def _resolve_sample_from_cache_or_pull(home, away, ko, *, api_key, book, regions,
+                                       paid_budget, list_budget, cache, allow_pull):
+    """Return a REAL ``{entry, close}`` price record for one fixture.
+
+    Cache-first: if the gitignored odds cache already holds this fixture's
+    de-vig-ready ``{entry, close, entry_ts, close_ts}`` we reuse it (ZERO credits).
+    Otherwise — and ONLY if ``allow_pull`` and the hard-capped budgets permit — we
+    pull it via the SAME gated historical adapter the pilot uses, persist it, and
+    return it. Returns ``(record, status)`` where status is one of
+    ``cache|pulled|gap:<reason>|budget``."""
+    ck = _odds_cache_key(home, away, ko, regions, book)
+    if ck in cache:
+        return cache[ck], "cache"
+    if not allow_pull:
+        return None, "gap:not_cached_no_pull"
+
+    try:
+        event_id, _ev = _find_event_id(api_key, home, away, ko, list_budget)
+    except httpx.HTTPStatusError as exc:
+        return None, f"gap:events_list_http_{exc.response.status_code}"
+    if event_id is None:
+        return None, "gap:no_event"
+    if paid_budget.spent + 2 > paid_budget.max_calls:
+        return None, "budget"
+
+    kickoff = datetime.fromisoformat(ko.replace("Z", "+00:00"))
+    entry_date = (kickoff - timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    close_date = (kickoff - timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        entry_raw = fetch_event_odds(api_key, event_id, entry_date, regions=regions,
+                                     budget=paid_budget)
+        close_raw = fetch_event_odds(api_key, event_id, close_date, regions=regions,
+                                     budget=paid_budget)
+    except httpx.HTTPStatusError as exc:
+        return None, f"gap:event_odds_http_{exc.response.status_code}"
+
+    entry_snap = _snapshot_to_real_shape(entry_raw, entry_date)
+    close_snap = _snapshot_to_real_shape(close_raw, close_date)
+    if entry_snap is None or close_snap is None:
+        return None, "gap:empty_snapshot"
+    entry_prices = _sharp_prices_from_event(entry_snap["data"][0], book)
+    close_prices = _sharp_prices_from_event(close_snap["data"][0], book)
+    if entry_prices is None or close_prices is None:
+        return None, "gap:no_h2h"
+
+    record = {
+        "home": home, "away": away, "kickoff": ko, "event_id": event_id,
+        "entry": entry_prices, "close": close_prices,
+        "entry_ts": entry_snap["timestamp"], "close_ts": close_snap["timestamp"],
+        "entry_book": _which_book(entry_snap["data"][0], book),
+        "close_book": _which_book(close_snap["data"][0], book),
+        "regions": regions, "bookmaker": book,
+    }
+    cache[ck] = record
+    return record, "pulled"
+
+
+def cmd_accuracy(args) -> int:
+    """The FORECAST-ACCURACY diagnostic: per-match + aggregate RPS of the model's
+    1X2 vs the de-vigged CLOSE (market) vs uniform, leakage-safe per-cutoff fits.
+
+    RPS is a forecast-accuracy score (lower = better), INDEPENDENT of betting —
+    so it is computed for EVERY matched fixture, not only the ones the model would
+    bet. The model is the project's audited ``baselines.rps`` on ``model_fair_1x2``
+    (the per-cutoff ``cached_fit`` posterior, trained on < matchday only). The
+    market benchmark is ``rps`` on ``market_fair_1x2`` of the de-vigged CLOSE; the
+    floor is ``rps`` on the (1/3,1/3,1/3) uniform. Credits: ZERO if the odds cache
+    already covers the pilot matches; else a hard-capped pull that is then cached.
+    """
+    print("=" * 78)
+    print("STEP 4 — ACCURACY: model RPS vs MARKET (de-vigged close) RPS vs UNIFORM")
+    print("=" * 78)
+    cfg = load_config()
+    book = cfg["backtest"]["primary_bookmaker"]
+    regions = "eu"
+    devig = cfg["backtest"]["devig_method"]
+    n_matches = min(args.matches, len(PILOT_MATCHES))
+    allow_pull = bool(args.pull)
+
+    # Persistent store + shared on-disk caches => a 2nd run re-fits NOTHING.
+    store = get_persistent_store(rebuild=bool(args.rebuild_store))
+    print(f"[store] persistent martj42 store at {CLV_STORE_DIR} "
+          f"(rebuild={bool(args.rebuild_store)})")
+    played = _martj42_results_frame(store, "2026-06-07T00:00:00Z")
+
+    cache = _load_odds_cache()
+    print(f"[odds-cache] {len(cache)} cached fixture(s) at {ODDS_CACHE_PATH} "
+          f"(pull={'ON (hard-capped)' if allow_pull else 'OFF — cache-only, ZERO credits'})")
+
+    api_key = _load_env_key() if allow_pull else None
+    paid_budget = CallBudget(max_calls=min(MAX_PAID_CALLS, 2 * n_matches))
+    list_budget = CallBudget(max_calls=n_matches + 2)
+
+    rows: list[dict] = []
+    gaps: list[str] = []
+    for home, away, ko in PILOT_MATCHES[:n_matches]:
+        label = f"{home} v {away} ({ko[:10]})"
+        r = played[(played.home_team == home) & (played.away_team == away)
+                   & (played.date == pd.Timestamp(ko[:10]))]
+        if r.empty:
+            gaps.append(label + " [no martj42 result]")
+            continue
+        rec, status = _resolve_sample_from_cache_or_pull(
+            home, away, ko, api_key=api_key, book=book, regions=regions,
+            paid_budget=paid_budget, list_budget=list_budget, cache=cache,
+            allow_pull=allow_pull)
+        if rec is None:
+            gaps.append(f"{label} [{status}]")
+            continue
+        rr = r.iloc[0]
+        rows.append({
+            "home": home, "away": away, "ko": ko, "rec": rec,
+            "home_score": int(rr.home_score), "away_score": int(rr.away_score),
+            "tournament": rr.tournament, "status": status,
+        })
+
+    if allow_pull:
+        _save_odds_cache(cache)
+        print("\n" + _credit_line("accuracy"))
+        print(f"[budget] paid event-odds calls spent: {paid_budget.spent}/{paid_budget.max_calls}; "
+              f"events-list calls: {list_budget.spent}/{list_budget.max_calls}")
+    else:
+        print("[credits] pull OFF — ZERO paid calls issued this run.")
+
+    if not rows:
+        print("\n[STOP] no matched fixtures with cached/pulled odds. "
+              + ("Re-run with --pull to fetch (hard-capped). " if not allow_pull else "")
+              + "Gaps:")
+        for g in gaps:
+            print(f"  [gap] {g}")
+        return 3
+
+    # --- Fit fidelity: PRODUCTION by default (cfg inference draws/advi_iters), so
+    #     the reported RPS IS the production fit; --fast opts into a COARSE smoke
+    #     fit that is loudly labelled so it can never pass as the real verdict. ---
+    fit_draws, fit_advi_iters, is_coarse = _accuracy_fit_fidelity(args, cfg)
+    coarse_tag = (f"COARSE-FIT (advi_iters={fit_advi_iters}, draws={fit_draws}, "
+                  "NOT production)") if is_coarse else ""
+    if is_coarse:
+        print(f"\n[fit-fidelity] {coarse_tag} — RPS below is a coarse approximation, "
+              "NOT the production accuracy verdict.")
+    else:
+        print(f"\n[fit-fidelity] PRODUCTION (advi_iters={fit_advi_iters}, "
+              f"draws={fit_draws} from cfg['model']['inference']).")
+
+    # --- Per-cutoff leakage-safe fit (FAST via the persistent store + on-disk
+    #     panel/posterior caches) -> model 1X2; de-vig CLOSE -> market 1X2. ---
+    print(f"[fit] per-cutoff leakage-safe posterior for {len(rows)} matched fixtures "
+          "(cached panel + posterior; no re-fit on a 2nd run) ...")
+    fit_cache = CACHE_DIR
+    per_match = []
+    # Group fixtures by matchday cutoff so the posterior is fit ONCE per cutoff.
+    by_cutoff: dict[str, list] = {}
+    for row in rows:
+        cutoff = pd.Timestamp(row["ko"][:10]).normalize()
+        by_cutoff.setdefault(str(cutoff), []).append(row)
+
+    n_advi_fits = 0
+    for cutoff_str in sorted(by_cutoff):
+        cutoff = pd.Timestamp(cutoff_str)
+        post, meta = _model_cache.cached_fit(
+            cutoff=cutoff, store=store, backend="advi",
+            draws=fit_draws, seed=cfg["seed"], advi_iters=fit_advi_iters,
+            cache_dir=fit_cache, config=cfg,
+        )
+        if not meta["cache_hit"]:
+            n_advi_fits += 1
+        for row in by_cutoff[cutoff_str]:
+            home, away = row["home"], row["away"]
+            try:
+                model = model_fair_1x2(post, home=home, away=away, neutral=True)
+            except KeyError:
+                gaps.append(f"{home} v {away} ({row['ko'][:10]}) [no model price]")
+                continue
+            close = market_fair_1x2(row["rec"]["close"], method=devig)
+            outcome = _result_outcome(row["home_score"], row["away_score"])
+            per_match.append({
+                "home": home, "away": away, "date": row["ko"][:10],
+                "result": f"{row['home_score']}-{row['away_score']}", "outcome": outcome,
+                "model": model, "market": close,
+                "rps_model": rps(model, outcome),
+                "rps_market": rps(close, outcome),
+                "rps_uniform": rps(UNIFORM_1X2, outcome),
+                "cache_hit": meta["cache_hit"],
+            })
+
+    if not per_match:
+        print("[STOP] no fixtures produced a model price. Gaps below.")
+        for g in gaps:
+            print(f"  [gap] {g}")
+        return 3
+
+    # --- Per-match table (sorted by the model's RPS — worst model miss first). ---
+    print("\n" + "=" * 78)
+    print("PER-MATCH RPS (lower = better forecast; model trained < matchday only)")
+    print("=" * 78)
+    print(f"  {'match':<28} {'result':<8} {'mRPS':>7} {'mktRPS':>7} {'uniRPS':>7} "
+          f"{'m-mkt':>7} {'verdict':<14}")
+    print("  " + "-" * 88)
+    for pm in sorted(per_match, key=lambda x: x["rps_model"], reverse=True):
+        gap = pm["rps_model"] - pm["rps_market"]
+        verdict = "beat market" if gap < 0 else ("tie" if abs(gap) < 1e-6 else "lost to market")
+        m = f"{pm['home']} v {pm['away']}"
+        print(f"  {m:<28} {pm['result']:<8} {pm['rps_model']:>7.4f} "
+              f"{pm['rps_market']:>7.4f} {pm['rps_uniform']:>7.4f} {gap:>+7.4f} {verdict:<14}")
+
+    n = len(per_match)
+    agg_model = sum(p["rps_model"] for p in per_match) / n
+    agg_market = sum(p["rps_market"] for p in per_match) / n
+    agg_uniform = sum(p["rps_uniform"] for p in per_match) / n
+    n_beat = sum(1 for p in per_match if p["rps_model"] < p["rps_market"] - 1e-9)
+
+    rps_label = f"  [{coarse_tag}]" if is_coarse else ""
+    print("\n" + "=" * 78)
+    print(f"AGGREGATE RPS over n={n} matched 2022-WC fixtures (mean; lower = better)"
+          + (f"  {coarse_tag}" if is_coarse else ""))
+    print("=" * 78)
+    print(f"  model   RPS : {agg_model:.4f}{rps_label}")
+    print(f"  market  RPS : {agg_market:.4f}   (de-vigged CLOSE — the accuracy benchmark/ceiling)")
+    print(f"  uniform RPS : {agg_uniform:.4f}   (1/3,1/3,1/3 floor)")
+    print(f"  model - market gap : {agg_model - agg_market:+.4f}  "
+          f"({'model BETTER' if agg_model < agg_market else 'market better'})")
+    print(f"  model - uniform gap: {agg_model - agg_uniform:+.4f}  "
+          f"({'model better than floor' if agg_model < agg_uniform else 'WORSE than floor — SUSPECT'})")
+    print(f"  model beat market on {n_beat}/{n} matches")
+
+    # --- Adversarial: a model RPS far BELOW the market's on this sample is a
+    #     SUSPECTED BUG (the market is the accuracy ceiling; beating it materially
+    #     on a handful of games is implausible without leakage/peeking). ---
+    print("\n" + "=" * 78)
+    print("ADVERSARIAL: too-good RPS => SUSPECTED BUG (market is the ceiling)")
+    print("=" * 78)
+    gap = agg_model - agg_market
+    if agg_model < 1e-4:
+        print("  [RED] model RPS ~ 0 — near-perfect forecasts are implausible; "
+              "SUSPECT a result peeking into the model. HUNT before trusting.")
+    elif gap < -0.05:
+        print(f"  [RED] model beats market by {-gap:.4f} RPS — materially better than the "
+              "accuracy ceiling on a tiny sample. TREAT AS A SUSPECTED BUG (leakage / "
+              "de-vig error / result-peek), not a win, until hand-checked.")
+    elif gap < 0 and n <= 8:
+        # ANY beat-the-ceiling on a tiny sample is suspect — the de-vigged close is
+        # the accuracy ceiling, so even a SMALL aggregate edge on n<=8 warrants a
+        # leakage hand-check before it is trusted (a milder AMBER below the RED).
+        print(f"  [AMBER] model beat the de-vigged ceiling by {-gap:.4f} RPS on a tiny "
+              f"sample (n={n}<=8). The de-vigged close is the accuracy ceiling — beating "
+              "it at all here is more likely leakage/de-vig error than skill. HAND-CHECK "
+              "for leakage before trusting; not a powered win.")
+    else:
+        print(f"  [ok] model RPS {agg_model:.4f} is "
+              f"{'above' if gap > 0 else 'just below'} the market's {agg_market:.4f} "
+              f"(gap {gap:+.4f}); within plausibility — the market is at/near the ceiling, "
+              "as expected. n is tiny, so this is DIRECTIONAL only.")
+
+    print(f"\n[verdict] DIRECTIONAL ACCURACY (n={n}, WIDE CI). The model's mean RPS is "
+          f"{agg_model:.4f} vs the market's {agg_market:.4f} "
+          f"(gap {agg_model - agg_market:+.4f}) and the uniform floor {agg_uniform:.4f}. "
+          "Small-n: not a powered verdict."
+          + (f" {coarse_tag} — re-run WITHOUT --fast for the production verdict."
+             if is_coarse else ""))
+    print("[discipline] no commit; key never printed; signal/paper only (no real bet).")
+    if gaps:
+        print("\n[gaps]")
+        for g in gaps:
+            print(f"  [gap] {g}")
+    return 0
+
+
+def _accuracy_fit_fidelity(args, cfg) -> tuple[int, int, bool]:
+    """Resolve ``(draws, advi_iters, is_coarse)`` for the accuracy fits.
+
+    DEFAULT is PRODUCTION fidelity — ``draws`` / ``advi_iters`` read straight from
+    ``cfg['model']['inference']`` (currently 1000 / 30000) — so the reported RPS is
+    the SAME fit the production forecast uses, not a coarse approximation. The
+    opt-in ``--fast`` flag drops to a coarse iteration (``--draws`` / a low
+    ``advi_iters``) for a quick smoke run; when it is set, EVERY printed RPS is
+    LABELLED ``COARSE-FIT`` so a coarse number is never mistaken for the production
+    accuracy verdict. An explicit ``--draws`` always overrides the draw count."""
+    inf = cfg["model"]["inference"]
+    if getattr(args, "fast", False):
+        draws = int(getattr(args, "draws", None) or 200)
+        advi_iters = int(getattr(args, "advi_iters", None) or 2000)
+        return draws, advi_iters, True
+    # Production fidelity: config draws/advi_iters by default. A user-supplied
+    # --draws still overrides the draw count (advi_iters stays production).
+    draws = int(getattr(args, "draws", None) or inf["draws"])
+    advi_iters = int(inf["advi_iters"])
+    return draws, advi_iters, False
+
+
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Real-historical-odds CLV validation.")
+    ap = argparse.ArgumentParser(description="Real-historical-odds CLV + accuracy validation.")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("dry", help="ZERO-credit dry validation of the harness")
     sub.add_parser("probe", help="ONE cheap events-list call to confirm 2022-WC coverage")
     pp = sub.add_parser("pilot", help="HARD-CAPPED real pull -> CLV")
     pp.add_argument("--matches", type=int, default=8,
                     help="number of pilot matches (<= 8; each costs 2 paid calls)")
+    ap_acc = sub.add_parser("accuracy",
+                            help="model RPS vs market(close) RPS vs uniform (cache-first, ZERO credits unless --pull)")
+    ap_acc.add_argument("--matches", type=int, default=8,
+                        help="number of pilot matches to score (<= 8)")
+    ap_acc.add_argument("--pull", action="store_true",
+                        help="allow a HARD-CAPPED real pull for fixtures not in the odds cache (else cache-only, ZERO credits)")
+    ap_acc.add_argument("--fast", action="store_true",
+                        help="COARSE smoke fit (advi_iters=2000, draws=200) — NOT production; every printed RPS is labelled COARSE-FIT. Default is PRODUCTION fidelity from cfg['model']['inference'].")
+    ap_acc.add_argument("--draws", type=int, default=None,
+                        help="override ADVI draws for the per-cutoff fit (default: cfg['model']['inference']['draws'], i.e. production)")
+    ap_acc.add_argument("--rebuild-store", action="store_true",
+                        help="force-rebuild the persistent martj42 store (default: reuse if present)")
     args = ap.parse_args()
-    return {"dry": cmd_dry, "probe": cmd_probe, "pilot": cmd_pilot}[args.cmd](args)
+    return {"dry": cmd_dry, "probe": cmd_probe, "pilot": cmd_pilot,
+            "accuracy": cmd_accuracy}[args.cmd](args)
 
 
 if __name__ == "__main__":

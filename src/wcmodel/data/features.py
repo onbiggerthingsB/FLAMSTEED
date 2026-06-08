@@ -30,14 +30,29 @@ use only.
 """
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
 from wcmodel.config import load_config
 from wcmodel.data import tiers
+from wcmodel.data.cache import _git_commit
 from wcmodel.data.elo import compute_elo_history
 from wcmodel.data.sources.derived import altitude, rest_days, travel_distance
 from wcmodel.data.store import BitemporalStore
+
+# Manual invalidation lever for the content-addressed feature-panel cache. The
+# panel-cache key (``_build_cache_key``) hashes the ``< cutoff`` inputs + config,
+# NOT the code that turns them into the panel — so a change to ``build`` /
+# ``compute_elo_history`` / the join logic that alters the panel's CONTENT or
+# SCHEMA (without changing the elo/windows config or the ``< cutoff`` data) would
+# otherwise serve a STALE cached panel. ``_git_commit()`` is folded into the key
+# too, but it does NOT cover uncommitted working-tree edits, so BUMP this constant
+# whenever ``build``'s output schema/semantics change to force a clean miss.
+PANEL_SCHEMA_VERSION = "1"
 
 
 def valid_played_results(results: pd.DataFrame) -> pd.DataFrame:
@@ -239,6 +254,145 @@ def build(cutoff, store: BitemporalStore, config: dict | None = None) -> pd.Data
     df = df.drop(columns=rc_cols)
 
     return df.reset_index(drop=True)
+
+
+def _build_cache_key(cutoff, store: BitemporalStore, cfg: dict) -> str:
+    """Content key for the per-cutoff feature panel — cheap, leakage-safe.
+
+    The panel ``build`` emits is fully determined by (a) the ``< cutoff`` valid-
+    played results (every column ``compute_elo_history`` + the venue/travel/rest
+    joins consume), (b) the presence/content of the optional ``xg`` / ``venues``
+    tables as-of the cutoff, and (c) the ``elo`` + ``windows`` config blocks (they
+    drive ratings, the provisional flags, decay weights, and the feature window).
+    Hashing exactly those — and NOTHING that peeks past the cutoff — gives a key
+    that is STABLE across runs (sorted by ``match_id`` so DuckDB's read order is
+    irrelevant) yet flips whenever any < cutoff input changes (so a cached panel
+    is never stale).
+
+    Crucially this recomputes the cheap ``< cutoff`` slice (a store read + a
+    valid-played filter + a hash) but does NOT run the O(N) Elo loop — so the key
+    is microseconds, not the 5-minute panel build. Leakage-safety is identical to
+    ``build``: the same ``store.read(cutoff)`` + ``date < cutoff_day`` +
+    valid-played gate; no post-cutoff row is ever read.
+    """
+    cutoff = pd.Timestamp(cutoff)
+    if cutoff.tz is not None:
+        cutoff = cutoff.tz_convert("UTC").tz_localize(None)
+    cutoff_day = cutoff.normalize()
+
+    results = store.read("results", cutoff=cutoff)
+    results["date"] = pd.to_datetime(results["date"])
+    if getattr(results["date"].dt, "tz", None) is not None:
+        results["date"] = results["date"].dt.tz_convert("UTC").dt.tz_localize(None)
+    results = results.loc[results["date"] < cutoff_day].copy()
+    results = valid_played_results(results)
+    results["match_type"] = results["tournament"].map(tiers.match_type)
+
+    # The columns that actually determine the panel: the Elo inputs PLUS `city`
+    # (drives travel/venue joins). Sorted by match_id so the DuckDB read order
+    # (non-deterministic across processes) cannot change the hash.
+    key_cols = ["match_id", "date", "home_team", "away_team", "home_score",
+                "away_score", "neutral", "match_type", "city"]
+    key_cols = [c for c in key_cols if c in results.columns]
+    slim = results[key_cols].sort_values("match_id", kind="mergesort").reset_index(drop=True)
+    res_blob = pd.util.hash_pandas_object(slim, index=False).values.tobytes()
+    res_hash = hashlib.sha256(res_blob).hexdigest()[:16]
+
+    # Optional sources (NULL-safe in build): fold a cheap presence+content hash so
+    # a newly-loaded xg/venues table (which would change the panel) misses. Most
+    # CLV/backtest stores carry neither, so this is typically two "none" tokens.
+    # CRITICAL: ``store.read`` returns rows in a process-unstable DuckDB order, so
+    # the hash MUST be made row-order-independent — sort BOTH columns (axis=1) AND
+    # rows by their full content before hashing — else the key would flip every
+    # call and the panel cache would MISS every time (the same bug the result-hash
+    # and the Elo total-order fix address).
+    def _opt_hash(name: str) -> str:
+        tbl = _try_read(store, name, cutoff)
+        if tbl is None or tbl.empty:
+            return "none"
+        try:
+            sorted_tbl = tbl.sort_index(axis=1)
+            sorted_tbl = sorted_tbl.sort_values(
+                list(sorted_tbl.columns), kind="mergesort").reset_index(drop=True)
+            blob = pd.util.hash_pandas_object(sorted_tbl, index=False).values.tobytes()
+            return hashlib.sha256(blob).hexdigest()[:16]
+        except Exception:
+            # CONTENT-BEARING fallback (never a row-count-only token): a bare
+            # ``present:{len}`` collided two DISTINCT same-length tables onto one
+            # key -> a stale-serve risk. Serialize the table to parquet and digest
+            # the bytes so the fallback still depends on CONTENT. The parquet byte-
+            # stream can carry the (process-unstable) read order, so a benign extra
+            # MISS is possible — acceptable, and strictly safer than a false HIT.
+            return "blob:" + hashlib.sha256(tbl.to_parquet(index=False)).hexdigest()[:16]
+
+    payload = {
+        # The as-of CUTOFF itself (tz-coerced to the SAME tz-naive-UTC form
+        # ``build`` consumes above) — BLOCKING fix. ``build`` derives
+        # ``age_days = (cutoff - date)`` -> ``decay_weight`` / ``in_feature_window``
+        # from this exact value, so two DIFFERENT-day cutoffs that happen to share
+        # the same ``< cutoff_day`` result set produce DIFFERENT panels (different
+        # decay weights). Omitting the cutoff collided them, serving the earlier
+        # cutoff's wrongly-weighted panel for the later one (a mild look-ahead).
+        "cutoff": str(cutoff),
+        "results": res_hash,
+        "n_results": int(len(slim)),
+        "xg": _opt_hash("xg"),
+        "venues": _opt_hash("venues"),
+        "elo": cfg["elo"],
+        "windows": cfg["windows"],
+        # Code-version tokens (mirror the posterior key): a change to ``build`` /
+        # ``compute_elo_history`` / the joins that alters panel CONTENT — but not
+        # the elo/windows config or the ``< cutoff`` data — would otherwise serve a
+        # STALE cached panel. ``_git_commit`` ignores uncommitted edits, so
+        # ``PANEL_SCHEMA_VERSION`` is the manual invalidation lever (bump it on any
+        # schema/semantics change to ``build``).
+        "schema_version": PANEL_SCHEMA_VERSION,
+        "git": _git_commit(),
+        # The covariate-missing-indicator + travel/altitude joins read `city`;
+        # `model.covariates` does not change the panel columns build emits (it is
+        # consumed downstream in fit), so it is intentionally NOT keyed here.
+    }
+    blob = json.dumps(payload, sort_keys=True, default=str).encode()
+    return hashlib.sha256(blob).hexdigest()[:16]
+
+
+def build_cached(cutoff, store: BitemporalStore, config: dict | None = None, *,
+                 cache_dir: str | Path | None = None) -> pd.DataFrame:
+    """``build`` through a content-addressed on-disk panel cache (the speed fix).
+
+    ``build`` recomputes the per-cutoff Elo over the WHOLE ``< cutoff`` history on
+    every call — measured at ~5 minutes over the full ~46k-match martj42 panel.
+    The walk-forward / CLV backtests refit at several cutoffs and RE-run end-to-end
+    often, so that O(N) recompute dominates wall-clock and is paid AGAIN on every
+    identical re-run (the posterior cache never helped, because computing its key
+    via ``_feature_hash`` itself calls ``build``). This wrapper persists the built
+    panel as a parquet keyed by ``_build_cache_key`` (the < cutoff result-set +
+    elo/windows config), so a HIT reads the panel from disk in milliseconds with
+    NO Elo recompute.
+
+    Correctness is IDENTICAL to ``build``: the cached panel was produced by ``build``
+    on exactly this < cutoff slice + config; any change to either flips the key ->
+    a miss -> a fresh ``build``. Leakage-safety is unchanged — the key is computed
+    from the same ``< cutoff`` gate and the panel itself is ``build``'s leakage-safe
+    output. ``cache_dir=None`` (the default when no dir is threaded) bypasses the
+    cache entirely and just calls ``build`` — so existing callers are unaffected.
+    """
+    cfg = config or load_config()
+    if cache_dir is None:
+        return build(cutoff, store, cfg)
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    key = _build_cache_key(cutoff, store, cfg)
+    path = cache_dir / f"featpanel-{key}.parquet"
+    if path.exists():
+        return pd.read_parquet(path)
+    panel = build(cutoff, store, cfg)
+    # Persist atomically (temp + rename) so a crashed write never leaves a
+    # truncated parquet a later run would read as a valid (corrupt) HIT.
+    tmp = cache_dir / f"featpanel-{key}.parquet.tmp"
+    panel.to_parquet(tmp, index=False)
+    tmp.replace(path)
+    return panel
 
 
 def _strength_bands(elo: pd.DataFrame, teams: pd.Series) -> pd.Series:
