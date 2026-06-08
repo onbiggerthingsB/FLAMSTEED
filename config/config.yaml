@@ -121,7 +121,7 @@ live:
   bookmaker: pinnacle              # the transacted-price book (entry/close)
   sharp_benchmark: pinnacle        # the sharp CLV benchmark close (== bookmaker until re-picked at funding)
   sport_key: soccer_fifa_world_cup # the Odds API sport key for the GET /v4/sports/{sport}/odds route
-  regions: eu                      # Odds API regions param
+  regions: us,uk,eu                # Odds API regions param (us+uk+eu -> covers the soft books that post WC totals: betmgm/williamhill/betrivers/DK/FD/bet365)
   market: h2h                      # 1X2 head-to-head (PRIMARY surface)
   refresh:
     matchday: true                 # one refresh per matchday
@@ -138,7 +138,7 @@ markets:
   totals:
     lines: [0.5, 1.5, 2.5, 3.5, 4.5, 5.5]   # O/U goal lines derived from the scoreline grid
     edge_threshold: 0.03                      # min +EV (model_prob*odds - 1) AFTER uncertainty shrink to bet
-    soft_books: ["bet365", "draftkings", "fanduel"]   # the betting venue(s); +EV is vs THESE prices
+    soft_books: ["betmgm", "williamhill", "betrivers", "draftkings", "fanduel", "bet365"]   # +EV is vs THESE; betmgm/williamhill/betrivers confirmed posting WC totals, others kept harmlessly
     sharp_book: "pinnacle"                    # sharp reference ONLY (never bet, never enters the model)
 dashboard:
   dry_run: true               # synthetic-odds posture; the real-feed flip is gated (ASSUMPTIONS)
