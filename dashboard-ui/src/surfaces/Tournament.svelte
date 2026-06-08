@@ -1,8 +1,12 @@
 <script lang="ts">
-  import type { TournamentData } from '../lib/types';
+  import type { TournamentData, KoRow } from '../lib/types';
   import Estimate from '../components/Estimate.svelte';
+  import BracketTree from '../components/BracketTree.svelte';
 
-  let { data, markets }: { data: TournamentData; markets: string[] } = $props();
+  // `knockout` is the schedule bundle's KO rows (probable slot occupants per feeder). It is
+  // OPTIONAL so the surface still renders the progression table if the bracket data is absent.
+  let { data, markets, knockout = [] }: { data: TournamentData; markets: string[]; knockout?: KoRow[] } =
+    $props();
   // The coherence ladder, ordered shallow → deep so the monotone chain reads
   // left → right: advance ≥ reach-r16 ≥ qf ≥ sf ≥ final ≥ champion.
   const LADDER = ['win_group', 'advance_from_group', 'reach_r16', 'reach_qf', 'reach_sf', 'reach_final', 'champion'];
@@ -45,7 +49,16 @@
 </table>
 <p class="muted note">Coherence chain preserved: advance ≥ reach-r16 ≥ … ≥ champion. Each cell is a Monte-Carlo estimate ± its SE.</p>
 
+<section class="bracket-section" aria-labelledby="bracket-heading">
+  <h2 id="bracket-heading" class="section-title">Bracket tree</h2>
+  <p class="muted section-sub">R32 → Final, each slot's probable occupants from the group-placing markets.</p>
+  <BracketTree {knockout} />
+</section>
+
 <style>
+  .bracket-section { margin-top: var(--space-6); }
+  .section-title { font-size: var(--fs-md); font-weight: 600; margin: 0; }
+  .section-sub { margin: var(--space-1) 0 var(--space-4); font-size: var(--fs-sm); }
   .prog { width: 100%; border-collapse: collapse; }
   .prog th { text-align: right; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--line); color: var(--muted); font-weight: 600; font-size: var(--fs-sm); }
   .prog td { text-align: right; padding: var(--space-2) var(--space-3); border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }

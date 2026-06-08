@@ -22,6 +22,7 @@ import { render, fireEvent, waitFor, cleanup } from '@testing-library/svelte';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expect, test, describe, beforeEach, afterEach } from 'vitest';
+import type { KoRow } from '../src/lib/types';
 
 // Hard isolation: unmount + remove every rendered node between tests so one surface's
 // DOM (e.g. MatchDetail's edge %) can never bleed into another's container.
@@ -32,6 +33,7 @@ import Track from '../src/surfaces/Track.svelte';
 import MatchDetail from '../src/surfaces/MatchDetail.svelte';
 import WinBar from '../src/components/WinBar.svelte';
 import HonestyBar from '../src/components/HonestyBar.svelte';
+import BracketTree from '../src/components/BracketTree.svelte';
 import App from '../src/App.svelte';
 
 const dir = resolve(__dirname, 'fixtures/bundle');
@@ -127,13 +129,42 @@ describe('no naked numbers — every surface honours the uncertainty/gap/derived
     assertNoNakedNumbers(container);
   });
 
-  test('Tournament has no naked numbers', () => {
+  test('Tournament (progression table + bracket tree) has no naked numbers', () => {
+    // Feed the KO rows so the BRACKET TREE (below the progression table) is exercised too —
+    // its occupant %s must all sit inside Estimate/CoverageGap, same as the table cells.
     const { container } = render(Tournament, {
       data: J('tournament.json').data,
       markets: J('meta.json').data.markets,
+      knockout: J('schedule.json').data.knockout,
     });
     // Sanity: the progression table renders estimates (else the guard is vacuous here).
     expect(container.querySelector('[data-estimate]')).not.toBeNull();
+    // Sanity: the bracket tree actually rendered its slots (else its coverage is vacuous).
+    expect(container.querySelector('[data-bracket-match]')).not.toBeNull();
+    assertNoNakedNumbers(container);
+  });
+
+  test('BracketTree (occupants + a deeper-feeder coverage gap) has no naked numbers', () => {
+    // Render the bracket tree DIRECTLY over a multi-round chain that exercises BOTH the
+    // occupant-Estimate path AND the {coverage_gap} path (a W-feeder that resolves deeper).
+    // Every occupant % must sit inside Estimate (data-uncertainty); the gapped slot renders
+    // a CoverageGap — no naked % anywhere.
+    const occ = (team: string, prob: number) => ({ team, prob, se: 0.003 });
+    const knockout: KoRow[] = [
+      { match: 73, stage: 'R32', status: 'upcoming', home_ref: '1A', away_ref: '3rd-BCDEF',
+        home_occupants: [occ('Argentina', 0.51), occ('Mexico', 0.3), occ('Malta', 0.19)],
+        away_occupants: [occ('Brazil', 0.4), occ('Croatia', 0.35)] },
+      { match: 89, stage: 'R16', status: 'upcoming', home_ref: 'W73', away_ref: 'W74',
+        home_occupants: [occ('Argentina', 0.44), occ('Brazil', 0.41)],
+        away_occupants: { coverage_gap: true, reason: 'feeder W74 resolves from a later match' } },
+      { match: 104, stage: 'Final', status: 'upcoming', home_ref: 'W101', away_ref: 'W102',
+        home_occupants: { coverage_gap: true, reason: 'feeder W101 resolves from a later match' },
+        away_occupants: { coverage_gap: true, reason: 'feeder W102 resolves from a later match' } },
+    ];
+    const { container } = render(BracketTree, { knockout });
+    // Sanity: both an Estimate occupant % AND a coverage gap actually rendered (non-vacuous).
+    expect(container.querySelector('[data-estimate]')).not.toBeNull();
+    expect(container.querySelector('[data-coverage-gap]')).not.toBeNull();
     assertNoNakedNumbers(container);
   });
 
