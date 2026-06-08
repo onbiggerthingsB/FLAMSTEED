@@ -304,6 +304,12 @@ def cmd_run(args) -> int:
     sharp_book = totals_cfg["sharp_book"]
     regions = cfg["live"].get("regions", "eu")
     allow_pull = bool(args.pull)
+    # BOUNDED run: --euro restricts to the 5 Euro-2024 (marquee) fixtures; --cutoff shares ONE
+    # leakage-safe cutoff across them -> ONE cached cluster fit (robust; avoids the per-matchday
+    # multi-fit stall). Default: all STRATIFIED_MATCHES, per matchday.
+    match_list = ([m for m in STRATIFIED_MATCHES if m[3] == "marquee"]
+                  if getattr(args, "euro", False) else list(STRATIFIED_MATCHES))
+    override_cutoff = getattr(args, "cutoff", None)
 
     print("=" * 78)
     print("TOTALS (O/U goals) +EV EDGE BACKTEST — signal-only; market-prior-free; leakage-safe")
@@ -313,7 +319,7 @@ def cmd_run(args) -> int:
     print(f"[safety] live.signal_only={cfg['live']['signal_only']} live.dry_run={cfg['live']['dry_run']} "
           "-> NO bet path; this prints signals + a paper verdict only.")
     _venue_flags = [_fixture_neutral(h, a, ko, tier, sp)
-                    for h, a, ko, tier, sp in STRATIFIED_MATCHES]
+                    for h, a, ko, tier, sp in match_list]
     _n_neutral = sum(1 for f in _venue_flags if f)
     _n_host = len(_venue_flags) - _n_neutral
     print(f"[venue] per-fixture REAL venue: {_n_neutral} neutral-ground (Euro-2024 group), "
@@ -334,8 +340,8 @@ def cmd_run(args) -> int:
     store = get_persistent_store(rebuild=bool(args.rebuild_store))
     cache = _load_odds_cache()
     api_key = _load_env_key() if allow_pull else None
-    paid_budget = CallBudget(max_calls=MAX_PAID_CALLS)
-    list_budget = CallBudget(max_calls=len(STRATIFIED_MATCHES))
+    paid_budget = CallBudget(max_calls=2 * len(match_list))
+    list_budget = CallBudget(max_calls=len(match_list))
 
     fit_draws, fit_advi_iters, is_coarse = _fit_fidelity(args, cfg)
     if is_coarse:
@@ -348,7 +354,7 @@ def cmd_run(args) -> int:
     # Resolve the curated fixtures -> totals rows (cache-first; hard-capped pull).
     rows: list[dict] = []
     gaps: list[str] = []
-    for home, away, ko, tier, sport in STRATIFIED_MATCHES:
+    for home, away, ko, tier, sport in match_list:
         label = f"[{tier}] {home} v {away} ({ko[:10]})"
         results = _martj42_results_frame(store, cutoff=ko)
         rr = results[(results["home_team"] == home) & (results["away_team"] == away)]
@@ -390,7 +396,13 @@ def cmd_run(args) -> int:
     # Per-cutoff leakage-safe fit -> grid -> totals_probs -> +EV picks vs ENTRY -> settle + CLV.
     by_cutoff: dict[str, list] = {}
     for row in rows:
-        cutoff = str(pd.Timestamp(row["ko"][:10]).normalize())
+        if override_cutoff:
+            c = pd.Timestamp(override_cutoff).normalize()
+            assert pd.Timestamp(row["ko"][:10]).normalize() > c, (
+                f"LEAKAGE: {row['home']} v {row['away']} ({row['ko'][:10]}) not after shared cutoff {c.date()}")
+            cutoff = str(c)
+        else:
+            cutoff = str(pd.Timestamp(row["ko"][:10]).normalize())
         by_cutoff.setdefault(cutoff, []).append(row)
 
     scored: list[dict] = []
@@ -501,6 +513,12 @@ def _build_argparser() -> argparse.ArgumentParser:
                     help="re-ingest the martj42 store from cache (default: reuse persistent store)")
     ap.add_argument("--use-real-lockbox", action="store_true",
                     help="BURN the committed single-use lockbox (deliberate; default = temp copy)")
+    ap.add_argument("--euro", action="store_true",
+                    help="BOUNDED: restrict to the 5 Euro-2024 (marquee) fixtures (use with --cutoff "
+                         "to reuse ONE cached cluster fit; avoids the per-matchday multi-fit stall)")
+    ap.add_argument("--cutoff", default=None,
+                    help="single shared as-of cutoff (YYYY-MM-DD) for ALL fixtures -> ONE leakage-safe "
+                         "cluster fit (each fixture must kick off strictly after it)")
     return ap
 
 
