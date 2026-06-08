@@ -8,6 +8,14 @@ def test_config_loads_seed_and_paths():
     assert cfg["elo"]["home_advantage"] == 100.0
 
 
+def test_config_has_neutral_home_adv_fraction_default():
+    # Neutral-venue calibration knob k: a neutral game scores at mu + k*home_adv
+    # per side (split the home edge), not the bare away rate. Default 0.5
+    # (principled; ~0.53 empirical best-fit). Lives under `model:`.
+    cfg = load_config()
+    assert cfg["model"]["neutral_home_adv_fraction"] == 0.5
+
+
 def test_rng_is_seeded_and_reproducible():
     a = get_rng().random(3)
     b = get_rng().random(3)

@@ -40,6 +40,7 @@ statsbomb:
   open_data_version: "statsbombpy-1.18.0@2026-06-03"
 model:
   likelihood: dixon_coles            # dixon_coles | bivariate_poisson  (P4 DOF #8)
+  neutral_home_adv_fraction: 0.5     # neutral game = mu + k*home_adv per side (split the home edge; 0.5 principled, ~0.53 empirical). P5-tunable.
   covariates:
     enabled: []                       # e.g. ["rest_days"] — empty = baseline, no covariate terms
     beta_scale: 0.25                  # Normal(0, beta_scale) prior on each standardized coefficient
