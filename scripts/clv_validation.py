@@ -991,6 +991,18 @@ def cmd_accuracy(args) -> int:
         print("STEP 4 — ACCURACY: model RPS vs MARKET (de-vigged close) RPS vs UNIFORM")
     print("=" * 78)
     cfg = load_config()
+    # SHARPENING overrides (in-memory): raise the strength-prior scale and/or lower the widening
+    # to make the model less under-confident. Each distinct setting is a distinct posterior cache
+    # key (cfg["model"] is hashed), so a sweep never collides. None -> the on-disk config (baseline).
+    if getattr(args, "sigma_att", None) is not None:
+        cfg["model"]["prior"]["sigma_att"] = float(args.sigma_att)
+    if getattr(args, "sigma_def", None) is not None:
+        cfg["model"]["prior"]["sigma_def"] = float(args.sigma_def)
+    if getattr(args, "widening_strength", None) is not None:
+        cfg["model"]["widening"]["strength"] = float(args.widening_strength)
+    print(f"[sharpen] prior.sigma_att={cfg['model']['prior']['sigma_att']} "
+          f"sigma_def={cfg['model']['prior']['sigma_def']} "
+          f"widening.strength={cfg['model']['widening']['strength']}")
     book = cfg["backtest"]["primary_bookmaker"]
     regions = "eu"
     devig = cfg["backtest"]["devig_method"]
@@ -1400,6 +1412,14 @@ def main() -> int:
                         help="single shared as-of cutoff (YYYY-MM-DD) for ALL scored matches -> ONE "
                              "leakage-safe cluster fit (bounded + robust) instead of one fit per "
                              "matchday. Every scored match MUST kick off strictly after this cutoff.")
+    ap_acc.add_argument("--sigma-att", dest="sigma_att", type=float, default=None,
+                        help="SHARPENING sweep: override prior.sigma_att (raise to let team strengths "
+                             "spread further -> more confident forecasts). Default: on-disk config.")
+    ap_acc.add_argument("--sigma-def", dest="sigma_def", type=float, default=None,
+                        help="SHARPENING sweep: override prior.sigma_def. Default: on-disk config.")
+    ap_acc.add_argument("--widening-strength", dest="widening_strength", type=float, default=None,
+                        help="SHARPENING sweep: override widening.strength (lower -> less hedging on "
+                             "thin-data teams). Default: on-disk config.")
     args = ap.parse_args()
     return {"dry": cmd_dry, "probe": cmd_probe, "pilot": cmd_pilot,
             "accuracy": cmd_accuracy}[args.cmd](args)
