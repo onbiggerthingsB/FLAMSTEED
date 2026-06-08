@@ -7,6 +7,8 @@ close on the bet line. The model NEVER sees the odds. ``score_totals_row`` is pu
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from wcmodel.backtest.clv import clv_pct
@@ -80,3 +82,15 @@ def calibration_table(rows: list[dict], bins=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0)) -> 
                          "predicted": float(np.mean([r["p_over"] for r in b])),
                          "observed": float(np.mean([1.0 if r["over_hit"] else 0.0 for r in b]))}
     return out
+
+
+def totals_verdict(agg: dict, *, paired_p: float, clv_tol: float = 0.0, alpha: float = 0.05) -> str:
+    """CLV-is-the-gate accept/reject. Accept iff avg_clv > clv_tol AND roi >= 0 AND paired_p < alpha,
+    with NaN/None on any input -> reject (fail-safe). Mirrors the 1X2 ablation verdict discipline."""
+    clv, roi = agg.get("avg_clv"), agg.get("roi")
+    for v in (clv, roi, paired_p):
+        if v is None or (isinstance(v, float) and math.isnan(v)):
+            return "reject"
+    if clv > clv_tol and roi >= 0.0 and paired_p < alpha:
+        return "accept"
+    return "reject"

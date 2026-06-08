@@ -1,6 +1,6 @@
 import numpy as np
 from wcmodel.backtest.totals_backtest import (
-    score_totals_row, _settle_total, calibration_table,
+    score_totals_row, _settle_total, calibration_table, totals_verdict,
 )
 
 
@@ -45,3 +45,15 @@ def test_calibration_table_bins_predicted_vs_realized():
     # high-prob bin (>0.5): 2 fixtures, both hit -> observed 1.0; mean predicted ~0.85
     hi = tab[(0.5, 1.0)]
     assert hi["n"] == 2 and hi["observed"] == 1.0 and 0.8 <= hi["predicted"] <= 0.9
+
+
+def test_totals_verdict_rejects_no_edge_and_nan():
+    assert totals_verdict({"n_bets": 0, "roi": float("nan"), "avg_clv": float("nan")},
+                          paired_p=float("nan")) == "reject"
+    assert totals_verdict({"n_bets": 20, "roi": -0.05, "avg_clv": -0.01},
+                          paired_p=0.5) == "reject"           # negative CLV -> reject
+
+
+def test_totals_verdict_accepts_positive_clv_and_roi_and_sig():
+    assert totals_verdict({"n_bets": 40, "roi": 0.03, "avg_clv": 0.012},
+                          paired_p=0.01) == "accept"
