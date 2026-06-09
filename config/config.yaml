@@ -141,6 +141,21 @@ markets:
     edge_threshold: 0.03                      # min +EV (model_prob*odds - 1) AFTER uncertainty shrink to bet
     soft_books: ["betmgm", "williamhill", "betrivers", "draftkings", "fanduel", "bet365"]   # +EV is vs THESE; betmgm/williamhill/betrivers confirmed posting WC totals, others kept harmlessly
     sharp_book: "pinnacle"                    # sharp reference ONLY (never bet, never enters the model)
+value:
+  sports: ["soccer_fifa_world_cup"]   # config-driven; WC-only default, trivially extensible
+  markets: ["h2h", "totals"]
+  regions: us,uk,eu
+  sharp_book: pinnacle                # the truth reference; absent => coverage gap
+  edge_min: 0.02                      # report soft-beats-sharp edges >= 2%
+  too_good: 0.10                      # > 10% => SUSPECTED ARTIFACT, excluded from bettable
+  longshot_odds: 8.0                  # edges above this decimal price tagged fragile
+  stale_seconds: 900                  # a line quote older than this is flagged stale
+  kelly_fraction: 0.25                # ¼-Kelly suggested stake
+  soft_books: [betmgm, draftkings, fanduel, betrivers, williamhill, bovada, betonlineag,
+               mybookieag, betsson, leovegas, unibet_uk, unibet_eu, unibet_nl, unibet_se,
+               nordicbet, casumo, coolbet, grosvenor, betvictor, gtbets]
+  max_calls_per_scan: 2               # hard credit cap per scan
+  ledger_path: reports/value_paper_ledger.jsonl
 dashboard:
   dry_run: true               # synthetic-odds posture; the real-feed flip is gated (ASSUMPTIONS)
   output_dir: data/dashboard  # snapshot bundles land here (under the gitignored /data/)
