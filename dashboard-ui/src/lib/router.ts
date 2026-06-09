@@ -1,7 +1,8 @@
 export type Route =
+  | { name: 'value' }
+  | { name: 'track' }
   | { name: 'schedule' }
   | { name: 'tournament' }
-  | { name: 'track' }
   | { name: 'match'; id: string };
 
 // A malformed percent-escape (e.g. `#/match/100%`) makes decodeURIComponent throw
@@ -17,10 +18,15 @@ function safeDecode(raw: string): string {
   }
 }
 
+// PRIMARY route is now "value" (the +EV value scanner). The model surfaces
+// (schedule / tournament / match) are grouped under a SECONDARY "Forecast" nav,
+// visibly labeled as an independent forecast that does NOT beat the market.
+// "track" is the Track Record (realized-CLV scoreboard).
 export function parseHash(hash: string): Route {
   const h = hash.replace(/^#\/?/, '');
   if (h.startsWith('match/')) return { name: 'match', id: safeDecode(h.slice('match/'.length)) };
-  if (h === 'tournament') return { name: 'tournament' };
   if (h === 'track') return { name: 'track' };
-  return { name: 'schedule' };
+  if (h === 'schedule') return { name: 'schedule' };
+  if (h === 'tournament') return { name: 'tournament' };
+  return { name: 'value' };
 }

@@ -152,6 +152,64 @@ export interface FixtureDetail {
   edge: Maybe<EdgeNode>;
 }
 
+// ── Value scanner bundle (the PRIMARY surface) ──────────────────────────────────
+// Typed mirror of the value bundle JSON emitted by `wcmodel.value.bundle.build_value_bundle`
+// (snake_case on the wire; loadValueBundle maps snake→camel, same convention as the model
+// bundle). SIGNAL-ONLY / NON-REAL is stamped on the provenance; the viewer NEVER places a bet.
+
+export interface ValueProvenance {
+  scanTs: string;
+  sharpBook: string;
+  regions: string;
+  creditsUsed: number;
+  creditsRemaining: number;
+  git: string;
+  schemaVersion: number;
+  signalOnly: boolean;
+  isSynthetic: boolean;
+  banner: string; // the NOT-REAL banner; always present on a value bundle
+}
+
+// One scanned spot: a soft book's price vs the de-vigged sharp (Pinnacle) fair prob.
+// `edge`/`suggestedStake` are DERIVED signals (not posteriors) — they render inside
+// data-derived, never as naked forecast numbers. `flags` explains why a non-bettable
+// spot was filtered (too_good / fragile / stale / non_soft / both_sides / below_min).
+export interface ValueBet {
+  event: string;
+  commenceTime: string;
+  market: string;
+  line: number | null;
+  side: string;
+  sharpBook: string;
+  sharpFairProb: number;
+  softBook: string;
+  softOdds: number;
+  edge: number;
+  suggestedStake: number;
+  bookTier: string;
+  lastUpdate: string | null;
+  flags: string[];
+  bettable: boolean;
+}
+
+export interface ValueCoverageGap {
+  event: string;
+  market: string;
+  line: number | null;
+  reason: string;
+}
+
+export interface ValueData {
+  bettable: ValueBet[];
+  filtered: ValueBet[];
+  coverageGaps: ValueCoverageGap[];
+}
+
+export interface ValueBundle {
+  provenance: ValueProvenance;
+  data: ValueData;
+}
+
 export interface ReliabilityBin {
   bin_lo: number;
   bin_hi: number;

@@ -306,14 +306,15 @@ describe('no naked numbers — every surface honours the uncertainty/gap/derived
 
   test('the composed App shell (over the fixture bundle) has no naked numbers', async () => {
     // Mock fetch over the committed fixture (as app.test.ts does), render the WHOLE App, and
-    // run the composed shell — HonestyBar + nav + the landing Schedule surface — through the
+    // run the composed shell — HonestyBar + nav + the landing Value Bets surface — through the
     // SAME guard. This covers the shell that the isolated surface tests never exercised.
     location.hash = '';
     const { container } = render(App);
-    // Let onMount's loadBundle resolve so the bar + nav + landing surface are all mounted.
+    // Let onMount's loads resolve so the bar + nav + landing (Value Bets) surface are mounted.
     await waitFor(() => expect(container.querySelector('header.bar')).not.toBeNull());
     await waitFor(() => expect(container.querySelector('nav')).not.toBeNull());
-    await waitFor(() => expect(container.querySelector('[data-row="group"]')).not.toBeNull());
+    // PRIMARY landing is Value Bets: its bettable table (a derived %/odds surface) renders.
+    await waitFor(() => expect(container.querySelector('[data-table="bettable"]')).not.toBeNull());
     assertNoNakedNumbers(container);
   });
 

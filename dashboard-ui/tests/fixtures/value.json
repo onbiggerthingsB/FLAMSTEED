@@ -1,0 +1,65 @@
+{
+  "provenance": {
+    "scan_ts": "2026-06-08T23:10:00Z",
+    "sharp_book": "pinnacle",
+    "regions": "us,uk,eu",
+    "credits_used": 6,
+    "credits_remaining": 19000,
+    "git": "39ae686",
+    "schema_version": 1,
+    "signal_only": true,
+    "is_synthetic": true,
+    "banner": "NOT REAL — signal-only +EV scan. No bet is placed by this system; you execute manually. Edges are point-in-time; soft books move/limit fast."
+  },
+  "data": {
+    "bettable": [
+      {
+        "event": "Portugal v DR Congo",
+        "commence_time": "2026-06-15T18:00:00Z",
+        "market": "h2h",
+        "line": null,
+        "side": "DR Congo",
+        "sharp_book": "pinnacle",
+        "sharp_fair_prob": 0.14625743431940552,
+        "soft_book": "betmgm",
+        "soft_odds": 7.25,
+        "edge": 0.06036639881568995,
+        "suggested_stake": 0.002414655952627598,
+        "book_tier": "soft",
+        "last_update": "2026-06-08T23:08:00Z",
+        "flags": [],
+        "bettable": true
+      }
+    ],
+    "filtered": [
+      {
+        "event": "Brazil v Haiti",
+        "commence_time": "2026-06-19T18:00:00Z",
+        "market": "h2h",
+        "line": null,
+        "side": "Haiti",
+        "sharp_book": "pinnacle",
+        "sharp_fair_prob": 0.060297881353852896,
+        "soft_book": "betrivers",
+        "soft_odds": 21.0,
+        "edge": 0.26625550843091084,
+        "suggested_stake": 0.0,
+        "book_tier": "soft",
+        "last_update": "2026-06-08T23:08:00Z",
+        "flags": [
+          "too_good",
+          "fragile"
+        ],
+        "bettable": false
+      }
+    ],
+    "coverage_gaps": [
+      {
+        "event": "X v Y",
+        "market": "h2h",
+        "line": null,
+        "reason": "no sharp (pinnacle) line"
+      }
+    ]
+  }
+}

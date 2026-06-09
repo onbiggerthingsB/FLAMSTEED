@@ -26,17 +26,21 @@ async function waitForApp(page: Page) {
 // AND on the edge-bearing detail page: no interactive affordance that places/sizes/stages
 // a bet, and the stake signal (if present) is a read-only readout with no interactive ancestor.
 async function assertNoBetAffordance(page: Page) {
-  // No actionable control (button or link styled as an action) that places/sizes a bet.
-  const betButtons = page.getByRole('button', { name: /bet|buy|order|stake|place|wager/i });
+  // No actionable control (button or link styled as an action) that PLACES/SIZES a bet.
+  // NB: the regex targets bet-PLACING ACTION verbs ("place bet", "stake now", "wager",
+  // "bet now", "buy", "order ticket") — NOT the bare word "bet", which legitimately
+  // appears in the "Value Bets" navigation label (a route link, not a bet control).
+  const ACTION = /place\s*bet|bet\s*now|stake\s*now|wager|buy|order\s*(ticket|bet)|checkout/i;
+  const betButtons = page.getByRole('button', { name: ACTION });
   await expect(betButtons).toHaveCount(0);
-  const betLinks = page.getByRole('link', { name: /bet|buy|order|stake now|place|wager/i });
+  const betLinks = page.getByRole('link', { name: ACTION });
   await expect(betLinks).toHaveCount(0);
 
   // Defensive: no <form>, no submit/checkout inputs, no commerce-shaped controls at all.
   await expect(page.locator('form')).toHaveCount(0);
   await expect(page.locator('button[type="submit"], input[type="submit"]')).toHaveCount(0);
   await expect(
-    page.locator('[role="button"]').filter({ hasText: /bet|buy|order|stake|place|wager/i }),
+    page.locator('[role="button"]').filter({ hasText: ACTION }),
   ).toHaveCount(0);
 
   // The stake signal, if present, is plain text (read-only), not an interactive control.
@@ -57,6 +61,19 @@ test('(a) the NON-REAL honesty banner is visible on load', async ({ page }) => {
   await waitForApp(page);
 });
 
+test('(a2) the PRIMARY Value Bets surface (SIGNAL-ONLY banner) is the landing', async ({ page }) => {
+  await page.goto('/');
+  await waitForApp(page);
+  // The empty hash lands on Value Bets: its SIGNAL-ONLY / NOT-REAL banner renders.
+  await expect(page.getByText(/SIGNAL-ONLY/)).toBeVisible();
+  // The value banner's NOT-REAL text (scope to the value banner — the app-shell HonestyBar
+  // also carries a "NOT REAL" string, so match the signal-only variant specifically).
+  await expect(page.getByText(/NOT REAL — signal-only/)).toBeVisible();
+  // The bettable table shows the engineered DR Congo / betmgm +EV spot.
+  await expect(page.locator('[data-table="bettable"]')).toBeVisible();
+  await expect(page.getByText(/Portugal v DR Congo/)).toBeVisible();
+});
+
 test('(b) there is NO bet/stake/buy/order action affordance on the homepage', async ({ page }) => {
   await page.goto('/');
   await waitForApp(page);
@@ -66,7 +83,8 @@ test('(b) there is NO bet/stake/buy/order action affordance on the homepage', as
 test('(c) drill into the REAL-EDGE match detail: edge + stake render, NO bet affordance, banner persists', async ({
   page,
 }) => {
-  await page.goto('/');
+  // The match surfaces live under the SECONDARY "Forecast" nav now; start on the schedule.
+  await page.goto('/#/schedule');
   await waitForApp(page);
 
   // Drill into the REAL-EDGE row specifically (Brazil v Mexico) — NOT the first row, which is

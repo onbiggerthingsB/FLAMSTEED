@@ -36,3 +36,33 @@ export function edgeChip(edge: number | null | undefined): string {
 }
 
 export function formatDate(d: string): string { return d.split(' ')[0]; }
+
+// ── Value-scanner formatters ────────────────────────────────────────────────────
+// Decimal odds: a market datum, shown to 2dp (never a probability — no ± companion).
+export function decimalOdds(o: number | null | undefined): string {
+  if (o === null || o === undefined || !Number.isFinite(o)) return '—';
+  return o.toFixed(2);
+}
+
+// Freshness: how stale a line quote is, as a human age. Edges evaporate in minutes, so
+// the viewer surfaces the quote's age (from the API last_update vs the scan timestamp).
+// Returns "—" when either timestamp is missing/malformed (never a fabricated age).
+export function freshness(lastUpdate: string | null | undefined, scanTs: string): string {
+  if (!lastUpdate) return '—';
+  const lu = Date.parse(lastUpdate);
+  const now = Date.parse(scanTs);
+  if (!Number.isFinite(lu) || !Number.isFinite(now)) return '—';
+  const sec = Math.max(0, Math.round((now - lu) / 1000));
+  if (sec < 90) return `${sec}s ago`;
+  const min = Math.round(sec / 60);
+  if (min < 90) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  return `${hr}h ago`;
+}
+
+// ¼-Kelly suggested stake as a fraction of bankroll — a SUGGESTION signal, never an
+// instruction and never auto-acted. Derived; renders inside data-derived.
+export function stakeSignal(frac: number | null | undefined): string {
+  if (frac === null || frac === undefined || !Number.isFinite(frac) || frac <= 0) return '—';
+  return `${(frac * 100).toFixed(2)}% of bankroll`;
+}
