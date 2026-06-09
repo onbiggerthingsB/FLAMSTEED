@@ -3,6 +3,10 @@ from wcmodel.data.devig import shin
 
 def _market_outcomes(book: dict, market: str, line: float | None) -> dict[str, float] | None:
     """{outcome_name: decimal_odds} for one book's market (totals filtered to `line`)."""
+    # totals require an explicit line: without one, multiple Over/Under lines
+    # would silently collapse into a single dict (only the last surviving).
+    if market == "totals" and line is None:
+        return None
     for mk in book.get("markets", []) or []:
         if mk.get("key") != market:
             continue
@@ -55,6 +59,10 @@ def classify_edge(*, book: str, edge: float, odds: float, last_update: str | Non
     if odds > cfg.longshot_odds:
         flags.append("fragile")
     age = _age_seconds(last_update, now)
+    # Deliberate fail-open: a missing/unparseable last_update (age is None) is
+    # NOT flagged stale. The Odds API reliably provides last_update; a missing
+    # one is rare/malformed. This output is signal-only — the user verifies
+    # freshness at bet time — so we surface the edge rather than swallow it.
     if age is not None and age > cfg.stale_seconds:
         flags.append("stale")
     if both_sides_book:
@@ -107,8 +115,12 @@ def scan(events: list[dict], *, cfg, now: str) -> dict:
                         if nm not in fair:
                             continue
                         per_book.setdefault(bkey, []).append((nm, odds, fair[nm] * odds - 1.0))
+                # Stale-de-vig signal: a book +EV on EVERY leg of the FULL market.
+                # Require full-market coverage (len(rows) >= len(fair)); a book that
+                # prices only a subset of outcomes (2 of a 3-way) is one-sided, not
+                # stale, and its real edges must NOT be killed.
                 both_sides = {bk for bk, rows in per_book.items()
-                              if len(rows) >= 2 and all(e > 0 for *_, e in rows)}
+                              if len(rows) >= len(fair) and all(e > 0 for *_, e in rows)}
                 for bkey, rows in per_book.items():
                     lu = _book_last_update(ev, bkey)
                     for nm, odds, edge in rows:

@@ -22,3 +22,8 @@ def test_longshot_flagged_not_bettable():
     f, b = classify_edge(**base(odds=9.0)); assert "fragile" in f and b is False
 def test_both_sides_excluded():
     f, b = classify_edge(**base(both_sides_book=True)); assert "both_sides" in f and b is False
+def test_missing_last_update_fails_open():
+    # deliberate fail-open: age None (missing/unparseable last_update) is NOT
+    # flagged stale; an otherwise-clean edge stays bettable.
+    f, b = classify_edge(**base(last_update=None))
+    assert "stale" not in f and f == [] and b is True

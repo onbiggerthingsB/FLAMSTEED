@@ -19,7 +19,7 @@ class ValueConfig:
 
 @dataclass(frozen=True)
 class ValueBet:
-    event: str; commence_time: str; market: str; line: float | None; side: str
+    event: str; commence_time: str | None; market: str; line: float | None; side: str
     sharp_book: str; sharp_fair_prob: float; soft_book: str; soft_odds: float
     edge: float; suggested_stake: float; book_tier: str; last_update: str | None
     flags: list[str] = field(default_factory=list); bettable: bool = False
