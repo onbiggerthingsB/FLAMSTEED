@@ -90,11 +90,13 @@ class DesignData:
     away_provisional: np.ndarray
     cov: dict[str, np.ndarray] = field(default_factory=dict)        # name -> standardized per-row value (already masked to 0 where absent)
     cov_mask: dict[str, np.ndarray] = field(default_factory=dict)   # name -> 1.0 where observed, else 0.0
+    elo_z: np.ndarray | None = None        # per-team z-scored Elo strength, aligned to `teams` (None/zeros = no anchor)
 
 def build_design(
     match_panel: pd.DataFrame,
     cov: dict[str, np.ndarray] | None = None,
     cov_mask: dict[str, np.ndarray] | None = None,
+    elo_z: np.ndarray | None = None,
 ) -> DesignData:
     """Match-level numpy design from the panel.
 
@@ -102,9 +104,17 @@ def build_design(
     assembled upstream (in ``fit()``) from a leakage-safe ``CovariateTransform``.
     Both default to empty dicts, so omitting them yields a DesignData byte-identical
     to today's baseline (no covariate terms) — the no-covariate path is unchanged.
+
+    ``elo_z`` is the OPTIONAL per-team z-scored Elo strength (aligned to ``teams``,
+    assembled in ``fit()`` via ``team_elo_z`` on the leakage-safe ``< cutoff`` panel).
+    It defaults to a zero vector of length ``n_teams``, so omitting it yields a
+    DesignData byte-identical to today's baseline (no strength anchor).
     """
     teams = sorted(set(match_panel["home_team"]) | set(match_panel["away_team"]))
     idx = {t: i for i, t in enumerate(teams)}
+    elo_z = np.zeros(len(teams), dtype=float) if elo_z is None else np.asarray(elo_z, dtype=float)
+    if elo_z.shape != (len(teams),):
+        raise ValueError(f"elo_z shape {elo_z.shape} != n_teams {(len(teams),)}")
     return DesignData(
         teams=teams, n_teams=len(teams),
         home_idx=match_panel["home_team"].map(idx).to_numpy(dtype=np.int64),
@@ -117,4 +127,5 @@ def build_design(
         away_provisional=match_panel["away_provisional"].to_numpy(dtype=bool),
         cov=dict(cov) if cov else {},
         cov_mask=dict(cov_mask) if cov_mask else {},
+        elo_z=elo_z,
     )
