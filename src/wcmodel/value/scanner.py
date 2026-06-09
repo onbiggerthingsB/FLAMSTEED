@@ -61,3 +61,68 @@ def classify_edge(*, book: str, edge: float, odds: float, last_update: str | Non
         flags.append("both_sides")
     bettable = not flags          # bettable iff NO guard fired
     return flags, bettable
+
+from wcmodel.value.types import ValueBet
+
+def _book_last_update(event: dict, book: str) -> str | None:
+    for bk in event.get("bookmakers", []) or []:
+        if bk.get("key") == book:
+            return bk.get("last_update")
+    return None
+
+def _lines_for(event: dict, market: str) -> list[float | None]:
+    if market != "totals":
+        return [None]
+    pts = set()
+    for bk in event.get("bookmakers", []) or []:
+        for mk in bk.get("markets", []) or []:
+            if mk.get("key") == "totals":
+                for o in mk.get("outcomes", []) or []:
+                    if "point" in o:
+                        pts.add(float(o["point"]))
+    return sorted(pts) if pts else []
+
+def scan(events: list[dict], *, cfg, now: str) -> dict:
+    bettable, filtered, gaps = [], [], []
+    for ev in events:
+        name = f"{ev.get('home_team','?')} v {ev.get('away_team','?')}"
+        commence = ev.get("commence_time")
+        for market in cfg.markets:
+            for line in _lines_for(ev, market):
+                fair = sharp_fair_probs(ev, market=market, line=line, sharp=cfg.sharp_book)
+                if fair is None:
+                    gaps.append({"event": name, "market": market, "line": line,
+                                 "reason": f"no sharp ({cfg.sharp_book}) line"})
+                    continue
+                # per-book edges; track which books are +EV on EVERY outcome (stale de-vig)
+                per_book: dict[str, list[tuple[str, float, float]]] = {}
+                for bk in ev.get("bookmakers", []) or []:
+                    bkey = bk.get("key")
+                    if bkey == cfg.sharp_book:
+                        continue
+                    outs = _market_outcomes(bk, market, line)
+                    if not outs:
+                        continue
+                    for nm, odds in outs.items():
+                        if nm not in fair:
+                            continue
+                        per_book.setdefault(bkey, []).append((nm, odds, fair[nm] * odds - 1.0))
+                both_sides = {bk for bk, rows in per_book.items()
+                              if len(rows) >= 2 and all(e > 0 for *_, e in rows)}
+                for bkey, rows in per_book.items():
+                    lu = _book_last_update(ev, bkey)
+                    for nm, odds, edge in rows:
+                        if edge <= 0:
+                            continue
+                        flags, ok = classify_edge(book=bkey, edge=edge, odds=odds, last_update=lu,
+                                                  now=now, both_sides_book=bkey in both_sides, cfg=cfg)
+                        vb = ValueBet(event=name, commence_time=commence, market=market, line=line,
+                                      side=nm, sharp_book=cfg.sharp_book, sharp_fair_prob=fair[nm],
+                                      soft_book=bkey, soft_odds=odds, edge=edge,
+                                      suggested_stake=_kelly_stake(edge=edge, odds=odds, fraction=cfg.kelly_fraction) if ok else 0.0,
+                                      book_tier="soft" if bkey in cfg.soft_books else "other_sharp",
+                                      last_update=lu, flags=flags, bettable=ok).to_dict()
+                        (bettable if ok else filtered).append(vb)
+    bettable.sort(key=lambda x: -x["edge"])
+    filtered.sort(key=lambda x: -x["edge"])
+    return {"bettable": bettable, "filtered": filtered, "coverage_gaps": gaps}

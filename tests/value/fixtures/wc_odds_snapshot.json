@@ -1,0 +1,68 @@
+[
+  {
+    "id": "evt_por_drc",
+    "sport_key": "soccer_fifa_world_cup",
+    "commence_time": "2026-06-15T18:00:00Z",
+    "home_team": "Portugal",
+    "away_team": "DR Congo",
+    "bookmakers": [
+      {
+        "key": "pinnacle",
+        "title": "Pinnacle",
+        "last_update": "2026-06-08T23:08:00Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-06-08T23:08:00Z",
+            "outcomes": [
+              {"name": "Portugal", "price": 1.50},
+              {"name": "Draw", "price": 4.20},
+              {"name": "DR Congo", "price": 6.00}
+            ]
+          }
+        ]
+      },
+      {
+        "key": "betmgm",
+        "title": "BetMGM",
+        "last_update": "2026-06-08T23:08:00Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-06-08T23:08:00Z",
+            "outcomes": [
+              {"name": "Portugal", "price": 1.50},
+              {"name": "Draw", "price": 4.00},
+              {"name": "DR Congo", "price": 7.25}
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "evt_x_y",
+    "sport_key": "soccer_fifa_world_cup",
+    "commence_time": "2026-06-16T18:00:00Z",
+    "home_team": "X",
+    "away_team": "Y",
+    "bookmakers": [
+      {
+        "key": "betmgm",
+        "title": "BetMGM",
+        "last_update": "2026-06-08T23:08:00Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "last_update": "2026-06-08T23:08:00Z",
+            "outcomes": [
+              {"name": "X", "price": 2.10},
+              {"name": "Draw", "price": 3.40},
+              {"name": "Y", "price": 3.60}
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]
