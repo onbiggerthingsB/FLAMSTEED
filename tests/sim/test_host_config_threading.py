@@ -81,6 +81,22 @@ def _cfg_with_host_k(k: float) -> dict:
     return cfg
 
 
+def _anchor_off_cfg() -> dict:
+    """A project cfg deep-copy with the Elo strength anchor (``model.strength_prior``)
+    forced OFF.
+
+    ``test_caller_host_k_reaches_the_sim`` checks the sim's host_k THREADING (orthogonal to
+    the Elo strength anchor): more host advantage (k=1) must not LOWER Mexico's group-advance
+    probability vs the neutral k=0 baseline. Pin the anchor OFF for the underlying fit so the
+    tiny coarse synthetic fit keeps ``home_adv`` well-identified (positive); on a degenerate
+    anchored fit ``home_adv`` can go negative, inverting the host-advantage direction and
+    flipping the ``adv1 >= adv0`` assertion. The anchor's own behavior is validated at
+    production fidelity + in ``tests/model``."""
+    cfg = copy.deepcopy(load_config())
+    cfg["model"]["strength_prior"]["enabled"] = False
+    return cfg
+
+
 def _simconfig(cfg: dict, *, cache_dir=None) -> SimConfig:
     """A SimConfig built through ``from_config(cfg, ...)`` over the host tournament — so it
     CARRIES ``cfg`` (the fix) and ``simulate`` derives host_factors from THAT cfg, not disk.
@@ -107,7 +123,8 @@ def test_caller_host_k_reaches_the_sim(mutable_store):
     from wcmodel.model.scoreline import fit
 
     cutoff = "2024-06-01"                         # Mexico-Malta (2024-06-05) is FUTURE -> simulated
-    post = fit(cutoff, mutable_store, backend="advi", draws=80, seed=0, advi_iters=2000)
+    post = fit(cutoff, mutable_store, backend="advi", draws=80, seed=0, advi_iters=2000,
+               config=_anchor_off_cfg())
 
     res_k0 = simulate(cutoff, post, mutable_store, _simconfig(_cfg_with_host_k(0.0)))
     res_k1 = simulate(cutoff, post, mutable_store, _simconfig(_cfg_with_host_k(1.0)))

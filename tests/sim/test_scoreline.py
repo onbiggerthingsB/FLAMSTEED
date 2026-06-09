@@ -1,6 +1,24 @@
+import copy
+
 import numpy as np
 import pytest
 from wcmodel.sim.scoreline import RateBook, sample_score
+
+
+def _anchor_off_cfg():
+    """A project cfg deep-copy with the Elo strength anchor (``model.strength_prior``)
+    forced OFF.
+
+    These two ``small_store`` fits below check the sim's rate ARITHMETIC / host_factor
+    scaling (orthogonal to the Elo strength anchor). Pin the anchor OFF so the tiny coarse
+    synthetic fit keeps ``home_adv`` well-identified (positive); on a degenerate anchored
+    fit ``home_adv`` can go negative and flip the home-advantage-direction assertions
+    (neutral <= non-neutral home rate; ``lh_k0 < lh_full``). The anchor's own behavior is
+    validated at production fidelity + in ``tests/model``."""
+    from wcmodel.config import load_config
+    cfg = copy.deepcopy(load_config())
+    cfg["model"]["strength_prior"]["enabled"] = False
+    return cfg
 
 
 def _stub_posterior(mu=0.10, home_adv=0.30, k_neutral=0.5):
@@ -53,7 +71,8 @@ def test_ratebook_neutral_uses_average_environment():
 
 def test_ratebook_exposes_per_draw_rates(small_store):
     from wcmodel.model.scoreline import fit
-    post = fit("2024-06-01", small_store, backend="advi", draws=100, seed=0, advi_iters=2000)
+    post = fit("2024-06-01", small_store, backend="advi", draws=100, seed=0,
+               advi_iters=2000, config=_anchor_off_cfg())
     rb = RateBook(post)
     assert rb.n_draws == 100
     lh, la = rb.rates("Brazil", "Argentina", neutral=False, draw=0)
@@ -78,7 +97,8 @@ def test_ratebook_host_factor_scales_home_advantage(small_store):
     from wcmodel.config import load_config
     from wcmodel.model.scoreline import fit
     k_neutral = load_config()["model"]["neutral_home_adv_fraction"]
-    post = fit("2024-06-01", small_store, backend="advi", draws=100, seed=0, advi_iters=2000)
+    post = fit("2024-06-01", small_store, backend="advi", draws=100, seed=0,
+               advi_iters=2000, config=_anchor_off_cfg())
     rb = RateBook(post)
     lh_full, la_full = rb.rates("Brazil", "Argentina", neutral=False, draw=0)
     lh_neut, la_neut = rb.rates("Brazil", "Argentina", neutral=True, draw=0)

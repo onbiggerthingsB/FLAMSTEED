@@ -1,3 +1,5 @@
+import copy
+
 from wcmodel.backtest.odds_ingest import synthetic_odds_sample
 from wcmodel.data.store import BitemporalStore
 from wcmodel.live.clv_tracker import DRY_RUN_BANNER, PaperClvTracker, clv_report
@@ -7,6 +9,22 @@ from wcmodel.live.odds_live import live_snapshot_from_fixture
 from wcmodel.live.scan import scan
 from wcmodel.live.tournament import _settle
 from wcmodel.live.validation import assert_entry_logged_at_decision_time
+
+
+def _anchor_off(cfg: dict) -> dict:
+    """Return a deep copy of ``cfg`` with the Elo strength anchor
+    (``model.strength_prior``) forced OFF.
+
+    The wrong-score settle-flip proof below checks the ingest->settle->log CHAIN (a wrong
+    ingested score flips the settled P&L sign), orthogonal to the Elo strength anchor. It
+    pins which side the decision stakes (``d.staked == "away"``). Pin the anchor OFF so the
+    tiny coarse synthetic ``decide_live`` fit keeps ``home_adv`` well-identified (positive);
+    on a degenerate anchored fit ``home_adv`` can go negative, flipping the priced side
+    (here home<->away) and breaking the pinned-side precondition. The anchor's own behavior
+    is validated at production fidelity + in ``tests/model``."""
+    c = copy.deepcopy(cfg)
+    c["model"]["strength_prior"]["enabled"] = False
+    return c
 
 
 def _settle_ingested(rstore: BitemporalStore, *, cutoff: str) -> str:
@@ -111,7 +129,8 @@ def test_dry_run_e2e_is_a_genuine_chain_wrong_ingested_score_flips_settled_pnl(
                               bookmaker="pinnacle", seed=0)
     live_now = live_snapshot_from_fixture(s["sample"], which="all")
     d = decide_live(small_store, live_now, cutoff="2024-06-30T19:00:00Z",
-                    config=cfg, fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0})
+                    config=_anchor_off(cfg),
+                    fit_kwargs={"draws": 60, "advi_iters": 1500, "seed": 0})
     assert d.staked, "the chain must fire a bet for the settle proof to be meaningful"
 
     def _settled_pnl(home_score: int, away_score: int, tag: str) -> float:
