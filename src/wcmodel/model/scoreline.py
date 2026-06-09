@@ -326,7 +326,16 @@ def fit(
     # arrays + masks into the design. Empty dicts when covariates.enabled == [],
     # so the design (and the fitted model) is byte-identical to today's baseline.
     cov, cov_mask, cov_transforms = _build_covariates(mp, cfg["model"]["covariates"])
-    d = build_design(mp, cov=cov, cov_mask=cov_mask)
+    # Per-team Elo strength anchor (leakage-safe): team_elo_z reads only `feats`,
+    # the < cutoff panel, so a post-cutoff result is invisible to elo_z (proven by
+    # tests/model/test_fit_strength_leakage.py). `teams` here is the SAME sorted
+    # unique set build_design computes internally, so the elo_z array aligns to the
+    # design team index. When strength_prior is OFF (default) _priors ignores elo_z
+    # entirely, so this is byte-identical to today's baseline.
+    from wcmodel.model.strength import team_elo_z
+    teams = sorted(set(mp["home_team"]) | set(mp["away_team"]))
+    elo_z = team_elo_z(feats, teams)
+    d = build_design(mp, cov=cov, cov_mask=cov_mask, elo_z=elo_z)
     w = likelihood_weight(
         d,
         mechanism=cfg["model"]["widening"]["mechanism"],

@@ -20,7 +20,8 @@ from wcmodel.config import load_config
 from wcmodel.data import features
 from wcmodel.data.features import _build_cache_key, build, build_cached
 from wcmodel.data.store import BitemporalStore, Policy
-from wcmodel.model.cache import _feature_hash, cached_fit
+from wcmodel.data.cache import content_key
+from wcmodel.model.cache import _cache_key_params, _feature_hash, cached_fit
 
 
 class _FakePosterior:
@@ -72,6 +73,38 @@ def test_cache_key_uses_passed_config_elo_not_global(small_store, tmp_path):
     # A DIFFERENT passed-config elo -> a DIFFERENT key (the key tracks the elo
     # that actually drove the posterior). This is the inverted D6 contract.
     assert m_lo["key"] != m_hi["key"]
+
+
+def test_cache_key_tracks_strength_prior_enabled(small_store, tmp_path):
+    """Task 4 Step 4: ``model.strength_prior`` is part of the posterior cache key,
+    so toggling ``enabled`` (which changes the att/def prior MEAN -> a different
+    posterior) yields a DIFFERENT key — never a stale serve of the wrong-anchor
+    fit. ``_cache_key_params`` hashes ``cfg["model"]`` whole, and ``strength_prior``
+    lives under ``model``, so the toggle rides into the key directly.
+
+    Uses ``_cache_key_params`` + ``content_key`` directly (no fit). ``_feature_hash``
+    and ``_git_commit`` are stubbed constant so the ONLY difference between the two
+    keys is ``strength_prior.enabled`` — proving THAT is what moves the key (the
+    elo_z VALUES additionally ride via the panel's feature_hash in production, but
+    here we isolate the config toggle)."""
+    base_cfg = load_config()
+    cfg_off = copy.deepcopy(base_cfg)
+    cfg_off["model"]["strength_prior"]["enabled"] = False
+    cfg_on = copy.deepcopy(base_cfg)
+    cfg_on["model"]["strength_prior"]["enabled"] = True
+
+    kw = dict(cutoff="2024-06-01", store=small_store, backend="advi", draws=80,
+              seed=0, advi_iters=2000, likelihood="dixon_coles", tune=1000)
+
+    with mock.patch("wcmodel.model.cache._feature_hash", return_value="ff" * 8), \
+         mock.patch("wcmodel.model.cache._git_commit", return_value="deadbeef"):
+        key_off = content_key("posterior", _cache_key_params(**{**kw, "cfg": cfg_off}))
+        key_on = content_key("posterior", _cache_key_params(**{**kw, "cfg": cfg_on}))
+
+    assert key_off != key_on, (
+        "strength_prior.enabled does not change the posterior cache key -> a fit "
+        "with the anchor ON could be served from an OFF (or wrong-k) cache entry"
+    )
 
 
 def test_cache_key_tracks_passed_config_elo_block(small_store, tmp_path):
