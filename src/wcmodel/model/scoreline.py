@@ -7,9 +7,12 @@ carries the Phase-1 decay_weight). This file is mechanism-AGNOSTIC: it consumes
 whatever `weight` array it is given. Widening is applied in a LATER task —
 mechanism (a) (likelihood down-weight) would multiply into this weight, while the
 Phase-2 default mechanism (c) (predictive-variance inflation) leaves weight =
-decay only and acts at predict time. Elo is NOT used here (independent prior):
-the model learns attack/defense from goals + team indices + the decay weight
-only — it never reads elo_pre or any rating.
+decay only and acts at predict time. Elo is the att/def prior ANCHOR when
+``model.strength_prior.enabled`` (att/def prior mean = k·elo_z, the z-scored
+point-in-time Elo strength threaded through ``DesignData.elo_z``); when DISABLED
+(the default) Elo is NOT used here and the model learns attack/defense from goals
++ team indices + the decay weight only — the prior mean is the scalar 0.0 exactly
+as before (byte-identical off path).
 """
 from __future__ import annotations
 
@@ -161,12 +164,30 @@ def _rates(d: DesignData, att, defe, mu, home_adv, betas=None):
     return pt.exp(log_lh), pt.exp(log_la)
 
 
-def _priors(d: DesignData, p):
+def _priors(d: DesignData, p, strength=None):
     sigma_att = pm.HalfNormal("sigma_att", sigma=p["sigma_att"])
     sigma_def = pm.HalfNormal("sigma_def", sigma=p["sigma_def"])
-    att_raw = pm.Normal("att_raw", 0.0, sigma_att, shape=d.n_teams)
-    def_raw = pm.Normal("def_raw", 0.0, sigma_def, shape=d.n_teams)
-    att = pm.Deterministic("att", att_raw - pt.mean(att_raw))  # soft sum-to-zero
+    # Elo-anchored prior MEAN (gated). When strength_prior.enabled, the att/def
+    # prior mean leans toward each team's z-scored Elo strength: a strong team
+    # wants HIGH att AND HIGH def (since lambda_home = exp(mu + att[home] -
+    # def[away] + ...)), so BOTH anchor to +k·elo_z. When OFF, the mean is the
+    # SCALAR 0.0 exactly as today — the off path never reads d.elo_z, so the model
+    # is byte-identical to the pre-anchor baseline (and identical to elo_z=zeros).
+    if strength and strength.get("enabled"):
+        ez = np.asarray(
+            d.elo_z if d.elo_z is not None else np.zeros(d.n_teams), dtype=float
+        )
+        mean_att = float(strength["k_att"]) * ez       # per-team prior mean (n_teams,)
+        mean_def = float(strength["k_def"]) * ez
+    else:
+        mean_att = 0.0                                  # today's path -> byte-identical when off
+        mean_def = 0.0
+    att_raw = pm.Normal("att_raw", mean_att, sigma_att, shape=d.n_teams)
+    def_raw = pm.Normal("def_raw", mean_def, sigma_def, shape=d.n_teams)
+    # Soft sum-to-zero. elo_z is mean~0 across teams, so the per-team anchor
+    # survives the centering (it shifts the RELATIVE means, which mean(att_raw)
+    # does not flatten).
+    att = pm.Deterministic("att", att_raw - pt.mean(att_raw))
     defe = pm.Deterministic("def", def_raw - pt.mean(def_raw))
     mu = pm.Normal("mu", p["mu_loc"], p["mu_scale"])
     home_adv = pm.Normal("home_adv", p["home_loc"], p["home_scale"])
@@ -183,7 +204,7 @@ class DixonColesModel(ScorelineModel):
         cfg = config or load_config()
         p = cfg["model"]["prior"]
         with pm.Model() as m:
-            att, defe, mu, home_adv = _priors(d, p)
+            att, defe, mu, home_adv = _priors(d, p, strength=cfg["model"].get("strength_prior"))
             # No-op when covariates.enabled == [] (or none present in d.cov):
             # betas == {} -> _rates adds a 0.0 offset, RV set unchanged.
             betas = _covariate_betas(d, cfg["model"]["covariates"])
@@ -215,7 +236,7 @@ class BivariatePoissonModel(ScorelineModel):
         # bp_loglik_pt handles kmax==0 as the independent case.
         kmax = int(np.minimum(d.home_goals, d.away_goals).max()) if len(d.home_goals) else 0
         with pm.Model() as m:
-            att, defe, mu, home_adv = _priors(d, p)
+            att, defe, mu, home_adv = _priors(d, p, strength=cfg["model"].get("strength_prior"))
             # No-op when covariates.enabled == [] (or none present in d.cov):
             # betas == {} -> _rates adds a 0.0 offset, RV set unchanged.
             betas = _covariate_betas(d, cfg["model"]["covariates"])
