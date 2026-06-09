@@ -89,6 +89,26 @@ def _fit_kwargs(cache_dir: str) -> dict:
     return {**_FIT, "cache_dir": cache_dir}
 
 
+def _anchor_off_cfg() -> dict:
+    """A config with the Elo strength anchor (``model.strength_prior``) pinned OFF.
+
+    These synthetic canaries test the leak-DETECTION machinery (the walk-forward
+    before/after over the provisional/count widening surface). Pin the Elo strength
+    anchor OFF so it can't mask the synthetic provisional-leak signal — the anchor
+    is a SEPARATE prior whose att/def prior MEAN it dominates (k=0.6), which swamps
+    mechanism-(c)'s provisional-widening price influence and suppresses the synthetic
+    +EV bet at the boundary cutoff (so before == after == [] vacuously, and the
+    detector can't trip). The anchor's OWN point-in-time leakage-safety is proven by
+    ``tests/model/test_fit_strength_leakage.py`` (a > cutoff row never moves ``att``);
+    the anchor is byte-identical when off; and the fit-DATA (score-mode) leak surface
+    keeps its teeth with the anchor ON. So pinning it off here is a TEST-ONLY
+    calibration choice on the SECONDARY count-detection surface, not a model change.
+    """
+    cfg = copy.deepcopy(load_config())
+    cfg["model"]["strength_prior"]["enabled"] = False
+    return cfg
+
+
 def _inputs():
     """A synthetic Mexico-vs-Croatia event whose decision cutoff (its 2024-05-20
     matchday) precedes the POST-cutoff result the mutable_store rewrites (Mexico's
@@ -367,11 +387,15 @@ def test_backtest_invariant_to_post_cutoff_row_count(tmp_path):
     store = _count_boundary_store(tmp_path)
     samples, rfs, matches = _count_inputs()
     caches = _FreshFitCache(tmp_path)
+    # Anchor OFF (see _anchor_off_cfg): the Elo strength prior would swamp
+    # mechanism-(c)'s provisional widening and suppress the synthetic boundary bet,
+    # making this count-detection invariance vacuous (before == after == []).
+    cfg = _anchor_off_cfg()
 
     def run():
         return walkforward(store, copy.deepcopy(samples),
                            results_for_settle=rfs.copy(), matches=matches,
-                           fit_kwargs=_fit_kwargs(caches.next()))
+                           config=cfg, fit_kwargs=_fit_kwargs(caches.next()))
 
     # The added row is dated AFTER the cutoff, so a leakage-free count_volatility_arm
     # (`date < cutoff`) excludes it -> Edge still counts 4 games -> still provisional
@@ -402,11 +426,17 @@ def test_count_mode_canary_has_teeth(tmp_path):
     store = _count_boundary_store(tmp_path)
     samples, rfs, matches = _count_inputs()
     caches = _FreshFitCache(tmp_path)
+    # Anchor OFF (see _anchor_off_cfg): with the Elo strength prior ON it dominates
+    # the att/def prior mean and swamps mechanism-(c)'s provisional widening, so the
+    # synthetic +EV bet at the boundary cutoff is filtered (below_edge) and the count-
+    # mode teeth (provisional flip MOVES the bet) become vacuous. The anchor's own
+    # point-in-time leakage-safety is tests/model/test_fit_strength_leakage.py.
+    cfg = _anchor_off_cfg()
 
     # (0) the leakage-free run stakes exactly one bet on the bet pair.
     honest = walkforward(store, copy.deepcopy(samples),
                          results_for_settle=rfs.copy(), matches=matches,
-                         fit_kwargs=_fit_kwargs(caches.next()))
+                         config=cfg, fit_kwargs=_fit_kwargs(caches.next()))
     assert len(honest.bets) == 1, "leakage-free run must place a bet (else canary is vacuous)"
     assert list(honest.bets[0]["event_key"][:2]) == [_COUNT_BET_HOME, _COUNT_BET_AWAY]
 
@@ -468,10 +498,10 @@ def test_count_mode_canary_has_teeth(tmp_path):
     teeth_caches = _FreshFitCache(tmp_path / "teeth")
     bet_provisional = walkforward(
         store, copy.deepcopy(samples_b), results_for_settle=rfs_b.copy(),
-        matches=matches_b, fit_kwargs=_fit_kwargs(teeth_caches.next())).bets[0]
+        matches=matches_b, config=cfg, fit_kwargs=_fit_kwargs(teeth_caches.next())).bets[0]
     bet_not_provisional = walkforward(
         store, copy.deepcopy(samples_l), results_for_settle=rfs_l.copy(),
-        matches=matches_l, fit_kwargs=_fit_kwargs(teeth_caches.next())).bets[0]
+        matches=matches_l, config=cfg, fit_kwargs=_fit_kwargs(teeth_caches.next())).bets[0]
     assert bet_provisional["model"] != bet_not_provisional["model"], (
         "the provisional flip did NOT move the model price -> mechanism-(c) widening "
         "has no effect here, so the count-mode invariance assertion is vacuous"
@@ -519,6 +549,14 @@ def test_fit_leak_masked_by_shared_cache_caught_by_fresh_fits(tmp_path, monkeypa
     monkeypatch.setattr(scoreline, "count_volatility_arm", leaky_count_volatility_arm)
 
     samples, rfs, matches = _count_inputs()
+    # Anchor OFF (see _anchor_off_cfg): the injected count leak surfaces by flipping
+    # Edge's provisional flag and MOVING the bet price. With the Elo strength prior ON
+    # it dominates the att/def prior mean and swamps mechanism-(c)'s provisional
+    # widening, so the leaked flip no longer moves the price enough to re-place/move
+    # the bet -> the fresh-fit run would NOT raise (the load-bearing RED proof goes
+    # vacuous). The anchor's own point-in-time leakage-safety is covered by
+    # tests/model/test_fit_strength_leakage.py.
+    cfg = _anchor_off_cfg()
 
     # (RED-when-masked) SHARED cache_dir: the second run HITS the first posterior,
     # so the leaked provisional flip is never recomputed -> the canary is VACUOUS
@@ -529,7 +567,7 @@ def test_fit_leak_masked_by_shared_cache_caught_by_fresh_fits(tmp_path, monkeypa
     def run_shared():
         return walkforward(shared_store, copy.deepcopy(samples),
                            results_for_settle=rfs.copy(), matches=matches,
-                           fit_kwargs=_fit_kwargs(shared_dir))
+                           config=cfg, fit_kwargs=_fit_kwargs(shared_dir))
 
     # Must NOT raise: the shared cache MASKS the injected fit leak (this is exactly
     # the vacuity the focal Codex finding flagged).
@@ -544,7 +582,7 @@ def test_fit_leak_masked_by_shared_cache_caught_by_fresh_fits(tmp_path, monkeypa
     def run_fresh():
         return walkforward(fresh_store, copy.deepcopy(samples),
                            results_for_settle=rfs.copy(), matches=matches,
-                           fit_kwargs=_fit_kwargs(caches.next()))
+                           config=cfg, fit_kwargs=_fit_kwargs(caches.next()))
 
     import pytest
     with pytest.raises(AssertionError, match="BACKTEST LEAKAGE"):
