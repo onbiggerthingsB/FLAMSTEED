@@ -27,10 +27,11 @@ async function waitForApp(page: Page) {
 // a bet, and the stake signal (if present) is a read-only readout with no interactive ancestor.
 async function assertNoBetAffordance(page: Page) {
   // No actionable control (button or link styled as an action) that PLACES/SIZES a bet.
-  // NB: the regex targets bet-PLACING ACTION verbs ("place bet", "stake now", "wager",
-  // "bet now", "buy", "order ticket") — NOT the bare word "bet", which legitimately
-  // appears in the "Value Bets" navigation label (a route link, not a bet control).
-  const ACTION = /place\s*bet|bet\s*now|stake\s*now|wager|buy|order\s*(ticket|bet)|checkout/i;
+  // NB: targets bet-PLACING ACTION verbs ("place bet", "stake now", "wager", "bet now",
+  // "buy", "order ticket"). The bare tokens are ANCHORED (^\s*bet\s*$ / ^\s*stake\s*$) so a
+  // standalone "Bet"/"Stake" action button IS caught, while the "Value Bets" navigation
+  // label (a route control whose full name is "Value Bets", not "Bet") is NOT flagged.
+  const ACTION = /place\s*bet|bet\s*now|stake\s*now|wager|buy|order\s*(ticket|bet)|checkout|^\s*bet\s*$|^\s*stake\s*$/i;
   const betButtons = page.getByRole('button', { name: ACTION });
   await expect(betButtons).toHaveCount(0);
   const betLinks = page.getByRole('link', { name: ACTION });
