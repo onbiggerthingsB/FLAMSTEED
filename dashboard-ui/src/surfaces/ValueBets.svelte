@@ -60,8 +60,10 @@
           <th>odds</th><th>fair</th>
           <!-- Model = our independent forecast's take, shown as CONTEXT next to the pick.
                It is NOT the edge and does NOT decide the bet (the model does not beat the
-               market). The honest label lives just below the header text. -->
-          <th data-col="model">model<span class="model-note muted">our forecast — context, NOT the edge</span></th>
+               market). The honest label below explains the emphasis: agreement is weak
+               (the model over-rates underdogs, so it "agrees" with most picks), while a ⚠
+               disagreement (model rates the pick below the market) is the real caution. -->
+          <th data-col="model">model<span class="model-note muted">our forecast — context, NOT the edge. Our model over-rates underdogs, so it "agrees" with most picks (weak signal). A ⚠ disagreement (model rates the pick below the market) is the real caution.</span></th>
           <th>¼-Kelly stake</th><th>freshness</th><th>kickoff</th>
         </tr>
       </thead>
@@ -164,7 +166,7 @@
   }
   .bets th { color: var(--muted); font-weight: 600; }
   .bets th[data-col="model"] { display: flex; flex-direction: column; gap: 2px; }
-  .model-note { font-size: 0.72em; font-style: italic; font-weight: 400; max-width: 18ch; white-space: normal; }
+  .model-note { font-size: 0.72em; font-style: italic; font-weight: 400; max-width: 36ch; white-space: normal; line-height: 1.35; }
   .bets .num { text-align: right; font-variant-numeric: tabular-nums; }
   .bets .ev { font-weight: 600; }
   .bets .pick { color: var(--accent); }

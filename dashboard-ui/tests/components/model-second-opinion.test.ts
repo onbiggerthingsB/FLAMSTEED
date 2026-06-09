@@ -158,23 +158,40 @@ describe('modelSecondOpinion join helper (unit)', () => {
 });
 
 describe('Model second-opinion column on ValueBets (render)', () => {
-  test('(a) joinable pick shows the model prob + correct agree tag', async () => {
+  test('(a) an AGREE pick is DE-EMPHASIZED: muted prob + "in line", NO loud "agrees" badge', async () => {
+    // WHY: the model systematically over-rates underdogs, so it "agrees" with almost any
+    // underdog value pick — weak, near-noise evidence. We show it quietly (muted prob,
+    // "in line") and DROP the celebratory "agrees" badge entirely. The data-agree hook is
+    // preserved (display-only invariant), but there is no loud, colorful affirmation.
     const bundle = await loadValueFixture();
     const { container } = render(ValueBets, { bundle, forecast: makeForecast(0.20) });
     const cell = container.querySelector('[data-cell="model"] [data-derived="model"]');
     expect(cell).not.toBeNull();
-    // Model away prob 0.20 > sharpFairProb 0.1463 → agrees, and 20.0% is rendered.
+    // Underlying computation unchanged: model away prob 0.20 >= sharpFairProb 0.1463 → agree.
     expect(cell?.getAttribute('data-agree')).toBe('agree');
     expect(cell?.textContent).toMatch(/20\.0\s*%/);
-    expect(cell?.textContent).toMatch(/agrees/);
+    // De-emphasized treatment: quiet "in line" wording, and NO celebratory "agrees" badge.
+    expect(cell?.textContent).toMatch(/in line/i);
+    expect(cell?.textContent).not.toMatch(/agrees/i);
+    // The prob is rendered through the muted class (quiet, not a loud affirmation).
+    expect(cell?.querySelector('.muted')).not.toBeNull();
+    // No prominent caution badge on an agree row.
+    expect(cell?.querySelector('[data-caution]')).toBeNull();
   });
 
-  test('(a2) flips to disagree when the model rates it below the market', async () => {
+  test('(a2) a DISAGREE pick is PROMINENT: an amber ⚠ caution badge — the real signal', async () => {
+    // WHY: the genuinely useful signal is the OPPOSITE of "agrees". When the model rates the
+    // pick BELOW the market, that is a real caution flag — so it gets a prominent, visually
+    // distinct amber ⚠ treatment that stands out from the muted agree rows.
     const bundle = await loadValueFixture();
     const { container } = render(ValueBets, { bundle, forecast: makeForecast(0.10) });
     const cell = container.querySelector('[data-cell="model"] [data-derived="model"]');
     expect(cell?.getAttribute('data-agree')).toBe('disagree');
-    expect(cell?.textContent).toMatch(/disagrees/);
+    // Prominent caution treatment: a dedicated caution node, the ⚠ glyph, and honest wording.
+    const caution = cell?.querySelector('[data-caution]');
+    expect(caution).not.toBeNull();
+    expect(caution?.textContent).toMatch(/⚠/);
+    expect(caution?.textContent).toMatch(/below the market/i);
   });
 
   test('(b) a pick with no matching forecast fixture shows "—"', async () => {
@@ -223,5 +240,15 @@ describe('Model second-opinion column on ValueBets (render)', () => {
     const bundle = await loadValueFixture();
     render(ValueBets, { bundle, forecast: makeForecast(0.20) });
     expect(screen.getByText(/context, NOT the edge/i)).toBeInTheDocument();
+  });
+
+  test('the column header carries the honest "over-rates underdogs / ⚠ is the real caution" note', async () => {
+    // The note explains WHY agree is weak (model over-rates underdogs) and that a ⚠
+    // disagreement is the real signal — so the muted/prominent emphasis reads honestly.
+    const bundle = await loadValueFixture();
+    render(ValueBets, { bundle, forecast: makeForecast(0.20) });
+    expect(screen.getByText(/over-rates underdogs/i)).toBeInTheDocument();
+    expect(screen.getByText(/⚠/)).toBeInTheDocument();
+    expect(screen.getByText(/real caution/i)).toBeInTheDocument();
   });
 });
