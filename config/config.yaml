@@ -55,6 +55,11 @@ model:
     home_loc: 0.25                   # home-advantage log-multiplier prior loc
     home_scale: 0.25
     rho_scale: 0.1                   # DC tau / BP-correlation prior scale
+  strength_prior:
+    enabled: false           # OFF by default -> preserves current behavior + clean A/B
+    source: elo              # elo only in v1 (market anchor out of scope)
+    k_att: 0.30              # log-rate per 1 SD of Elo on attack (calibrated, see Task 5)
+    k_def: 0.30              # log-rate per 1 SD of Elo on defense
   widening:
     mechanism: c                     # a (likelihood down-weight) | c (predictive-variance inflation)  (P4 DOF #3)
     strength: 0.5                    # widening strength, co-tuned with windows.decay_half_life_days  (P4 DOF #4)
