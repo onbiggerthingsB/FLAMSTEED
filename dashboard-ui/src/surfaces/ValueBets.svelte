@@ -11,14 +11,22 @@
   not subject to the ±-companion rule.
 -->
 <script lang="ts">
-  import type { ValueBundle } from '../lib/types';
+  import type { ValueBundle, ScheduleData } from '../lib/types';
   import { stakeSignal, decimalOdds, freshness, pct, formatDate } from '../lib/format';
+  import { buildForecastIndex, modelSecondOpinion } from '../lib/modelSecondOpinion';
   import EdgeChip from '../components/EdgeChip.svelte';
   import CoverageGap from '../components/CoverageGap.svelte';
+  import ModelCell from '../components/ModelCell.svelte';
 
-  let { bundle }: { bundle: ValueBundle } = $props();
+  // `forecast` is the OPTIONAL model (schedule) data — passed in for the display-only
+  // "model second opinion" column. It is read-only CONTEXT: it joins each value pick to
+  // OUR independent forecast's take on that same outcome, and NEVER touches the edge or the
+  // bettable list (those come straight off the value bundle). A missing forecast bundle
+  // simply yields "—" in the Model column; it can never change which spots are bettable.
+  let { bundle, forecast = null }: { bundle: ValueBundle; forecast?: ScheduleData | null } = $props();
   const p = $derived(bundle.provenance);
   const d = $derived(bundle.data);
+  const forecastIndex = $derived(buildForecastIndex(forecast));
 </script>
 
 <!-- The NOT-REAL banner, made prominent at the top of the primary surface. -->
@@ -49,7 +57,12 @@
       <thead>
         <tr>
           <th>event</th><th>market</th><th>pick</th><th>edge</th><th>book</th>
-          <th>odds</th><th>fair</th><th>¼-Kelly stake</th><th>freshness</th><th>kickoff</th>
+          <th>odds</th><th>fair</th>
+          <!-- Model = our independent forecast's take, shown as CONTEXT next to the pick.
+               It is NOT the edge and does NOT decide the bet (the model does not beat the
+               market). The honest label lives just below the header text. -->
+          <th data-col="model">model<span class="model-note muted">our forecast — context, NOT the edge</span></th>
+          <th>¼-Kelly stake</th><th>freshness</th><th>kickoff</th>
         </tr>
       </thead>
       <tbody>
@@ -65,6 +78,10 @@
             <td class="num">{decimalOdds(b.softOdds)}</td>
             <!-- sharp fair prob is a DERIVED de-vigged market datum, not a posterior. -->
             <td class="num" data-derived="fair">{pct(b.sharpFairProb, 1)}</td>
+            <!-- MODEL SECOND OPINION (display-only): our forecast's prob for this same
+                 outcome + agree/disagree vs the sharp fair prob. Derived CONTEXT, never the
+                 edge — computed off the value bet + forecast index, fed nowhere else. -->
+            <td data-cell="model"><ModelCell opinion={modelSecondOpinion(b, forecastIndex)} /></td>
             <!-- ¼-Kelly is a read-only SUGGESTION signal (derived), never an instruction. -->
             <td class="num" data-derived="stake">{stakeSignal(b.suggestedStake)}</td>
             <td class="num">{freshness(b.lastUpdate, p.scanTs)}</td>
@@ -146,6 +163,8 @@
     padding: 6px 12px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: baseline;
   }
   .bets th { color: var(--muted); font-weight: 600; }
+  .bets th[data-col="model"] { display: flex; flex-direction: column; gap: 2px; }
+  .model-note { font-size: 0.72em; font-style: italic; font-weight: 400; max-width: 18ch; white-space: normal; }
   .bets .num { text-align: right; font-variant-numeric: tabular-nums; }
   .bets .ev { font-weight: 600; }
   .bets .pick { color: var(--accent); }

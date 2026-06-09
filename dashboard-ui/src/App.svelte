@@ -56,7 +56,11 @@
 <main>
   {#if route.name === 'value'}
     {#if value}
-      <ValueBets bundle={value} />
+      <!-- `forecast` is the model (schedule) data, passed in for the display-only "model
+           second opinion" column. It loads independently of the value bundle, so it may
+           still be null here — ValueBets degrades that column to "—" and the bettable list
+           is unaffected (the model is CONTEXT, never the edge). -->
+      <ValueBets bundle={value} forecast={bundle?.schedule.data ?? null} />
     {:else if valueError}
       <p class="err">Could not load value bundle: {valueError}</p>
     {:else}
