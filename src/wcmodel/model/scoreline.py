@@ -203,6 +203,25 @@ def _priors(d: DesignData, p, strength=None):
         )
         mean_att = float(strength["k_att"]) * ez       # per-team prior mean (n_teams,)
         mean_def = float(strength["k_def"]) * ez
+        # P3 v0 squad-strength anchor (ADDITIVE, masked). The full anchor mean is
+        #   k_elo·elo_z + k_squad·squad_z·has_squad
+        # An uncovered team (has_squad==0) contributes ZERO squad signal at ANY
+        # k_squad, so its prior mean stays the pure-Elo anchor (spec §5: coverage
+        # is NOT missing-at-random). BYTE-IDENTICAL-OFF: with k_squad==0.0 (the
+        # default) OR the key absent, NO squad term is added — mean_att/mean_def
+        # remain the SAME object as the elo-only path (so the off model is
+        # byte-identical to the pre-squad baseline, and to squad_z=None).
+        k_squad = float(strength.get("k_squad", 0.0))
+        if k_squad != 0.0:
+            sz = np.asarray(
+                d.squad_z if d.squad_z is not None else np.zeros(d.n_teams), dtype=float
+            )
+            mask = np.asarray(
+                d.has_squad if d.has_squad is not None else np.ones(d.n_teams), dtype=float
+            )
+            squad_term = k_squad * sz * mask            # masked per-team squad pull
+            mean_att = mean_att + squad_term
+            mean_def = mean_def + squad_term
     else:
         mean_att = 0.0                                  # today's path -> byte-identical when off
         mean_def = 0.0

@@ -91,12 +91,16 @@ class DesignData:
     cov: dict[str, np.ndarray] = field(default_factory=dict)        # name -> standardized per-row value (already masked to 0 where absent)
     cov_mask: dict[str, np.ndarray] = field(default_factory=dict)   # name -> 1.0 where observed, else 0.0
     elo_z: np.ndarray | None = None        # per-team z-scored Elo strength, aligned to `teams` (None/zeros = no anchor)
+    squad_z: np.ndarray | None = None      # per-team z-scored club-Elo squad strength, aligned to `teams` (None/zeros = no squad anchor)
+    has_squad: np.ndarray | None = None    # per-team coverage mask (1.0 covered, 0.0 masked), aligned to `teams` (None => all-ones; but squad_z=zeros keeps the term off)
 
 def build_design(
     match_panel: pd.DataFrame,
     cov: dict[str, np.ndarray] | None = None,
     cov_mask: dict[str, np.ndarray] | None = None,
     elo_z: np.ndarray | None = None,
+    squad_z: np.ndarray | None = None,
+    has_squad: np.ndarray | None = None,
 ) -> DesignData:
     """Match-level numpy design from the panel.
 
@@ -109,12 +113,28 @@ def build_design(
     assembled in ``fit()`` via ``team_elo_z`` on the leakage-safe ``< cutoff`` panel).
     It defaults to a zero vector of length ``n_teams``, so omitting it yields a
     DesignData byte-identical to today's baseline (no strength anchor).
+
+    ``squad_z`` / ``has_squad`` are the OPTIONAL per-team club-Elo squad-strength
+    anchor (P3 v0): the z-scored top-18 club-Elo mean over covered teams and the
+    coverage mask. Both align to ``teams``. ``squad_z`` defaults to zeros and
+    ``has_squad`` to ones, so omitting them keeps the squad term identically 0
+    (byte-identical to the pre-squad baseline). The model multiplies
+    ``k_squad·squad_z·has_squad`` so a masked team (``has_squad==0``) contributes
+    ZERO squad signal at any ``k_squad`` (spec §5; coverage is not missing-at-random).
     """
     teams = sorted(set(match_panel["home_team"]) | set(match_panel["away_team"]))
     idx = {t: i for i, t in enumerate(teams)}
     elo_z = np.zeros(len(teams), dtype=float) if elo_z is None else np.asarray(elo_z, dtype=float)
     if elo_z.shape != (len(teams),):
         raise ValueError(f"elo_z shape {elo_z.shape} != n_teams {(len(teams),)}")
+    squad_z = (np.zeros(len(teams), dtype=float) if squad_z is None
+               else np.asarray(squad_z, dtype=float))
+    if squad_z.shape != (len(teams),):
+        raise ValueError(f"squad_z shape {squad_z.shape} != n_teams {(len(teams),)}")
+    has_squad = (np.ones(len(teams), dtype=float) if has_squad is None
+                 else np.asarray(has_squad, dtype=float))
+    if has_squad.shape != (len(teams),):
+        raise ValueError(f"has_squad shape {has_squad.shape} != n_teams {(len(teams),)}")
     return DesignData(
         teams=teams, n_teams=len(teams),
         home_idx=match_panel["home_team"].map(idx).to_numpy(dtype=np.int64),
@@ -128,4 +148,6 @@ def build_design(
         cov=dict(cov) if cov else {},
         cov_mask=dict(cov_mask) if cov_mask else {},
         elo_z=elo_z,
+        squad_z=squad_z,
+        has_squad=has_squad,
     )
