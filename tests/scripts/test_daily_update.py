@@ -145,6 +145,119 @@ def test_run_log_line_schema(mod, tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# --manual-results: matchday-1 hand-entered fallback (Phase 0 PRIORITY ZERO)   #
+# --------------------------------------------------------------------------- #
+# A real matchday-1 GROUP fixture from the committed draw (host opener, group A).
+_M_HOME, _M_AWAY, _M_DATE = "Mexico", "South Africa", "2026-06-11"
+
+
+def _manual_csv(tmp_path, body=None):
+    p = tmp_path / "day1.csv"
+    p.write_text(body or (
+        "date,home_team,away_team,home_score,away_score,shootout_winner\n"
+        f"{_M_DATE},{_M_HOME},{_M_AWAY},3,1,\n"))
+    return p
+
+
+def _kw_recorders(mod, monkeypatch, calls):
+    """Recorders that capture the FULL kwargs of each step (so manual threading +
+    cutoff resolution can be asserted), still running no network/fit/sim."""
+    def rec(name, ret=None):
+        def _f(*args, **kwargs):
+            calls.append((name, args, kwargs))
+            return ret
+        return _f
+    monkeypatch.setattr(mod, "step_ingest", rec("ingest", ret="STORE"))
+    monkeypatch.setattr(mod, "step_gate", rec("gate"))
+    monkeypatch.setattr(mod, "step_snapshot", rec("snapshot", ret=Path("/tmp/bundle")))
+    monkeypatch.setattr(mod, "step_stage", rec("stage"))
+    monkeypatch.setattr(mod, "step_provenance", rec("provenance", ret={"ok": True}))
+
+
+def test_manual_dry_run_validates_and_ingests_nothing(mod, monkeypatch, capsys, tmp_path):
+    calls: list = []
+    _recorders(mod, monkeypatch, calls)
+    csv = _manual_csv(tmp_path)
+    rc = mod.main(["--manual-results", str(csv), "--dry-run"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert calls == []                                  # NO step ran (no ingest)
+    assert "manual" in out.lower()
+    assert "1 validated" in out                         # the parsed row is shown
+    assert "sha256=" in out                             # the file hash is shown
+    assert f"{_M_HOME}" in out and f"{_M_AWAY}" in out  # the parsed fixture is shown
+
+
+def test_manual_threads_rows_and_observed_at_into_ingest(mod, monkeypatch, tmp_path):
+    calls: list = []
+    _kw_recorders(mod, monkeypatch, calls)
+    csv = _manual_csv(tmp_path)
+    # Explicit cutoff strictly after the match date so the manual row can condition.
+    rc = mod.main(["--manual-results", str(csv), "--cutoff", "2026-06-12T00:00:00Z"])
+    assert rc == 0
+    ingest = next(c for c in calls if c[0] == "ingest")
+    kw = ingest[2]
+    assert kw.get("manual_results") == str(csv)         # the CSV path is threaded
+    assert kw.get("manual_observed_at") is not None      # observed_at = now is set
+
+
+def test_manual_no_cutoff_implies_next_day_so_today_conditions(mod, monkeypatch, tmp_path):
+    """THE load-bearing rule: a manual row dated D with NO --cutoff implies cutoff =
+    D+1 00:00Z, so the strict `date < cutoff_day` filter INCLUDES the day-D match and
+    the sim conditions on it."""
+    calls: list = []
+    _kw_recorders(mod, monkeypatch, calls)
+    csv = _manual_csv(tmp_path)
+    rc = mod.main(["--manual-results", str(csv)])       # no --cutoff
+    assert rc == 0
+    gate = next(c for c in calls if c[0] == "gate")
+    # step_gate(store, cutoff) — cutoff is the 2nd positional arg.
+    cutoff = gate[1][1]
+    assert cutoff == "2026-06-12T00:00:00Z", (
+        f"manual row dated {_M_DATE} must imply cutoff D+1 (2026-06-12T00:00:00Z) so "
+        f"it conditions; got {cutoff}")
+
+
+def test_manual_bad_explicit_cutoff_fails_loud(mod, monkeypatch, tmp_path):
+    """An explicit --cutoff that is NOT strictly after the manual row's date can never
+    condition it — fail loud (non-zero exit) rather than silently no-op."""
+    calls: list = []
+    _kw_recorders(mod, monkeypatch, calls)
+    csv = _manual_csv(tmp_path)
+    # cutoff day == match day -> the day-D match is NOT < cutoff_day -> excluded.
+    with pytest.raises(SystemExit) as ei:
+        mod.main(["--manual-results", str(csv), "--cutoff", "2026-06-11T00:00:00Z"])
+    assert ei.value.code != 0
+    assert not any(c[0] in ("ingest", "snapshot") for c in calls)  # aborted early
+
+
+def test_manual_invalid_csv_fails_loud_before_any_step(mod, monkeypatch, tmp_path):
+    calls: list = []
+    _kw_recorders(mod, monkeypatch, calls)
+    bad = _manual_csv(tmp_path, body=(
+        "date,home_team,away_team,home_score,away_score,shootout_winner\n"
+        f"{_M_DATE},Mexcio,{_M_AWAY},3,1,\n"))  # typo team name
+    with pytest.raises(Exception):
+        mod.main(["--manual-results", str(bad), "--cutoff", "2026-06-12T00:00:00Z"])
+    assert calls == []                                   # nothing ran
+
+
+def test_provenance_carries_manual_rows_and_file_sha(mod, tmp_path):
+    log_path = tmp_path / "daily_update.jsonl"
+    meta = {"provenance": {"as_of": "2026-06-12T00:00:00Z", "posterior_key": "k",
+                           "git": "g", "n_sims": 20000}}
+    bundle = tmp_path / "b"
+    bundle.mkdir()
+    (bundle / "meta.json").write_text(json.dumps(meta))
+    rec = mod.step_provenance(bundle, log_path=log_path, duration_s=1.0,
+                              manual_rows=2, manual_file_sha="abc123")
+    row = json.loads(log_path.read_text().splitlines()[0])
+    assert row["manual_rows"] == 2
+    assert row["manual_file_sha256"] == "abc123"
+    assert rec["manual_rows"] == 2 and rec["manual_file_sha256"] == "abc123"
+
+
+# --------------------------------------------------------------------------- #
 # `--latest` flag: resolve the freshest martj42 master commit via ONE GitHub  #
 # API call and thread it (as a runtime override) into the ingest fetch path.  #
 # All monkeypatched — NO network, NO data/ dependency.                        #

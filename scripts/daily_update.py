@@ -33,6 +33,11 @@ from wcmodel.dashboard.build import build_snapshot
 from wcmodel.data.features import valid_played_results
 from wcmodel.data.sources.results import MARTJ42_COMMIT, load_results
 from wcmodel.data.store import BitemporalStore
+from wcmodel.live.manual_results import (
+    ingest_manual_rows,
+    manual_file_sha256,
+    validate_manual_csv,
+)
 
 # The canonical content-addressed source cache (the real martj42 parquet lives here).
 CACHE_DIR = Path("data/cache")
@@ -89,7 +94,56 @@ def _resolve_cutoff(cutoff: str | None) -> str:
     return f"{_today()}T00:00:00Z"
 
 
-def step_ingest(cache_dir: Path, *, commit: str | None = None) -> BitemporalStore:
+def _resolve_cutoff_with_manual(cutoff: str | None, manual_rows) -> str:
+    """Resolve the as-of cutoff, accounting for the manual-results CONDITIONING rule.
+
+    THE LOAD-BEARING CORRECTNESS DETAIL. Both the training panel (``features.build``)
+    and the sim conditioning (``sim.run._played_as_of``) filter results with the
+    strict, DAY-FLOORED predicate ``date < cutoff_day`` (``cutoff_day =
+    cutoff.normalize()``). So a match played on day ``D`` (``date = D 00:00``) is NOT
+    ``< D 00:00`` — it is EXCLUDED at the default cutoff ``D 00:00`` AND at
+    ``cutoff = now`` (whose ``cutoff_day`` is still ``D 00:00``). To make a day-``D``
+    match condition the sim, ``cutoff_day`` must be STRICTLY AFTER ``D``, i.e.
+    ``cutoff >= D+1 00:00 UTC``.
+
+    Therefore, when manual rows are present and the operator did NOT pass an explicit
+    ``--cutoff``, we IMPLY ``cutoff = (max manual-row date).normalize() + 1 day`` at
+    ``00:00:00Z`` so TODAY's finals condition. This stays leakage-safe: nothing dated
+    on/after that cutoff day exists (the manual rows ARE the latest results), and the
+    leakage gate still asserts the max valid-played date is strictly before it.
+
+    If the operator DID pass an explicit ``--cutoff`` that is NOT strictly after some
+    manual row's date, that row can NEVER condition at the chosen cutoff — an operator
+    error, so we FAIL LOUD (``SystemExit``) rather than silently no-op."""
+    if not manual_rows:
+        return _resolve_cutoff(cutoff)
+    max_date = max(pd.Timestamp(r.date).normalize() for r in manual_rows)
+    implied = (max_date + pd.Timedelta(days=1)).strftime("%Y-%m-%dT00:00:00Z")
+    if cutoff is None:
+        print(f"[manual] --manual-results given without --cutoff: implying cutoff="
+              f"{implied} (= max manual date {max_date.date()} + 1 day) so today's "
+              f"played results CONDITION the sim (strict `date < cutoff_day` rule).")
+        return implied
+    # Explicit cutoff: enforce it is strictly after EVERY manual row's date, else the
+    # row would be silently excluded from conditioning — fail loud.
+    cut_day = pd.Timestamp(cutoff)
+    if cut_day.tz is not None:
+        cut_day = cut_day.tz_convert("UTC").tz_localize(None)
+    cut_day = cut_day.normalize()
+    if cut_day <= max_date:
+        print(f"[manual] ABORT: --cutoff {cutoff} (day {cut_day.date()}) is not strictly "
+              f"after the latest manual-row match date {max_date.date()} — that result "
+              f"can NEVER condition the sim (the strict `date < cutoff_day` rule excludes "
+              f"a same-day-or-later match). Use --cutoff >= {(max_date + pd.Timedelta(days=1)).date()}"
+              f"T00:00:00Z, or omit --cutoff to auto-imply it.", file=sys.stderr)
+        raise SystemExit(2)
+    return cutoff
+
+
+def step_ingest(cache_dir: Path, *, commit: str | None = None,
+                manual_results: str | Path | None = None,
+                manual_observed_at: str | pd.Timestamp | None = None,
+                tournament: dict | None = None) -> BitemporalStore:
     """Assemble the real bitemporal store from martj42 via the canonical load path.
 
     Mirrors ``build_real_snapshot.build_real_store``: a fresh, isolated ``BitemporalStore``
@@ -99,12 +153,27 @@ def step_ingest(cache_dir: Path, *, commit: str | None = None) -> BitemporalStor
 
     ``commit`` (default ``None`` -> the source pin) is the RUNTIME override threaded
     straight into ``load_results`` — the same sha used for the cache key + the store's
-    ``source_version``. No constant is mutated."""
+    ``source_version``. No constant is mutated.
+
+    ``manual_results`` (default ``None``) is a validated-on-read CSV of hand-entered
+    played WC fixtures threaded — AFTER the martj42 assembly — through the EXISTING
+    leakage-safe ``ingest_live_result`` POINT_IN_TIME path (``manual_observed_at`` =
+    the operator's entry time ``now``). This is the matchday-1 fallback: it composes
+    with ``--latest``/``--cutoff`` because it runs after ``load_results``, regardless
+    of which commit the martj42 fetch used. Returns the store; the manual row count is
+    available via the caller's pre-validation (``validate_manual_csv``)."""
     store_root = Path(tempfile.mkdtemp(prefix="wc-daily-update-store-"))
     print(f"[ingest] assembling real martj42 store at {store_root} "
           f"(commit={commit or PINNED_COMMIT}) ...")
     store = BitemporalStore(root=store_root)
     load_results(store, cache_dir=cache_dir, commit=commit)
+    if manual_results is not None:
+        # Validate the WHOLE file (fail-loud) BEFORE writing any row, then thread each
+        # validated row through ingest_live_result (observed_at = the operator's now).
+        rows = validate_manual_csv(manual_results, tournament=tournament)
+        n = ingest_manual_rows(store, rows, observed_at=manual_observed_at)
+        print(f"[ingest] manual results: ingested {n} hand-entered row(s) from "
+              f"{manual_results} (observed_at={manual_observed_at}).")
     print("[ingest] store assembled.")
     return store
 
@@ -170,13 +239,20 @@ def step_stage() -> None:
 def step_provenance(bundle_path: Path, *, log_path: Path = DEFAULT_LOG_PATH,
                     duration_s: float | None = None,
                     commit: str | None = None,
-                    commit_source: str | None = None) -> dict:
+                    commit_source: str | None = None,
+                    manual_rows: int = 0,
+                    manual_file_sha: str | None = None) -> dict:
     """Read back ``<bundle>/meta.json``, print the provenance summary, and append ONE JSON
     line to the run log. Returns the appended row (so the caller can print a summary).
 
     ``commit`` is the martj42 sha actually ingested and ``commit_source`` is how it
     was chosen (``"pinned"`` or ``"latest-resolved"``) — recorded for provenance
-    honesty so the log never claims freshness it didn't fetch."""
+    honesty so the log never claims freshness it didn't fetch.
+
+    ``manual_rows`` / ``manual_file_sha`` record the matchday-1 manual fallback: the
+    count of hand-entered results threaded into the store and the sha256 of the CSV
+    file (``None``/0 when ``--manual-results`` was not used) — so a run that hand-
+    entered scores is auditable."""
     meta = json.loads((Path(bundle_path) / "meta.json").read_text())
     prov = meta.get("provenance", {})
     row = {
@@ -189,10 +265,13 @@ def step_provenance(bundle_path: Path, *, log_path: Path = DEFAULT_LOG_PATH,
         "duration_s": duration_s,
         "commit": commit,
         "commit_source": commit_source,
+        "manual_rows": manual_rows,
+        "manual_file_sha256": manual_file_sha,
     }
     print(f"[provenance] as_of={row['cutoff']} posterior_key={row['posterior_key']} "
           f"git={row['git']} n_sims={row['n_sims']} "
-          f"martj42_commit={row['commit']} ({row['commit_source']})")
+          f"martj42_commit={row['commit']} ({row['commit_source']}) "
+          f"manual_rows={row['manual_rows']} manual_file_sha256={row['manual_file_sha256']}")
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a") as f:
@@ -210,10 +289,31 @@ def main(argv: list[str] | None = None) -> int:
                          "call (free, NOT the Odds API) and ingest it, instead of the "
                          "source pin. Aborts loudly on any API error — never silently "
                          "falls back to the stale pin.")
+    ap.add_argument("--manual-results", default=None, metavar="CSV",
+                    help="hand-entered played WC fixtures (matchday-1 fallback, "
+                         "independent of upstream timing). STRICT CSV: "
+                         "date,home_team,away_team,home_score,away_score[,shootout_winner]. "
+                         "Threaded through the leakage-safe ingest_live POINT_IN_TIME path "
+                         "AFTER the martj42 assembly so the sim conditions on them. With no "
+                         "--cutoff, implies cutoff = (max manual date)+1 day so today's "
+                         "finals condition (the strict date<cutoff_day rule).")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the resolved plan and exit 0 — no network, no fit, no writes")
     args = ap.parse_args(argv)
-    cutoff = _resolve_cutoff(args.cutoff)
+
+    # Pre-VALIDATE the manual CSV up-front (fail-loud BEFORE anything else) so both the
+    # dry-run plan and the cutoff auto-resolution can see the rows. This also makes a
+    # bad CSV abort with a clear message and a non-zero exit, never a partial run.
+    manual_rows = None
+    manual_file_sha = None
+    if args.manual_results is not None:
+        manual_rows = validate_manual_csv(args.manual_results)
+        manual_file_sha = manual_file_sha256(args.manual_results)
+
+    # Resolve the cutoff, accounting for the manual-conditioning rule (the load-bearing
+    # `date < cutoff_day` detail — see _resolve_cutoff_with_manual). With manual rows and
+    # no explicit --cutoff, this implies (max manual date)+1 day so today's finals condition.
+    cutoff = _resolve_cutoff_with_manual(args.cutoff, manual_rows)
 
     if args.dry_run:
         print("[daily_update] DRY-RUN — printing the plan, executing nothing.")
@@ -228,6 +328,14 @@ def main(argv: list[str] | None = None) -> int:
                   f"{MARTJ42_COMMITS_API} (no call made in dry-run)")
         else:
             print(f"  commit   : {PINNED_COMMIT} (pinned)")
+        if manual_rows is not None:
+            print(f"  manual   : {args.manual_results} -> {len(manual_rows)} validated "
+                  f"row(s) WOULD be ingested (sha256={manual_file_sha}); no ingest in dry-run:")
+            for r in manual_rows:
+                tag = "KO" if r.is_knockout else "group"
+                so = f" shootout_winner={r.shootout_winner}" if r.shootout_winner else ""
+                print(f"             - [{tag}] {r.date} {r.home_team} {r.home_score}-"
+                      f"{r.away_score} {r.away_team}{so}")
         return 0
 
     # Resolve the commit override BEFORE any expensive step. Under --latest a clean
@@ -256,14 +364,22 @@ def main(argv: list[str] | None = None) -> int:
 
     started = time.monotonic()
     cfg = load_config()
+    # The operator's entry time `now` — the manual rows' observed_at (the real-ingest
+    # vector: a result is observed when hand-entered; valid_as_of stays the match date).
+    manual_observed_at = datetime.now(timezone.utc).isoformat()
     print(f"[daily_update] cutoff={cutoff}; martj42_commit={commit} ({commit_source}); "
+          f"manual_rows={0 if manual_rows is None else len(manual_rows)}; "
           f"steps: {' -> '.join(STEP_PLAN)}")
-    store = step_ingest(CACHE_DIR, commit=commit)
+    store = step_ingest(CACHE_DIR, commit=commit,
+                        manual_results=args.manual_results,
+                        manual_observed_at=manual_observed_at)
     step_gate(store, cutoff)
     bundle = step_snapshot(cutoff, store, cfg)
     step_stage()
     step_provenance(bundle, duration_s=round(time.monotonic() - started, 1),
-                    commit=commit, commit_source=commit_source)
+                    commit=commit, commit_source=commit_source,
+                    manual_rows=0 if manual_rows is None else len(manual_rows),
+                    manual_file_sha=manual_file_sha)
     print("[daily_update] done.")
     return 0
 
