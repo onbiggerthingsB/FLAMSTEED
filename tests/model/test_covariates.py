@@ -279,6 +279,21 @@ def test_panel_carries_per_team_covariate_home_and_away_columns(small_store):
     assert "altitude_m" in mp.columns and "altitude_m__away" not in mp.columns
 
 
+def test_panel_carries_accl_alt_home_and_away_columns(small_store):
+    # P2a: accl_alt is a PER-TEAM covariate (venue_alt - that team's accustomed alt),
+    # so to_match_panel must carry BOTH accl_alt (home team's gap) and accl_alt__away
+    # (the away team's OWN gap) — the per-team shape, complement of per-match altitude_m.
+    from wcmodel.data import features
+    from wcmodel.model.panel import to_match_panel
+    mp = to_match_panel(features.build("2024-06-01", small_store, load_config()))
+    assert "accl_alt" in mp.columns and "accl_alt__away" in mp.columns
+    # The small_store has an Argentina-vs-Brazil match at Mexico City (~2240 m); both
+    # are lowland-accustomed (default 0), so both gaps are ~the venue altitude (a real,
+    # non-NaN value) — proving the join produced a meaningful per-team column.
+    mc = mp[mp["home_team"].isin(["Argentina", "Brazil"]) & (mp["accl_alt"] > 1000.0)]
+    assert len(mc) >= 1, "expected a high-altitude (Mexico City) row with a positive home gap"
+
+
 @pytest.mark.slow
 def test_fit_persists_covariate_transforms_and_uses_them(small_store):
     import copy

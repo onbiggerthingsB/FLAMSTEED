@@ -39,7 +39,7 @@ from wcmodel.model.widening import likelihood_weight
 # the panel's home/away rows). Per-match covariates use a single array applied to
 # both rates. A name absent from BOTH sets is ignored (no offset) — adding a new
 # covariate requires classifying it here, so it can never silently no-op.
-_PER_TEAM_COVS = {"rest_days", "travel_km"}
+_PER_TEAM_COVS = {"rest_days", "travel_km", "accl_alt"}
 _PER_MATCH_COVS = {"altitude_m"}
 
 

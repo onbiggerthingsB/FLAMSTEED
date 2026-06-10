@@ -41,6 +41,7 @@ from wcmodel.config import load_config
 from wcmodel.data import tiers
 from wcmodel.data.cache import _git_commit
 from wcmodel.data.elo import compute_elo_history
+from wcmodel.data.sources.altitude_ref import accl_gap
 from wcmodel.data.sources.derived import altitude, rest_days, travel_distance
 from wcmodel.data.store import BitemporalStore
 
@@ -52,7 +53,9 @@ from wcmodel.data.store import BitemporalStore
 # otherwise serve a STALE cached panel. ``_git_commit()`` is folded into the key
 # too, but it does NOT cover uncommitted working-tree edits, so BUMP this constant
 # whenever ``build``'s output schema/semantics change to force a clean miss.
-PANEL_SCHEMA_VERSION = "1"
+# v2 (P2a): added the per-team ``accl_alt`` column (acclimatized-altitude gap) — a new
+# panel column the elo/windows config + < cutoff results do not capture, so bump to miss.
+PANEL_SCHEMA_VERSION = "2"
 
 
 def valid_played_results(results: pd.DataFrame) -> pd.DataFrame:
@@ -230,6 +233,12 @@ def build(cutoff, store: BitemporalStore, config: dict | None = None) -> pd.Data
     # 5) Derived: rest_days (prior fixtures only) + venue-coord features.
     df = _join_rest_days(df)
     df = _join_venue_features(df, _try_read(store, "venues", cutoff), cfg)
+    # 5b) Acclimatized-altitude gap (P2a): a PER-TEAM covariate = venue_alt -
+    #     that team's accustomed alt. Computed from `city` + `team` via the hand-curated
+    #     altitude reference (NO geocoding, NO venues-table dependency); unknown city ->
+    #     NaN (masked downstream, never imputed). Leakage-free by construction (static
+    #     venue property minus a static national constant; no future information).
+    df = _join_accl_alt(df)
 
     # 6) Point-in-time provenance columns.
     windows = cfg["windows"]
@@ -494,6 +503,23 @@ def _join_venue_features(df: pd.DataFrame, venues: pd.DataFrame | None,
     return d.drop(columns=["prev_city"])
 
 
+def _join_accl_alt(df: pd.DataFrame) -> pd.DataFrame:
+    """Attach per-team ``accl_alt`` = venue elevation − this team's accustomed altitude.
+
+    A PER-TEAM covariate (each ``(match_id, team)`` row gets that team's OWN gap), so
+    ``to_match_panel`` carries the home team's value as ``accl_alt`` and the away team's
+    own value as ``accl_alt__away``. Unlike ``altitude_m`` (which needs the ``venues``
+    coord table), this reads the hand-curated ``CITY_ELEVATION_M`` directly off the
+    results ``city`` — so it is available even when no venues table is loaded. A city
+    absent from the table → NaN (the leakage-safe CovariateTransform masks it to a zero
+    contribution; the ``accl_alt`` missing indicator carries the "altitude unknown"
+    intercept — never imputed).
+    """
+    df = df.copy()
+    df["accl_alt"] = [accl_gap(c, t) for c, t in zip(df["city"], df["team"])]
+    return df
+
+
 def _empty_frame() -> pd.DataFrame:
     """Empty panel with the full feature schema (no < cutoff matches)."""
     cols = [
@@ -501,7 +527,7 @@ def _empty_frame() -> pd.DataFrame:
         "elo_pre", "provisional", "match_type", "home_team", "away_team",
         "home_score", "away_score", "city", "team_score", "opponent_score",
         "confederation", "covid", "strength_band", "xg_for", "xg_against",
-        "xg_covered", "rest_days", "travel_km", "altitude_m",
+        "xg_covered", "rest_days", "travel_km", "altitude_m", "accl_alt",
         "temperature_2m_mean", "precipitation_sum", "age_days", "decay_weight",
         "in_feature_window", "revision_contaminated_exposure",
     ]
