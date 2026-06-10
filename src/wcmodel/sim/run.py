@@ -81,6 +81,15 @@ class SimConfig:
     # (``_host_factors_hash``), so distinct host_k -> distinct host_factors -> distinct
     # key (no stale serve across host_k values).
     config: dict | None = None
+    # Phase-4b SIM-EXPERIMENT ONLY (default None = byte-identical production). An optional
+    # callable ``(home, away) -> alpha`` giving the per-fixture mean-preserving tail-fatten
+    # mix weight (alpha in [0,1]) applied to the scoreline grid at SAMPLE time. This is a
+    # sample-time reshape (the host_factor class of change) — NO model/config field, NO
+    # fitted parameter, NO posterior. It is threaded straight into ``simulate_tournament``;
+    # ``None`` means the sim never calls the fatten path, so the default run is RNG- and
+    # byte-identical. NOT folded into the production cache key path: a 4b run is uncached
+    # (cache_dir=None) so the experiment never reads/writes the production sim cache.
+    tail_fatten: object | None = None
 
     @classmethod
     def from_config(cls, config: dict | None = None, *, tournament=None, seed=None,
@@ -285,6 +294,17 @@ def simulate(cutoff, posterior, store, config: SimConfig):
     # legacy behaviour for direct construction).
     host_cfg = config.config if config.config is not None else load_config()
     host_factors = host_factor_map(tournament, host_cfg)
+    # Phase-4b: the tail-fatten experiment is NEVER cached — it is a sim-only reshape that
+    # must not read or write the production sim cache (which keys on the posterior + bracket
+    # + played, NOT the fatten override, so a cached serve would be a stale/wrong result).
+    # Forbid the combination loudly rather than silently ignore the override or poison the
+    # cache. A 4b run uses cache_dir=None by construction.
+    if config.tail_fatten is not None and config.cache_dir is not None:
+        raise ValueError(
+            "SimConfig.tail_fatten (the 4b sim experiment) is incompatible with a sim "
+            "cache_dir — the cache key does not fold in the fatten override; run the "
+            "experiment uncached (cache_dir=None)."
+        )
     if config.cache_dir is not None:
         # Imported lazily so the (default) uncached path keeps no dependency on the
         # cache module / its parquet round-trip.
@@ -314,4 +334,5 @@ def simulate(cutoff, posterior, store, config: SimConfig):
         pen_home_prob=config.pen_home_prob,
         played=played,
         host_factors=host_factors,
+        tail_fatten=config.tail_fatten,
     )

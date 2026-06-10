@@ -137,10 +137,20 @@ class _FixtureSampler:
     callable ``resolve_tie`` consumes: regulation rates, or rates*et_scale for extra time
     (the et_scale arithmetic lives HERE, per the knockout.py caller-applies contract)."""
 
-    def __init__(self, ratebook: RateBook, draw: int, cfg: _Cfg):
+    def __init__(self, ratebook: RateBook, draw: int, cfg: _Cfg, tail_fatten=None):
         self._rb = ratebook
         self._draw = draw
         self._cfg = cfg
+        # Phase-4b SIM-EXPERIMENT ONLY: an optional callable ``(home, away) -> alpha``
+        # giving the per-fixture mean-preserving tail-fatten mix weight (alpha in [0,1]).
+        # None (production default) -> alpha 0.0 everywhere -> the RAW pmf sample, RNG-
+        # and byte-identical to the pre-4b sim. NOT a model/config/posterior change.
+        self._tail_fatten = tail_fatten
+
+    def _alpha(self, home, away):
+        if self._tail_fatten is None:
+            return 0.0
+        return float(self._tail_fatten(home, away))
 
     def score(self, home, away, *, neutral, rng, host_factor=None):
         # RAW per-draw rates (NO predict_scoreline averaging, NO (c) widening) at the one
@@ -148,32 +158,35 @@ class _FixtureSampler:
         # (T5) is the prediction-time scalar on the fitted home_adv for a 2026 host's HOME
         # group game (k*home_adv); None -> the existing neutral/home_adv behaviour.
         lh, la = self._rb.rates(home, away, neutral, draw=self._draw, host_factor=host_factor)
-        return self._sample_at(lh, la, rng)
+        return self._sample_at(lh, la, rng, fatten_alpha=self._alpha(home, away))
 
     def knockout_sampler(self, home, away, *, neutral):
         lh, la = self._rb.rates(home, away, neutral, draw=self._draw)
+        alpha = self._alpha(home, away)
 
         def sample(phase, rng):
             # ET = 30/90 of a regulation match -> scale ALL Poisson goal rates by et_scale.
             # _sample_at applies the scale uniformly (lh, la, AND the BP shared l3); the DC
             # rho is a low-score DEPENDENCE parameter, not a rate, so it is NOT scaled.
             scale = self._cfg.et_scale if phase == "extra_time" else 1.0
-            return self._sample_at(lh, la, rng, rate_scale=scale)
+            return self._sample_at(lh, la, rng, rate_scale=scale, fatten_alpha=alpha)
 
         return sample
 
-    def _sample_at(self, lh, la, rng, *, rate_scale=1.0):
+    def _sample_at(self, lh, la, rng, *, rate_scale=1.0, fatten_alpha=0.0):
         rb, s = self._rb, self._draw
         lh, la = lh * rate_scale, la * rate_scale
         if rb.likelihood == "dixon_coles":
             # rho: dependence parameter (tau correction on low-score cells), NOT a goal
             # rate -> unscaled by rate_scale.
             return sample_score(lh, la, rng=rng, likelihood=rb.likelihood,
-                                rho=float(rb.rho[s]), max_goals=self._cfg.max_goals)
+                                rho=float(rb.rho[s]), max_goals=self._cfg.max_goals,
+                                fatten_alpha=fatten_alpha)
         # bivariate_poisson: l3 is the SHARED Poisson goal-rate (W3 ~ Pois(l3)); it scales
         # with lh/la so extra time is consistently 30/90 of a regulation match.
         return sample_score(lh, la, rng=rng, likelihood=rb.likelihood,
-                            l3=float(rb.l3[s]) * rate_scale, max_goals=self._cfg.max_goals)
+                            l3=float(rb.l3[s]) * rate_scale, max_goals=self._cfg.max_goals,
+                            fatten_alpha=fatten_alpha)
 
 
 def _match_depths(bracket) -> dict:
@@ -233,7 +246,7 @@ def _resolve_feeder(ref, *, group_rankings, third_by_match, winners, losers, mat
 
 
 def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None,
-                 host_factors=None):
+                 host_factors=None, tail_fatten=None):
     """Simulate ONE tournament at a single fixed posterior ``draw``.
 
     Returns ``{"depth": {team: furthest_depth}, "groups": {team: placing}, "champion":
@@ -288,7 +301,7 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None,
     # with no recorded winner still fails loud below (the guard is preserved).
     played_ko_winners = played.get("knockout_winners", {})  # {(home, away, date): winner}
 
-    sampler = _FixtureSampler(ratebook, draw, cfg)
+    sampler = _FixtureSampler(ratebook, draw, cfg, tail_fatten=tail_fatten)
     random_tail = False
 
     # --- Group stage: play each group's fixtures, rank (FIFA 2026 tiebreakers), and
@@ -408,7 +421,7 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None,
 
 
 def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale,
-                        pen_home_prob, played=None, host_factors=None):
+                        pen_home_prob, played=None, host_factors=None, tail_fatten=None):
     """Run ``n_sims`` full-posterior MC tournaments over ``bracket`` -> ``SimResult``.
 
     Focal property #3 (seeded determinism): ``SeedSequence(seed).spawn(n_sims)`` derives
@@ -463,7 +476,7 @@ def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale
         rng = np.random.default_rng(child)                 # the ONLY RNG inside the sim
         s = int(rng.integers(ratebook.n_draws))            # ONE posterior draw, fixed for the sim
         out = simulate_one(bracket, ratebook, draw=s, rng=rng, cfg=cfg, played=played,
-                           depths=depths, host_factors=host_factors)
+                           depths=depths, host_factors=host_factors, tail_fatten=tail_fatten)
         random_tail_hits += int(out["random_tail"])
 
         # Per-group placing markets: bucket the 0-based group finish to first/second/third/

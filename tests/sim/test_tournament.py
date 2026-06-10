@@ -33,8 +33,10 @@ from wcmodel.sim.tournament import _FixtureSampler, _Cfg
 
 def _capture_sample_score(monkeypatch):
     calls = []
-    def fake(lh, la, *, rng, likelihood, rho=None, l3=None, max_goals=12):
-        calls.append({"lh": lh, "la": la, "rho": rho, "l3": l3})
+    def fake(lh, la, *, rng, likelihood, rho=None, l3=None, max_goals=12, fatten_alpha=0.0):
+        # fatten_alpha mirrors the 4b sample_score signature; these ET-scaling tests use
+        # no tail_fatten override, so it must arrive as the byte-identical default 0.0.
+        calls.append({"lh": lh, "la": la, "rho": rho, "l3": l3, "fatten_alpha": fatten_alpha})
         return (0, 0)
     monkeypatch.setattr(_tour, "sample_score", fake)
     return calls
@@ -75,6 +77,8 @@ def test_bp_extra_time_scales_shared_l3(monkeypatch):
     assert calls[-1]["lh"] == pytest.approx(LH * ET)
     assert calls[-1]["la"] == pytest.approx(LA * ET)
     assert calls[-1]["l3"] == pytest.approx(L3 * ET)   # THE FIX (bug left this at L3)
+    # No tail_fatten override here -> the sampler passes the byte-identical default 0.0.
+    assert calls[-1]["fatten_alpha"] == 0.0
 
 
 def test_dc_extra_time_scales_rates_not_rho(monkeypatch):
@@ -90,6 +94,8 @@ def test_dc_extra_time_scales_rates_not_rho(monkeypatch):
     assert calls[-1]["lh"] == pytest.approx(LH * ET)
     assert calls[-1]["la"] == pytest.approx(LA * ET)
     assert calls[-1]["rho"] == pytest.approx(RHO)   # unscaled
+    # No tail_fatten override here -> the sampler passes the byte-identical default 0.0.
+    assert calls[-1]["fatten_alpha"] == 0.0
 
 
 # --- Task 6: per-cutoff conditioning mechanics in simulate_one (fast, no ADVI). ---
