@@ -179,8 +179,9 @@ step prints a `[step]` line; the order is fixed:
    claims freshness it didn't fetch and a hand-entered run is auditable.
 
 `--cutoff` defaults to **today 00:00 UTC** (`YYYY-MM-DDT00:00:00Z`); with
-`--manual-results` and no `--cutoff` it instead auto-implies `(max manual date)+1
-day` so today's finals condition (see the manual-fallback section).
+`--manual-results` and no `--cutoff` it instead auto-implies the next UTC midnight
+after **both** the max manual date **and** your entry time, so today's finals
+condition *and* stay PIT-visible (see the manual-fallback section).
 `--latest` resolves and ingests the newest martj42 `master` commit (see the
 post-matchday recipe above) instead of the source pin; the default is the pin
 (byte-identical).

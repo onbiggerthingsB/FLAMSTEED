@@ -339,8 +339,9 @@ def main(argv: list[str] | None = None) -> int:
                          "date,home_team,away_team,home_score,away_score[,shootout_winner]. "
                          "Threaded through the leakage-safe ingest_live POINT_IN_TIME path "
                          "AFTER the martj42 assembly so the sim conditions on them. With no "
-                         "--cutoff, implies cutoff = (max manual date)+1 day so today's "
-                         "finals condition (the strict date<cutoff_day rule).")
+                         "--cutoff, implies the next UTC midnight after BOTH the max manual "
+                         "date AND your entry time, so today's finals condition (strict "
+                         "date<cutoff_day rule) and stay PIT-visible (observed_at<=cutoff).")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the resolved plan and exit 0 — no network, no fit, no writes")
     args = ap.parse_args(argv)
