@@ -1,0 +1,158 @@
+# config/squads/club_aliases.csv — explicit squad-club -> clubelo.com `Club` alias map (P3 v0)
+#
+# House precedent: the odds<->model team aliases + altitude_ref dual-spelling keys.
+# EXACT-MATCH JOIN ONLY. This map translates the squad-list club spelling (as published
+# on the source squad pages, typically the long/common-English form) to the clubelo.com
+# `Club` spelling (typically a short form). NEVER fuzzy-matched. Grown ONLY for divergences
+# actually encountered in config/squads/{wc2026,wc2022,euro2024}.csv vs the three
+# clubelo_*.csv snapshots. A squad club not exactly equal to a clubelo `Club` AND not in
+# this map -> UNMATCHED -> logged coverage gap, never imputed.
+#
+# clubelo.com club spellings verified against the committed snapshots (access 2026-06-10).
+squad_club,clubelo_club
+Bayern Munich,Bayern
+FC Bayern Munich,Bayern
+Borussia Dortmund,Dortmund
+Bayer Leverkusen,Leverkusen
+VfB Stuttgart,Stuttgart
+TSG Hoffenheim,Hoffenheim
+1899 Hoffenheim,Hoffenheim
+Eintracht Frankfurt,Frankfurt
+RasenBallsport Leipzig,RB Leipzig
+VfL Wolfsburg,Wolfsburg
+Borussia Mönchengladbach,Gladbach
+Borussia Monchengladbach,Gladbach
+SC Freiburg,Freiburg
+FC Augsburg,Augsburg
+Mainz 05,Mainz
+1. FSV Mainz 05,Mainz
+1. FC Köln,Köln
+FC Cologne,Köln
+Werder Bremen,Werder
+SV Werder Bremen,Werder
+Hertha BSC,Hertha
+Union Berlin,Union Berlin
+1. FC Union Berlin,Union Berlin
+Schalke 04,Schalke
+FC Schalke 04,Schalke
+Bochum,Bochum
+VfL Bochum,Bochum
+Real Sociedad,Sociedad
+Athletic Bilbao,Bilbao
+Athletic Club,Bilbao
+Atlético Madrid,Atletico
+Atletico Madrid,Atletico
+Real Betis,Betis
+Celta Vigo,Celta
+RC Celta,Celta
+Real Valladolid,Valladolid
+Manchester United,Man United
+Manchester City,Man City
+Newcastle United,Newcastle
+Tottenham Hotspur,Tottenham
+West Ham United,West Ham
+Wolverhampton Wanderers,Wolves
+Wolverhampton,Wolves
+Nottingham Forest,Forest
+Brighton & Hove Albion,Brighton
+Leicester City,Leicester
+Leeds United,Leeds
+Sheffield United,Sheffield United
+Norwich City,Norwich
+Luton Town,Luton
+AFC Bournemouth,Bournemouth
+Queens Park Rangers,QPR
+Paris Saint-Germain,Paris SG
+Paris Saint Germain,Paris SG
+Olympique de Marseille,Marseille
+Olympique Marseille,Marseille
+Olympique Lyonnais,Lyon
+AS Monaco,Monaco
+Stade Rennais,Rennes
+Stade Rennais FC,Rennes
+RC Lens,Lens
+LOSC Lille,Lille
+OGC Nice,Nice
+Stade de Reims,Reims
+RC Strasbourg,Strasbourg
+Le Havre,Le Havre
+Inter Milan,Inter
+Internazionale,Inter
+FC Internazionale Milano,Inter
+AC Milan,Milan
+AS Roma,Roma
+SSC Napoli,Napoli
+SS Lazio,Lazio
+ACF Fiorentina,Fiorentina
+Hellas Verona,Verona
+US Salernitana,Salernitana
+US Lecce,Lecce
+US Sassuolo,Sassuolo
+Sporting CP,Sporting
+Sporting Lisbon,Sporting
+SL Benfica,Benfica
+FC Porto,Porto
+SC Braga,Braga
+Sporting Braga,Braga
+Vitória de Guimarães,Guimaraes
+PSV Eindhoven,PSV
+AFC Ajax,Ajax
+Ajax Amsterdam,Ajax
+Club Brugge,Club Brugge
+Royale Union Saint-Gilloise,Union SG
+Union Saint-Gilloise,Union SG
+RSC Anderlecht,Anderlecht
+KRC Genk,Genk
+Royal Antwerp,Antwerp
+Red Bull Salzburg,Salzburg
+RB Salzburg,Salzburg
+FC Salzburg,Salzburg
+Sturm Graz,Sturm Graz
+SK Sturm Graz,Sturm Graz
+Rapid Vienna,Rapid Wien
+Dynamo Zagreb,Dinamo Zagreb
+GNK Dinamo Zagreb,Dinamo Zagreb
+Hajduk Split,Hajduk
+HNK Rijeka,Rijeka
+Red Star Belgrade,Crvena Zvezda
+Crvena zvezda,Crvena Zvezda
+Partizan Belgrade,Partizan
+Ferencváros,Ferencvaros
+Ferencvárosi TC,Ferencvaros
+Galatasaray,Galatasaray
+Fenerbahçe,Fenerbahce
+Beşiktaş,Besiktas
+Trabzonspor,Trabzonspor
+İstanbul Başakşehir,Basaksehir
+Kayserispor,Kayserispor
+Alanyaspor,Alanyaspor
+Olympiacos,Olympiakos
+Olympiacos FC,Olympiakos
+AEK Athens,AEK
+Panathinaikos,Panathinaikos
+PAOK,PAOK
+Dinamo Kyiv,Dynamo Kyiv
+Dynamo Kyiv,Dynamo Kyiv
+Shakhtar Donetsk,Shakhtar
+Ludogorets Razgrad,Ludogorets
+Slavia Prague,Slavia Praha
+Sparta Prague,Sparta Praha
+Viktoria Plzeň,Plzen
+Copenhagen,Kobenhavn
+FC Copenhagen,Kobenhavn
+Brøndby,Brondby
+Midtjylland,Midtjylland
+Rosenborg,Rosenborg
+Molde,Molde
+Bodø/Glimt,Bodo/Glimt
+Young Boys,Young Boys
+BSC Young Boys,Young Boys
+FC Basel,Basel
+FC Lugano,Lugano
+Servette FC,Servette
+FC Zürich,Zurich
+Grasshopper,Grasshoppers
+Heart of Midlothian,Hearts
+Hibernian,Hibernian
+Rangers,Rangers
+Celtic,Celtic

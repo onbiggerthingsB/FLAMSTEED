@@ -1,0 +1,543 @@
+# config/squads/wc2022.csv — 2022 FIFA World Cup squads (32 teams) for the P3 v0 k_squad sweep.
+# tournament,team,player,club ; club = club at the tournament (the join key, never player).
+# SOURCE: Wikipedia "2022 FIFA World Cup squads"
+#   (https://en.wikipedia.org/wiki/2022_FIFA_World_Cup_squads), accessed 2026-06-10.
+# team = martj42 store key (e.g. South Korea, United States). Cutoff for club-Elo join: 2022-11-20.
+# Curated player+club only (no jersey/DOB) per the brief — for v0 the CLUB is what matters.
+tournament,team,player,club
+wc2022,Qatar,Saad Al-Sheeb,Al-Sadd
+wc2022,Qatar,Pedro Miguel,Al-Sadd
+wc2022,Qatar,Abdelkarim Hassan,Al-Sadd
+wc2022,Qatar,Tarek Salman,Al-Sadd
+wc2022,Qatar,Abdulaziz Hatem,Al-Rayyan
+wc2022,Qatar,Ahmed Alaaeldin,Al-Gharafa
+wc2022,Qatar,Ali Assadalla,Al-Sadd
+wc2022,Qatar,Hassan Al-Haydos,Al-Sadd
+wc2022,Qatar,Akram Afif,Al-Sadd
+wc2022,Qatar,Karim Boudiaf,Al-Duhail
+wc2022,Qatar,Boualem Khoukhi,Al-Sadd
+wc2022,Qatar,Almoez Ali,Al-Duhail
+wc2022,Qatar,Bassam Al-Rawi,Al-Duhail
+wc2022,Qatar,Ismaeel Mohammad,Al-Duhail
+wc2022,Qatar,Assim Madibo,Al-Duhail
+wc2022,Qatar,Meshaal Barsham,Al-Sadd
+wc2022,Qatar,Mostafa Meshaal,Al-Sadd
+wc2022,Ecuador,Hernán Galíndez,Aucas
+wc2022,Ecuador,Félix Torres,Santos Laguna
+wc2022,Ecuador,Piero Hincapié,Bayer Leverkusen
+wc2022,Ecuador,Robert Arboleda,São Paulo
+wc2022,Ecuador,Pervis Estupiñán,Brighton & Hove Albion
+wc2022,Ecuador,Carlos Gruezo,FC Augsburg
+wc2022,Ecuador,Enner Valencia,Fenerbahçe
+wc2022,Ecuador,Gonzalo Plata,Valladolid
+wc2022,Ecuador,Moisés Caicedo,Brighton & Hove Albion
+wc2022,Ecuador,Ángelo Preciado,Genk
+wc2022,Ecuador,Jeremy Sarmiento,Brighton & Hove Albion
+wc2022,Ecuador,Alexander Domínguez,LDU Quito
+wc2022,Ecuador,Jackson Porozo,Troyes
+wc2022,Senegal,Édouard Mendy,Chelsea
+wc2022,Senegal,Kalidou Koulibaly,Chelsea
+wc2022,Senegal,Idrissa Gueye,Everton
+wc2022,Senegal,Nampalys Mendy,Leicester City
+wc2022,Senegal,Cheikhou Kouyaté,Nottingham Forest
+wc2022,Senegal,Boulaye Dia,Salernitana
+wc2022,Senegal,Pathé Ciss,Rayo Vallecano
+wc2022,Senegal,Fodé Ballo-Touré,Milan
+wc2022,Senegal,Ismaïla Sarr,Watford
+wc2022,Senegal,Ismail Jakobs,Monaco
+wc2022,Senegal,Krépin Diatta,Monaco
+wc2022,Senegal,Pape Matar Sarr,Tottenham Hotspur
+wc2022,Senegal,Youssouf Sabaly,Real Betis
+wc2022,Senegal,Abdou Diallo,RB Leipzig
+wc2022,Senegal,Alfred Gomis,Rennes
+wc2022,Senegal,Pape Gueye,Marseille
+wc2022,Senegal,Bamba Dieng,Marseille
+wc2022,Netherlands,Remko Pasveer,Ajax
+wc2022,Netherlands,Jurriën Timber,Ajax
+wc2022,Netherlands,Matthijs de Ligt,Bayern Munich
+wc2022,Netherlands,Virgil van Dijk,Liverpool
+wc2022,Netherlands,Nathan Aké,Manchester City
+wc2022,Netherlands,Stefan de Vrij,Inter Milan
+wc2022,Netherlands,Steven Bergwijn,Ajax
+wc2022,Netherlands,Cody Gakpo,PSV Eindhoven
+wc2022,Netherlands,Memphis Depay,Barcelona
+wc2022,Netherlands,Steven Berghuis,Ajax
+wc2022,Netherlands,Marten de Roon,Atalanta
+wc2022,Netherlands,Tyrell Malacia,Manchester United
+wc2022,Netherlands,Daley Blind,Ajax
+wc2022,Netherlands,Wout Weghorst,Beşiktaş
+wc2022,Netherlands,Teun Koopmeiners,Atalanta
+wc2022,Netherlands,Frenkie de Jong,Barcelona
+wc2022,Netherlands,Denzel Dumfries,Inter Milan
+wc2022,Netherlands,Xavi Simons,PSV Eindhoven
+wc2022,Netherlands,Jeremie Frimpong,Bayer Leverkusen
+wc2022,Netherlands,Luuk de Jong,PSV Eindhoven
+wc2022,England,Jordan Pickford,Everton
+wc2022,England,Kyle Walker,Manchester City
+wc2022,England,Luke Shaw,Manchester United
+wc2022,England,Declan Rice,West Ham United
+wc2022,England,John Stones,Manchester City
+wc2022,England,Harry Maguire,Manchester United
+wc2022,England,Jack Grealish,Manchester City
+wc2022,England,Jordan Henderson,Liverpool
+wc2022,England,Harry Kane,Tottenham Hotspur
+wc2022,England,Raheem Sterling,Chelsea
+wc2022,England,Marcus Rashford,Manchester United
+wc2022,England,Kieran Trippier,Newcastle United
+wc2022,England,Nick Pope,Newcastle United
+wc2022,England,Kalvin Phillips,Manchester City
+wc2022,England,Eric Dier,Tottenham Hotspur
+wc2022,England,Bukayo Saka,Arsenal
+wc2022,England,Trent Alexander-Arnold,Liverpool
+wc2022,England,Mason Mount,Chelsea
+wc2022,England,Phil Foden,Manchester City
+wc2022,England,Jude Bellingham,Borussia Dortmund
+wc2022,England,Aaron Ramsdale,Arsenal
+wc2022,England,Callum Wilson,Newcastle United
+wc2022,England,James Maddison,Leicester City
+wc2022,England,Conor Gallagher,Chelsea
+wc2022,Iran,Alireza Beiranvand,Persepolis
+wc2022,Iran,Ehsan Hajsafi,AEK Athens
+wc2022,Iran,Milad Mohammadi,AEK Athens
+wc2022,Iran,Alireza Jahanbakhsh,Feyenoord
+wc2022,Iran,Mehdi Taremi,Porto
+wc2022,Iran,Saman Ghoddos,Brentford
+wc2022,Iran,Sardar Azmoun,Bayer Leverkusen
+wc2022,Iran,Ali Gholizadeh,Charleroi
+wc2022,Iran,Ali Karimi,Kayserispor
+wc2022,Iran,Majid Hosseini,Kayserispor
+wc2022,Iran,Morteza Pouraliganji,Persepolis
+wc2022,Iran,Vahid Amiri,Persepolis
+wc2022,Iran,Mehdi Torabi,Persepolis
+wc2022,United States,Matt Turner,Arsenal
+wc2022,United States,Sergiño Dest,Milan
+wc2022,United States,Walker Zimmerman,Nashville SC
+wc2022,United States,Tyler Adams,Leeds United
+wc2022,United States,Antonee Robinson,Fulham
+wc2022,United States,Yunus Musah,Valencia
+wc2022,United States,Giovanni Reyna,Borussia Dortmund
+wc2022,United States,Weston McKennie,Juventus
+wc2022,United States,Christian Pulisic,Chelsea
+wc2022,United States,Brenden Aaronson,Leeds United
+wc2022,United States,Tim Ream,Fulham
+wc2022,United States,Luca de la Torre,Celta Vigo
+wc2022,United States,Tim Weah,Lille
+wc2022,United States,DeAndre Yedlin,Inter Miami
+wc2022,United States,Cameron Carter-Vickers,Celtic
+wc2022,United States,Jordan Morris,Seattle Sounders FC
+wc2022,Argentina,Emiliano Martínez,Aston Villa
+wc2022,Argentina,Nahuel Molina,Atlético Madrid
+wc2022,Argentina,Cristian Romero,Tottenham Hotspur
+wc2022,Argentina,Nicolás Otamendi,Benfica
+wc2022,Argentina,Marcos Acuña,Sevilla
+wc2022,Argentina,Rodrigo De Paul,Atlético Madrid
+wc2022,Argentina,Leandro Paredes,Juventus
+wc2022,Argentina,Alexis Mac Allister,Brighton & Hove Albion
+wc2022,Argentina,Lionel Messi,Paris Saint-Germain
+wc2022,Argentina,Lautaro Martínez,Inter Milan
+wc2022,Argentina,Ángel Di María,Juventus
+wc2022,Argentina,Enzo Fernández,Benfica
+wc2022,Argentina,Julián Álvarez,Manchester City
+wc2022,Argentina,Lisandro Martínez,Manchester United
+wc2022,Argentina,Paulo Dybala,Roma
+wc2022,Argentina,Germán Pezzella,Real Betis
+wc2022,Argentina,Guido Rodríguez,Real Betis
+wc2022,Argentina,Gonzalo Montiel,Sevilla
+wc2022,Argentina,Nicolás Tagliafico,Lyon
+wc2022,Argentina,Papu Gómez,Sevilla
+wc2022,Saudi Arabia,Mohammed Al-Owais,Al-Hilal
+wc2022,Saudi Arabia,Salman Al-Faraj,Al-Hilal
+wc2022,Saudi Arabia,Yasser Al-Shahrani,Al-Hilal
+wc2022,Saudi Arabia,Ali Al-Bulaihi,Al-Hilal
+wc2022,Saudi Arabia,Salem Al-Dawsari,Al-Hilal
+wc2022,Saudi Arabia,Firas Al-Buraikan,Al-Fateh
+wc2022,Saudi Arabia,Saleh Al-Shehri,Al-Hilal
+wc2022,Saudi Arabia,Mohamed Kanno,Al-Hilal
+wc2022,Saudi Arabia,Abdullah Otayf,Al-Hilal
+wc2022,Saudi Arabia,Sami Al-Najei,Al-Nassr
+wc2022,Saudi Arabia,Hassan Tambakti,Al-Shabab
+wc2022,Mexico,Guillermo Ochoa,América
+wc2022,Mexico,Néstor Araujo,América
+wc2022,Mexico,César Montes,Monterrey
+wc2022,Mexico,Héctor Moreno,Monterrey
+wc2022,Mexico,Jesús Gallardo,Monterrey
+wc2022,Mexico,Andrés Guardado,Real Betis
+wc2022,Mexico,Héctor Herrera,Houston Dynamo
+wc2022,Mexico,Edson Álvarez,Ajax
+wc2022,Mexico,Hirving Lozano,Napoli
+wc2022,Mexico,Raúl Jiménez,Wolverhampton Wanderers
+wc2022,Mexico,Alexis Vega,Guadalajara
+wc2022,Mexico,Luis Chávez,Pachuca
+wc2022,Mexico,Orbelín Pineda,AEK Athens
+wc2022,Mexico,Jorge Sánchez,Ajax
+wc2022,Mexico,Carlos Rodríguez,Monterrey
+wc2022,Mexico,Henry Martín,América
+wc2022,Mexico,Uriel Antuna,Cruz Azul
+wc2022,Poland,Wojciech Szczęsny,Juventus
+wc2022,Poland,Kamil Glik,Benevento
+wc2022,Poland,Jan Bednarek,Aston Villa
+wc2022,Poland,Jakub Kiwior,Spezia
+wc2022,Poland,Matty Cash,Aston Villa
+wc2022,Poland,Bartosz Bereszyński,Sampdoria
+wc2022,Poland,Grzegorz Krychowiak,Al-Shabab
+wc2022,Poland,Piotr Zieliński,Napoli
+wc2022,Poland,Robert Lewandowski,Barcelona
+wc2022,Poland,Sebastian Szymański,Feyenoord
+wc2022,Poland,Krzysztof Piątek,Salernitana
+wc2022,Poland,Przemysław Frankowski,Lens
+wc2022,Poland,Nicola Zalewski,Roma
+wc2022,Poland,Arkadiusz Milik,Juventus
+wc2022,Poland,Kamil Grosicki,Pogoń Szczecin
+wc2022,France,Hugo Lloris,Tottenham Hotspur
+wc2022,France,Benjamin Pavard,Bayern Munich
+wc2022,France,Raphaël Varane,Manchester United
+wc2022,France,Dayot Upamecano,Bayern Munich
+wc2022,France,Theo Hernandez,Milan
+wc2022,France,Aurélien Tchouaméni,Real Madrid
+wc2022,France,Adrien Rabiot,Juventus
+wc2022,France,Antoine Griezmann,Atlético Madrid
+wc2022,France,Olivier Giroud,Milan
+wc2022,France,Kylian Mbappé,Paris Saint-Germain
+wc2022,France,Ousmane Dembélé,Barcelona
+wc2022,France,Jules Koundé,Barcelona
+wc2022,France,Ibrahima Konaté,Liverpool
+wc2022,France,Eduardo Camavinga,Real Madrid
+wc2022,France,Kingsley Coman,Bayern Munich
+wc2022,France,Marcus Thuram,Borussia Mönchengladbach
+wc2022,France,Randal Kolo Muani,Eintracht Frankfurt
+wc2022,France,Youssouf Fofana,Monaco
+wc2022,France,Jordan Veretout,Marseille
+wc2022,France,Steve Mandanda,Rennes
+wc2022,Australia,Mathew Ryan,Copenhagen
+wc2022,Australia,Aziz Behich,Dundee United
+wc2022,Australia,Harry Souttar,Stoke City
+wc2022,Australia,Bailey Wright,Sunderland
+wc2022,Australia,Aaron Mooy,Celtic
+wc2022,Australia,Jackson Irvine,St. Pauli
+wc2022,Australia,Riley McGree,Middlesbrough
+wc2022,Australia,Mathew Leckie,Melbourne City
+wc2022,Australia,Mitchell Duke,Fagiano Okayama
+wc2022,Australia,Craig Goodwin,Adelaide United
+wc2022,Australia,Ajdin Hrustic,Hellas Verona
+wc2022,Australia,Awer Mabil,Cádiz
+wc2022,Australia,Keanu Baccus,St Mirren
+wc2022,Australia,Fran Karačić,Brescia
+wc2022,Denmark,Kasper Schmeichel,Nice
+wc2022,Denmark,Simon Kjær,Milan
+wc2022,Denmark,Andreas Christensen,Barcelona
+wc2022,Denmark,Joachim Andersen,Crystal Palace
+wc2022,Denmark,Joakim Mæhle,Atalanta
+wc2022,Denmark,Pierre-Emile Højbjerg,Tottenham Hotspur
+wc2022,Denmark,Christian Eriksen,Manchester United
+wc2022,Denmark,Thomas Delaney,Sevilla
+wc2022,Denmark,Jesper Lindstrøm,Eintracht Frankfurt
+wc2022,Denmark,Mikkel Damsgaard,Brentford
+wc2022,Denmark,Kasper Dolberg,Sevilla
+wc2022,Denmark,Andreas Skov Olsen,Club Brugge
+wc2022,Denmark,Jonas Wind,VfL Wolfsburg
+wc2022,Denmark,Martin Braithwaite,Espanyol
+wc2022,Denmark,Rasmus Kristensen,Leeds United
+wc2022,Tunisia,Aymen Dahmen,CS Sfaxien
+wc2022,Tunisia,Mohamed Dräger,Luzern
+wc2022,Tunisia,Montassar Talbi,Lorient
+wc2022,Tunisia,Dylan Bronn,Salernitana
+wc2022,Tunisia,Ali Abdi,Caen
+wc2022,Tunisia,Aïssa Laïdouni,Ferencváros
+wc2022,Tunisia,Ellyes Skhiri,1. FC Köln
+wc2022,Tunisia,Wahbi Khazri,Montpellier
+wc2022,Tunisia,Youssef Msakni,Al-Arabi
+wc2022,Tunisia,Naïm Sliti,Al-Ettifaq
+wc2022,Tunisia,Issam Jebali,Odense
+wc2022,Tunisia,Anis Ben Slimane,Brøndby
+wc2022,Tunisia,Hannibal Mejbri,Manchester United
+wc2022,Spain,Unai Simón,Athletic Bilbao
+wc2022,Spain,Dani Carvajal,Real Madrid
+wc2022,Spain,Aymeric Laporte,Manchester City
+wc2022,Spain,Pau Torres,Villarreal
+wc2022,Spain,Jordi Alba,Barcelona
+wc2022,Spain,Sergio Busquets,Barcelona
+wc2022,Spain,Rodri,Manchester City
+wc2022,Spain,Gavi,Barcelona
+wc2022,Spain,Pedri,Barcelona
+wc2022,Spain,Ferran Torres,Barcelona
+wc2022,Spain,Álvaro Morata,Atlético Madrid
+wc2022,Spain,Marco Asensio,Real Madrid
+wc2022,Spain,Dani Olmo,RB Leipzig
+wc2022,Spain,Carlos Soler,Paris Saint-Germain
+wc2022,Spain,Nico Williams,Athletic Bilbao
+wc2022,Spain,Ansu Fati,Barcelona
+wc2022,Spain,César Azpilicueta,Chelsea
+wc2022,Spain,Marcos Llorente,Atlético Madrid
+wc2022,Spain,Koke,Atlético Madrid
+wc2022,Spain,Alejandro Balde,Barcelona
+wc2022,Costa Rica,Keylor Navas,Paris Saint-Germain
+wc2022,Costa Rica,Óscar Duarte,Al-Wehda
+wc2022,Costa Rica,Francisco Calvo,Konyaspor
+wc2022,Costa Rica,Kendall Waston,Saprissa
+wc2022,Costa Rica,Joel Campbell,Club León
+wc2022,Costa Rica,Celso Borges,Alajuelense
+wc2022,Costa Rica,Bryan Ruiz,Alajuelense
+wc2022,Costa Rica,Yeltsin Tejeda,Herediano
+wc2022,Costa Rica,Anthony Contreras,Herediano
+wc2022,Costa Rica,Jewison Bennette,Sunderland
+wc2022,Costa Rica,Keysher Fuller,Herediano
+wc2022,Germany,Manuel Neuer,Bayern Munich
+wc2022,Germany,Antonio Rüdiger,Real Madrid
+wc2022,Germany,Niklas Süle,Borussia Dortmund
+wc2022,Germany,Thilo Kehrer,West Ham United
+wc2022,Germany,David Raum,RB Leipzig
+wc2022,Germany,Joshua Kimmich,Bayern Munich
+wc2022,Germany,Leon Goretzka,Bayern Munich
+wc2022,Germany,İlkay Gündoğan,Manchester City
+wc2022,Germany,Kai Havertz,Chelsea
+wc2022,Germany,Thomas Müller,Bayern Munich
+wc2022,Germany,Serge Gnabry,Bayern Munich
+wc2022,Germany,Jamal Musiala,Bayern Munich
+wc2022,Germany,Leroy Sané,Bayern Munich
+wc2022,Germany,Niclas Füllkrug,Werder Bremen
+wc2022,Germany,Jonas Hofmann,Borussia Mönchengladbach
+wc2022,Germany,Lukas Klostermann,RB Leipzig
+wc2022,Germany,Nico Schlotterbeck,Borussia Dortmund
+wc2022,Germany,Matthias Ginter,SC Freiburg
+wc2022,Germany,Christian Günter,SC Freiburg
+wc2022,Germany,Marc-André ter Stegen,Barcelona
+wc2022,Japan,Shuichi Gonda,Shimizu S-Pulse
+wc2022,Japan,Maya Yoshida,Schalke 04
+wc2022,Japan,Hiroki Sakai,Urawa Red Diamonds
+wc2022,Japan,Takehiro Tomiyasu,Arsenal
+wc2022,Japan,Wataru Endo,VfB Stuttgart
+wc2022,Japan,Hidemasa Morita,Sporting CP
+wc2022,Japan,Takefusa Kubo,Real Sociedad
+wc2022,Japan,Daichi Kamada,Eintracht Frankfurt
+wc2022,Japan,Takumi Minamino,Monaco
+wc2022,Japan,Daizen Maeda,Celtic
+wc2022,Japan,Ritsu Doan,SC Freiburg
+wc2022,Japan,Kaoru Mitoma,Brighton & Hove Albion
+wc2022,Japan,Junya Ito,Reims
+wc2022,Japan,Ko Itakura,Borussia Mönchengladbach
+wc2022,Japan,Hiroki Ito,VfB Stuttgart
+wc2022,Japan,Ayase Ueda,Cercle Brugge
+wc2022,Japan,Yuto Nagatomo,FC Tokyo
+wc2022,Belgium,Thibaut Courtois,Real Madrid
+wc2022,Belgium,Toby Alderweireld,Antwerp
+wc2022,Belgium,Jan Vertonghen,Anderlecht
+wc2022,Belgium,Leander Dendoncker,Aston Villa
+wc2022,Belgium,Youri Tielemans,Leicester City
+wc2022,Belgium,Kevin De Bruyne,Manchester City
+wc2022,Belgium,Axel Witsel,Atlético Madrid
+wc2022,Belgium,Eden Hazard,Real Madrid
+wc2022,Belgium,Romelu Lukaku,Inter Milan
+wc2022,Belgium,Yannick Carrasco,Atlético Madrid
+wc2022,Belgium,Dries Mertens,Galatasaray
+wc2022,Belgium,Thorgan Hazard,Borussia Dortmund
+wc2022,Belgium,Leandro Trossard,Brighton & Hove Albion
+wc2022,Belgium,Timothy Castagne,Leicester City
+wc2022,Belgium,Amadou Onana,Everton
+wc2022,Belgium,Charles De Ketelaere,Milan
+wc2022,Belgium,Michy Batshuayi,Fenerbahçe
+wc2022,Belgium,Simon Mignolet,Club Brugge
+wc2022,Canada,Milan Borjan,Red Star Belgrade
+wc2022,Canada,Alphonso Davies,Bayern Munich
+wc2022,Canada,Tajon Buchanan,Club Brugge
+wc2022,Canada,Jonathan David,Lille
+wc2022,Canada,Cyle Larin,Club Brugge
+wc2022,Canada,Atiba Hutchinson,Beşiktaş
+wc2022,Canada,Stephen Eustáquio,Porto
+wc2022,Canada,Junior Hoilett,Reading
+wc2022,Canada,Sam Adekugbe,Hatayspor
+wc2022,Canada,Kamal Miller,CF Montréal
+wc2022,Canada,Mark-Anthony Kaye,Toronto FC
+wc2022,Canada,Richie Laryea,Toronto FC
+wc2022,Canada,Ismaël Koné,CF Montréal
+wc2022,Canada,Steven Vitória,Chaves
+wc2022,Morocco,Yassine Bounou,Sevilla
+wc2022,Morocco,Achraf Hakimi,Paris Saint-Germain
+wc2022,Morocco,Noussair Mazraoui,Bayern Munich
+wc2022,Morocco,Romain Saïss,Beşiktaş
+wc2022,Morocco,Nayef Aguerd,West Ham United
+wc2022,Morocco,Sofyan Amrabat,Fiorentina
+wc2022,Morocco,Azzedine Ounahi,Angers
+wc2022,Morocco,Hakim Ziyech,Chelsea
+wc2022,Morocco,Sofiane Boufal,Angers
+wc2022,Morocco,Youssef En-Nesyri,Sevilla
+wc2022,Morocco,Selim Amallah,Standard Liège
+wc2022,Morocco,Abderrazak Hamdallah,Al-Ittihad
+wc2022,Morocco,Zakaria Aboukhlal,Toulouse
+wc2022,Morocco,Yahya Attiyat Allah,Wydad AC
+wc2022,Morocco,Achraf Dari,Brest
+wc2022,Morocco,Bilal El Khannouss,Genk
+wc2022,Morocco,Munir Mohamedi,Al-Wehda
+wc2022,Croatia,Dominik Livaković,Dinamo Zagreb
+wc2022,Croatia,Domagoj Vida,AEK Athens
+wc2022,Croatia,Dejan Lovren,Zenit Saint Petersburg
+wc2022,Croatia,Joško Gvardiol,RB Leipzig
+wc2022,Croatia,Borna Barišić,Rangers
+wc2022,Croatia,Josip Juranović,Celtic
+wc2022,Croatia,Mateo Kovačić,Chelsea
+wc2022,Croatia,Marcelo Brozović,Inter Milan
+wc2022,Croatia,Luka Modrić,Real Madrid
+wc2022,Croatia,Mario Pašalić,Atalanta
+wc2022,Croatia,Andrej Kramarić,TSG Hoffenheim
+wc2022,Croatia,Ivan Perišić,Tottenham Hotspur
+wc2022,Croatia,Bruno Petković,Dinamo Zagreb
+wc2022,Croatia,Nikola Vlašić,Torino
+wc2022,Croatia,Lovro Majer,Rennes
+wc2022,Croatia,Borna Sosa,VfB Stuttgart
+wc2022,Croatia,Marko Livaja,Hajduk Split
+wc2022,Croatia,Mislav Oršić,Dinamo Zagreb
+wc2022,Brazil,Alisson,Liverpool
+wc2022,Brazil,Ederson,Manchester City
+wc2022,Brazil,Dani Alves,UNAM
+wc2022,Brazil,Danilo,Juventus
+wc2022,Brazil,Marquinhos,Paris Saint-Germain
+wc2022,Brazil,Thiago Silva,Chelsea
+wc2022,Brazil,Éder Militão,Real Madrid
+wc2022,Brazil,Alex Sandro,Juventus
+wc2022,Brazil,Alex Telles,Sevilla
+wc2022,Brazil,Casemiro,Manchester United
+wc2022,Brazil,Fred,Manchester United
+wc2022,Brazil,Fabinho,Liverpool
+wc2022,Brazil,Bruno Guimarães,Newcastle United
+wc2022,Brazil,Lucas Paquetá,West Ham United
+wc2022,Brazil,Neymar,Paris Saint-Germain
+wc2022,Brazil,Vinícius Júnior,Real Madrid
+wc2022,Brazil,Raphinha,Barcelona
+wc2022,Brazil,Richarlison,Tottenham Hotspur
+wc2022,Brazil,Antony,Manchester United
+wc2022,Brazil,Gabriel Jesus,Arsenal
+wc2022,Brazil,Gabriel Martinelli,Arsenal
+wc2022,Brazil,Rodrygo,Real Madrid
+wc2022,Brazil,Pedro,Flamengo
+wc2022,Brazil,Everton Ribeiro,Flamengo
+wc2022,Brazil,Weverton,Palmeiras
+wc2022,Serbia,Vanja Milinković-Savić,Torino
+wc2022,Serbia,Strahinja Pavlović,Red Bull Salzburg
+wc2022,Serbia,Nikola Milenković,Fiorentina
+wc2022,Serbia,Miloš Veljković,Werder Bremen
+wc2022,Serbia,Filip Kostić,Juventus
+wc2022,Serbia,Sergej Milinković-Savić,Lazio
+wc2022,Serbia,Nemanja Gudelj,Sevilla
+wc2022,Serbia,Dušan Tadić,Ajax
+wc2022,Serbia,Aleksandar Mitrović,Fulham
+wc2022,Serbia,Dušan Vlahović,Juventus
+wc2022,Serbia,Filip Đuričić,Sampdoria
+wc2022,Serbia,Andrija Živković,PAOK
+wc2022,Serbia,Saša Lukić,Torino
+wc2022,Serbia,Nemanja Maksimović,Getafe
+wc2022,Serbia,Luka Jović,Fiorentina
+wc2022,Serbia,Predrag Rajković,Mallorca
+wc2022,Serbia,Stefan Mitrović,Getafe
+wc2022,Switzerland,Yann Sommer,Borussia Mönchengladbach
+wc2022,Switzerland,Manuel Akanji,Manchester City
+wc2022,Switzerland,Nico Elvedi,Borussia Mönchengladbach
+wc2022,Switzerland,Fabian Schär,Newcastle United
+wc2022,Switzerland,Ricardo Rodríguez,Torino
+wc2022,Switzerland,Granit Xhaka,Arsenal
+wc2022,Switzerland,Remo Freuler,Nottingham Forest
+wc2022,Switzerland,Xherdan Shaqiri,Chicago Fire
+wc2022,Switzerland,Breel Embolo,Monaco
+wc2022,Switzerland,Denis Zakaria,Chelsea
+wc2022,Switzerland,Ruben Vargas,FC Augsburg
+wc2022,Switzerland,Djibril Sow,Eintracht Frankfurt
+wc2022,Switzerland,Silvan Widmer,Mainz 05
+wc2022,Switzerland,Fabian Frei,Basel
+wc2022,Switzerland,Eray Cömert,Valencia
+wc2022,Cameroon,André Onana,Inter Milan
+wc2022,Cameroon,Jean-Charles Castelletto,Nantes
+wc2022,Cameroon,Nicolas Nkoulou,Aris
+wc2022,Cameroon,Collins Fai,Al-Tai
+wc2022,Cameroon,Olivier Mbaizo,Philadelphia Union
+wc2022,Cameroon,André-Frank Zambo Anguissa,Napoli
+wc2022,Cameroon,Pierre Kunde,Olympiacos
+wc2022,Cameroon,Martin Hongla,Hellas Verona
+wc2022,Cameroon,Eric Maxim Choupo-Moting,Bayern Munich
+wc2022,Cameroon,Vincent Aboubakar,Al-Nassr
+wc2022,Cameroon,Karl Toko Ekambi,Lyon
+wc2022,Cameroon,Bryan Mbeumo,Brentford
+wc2022,Cameroon,Georges-Kévin Nkoudou,Beşiktaş
+wc2022,Cameroon,Christian Bassogog,Shanghai Shenhua
+wc2022,Cameroon,Devis Epassy,Abha
+wc2022,Portugal,Diogo Costa,Porto
+wc2022,Portugal,João Cancelo,Manchester City
+wc2022,Portugal,Pepe,Porto
+wc2022,Portugal,Rúben Dias,Manchester City
+wc2022,Portugal,Nuno Mendes,Paris Saint-Germain
+wc2022,Portugal,João Palhinha,Fulham
+wc2022,Portugal,Rúben Neves,Wolverhampton Wanderers
+wc2022,Portugal,Bruno Fernandes,Manchester United
+wc2022,Portugal,Cristiano Ronaldo,Manchester United
+wc2022,Portugal,Bernardo Silva,Manchester City
+wc2022,Portugal,Rafael Leão,Milan
+wc2022,Portugal,Diogo Dalot,Manchester United
+wc2022,Portugal,Danilo Pereira,Paris Saint-Germain
+wc2022,Portugal,William Carvalho,Real Betis
+wc2022,Portugal,Diogo Jota,Liverpool
+wc2022,Portugal,Gonçalo Ramos,Benfica
+wc2022,Portugal,João Félix,Atlético Madrid
+wc2022,Portugal,Otávio,Porto
+wc2022,Portugal,Vitinha,Paris Saint-Germain
+wc2022,Portugal,Ricardo Horta,Braga
+wc2022,Portugal,Raphaël Guerreiro,Borussia Dortmund
+wc2022,Ghana,Lawrence Ati-Zigi,St. Gallen
+wc2022,Ghana,Tariq Lamptey,Brighton & Hove Albion
+wc2022,Ghana,Alexander Djiku,Strasbourg
+wc2022,Ghana,Daniel Amartey,Leicester City
+wc2022,Ghana,Mohammed Salisu,Southampton
+wc2022,Ghana,Gideon Mensah,Auxerre
+wc2022,Ghana,Thomas Partey,Arsenal
+wc2022,Ghana,Mohammed Kudus,Ajax
+wc2022,Ghana,Jordan Ayew,Crystal Palace
+wc2022,Ghana,André Ayew,Al-Sadd
+wc2022,Ghana,Iñaki Williams,Athletic Bilbao
+wc2022,Ghana,Antoine Semenyo,Bristol City
+wc2022,Ghana,Kamaldeen Sulemana,Rennes
+wc2022,Ghana,Daniel-Kofi Kyereh,SC Freiburg
+wc2022,Ghana,Abdul Fatawu Issahaku,Sporting CP
+wc2022,Ghana,Osman Bukari,Red Star Belgrade
+wc2022,Uruguay,Sergio Rochet,Nacional
+wc2022,Uruguay,José María Giménez,Atlético Madrid
+wc2022,Uruguay,Diego Godín,Vélez Sarsfield
+wc2022,Uruguay,Ronald Araújo,Barcelona
+wc2022,Uruguay,Sebastián Coates,Sporting CP
+wc2022,Uruguay,Matías Viña,Roma
+wc2022,Uruguay,Federico Valverde,Real Madrid
+wc2022,Uruguay,Rodrigo Bentancur,Tottenham Hotspur
+wc2022,Uruguay,Lucas Torreira,Galatasaray
+wc2022,Uruguay,Giorgian de Arrascaeta,Flamengo
+wc2022,Uruguay,Luis Suárez,Nacional
+wc2022,Uruguay,Edinson Cavani,Valencia
+wc2022,Uruguay,Darwin Núñez,Liverpool
+wc2022,Uruguay,Facundo Pellistri,Manchester United
+wc2022,Uruguay,Nicolás de la Cruz,River Plate
+wc2022,Uruguay,Manuel Ugarte,Sporting CP
+wc2022,Uruguay,Agustín Canobbio,Athletico Paranaense
+wc2022,South Korea,Kim Seung-gyu,Al-Shabab
+wc2022,South Korea,Kim Min-jae,Napoli
+wc2022,South Korea,Kim Young-gwon,Ulsan Hyundai
+wc2022,South Korea,Kim Moon-hwan,Jeonbuk Hyundai Motors
+wc2022,South Korea,Hong Chul,Daegu FC
+wc2022,South Korea,Jung Woo-young,Al-Sadd
+wc2022,South Korea,Hwang In-beom,Olympiacos
+wc2022,South Korea,Lee Jae-sung,Mainz 05
+wc2022,South Korea,Son Heung-min,Tottenham Hotspur
+wc2022,South Korea,Hwang Hee-chan,Wolverhampton Wanderers
+wc2022,South Korea,Lee Kang-in,Mallorca
+wc2022,South Korea,Cho Gue-sung,Jeonbuk Hyundai Motors
+wc2022,South Korea,Na Sang-ho,FC Seoul
+wc2022,South Korea,Paik Seung-ho,Jeonbuk Hyundai Motors
+wc2022,South Korea,Son Jun-ho,Shandong Taishan
+wc2022,Wales,Wayne Hennessey,Nottingham Forest
+wc2022,Wales,Ben Davies,Tottenham Hotspur
+wc2022,Wales,Connor Roberts,Burnley
+wc2022,Wales,Joe Rodon,Rennes
+wc2022,Wales,Ethan Ampadu,Spezia
+wc2022,Wales,Aaron Ramsey,Nice
+wc2022,Wales,Joe Allen,Swansea City
+wc2022,Wales,Harry Wilson,Fulham
+wc2022,Wales,Daniel James,Fulham
+wc2022,Wales,Gareth Bale,Los Angeles FC
+wc2022,Wales,Kieffer Moore,Bournemouth
+wc2022,Wales,Brennan Johnson,Nottingham Forest
+wc2022,Wales,Neco Williams,Nottingham Forest
+wc2022,Wales,Chris Mepham,Bournemouth
+wc2022,Wales,Danny Ward,Leicester City

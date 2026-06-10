@@ -1,0 +1,631 @@
+# config/squads/euro2024.csv — UEFA Euro 2024 squads (24 teams) for the P3 v0 k_squad sweep.
+# tournament,team,player,club ; club = club at the tournament (the join key, never player).
+# SOURCE: Wikipedia "UEFA Euro 2024 squads" (https://en.wikipedia.org/wiki/UEFA_Euro_2024_squads),
+#   accessed 2026-06-10. team = martj42 store key. Cutoff for club-Elo join: 2024-06-14.
+# Curated player+club only (no jersey/DOB) per the brief — for v0 the CLUB is what matters.
+tournament,team,player,club
+euro2024,Germany,Manuel Neuer,Bayern Munich
+euro2024,Germany,Antonio Rüdiger,Real Madrid
+euro2024,Germany,David Raum,RB Leipzig
+euro2024,Germany,Jonathan Tah,Bayer Leverkusen
+euro2024,Germany,Pascal Groß,Brighton & Hove Albion
+euro2024,Germany,Joshua Kimmich,Bayern Munich
+euro2024,Germany,Kai Havertz,Arsenal
+euro2024,Germany,Toni Kroos,Real Madrid
+euro2024,Germany,Niclas Füllkrug,Borussia Dortmund
+euro2024,Germany,Jamal Musiala,Bayern Munich
+euro2024,Germany,Chris Führich,VfB Stuttgart
+euro2024,Germany,Oliver Baumann,TSG Hoffenheim
+euro2024,Germany,Thomas Müller,Bayern Munich
+euro2024,Germany,Maximilian Beier,TSG Hoffenheim
+euro2024,Germany,Nico Schlotterbeck,Borussia Dortmund
+euro2024,Germany,Waldemar Anton,VfB Stuttgart
+euro2024,Germany,Florian Wirtz,Bayer Leverkusen
+euro2024,Germany,Maximilian Mittelstädt,VfB Stuttgart
+euro2024,Germany,Leroy Sané,Bayern Munich
+euro2024,Germany,Benjamin Henrichs,RB Leipzig
+euro2024,Germany,İlkay Gündoğan,Barcelona
+euro2024,Germany,Marc-André ter Stegen,Barcelona
+euro2024,Germany,Robert Andrich,Bayer Leverkusen
+euro2024,Germany,Robin Koch,Eintracht Frankfurt
+euro2024,Germany,Emre Can,Borussia Dortmund
+euro2024,Germany,Deniz Undav,VfB Stuttgart
+euro2024,Scotland,Angus Gunn,Norwich City
+euro2024,Scotland,Anthony Ralston,Celtic
+euro2024,Scotland,Andy Robertson,Liverpool
+euro2024,Scotland,Scott McTominay,Manchester United
+euro2024,Scotland,Grant Hanley,Norwich City
+euro2024,Scotland,Kieran Tierney,Real Sociedad
+euro2024,Scotland,John McGinn,Aston Villa
+euro2024,Scotland,Callum McGregor,Celtic
+euro2024,Scotland,Lawrence Shankland,Heart of Midlothian
+euro2024,Scotland,Ché Adams,Southampton
+euro2024,Scotland,Ryan Christie,Bournemouth
+euro2024,Scotland,Liam Kelly,Motherwell
+euro2024,Scotland,Jack Hendry,Al-Ettifaq
+euro2024,Scotland,Billy Gilmour,Brighton & Hove Albion
+euro2024,Scotland,Ryan Porteous,Watford
+euro2024,Scotland,Liam Cooper,Leeds United
+euro2024,Scotland,Stuart Armstrong,Southampton
+euro2024,Scotland,Lewis Morgan,New York Red Bulls
+euro2024,Scotland,Tommy Conway,Bristol City
+euro2024,Scotland,Ryan Jack,Rangers
+euro2024,Scotland,Zander Clark,Heart of Midlothian
+euro2024,Scotland,Ross McCrorie,Bristol City
+euro2024,Scotland,Kenny McLean,Norwich City
+euro2024,Scotland,Greg Taylor,Celtic
+euro2024,Scotland,James Forrest,Celtic
+euro2024,Scotland,Scott McKenna,Copenhagen
+euro2024,Hungary,Péter Gulácsi,RB Leipzig
+euro2024,Hungary,Ádám Lang,Omonia
+euro2024,Hungary,Botond Balogh,Parma
+euro2024,Hungary,Attila Szalai,SC Freiburg
+euro2024,Hungary,Attila Fiola,Fehérvár
+euro2024,Hungary,Willi Orbán,RB Leipzig
+euro2024,Hungary,Loïc Négo,Le Havre
+euro2024,Hungary,Ádám Nagy,Spezia
+euro2024,Hungary,Martin Ádám,Ulsan HD
+euro2024,Hungary,Dominik Szoboszlai,Liverpool
+euro2024,Hungary,Milos Kerkez,Bournemouth
+euro2024,Hungary,Dénes Dibusz,Ferencváros
+euro2024,Hungary,András Schäfer,Union Berlin
+euro2024,Hungary,Bendegúz Bolla,Servette
+euro2024,Hungary,László Kleinheisler,Hajduk Split
+euro2024,Hungary,Dániel Gazdag,Philadelphia Union
+euro2024,Hungary,Callum Styles,Sunderland
+euro2024,Hungary,Zsolt Nagy,Puskás Akadémia
+euro2024,Hungary,Barnabás Varga,Ferencváros
+euro2024,Hungary,Roland Sallai,SC Freiburg
+euro2024,Hungary,Endre Botka,Ferencváros
+euro2024,Hungary,Péter Szappanos,Paks
+euro2024,Hungary,Kevin Csoboth,Újpest
+euro2024,Hungary,Márton Dárdai,Hertha BSC
+euro2024,Hungary,Krisztofer Horváth,Kecskemét
+euro2024,Hungary,Mihály Kata,MTK Budapest
+euro2024,Switzerland,Yann Sommer,Inter Milan
+euro2024,Switzerland,Leonidas Stergiou,VfB Stuttgart
+euro2024,Switzerland,Silvan Widmer,Mainz 05
+euro2024,Switzerland,Nico Elvedi,Borussia Mönchengladbach
+euro2024,Switzerland,Manuel Akanji,Manchester City
+euro2024,Switzerland,Denis Zakaria,Monaco
+euro2024,Switzerland,Breel Embolo,Monaco
+euro2024,Switzerland,Remo Freuler,Bologna
+euro2024,Switzerland,Noah Okafor,Milan
+euro2024,Switzerland,Granit Xhaka,Bayer Leverkusen
+euro2024,Switzerland,Renato Steffen,Lugano
+euro2024,Switzerland,Yvon Mvogo,Lorient
+euro2024,Switzerland,Ricardo Rodríguez,Torino
+euro2024,Switzerland,Steven Zuber,AEK Athens
+euro2024,Switzerland,Cédric Zesiger,VfL Wolfsburg
+euro2024,Switzerland,Vincent Sierro,Toulouse
+euro2024,Switzerland,Ruben Vargas,FC Augsburg
+euro2024,Switzerland,Kwadwo Duah,Ludogorets Razgrad
+euro2024,Switzerland,Dan Ndoye,Bologna
+euro2024,Switzerland,Michel Aebischer,Bologna
+euro2024,Switzerland,Gregor Kobel,Borussia Dortmund
+euro2024,Switzerland,Fabian Schär,Newcastle United
+euro2024,Switzerland,Xherdan Shaqiri,Chicago Fire
+euro2024,Switzerland,Ardon Jashari,Luzern
+euro2024,Switzerland,Zeki Amdouni,Burnley
+euro2024,Switzerland,Fabian Rieder,Rennes
+euro2024,Spain,David Raya,Arsenal
+euro2024,Spain,Dani Carvajal,Real Madrid
+euro2024,Spain,Robin Le Normand,Real Sociedad
+euro2024,Spain,Nacho,Real Madrid
+euro2024,Spain,Daniel Vivian,Athletic Bilbao
+euro2024,Spain,Mikel Merino,Real Sociedad
+euro2024,Spain,Álvaro Morata,Atlético Madrid
+euro2024,Spain,Fabián Ruiz,Paris Saint-Germain
+euro2024,Spain,Joselu,Real Madrid
+euro2024,Spain,Dani Olmo,RB Leipzig
+euro2024,Spain,Ferran Torres,Barcelona
+euro2024,Spain,Álex Grimaldo,Bayer Leverkusen
+euro2024,Spain,Álex Remiro,Real Sociedad
+euro2024,Spain,Aymeric Laporte,Al Nassr
+euro2024,Spain,Álex Baena,Villarreal
+euro2024,Spain,Rodri,Manchester City
+euro2024,Spain,Nico Williams,Athletic Bilbao
+euro2024,Spain,Martín Zubimendi,Real Sociedad
+euro2024,Spain,Lamine Yamal,Barcelona
+euro2024,Spain,Pedri,Barcelona
+euro2024,Spain,Mikel Oyarzabal,Real Sociedad
+euro2024,Spain,Jesús Navas,Sevilla
+euro2024,Spain,Unai Simón,Athletic Bilbao
+euro2024,Spain,Marc Cucurella,Chelsea
+euro2024,Spain,Fermín López,Barcelona
+euro2024,Spain,Ayoze Pérez,Real Betis
+euro2024,Croatia,Dominik Livaković,Fenerbahçe
+euro2024,Croatia,Josip Stanišić,Bayer Leverkusen
+euro2024,Croatia,Marin Pongračić,Lecce
+euro2024,Croatia,Joško Gvardiol,Manchester City
+euro2024,Croatia,Martin Erlić,Sassuolo
+euro2024,Croatia,Josip Šutalo,Ajax
+euro2024,Croatia,Lovro Majer,VfL Wolfsburg
+euro2024,Croatia,Mateo Kovačić,Manchester City
+euro2024,Croatia,Andrej Kramarić,TSG Hoffenheim
+euro2024,Croatia,Luka Modrić,Real Madrid
+euro2024,Croatia,Marcelo Brozović,Al Nassr
+euro2024,Croatia,Nediljko Labrović,Rijeka
+euro2024,Croatia,Nikola Vlašić,Torino
+euro2024,Croatia,Ivan Perišić,Hajduk Split
+euro2024,Croatia,Mario Pašalić,Atalanta
+euro2024,Croatia,Ante Budimir,Osasuna
+euro2024,Croatia,Bruno Petković,Dinamo Zagreb
+euro2024,Croatia,Luka Ivanušec,Feyenoord
+euro2024,Croatia,Borna Sosa,Ajax
+euro2024,Croatia,Marko Pjaca,Rijeka
+euro2024,Croatia,Domagoj Vida,AEK Athens
+euro2024,Croatia,Josip Juranović,Union Berlin
+euro2024,Croatia,Ivica Ivušić,Pafos
+euro2024,Croatia,Luka Sučić,Red Bull Salzburg
+euro2024,Croatia,Martin Baturina,Dinamo Zagreb
+euro2024,Italy,Gianluigi Donnarumma,Paris Saint-Germain
+euro2024,Italy,Giovanni Di Lorenzo,Napoli
+euro2024,Italy,Federico Dimarco,Inter Milan
+euro2024,Italy,Alessandro Buongiorno,Torino
+euro2024,Italy,Riccardo Calafiori,Bologna
+euro2024,Italy,Federico Gatti,Juventus
+euro2024,Italy,Davide Frattesi,Inter Milan
+euro2024,Italy,Jorginho,Arsenal
+euro2024,Italy,Gianluca Scamacca,Atalanta
+euro2024,Italy,Lorenzo Pellegrini,Roma
+euro2024,Italy,Giacomo Raspadori,Napoli
+euro2024,Italy,Guglielmo Vicario,Tottenham Hotspur
+euro2024,Italy,Matteo Darmian,Inter Milan
+euro2024,Italy,Federico Chiesa,Juventus
+euro2024,Italy,Raoul Bellanova,Torino
+euro2024,Italy,Bryan Cristante,Roma
+euro2024,Italy,Gianluca Mancini,Roma
+euro2024,Italy,Nicolò Barella,Inter Milan
+euro2024,Italy,Mateo Retegui,Genoa
+euro2024,Italy,Mattia Zaccagni,Lazio
+euro2024,Italy,Michael Folorunsho,Verona
+euro2024,Italy,Stephan El Shaarawy,Roma
+euro2024,Italy,Alessandro Bastoni,Inter Milan
+euro2024,Italy,Nicolò Fagioli,Juventus
+euro2024,Italy,Andrea Cambiaso,Juventus
+euro2024,Italy,Gianluca Mancini,Roma
+euro2024,Albania,Thomas Strakosha,Brentford
+euro2024,Albania,Berat Djimsiti,Atalanta
+euro2024,Albania,Elseid Hysaj,Lazio
+euro2024,Albania,Ardian Ismajli,Empoli
+euro2024,Albania,Marash Kumbulla,Roma
+euro2024,Albania,Nedim Bajrami,Sassuolo
+euro2024,Albania,Keidi Bare,Espanyol
+euro2024,Albania,Klaus Gjasula,Darmstadt
+euro2024,Albania,Kristjan Asllani,Inter Milan
+euro2024,Albania,Nedim Bardhi,Lecce
+euro2024,Albania,Rey Manaj,Sivasspor
+euro2024,Albania,Etrit Berisha,Empoli
+euro2024,Albania,Iván Balliu,Rayo Vallecano
+euro2024,Albania,Jasir Asani,Gwangju
+euro2024,Albania,Ylber Ramadani,Lecce
+euro2024,Albania,Qazim Laçi,Sparta Prague
+euro2024,Albania,Mario Mitaj,Lokomotiv Moscow
+euro2024,Albania,Arbër Hoxha,Dinamo Zagreb
+euro2024,Albania,Armando Broja,Chelsea
+euro2024,Albania,Taulant Seferi,Baniyas
+euro2024,Albania,Mirlind Daku,Rubin Kazan
+euro2024,Albania,Ernest Muçi,Beşiktaş
+euro2024,Albania,Naser Aliji,Hapoel Be'er Sheva
+euro2024,Albania,Elhan Kastrati,Cittadella
+euro2024,Albania,Enea Mihaj,Famalicão
+euro2024,Albania,Adrion Pajaziti,KF Tirana
+euro2024,Slovenia,Jan Oblak,Atlético Madrid
+euro2024,Slovenia,Žan Karničnik,Celje
+euro2024,Slovenia,Jaka Bijol,Udinese
+euro2024,Slovenia,Vanja Drkušić,Sochi
+euro2024,Slovenia,Erik Janža,Cracovia
+euro2024,Slovenia,Jasmin Kurtić,Südtirol
+euro2024,Slovenia,Benjamin Verbič,Panathinaikos
+euro2024,Slovenia,Sandi Lovrić,Udinese
+euro2024,Slovenia,Andraž Šporar,Panathinaikos
+euro2024,Slovenia,Timi Max Elšnik,Olimpija Ljubljana
+euro2024,Slovenia,Benjamin Šeško,RB Leipzig
+euro2024,Slovenia,Jan Mlakar,Hajduk Split
+euro2024,Slovenia,Petar Stojanović,Sampdoria
+euro2024,Slovenia,Jure Balkovec,Bari
+euro2024,Slovenia,Adam Gnezda Čerin,Panathinaikos
+euro2024,Slovenia,Tomi Horvat,Sturm Graz
+euro2024,Slovenia,Žan Celar,Lugano
+euro2024,Slovenia,Vid Belec,Bari
+euro2024,Slovenia,Nejc Gradišar,Aluminij
+euro2024,Slovenia,Adam Čerin,Panathinaikos
+euro2024,Slovenia,Žan Vipotnik,Bordeaux
+euro2024,Slovenia,Domen Črnigoj,Lugano
+euro2024,Slovenia,David Zec,Koper
+euro2024,Slovenia,Igor Vekić,Vejle
+euro2024,Slovenia,Adam Gorišek,Maribor
+euro2024,Slovenia,Žan Jevšenak,Mura
+euro2024,Denmark,Kasper Schmeichel,Anderlecht
+euro2024,Denmark,Joachim Andersen,Crystal Palace
+euro2024,Denmark,Andreas Christensen,Barcelona
+euro2024,Denmark,Jannik Vestergaard,Leicester City
+euro2024,Denmark,Joakim Mæhle,VfL Wolfsburg
+euro2024,Denmark,Thomas Delaney,Anderlecht
+euro2024,Denmark,Pierre-Emile Højbjerg,Tottenham Hotspur
+euro2024,Denmark,Christian Eriksen,Manchester United
+euro2024,Denmark,Rasmus Højlund,Manchester United
+euro2024,Denmark,Christian Nørgaard,Brentford
+euro2024,Denmark,Andreas Skov Olsen,Club Brugge
+euro2024,Denmark,Mathias Zanka Jørgensen,Brentford
+euro2024,Denmark,Victor Kristiansen,Bologna
+euro2024,Denmark,Morten Hjulmand,Sporting CP
+euro2024,Denmark,Jonas Wind,VfL Wolfsburg
+euro2024,Denmark,Mohamed Daramy,Reims
+euro2024,Denmark,Anders Dreyer,Anderlecht
+euro2024,Denmark,Mikkel Damsgaard,Brentford
+euro2024,Denmark,Kasper Dolberg,Anderlecht
+euro2024,Denmark,Frederik Rønnow,Union Berlin
+euro2024,Denmark,Yussuf Poulsen,RB Leipzig
+euro2024,Denmark,Alexander Bah,Benfica
+euro2024,Denmark,Mathias Jensen,Brentford
+euro2024,Denmark,Oliver Christensen,Hertha BSC
+euro2024,Denmark,Rasmus Kristensen,Roma
+euro2024,Denmark,Victor Nelsson,Galatasaray
+euro2024,Serbia,Predrag Rajković,Mallorca
+euro2024,Serbia,Strahinja Pavlović,Red Bull Salzburg
+euro2024,Serbia,Nikola Milenković,Fiorentina
+euro2024,Serbia,Miloš Veljković,Werder Bremen
+euro2024,Serbia,Filip Mladenović,Panathinaikos
+euro2024,Serbia,Saša Lukić,Fulham
+euro2024,Serbia,Nemanja Gudelj,Sevilla
+euro2024,Serbia,Dušan Tadić,Fenerbahçe
+euro2024,Serbia,Aleksandar Mitrović,Al Hilal
+euro2024,Serbia,Dušan Vlahović,Juventus
+euro2024,Serbia,Andrija Živković,PAOK
+euro2024,Serbia,Đorđe Petrović,Chelsea
+euro2024,Serbia,Srđan Babić,Spartak Moscow
+euro2024,Serbia,Sergej Milinković-Savić,Al Hilal
+euro2024,Serbia,Filip Kostić,Juventus
+euro2024,Serbia,Nemanja Maksimović,Panathinaikos
+euro2024,Serbia,Lazar Samardžić,Udinese
+euro2024,Serbia,Ivan Ilić,Torino
+euro2024,Serbia,Luka Jović,Milan
+euro2024,Serbia,Veljko Birmančević,Sparta Prague
+euro2024,Serbia,Vanja Milinković-Savić,Torino
+euro2024,Serbia,Stefan Mitrović,Hellas Verona
+euro2024,Serbia,Mijat Gaćinović,Hajduk Split
+euro2024,Serbia,Uroš Račić,Sassuolo
+euro2024,Serbia,Marko Grujić,Porto
+euro2024,Serbia,Petar Ratkov,Red Bull Salzburg
+euro2024,England,Jordan Pickford,Everton
+euro2024,England,Kyle Walker,Manchester City
+euro2024,England,Marc Guéhi,Crystal Palace
+euro2024,England,John Stones,Manchester City
+euro2024,England,Ezri Konsa,Aston Villa
+euro2024,England,Declan Rice,Arsenal
+euro2024,England,Jude Bellingham,Real Madrid
+euro2024,England,Phil Foden,Manchester City
+euro2024,England,Harry Kane,Bayern Munich
+euro2024,England,Anthony Gordon,Newcastle United
+euro2024,England,Kieran Trippier,Newcastle United
+euro2024,England,Kobbie Mainoo,Manchester United
+euro2024,England,Conor Gallagher,Chelsea
+euro2024,England,Lewis Dunk,Brighton & Hove Albion
+euro2024,England,Trent Alexander-Arnold,Liverpool
+euro2024,England,Bukayo Saka,Arsenal
+euro2024,England,Cole Palmer,Chelsea
+euro2024,England,Ollie Watkins,Aston Villa
+euro2024,England,Eberechi Eze,Crystal Palace
+euro2024,England,Aaron Ramsdale,Arsenal
+euro2024,England,Jarrod Bowen,West Ham United
+euro2024,England,Luke Shaw,Manchester United
+euro2024,England,Dean Henderson,Crystal Palace
+euro2024,England,Joe Gomez,Liverpool
+euro2024,England,Adam Wharton,Crystal Palace
+euro2024,England,Ivan Toney,Brentford
+euro2024,Slovakia,Martin Dúbravka,Newcastle United
+euro2024,Slovakia,Peter Pekarík,Hertha BSC
+euro2024,Slovakia,Denis Vavro,Copenhagen
+euro2024,Slovakia,Norbert Gyömbér,Salernitana
+euro2024,Slovakia,Milan Škriniar,Paris Saint-Germain
+euro2024,Slovakia,Juraj Kucka,Slovan Bratislava
+euro2024,Slovakia,Stanislav Lobotka,Napoli
+euro2024,Slovakia,Ondrej Duda,Hellas Verona
+euro2024,Slovakia,Dávid Hancko,Feyenoord
+euro2024,Slovakia,Marek Hamšík,retired
+euro2024,Slovakia,Lukáš Haraslín,Sparta Prague
+euro2024,Slovakia,Róbert Boženík,Boavista
+euro2024,Slovakia,Ivan Schranz,Slavia Prague
+euro2024,Slovakia,László Bénes,Hamburger SV
+euro2024,Slovakia,Tomáš Suslov,Hellas Verona
+euro2024,Slovakia,Patrik Hrošovský,Genk
+euro2024,Slovakia,Matúš Bero,Bochum
+euro2024,Slovakia,Vladimír Weiss,Slovan Bratislava
+euro2024,Slovakia,Ján Greguš,Mezőkövesd
+euro2024,Slovakia,Leo Sauer,Feyenoord
+euro2024,Slovakia,Marko Tupta,Hajduk Split
+euro2024,Slovakia,Adam Obert,Cagliari
+euro2024,Slovakia,Sebastián Kóša,Trnava
+euro2024,Slovakia,Samuel Mráz,Empoli
+euro2024,Slovakia,Dominik Takáč,Slovan Bratislava
+euro2024,Slovakia,Tomáš Hubočan,Omonia
+euro2024,Netherlands,Bart Verbruggen,Brighton & Hove Albion
+euro2024,Netherlands,Lutsharel Geertruida,Feyenoord
+euro2024,Netherlands,Stefan de Vrij,Inter Milan
+euro2024,Netherlands,Virgil van Dijk,Liverpool
+euro2024,Netherlands,Nathan Aké,Manchester City
+euro2024,Netherlands,Memphis Depay,Atlético Madrid
+euro2024,Netherlands,Georginio Wijnaldum,Al-Ettifaq
+euro2024,Netherlands,Cody Gakpo,Liverpool
+euro2024,Netherlands,Donyell Malen,Borussia Dortmund
+euro2024,Netherlands,Wout Weghorst,TSG Hoffenheim
+euro2024,Netherlands,Steven Bergwijn,Ajax
+euro2024,Netherlands,Mark Flekken,Brentford
+euro2024,Netherlands,Denzel Dumfries,Inter Milan
+euro2024,Netherlands,Daley Blind,Girona
+euro2024,Netherlands,Tijjani Reijnders,Milan
+euro2024,Netherlands,Joey Veerman,PSV Eindhoven
+euro2024,Netherlands,Jeremie Frimpong,Bayer Leverkusen
+euro2024,Netherlands,Micky van de Ven,Tottenham Hotspur
+euro2024,Netherlands,Jerdy Schouten,PSV Eindhoven
+euro2024,Netherlands,Xavi Simons,RB Leipzig
+euro2024,Netherlands,Jorrel Hato,Ajax
+euro2024,Netherlands,Nick Olij,Sparta Rotterdam
+euro2024,Netherlands,Ian Maatsen,Borussia Dortmund
+euro2024,Netherlands,Brian Brobbey,Ajax
+euro2024,Netherlands,Justin Bijlow,Feyenoord
+euro2024,Netherlands,Frenkie de Jong,Barcelona
+euro2024,Austria,Patrick Pentz,Brøndby
+euro2024,Austria,Maximilian Wöber,Borussia Mönchengladbach
+euro2024,Austria,Gernot Trauner,Feyenoord
+euro2024,Austria,Philipp Lienhart,SC Freiburg
+euro2024,Austria,Stefan Posch,Bologna
+euro2024,Austria,Konrad Laimer,Bayern Munich
+euro2024,Austria,Florian Grillitsch,TSG Hoffenheim
+euro2024,Austria,Marcel Sabitzer,Borussia Dortmund
+euro2024,Austria,Marko Arnautović,Inter Milan
+euro2024,Austria,David Alaba,Real Madrid
+euro2024,Austria,Christoph Baumgartner,RB Leipzig
+euro2024,Austria,Patrick Wimmer,VfL Wolfsburg
+euro2024,Austria,Maximilian Entrup,Hartberg
+euro2024,Austria,Nikola Dovedan,1. FC Nürnberg
+euro2024,Austria,Romano Schmid,Werder Bremen
+euro2024,Austria,Philipp Mwene,Mainz 05
+euro2024,Austria,Patrick Wimmer,VfL Wolfsburg
+euro2024,Austria,Alexander Prass,Sturm Graz
+euro2024,Austria,Michael Gregoritsch,SC Freiburg
+euro2024,Austria,Marko Dijon,Heerenveen
+euro2024,Austria,Niklas Hedl,Rapid Vienna
+euro2024,Austria,Leopold Querfeld,Rapid Vienna
+euro2024,Austria,Kevin Danso,Lens
+euro2024,Austria,Phillipp Mwene,Mainz 05
+euro2024,Austria,Matthias Seidl,Rapid Vienna
+euro2024,Austria,Junior Adamu,SC Freiburg
+euro2024,France,Mike Maignan,Milan
+euro2024,France,Jonathan Clauss,Marseille
+euro2024,France,Theo Hernandez,Milan
+euro2024,France,Dayot Upamecano,Bayern Munich
+euro2024,France,William Saliba,Arsenal
+euro2024,France,Aurélien Tchouaméni,Real Madrid
+euro2024,France,Adrien Rabiot,Juventus
+euro2024,France,Antoine Griezmann,Atlético Madrid
+euro2024,France,Kylian Mbappé,Paris Saint-Germain
+euro2024,France,Marcus Thuram,Inter Milan
+euro2024,France,Ousmane Dembélé,Paris Saint-Germain
+euro2024,France,Brice Samba,Lens
+euro2024,France,Jules Koundé,Barcelona
+euro2024,France,Ferland Mendy,Real Madrid
+euro2024,France,N'Golo Kanté,Al-Ittihad
+euro2024,France,Eduardo Camavinga,Real Madrid
+euro2024,France,Bradley Barcola,Paris Saint-Germain
+euro2024,France,Randal Kolo Muani,Paris Saint-Germain
+euro2024,France,Olivier Giroud,Milan
+euro2024,France,Kingsley Coman,Bayern Munich
+euro2024,France,Ibrahima Konaté,Liverpool
+euro2024,France,Benjamin Pavard,Inter Milan
+euro2024,France,Youssouf Fofana,Monaco
+euro2024,France,Warren Zaïre-Emery,Paris Saint-Germain
+euro2024,France,Jean-Clair Todibo,Nice
+euro2024,France,Alphonse Areola,West Ham United
+euro2024,Poland,Wojciech Szczęsny,Juventus
+euro2024,Poland,Paweł Dawidowicz,Hellas Verona
+euro2024,Poland,Jan Bednarek,Southampton
+euro2024,Poland,Bartosz Salamon,Lech Poznań
+euro2024,Poland,Jakub Kiwior,Arsenal
+euro2024,Poland,Bartosz Bereszyński,Empoli
+euro2024,Poland,Przemysław Frankowski,Lens
+euro2024,Poland,Piotr Zieliński,Napoli
+euro2024,Poland,Robert Lewandowski,Barcelona
+euro2024,Poland,Adam Buksa,Antalyaspor
+euro2024,Poland,Karol Świderski,Hellas Verona
+euro2024,Poland,Łukasz Skorupski,Bologna
+euro2024,Poland,Sebastian Szymański,Fenerbahçe
+euro2024,Poland,Nicola Zalewski,Roma
+euro2024,Poland,Jakub Moder,Brighton & Hove Albion
+euro2024,Poland,Taras Romanczuk,Jagiellonia Białystok
+euro2024,Poland,Kacper Urbański,Bologna
+euro2024,Poland,Jakub Piotrowski,Ludogorets Razgrad
+euro2024,Poland,Damian Szymański,AEK Athens
+euro2024,Poland,Krzysztof Piątek,İstanbul Başakşehir
+euro2024,Poland,Paweł Wszołek,Legia Warsaw
+euro2024,Poland,Marcin Bułka,Nice
+euro2024,Poland,Kamil Grabara,Copenhagen
+euro2024,Poland,Michał Skóraś,Club Brugge
+euro2024,Poland,Bartłomiej Drągowski,Panathinaikos
+euro2024,Poland,Kamil Piątkowski,Red Bull Salzburg
+euro2024,Ukraine,Anatoliy Trubin,Benfica
+euro2024,Ukraine,Yukhym Konoplya,Shakhtar Donetsk
+euro2024,Ukraine,Illia Zabarnyi,Bournemouth
+euro2024,Ukraine,Mykola Matviyenko,Shakhtar Donetsk
+euro2024,Ukraine,Vitaliy Mykolenko,Everton
+euro2024,Ukraine,Taras Stepanenko,Shakhtar Donetsk
+euro2024,Ukraine,Mykhailo Mudryk,Chelsea
+euro2024,Ukraine,Heorhiy Sudakov,Shakhtar Donetsk
+euro2024,Ukraine,Roman Yaremchuk,Valencia
+euro2024,Ukraine,Andriy Yarmolenko,Al-Ain
+euro2024,Ukraine,Artem Dovbyk,Girona
+euro2024,Ukraine,Andriy Lunin,Real Madrid
+euro2024,Ukraine,Oleksandr Tymchyk,Dynamo Kyiv
+euro2024,Ukraine,Oleksandr Zinchenko,Arsenal
+euro2024,Ukraine,Volodymyr Brazhko,Dynamo Kyiv
+euro2024,Ukraine,Ruslan Malinovskyi,Genoa
+euro2024,Ukraine,Viktor Tsygankov,Girona
+euro2024,Ukraine,Oleksandr Zubkov,Shakhtar Donetsk
+euro2024,Ukraine,Maksym Talovierov,LASK
+euro2024,Ukraine,Yehor Yarmoliuk,Brentford
+euro2024,Ukraine,Anatoliy Tymoshchuk,Dynamo Kyiv
+euro2024,Ukraine,Bohdan Mykhaylichenko,Polissya
+euro2024,Ukraine,Valeriy Bondar,Shakhtar Donetsk
+euro2024,Ukraine,Mykola Shaparenko,Dynamo Kyiv
+euro2024,Ukraine,Vladyslav Vanat,Dynamo Kyiv
+euro2024,Ukraine,Serhiy Sydorchuk,Westerlo
+euro2024,Belgium,Koen Casteels,Al-Qadsiah
+euro2024,Belgium,Thomas Meunier,Trabzonspor
+euro2024,Belgium,Jan Vertonghen,Anderlecht
+euro2024,Belgium,Wout Faes,Leicester City
+euro2024,Belgium,Zeno Debast,Anderlecht
+euro2024,Belgium,Youri Tielemans,Aston Villa
+euro2024,Belgium,Kevin De Bruyne,Manchester City
+euro2024,Belgium,Yannick Carrasco,Al-Shabab
+euro2024,Belgium,Leandro Trossard,Arsenal
+euro2024,Belgium,Romelu Lukaku,Roma
+euro2024,Belgium,Dodi Lukebakio,Sevilla
+euro2024,Belgium,Matz Sels,Nottingham Forest
+euro2024,Belgium,Arthur Theate,Rennes
+euro2024,Belgium,Axel Witsel,Atlético Madrid
+euro2024,Belgium,Amadou Onana,Everton
+euro2024,Belgium,Orel Mangala,Lyon
+euro2024,Belgium,Jérémy Doku,Manchester City
+euro2024,Belgium,Loïs Openda,RB Leipzig
+euro2024,Belgium,Charles De Ketelaere,Atalanta
+euro2024,Belgium,Maxim De Cuyper,Club Brugge
+euro2024,Belgium,Johan Bakayoko,PSV Eindhoven
+euro2024,Belgium,Aster Vranckx,VfL Wolfsburg
+euro2024,Belgium,Thomas Kaminski,Luton Town
+euro2024,Belgium,Timothy Castagne,Fulham
+euro2024,Belgium,Sebastiaan Bornauw,VfL Wolfsburg
+euro2024,Belgium,Mandela Keita,Antwerp
+euro2024,Slovakia,Tomáš Rigo,Banská Bystrica
+euro2024,Romania,Florin Niță,Gaziantep
+euro2024,Romania,Andrei Rațiu,Rayo Vallecano
+euro2024,Romania,Radu Drăgușin,Tottenham Hotspur
+euro2024,Romania,Andrei Burcă,CFR Cluj
+euro2024,Romania,Nicușor Bancu,Universitatea Craiova
+euro2024,Romania,Marius Marin,Pisa
+euro2024,Romania,Răzvan Marin,Empoli
+euro2024,Romania,Nicolae Stanciu,Damac
+euro2024,Romania,Dennis Man,Parma
+euro2024,Romania,Florinel Coman,FCSB
+euro2024,Romania,Denis Drăguș,Gaziantep
+euro2024,Romania,Horațiu Moldovan,Atlético Madrid
+euro2024,Romania,Adrian Rus,Pafos
+euro2024,Romania,Vasile Mogoș,CFR Cluj
+euro2024,Romania,Bogdan Racovițan,Raków Częstochowa
+euro2024,Romania,Darius Olaru,FCSB
+euro2024,Romania,Marius Ștefănescu,Sepsi
+euro2024,Romania,Adrian Șut,FCSB
+euro2024,Romania,Valentin Mihăilă,Parma
+euro2024,Romania,Ianis Hagi,Rangers
+euro2024,Romania,Daniel Bîrligea,CFR Cluj
+euro2024,Romania,George Pușcaș,Bari
+euro2024,Romania,Ștefan Târnovanu,FCSB
+euro2024,Romania,Alexandru Dobre,Rapid București
+euro2024,Romania,Andrei Coubiș,Milan
+euro2024,Romania,Răzvan Sava,CFR Cluj
+euro2024,Turkey,Mert Günok,Beşiktaş
+euro2024,Turkey,Zeki Çelik,Roma
+euro2024,Turkey,Merih Demiral,Al-Ahli
+euro2024,Turkey,Kaan Ayhan,Galatasaray
+euro2024,Turkey,Ferdi Kadıoğlu,Fenerbahçe
+euro2024,Turkey,Salih Özcan,Borussia Dortmund
+euro2024,Turkey,Hakan Çalhanoğlu,Inter Milan
+euro2024,Turkey,Arda Güler,Real Madrid
+euro2024,Turkey,Kerem Aktürkoğlu,Galatasaray
+euro2024,Turkey,Cenk Tosun,Beşiktaş
+euro2024,Turkey,Yusuf Yazıcı,Lille
+euro2024,Turkey,Uğurcan Çakır,Trabzonspor
+euro2024,Turkey,Abdülkerim Bardakcı,Galatasaray
+euro2024,Turkey,Samet Akaydin,Fenerbahçe
+euro2024,Turkey,Mert Müldür,Fenerbahçe
+euro2024,Turkey,Orkun Kökçü,Benfica
+euro2024,Turkey,İsmail Yüksek,Fenerbahçe
+euro2024,Turkey,Kenan Yıldız,Juventus
+euro2024,Turkey,İrfan Can Kahveci,Fenerbahçe
+euro2024,Turkey,Barış Alper Yılmaz,Galatasaray
+euro2024,Turkey,Okay Yokuşlu,West Bromwich Albion
+euro2024,Turkey,Bertuğ Yıldırım,Rennes
+euro2024,Turkey,Semih Kılıçsoy,Beşiktaş
+euro2024,Turkey,Altay Bayındır,Manchester United
+euro2024,Turkey,Yunus Akgün,Galatasaray
+euro2024,Turkey,Çağlar Söyüncü,Fenerbahçe
+euro2024,Georgia,Giorgi Mamardashvili,Valencia
+euro2024,Georgia,Otar Kakabadze,Cracovia
+euro2024,Georgia,Lasha Dvali,APOEL
+euro2024,Georgia,Guram Kashia,Slovan Bratislava
+euro2024,Georgia,Solomon Kvirkvelia,Lokomotiv Moscow
+euro2024,Georgia,Giorgi Kochorashvili,Levante
+euro2024,Georgia,Otar Kiteishvili,Sturm Graz
+euro2024,Georgia,Giorgi Kvilitaia,APOEL
+euro2024,Georgia,Georges Mikautadze,Metz
+euro2024,Georgia,Khvicha Kvaratskhelia,Napoli
+euro2024,Georgia,Giorgi Chakvetadze,Watford
+euro2024,Georgia,Luka Lochoshvili,Cremonese
+euro2024,Georgia,Lasha Parunashvili,Saburtalo
+euro2024,Georgia,Anzor Mekvabishvili,Ferencváros
+euro2024,Georgia,Gabriel Sigua,Basel
+euro2024,Georgia,Nika Gagnidze,Dinamo Tbilisi
+euro2024,Georgia,Saba Lobzhanidze,Atlanta United
+euro2024,Georgia,Zuriko Davitashvili,Bordeaux
+euro2024,Georgia,Budu Zivzivadze,Karlsruher SC
+euro2024,Georgia,Sandro Altunashvili,Wolfsberger AC
+euro2024,Georgia,Luka Gagnidze,Dinamo Tbilisi
+euro2024,Georgia,Giorgi Loria,Dinamo Tbilisi
+euro2024,Georgia,Giorgi Gocholeishvili,Shakhtar Donetsk
+euro2024,Georgia,Vakhtang Salia,Samtredia
+euro2024,Georgia,Levan Shengelia,Pendikspor
+euro2024,Georgia,Giorgi Tsitaishvili,Dynamo Kyiv
+euro2024,Czech Republic,Jindřich Staněk,Slavia Prague
+euro2024,Czech Republic,Vladimír Coufal,West Ham United
+euro2024,Czech Republic,Robin Hranáč,Viktoria Plzeň
+euro2024,Czech Republic,Tomáš Vlček,Slavia Prague
+euro2024,Czech Republic,Ladislav Krejčí,Sparta Prague
+euro2024,Czech Republic,David Doudera,Slavia Prague
+euro2024,Czech Republic,Lukáš Provod,Slavia Prague
+euro2024,Czech Republic,Tomáš Souček,West Ham United
+euro2024,Czech Republic,Adam Hložek,Bayer Leverkusen
+euro2024,Czech Republic,Patrik Schick,Bayer Leverkusen
+euro2024,Czech Republic,Mojmír Chytil,Slavia Prague
+euro2024,Czech Republic,Jakub Brabec,Viktoria Plzeň
+euro2024,Czech Republic,Matěj Vydra,Viktoria Plzeň
+euro2024,Czech Republic,Tomáš Holeš,Slavia Prague
+euro2024,Czech Republic,Antonín Barák,Fiorentina
+euro2024,Czech Republic,Václav Černý,VfL Wolfsburg
+euro2024,Czech Republic,Tomáš Chorý,Viktoria Plzeň
+euro2024,Czech Republic,Ondřej Lingr,Feyenoord
+euro2024,Czech Republic,Petr Ševčík,Slavia Prague
+euro2024,Czech Republic,Pavel Šulc,Viktoria Plzeň
+euro2024,Czech Republic,Tomáš Koubek,Sparta Prague
+euro2024,Czech Republic,Martin Vitík,Sparta Prague
+euro2024,Czech Republic,David Jurásek,Benfica
+euro2024,Czech Republic,Matěj Jurásek,Slavia Prague
+euro2024,Czech Republic,Lukáš Červ,Viktoria Plzeň
+euro2024,Czech Republic,Daniel Vyhnal,Mladá Boleslav
+euro2024,Portugal,Diogo Costa,Porto
+euro2024,Portugal,João Cancelo,Barcelona
+euro2024,Portugal,Pepe,Porto
+euro2024,Portugal,Rúben Dias,Manchester City
+euro2024,Portugal,Nuno Mendes,Paris Saint-Germain
+euro2024,Portugal,João Palhinha,Fulham
+euro2024,Portugal,Vitinha,Paris Saint-Germain
+euro2024,Portugal,Bruno Fernandes,Manchester United
+euro2024,Portugal,Cristiano Ronaldo,Al Nassr
+euro2024,Portugal,Bernardo Silva,Manchester City
+euro2024,Portugal,Rafael Leão,Milan
+euro2024,Portugal,Diogo Dalot,Manchester United
+euro2024,Portugal,António Silva,Benfica
+euro2024,Portugal,Rúben Neves,Al Hilal
+euro2024,Portugal,Diogo Jota,Liverpool
+euro2024,Portugal,Gonçalo Ramos,Paris Saint-Germain
+euro2024,Portugal,Pedro Neto,Wolverhampton Wanderers
+euro2024,Portugal,Francisco Conceição,Porto
+euro2024,Portugal,Nélson Semedo,Wolverhampton Wanderers
+euro2024,Portugal,Danilo Pereira,Paris Saint-Germain
+euro2024,Portugal,João Félix,Barcelona
+euro2024,Portugal,Gonçalo Inácio,Sporting CP
+euro2024,Portugal,José Sá,Wolverhampton Wanderers
+euro2024,Portugal,Rui Patrício,retired
+euro2024,Portugal,Matheus Nunes,Manchester City
+euro2024,Portugal,Pedro Gonçalves,Sporting CP
+euro2024,Romania,Laurențiu Brănescu,Unattached
