@@ -1,0 +1,185 @@
+# config/squads/wc2026.csv — 2026 FIFA World Cup squads (48 teams) for the P3 v0 squad_z anchor.
+# tournament,team,player,club ; club = club at squad announcement (the join key, never player).
+# team = martj42 store key, matching config/tournament_2026.yaml EXACTLY (so features.build joins).
+#
+# SOURCE: Wikipedia "2026 FIFA World Cup squads"
+#   (https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_squads), accessed 2026-06-10.
+#   The announced final 26-man squads (squad deadline 2026-06-02). Cutoff for club-Elo
+#   join: 2026-06-10 (clubelo_20260610.csv).
+# NOTE: the real WC-2026 draw matches config/tournament_2026.yaml's 48-team field and group
+#   structure EXACTLY (Groups A-L; incl. Czech Republic, Sweden, Turkey, Bosnia, Cape Verde,
+#   Curaçao, Haiti), so every team is an ANNOUNCED FINALS squad — no most-recent-call-up
+#   proxies were needed (cf. spec §1, which anticipated possible non-qualified illustrative
+#   teams; reality made that moot).
+# Curated player+club only (no jersey/DOB) per the brief — for v0 the CLUB is what matters.
+# Club spellings reconciled to clubelo `Club` via config/squads/club_aliases.csv (EXACT, never fuzzy).
+tournament,team,player,club
+wc2026,Czech Republic,Matěj Kovář,PSV Eindhoven
+wc2026,Czech Republic,David Zima,SK Slavia Prague
+wc2026,Czech Republic,Tomáš Holeš,SK Slavia Prague
+wc2026,Czech Republic,Robin Hranáč,TSG Hoffenheim
+wc2026,Czech Republic,Vladimír Coufal,TSG Hoffenheim
+wc2026,Czech Republic,Štěpán Chaloupek,SK Slavia Prague
+wc2026,Czech Republic,Ladislav Krejčí,Wolverhampton Wanderers
+wc2026,Czech Republic,Vladimír Darida,FC Hradec Králové
+wc2026,Czech Republic,Adam Hložek,TSG Hoffenheim
+wc2026,Czech Republic,Patrik Schick,Bayer Leverkusen
+wc2026,Czech Republic,Jan Kuchta,AC Sparta Prague
+wc2026,Czech Republic,Lukáš Červ,FC Viktoria Plzeň
+wc2026,Czech Republic,Mojmír Chytil,SK Slavia Prague
+wc2026,Czech Republic,David Jurásek,SK Slavia Prague
+wc2026,Czech Republic,Pavel Šulc,Lyon
+wc2026,Czech Republic,Jindřich Staněk,SK Slavia Prague
+wc2026,Czech Republic,Lukáš Provod,SK Slavia Prague
+wc2026,Czech Republic,Michal Sadílek,SK Slavia Prague
+wc2026,Czech Republic,Tomáš Chorý,SK Slavia Prague
+wc2026,Czech Republic,Jaroslav Zelený,AC Sparta Prague
+wc2026,Czech Republic,David Douděra,SK Slavia Prague
+wc2026,Czech Republic,Tomáš Souček,West Ham United
+wc2026,Czech Republic,Lukáš Horníček,SC Braga
+wc2026,Czech Republic,Alexandr Sojka,FC Viktoria Plzeň
+wc2026,Czech Republic,Hugo Sochůrek,AC Sparta Prague
+wc2026,Czech Republic,Denis Višinský,FC Viktoria Plzeň
+wc2026,Mexico,Raúl Rangel,Guadalajara
+wc2026,Mexico,Jorge Sánchez,PAOK
+wc2026,Mexico,César Montes,Lokomotiv Moscow
+wc2026,Mexico,Edson Álvarez,Fenerbahçe
+wc2026,Mexico,Johan Vásquez,Genoa
+wc2026,Mexico,Érik Lira,Cruz Azul
+wc2026,Mexico,Luis Romo,Guadalajara
+wc2026,Mexico,Álvaro Fidalgo,Real Betis
+wc2026,Mexico,Raúl Jiménez,Fulham
+wc2026,Mexico,Alexis Vega,Toluca
+wc2026,Mexico,Santiago Giménez,Milan
+wc2026,Mexico,Carlos Acevedo,Santos Laguna
+wc2026,Mexico,Guillermo Ochoa,AEL Limassol
+wc2026,Mexico,Armando González,Guadalajara
+wc2026,Mexico,Israel Reyes,América
+wc2026,Mexico,Julián Quiñones,Al-Qadsiah
+wc2026,Mexico,Orbelín Pineda,AEK Athens
+wc2026,Mexico,Obed Vargas,Atlético Madrid
+wc2026,Mexico,Gilberto Mora,Tijuana
+wc2026,Mexico,Mateo Chávez,AZ Alkmaar
+wc2026,Mexico,César Huerta,Anderlecht
+wc2026,Mexico,Guillermo Martínez,Pumas
+wc2026,Mexico,Jesús Gallardo,Toluca
+wc2026,Mexico,Luis Chávez,Dynamo Moscow
+wc2026,Mexico,Roberto Alvarado,Guadalajara
+wc2026,Mexico,Brian Gutiérrez,Guadalajara
+wc2026,South Africa,Ronwen Williams,Mamelodi Sundowns
+wc2026,South Africa,Thabang Matuludi,Polokwane City
+wc2026,South Africa,Khulumani Ndamane,Mamelodi Sundowns
+wc2026,South Africa,Teboho Mokoena,Mamelodi Sundowns
+wc2026,South Africa,Thalente Mbatha,Orlando Pirates
+wc2026,South Africa,Aubrey Modiba,Mamelodi Sundowns
+wc2026,South Africa,Oswin Appollis,Orlando Pirates
+wc2026,South Africa,Tshepang Moremi,Orlando Pirates
+wc2026,South Africa,Lyle Foster,Burnley
+wc2026,South Africa,Relebohile Mofokeng,Orlando Pirates
+wc2026,South Africa,Themba Zwane,Mamelodi Sundowns
+wc2026,South Africa,Thapelo Maseko,AEL Limassol
+wc2026,South Africa,Sphephelo Sithole,Tondela
+wc2026,South Africa,Mbekezeli Mbokazi,Chicago Fire
+wc2026,South Africa,Iqraam Rayners,Mamelodi Sundowns
+wc2026,South Africa,Sipho Chaine,Orlando Pirates
+wc2026,South Africa,Evidence Makgopa,Orlando Pirates
+wc2026,South Africa,Samukele Kabini,Molde
+wc2026,South Africa,Nkosinathi Sibisi,Orlando Pirates
+wc2026,South Africa,Khuliso Mudau,Mamelodi Sundowns
+wc2026,South Africa,Ime Okon,Hannover 96
+wc2026,South Africa,Ricardo Goss,Siwelele
+wc2026,South Africa,Jayden Adams,Mamelodi Sundowns
+wc2026,South Africa,Olwethu Makhanya,Philadelphia Union
+wc2026,South Africa,Kamogelo Sebelebele,Orlando Pirates
+wc2026,South Africa,Bradley Cross,Kaizer Chiefs
+wc2026,South Korea,Kim Seung-gyu,FC Tokyo
+wc2026,South Korea,Lee Han-beom,Midtjylland
+wc2026,South Korea,Lee Gi-hyuk,Gangwon FC
+wc2026,South Korea,Kim Min-jae,Bayern Munich
+wc2026,South Korea,Kim Tae-hyeon,Kashima Antlers
+wc2026,South Korea,Hwang In-beom,Feyenoord
+wc2026,South Korea,Son Heung-min,Los Angeles FC
+wc2026,South Korea,Paik Seung-ho,Birmingham City
+wc2026,South Korea,Cho Gue-sung,Midtjylland
+wc2026,South Korea,Lee Jae-sung,Mainz 05
+wc2026,South Korea,Hwang Hee-chan,Wolverhampton Wanderers
+wc2026,South Korea,Song Bum-keun,Jeonbuk Hyundai Motors
+wc2026,South Korea,Lee Tae-seok,Austria Wien
+wc2026,South Korea,Cho Wi-je,Jeonbuk Hyundai Motors
+wc2026,South Korea,Kim Moon-hwan,Daejeon Hana Citizen
+wc2026,South Korea,Park Jin-seob,Zhejiang Professional
+wc2026,South Korea,Bae Jun-ho,Stoke City
+wc2026,South Korea,Oh Hyeon-gyu,Beşiktaş
+wc2026,South Korea,Lee Kang-in,Paris Saint-Germain
+wc2026,South Korea,Yang Hyun-jun,Celtic
+wc2026,South Korea,Jo Hyeon-woo,Ulsan HD
+wc2026,South Korea,Seol Young-woo,Red Star Belgrade
+wc2026,South Korea,Jens Castrop,Borussia Mönchengladbach
+wc2026,South Korea,Kim Jin-gyu,Jeonbuk Hyundai Motors
+wc2026,South Korea,Eom Ji-sung,Swansea City
+wc2026,South Korea,Lee Dong-gyeong,Ulsan HD
+wc2026,Bosnia and Herzegovina,Nikola Vasilj,FC St. Pauli
+wc2026,Bosnia and Herzegovina,Nihad Mujakić,Gaziantep
+wc2026,Bosnia and Herzegovina,Dennis Hadžikadunić,Sampdoria
+wc2026,Bosnia and Herzegovina,Tarik Muharemović,Sassuolo
+wc2026,Bosnia and Herzegovina,Sead Kolašinac,Atalanta
+wc2026,Bosnia and Herzegovina,Benjamin Tahirović,Brøndby
+wc2026,Bosnia and Herzegovina,Amar Dedić,Benfica
+wc2026,Bosnia and Herzegovina,Armin Gigović,Young Boys
+wc2026,Bosnia and Herzegovina,Samed Baždar,Jagiellonia Białystok
+wc2026,Bosnia and Herzegovina,Ermedin Demirović,VfB Stuttgart
+wc2026,Bosnia and Herzegovina,Edin Džeko,Schalke 04
+wc2026,Bosnia and Herzegovina,Mladen Jurkas,FK Borac Banja Luka
+wc2026,Bosnia and Herzegovina,Ivan Bašić,FC Astana
+wc2026,Bosnia and Herzegovina,Ivan Šunjić,Pafos
+wc2026,Bosnia and Herzegovina,Amar Memić,FC Viktoria Plzeň
+wc2026,Bosnia and Herzegovina,Amir Hadžiahmetović,Hull City
+wc2026,Bosnia and Herzegovina,Dženis Burnić,Karlsruher SC
+wc2026,Bosnia and Herzegovina,Nikola Katić,Schalke 04
+wc2026,Bosnia and Herzegovina,Kerim Alajbegović,FC Red Bull Salzburg
+wc2026,Bosnia and Herzegovina,Esmir Bajraktarević,PSV Eindhoven
+wc2026,Bosnia and Herzegovina,Stjepan Radeljić,HNK Rijeka
+wc2026,Bosnia and Herzegovina,Martin Zlomislić,HNK Rijeka
+wc2026,Bosnia and Herzegovina,Haris Tabaković,Borussia Mönchengladbach
+wc2026,Bosnia and Herzegovina,Nidal Čelik,RC Lens
+wc2026,Bosnia and Herzegovina,Jovo Lukić,Universitatea Cluj
+wc2026,Bosnia and Herzegovina,Ermin Mahmić,FC Slovan Liberec
+wc2026,Canada,Dayne St. Clair,Inter Miami CF
+wc2026,Canada,Alistair Johnston,Celtic
+wc2026,Canada,Alfie Jones,Middlesbrough
+wc2026,Canada,Luc de Fougerolles,FCV Dender EH
+wc2026,Canada,Joel Waterman,Chicago Fire
+wc2026,Canada,Mathieu Choinière,Los Angeles FC
+wc2026,Canada,Stephen Eustáquio,Los Angeles FC
+wc2026,Canada,Ismaël Koné,Sassuolo
+wc2026,Canada,Cyle Larin,Southampton
+wc2026,Canada,Jonathan David,Juventus
+wc2026,Canada,Liam Millar,Hull City
+wc2026,Canada,Tani Oluwaseyi,Villarreal
+wc2026,Canada,Derek Cornelius,Rangers
+wc2026,Canada,Jacob Shaffelburg,Los Angeles FC
+wc2026,Canada,Moïse Bombito,Nice
+wc2026,Canada,Maxime Crépeau,Orlando City
+wc2026,Canada,Tajon Buchanan,Villarreal
+wc2026,Canada,Owen Goodman,Barnsley
+wc2026,Canada,Alphonso Davies,Bayern Munich
+wc2026,Canada,Ali Ahmed,Norwich City
+wc2026,Canada,Jonathan Osorio,Toronto FC
+wc2026,Canada,Richie Laryea,Toronto FC
+wc2026,Canada,Niko Sigur,HNK Hajduk Split
+wc2026,Canada,Promise David,Royale Union Saint-Gilloise
+wc2026,Canada,Nathan Saliba,RSC Anderlecht
+wc2026,Canada,Jayden Nelson,Austin FC
+wc2026,Qatar,Mahmud Abunada,Al-Rayyan
+wc2026,Qatar,Pedro Miguel,Al Sadd
+wc2026,Qatar,Lucas Mendes,Al-Wakrah
+wc2026,Qatar,Issa Laye,Al-Arabi
+wc2026,Qatar,Jassem Gaber,Al-Rayyan
+wc2026,Qatar,Abdulaziz Hatem,Al-Rayyan
+wc2026,Qatar,Ahmed Alaaeldin,Al-Rayyan
+wc2026,Qatar,Edmilson Junior,Al Duhail
+wc2026,Qatar,Mohammed Muntari,Al-Gharafa
+wc2026,Qatar,Hassan Al-Haydos,Al Sadd
+wc2026,Qatar,Akram Afif,Al Sadd
+wc2026,Qatar,Karim Boudiaf,Al Duhail
+wc2026,Qatar,Ayoub Al-Oui,Al-Gharafa
