@@ -171,7 +171,8 @@ def _posterior_from_netcdf(path: Path, *, teams, likelihood, provisional_teams,
 
 
 def _cache_key_params(*, cutoff, store, backend, draws, seed, advi_iters,
-                      likelihood, tune, cfg, feature_cache_dir=None) -> dict:
+                      likelihood, tune, cfg, chains=None, target_accept=None,
+                      nuts_sampler=None, feature_cache_dir=None) -> dict:
     """Build the exhaustive content-key params for a posterior fit.
 
     D6: ``elo`` is now keyed from the PASSED ``cfg`` (not the global
@@ -180,7 +181,17 @@ def _cache_key_params(*, cutoff, store, backend, draws, seed, advi_iters,
     the posterior is ``cfg["elo"]`` — keying that makes a caller-supplied custom
     ``cfg.elo`` (e.g. a lockbox K/T sweep) invalidate the cache correctly and
     forbids recording an elo the computation never used (the P2-T8 stale-serve
-    lesson). Every other field is unchanged from the original exhaustive key.
+    lesson).
+
+    P5: the NUTS knobs (``chains``, ``target_accept``, ``nuts_sampler``) are keyed
+    EXPLICITLY. They also live in ``cfg["model"]["inference"]`` (so a CONFIG-level
+    value is already covered by the ``model`` block below), but ``cached_fit`` lets
+    a caller OVERRIDE them per-call — and an override that was not in the key would
+    serve a posterior fit under DIFFERENT sampler settings (e.g. chains=4 served for
+    a chains=2 request): a stale serve. Keying them here closes that gap. A ``None``
+    (the "use the config value" sentinel) is keyed as ``None`` and the effective
+    value still rides along in ``cfg["model"]``, so the key never double-counts and
+    a config change still flips it. Every other field is unchanged.
     """
     return {
         "cutoff": str(pd.Timestamp(cutoff)),
@@ -190,6 +201,9 @@ def _cache_key_params(*, cutoff, store, backend, draws, seed, advi_iters,
         "tune": tune,
         "seed": seed,
         "advi_iters": advi_iters,
+        "chains": chains,                        # P5: NUTS knob (override-keyed)
+        "target_accept": target_accept,          # P5: NUTS knob (override-keyed)
+        "nuts_sampler": nuts_sampler,            # P5: NUTS engine (override-keyed)
         "model": cfg["model"],
         "elo": cfg["elo"],                       # D6: threaded cfg, not global disk
         "windows": cfg["windows"],
@@ -200,7 +214,8 @@ def _cache_key_params(*, cutoff, store, backend, draws, seed, advi_iters,
 
 
 def cached_fit(*, cutoff, store, backend, draws, seed, advi_iters, cache_dir,
-               likelihood=None, tune=None, config=None, feature_cache_dir=None):
+               likelihood=None, tune=None, chains=None, target_accept=None,
+               nuts_sampler=None, config=None, feature_cache_dir=None):
     """Fit ``scoreline.fit`` through the content-addressed posterior cache.
 
     Returns ``(Posterior, {"cache_hit": bool, "key": str})``. On a HIT the
@@ -240,6 +255,7 @@ def cached_fit(*, cutoff, store, backend, draws, seed, advi_iters, cache_dir,
     params = _cache_key_params(
         cutoff=cutoff, store=store, backend=backend, draws=draws, seed=seed,
         advi_iters=advi_iters, likelihood=likelihood, tune=tune, cfg=cfg,
+        chains=chains, target_accept=target_accept, nuts_sampler=nuts_sampler,
         feature_cache_dir=feature_cache_dir,
     )
     key = content_key("posterior", params)
@@ -260,7 +276,8 @@ def cached_fit(*, cutoff, store, backend, draws, seed, advi_iters, cache_dir,
 
     post = fit(
         cutoff, store, likelihood=likelihood, backend=backend, draws=draws,
-        tune=tune, seed=seed, advi_iters=advi_iters, config=cfg,
+        tune=tune, seed=seed, advi_iters=advi_iters, chains=chains,
+        target_accept=target_accept, nuts_sampler=nuts_sampler, config=cfg,
         feature_cache_dir=feature_cache_dir,
     )
     _posterior_to_netcdf(post, nc)

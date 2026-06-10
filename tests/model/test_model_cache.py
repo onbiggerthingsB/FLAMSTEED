@@ -338,3 +338,35 @@ def test_likelihood_and_widening_config_change_miss(small_store, tmp_path):
     assert m1["cache_hit"] is False
     assert m_lik["cache_hit"] is False and m_lik["key"] != m1["key"]
     assert m_cfg["cache_hit"] is False and m_cfg["key"] != m1["key"]
+
+
+def test_cache_key_tracks_nuts_knob_overrides(small_store):
+    """P5: a per-call OVERRIDE of a NUTS knob (chains / target_accept /
+    nuts_sampler) must change the posterior cache key.
+
+    These knobs change the SAMPLER and therefore the posterior, but ``cached_fit``
+    lets a caller override them per-call (the comparison harness drives chains /
+    target_accept directly). An override that was NOT in the key would serve a fit
+    sampled under DIFFERENT settings (e.g. a chains=2 posterior for a chains=4
+    request) — a stale serve. ``_cache_key_params`` keys them explicitly; this
+    isolates each knob (feature_hash/git stubbed constant) and proves it moves the
+    key. FAST — no fit."""
+    base_cfg = load_config()
+    kw = dict(cutoff="2024-06-01", store=small_store, backend="nuts", draws=80,
+              seed=0, advi_iters=2000, likelihood="dixon_coles", tune=1000,
+              cfg=base_cfg)
+
+    with mock.patch("wcmodel.model.cache._feature_hash", return_value="ff" * 8), \
+         mock.patch("wcmodel.model.cache._git_commit", return_value="deadbeef"):
+        base_key = content_key("posterior", _cache_key_params(
+            **{**kw, "chains": 2, "target_accept": 0.9, "nuts_sampler": None}))
+        chains_key = content_key("posterior", _cache_key_params(
+            **{**kw, "chains": 4, "target_accept": 0.9, "nuts_sampler": None}))
+        ta_key = content_key("posterior", _cache_key_params(
+            **{**kw, "chains": 2, "target_accept": 0.99, "nuts_sampler": None}))
+        eng_key = content_key("posterior", _cache_key_params(
+            **{**kw, "chains": 2, "target_accept": 0.9, "nuts_sampler": "numpyro"}))
+
+    assert chains_key != base_key, "chains override does not change the cache key"
+    assert ta_key != base_key, "target_accept override does not change the cache key"
+    assert eng_key != base_key, "nuts_sampler override does not change the cache key"

@@ -305,6 +305,9 @@ def fit(
     tune: int | None = None,
     seed: int | None = None,
     advi_iters: int | None = None,
+    chains: int | None = None,
+    target_accept: float | None = None,
+    nuts_sampler: str | None = None,
     config: dict | None = None,
     feature_cache_dir=None,
 ) -> Posterior:
@@ -337,6 +340,15 @@ def fit(
     draws = draws or inf["draws"]
     tune = tune or inf["tune"]
     advi_iters = advi_iters or inf["advi_iters"]
+    # P5 NUTS knobs: default from config (sane defaults if the block omits them),
+    # caller-overridable. These ONLY affect the nuts backend; advi/fullrank_advi
+    # ignore them, so the byte-identical-off (advi) path is untouched.
+    chains = chains if chains is not None else inf.get("chains", 2)
+    target_accept = (
+        target_accept if target_accept is not None
+        else inf.get("target_accept", 0.9)
+    )
+    nuts_sampler = nuts_sampler if nuts_sampler is not None else inf.get("nuts_sampler")
     seed = cfg["seed"] if seed is None else seed
     # Route the panel build through the content-addressed feature-panel cache
     # (``build_cached``): the per-cutoff Elo recompute over the full < cutoff
@@ -367,7 +379,9 @@ def fit(
     )
     model = build_model(d, likelihood=likelihood, weight=w, config=cfg)
     idata = sample(
-        model, backend=backend, draws=draws, tune=tune, seed=seed, advi_iters=advi_iters
+        model, backend=backend, draws=draws, tune=tune, seed=seed,
+        advi_iters=advi_iters, chains=chains, target_accept=target_accept,
+        nuts_sampler=nuts_sampler,
     )
     # Provisional set is the AS-OF-CUTOFF status (each team's would-be flag at its
     # NEXT match), NOT the per-match panel flags (which are pre-match states, so a

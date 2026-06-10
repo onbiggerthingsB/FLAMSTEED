@@ -64,10 +64,16 @@ model:
     mechanism: c                     # a (likelihood down-weight) | c (predictive-variance inflation)  (P4 DOF #3)
     strength: 0.5                    # widening strength, co-tuned with windows.decay_half_life_days  (P4 DOF #4)
   inference:
-    backend: advi                    # advi | pathfinder | nuts
+    backend: advi                    # advi | fullrank_advi | nuts | pathfinder (P5)
     draws: 1000
     tune: 1000
     advi_iters: 30000
+    # NUTS-only knobs (ignored by advi/fullrank_advi, so the advi default path is
+    # byte-identical to pre-P5). chains=4/target_accept=0.9 are sane production
+    # defaults; nuts_sampler=null => auto-select (nutpie>numpyro>native pymc).
+    chains: 4
+    target_accept: 0.9
+    nuts_sampler: null               # null=auto | nutpie | numpyro | pymc
 sim:
   n_sims: 20000               # MC sims (config-driven; raise for the final pre-tournament run)
   max_goals: 12               # scoreline grid bound for DC sampling
