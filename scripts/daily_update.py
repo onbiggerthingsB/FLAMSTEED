@@ -25,12 +25,13 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import httpx
 import pandas as pd
 
 from wcmodel.config import load_config
 from wcmodel.dashboard.build import build_snapshot
 from wcmodel.data.features import valid_played_results
-from wcmodel.data.sources.results import load_results
+from wcmodel.data.sources.results import MARTJ42_COMMIT, load_results
 from wcmodel.data.store import BitemporalStore
 
 # The canonical content-addressed source cache (the real martj42 parquet lives here).
@@ -41,8 +42,39 @@ STAGE_SCRIPT = "scripts/copy-bundle.mjs"
 # The run log (logs/ is gitignored). One JSON line appended per successful run.
 DEFAULT_LOG_PATH = Path("logs/daily_update.jsonl")
 
+# The reproducibility anchor: the source-pinned martj42 commit. Default ingest uses
+# it (byte-identical). ``--latest`` resolves a fresher sha at RUNTIME and threads it
+# as an override — it NEVER edits this or the source constant.
+PINNED_COMMIT = MARTJ42_COMMIT
+# The free GitHub commits API (NOT the Odds API). One GET resolves the newest
+# ``master`` sha. This is the SAME pattern the P0 Task-1 pin-bump used by hand.
+MARTJ42_COMMITS_API = (
+    "https://api.github.com/repos/martj42/international_results/commits/master"
+)
+
 # The ordered step plan (names only) — printed by --dry-run, asserted by the orchestration tests.
 STEP_PLAN = ["ingest", "gate", "snapshot", "stage", "provenance"]
+
+
+def resolve_latest_commit() -> str:
+    """Resolve the newest martj42 ``master`` commit sha via ONE free GitHub-API GET.
+
+    This is the runtime automation of the manual P0 Task-1 pin-bump (it hits
+    ``api.github.com/.../commits/master`` — the FREE GitHub API, never the Odds
+    API). Raises on any transport/HTTP/shape error so the caller can ABORT loudly;
+    it must NEVER return the stale pin while claiming freshness."""
+    resp = httpx.get(
+        MARTJ42_COMMITS_API,
+        timeout=10.0,
+        follow_redirects=True,
+        headers={"Accept": "application/vnd.github+json"},
+    )
+    resp.raise_for_status()
+    sha = resp.json().get("sha")
+    if not sha or not isinstance(sha, str):
+        raise ValueError(
+            f"GitHub commits API returned no 'sha' (got: {resp.json()!r:.200})")
+    return sha
 
 
 def _today() -> str:
@@ -57,17 +89,22 @@ def _resolve_cutoff(cutoff: str | None) -> str:
     return f"{_today()}T00:00:00Z"
 
 
-def step_ingest(cache_dir: Path) -> BitemporalStore:
+def step_ingest(cache_dir: Path, *, commit: str | None = None) -> BitemporalStore:
     """Assemble the real bitemporal store from martj42 via the canonical load path.
 
     Mirrors ``build_real_snapshot.build_real_store``: a fresh, isolated ``BitemporalStore``
     loaded via ``data.sources.results.load_results`` (fetch-from-cache -> normalize -> attach
     shootout winners -> POINT_IN_TIME write keyed on ``match_id``). Keyed writes make re-ingest
-    duplicate-free; the pinned-commit cache makes the fetch a no-op when already cached."""
+    duplicate-free; the pinned-commit cache makes the fetch a no-op when already cached.
+
+    ``commit`` (default ``None`` -> the source pin) is the RUNTIME override threaded
+    straight into ``load_results`` — the same sha used for the cache key + the store's
+    ``source_version``. No constant is mutated."""
     store_root = Path(tempfile.mkdtemp(prefix="wc-daily-update-store-"))
-    print(f"[ingest] assembling real martj42 store at {store_root} ...")
+    print(f"[ingest] assembling real martj42 store at {store_root} "
+          f"(commit={commit or PINNED_COMMIT}) ...")
     store = BitemporalStore(root=store_root)
-    load_results(store, cache_dir=cache_dir)
+    load_results(store, cache_dir=cache_dir, commit=commit)
     print("[ingest] store assembled.")
     return store
 
@@ -131,9 +168,15 @@ def step_stage() -> None:
 
 
 def step_provenance(bundle_path: Path, *, log_path: Path = DEFAULT_LOG_PATH,
-                    duration_s: float | None = None) -> dict:
+                    duration_s: float | None = None,
+                    commit: str | None = None,
+                    commit_source: str | None = None) -> dict:
     """Read back ``<bundle>/meta.json``, print the provenance summary, and append ONE JSON
-    line to the run log. Returns the appended row (so the caller can print a summary)."""
+    line to the run log. Returns the appended row (so the caller can print a summary).
+
+    ``commit`` is the martj42 sha actually ingested and ``commit_source`` is how it
+    was chosen (``"pinned"`` or ``"latest-resolved"``) — recorded for provenance
+    honesty so the log never claims freshness it didn't fetch."""
     meta = json.loads((Path(bundle_path) / "meta.json").read_text())
     prov = meta.get("provenance", {})
     row = {
@@ -144,9 +187,12 @@ def step_provenance(bundle_path: Path, *, log_path: Path = DEFAULT_LOG_PATH,
         "git": prov.get("git"),
         "n_sims": prov.get("n_sims"),
         "duration_s": duration_s,
+        "commit": commit,
+        "commit_source": commit_source,
     }
     print(f"[provenance] as_of={row['cutoff']} posterior_key={row['posterior_key']} "
-          f"git={row['git']} n_sims={row['n_sims']}")
+          f"git={row['git']} n_sims={row['n_sims']} "
+          f"martj42_commit={row['commit']} ({row['commit_source']})")
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a") as f:
@@ -159,6 +205,11 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Idempotent daily forecast update (zero Odds-API credits).")
     ap.add_argument("--cutoff", default=None,
                     help="as-of instant YYYY-MM-DDT00:00:00Z (default: today 00:00 UTC)")
+    ap.add_argument("--latest", action="store_true",
+                    help="resolve the freshest martj42 master commit via ONE GitHub-API "
+                         "call (free, NOT the Odds API) and ingest it, instead of the "
+                         "source pin. Aborts loudly on any API error — never silently "
+                         "falls back to the stale pin.")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the resolved plan and exit 0 — no network, no fit, no writes")
     args = ap.parse_args(argv)
@@ -171,16 +222,48 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  out_root : {load_config()['dashboard']['output_dir']}")
         print(f"  log      : {DEFAULT_LOG_PATH}")
         print(f"  steps    : {' -> '.join(STEP_PLAN)}")
+        if args.latest:
+            # NO API call under --dry-run: only announce that a real run WOULD resolve.
+            print(f"  commit   : --latest -> WOULD resolve newest master via "
+                  f"{MARTJ42_COMMITS_API} (no call made in dry-run)")
+        else:
+            print(f"  commit   : {PINNED_COMMIT} (pinned)")
         return 0
+
+    # Resolve the commit override BEFORE any expensive step. Under --latest a clean
+    # API failure must ABORT here (non-zero exit) rather than fall back to the pin.
+    if args.latest:
+        print(f"[daily_update] --latest: resolving newest martj42 master commit via "
+              f"{MARTJ42_COMMITS_API} ...")
+        try:
+            commit = resolve_latest_commit()
+        except Exception as exc:  # transport / HTTP / shape error
+            print(f"[daily_update] ABORT: could not resolve the latest martj42 commit "
+                  f"({type(exc).__name__}: {exc}). Re-run WITHOUT --latest to use the "
+                  f"pin ({PINNED_COMMIT}), or bump MARTJ42_COMMIT manually. Refusing to "
+                  f"silently fall back to the stale pin while claiming freshness.",
+                  file=sys.stderr)
+            raise SystemExit(1)
+        commit_source = "latest-resolved"
+        if commit == PINNED_COMMIT:
+            print(f"[daily_update] --latest resolved {commit} == the current pin — no "
+                  f"new data; proceeding (idempotent).")
+        else:
+            print(f"[daily_update] --latest resolved {commit} (pin is {PINNED_COMMIT}).")
+    else:
+        commit = PINNED_COMMIT
+        commit_source = "pinned"
 
     started = time.monotonic()
     cfg = load_config()
-    print(f"[daily_update] cutoff={cutoff}; steps: {' -> '.join(STEP_PLAN)}")
-    store = step_ingest(CACHE_DIR)
+    print(f"[daily_update] cutoff={cutoff}; martj42_commit={commit} ({commit_source}); "
+          f"steps: {' -> '.join(STEP_PLAN)}")
+    store = step_ingest(CACHE_DIR, commit=commit)
     step_gate(store, cutoff)
     bundle = step_snapshot(cutoff, store, cfg)
     step_stage()
-    step_provenance(bundle, duration_s=round(time.monotonic() - started, 1))
+    step_provenance(bundle, duration_s=round(time.monotonic() - started, 1),
+                    commit=commit, commit_source=commit_source)
     print("[daily_update] done.")
     return 0
 

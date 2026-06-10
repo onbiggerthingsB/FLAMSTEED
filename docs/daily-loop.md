@@ -6,21 +6,57 @@ freshest ingested results. **Zero Odds-API credits** — the value scan
 touches odds.
 
 ```
-PYTHONPATH=src .venv/bin/python scripts/daily_update.py [--cutoff 2026-06-12T00:00:00Z] [--dry-run]
+PYTHONPATH=src .venv/bin/python scripts/daily_update.py [--cutoff 2026-06-12T00:00:00Z] [--latest] [--dry-run]
 ```
 
 > Run it as a **script** (`PYTHONPATH=src .venv/bin/python …`), **never** `uv run`
 > — `uv run` breaks the editable install. (Recovery if you ever do:
 > `uv pip install -e . >/dev/null 2>&1`.)
 
+## Post-matchday recipe (one command)
+
+After a matchday, the freshest results land in the martj42 feed. To pick them up
+and rebuild in **one command**, add `--latest`:
+
+```
+PYTHONPATH=src .venv/bin/python scripts/daily_update.py --latest
+```
+
+`--latest` resolves the newest martj42 `master` commit via **one** call to the
+free GitHub commits API
+(`api.github.com/repos/martj42/international_results/commits/master`) and ingests
+**that** sha instead of the source pin. This automates the manual pin-bump that
+was previously a hand step (the P0 Task-1 bump,
+`api.github.com/.../commits/master` → edit `MARTJ42_COMMIT`). It is the **free**
+GitHub API, **not** the Odds API — zero Odds-API credits, as always.
+
+> **The source pin remains the reproducibility anchor.** `--latest` is a
+> *runtime* override threaded through the fetch path (URL + cache key + the
+> store's `source_version`); it **never** edits `MARTJ42_COMMIT` in
+> `src/wcmodel/data/sources/results.py`. Default (no flag) ingest is unchanged
+> and byte-identical. To make a fresh sha the permanent, reproducible anchor,
+> bump the pin in source and commit it.
+
+> **Failure mode — fails loud, never silently stale.** If the GitHub API call
+> errors (network down, rate-limited, unexpected shape), `--latest` **aborts**
+> before any expensive step with a non-zero exit and a clear message. It will
+> **never** silently fall back to the stale pin while claiming freshness. The
+> manual fallback when the API is unavailable: re-run **without** `--latest` (to
+> rebuild on the current pin), or bump `MARTJ42_COMMIT` by hand and re-run pinned.
+
+> If `--latest` resolves a sha **equal to** the current pin (no new data since
+> the last bump), the run **still proceeds** (idempotent) and notes it.
+
 ## What it does
 
 A thin operator harness over the unchanged, already-leakage-gated pipeline. Each
 step prints a `[step]` line; the order is fixed:
 
-1. **ingest** — assemble a fresh `BitemporalStore` from the pinned-commit martj42
-   cache via the canonical `load_results` (POINT_IN_TIME write keyed `match_id`).
-   Cached fetch + keyed writes ⇒ re-ingest is duplicate-free.
+1. **ingest** — assemble a fresh `BitemporalStore` from the martj42 cache via the
+   canonical `load_results` (POINT_IN_TIME write keyed `match_id`). Cached fetch +
+   keyed writes ⇒ re-ingest is duplicate-free. By default the **source-pinned**
+   commit is used; with `--latest` the runtime-resolved sha is threaded into the
+   fetch (URL + cache key + store `source_version`) instead.
 2. **gate** — re-read the store at the cutoff and fail loud (`SystemExit`) if any
    row is dated on/after the cutoff, or the max valid-played date is not strictly
    before it. This is the same leakage guard as `build_real_snapshot`, run
@@ -32,12 +68,18 @@ step prints a `[step]` line; the order is fixed:
 4. **stage** — `node dashboard-ui/scripts/copy-bundle.mjs` copies the newest
    bundle dir into the viewer's `public/bundle/` (it picks newest by mtime).
 5. **provenance** — read back `<bundle>/meta.json`, print
-   `as_of / posterior_key / git / n_sims`, and append one JSON line to
-   `logs/daily_update.jsonl`.
+   `as_of / posterior_key / git / n_sims / martj42_commit (source)`, and append one
+   JSON line to `logs/daily_update.jsonl`. The line records the martj42 `commit`
+   ingested and its `commit_source` (`pinned` or `latest-resolved`) — provenance
+   honesty, so the log never claims freshness it didn't fetch.
 
 `--cutoff` defaults to **today 00:00 UTC** (`YYYY-MM-DDT00:00:00Z`).
-`--dry-run` prints the resolved plan (cutoff, store path, out_root, steps) and
-exits 0 — **no network, no fit, no writes**.
+`--latest` resolves and ingests the newest martj42 `master` commit (see the
+post-matchday recipe above) instead of the source pin; the default is the pin
+(byte-identical).
+`--dry-run` prints the resolved plan (cutoff, store path, out_root, steps,
+commit) and exits 0 — **no network, no fit, no writes**. `--dry-run --latest`
+prints that it *would* resolve the latest commit but makes **no** API call.
 
 ## Idempotence / cache behavior
 
@@ -70,17 +112,19 @@ path → `[stage] staged …` → the `[provenance]` summary line.
 After a run, the last useful line is:
 
 ```
-[provenance] as_of=<cutoff> posterior_key=<hash> git=<sha> n_sims=20000
+[provenance] as_of=<cutoff> posterior_key=<hash> git=<sha> n_sims=20000 martj42_commit=<sha> (pinned|latest-resolved)
 ```
 
 and one JSON line is appended to `logs/daily_update.jsonl`:
 
 ```json
-{"ts": "...", "cutoff": "...", "bundle": "...", "posterior_key": "...", "git": "...", "n_sims": 20000, "duration_s": ...}
+{"ts": "...", "cutoff": "...", "bundle": "...", "posterior_key": "...", "git": "...", "n_sims": 20000, "duration_s": ..., "commit": "<martj42 sha>", "commit_source": "pinned|latest-resolved"}
 ```
 
-Confirm `cutoff` is the as-of you intended, `git` is your branch HEAD, and
-`posterior_key` changed iff the inputs (cutoff/results/config) changed.
+Confirm `cutoff` is the as-of you intended, `git` is your branch HEAD,
+`posterior_key` changed iff the inputs (cutoff/results/config) changed, and
+`commit` / `commit_source` match what you intended (the pin, or a fresher sha
+under `--latest`).
 
 ## Scheduling — examples only, **NOT installed** (the user decides)
 

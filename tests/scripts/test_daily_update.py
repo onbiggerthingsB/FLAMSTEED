@@ -142,3 +142,134 @@ def test_run_log_line_schema(mod, tmp_path):
     assert row["cutoff"] == "2026-06-12T00:00:00Z"
     # The returned dict mirrors the appended line (caller can print a summary).
     assert rec["posterior_key"] == "deadbeef"
+
+
+# --------------------------------------------------------------------------- #
+# `--latest` flag: resolve the freshest martj42 master commit via ONE GitHub  #
+# API call and thread it (as a runtime override) into the ingest fetch path.  #
+# All monkeypatched — NO network, NO data/ dependency.                        #
+# --------------------------------------------------------------------------- #
+def _recorders_capturing_commit(mod, monkeypatch, calls):
+    """Like ``_recorders`` but ``step_ingest`` also records the ``commit`` it was
+    handed, and ``step_provenance`` records ``commit``/``commit_source``. Lets the
+    --latest tests assert WHICH sha reached the fetch path and the run-log."""
+    def rec(name, ret=None):
+        def _f(*args, **kwargs):
+            cutoff = kwargs.get("cutoff")
+            if cutoff is None:
+                for a in args:
+                    if isinstance(a, str) and a.endswith("Z"):
+                        cutoff = a
+                        break
+            calls.append((name, cutoff, dict(kwargs)))
+            return ret
+        return _f
+
+    monkeypatch.setattr(mod, "step_ingest", rec("ingest", ret="STORE"))
+    monkeypatch.setattr(mod, "step_gate", rec("gate"))
+    monkeypatch.setattr(mod, "step_snapshot", rec("snapshot", ret=Path("/tmp/bundle")))
+    monkeypatch.setattr(mod, "step_stage", rec("stage"))
+    monkeypatch.setattr(mod, "step_provenance", rec("provenance", ret={"ok": True}))
+
+
+def test_latest_resolves_and_threads_sha_into_ingest(mod, monkeypatch):
+    calls: list = []
+    _recorders_capturing_commit(mod, monkeypatch, calls)
+    resolved = "abc1234abc1234abc1234abc1234abc1234abc1"
+    seen = {}
+
+    def fake_resolve():
+        seen["called"] = True
+        return resolved
+
+    monkeypatch.setattr(mod, "resolve_latest_commit", fake_resolve)
+    rc = mod.main(["--latest", "--cutoff", "2026-06-12T00:00:00Z"])
+    assert rc == 0
+    assert seen.get("called") is True  # the API resolver ran
+    ingest = next(c for c in calls if c[0] == "ingest")
+    assert ingest[2].get("commit") == resolved  # the resolved sha reached ingest
+    # …and provenance recorded it as latest-resolved.
+    prov = next(c for c in calls if c[0] == "provenance")
+    assert prov[2].get("commit") == resolved
+    assert prov[2].get("commit_source") == "latest-resolved"
+
+
+def test_no_flag_threads_pinned_constant_into_ingest(mod, monkeypatch):
+    """Back-compat: no --latest -> the pinned constant reaches ingest and the
+    API resolver is NEVER called (default path is byte-identical)."""
+    calls: list = []
+    _recorders_capturing_commit(mod, monkeypatch, calls)
+
+    def must_not_call():
+        raise AssertionError("resolve_latest_commit must not run without --latest")
+
+    monkeypatch.setattr(mod, "resolve_latest_commit", must_not_call)
+    rc = mod.main(["--cutoff", "2026-06-12T00:00:00Z"])
+    assert rc == 0
+    ingest = next(c for c in calls if c[0] == "ingest")
+    assert ingest[2].get("commit") == mod.PINNED_COMMIT
+    prov = next(c for c in calls if c[0] == "provenance")
+    assert prov[2].get("commit") == mod.PINNED_COMMIT
+    assert prov[2].get("commit_source") == "pinned"
+
+
+def test_latest_api_failure_aborts_before_expensive_steps(mod, monkeypatch, capsys):
+    """An API error under --latest must abort with a non-zero exit BEFORE ingest/
+    gate/snapshot — never silently fall back to the stale pin."""
+    calls: list = []
+    _recorders_capturing_commit(mod, monkeypatch, calls)
+
+    def boom():
+        raise RuntimeError("github api unreachable")
+
+    monkeypatch.setattr(mod, "resolve_latest_commit", boom)
+    with pytest.raises(SystemExit) as ei:
+        mod.main(["--latest", "--cutoff", "2026-06-12T00:00:00Z"])
+    assert ei.value.code != 0
+    names = [c[0] for c in calls]
+    assert names == []  # nothing expensive ran
+    err = capsys.readouterr().err.lower()
+    assert "abort" in err or "fail" in err  # a clear failure message, not a silent fallback
+
+
+def test_dry_run_latest_makes_no_api_call(mod, monkeypatch, capsys):
+    """``--dry-run --latest`` must NOT hit the API — it only prints that it WOULD
+    resolve the latest commit."""
+    calls: list = []
+    _recorders_capturing_commit(mod, monkeypatch, calls)
+
+    def must_not_call():
+        raise AssertionError("resolve_latest_commit must not run under --dry-run")
+
+    monkeypatch.setattr(mod, "resolve_latest_commit", must_not_call)
+    rc = mod.main(["--dry-run", "--latest"])
+    assert rc == 0
+    assert calls == []  # no steps, no resolve
+    out = capsys.readouterr().out.lower()
+    assert "latest" in out and ("would" in out or "resolve" in out)
+
+
+def test_run_log_line_carries_commit_and_source(mod, tmp_path):
+    """The run-log JSONL line records {commit, commit_source} — provenance honesty."""
+    meta = {
+        "provenance": {
+            "as_of": "2026-06-12T00:00:00Z",
+            "posterior_key": "deadbeef",
+            "git": "abc1234",
+            "n_sims": 20000,
+        }
+    }
+    bundle = tmp_path / "2026-06-12T000000Z"
+    bundle.mkdir()
+    (bundle / "meta.json").write_text(json.dumps(meta))
+    log_path = tmp_path / "daily_update.jsonl"
+
+    rec = mod.step_provenance(
+        bundle, log_path=log_path, duration_s=1.5,
+        commit="abc1234abc1234abc1234abc1234abc1234abc1",
+        commit_source="latest-resolved",
+    )
+    row = json.loads(log_path.read_text().splitlines()[0])
+    assert row["commit"] == "abc1234abc1234abc1234abc1234abc1234abc1"
+    assert row["commit_source"] == "latest-resolved"
+    assert rec["commit_source"] == "latest-resolved"
