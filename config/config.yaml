@@ -60,6 +60,8 @@ model:
     source: elo              # elo only in v1 (market anchor out of scope)
     k_att: 0.6               # knee of the held-out-RPS curve: k=0 RPS 0.359 (worse than Elo 0.340); k>=0.6 plateau ~0.333 (beats Elo). 0.6 = full gain, least anchoring. See scripts/sweep_strength_k.py
     k_def: 0.6
+    k_squad: 0.0             # P3 v0 club-Elo squad-strength anchor weight (k_squad·squad_z·has_squad added to the att/def prior mean). DEFAULT 0.0 == OFF == BYTE-IDENTICAL to the pre-squad model. The pre-registered sweep (scripts/sweep_squad_z.py, grid {0,0.2,0.4,0.6} at k_elo=0.6 on WC-2022+Euro-2024 held-out RPS) decides whether to ADOPT >0 at the knee. NOT yet calibrated — fits run later.
+    # squad_tag: wc2026      # (optional) which committed clubelo snapshot to anchor on (wc2022|euro2024|wc2026). Unset/k_squad=0 -> squad term fully off. The sweep sets it per held-out cutoff; the 2026 live path uses wc2026.
   widening:
     mechanism: c                     # a (likelihood down-weight) | c (predictive-variance inflation)  (P4 DOF #3)
     strength: 0.5                    # widening strength, co-tuned with windows.decay_half_life_days  (P4 DOF #4)

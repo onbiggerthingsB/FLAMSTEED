@@ -378,7 +378,22 @@ def fit(
     from wcmodel.model.strength import team_elo_z
     teams = sorted(set(mp["home_team"]) | set(mp["away_team"]))
     elo_z = team_elo_z(feats, teams)
-    d = build_design(mp, cov=cov, cov_mask=cov_mask, elo_z=elo_z)
+    # P3 v0 squad-strength anchor (leakage-safe, offline). Threaded EXACTLY like
+    # elo_z: load the per-team squad_z + has_squad for the configured tournament
+    # tag, aligned to `teams`. Loaded ONLY when the strength prior is enabled AND
+    # k_squad != 0 AND a squad_tag is configured — so the default (k_squad=0.0, no
+    # tag) reads NOTHING and the design is byte-identical to the pre-squad baseline.
+    # The committed snapshot for each tag is strictly pre-cutoff (prereg §5; pinned
+    # by the snapshot-content tests), so this stays leakage-safe — a fit at a
+    # historical cutoff only ever consumes its tournament's pre-start snapshot.
+    squad_z = None
+    has_squad = None
+    sp = cfg["model"].get("strength_prior") or {}
+    if sp.get("enabled") and float(sp.get("k_squad", 0.0)) != 0.0 and sp.get("squad_tag"):
+        from wcmodel.data.sources.squad_anchor import squad_anchor_arrays
+        squad_z, has_squad = squad_anchor_arrays(sp["squad_tag"], teams)
+    d = build_design(mp, cov=cov, cov_mask=cov_mask, elo_z=elo_z,
+                     squad_z=squad_z, has_squad=has_squad)
     w = likelihood_weight(
         d,
         mechanism=cfg["model"]["widening"]["mechanism"],
