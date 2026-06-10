@@ -14,6 +14,10 @@ venv/
 # Anchored to repo root so it does NOT match the src/wcmodel/data/ package.
 /data/
 
+# Daily-update run logs (scripts/daily_update.py provenance JSONL + nohup/cron stdout).
+# The script is committed; its runtime logs are not.
+/logs/
+
 # Lockbox runtime artifacts (the LockboxRegistry's interprocess lock + atomic-write
 # temp file). The registry JSON itself IS committed; these transient siblings are not.
 /config/lockbox.lock
