@@ -280,6 +280,53 @@ def test_manual_rows_visible_in_store_read_at_resolved_cutoff(mod, monkeypatch, 
         f"(observed_at={now}) — the silently-unconditioned-bundle bug")
 
 
+def _ingested_store(mod, tmp_path, observed_at: str):
+    """A real store holding ONLY the validated manual row, ingested at ``observed_at``
+    — the minimal fixture for gate-level visibility tests."""
+    from wcmodel.data.store import BitemporalStore
+    from wcmodel.live.manual_results import ingest_manual_rows, validate_manual_csv
+    rows = validate_manual_csv(_manual_csv(tmp_path))
+    store = BitemporalStore(root=tmp_path / "store")
+    ingest_manual_rows(store, rows, observed_at=observed_at)
+    return store, rows
+
+
+def test_gate_aborts_when_manual_rows_invisible_at_cutoff(mod, tmp_path, capsys):
+    """DEFENSE-IN-DEPTH (canary-timing audit Finding 1): the gate is the LAST line of
+    defense, and a manual row hidden by ``observed_at > cutoff`` is simply ABSENT from
+    the PIT read the gate inspects — so without a positive visibility assertion the
+    gate is structurally blind to a silently-unconditioned build. When handed the
+    manual rows the run intends to condition on, the gate must FAIL LOUD if any of
+    them is invisible at the cutoff (even if the cutoff resolver is ever bypassed)."""
+    store, rows = _ingested_store(mod, tmp_path, "2026-06-12T05:00:00")  # observed AFTER
+    with pytest.raises(SystemExit) as ei:
+        mod.step_gate(store, "2026-06-12T00:00:00Z", manual_rows=rows)
+    assert ei.value.code != 0
+    err = capsys.readouterr().err
+    assert "invisible" in err.lower() or "observed" in err.lower()
+
+
+def test_gate_passes_when_manual_rows_visible(mod, tmp_path, capsys):
+    """POSITIVE CONTROL for the visibility assertion: the same row observed BEFORE the
+    cutoff is visible at the PIT read and the gate passes, explicitly confirming it."""
+    store, rows = _ingested_store(mod, tmp_path, "2026-06-11T23:00:00")  # observed BEFORE
+    mod.step_gate(store, "2026-06-12T00:00:00Z", manual_rows=rows)      # must NOT raise
+    out = capsys.readouterr().out
+    assert "manual" in out.lower()                       # the gate names what it confirmed
+
+
+def test_main_threads_manual_rows_into_gate(mod, monkeypatch, tmp_path):
+    """The orchestration threads the validated manual rows into step_gate, so the
+    visibility assertion actually runs on a real ``--manual-results`` invocation."""
+    calls: list = []
+    _kw_recorders(mod, monkeypatch, calls)
+    _freeze_now(mod, monkeypatch, "2026-06-11T23:00:00")
+    rc = mod.main(["--manual-results", str(_manual_csv(tmp_path))])
+    assert rc == 0
+    gate = next(c for c in calls if c[0] == "gate")
+    assert gate[2].get("manual_rows"), "step_gate must receive the validated manual rows"
+
+
 def test_manual_explicit_cutoff_before_entry_time_fails_loud(mod, monkeypatch, tmp_path):
     """An explicit --cutoff EARLIER than the entry instant can never see the manual
     rows (PIT: ``observed_at = now`` > cutoff) — same silent hole via the explicit

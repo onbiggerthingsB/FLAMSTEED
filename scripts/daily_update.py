@@ -222,11 +222,18 @@ def step_ingest(cache_dir: Path, *, commit: str | None = None,
     return store
 
 
-def step_gate(store: BitemporalStore, cutoff: str) -> None:
+def step_gate(store: BitemporalStore, cutoff: str, *, manual_rows=None) -> None:
     """LEAKAGE GUARD (fail-loud). Re-read the store at the cutoff and assert no post-cutoff
     result leaked into the training set. Mirrors ``build_real_snapshot.verify_cutoff_gate``
     verbatim (parameterized by ``cutoff``): a build can never silently train on a future
-    result. Raises ``SystemExit`` if any read row is dated on/after the cutoff."""
+    result. Raises ``SystemExit`` if any read row is dated on/after the cutoff.
+
+    ``manual_rows`` (the run's validated hand-entered results, default ``None``) adds the
+    POSITIVE half of the guard (canary-timing audit Finding 1): a manual row hidden by
+    ``observed_at > cutoff`` is simply ABSENT from the PIT read, so the leak checks above
+    are structurally blind to a silently-UNconditioned build. The gate therefore also
+    asserts every intended manual row is actually VISIBLE at the cutoff — the last line
+    of defense even if the cutoff resolver is ever bypassed."""
     asof = store.read("results", cutoff=cutoff)
     dates = pd.to_datetime(asof["date"])
     cut_day = pd.Timestamp(cutoff).tz_convert("UTC").tz_localize(None).normalize()
@@ -245,6 +252,24 @@ def step_gate(store: BitemporalStore, cutoff: str) -> None:
         print(f"[gate] ABORT: max valid-played date {played_max} is not strictly before "
               f"the cutoff {cut_day}.", file=sys.stderr)
         raise SystemExit(1)
+    if manual_rows:
+        played_dates = pd.to_datetime(played["date"])
+        invisible = []
+        for r in manual_rows:
+            day = pd.Timestamp(r.date).normalize()
+            hit = played[(played_dates == day)
+                         & (played["home_team"] == r.home_team)
+                         & (played["away_team"] == r.away_team)]
+            if len(hit) == 0:
+                invisible.append(f"{r.date} {r.home_team} v {r.away_team}")
+        if invisible:
+            print(f"[gate] ABORT: {len(invisible)}/{len(manual_rows)} hand-entered "
+                  f"result(s) are INVISIBLE at the cutoff {cutoff} — observed_at is past "
+                  f"the PIT read, so the bundle would build silently UNconditioned: "
+                  f"{'; '.join(invisible)}. Omit --cutoff (auto-implies a visible one) "
+                  f"or pass --cutoff >= the entry time.", file=sys.stderr)
+            raise SystemExit(1)
+        print(f"[gate] OK: all {len(manual_rows)} manual row(s) VISIBLE at the cutoff.")
     print("[gate] OK: every training row is strictly before the cutoff.")
 
 
@@ -422,7 +447,7 @@ def main(argv: list[str] | None = None) -> int:
     store = step_ingest(CACHE_DIR, commit=commit,
                         manual_results=args.manual_results,
                         manual_observed_at=manual_observed_at)
-    step_gate(store, cutoff)
+    step_gate(store, cutoff, manual_rows=manual_rows)
     bundle = step_snapshot(cutoff, store, cfg)
     step_stage()
     step_provenance(bundle, duration_s=round(time.monotonic() - started, 1),
