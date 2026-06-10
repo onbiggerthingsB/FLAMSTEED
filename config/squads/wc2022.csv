@@ -5,36 +5,6 @@
 # team = martj42 store key (e.g. South Korea, United States). Cutoff for club-Elo join: 2022-11-20.
 # Curated player+club only (no jersey/DOB) per the brief — for v0 the CLUB is what matters.
 tournament,team,player,club
-wc2022,Qatar,Saad Al-Sheeb,Al-Sadd
-wc2022,Qatar,Pedro Miguel,Al-Sadd
-wc2022,Qatar,Abdelkarim Hassan,Al-Sadd
-wc2022,Qatar,Tarek Salman,Al-Sadd
-wc2022,Qatar,Abdulaziz Hatem,Al-Rayyan
-wc2022,Qatar,Ahmed Alaaeldin,Al-Gharafa
-wc2022,Qatar,Ali Assadalla,Al-Sadd
-wc2022,Qatar,Hassan Al-Haydos,Al-Sadd
-wc2022,Qatar,Akram Afif,Al-Sadd
-wc2022,Qatar,Karim Boudiaf,Al-Duhail
-wc2022,Qatar,Boualem Khoukhi,Al-Sadd
-wc2022,Qatar,Almoez Ali,Al-Duhail
-wc2022,Qatar,Bassam Al-Rawi,Al-Duhail
-wc2022,Qatar,Ismaeel Mohammad,Al-Duhail
-wc2022,Qatar,Assim Madibo,Al-Duhail
-wc2022,Qatar,Meshaal Barsham,Al-Sadd
-wc2022,Qatar,Mostafa Meshaal,Al-Sadd
-wc2022,Ecuador,Hernán Galíndez,Aucas
-wc2022,Ecuador,Félix Torres,Santos Laguna
-wc2022,Ecuador,Piero Hincapié,Bayer Leverkusen
-wc2022,Ecuador,Robert Arboleda,São Paulo
-wc2022,Ecuador,Pervis Estupiñán,Brighton & Hove Albion
-wc2022,Ecuador,Carlos Gruezo,FC Augsburg
-wc2022,Ecuador,Enner Valencia,Fenerbahçe
-wc2022,Ecuador,Gonzalo Plata,Valladolid
-wc2022,Ecuador,Moisés Caicedo,Brighton & Hove Albion
-wc2022,Ecuador,Ángelo Preciado,Genk
-wc2022,Ecuador,Jeremy Sarmiento,Brighton & Hove Albion
-wc2022,Ecuador,Alexander Domínguez,LDU Quito
-wc2022,Ecuador,Jackson Porozo,Troyes
 wc2022,Senegal,Édouard Mendy,Chelsea
 wc2022,Senegal,Kalidou Koulibaly,Chelsea
 wc2022,Senegal,Idrissa Gueye,Everton
@@ -96,19 +66,6 @@ wc2022,England,Aaron Ramsdale,Arsenal
 wc2022,England,Callum Wilson,Newcastle United
 wc2022,England,James Maddison,Leicester City
 wc2022,England,Conor Gallagher,Chelsea
-wc2022,Iran,Alireza Beiranvand,Persepolis
-wc2022,Iran,Ehsan Hajsafi,AEK Athens
-wc2022,Iran,Milad Mohammadi,AEK Athens
-wc2022,Iran,Alireza Jahanbakhsh,Feyenoord
-wc2022,Iran,Mehdi Taremi,Porto
-wc2022,Iran,Saman Ghoddos,Brentford
-wc2022,Iran,Sardar Azmoun,Bayer Leverkusen
-wc2022,Iran,Ali Gholizadeh,Charleroi
-wc2022,Iran,Ali Karimi,Kayserispor
-wc2022,Iran,Majid Hosseini,Kayserispor
-wc2022,Iran,Morteza Pouraliganji,Persepolis
-wc2022,Iran,Vahid Amiri,Persepolis
-wc2022,Iran,Mehdi Torabi,Persepolis
 wc2022,United States,Matt Turner,Arsenal
 wc2022,United States,Sergiño Dest,Milan
 wc2022,United States,Walker Zimmerman,Nashville SC
@@ -145,34 +102,6 @@ wc2022,Argentina,Guido Rodríguez,Real Betis
 wc2022,Argentina,Gonzalo Montiel,Sevilla
 wc2022,Argentina,Nicolás Tagliafico,Lyon
 wc2022,Argentina,Papu Gómez,Sevilla
-wc2022,Saudi Arabia,Mohammed Al-Owais,Al-Hilal
-wc2022,Saudi Arabia,Salman Al-Faraj,Al-Hilal
-wc2022,Saudi Arabia,Yasser Al-Shahrani,Al-Hilal
-wc2022,Saudi Arabia,Ali Al-Bulaihi,Al-Hilal
-wc2022,Saudi Arabia,Salem Al-Dawsari,Al-Hilal
-wc2022,Saudi Arabia,Firas Al-Buraikan,Al-Fateh
-wc2022,Saudi Arabia,Saleh Al-Shehri,Al-Hilal
-wc2022,Saudi Arabia,Mohamed Kanno,Al-Hilal
-wc2022,Saudi Arabia,Abdullah Otayf,Al-Hilal
-wc2022,Saudi Arabia,Sami Al-Najei,Al-Nassr
-wc2022,Saudi Arabia,Hassan Tambakti,Al-Shabab
-wc2022,Mexico,Guillermo Ochoa,América
-wc2022,Mexico,Néstor Araujo,América
-wc2022,Mexico,César Montes,Monterrey
-wc2022,Mexico,Héctor Moreno,Monterrey
-wc2022,Mexico,Jesús Gallardo,Monterrey
-wc2022,Mexico,Andrés Guardado,Real Betis
-wc2022,Mexico,Héctor Herrera,Houston Dynamo
-wc2022,Mexico,Edson Álvarez,Ajax
-wc2022,Mexico,Hirving Lozano,Napoli
-wc2022,Mexico,Raúl Jiménez,Wolverhampton Wanderers
-wc2022,Mexico,Alexis Vega,Guadalajara
-wc2022,Mexico,Luis Chávez,Pachuca
-wc2022,Mexico,Orbelín Pineda,AEK Athens
-wc2022,Mexico,Jorge Sánchez,Ajax
-wc2022,Mexico,Carlos Rodríguez,Monterrey
-wc2022,Mexico,Henry Martín,América
-wc2022,Mexico,Uriel Antuna,Cruz Azul
 wc2022,Poland,Wojciech Szczęsny,Juventus
 wc2022,Poland,Kamil Glik,Benevento
 wc2022,Poland,Jan Bednarek,Aston Villa
@@ -208,20 +137,6 @@ wc2022,France,Randal Kolo Muani,Eintracht Frankfurt
 wc2022,France,Youssouf Fofana,Monaco
 wc2022,France,Jordan Veretout,Marseille
 wc2022,France,Steve Mandanda,Rennes
-wc2022,Australia,Mathew Ryan,Copenhagen
-wc2022,Australia,Aziz Behich,Dundee United
-wc2022,Australia,Harry Souttar,Stoke City
-wc2022,Australia,Bailey Wright,Sunderland
-wc2022,Australia,Aaron Mooy,Celtic
-wc2022,Australia,Jackson Irvine,St. Pauli
-wc2022,Australia,Riley McGree,Middlesbrough
-wc2022,Australia,Mathew Leckie,Melbourne City
-wc2022,Australia,Mitchell Duke,Fagiano Okayama
-wc2022,Australia,Craig Goodwin,Adelaide United
-wc2022,Australia,Ajdin Hrustic,Hellas Verona
-wc2022,Australia,Awer Mabil,Cádiz
-wc2022,Australia,Keanu Baccus,St Mirren
-wc2022,Australia,Fran Karačić,Brescia
 wc2022,Denmark,Kasper Schmeichel,Nice
 wc2022,Denmark,Simon Kjær,Milan
 wc2022,Denmark,Andreas Christensen,Barcelona
@@ -237,19 +152,6 @@ wc2022,Denmark,Andreas Skov Olsen,Club Brugge
 wc2022,Denmark,Jonas Wind,VfL Wolfsburg
 wc2022,Denmark,Martin Braithwaite,Espanyol
 wc2022,Denmark,Rasmus Kristensen,Leeds United
-wc2022,Tunisia,Aymen Dahmen,CS Sfaxien
-wc2022,Tunisia,Mohamed Dräger,Luzern
-wc2022,Tunisia,Montassar Talbi,Lorient
-wc2022,Tunisia,Dylan Bronn,Salernitana
-wc2022,Tunisia,Ali Abdi,Caen
-wc2022,Tunisia,Aïssa Laïdouni,Ferencváros
-wc2022,Tunisia,Ellyes Skhiri,1. FC Köln
-wc2022,Tunisia,Wahbi Khazri,Montpellier
-wc2022,Tunisia,Youssef Msakni,Al-Arabi
-wc2022,Tunisia,Naïm Sliti,Al-Ettifaq
-wc2022,Tunisia,Issam Jebali,Odense
-wc2022,Tunisia,Anis Ben Slimane,Brøndby
-wc2022,Tunisia,Hannibal Mejbri,Manchester United
 wc2022,Spain,Unai Simón,Athletic Bilbao
 wc2022,Spain,Dani Carvajal,Real Madrid
 wc2022,Spain,Aymeric Laporte,Manchester City
@@ -270,17 +172,6 @@ wc2022,Spain,César Azpilicueta,Chelsea
 wc2022,Spain,Marcos Llorente,Atlético Madrid
 wc2022,Spain,Koke,Atlético Madrid
 wc2022,Spain,Alejandro Balde,Barcelona
-wc2022,Costa Rica,Keylor Navas,Paris Saint-Germain
-wc2022,Costa Rica,Óscar Duarte,Al-Wehda
-wc2022,Costa Rica,Francisco Calvo,Konyaspor
-wc2022,Costa Rica,Kendall Waston,Saprissa
-wc2022,Costa Rica,Joel Campbell,Club León
-wc2022,Costa Rica,Celso Borges,Alajuelense
-wc2022,Costa Rica,Bryan Ruiz,Alajuelense
-wc2022,Costa Rica,Yeltsin Tejeda,Herediano
-wc2022,Costa Rica,Anthony Contreras,Herediano
-wc2022,Costa Rica,Jewison Bennette,Sunderland
-wc2022,Costa Rica,Keysher Fuller,Herediano
 wc2022,Germany,Manuel Neuer,Bayern Munich
 wc2022,Germany,Antonio Rüdiger,Real Madrid
 wc2022,Germany,Niklas Süle,Borussia Dortmund
@@ -336,20 +227,6 @@ wc2022,Belgium,Amadou Onana,Everton
 wc2022,Belgium,Charles De Ketelaere,Milan
 wc2022,Belgium,Michy Batshuayi,Fenerbahçe
 wc2022,Belgium,Simon Mignolet,Club Brugge
-wc2022,Canada,Milan Borjan,Red Star Belgrade
-wc2022,Canada,Alphonso Davies,Bayern Munich
-wc2022,Canada,Tajon Buchanan,Club Brugge
-wc2022,Canada,Jonathan David,Lille
-wc2022,Canada,Cyle Larin,Club Brugge
-wc2022,Canada,Atiba Hutchinson,Beşiktaş
-wc2022,Canada,Stephen Eustáquio,Porto
-wc2022,Canada,Junior Hoilett,Reading
-wc2022,Canada,Sam Adekugbe,Hatayspor
-wc2022,Canada,Kamal Miller,CF Montréal
-wc2022,Canada,Mark-Anthony Kaye,Toronto FC
-wc2022,Canada,Richie Laryea,Toronto FC
-wc2022,Canada,Ismaël Koné,CF Montréal
-wc2022,Canada,Steven Vitória,Chaves
 wc2022,Morocco,Yassine Bounou,Sevilla
 wc2022,Morocco,Achraf Hakimi,Paris Saint-Germain
 wc2022,Morocco,Noussair Mazraoui,Bayern Munich
@@ -442,21 +319,6 @@ wc2022,Switzerland,Djibril Sow,Eintracht Frankfurt
 wc2022,Switzerland,Silvan Widmer,Mainz 05
 wc2022,Switzerland,Fabian Frei,Basel
 wc2022,Switzerland,Eray Cömert,Valencia
-wc2022,Cameroon,André Onana,Inter Milan
-wc2022,Cameroon,Jean-Charles Castelletto,Nantes
-wc2022,Cameroon,Nicolas Nkoulou,Aris
-wc2022,Cameroon,Collins Fai,Al-Tai
-wc2022,Cameroon,Olivier Mbaizo,Philadelphia Union
-wc2022,Cameroon,André-Frank Zambo Anguissa,Napoli
-wc2022,Cameroon,Pierre Kunde,Olympiacos
-wc2022,Cameroon,Martin Hongla,Hellas Verona
-wc2022,Cameroon,Eric Maxim Choupo-Moting,Bayern Munich
-wc2022,Cameroon,Vincent Aboubakar,Al-Nassr
-wc2022,Cameroon,Karl Toko Ekambi,Lyon
-wc2022,Cameroon,Bryan Mbeumo,Brentford
-wc2022,Cameroon,Georges-Kévin Nkoudou,Beşiktaş
-wc2022,Cameroon,Christian Bassogog,Shanghai Shenhua
-wc2022,Cameroon,Devis Epassy,Abha
 wc2022,Portugal,Diogo Costa,Porto
 wc2022,Portugal,João Cancelo,Manchester City
 wc2022,Portugal,Pepe,Porto
@@ -511,21 +373,6 @@ wc2022,Uruguay,Facundo Pellistri,Manchester United
 wc2022,Uruguay,Nicolás de la Cruz,River Plate
 wc2022,Uruguay,Manuel Ugarte,Sporting CP
 wc2022,Uruguay,Agustín Canobbio,Athletico Paranaense
-wc2022,South Korea,Kim Seung-gyu,Al-Shabab
-wc2022,South Korea,Kim Min-jae,Napoli
-wc2022,South Korea,Kim Young-gwon,Ulsan Hyundai
-wc2022,South Korea,Kim Moon-hwan,Jeonbuk Hyundai Motors
-wc2022,South Korea,Hong Chul,Daegu FC
-wc2022,South Korea,Jung Woo-young,Al-Sadd
-wc2022,South Korea,Hwang In-beom,Olympiacos
-wc2022,South Korea,Lee Jae-sung,Mainz 05
-wc2022,South Korea,Son Heung-min,Tottenham Hotspur
-wc2022,South Korea,Hwang Hee-chan,Wolverhampton Wanderers
-wc2022,South Korea,Lee Kang-in,Mallorca
-wc2022,South Korea,Cho Gue-sung,Jeonbuk Hyundai Motors
-wc2022,South Korea,Na Sang-ho,FC Seoul
-wc2022,South Korea,Paik Seung-ho,Jeonbuk Hyundai Motors
-wc2022,South Korea,Son Jun-ho,Shandong Taishan
 wc2022,Wales,Wayne Hennessey,Nottingham Forest
 wc2022,Wales,Ben Davies,Tottenham Hotspur
 wc2022,Wales,Connor Roberts,Burnley
@@ -541,3 +388,288 @@ wc2022,Wales,Brennan Johnson,Nottingham Forest
 wc2022,Wales,Neco Williams,Nottingham Forest
 wc2022,Wales,Chris Mepham,Bournemouth
 wc2022,Wales,Danny Ward,Leicester City
+wc2022,Australia,Mathew Ryan,FC Copenhagen
+wc2022,Australia,Miloš Degenek,Columbus Crew
+wc2022,Australia,Nathaniel Atkinson,Heart of Midlothian
+wc2022,Australia,Kye Rowles,Heart of Midlothian
+wc2022,Australia,Fran Karačić,Brescia Calcio
+wc2022,Australia,Marco Tilio,Melbourne City
+wc2022,Australia,Mathew Leckie,Melbourne City
+wc2022,Australia,Bailey Wright,Sunderland
+wc2022,Australia,Jamie Maclaren,Melbourne City
+wc2022,Australia,Ajdin Hrustic,Hellas Verona
+wc2022,Australia,Awer Mabil,Cádiz CF
+wc2022,Australia,Andrew Redmayne,Sydney
+wc2022,Australia,Aaron Mooy,Celtic
+wc2022,Australia,Riley McGree,Middlesbrough
+wc2022,Australia,Mitchell Duke,Fagiano Okayama
+wc2022,Australia,Aziz Behich,Dundee United
+wc2022,Australia,Cameron Devlin,Heart of Midlothian
+wc2022,Australia,Danny Vukovic,Central Coast Mariners
+wc2022,Australia,Harry Souttar,Stoke City
+wc2022,Australia,Thomas Deng,Albirex Niigata
+wc2022,Australia,Garang Kuol,Central Coast Mariners
+wc2022,Australia,Jackson Irvine,FC St. Pauli
+wc2022,Australia,Craig Goodwin,Adelaide United
+wc2022,Australia,Joel King,Odense Boldklub
+wc2022,Australia,Jason Cummings,Central Coast Mariners
+wc2022,Australia,Keanu Baccus,St Mirren
+wc2022,Cameroon,Simon Ngapandouetnbu,Marseille
+wc2022,Cameroon,Jerome Ngom Mbekeli,Colombe Sportive
+wc2022,Cameroon,Nicolas Nkoulou,Aris
+wc2022,Cameroon,Christopher Wooh,Rennes
+wc2022,Cameroon,Gaël Ondoua,Hannover 96
+wc2022,Cameroon,Moumi Ngamaleu,Dynamo Moscow
+wc2022,Cameroon,Georges-Kévin Nkoudou,Beşiktaş
+wc2022,Cameroon,André-Frank Zambo Anguissa,Napoli
+wc2022,Cameroon,Jean-Pierre Nsame,Young Boys
+wc2022,Cameroon,Vincent Aboubakar,Al-Nassr
+wc2022,Cameroon,Christian Bassogog,Shanghai Shenhua
+wc2022,Cameroon,Karl Toko Ekambi,Lyon
+wc2022,Cameroon,Eric Maxim Choupo-Moting,Bayern Munich
+wc2022,Cameroon,Samuel Gouet,Mechelen
+wc2022,Cameroon,Pierre Kunde,Olympiacos
+wc2022,Cameroon,Devis Epassy,Abha
+wc2022,Cameroon,Olivier Mbaizo,Philadelphia Union
+wc2022,Cameroon,Martin Hongla,Hellas Verona
+wc2022,Cameroon,Collins Fai,Al-Tai
+wc2022,Cameroon,Bryan Mbeumo,Brentford
+wc2022,Cameroon,Jean-Charles Castelletto,Nantes
+wc2022,Cameroon,Olivier Ntcham,Swansea City
+wc2022,Cameroon,André Onana,Inter Milan
+wc2022,Cameroon,Enzo Ebosse,Udinese
+wc2022,Cameroon,Nouhou Tolo,Seattle Sounders
+wc2022,Cameroon,Souaibou Marou,Coton Sport
+wc2022,Canada,Dayne St. Clair,Minnesota United
+wc2022,Canada,Alistair Johnston,CF Montréal
+wc2022,Canada,Sam Adekugbe,Hatayspor
+wc2022,Canada,Kamal Miller,CF Montréal
+wc2022,Canada,Steven Vitória,Chaves
+wc2022,Canada,Samuel Piette,CF Montréal
+wc2022,Canada,Stephen Eustáquio,Porto
+wc2022,Canada,Liam Fraser,Deinze
+wc2022,Canada,Lucas Cavallini,Vancouver Whitecaps
+wc2022,Canada,Junior Hoilett,Reading
+wc2022,Canada,Tajon Buchanan,Club Brugge
+wc2022,Canada,Iké Ugbo,Troyes
+wc2022,Canada,Atiba Hutchinson,Beşiktaş
+wc2022,Canada,Mark-Anthony Kaye,Toronto
+wc2022,Canada,Ismaël Koné,CF Montréal
+wc2022,Canada,James Pantemis,CF Montréal
+wc2022,Canada,Cyle Larin,Club Brugge
+wc2022,Canada,Milan Borjan,Red Star Belgrade
+wc2022,Canada,Alphonso Davies,Bayern Munich
+wc2022,Canada,Jonathan David,Lille
+wc2022,Canada,Jonathan Osorio,Toronto
+wc2022,Canada,Richie Laryea,Toronto
+wc2022,Canada,Liam Millar,Basel
+wc2022,Canada,David Wotherspoon,St Johnstone
+wc2022,Canada,Derek Cornelius,Panetolikos
+wc2022,Canada,Joel Waterman,CF Montréal
+wc2022,Costa Rica,Keylor Navas,Paris Saint-Germain
+wc2022,Costa Rica,Daniel Chacón,Cartaginés
+wc2022,Costa Rica,Juan Pablo Vargas,Millonarios
+wc2022,Costa Rica,Keysher Fuller,Herediano
+wc2022,Costa Rica,Celso Borges,Alajuelense
+wc2022,Costa Rica,Óscar Duarte,Al-Wehda
+wc2022,Costa Rica,Anthony Contreras,Herediano
+wc2022,Costa Rica,Bryan Oviedo,Real Salt Lake
+wc2022,Costa Rica,Jewison Bennette,Sunderland
+wc2022,Costa Rica,Bryan Ruiz,Alajuelense
+wc2022,Costa Rica,Johan Venegas,Alajuelense
+wc2022,Costa Rica,Joel Campbell,León
+wc2022,Costa Rica,Gerson Torres,Herediano
+wc2022,Costa Rica,Youstin Salas,Saprissa
+wc2022,Costa Rica,Francisco Calvo,Konyaspor
+wc2022,Costa Rica,Carlos Martínez,San Carlos
+wc2022,Costa Rica,Yeltsin Tejeda,Herediano
+wc2022,Costa Rica,Esteban Alvarado,Herediano
+wc2022,Costa Rica,Kendall Waston,Saprissa
+wc2022,Costa Rica,Brandon Aguilera,Guanacasteca
+wc2022,Costa Rica,Douglas López,Herediano
+wc2022,Costa Rica,Rónald Matarrita,FC Cincinnati
+wc2022,Costa Rica,Patrick Sequeira,Lugo
+wc2022,Costa Rica,Roan Wilson,Municipal Grecia
+wc2022,Costa Rica,Anthony Hernández,Puntarenas
+wc2022,Costa Rica,Álvaro Zamora,Saprissa
+wc2022,Ecuador,Hernán Galíndez,S.D. Aucas
+wc2022,Ecuador,Félix Torres,Santos Laguna
+wc2022,Ecuador,Piero Hincapié,Bayer 04 Leverkusen
+wc2022,Ecuador,Robert Arboleda,São Paulo
+wc2022,Ecuador,José Cifuentes,Los Angeles
+wc2022,Ecuador,Willian Pacho,Royal Antwerp
+wc2022,Ecuador,Pervis Estupiñán,Brighton & Hove Albion
+wc2022,Ecuador,Carlos Gruezo,FC Augsburg
+wc2022,Ecuador,Ayrton Preciado,Santos Laguna
+wc2022,Ecuador,Romario Ibarra,C.F. Pachuca
+wc2022,Ecuador,Michael Estrada,Cruz Azul
+wc2022,Ecuador,Moisés Ramírez,C.S.D. Independiente del Valle
+wc2022,Ecuador,Enner Valencia,Fenerbahçe
+wc2022,Ecuador,Xavier Arreaga,Seattle Sounders
+wc2022,Ecuador,Ángel Mena,Club León
+wc2022,Ecuador,Jeremy Sarmiento,Brighton & Hove Albion
+wc2022,Ecuador,Ángelo Preciado,K.R.C. Genk
+wc2022,Ecuador,Diego Palacios,Los Angeles
+wc2022,Ecuador,Gonzalo Plata,Real Valladolid
+wc2022,Ecuador,Sebas Méndez,Los Angeles
+wc2022,Ecuador,Alan Franco,Talleres de Córdoba
+wc2022,Ecuador,Alexander Domínguez,L.D.U. Quito
+wc2022,Ecuador,Moisés Caicedo,Brighton & Hove Albion
+wc2022,Ecuador,Djorkaeff Reasco,Newell's Old Boys
+wc2022,Ecuador,Jackson Porozo,ES Troyes AC
+wc2022,Ecuador,Kevin Rodríguez,Imbabura
+wc2022,Iran,Alireza Beiranvand,Persepolis
+wc2022,Iran,Sadegh Moharrami,GNK Dinamo Zagreb
+wc2022,Iran,Ehsan Hajsafi,AEK Athens
+wc2022,Iran,Shojae Khalilzadeh,Al Ahli
+wc2022,Iran,Milad Mohammadi,AEK Athens
+wc2022,Iran,Saeid Ezatolahi,Vejle Boldklub
+wc2022,Iran,Alireza Jahanbakhsh,Feyenoord
+wc2022,Iran,Morteza Pouraliganji,Persepolis
+wc2022,Iran,Mehdi Taremi,FC Porto
+wc2022,Iran,Karim Ansarifard,AC Omonia
+wc2022,Iran,Vahid Amiri,Persepolis
+wc2022,Iran,Payam Niazmand,Sepahan
+wc2022,Iran,Hossein Kanaanizadegan,Al Ahli
+wc2022,Iran,Saman Ghoddos,Brentford
+wc2022,Iran,Rouzbeh Cheshmi,Esteghlal
+wc2022,Iran,Mehdi Torabi,Persepolis
+wc2022,Iran,Ali Gholizadeh,R. Charleroi
+wc2022,Iran,Ali Karimi,Kayserispor
+wc2022,Iran,Majid Hosseini,Kayserispor
+wc2022,Iran,Sardar Azmoun,Bayer 04 Leverkusen
+wc2022,Iran,Ahmad Nourollahi,Shabab Al Ahli Club
+wc2022,Iran,Amir Abedzadeh,SD Ponferradina
+wc2022,Iran,Ramin Rezaeian,Sepahan
+wc2022,Iran,Hossein Hosseini,Esteghlal
+wc2022,Iran,Abolfazl Jalali,Esteghlal
+wc2022,Mexico,Alfredo Talavera,FC Juárez
+wc2022,Mexico,Néstor Araujo,Club América
+wc2022,Mexico,César Montes,C.F. Monterrey
+wc2022,Mexico,Edson Álvarez,AFC Ajax
+wc2022,Mexico,Johan Vásquez,U.S. Cremonese
+wc2022,Mexico,Gerardo Arteaga,K.R.C. Genk
+wc2022,Mexico,Luis Romo,C.F. Monterrey
+wc2022,Mexico,Carlos Rodríguez,Cruz Azul
+wc2022,Mexico,Raúl Jiménez,Wolverhampton Wanderers
+wc2022,Mexico,Alexis Vega,C.D. Guadalajara
+wc2022,Mexico,Rogelio Funes Mori,C.F. Monterrey
+wc2022,Mexico,Rodolfo Cota,Club León
+wc2022,Mexico,Guillermo Ochoa,Club América
+wc2022,Mexico,Érick Gutiérrez,PSV Eindhoven
+wc2022,Mexico,Héctor Moreno,C.F. Monterrey
+wc2022,Mexico,Héctor Herrera,Houston Dynamo
+wc2022,Mexico,Orbelín Pineda,AEK Athens
+wc2022,Mexico,Andrés Guardado,Real Betis
+wc2022,Mexico,Jorge Sánchez,AFC Ajax
+wc2022,Mexico,Henry Martín,Club América
+wc2022,Mexico,Uriel Antuna,Cruz Azul
+wc2022,Mexico,Hirving Lozano,S.S.C. Napoli
+wc2022,Mexico,Jesús Gallardo,C.F. Monterrey
+wc2022,Mexico,Luis Chávez,C.F. Pachuca
+wc2022,Mexico,Roberto Alvarado,C.D. Guadalajara
+wc2022,Mexico,Kevin Álvarez,C.F. Pachuca
+wc2022,South Korea,Kim Seung-gyu,Al-Shabab
+wc2022,South Korea,Yoon Jong-gyu,FC Seoul
+wc2022,South Korea,Kim Jin-su,Jeonbuk Hyundai Motors
+wc2022,South Korea,Kim Min-jae,Napoli
+wc2022,South Korea,Jung Woo-young,Al-Sadd
+wc2022,South Korea,Hwang In-beom,Olympiacos
+wc2022,South Korea,Son Heung-min,Tottenham Hotspur
+wc2022,South Korea,Paik Seung-ho,Jeonbuk Hyundai Motors
+wc2022,South Korea,Cho Gue-sung,Jeonbuk Hyundai Motors
+wc2022,South Korea,Lee Jae-sung,Mainz 05
+wc2022,South Korea,Hwang Hee-chan,Wolverhampton Wanderers
+wc2022,South Korea,Song Bum-keun,Jeonbuk Hyundai Motors
+wc2022,South Korea,Son Jun-ho,Shandong Taishan
+wc2022,South Korea,Hong Chul,Daegu
+wc2022,South Korea,Kim Moon-hwan,Jeonbuk Hyundai Motors
+wc2022,South Korea,Hwang Ui-jo,Olympiacos
+wc2022,South Korea,Na Sang-ho,FC Seoul
+wc2022,South Korea,Lee Kang-in,Mallorca
+wc2022,South Korea,Kim Young-gwon,Ulsan Hyundai
+wc2022,South Korea,Kwon Kyung-won,Gamba Osaka
+wc2022,South Korea,Jo Hyeon-woo,Ulsan Hyundai
+wc2022,South Korea,Kwon Chang-hoon,Gimcheon Sangmu
+wc2022,South Korea,Kim Tae-hwan,Ulsan Hyundai
+wc2022,South Korea,Cho Yu-min,Daejeon Hana Citizen
+wc2022,South Korea,Jeong Woo-yeong,SC Freiburg
+wc2022,South Korea,Song Min-kyu,Jeonbuk Hyundai Motors
+wc2022,Tunisia,Aymen Mathlouthi,Étoile Sportive du Sahel
+wc2022,Tunisia,Bilel Ifa,Kuwait
+wc2022,Tunisia,Montassar Talbi,FC Lorient
+wc2022,Tunisia,Yassine Meriah,Espérance Sportive de Tunis
+wc2022,Tunisia,Nader Ghandri,Club Africain
+wc2022,Tunisia,Dylan Bronn,U.S. Salernitana 1919
+wc2022,Tunisia,Youssef Msakni,Al-Arabi
+wc2022,Tunisia,Hannibal Mejbri,Birmingham City
+wc2022,Tunisia,Issam Jebali,Odense Boldklub
+wc2022,Tunisia,Wahbi Khazri,Montpellier HSC
+wc2022,Tunisia,Taha Yassine Khenissi,Kuwait
+wc2022,Tunisia,Ali Maâloul,Al Ahly
+wc2022,Tunisia,Ferjani Sassi,Al-Duhail
+wc2022,Tunisia,Aïssa Laïdouni,Ferencvárosi TC
+wc2022,Tunisia,Mohamed Ali Ben Romdhane,Espérance Sportive de Tunis
+wc2022,Tunisia,Aymen Dahmen,CS Sfaxien
+wc2022,Tunisia,Ellyes Skhiri,1. FC Köln
+wc2022,Tunisia,Ghailene Chaalali,Espérance Sportive de Tunis
+wc2022,Tunisia,Seifeddine Jaziri,Zamalek
+wc2022,Tunisia,Mohamed Dräger,FC Luzern
+wc2022,Tunisia,Wajdi Kechrida,Atromitos
+wc2022,Tunisia,Bechir Ben Saïd,US Monastir
+wc2022,Tunisia,Naïm Sliti,Ettifaq
+wc2022,Tunisia,Ali Abdi,Stade Malherbe Caen
+wc2022,Tunisia,Anis Ben Slimane,Brøndby IF
+wc2022,Tunisia,Mouez Hassen,Club Africain
+wc2022,Qatar,Saad Al-Sheeb,Al-Sadd
+wc2022,Qatar,Pedro Miguel,Al-Sadd
+wc2022,Qatar,Abdelkarim Hassan,Al-Sadd
+wc2022,Qatar,Mohammed Waad,Al-Sadd
+wc2022,Qatar,Tarek Salman,Al-Sadd
+wc2022,Qatar,Abdulaziz Hatem,Al-Rayyan
+wc2022,Qatar,Ahmed Alaaeldin,Al-Gharafa
+wc2022,Qatar,Ali Assadalla,Al-Sadd
+wc2022,Qatar,Mohammed Muntari,Al-Duhail
+wc2022,Qatar,Hassan Al-Haydos,Al-Sadd
+wc2022,Qatar,Akram Afif,Al-Sadd
+wc2022,Qatar,Karim Boudiaf,Al-Duhail
+wc2022,Qatar,Musab Kheder,Al-Sadd
+wc2022,Qatar,Homam Ahmed,Al-Gharafa
+wc2022,Qatar,Bassam Al-Rawi,Al-Duhail
+wc2022,Qatar,Boualem Khoukhi,Al-Sadd
+wc2022,Qatar,Ismaeel Mohammad,Al-Duhail
+wc2022,Qatar,Khalid Muneer,Al-Wakrah
+wc2022,Qatar,Almoez Ali,Al-Duhail
+wc2022,Qatar,Salem Al-Hajri,Al-Sadd
+wc2022,Qatar,Yousef Hassan,Al-Gharafa
+wc2022,Qatar,Meshaal Barsham,Al-Sadd
+wc2022,Qatar,Assim Madibo,Al-Duhail
+wc2022,Qatar,Naif Al-Hadhrami,Al-Rayyan
+wc2022,Qatar,Jassem Gaber,Al-Arabi
+wc2022,Qatar,Mostafa Meshaal,Al-Sadd
+wc2022,Saudi Arabia,Mohammed Al-Rubaie,Al-Ahli
+wc2022,Saudi Arabia,Sultan Al-Ghannam,Al-Nassr
+wc2022,Saudi Arabia,Abdullah Madu,Al-Nassr
+wc2022,Saudi Arabia,Abdulelah Al-Amri,Al-Nassr
+wc2022,Saudi Arabia,Ali Al-Bulaihi,Al-Hilal
+wc2022,Saudi Arabia,Mohammed Al-Breik,Al-Hilal
+wc2022,Saudi Arabia,Salman Al-Faraj,Al-Hilal
+wc2022,Saudi Arabia,Abdulellah Al-Malki,Al-Hilal
+wc2022,Saudi Arabia,Firas Al-Buraikan,Al-Fateh
+wc2022,Saudi Arabia,Salem Al-Dawsari,Al-Hilal
+wc2022,Saudi Arabia,Saleh Al-Shehri,Al-Hilal
+wc2022,Saudi Arabia,Saud Abdulhamid,Al-Hilal
+wc2022,Saudi Arabia,Yasser Al-Shahrani,Al-Hilal
+wc2022,Saudi Arabia,Abdullah Otayf,Al-Hilal
+wc2022,Saudi Arabia,Ali Al-Hassan,Al-Nassr
+wc2022,Saudi Arabia,Sami Al-Najei,Al-Nassr
+wc2022,Saudi Arabia,Hassan Al-Tambakti,Al-Shabab
+wc2022,Saudi Arabia,Nawaf Al-Abed,Al-Shabab
+wc2022,Saudi Arabia,Hattan Bahebri,Al-Shabab
+wc2022,Saudi Arabia,Abdulrahman Al-Aboud,Al-Ittihad
+wc2022,Saudi Arabia,Mohammed Al-Owais,Al-Hilal
+wc2022,Saudi Arabia,Nawaf Al-Aqidi,Al-Nassr
+wc2022,Saudi Arabia,Mohamed Kanno,Al-Hilal
+wc2022,Saudi Arabia,Nasser Al-Dawsari,Al-Hilal
+wc2022,Saudi Arabia,Haitham Asiri,Al-Ahli
+wc2022,Saudi Arabia,Riyadh Sharahili,Abha
