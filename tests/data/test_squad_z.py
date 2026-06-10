@@ -131,7 +131,7 @@ def test_has_squad_zero_matched():
 
 def test_min_matched_is_eleven():
     # v0 contract: a full XI's worth of club-Elo signal.
-    assert MIN_MATCHED == 11
+    assert MIN_MATCHED == 13   # PRE-REGISTERED (2026-06-11): ceil(0.70*18); never tuned vs sweep RPS
 
 
 # --------------------------------------------------------------------------- #

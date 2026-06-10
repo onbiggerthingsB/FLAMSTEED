@@ -24,8 +24,11 @@ import math
 
 import numpy as np
 
-# v0 mask threshold: >= a full XI's worth of matched club-Elo signal (spec §4.3).
-MIN_MATCHED: int = 11
+# PRE-REGISTERED mask threshold (user, 2026-06-11, locked BEFORE any sweep number
+# existed): squad_z only where >=70% of the top-18 slots are club-Elo-matched ->
+# ceil(0.70 * TOP_N) = 13. This threshold is NEVER tuned against sweep RPS.
+# (Supersedes the v0 placeholder MIN_MATCHED=11.)
+MIN_MATCHED: int = 13
 
 # Top-N clubs averaged per squad (spec §4.2: "top-18 by match if more").
 TOP_N: int = 18
