@@ -488,10 +488,16 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
     # fit_kwargs["cache_dir"] per build (cache_dir always wins) so each build re-fits instead
     # of short-circuiting on a shared cache hit (keeps the leakage canary NON-VACUOUS).
     fit_cache = fk.get("cache_dir", cfg["paths"]["cache"])
+    # PRODUCTION FIDELITY (regression-pinned by tests/dashboard/test_fit_fidelity.py):
+    # with no explicit fit_kwargs the fit MUST use the config's production inference
+    # params. The old dev-coarse defaults (draws=200, advi_iters=2000) silently built
+    # EVERY production bundle from an under-converged ADVI fit — the documented
+    # coarse-fit confound that flattens the model toward uniform (caught 2026-06-10).
+    inf = cfg["model"]["inference"]
     posterior, meta = cached_fit(
-        cutoff=cutoff, store=store, backend=fk.get("backend", "advi"),
-        draws=fk.get("draws", 200), seed=fk.get("seed", cfg["seed"]),
-        advi_iters=fk.get("advi_iters", 2000),
+        cutoff=cutoff, store=store, backend=fk.get("backend", inf["backend"]),
+        draws=fk.get("draws", inf["draws"]), seed=fk.get("seed", cfg["seed"]),
+        advi_iters=fk.get("advi_iters", inf["advi_iters"]),
         cache_dir=fit_cache, config=cfg,
     )
     sim = simulate(cutoff, posterior, store,
