@@ -63,6 +63,7 @@ from wcmodel.backtest.baselines import elo_baseline_1x2
 from wcmodel.backtest.headroom import (
     add_gap_quartiles,
     assign_slices,
+    confed_pairing_detail,
     bootstrap_delta_ci,
     market_probs_from_odds,
     paired_rps,
@@ -465,6 +466,9 @@ def run_part_b(store, cfg: dict, *, allow_fresh_fit: bool = False) -> dict:
         "slices": slices_out,
         "reliability_fav": rel_fav,
         "reliability_draw": rel_draw,
+        # G1 follow-up: per confederation-pairing model-vs-Elo + reliability
+        # (evidence for the Jun-20 Phase-3 go/no-go).
+        "confed_detail": confed_pairing_detail(scored, seed=cfg["seed"]),
     }
 
 
@@ -611,6 +615,43 @@ def assemble_report(part_a: dict | None, part_b: dict | None, *, today: str) -> 
     return "\n".join(L)
 
 
+def format_confed_section(detail: list[dict], *, today: str) -> str:
+    """PURE markdown for the per-confederation-pairing detail (G1 follow-up #5).
+
+    Per pairing: paired model-vs-Elo RPS + bootstrap CI, then favorite-prob
+    reliability for the MODEL and the ELO reference side by side. Pairings under
+    the reliability floor show an explicit coverage note instead of a tiny table.
+    """
+    L: list[str] = []
+    L.append("")
+    L.append(f"## Part B addendum — confederation-pairing detail (added {today})")
+    L.append("")
+    L.append("> Evidence requested at G1 for the ~Jun-20 Phase-3 (squad anchor v0) go/no-go: "
+             "where cross-confederation calibration stands, model vs the Elo reference.")
+    L.append("")
+    L.append("| pairing | n | RPS_model | RPS_elo | ΔRPS (model−elo) | 95% CI |")
+    L.append("|---|--:|--:|--:|--:|---|")
+    for d in detail:
+        L.append(f"| {d['pair']} | {d['n']} | {_fmt(d['rps_model'])} | {_fmt(d['rps_elo'])} | "
+                 f"{_fmt(d['delta'])} | [{_fmt(d['lo95'])}, {_fmt(d['hi95'])}] |")
+    L.append("")
+    for d in detail:
+        if d["rel_model"] is None:
+            L.append(f"### {d['pair']} — reliability: coverage gap (n={d['n']} < 30; "
+                     "a curve at this n would be noise)")
+            L.append("")
+            continue
+        L.append(f"### {d['pair']} — favorite-prob reliability (n={d['n']}, 5 bins)")
+        L.append("")
+        L.append("| bin | n (model) | model pred | model obs | n (elo) | elo pred | elo obs |")
+        L.append("|---|--:|--:|--:|--:|--:|--:|")
+        for rm, re_ in zip(d["rel_model"], d["rel_elo"]):
+            L.append(f"| {rm['bin']} | {rm['n']} | {_fmt(rm['p_mean'], 3)} | {_fmt(rm['freq'], 3)} "
+                     f"| {re_['n']} | {_fmt(re_['p_mean'], 3)} | {_fmt(re_['freq'], 3)} |")
+        L.append("")
+    return "\n".join(L)
+
+
 # =========================================================================== #
 # main.
 # =========================================================================== #
@@ -621,10 +662,15 @@ def _default_out() -> str:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--part", choices=["A", "B", "all"], default="all",
-                    help="which part to run (A = market gap n=22; B = weakness map; all)")
+    ap.add_argument("--part", choices=["A", "B", "all", "confed"], default="all",
+                    help="which part to run (A = market gap n=22; B = weakness map; all; "
+                         "confed = Part-B compute, emit ONLY the confederation-pairing "
+                         "addendum section)")
     ap.add_argument("--out", default=None,
                     help="markdown output path (default reports/headroom_<today>.md)")
+    ap.add_argument("--append", action="store_true",
+                    help="append the generated markdown to --out instead of overwriting "
+                         "(the audited report keeps its manual audit sections)")
     ap.add_argument("--allow-fresh-fit", action="store_true",
                     help="Part B: if no config-matched posterior is on disk, fit ONE "
                          "fresh (production fidelity; minutes).")
@@ -643,16 +689,25 @@ def main(argv=None) -> int:
         part_a = run_part_a(store, cfg)
         print(f"[part A] n={part_a['n']} aggregate ΔRPS={part_a['aggregate']['delta']}",
               flush=True)
-    if args.part in ("B", "all"):
+    if args.part in ("B", "all", "confed"):
         store = store or get_persistent_store()
         print("[part B] stratified weakness map vs realized results ...", flush=True)
         part_b = run_part_b(store, cfg, allow_fresh_fit=args.allow_fresh_fit)
         print(f"[part B] n={part_b['n']} {part_b['posterior_src']}", flush=True)
 
-    md = assemble_report(part_a, part_b, today=date.today().isoformat())
+    if args.part == "confed":
+        md = format_confed_section(part_b["confed_detail"],
+                                   today=date.today().isoformat())
+    else:
+        md = assemble_report(part_a, part_b, today=date.today().isoformat())
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(md)
-    print(f"[report] wrote {out_path}", flush=True)
+    if args.append:
+        with out_path.open("a") as f:
+            f.write(md if md.endswith("\n") else md + "\n")
+        print(f"[report] appended to {out_path}", flush=True)
+    else:
+        out_path.write_text(md)
+        print(f"[report] wrote {out_path}", flush=True)
     return 0
 
 

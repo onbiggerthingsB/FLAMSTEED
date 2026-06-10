@@ -178,3 +178,44 @@ def market_probs_from_odds(h_odds: float, d_odds: float, a_odds: float) -> tuple
     """
     p = shin([float(h_odds), float(d_odds), float(a_odds)])
     return (float(p[0]), float(p[1]), float(p[2]))
+
+
+def confed_pairing_detail(scored: list[dict], *, seed: int = 0, bins: int = 5,
+                          min_n_rel: int = 30) -> list[dict]:
+    """Per confederation-pairing detail: paired model-vs-Elo RPS (+ bootstrap CI)
+    AND a favorite-prob reliability table for BOTH the model and the Elo reference.
+
+    ``scored`` rows are ``{"slice": {"confed_pair": str, ...}, "row": {p_model,
+    p_ref, outcome}}`` exactly as Part B builds them. Reliability is shown only
+    where the pairing has ``n >= min_n_rel`` (a reliability curve on a handful of
+    matches is noise — below the floor it is an explicit None / coverage gap,
+    never a tiny misleading table). Output sorted by n descending.
+    """
+    _OUT = ("H", "D", "A")
+    by_pair: dict[str, list[dict]] = {}
+    for sc in scored:
+        by_pair.setdefault(str(sc["slice"]["confed_pair"]), []).append(sc["row"])
+
+    def _rel(rows: list[dict], key: str) -> list[dict]:
+        probs, hits = [], []
+        for r in rows:
+            triple = r[key]
+            i = max(range(3), key=lambda j: triple[j])
+            probs.append(float(triple[i]))
+            hits.append(_OUT[i] == r["outcome"])
+        return reliability_table(probs, hits, bins=bins)
+
+    out: list[dict] = []
+    for pair, rows in by_pair.items():
+        pr = paired_rps(rows)
+        ci = bootstrap_delta_ci(rows, n_boot=2_000, seed=seed)
+        has_rel = pr["n"] >= min_n_rel
+        out.append({
+            "pair": pair, "n": pr["n"],
+            "rps_model": pr["rps_model"], "rps_elo": pr["rps_ref"],
+            "delta": ci["delta"], "lo95": ci["lo95"], "hi95": ci["hi95"],
+            "rel_model": _rel(rows, "p_model") if has_rel else None,
+            "rel_elo": _rel(rows, "p_ref") if has_rel else None,
+        })
+    out.sort(key=lambda d: -d["n"])
+    return out

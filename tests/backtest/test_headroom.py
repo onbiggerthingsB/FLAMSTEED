@@ -202,3 +202,35 @@ def test_market_probs_from_odds_matches_shin():
     want = tuple(shin([1.5, 4.2, 7.0]))
     assert got == pytest.approx(want, abs=1e-12)
     assert not math.isnan(sum(got))
+
+
+# --------------------------------------------------------------------------- #
+# confed_pairing_detail (G1 follow-up: per-pairing model-vs-Elo + reliability)
+# --------------------------------------------------------------------------- #
+def _sc(pair, p_model, p_ref, outcome):
+    return {"slice": {"confed_pair": pair}, "row": {"p_model": p_model, "p_ref": p_ref, "outcome": outcome}}
+
+
+def test_confed_pairing_detail_groups_and_scores():
+    # 3 UEFA-UEFA rows (model sharp + right), 2 cross-confed rows (model wrong-ish).
+    scored = [
+        _sc("UEFA-UEFA", (0.7, 0.2, 0.1), (0.5, 0.3, 0.2), "H"),
+        _sc("UEFA-UEFA", (0.6, 0.25, 0.15), (0.4, 0.3, 0.3), "H"),
+        _sc("UEFA-UEFA", (0.2, 0.3, 0.5), (0.3, 0.3, 0.4), "A"),
+        _sc("cross-confed", (0.8, 0.15, 0.05), (0.4, 0.3, 0.3), "A"),
+        _sc("cross-confed", (0.1, 0.2, 0.7), (0.3, 0.3, 0.4), "H"),
+    ]
+    out = headroom.confed_pairing_detail(scored, seed=0, bins=5, min_n_rel=3)
+    assert [d["pair"] for d in out] == ["UEFA-UEFA", "cross-confed"]   # sorted by n desc
+    uu = out[0]
+    assert uu["n"] == 3
+    # model beat elo on the UEFA-UEFA subset (sharper + right) -> delta < 0
+    assert uu["rps_model"] < uu["rps_elo"] and uu["delta"] < 0
+    assert uu["lo95"] <= uu["delta"] <= uu["hi95"]
+    # reliability present at n >= min_n_rel, absent (None) below it
+    assert uu["rel_model"] is not None and uu["rel_elo"] is not None
+    assert sum(r["n"] for r in uu["rel_model"]) == 3
+    cc = out[1]
+    assert cc["n"] == 2 and cc["rel_model"] is None and cc["rel_elo"] is None
+    # model badly wrong on cross-confed -> trails elo
+    assert cc["delta"] > 0
