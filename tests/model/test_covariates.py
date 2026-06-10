@@ -11,7 +11,7 @@ def test_config_has_covariate_block_with_defaults():
     assert cov["enabled"] == []                      # OFF by default: baseline is unchanged
     assert cov["beta_scale"] == 0.25                 # tight regularizing prior on each coefficient
     assert cov["host_k"] == 1.4                       # EMPIRICAL (P2b 2026-06-10): k_elo=1.422 [1.18,1.64], n=873; was the 0.5 assumption
-    assert cov["missing_indicator_for"] == ["travel_km", "altitude_m"]  # Q1
+    assert cov["missing_indicator_for"] == ["travel_km", "altitude_m", "accl_alt"]  # Q1 + P2a accl_alt
 
 
 def test_config_hosts_field_matches_the_host_country_constant():
