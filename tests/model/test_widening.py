@@ -374,3 +374,101 @@ def test_config_widening_keys_present_and_drive_both_mechanisms():
     # Drive (c) from a config-shaped dict (likelihood side is identity).
     wc = likelihood_weight(d, mechanism="c", strength=wd["strength"])
     assert np.array_equal(wc, d.weight)
+
+
+# ---------- P2c: per-tier likelihood weight (tier_weighted_weight) ----------
+
+
+def _design_mixed_tiers():
+    """4-match DesignData spanning friendly + non-friendly tiers, with distinct
+    base weights so a per-tier scale is visible per row. The tier-weight
+    multiplier keys each row by ``d.match_type``."""
+    import pandas as pd
+
+    mp = pd.DataFrame(
+        {
+            "match_id": ["m0", "m1", "m2", "m3"],
+            "date": pd.Timestamp("2020-01-01"),
+            "home_team": ["A", "B", "C", "D"],
+            "away_team": ["B", "C", "D", "A"],
+            "home_goals": [1, 2, 0, 1],
+            "away_goals": [0, 1, 0, 1],
+            "neutral": False,
+            "match_type": ["friendly", "wc_qualifier", "friendly", "continental_championship"],
+            "weight": [1.0, 2.0, 4.0, 8.0],
+            "home_provisional": False,
+            "away_provisional": False,
+        }
+    )
+    return build_design(mp)
+
+
+def test_tier_weight_absent_block_is_byte_identical():
+    """OFF state #1: no ``tier_w`` (None) -> the weight array is returned
+    UNCHANGED (byte-identical to d.weight), the all-1.0 off path."""
+    from wcmodel.model.widening import tier_weighted_weight
+
+    d = _design_mixed_tiers()
+    w = tier_weighted_weight(d.weight, d.match_type, None)
+    assert np.array_equal(w, d.weight)
+    assert w.dtype == d.weight.dtype
+
+
+def test_tier_weight_all_ones_block_is_byte_identical():
+    """OFF state #2: an explicit ALL-1.0 block -> byte-identical to d.weight (and
+    to the absent-block path). This is the load-bearing off invariant."""
+    from wcmodel.model.widening import tier_weighted_weight
+
+    d = _design_mixed_tiers()
+    tier_w = {t: 1.0 for t in ["friendly", "wc_qualifier", "continental_championship"]}
+    w = tier_weighted_weight(d.weight, d.match_type, tier_w)
+    assert np.array_equal(w, d.weight)
+
+
+def test_tier_weight_half_friendly_halves_friendlies_only():
+    """THE WEIGHTS-MOVE TEST WITH TEETH: tier_w[friendly]=0.5 halves EXACTLY the
+    friendly rows' weights (m0, m2) and leaves every NON-friendly row's weight
+    BIT-IDENTICAL (m1 wc_qualifier, m3 continental_championship)."""
+    from wcmodel.model.widening import tier_weighted_weight
+
+    d = _design_mixed_tiers()
+    w = tier_weighted_weight(d.weight, d.match_type, {"friendly": 0.5})
+    # Friendlies halved.
+    assert w[0] == d.weight[0] * 0.5     # m0 friendly
+    assert w[2] == d.weight[2] * 0.5     # m2 friendly
+    # Non-friendly rows BIT-identical (a tier absent from the block -> 1.0).
+    assert w[1] == d.weight[1]           # m1 wc_qualifier
+    assert w[3] == d.weight[3]           # m3 continental_championship
+
+
+def test_tier_weight_does_not_mutate_input():
+    """Returns a NEW array; the input weight array is not mutated in place."""
+    from wcmodel.model.widening import tier_weighted_weight
+
+    d = _design_mixed_tiers()
+    before = d.weight.copy()
+    w = tier_weighted_weight(d.weight, d.match_type, {"friendly": 0.5})
+    assert np.array_equal(d.weight, before)
+    assert w is not d.weight
+
+
+def test_tier_weight_unknown_tier_name_fails_loud():
+    """Strict validation: a key NOT in the closed tier universe is a config error
+    -> ValueError naming the bad tier. It is NEVER silently ignored (a typo that
+    never matches a row would silently no-op the intended down-weight)."""
+    from wcmodel.model.widening import tier_weighted_weight
+
+    d = _design_mixed_tiers()
+    with pytest.raises(ValueError) as exc:
+        tier_weighted_weight(d.weight, d.match_type, {"freindly": 0.5})  # typo
+    assert "freindly" in str(exc.value)
+
+
+def test_tier_weight_negative_weight_fails_loud():
+    """A negative tier weight would flip the likelihood's sign on those rows — a
+    config error, not silent. Raises ValueError."""
+    from wcmodel.model.widening import tier_weighted_weight
+
+    d = _design_mixed_tiers()
+    with pytest.raises(ValueError):
+        tier_weighted_weight(d.weight, d.match_type, {"friendly": -0.5})

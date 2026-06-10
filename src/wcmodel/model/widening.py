@@ -29,7 +29,61 @@ from __future__ import annotations
 import numpy as np
 from scipy.optimize import brentq
 
+from wcmodel.data.tiers import MATCH_TYPES
 from wcmodel.model.panel import DesignData
+
+
+def tier_weighted_weight(
+    weight: np.ndarray,
+    match_type: np.ndarray,
+    tier_w: dict | None,
+) -> np.ndarray:
+    """P2c: multiply the per-match likelihood weight by a per-TIER importance
+    weight — ``w_out[i] = weight[i] * tier_w.get(match_type[i], 1.0)``.
+
+    The likelihood weight is otherwise time-decay only (× the optional
+    mechanism-(a) provisional down-weight); this layers a tier-importance scale
+    on top so a noisy tier (e.g. friendlies) can be trusted less as a strength
+    measurement WITHOUT touching the rest of the panel. A tier ABSENT from
+    ``tier_w`` keeps multiplier 1.0 (unchanged).
+
+    OFF state is byte-identical, BOTH ways: ``tier_w is None`` (the block absent
+    from config) AND a block of all 1.0s return a COPY of ``weight`` that is
+    array-equal to the input — so the produced weight (and every object derived
+    from it) is bit-for-bit the pre-P2c result.
+
+    Validation is STRICT and fails LOUD (never a silent no-op):
+      * every key in ``tier_w`` MUST be a member of the closed tier universe
+        (``tiers.MATCH_TYPES``); an unknown name (e.g. a typo) raises
+        ``ValueError`` naming the bad key — a typo'd tier would otherwise never
+        match a row and silently skip the intended re-weighting.
+      * every value MUST be a finite, NON-NEGATIVE float; a negative multiplier
+        would flip the likelihood's sign on those rows, so it raises ``ValueError``
+        (matching mechanism-(a)'s fail-loud convention for ``likelihood_weight``).
+
+    Returns a NEW array (never mutates ``weight``).
+    """
+    w = np.asarray(weight, dtype=float).copy()
+    if not tier_w:
+        return w  # absent / empty block -> byte-identical off path
+    unknown = set(tier_w) - set(MATCH_TYPES)
+    if unknown:
+        raise ValueError(
+            f"likelihood_tier_weights has unknown tier name(s) {sorted(unknown)}; "
+            f"valid tiers are {sorted(MATCH_TYPES)}"
+        )
+    for tier, val in tier_w.items():
+        fv = float(val)
+        if not np.isfinite(fv) or fv < 0.0:
+            raise ValueError(
+                f"likelihood_tier_weights[{tier!r}] must be a finite, non-negative "
+                f"multiplier; got {val!r}"
+            )
+    # Vectorized per-row multiplier (default 1.0 for any tier not in the block).
+    mult = np.array(
+        [float(tier_w.get(t, 1.0)) for t in match_type], dtype=float
+    )
+    return w * mult
 
 
 def likelihood_weight(d: DesignData, *, mechanism: str, strength: float) -> np.ndarray:

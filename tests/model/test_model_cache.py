@@ -107,6 +107,74 @@ def test_cache_key_tracks_strength_prior_enabled(small_store, tmp_path):
     )
 
 
+def test_cache_key_tier_weights_off_states_match_baseline(small_store, tmp_path):
+    """P2c: the OFF states of ``model.likelihood_tier_weights`` must NOT invalidate
+    an existing cached posterior. Three configs must share ONE key:
+      * the block ABSENT entirely (the pre-P2c baseline),
+      * an explicit ALL-1.0 block, and
+      * an all-1.0 block listing only SOME tiers (still all 1.0).
+    So w=1.0 in the sweep is a cache HIT of the existing production posterior.
+
+    ``_cache_key_params`` hashes ``cfg["model"]`` whole, so a NAIVE add of an
+    all-1.0 block WOULD change the key. The key builder NORMALIZES the tier-weight
+    block — dropping it when absent/all-1.0 — so the off states are key-identical
+    to the baseline. Stubs hold feature_hash/git constant to isolate the model
+    block's contribution."""
+    base_cfg = load_config()
+    cfg_absent = copy.deepcopy(base_cfg)
+    cfg_absent["model"].pop("likelihood_tier_weights", None)
+    cfg_ones = copy.deepcopy(cfg_absent)
+    cfg_ones["model"]["likelihood_tier_weights"] = {
+        "friendly": 1.0, "wc_qualifier": 1.0, "wc_finals": 1.0,
+        "continental_championship": 1.0, "continental_qualifier": 1.0,
+        "nations_league": 1.0, "other": 1.0,
+    }
+    cfg_ones_partial = copy.deepcopy(cfg_absent)
+    cfg_ones_partial["model"]["likelihood_tier_weights"] = {"friendly": 1.0}
+
+    kw = dict(cutoff="2024-06-01", store=small_store, backend="advi", draws=80,
+              seed=0, advi_iters=2000, likelihood="dixon_coles", tune=1000)
+
+    with mock.patch("wcmodel.model.cache._feature_hash", return_value="ff" * 8), \
+         mock.patch("wcmodel.model.cache._git_commit", return_value="deadbeef"):
+        k_absent = content_key("posterior", _cache_key_params(**{**kw, "cfg": cfg_absent}))
+        k_ones = content_key("posterior", _cache_key_params(**{**kw, "cfg": cfg_ones}))
+        k_ones_partial = content_key(
+            "posterior", _cache_key_params(**{**kw, "cfg": cfg_ones_partial}))
+
+    assert k_absent == k_ones, (
+        "an explicit all-1.0 tier-weight block changed the cache key -> it would "
+        "force a needless refit and orphan the existing production posterior")
+    assert k_absent == k_ones_partial, "a partial all-1.0 block also must not move the key"
+
+
+def test_cache_key_tracks_nondefault_tier_weights(small_store, tmp_path):
+    """P2c complement: a NON-default tier-weight block (a value != 1.0) DOES change
+    the key — it changes the likelihood weights -> a different posterior, never a
+    stale serve. Two different non-default blocks also differ from each other."""
+    base_cfg = load_config()
+    cfg_off = copy.deepcopy(base_cfg)
+    cfg_off["model"].pop("likelihood_tier_weights", None)
+    cfg_half = copy.deepcopy(cfg_off)
+    cfg_half["model"]["likelihood_tier_weights"] = {"friendly": 0.5}
+    cfg_quarter = copy.deepcopy(cfg_off)
+    cfg_quarter["model"]["likelihood_tier_weights"] = {"friendly": 0.25}
+
+    kw = dict(cutoff="2024-06-01", store=small_store, backend="advi", draws=80,
+              seed=0, advi_iters=2000, likelihood="dixon_coles", tune=1000)
+
+    with mock.patch("wcmodel.model.cache._feature_hash", return_value="ff" * 8), \
+         mock.patch("wcmodel.model.cache._git_commit", return_value="deadbeef"):
+        k_off = content_key("posterior", _cache_key_params(**{**kw, "cfg": cfg_off}))
+        k_half = content_key("posterior", _cache_key_params(**{**kw, "cfg": cfg_half}))
+        k_quarter = content_key("posterior", _cache_key_params(**{**kw, "cfg": cfg_quarter}))
+
+    assert k_off != k_half, (
+        "a non-default tier-weight block does not change the key -> a down-weighted "
+        "fit could be served from the baseline cache entry")
+    assert k_half != k_quarter, "two distinct non-default tier blocks must yield distinct keys"
+
+
 def test_cache_key_tracks_passed_config_elo_block(small_store, tmp_path):
     """D6 complement: a passed ``config`` whose ONLY difference is its ``elo``
     block DOES change the key -- because elo is now keyed from the PASSED config

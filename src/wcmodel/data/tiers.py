@@ -32,6 +32,21 @@ _REF_PATH = Path(__file__).resolve().parent / "ref" / "confederations.csv"
 #: Returned by ``confederation`` for any team absent from the reference table.
 UNKNOWN_CONFEDERATION = "Unknown"
 
+#: The CLOSED universe of labels ``match_type`` can emit (its docstring's list).
+#: A single source of truth so any consumer that keys on a tier (e.g. the P2c
+#: ``model.likelihood_tier_weights`` block) can validate its keys against the
+#: SAME set the panel is tagged with — an unknown tier name then fails loud
+#: instead of silently never matching a row. Keep in lockstep with ``match_type``.
+MATCH_TYPES = frozenset({
+    "wc_finals",
+    "wc_qualifier",
+    "continental_championship",
+    "continental_qualifier",
+    "nations_league",
+    "friendly",
+    "other",
+})
+
 
 @lru_cache(maxsize=1)
 def _confederation_map() -> dict[str, str]:

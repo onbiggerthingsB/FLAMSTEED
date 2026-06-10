@@ -30,7 +30,7 @@ from wcmodel.model.likelihoods import bp_loglik_pt, dc_loglik_pt
 from wcmodel.model.panel import DesignData, build_design, to_match_panel
 from wcmodel.model.posterior import Posterior
 from wcmodel.model.volatility_diagnostic import count_volatility_arm
-from wcmodel.model.widening import likelihood_weight
+from wcmodel.model.widening import likelihood_weight, tier_weighted_weight
 
 
 # Which side(s) a covariate modifies. A per-team covariate's array (d.cov[name])
@@ -364,6 +364,12 @@ def fit(
         d,
         mechanism=cfg["model"]["widening"]["mechanism"],
         strength=cfg["model"]["widening"]["strength"],
+    )
+    # P2c per-tier importance weight: w = (decay × provisional-downweight) × tier_w[tier].
+    # ABSENT block (None) or an all-1.0 block -> byte-identical (returns w unchanged);
+    # an unknown tier name or a negative multiplier fails loud here, before sampling.
+    w = tier_weighted_weight(
+        w, d.match_type, cfg["model"].get("likelihood_tier_weights")
     )
     model = build_model(d, likelihood=likelihood, weight=w, config=cfg)
     idata = sample(

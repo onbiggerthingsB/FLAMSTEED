@@ -170,6 +170,37 @@ def _posterior_from_netcdf(path: Path, *, teams, likelihood, provisional_teams,
     )
 
 
+def _normalized_model_for_key(model: dict) -> dict:
+    """The ``model`` block normalized for the posterior cache key.
+
+    P2c: ``model.likelihood_tier_weights`` is an OFF-state-byte-identical knob —
+    an ABSENT block AND an all-1.0 block both leave the likelihood weights (and
+    thus the posterior) bit-identical to the pre-P2c baseline. The cache key
+    hashes ``model`` whole, so a NAIVE include would make an all-1.0 block a
+    DIFFERENT key — needlessly orphaning the existing production posterior and
+    forcing a refit (and making the sweep's w=1.0 arm a miss instead of the
+    intended hit of the production fit).
+
+    So we CANONICALIZE the tier-weight block before keying: drop any tier whose
+    multiplier is exactly 1.0, and drop the key entirely if nothing non-default
+    remains. The key then depends ONLY on the tiers that actually move a weight —
+    an off-state (absent or all-1.0) hashes identically to the baseline, while any
+    non-default value still rides into the key (a real posterior change -> a miss,
+    never a stale serve). This is the ONLY model field normalized; everything else
+    is hashed verbatim.
+    """
+    m = dict(model)
+    tw = m.get("likelihood_tier_weights")
+    if tw is None:
+        return m
+    nondefault = {k: v for k, v in tw.items() if float(v) != 1.0}
+    if nondefault:
+        m["likelihood_tier_weights"] = nondefault
+    else:
+        m.pop("likelihood_tier_weights", None)   # all-1.0 (or empty) -> off -> drop
+    return m
+
+
 def _cache_key_params(*, cutoff, store, backend, draws, seed, advi_iters,
                       likelihood, tune, cfg, feature_cache_dir=None) -> dict:
     """Build the exhaustive content-key params for a posterior fit.
@@ -181,6 +212,11 @@ def _cache_key_params(*, cutoff, store, backend, draws, seed, advi_iters,
     ``cfg.elo`` (e.g. a lockbox K/T sweep) invalidate the cache correctly and
     forbids recording an elo the computation never used (the P2-T8 stale-serve
     lesson). Every other field is unchanged from the original exhaustive key.
+
+    P2c: the ``model`` block is keyed through ``_normalized_model_for_key`` so an
+    OFF-state ``likelihood_tier_weights`` (absent or all-1.0) hashes identically to
+    the pre-P2c baseline (no needless refit / cache orphan), while any non-default
+    tier multiplier still changes the key (a real posterior change -> a miss).
     """
     return {
         "cutoff": str(pd.Timestamp(cutoff)),
@@ -190,7 +226,7 @@ def _cache_key_params(*, cutoff, store, backend, draws, seed, advi_iters,
         "tune": tune,
         "seed": seed,
         "advi_iters": advi_iters,
-        "model": cfg["model"],
+        "model": _normalized_model_for_key(cfg["model"]),
         "elo": cfg["elo"],                       # D6: threaded cfg, not global disk
         "windows": cfg["windows"],
         "feature_hash": _feature_hash(cutoff, store, cfg,

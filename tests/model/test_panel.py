@@ -32,3 +32,18 @@ def test_design_indexes_teams_and_carries_arrays(small_store):
     assert d.home_goals.dtype.kind == "i" and d.weight.dtype.kind == "f"
     assert d.neutral.dtype == bool
     assert d.home_provisional.shape == (n,) and d.away_provisional.dtype == bool
+
+
+def test_design_carries_match_type_aligned_to_rows(small_store):
+    """P2c: build_design threads the panel's per-match tier label onto
+    DesignData.match_type, aligned to the same row order as the other arrays —
+    so the tier-weight multiplier can key each match's weight by its tier."""
+    mp = to_match_panel(features.build("2024-06-01", small_store))
+    d = build_design(mp)
+    n = len(mp)
+    assert d.match_type.shape == (n,)
+    # Same row order as match_panel (and as home_idx etc.).
+    assert list(d.match_type) == list(mp["match_type"])
+    # Every label is a member of the closed tier universe (no stray strings).
+    from wcmodel.data.tiers import MATCH_TYPES
+    assert set(d.match_type) <= MATCH_TYPES

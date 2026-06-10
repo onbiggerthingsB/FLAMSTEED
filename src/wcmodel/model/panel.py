@@ -91,6 +91,8 @@ class DesignData:
     cov: dict[str, np.ndarray] = field(default_factory=dict)        # name -> standardized per-row value (already masked to 0 where absent)
     cov_mask: dict[str, np.ndarray] = field(default_factory=dict)   # name -> 1.0 where observed, else 0.0
     elo_z: np.ndarray | None = None        # per-team z-scored Elo strength, aligned to `teams` (None/zeros = no anchor)
+    match_type: np.ndarray = field(        # per-match tier label (tiers.match_type), aligned to rows; empty when omitted
+        default_factory=lambda: np.empty(0, dtype=object))
 
 def build_design(
     match_panel: pd.DataFrame,
@@ -128,4 +130,11 @@ def build_design(
         cov=dict(cov) if cov else {},
         cov_mask=dict(cov_mask) if cov_mask else {},
         elo_z=elo_z,
+        # Per-match tier label (P2c). The panel always carries ``match_type``
+        # (``to_match_panel`` selects it off the is_home row); thread it onto the
+        # design aligned to row order so the tier-weight multiplier can key each
+        # match's likelihood weight by its tier. This adds a NEW field only — it
+        # touches no existing array, so the design stays byte-identical for every
+        # consumer that does not read ``match_type`` (the off path).
+        match_type=match_panel["match_type"].to_numpy(dtype=object),
     )
