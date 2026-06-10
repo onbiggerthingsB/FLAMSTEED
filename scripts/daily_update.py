@@ -87,6 +87,15 @@ def _today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+def _now() -> pd.Timestamp:
+    """The operator's wall-clock instant as a tz-NAIVE-UTC Timestamp (the store's
+    timestamp convention). Stamped ONCE per run in ``main`` and threaded into BOTH
+    the manual-cutoff rule and the manual rows' ``observed_at`` — the SAME instant,
+    so 'visible at the resolved cutoff' is checkable, never racy. Monkeypatched in
+    tests to freeze time."""
+    return pd.Timestamp(datetime.now(timezone.utc)).tz_convert("UTC").tz_localize(None)
+
+
 def _resolve_cutoff(cutoff: str | None) -> str:
     """The snapshot as-of instant. Default: today 00:00 UTC (``YYYY-MM-DDT00:00:00Z``)."""
     if cutoff:
@@ -94,7 +103,8 @@ def _resolve_cutoff(cutoff: str | None) -> str:
     return f"{_today()}T00:00:00Z"
 
 
-def _resolve_cutoff_with_manual(cutoff: str | None, manual_rows) -> str:
+def _resolve_cutoff_with_manual(cutoff: str | None, manual_rows, *,
+                                now: str | pd.Timestamp | None = None) -> str:
     """Resolve the as-of cutoff, accounting for the manual-results CONDITIONING rule.
 
     THE LOAD-BEARING CORRECTNESS DETAIL. Both the training panel (``features.build``)
@@ -112,30 +122,64 @@ def _resolve_cutoff_with_manual(cutoff: str | None, manual_rows) -> str:
     on/after that cutoff day exists (the manual rows ARE the latest results), and the
     leakage gate still asserts the max valid-played date is strictly before it.
 
+    BOTH bitemporal axes must clear the cutoff (the 2026-06-10 dress-rehearsal
+    finding). The PIT read (``store.read(cutoff)``) returns only rows with
+    ``observed_at <= cutoff`` — and a manual row's ``observed_at`` is the ENTRY
+    instant ``now``. A result entered AFTER the date-implied midnight (a 02:00Z
+    kickoff hand-entered at 05:00Z — routine at a North-American World Cup) would be
+    INVISIBLE at that cutoff: gate green, bundle silently UNconditioned. So the
+    implied cutoff is the next UTC midnight after BOTH the latest match date AND
+    ``now``; day-flooring keeps training/conditioning correct either way.
+
     If the operator DID pass an explicit ``--cutoff`` that is NOT strictly after some
     manual row's date, that row can NEVER condition at the chosen cutoff — an operator
-    error, so we FAIL LOUD (``SystemExit``) rather than silently no-op."""
+    error, so we FAIL LOUD (``SystemExit``) rather than silently no-op. Likewise an
+    explicit ``--cutoff`` EARLIER than the entry instant ``now``: the rows' observed_at
+    would be past the PIT read — same silent hole, same loud abort."""
     if not manual_rows:
         return _resolve_cutoff(cutoff)
+    now_ts = _now() if now is None else pd.Timestamp(now)
+    if now_ts.tz is not None:
+        now_ts = now_ts.tz_convert("UTC").tz_localize(None)
     max_date = max(pd.Timestamp(r.date).normalize() for r in manual_rows)
-    implied = (max_date + pd.Timedelta(days=1)).strftime("%Y-%m-%dT00:00:00Z")
+    by_date = max_date + pd.Timedelta(days=1)
     if cutoff is None:
-        print(f"[manual] --manual-results given without --cutoff: implying cutoff="
-              f"{implied} (= max manual date {max_date.date()} + 1 day) so today's "
-              f"played results CONDITION the sim (strict `date < cutoff_day` rule).")
+        by_entry = now_ts.normalize() + pd.Timedelta(days=1)  # next UTC midnight > now
+        implied_ts = max(by_date, by_entry)
+        implied = implied_ts.strftime("%Y-%m-%dT00:00:00Z")
+        if implied_ts == by_date:
+            print(f"[manual] --manual-results given without --cutoff: implying cutoff="
+                  f"{implied} (= max manual date {max_date.date()} + 1 day) so today's "
+                  f"played results CONDITION the sim (strict `date < cutoff_day` rule).")
+        else:
+            print(f"[manual] --manual-results given without --cutoff: LATE ENTRY — now "
+                  f"({now_ts}) is past (max manual date)+1d ({by_date.date()} 00:00Z), so "
+                  f"the rows' observed_at would be INVISIBLE to the PIT read there. "
+                  f"Implying cutoff={implied} (next UTC midnight after the entry time) so "
+                  f"the hand-entered results are BOTH PIT-visible AND condition the sim.")
         return implied
     # Explicit cutoff: enforce it is strictly after EVERY manual row's date, else the
     # row would be silently excluded from conditioning — fail loud.
-    cut_day = pd.Timestamp(cutoff)
-    if cut_day.tz is not None:
-        cut_day = cut_day.tz_convert("UTC").tz_localize(None)
-    cut_day = cut_day.normalize()
+    cut = pd.Timestamp(cutoff)
+    if cut.tz is not None:
+        cut = cut.tz_convert("UTC").tz_localize(None)
+    cut_day = cut.normalize()
     if cut_day <= max_date:
         print(f"[manual] ABORT: --cutoff {cutoff} (day {cut_day.date()}) is not strictly "
               f"after the latest manual-row match date {max_date.date()} — that result "
               f"can NEVER condition the sim (the strict `date < cutoff_day` rule excludes "
               f"a same-day-or-later match). Use --cutoff >= {(max_date + pd.Timedelta(days=1)).date()}"
               f"T00:00:00Z, or omit --cutoff to auto-imply it.", file=sys.stderr)
+        raise SystemExit(2)
+    # Explicit cutoff: enforce it is at/after the entry instant, else the manual rows
+    # (observed_at = now) are invisible to the PIT read — silently unconditioned.
+    if cut < now_ts:
+        print(f"[manual] ABORT: --cutoff {cutoff} is EARLIER than the entry time "
+              f"({now_ts}). The manual rows are written observed_at=now, and the "
+              f"bitemporal PIT read at the cutoff only sees observed_at <= cutoff — "
+              f"the hand-entered results would be INVISIBLE and the bundle would build "
+              f"silently UNconditioned. Use --cutoff >= now, or omit --cutoff to "
+              f"auto-imply the next UTC midnight.", file=sys.stderr)
         raise SystemExit(2)
     return cutoff
 
@@ -313,7 +357,11 @@ def main(argv: list[str] | None = None) -> int:
     # Resolve the cutoff, accounting for the manual-conditioning rule (the load-bearing
     # `date < cutoff_day` detail — see _resolve_cutoff_with_manual). With manual rows and
     # no explicit --cutoff, this implies (max manual date)+1 day so today's finals condition.
-    cutoff = _resolve_cutoff_with_manual(args.cutoff, manual_rows)
+    # ONE wall-clock stamp per run: the SAME instant is the manual rows' observed_at
+    # AND the `now` the cutoff rule guards against — so "PIT-visible at the resolved
+    # cutoff" holds by construction (no second now() call can race past the cutoff).
+    run_now = _now()
+    cutoff = _resolve_cutoff_with_manual(args.cutoff, manual_rows, now=run_now)
 
     if args.dry_run:
         print("[daily_update] DRY-RUN — printing the plan, executing nothing.")
@@ -366,7 +414,7 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_config()
     # The operator's entry time `now` — the manual rows' observed_at (the real-ingest
     # vector: a result is observed when hand-entered; valid_as_of stays the match date).
-    manual_observed_at = datetime.now(timezone.utc).isoformat()
+    manual_observed_at = run_now.isoformat()
     print(f"[daily_update] cutoff={cutoff}; martj42_commit={commit} ({commit_source}); "
           f"manual_rows={0 if manual_rows is None else len(manual_rows)}; "
           f"steps: {' -> '.join(STEP_PLAN)}")

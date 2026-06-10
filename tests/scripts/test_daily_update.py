@@ -16,6 +16,7 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 _MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "daily_update.py"
@@ -188,9 +189,19 @@ def test_manual_dry_run_validates_and_ingests_nothing(mod, monkeypatch, capsys, 
     assert f"{_M_HOME}" in out and f"{_M_AWAY}" in out  # the parsed fixture is shown
 
 
+def _freeze_now(mod, monkeypatch, iso: str) -> None:
+    """Freeze the script's wall clock (``_now``) — the manual-results cutoff rule and
+    ``observed_at`` are clock-dependent BY DESIGN (a result is observed when entered),
+    so these tests pin behaviour at an explicit instant instead of the real clock.
+    ``raising=False``: on a pre-fix tree ``_now`` does not exist yet, and the RED run
+    must show the real behavioural gap, not an AttributeError."""
+    monkeypatch.setattr(mod, "_now", lambda: pd.Timestamp(iso), raising=False)
+
+
 def test_manual_threads_rows_and_observed_at_into_ingest(mod, monkeypatch, tmp_path):
     calls: list = []
     _kw_recorders(mod, monkeypatch, calls)
+    _freeze_now(mod, monkeypatch, "2026-06-11T23:00:00")  # entry before the cutoff instant
     csv = _manual_csv(tmp_path)
     # Explicit cutoff strictly after the match date so the manual row can condition.
     rc = mod.main(["--manual-results", str(csv), "--cutoff", "2026-06-12T00:00:00Z"])
@@ -207,6 +218,7 @@ def test_manual_no_cutoff_implies_next_day_so_today_conditions(mod, monkeypatch,
     the sim conditions on it."""
     calls: list = []
     _kw_recorders(mod, monkeypatch, calls)
+    _freeze_now(mod, monkeypatch, "2026-06-11T23:00:00")  # entry before D+1 midnight
     csv = _manual_csv(tmp_path)
     rc = mod.main(["--manual-results", str(csv)])       # no --cutoff
     assert rc == 0
@@ -216,6 +228,71 @@ def test_manual_no_cutoff_implies_next_day_so_today_conditions(mod, monkeypatch,
     assert cutoff == "2026-06-12T00:00:00Z", (
         f"manual row dated {_M_DATE} must imply cutoff D+1 (2026-06-12T00:00:00Z) so "
         f"it conditions; got {cutoff}")
+
+
+def test_manual_late_entry_bumps_implied_cutoff_past_entry_time(mod, monkeypatch, tmp_path):
+    """THE LATE-ENTRY RULE (dress-rehearsal finding, 2026-06-10): a result entered
+    AFTER the date-implied midnight (e.g. a 02:00Z kickoff hand-entered at 05:00Z)
+    gets ``observed_at = now`` > the date-implied cutoff — the bitemporal
+    POINT_IN_TIME read at that cutoff can NEVER see it, the leakage gate stays green,
+    and the bundle builds silently UNconditioned. The implied cutoff must therefore
+    be the next UTC midnight after BOTH the latest match date AND the entry time."""
+    calls: list = []
+    _kw_recorders(mod, monkeypatch, calls)
+    _freeze_now(mod, monkeypatch, "2026-06-12T05:00:00")  # entry AFTER D+1 midnight
+    rc = mod.main(["--manual-results", str(_manual_csv(tmp_path))])
+    assert rc == 0
+    gate = next(c for c in calls if c[0] == "gate")
+    cutoff = gate[1][1]
+    assert cutoff == "2026-06-13T00:00:00Z", (
+        f"entry at 2026-06-12T05:00Z must bump the implied cutoff to the next UTC "
+        f"midnight (2026-06-13T00:00:00Z) so the rows stay PIT-visible; got {cutoff}")
+    ingest = next(c for c in calls if c[0] == "ingest")
+    observed = pd.Timestamp(ingest[2]["manual_observed_at"])
+    assert observed <= pd.Timestamp(cutoff.replace("Z", "")), (
+        "observed_at must be <= the resolved cutoff (PIT-visible), or the build "
+        "conditions on nothing")
+
+
+def test_manual_rows_visible_in_store_read_at_resolved_cutoff(mod, monkeypatch, tmp_path):
+    """END-TO-END TEETH for the late-entry rule: ingest with the SAME (cutoff,
+    observed_at) pair ``main`` would use at a late entry instant, then PIT-read the
+    store at the resolved cutoff — the hand-entered row MUST be visible. This is the
+    exact silent failure the dress rehearsal caught: on the pre-fix tree the resolved
+    cutoff is 2026-06-12T00:00:00Z, observed_at is 05:00Z, and the read returns
+    NOTHING (gate green, bundle unconditioned)."""
+    from wcmodel.data.store import BitemporalStore
+    from wcmodel.live.manual_results import ingest_manual_rows, validate_manual_csv
+
+    _freeze_now(mod, monkeypatch, "2026-06-12T05:00:00")
+    rows = validate_manual_csv(_manual_csv(tmp_path))
+    now = mod._now() if hasattr(mod, "_now") else pd.Timestamp("2026-06-12T05:00:00")
+    try:
+        cutoff = mod._resolve_cutoff_with_manual(None, rows, now=now)
+    except TypeError:  # pre-fix signature has no ``now`` kwarg — resolve as-is (RED)
+        cutoff = mod._resolve_cutoff_with_manual(None, rows)
+    store = BitemporalStore(root=tmp_path / "store")
+    ingest_manual_rows(store, rows, observed_at=now)
+    read = store.read("results", cutoff=cutoff)
+    hit = read[(read["home_team"] == _M_HOME) & (read["away_team"] == _M_AWAY)]
+    assert len(hit) == 1, (
+        f"hand-entered row INVISIBLE at the resolved cutoff {cutoff} "
+        f"(observed_at={now}) — the silently-unconditioned-bundle bug")
+
+
+def test_manual_explicit_cutoff_before_entry_time_fails_loud(mod, monkeypatch, tmp_path):
+    """An explicit --cutoff EARLIER than the entry instant can never see the manual
+    rows (PIT: ``observed_at = now`` > cutoff) — same silent hole via the explicit
+    path, so it must fail LOUD (non-zero exit), never build unconditioned."""
+    calls: list = []
+    _kw_recorders(mod, monkeypatch, calls)
+    _freeze_now(mod, monkeypatch, "2026-06-12T05:00:00")
+    # Strictly after the match date (passes the OLD date-level check) but BEFORE now.
+    with pytest.raises(SystemExit) as ei:
+        mod.main(["--manual-results", str(_manual_csv(tmp_path)),
+                  "--cutoff", "2026-06-12T00:00:00Z"])
+    assert ei.value.code != 0
+    assert not any(c[0] in ("ingest", "snapshot") for c in calls)  # aborted early
 
 
 def test_manual_bad_explicit_cutoff_fails_loud(mod, monkeypatch, tmp_path):
