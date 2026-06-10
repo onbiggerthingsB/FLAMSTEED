@@ -5,7 +5,7 @@
 > the live odds layer, the +EV value-betting scanner, and the Svelte dashboard UI — including the
 > honest empirical findings, the binding engineering rules, and how to run it all. It is written so
 > that an AI assistant (e.g. Claude on claude.ai) with **no repository access** can fully understand
-> the system, reason about it, and help extend it. Last updated: **2026-06-09** (main @ `fa78838`).
+> the system, reason about it, and help extend it. Last updated: **2026-06-10** (main @ `fa78838`).
 
 ---
 
@@ -173,7 +173,9 @@ git in the key — a key omission here once caused a real stale-serve bug, since
 **WC-2026 bracket** (`config/tournament_2026.yaml`): programmatically built from openfootball,
 validated — 12 groups × 4, 104 matches, 16 venues with countries, the full knockout tree
 including the two-path R32 bracket and third-place best-8 qualification. Host home games
-(USA/Mexico/Canada in-country) get `host_k = 0.5` × home advantage; everything else is neutral.
+(USA/Mexico/Canada in-country) get `host_k = 1.4` × home advantage — empirically calibrated
+(P2b 2026-06-10: k_elo=1.422, 95% CI [1.18, 1.64] over 873 finals-tier host games; the old 0.5
+assumption was outside the CI); everything else is neutral.
 
 ---
 
@@ -474,7 +476,7 @@ model:
   likelihood: dixon_coles           # | bivariate_poisson
   neutral_home_adv_fraction: 0.5    # the neutral-venue fix (§5.4)
   strength_prior: {enabled: true, source: elo, k_att: 0.6, k_def: 0.6}   # the anchor (§5.2)
-  covariates: {enabled: [], host_k: 0.5, hosts: [United States, Mexico, Canada]}
+  covariates: {enabled: [], host_k: 1.4, hosts: [United States, Mexico, Canada]}   # empirical (P2b): k_elo=1.422 [1.18,1.64], n=873
   prior:      {sigma_att: 0.5, sigma_def: 0.5, home_loc: 0.25, rho_scale: 0.1}
   widening:   {mechanism: c, strength: 0.5}     # provisional-team predictive inflation
   inference:  {backend: advi, advi_iters: 30000, draws: 1000}

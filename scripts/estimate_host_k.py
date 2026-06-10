@@ -67,7 +67,9 @@ FULL_CUTOFF = "2026-06-10T00:00:00Z"      # as-of read for the FULL settled stor
 EXCLUDE_FROM = "2026-01-01"               # WC-2026 host games not yet played.
 FINALS_TIERS = ("wc_finals", "continental_championship")
 N_BOOT = 2000                             # the brief: bootstrap n_boot >= 2000.
-CURRENT_HOST_K = 0.5                      # config/config.yaml model.covariates.host_k.
+CURRENT_HOST_K = 0.5                      # the PRE-ADOPTION baseline (config adopted 1.4 on
+                                          # 2026-06-10 per this script's estimate); kept at 0.5 so
+                                          # the sensitivity always contrasts old-assumption vs new.
 
 # The sensitivity sim reuses a config-matched production posterior; prefer the
 # 2026-06-10 cutoff (matches the current production state) and fall back to 06-07.
