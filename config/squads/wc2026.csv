@@ -4,8 +4,12 @@
 #
 # SOURCE: Wikipedia "2026 FIFA World Cup squads"
 #   (https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_squads), accessed 2026-06-10.
-#   The announced final 26-man squads (squad deadline 2026-06-02). Cutoff for club-Elo
-#   join: 2026-06-10 (clubelo_20260610.csv).
+#   The announced final 26-man squads (FIFA submission deadline 2026-06-02; these are
+#   the FINAL lists as amended through the access date, not the deadline-day
+#   submissions). Cutoff for club-Elo join: 2026-06-10 (clubelo_20260610.csv).
+# COUNTS: 46 of 48 teams carry 26 players. Argentina and Austria carry 25 —
+#   SOURCE-FAITHFUL: a post-deadline withdrawal each with no replacement registered
+#   at the access date. NOT data loss; do not "fix" to 26.
 # NOTE: the real WC-2026 draw matches config/tournament_2026.yaml's 48-team field and group
 #   structure EXACTLY (Groups A-L; incl. Czech Republic, Sweden, Turkey, Bosnia, Cape Verde,
 #   Curaçao, Haiti), so every team is an ANNOUNCED FINALS squad — no most-recent-call-up

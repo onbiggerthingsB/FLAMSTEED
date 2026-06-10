@@ -179,3 +179,70 @@ def test_zscore_nan_mean_treated_as_uncovered():
     z = zscore_covered(means, has)
     assert z["X"] == 0.0
     assert not any(math.isnan(v) for v in z.values())
+
+
+# --------------------------------------------------------------------------- #
+# Snapshot CONTENT tests — check (a) resolution (2026-06-11).                  #
+#                                                                              #
+# The clubelo `/D` endpoint returns ratings ENTERING day D — matches strictly  #
+# before D — i.e. exactly this repo's `read(cutoff=D)` convention. Verified    #
+# empirically by the D-1 re-pull (prereg addendum): every D-1 vs D diff was a  #
+# real club match played ON D-1 (exact zero-sum Elo-exchange pairs; changed    #
+# validity windows close at D-1 and open at D). These tests pin the structural #
+# no-look-ahead property of the COMMITTED snapshot files themselves, so a      #
+# future re-pull or edit cannot silently smuggle post-tournament-start info    #
+# into the sweep's validation anchors.                                         #
+# --------------------------------------------------------------------------- #
+import csv as _csv
+import io as _io
+from pathlib import Path as _Path
+
+_SQUADS_DIR = _Path(__file__).resolve().parents[2] / "config" / "squads"
+
+#: (snapshot file, API endpoint date D, the tournament's FIRST match day).
+#: WC-2022 / Euro-2024: D == opening day (ratings entering it: matches < D).
+#: WC-2026: D = 2026-06-10, strictly before the 2026-06-11 opener.
+_SNAPSHOT_BOUNDS = [
+    ("clubelo_20221120.csv", "2022-11-20", "2022-11-20"),
+    ("clubelo_20240614.csv", "2024-06-14", "2024-06-14"),
+    ("clubelo_20260610.csv", "2026-06-10", "2026-06-11"),
+]
+
+
+def _snapshot_rows(name: str) -> list[dict]:
+    text = (_SQUADS_DIR / name).read_text()
+    data = "\n".join(l for l in text.splitlines() if not l.startswith("#"))
+    return list(_csv.DictReader(_io.StringIO(data)))
+
+
+def test_snapshots_contain_no_post_endpoint_rating_window():
+    """No rating window in any committed snapshot opens AFTER its endpoint date D:
+    a `From > D` row would mean a match on/after D (i.e. tournament-time info)
+    contributed to the rating — look-ahead for the held-out evaluation."""
+    for name, endpoint, _start in _SNAPSHOT_BOUNDS:
+        rows = _snapshot_rows(name)
+        assert len(rows) > 500, f"{name}: implausibly few rows ({len(rows)})"
+        bad = [r["Club"] for r in rows if r["From"] > endpoint]
+        assert not bad, (
+            f"{name}: {len(bad)} rating window(s) open after {endpoint} "
+            f"(post-endpoint info): {bad[:5]}")
+
+
+def test_snapshot_endpoints_never_exceed_tournament_start():
+    """The endpoint date D never exceeds the tournament's first match day, so
+    (with matches-strictly-before-D semantics) no tournament match can be in
+    the ratings. ISO strings compare lexicographically."""
+    for name, endpoint, start in _SNAPSHOT_BOUNDS:
+        assert endpoint <= start, f"{name}: endpoint {endpoint} > first match day {start}"
+
+
+def test_snapshot_provenance_headers_name_their_endpoint():
+    """Each snapshot's provenance header names the exact /D endpoint it claims —
+    the date in the filename, the header, and the bound table must agree."""
+    for name, endpoint, _start in _SNAPSHOT_BOUNDS:
+        head = "\n".join(l for l in (_SQUADS_DIR / name).read_text().splitlines()
+                         if l.startswith("#"))
+        assert f"api.clubelo.com/{endpoint}" in head, (
+            f"{name}: provenance header does not name the {endpoint} endpoint")
+        assert endpoint.replace("-", "") in name, (
+            f"{name}: filename does not carry the endpoint date {endpoint}")
