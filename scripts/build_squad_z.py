@@ -346,6 +346,16 @@ def assemble_report(tournaments: dict[str, dict], alias_map_size: int, as_of: st
         out.append(_coverage_table(t["per_confederation"]))
         out.append("")
         if tkey == "wc2026":
+            out.append(
+                "_The accepted-limits evidence (spec §0/§5): clubelo.com covers European "
+                "club leagues densely and non-European leagues sparsely, so coverage tracks "
+                "confederation — UEFA is near-complete while AFC / CONCACAF / OFC and the "
+                "domestic-league CAF & CONMEBOL sides fall thin. This is **not** missing-at-"
+                "random: coverage correlates with strength, so masked teams keep their "
+                "pure-Elo anchor (squad_z×has_squad=0) rather than receiving an imputed "
+                "average squad that would spuriously inflate weak all-domestic sides._"
+            )
+            out.append("")
             out.append("### 2026 `squad_z` — top 10 / bottom 5 (covered teams)")
             out.append("")
             out.append(_zscore_table(t["squad_z"], t["has_squad"], top_n=10, bottom_n=5,
