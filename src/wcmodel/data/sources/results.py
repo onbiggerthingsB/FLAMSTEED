@@ -18,7 +18,9 @@ from wcmodel.data.cache import cached_pull
 from wcmodel.data.store import BitemporalStore, Policy
 
 # Pinned to a specific commit (never `master`) so a re-pull is reproducible.
-MARTJ42_COMMIT = "dad6874bb720e23cccdf696f057aa64fa5471445"
+# Bumped 2026-06-09 (GitHub API: latest master = 6b6f8e9f, committed 2026-06-09T07:12Z)
+# to ingest results through today before WC-2026 kickoff (Phase 0 §1).
+MARTJ42_COMMIT = "6b6f8e9f321414957cc17861d8c2dbf25c4437b0"
 MARTJ42_RAW_URL = (
     "https://raw.githubusercontent.com/martj42/international_results/"
     f"{MARTJ42_COMMIT}/results.csv"
