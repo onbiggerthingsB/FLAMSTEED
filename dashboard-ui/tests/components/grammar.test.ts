@@ -59,10 +59,44 @@ test('Estimate with a null value renders a dash, no naked number', () => {
   expect(container.querySelector('[data-estimate]')!.textContent).toContain('—');
 });
 
-test('CoverageGap marks itself as a gap (never a number)', () => {
-  const { container } = render(CoverageGap, { reason: 'xg not covered' });
+test('CoverageGap marks itself as a gap (never a number) and is reason-aware', () => {
+  // STRUCTURAL reason -> says WHY, NOT the bare "insufficient" literal. The load-bearing
+  // coverage marker must still be present (the no-naked-number guard keys on it), and the
+  // raw reason rides in the title so nothing is hidden.
+  const reason = 'xg not StatsBomb-covered for this fixture';
+  const { container } = render(CoverageGap, { reason });
+  const badge = container.querySelector('[data-coverage-gap]');
+  expect(badge).toBeInTheDocument();
+  expect(badge?.getAttribute('title')).toBe(reason);               // raw reason preserved
+  expect(badge?.getAttribute('data-coverage-kind')).toBe('structural');
+  expect(screen.getByText(/xG feed not covered/i)).toBeInTheDocument();
+  // "insufficient" is RESERVED for the history condition — a structural gap must NOT use it.
+  expect(container.textContent).not.toMatch(/insufficient/i);
+});
+
+test('CoverageGap reserves "insufficient" for the no-history condition only', () => {
+  // The ONE reason that earns the word "insufficient" (the history shortage that never fires
+  // today — every WC-2026 team has hundreds of played internationals as-of cutoff).
+  const { container } = render(CoverageGap, { reason: 'no played history as-of cutoff' });
   expect(container.querySelector('[data-coverage-gap]')).toBeInTheDocument();
+  expect(container.querySelector('[data-coverage-kind]')?.getAttribute('data-coverage-kind')).toBe('insufficient');
   expect(screen.getByText(/insufficient coverage/i)).toBeInTheDocument();
+});
+
+test('CoverageGap says WHEN a time-resolving gap fills', () => {
+  const { container } = render(CoverageGap, { reason: 'rest_days unknown for an unplayed fixture' });
+  expect(container.querySelector('[data-coverage-kind]')?.getAttribute('data-coverage-kind')).toBe('time-resolving');
+  expect(screen.getByText(/rest days pending — fills after first match/i)).toBeInTheDocument();
+});
+
+test('CoverageGap falls back to neutral copy for an unknown reason (never crashes, raw reason in title)', () => {
+  const reason = 'some brand new reason the map has never seen';
+  const { container } = render(CoverageGap, { reason });
+  const badge = container.querySelector('[data-coverage-gap]');
+  expect(badge).toBeInTheDocument();                                // still a coverage marker
+  expect(badge?.getAttribute('title')).toBe(reason);               // raw reason surfaced, not swallowed
+  expect(badge?.getAttribute('data-coverage-kind')).toBe('unknown');
+  expect(screen.getByText(/data unavailable/i)).toBeInTheDocument();
 });
 
 test('CredibleInterval shows the 94% HDI', () => {
