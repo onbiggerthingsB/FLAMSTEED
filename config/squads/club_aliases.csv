@@ -1,0 +1,273 @@
+# config/squads/club_aliases.csv — explicit squad-club -> clubelo.com `Club` alias map (P3 v0)
+#
+# House precedent: the odds<->model team aliases + altitude_ref dual-spelling keys.
+# EXACT-MATCH JOIN ONLY. This map translates the squad-list club spelling (as published
+# on the source squad pages, typically the long/common-English form) to the clubelo.com
+# `Club` spelling (typically a short form). NEVER fuzzy-matched. Grown ONLY for divergences
+# actually encountered in config/squads/{wc2026,wc2022,euro2024}.csv vs the three
+# clubelo_*.csv snapshots. A squad club not exactly equal to a clubelo `Club` AND not in
+# this map -> UNMATCHED -> logged coverage gap, never imputed.
+#
+# clubelo.com club spellings verified against the committed snapshots (access 2026-06-10).
+squad_club,clubelo_club
+Bayern Munich,Bayern
+FC Bayern Munich,Bayern
+Borussia Dortmund,Dortmund
+Bayer Leverkusen,Leverkusen
+VfB Stuttgart,Stuttgart
+TSG Hoffenheim,Hoffenheim
+1899 Hoffenheim,Hoffenheim
+Eintracht Frankfurt,Frankfurt
+RasenBallsport Leipzig,RB Leipzig
+VfL Wolfsburg,Wolfsburg
+Borussia Mönchengladbach,Gladbach
+Borussia Monchengladbach,Gladbach
+SC Freiburg,Freiburg
+FC Augsburg,Augsburg
+Mainz 05,Mainz
+1. FSV Mainz 05,Mainz
+1. FC Köln,Koeln
+FC Cologne,Koeln
+Werder Bremen,Werder
+SV Werder Bremen,Werder
+Hertha BSC,Hertha
+Union Berlin,Union Berlin
+1. FC Union Berlin,Union Berlin
+Schalke 04,Schalke
+FC Schalke 04,Schalke
+Bochum,Bochum
+VfL Bochum,Bochum
+Real Sociedad,Sociedad
+Athletic Bilbao,Bilbao
+Athletic Club,Bilbao
+Atlético Madrid,Atletico
+Atletico Madrid,Atletico
+Real Betis,Betis
+Celta Vigo,Celta
+RC Celta,Celta
+Real Valladolid,Valladolid
+Manchester United,Man United
+Manchester City,Man City
+Newcastle United,Newcastle
+Tottenham Hotspur,Tottenham
+West Ham United,West Ham
+Wolverhampton Wanderers,Wolves
+Wolverhampton,Wolves
+Nottingham Forest,Forest
+Brighton & Hove Albion,Brighton
+Leicester City,Leicester
+Leeds United,Leeds
+Sheffield United,Sheffield United
+Norwich City,Norwich
+Luton Town,Luton
+AFC Bournemouth,Bournemouth
+Queens Park Rangers,QPR
+Paris Saint-Germain,Paris SG
+Paris Saint Germain,Paris SG
+Olympique de Marseille,Marseille
+Olympique Marseille,Marseille
+Olympique Lyonnais,Lyon
+AS Monaco,Monaco
+Stade Rennais,Rennes
+Stade Rennais FC,Rennes
+RC Lens,Lens
+LOSC Lille,Lille
+OGC Nice,Nice
+Stade de Reims,Reims
+RC Strasbourg,Strasbourg
+Le Havre,Le Havre
+Inter Milan,Inter
+Internazionale,Inter
+FC Internazionale Milano,Inter
+AC Milan,Milan
+AS Roma,Roma
+SSC Napoli,Napoli
+SS Lazio,Lazio
+ACF Fiorentina,Fiorentina
+Hellas Verona,Verona
+US Salernitana,Salernitana
+US Lecce,Lecce
+US Sassuolo,Sassuolo
+Sporting CP,Sporting
+Sporting Lisbon,Sporting
+SL Benfica,Benfica
+FC Porto,Porto
+SC Braga,Braga
+Sporting Braga,Braga
+Vitória de Guimarães,Guimaraes
+PSV Eindhoven,PSV
+AFC Ajax,Ajax
+Ajax Amsterdam,Ajax
+Club Brugge,Brugge
+RSC Anderlecht,Anderlecht
+KRC Genk,Genk
+Royal Antwerp,Antwerp
+Red Bull Salzburg,Salzburg
+RB Salzburg,Salzburg
+FC Salzburg,Salzburg
+Sturm Graz,Sturm Graz
+SK Sturm Graz,Sturm Graz
+Rapid Vienna,Rapid Wien
+Dynamo Zagreb,Dinamo Zagreb
+GNK Dinamo Zagreb,Dinamo Zagreb
+Hajduk Split,Hajduk
+HNK Rijeka,Rijeka
+Red Star Belgrade,Crvena Zvezda
+Crvena zvezda,Crvena Zvezda
+Partizan Belgrade,Partizan
+Ferencváros,Ferencvaros
+Ferencvárosi TC,Ferencvaros
+Galatasaray,Galatasaray
+Fenerbahçe,Fenerbahce
+Beşiktaş,Besiktas
+Trabzonspor,Trabzonspor
+Kayserispor,Kayseri
+Alanyaspor,Alanyaspor
+Olympiacos,Olympiakos
+Olympiacos FC,Olympiakos
+AEK Athens,AEK
+Panathinaikos,Panathinaikos
+PAOK,PAOK
+Dinamo Kyiv,Dynamo Kyiv
+Dynamo Kyiv,Dynamo Kyiv
+Shakhtar Donetsk,Shakhtar
+Ludogorets Razgrad,Razgrad
+Slavia Prague,Slavia Praha
+Sparta Prague,Sparta Praha
+Viktoria Plzeň,Viktoria Plzen
+Copenhagen,FC Kobenhavn
+FC Copenhagen,FC Kobenhavn
+Brøndby,Brondby
+Midtjylland,Midtjylland
+Rosenborg,Rosenborg
+Molde,Molde
+Bodø/Glimt,Bodoe Glimt
+Young Boys,Young Boys
+BSC Young Boys,Young Boys
+FC Basel,Basel
+FC Lugano,Lugano
+Servette FC,Servette
+FC Zürich,Zuerich
+Grasshopper,Grasshoppers
+Heart of Midlothian,Hearts
+Hibernian,Hibernian
+Rangers,Rangers
+Celtic,Celtic
+# --- wc2026 divergences (squad-page long form -> clubelo `Club`), verified vs clubelo_20260610.csv ---
+SK Slavia Prague,Slavia Praha
+AC Sparta Prague,Sparta Praha
+FC Viktoria Plzeň,Viktoria Plzen
+FC Hradec Králové,Hradec Kralove
+FC Slovan Liberec,Slovan Liberec
+Hull City,Hull
+Birmingham City,Birmingham
+Stoke City,Stoke
+Swansea City,Swansea
+FC St. Pauli,St Pauli
+Gaziantep,Gaziantep FK
+Karlsruher SC,Karlsruhe
+Hannover 96,Hannover
+FC Red Bull Salzburg,Salzburg
+HNK Hajduk Split,Hajduk
+Jagiellonia Białystok,Jagiellonia
+FC Astana,FK Astana
+AZ Alkmaar,Alkmaar
+Dynamo Moscow,Dynamo Moskva
+Çaykur Rizespor,Rizespor
+SC Bastia,Bastia
+Angers SCO,Angers
+AS Nancy Lorraine,Nancy
+AJ Auxerre,Auxerre
+KAA Gent,Gent
+SV Zulte Waregem,Zulte Waregem
+Charlton Athletic,Charlton
+Ipswich Town,Ipswich
+Levante UD,Levante
+Parma Calcio 1913,Parma
+Heracles Almelo,Heracles
+US Sassuolo Calcio,Sassuolo
+Real Madrid CF,Real Madrid
+TSG 1899 Hoffenheim,Hoffenheim
+Villarreal CF,Villarreal
+Bayer 04 Leverkusen,Leverkusen
+Coventry City,Coventry
+Hamburger SV,Hamburg
+Fortuna Düsseldorf,Duesseldorf
+FC Volendam,Volendam
+SC Telstar,Telstar
+Royal Charleroi SC,Charleroi
+Sint-Truiden,St Truiden
+PEC Zwolle,Zwolle
+A.E. Kifisia,Kifisias
+Kifisia,Kifisias
+NEC Nijmegen,Nijmegen
+NK Maribor,Maribor
+Atalanta BC,Atalanta
+Cercle Brugge KSV,Cercle Brugge
+RC Strasbourg Alsace,Strasbourg
+Derby County,Derby
+RC Celta de Vigo,Celta
+Udinese Calcio,Udinese
+Holstein Kiel,Holstein
+Club Brugge KV,Brugge
+FC Barcelona,Barcelona
+S.L. Benfica,Benfica
+S.C. Braga,Braga
+Lille OSC,Lille
+Standard Liège,Standard
+CA Osasuna,Osasuna
+Real Oviedo,Oviedo
+FCV Dender EH,Dender
+FC Rostov,Rostov
+AS Saint-Étienne,Saint-Etienne
+Casa Pia A.C.,Casa Pia
+AC Omonia,Omonia
+PFC Ludogorets Razgrad,Razgrad
+C.F. Estrela da Amadora,Estrela Amadora
+Lechia Gdańsk,Lechia
+Silkeborg IF,Silkeborg
+Shamrock Rovers,Shamrock
+FC Akron Tolyatti,Akron Togliatti
+PFC Montana,Montana 1921
+FK Bodø/Glimt,Bodoe Glimt
+Bologna FC 1909,Bologna
+RCD Mallorca,Mallorca
+FC Zenit Saint Petersburg,Zenit
+FK Borac Banja Luka,Borac Banja Luka
+AEK Larnaca,Larnaca
+FC Utrecht,Utrecht
+KS Cracovia,Cracovia
+Aarhus Gymnastikforening,Aarhus
+Sarpsborg 08,Sarpsborg
+US Cremonese,Cremonese
+Genoa CFC,Genoa
+FC Twente,Twente
+Granada CF,Granada
+Frosinone Calcio,Frosinone
+Como 1907,Como
+Elche CF,Elche
+Cagliari Calcio,Cagliari
+Racing de Santander,Santander
+FC Nantes,Nantes
+Le Havre AC,Le Havre
+Widzew Łódź,Widzew
+Montpellier HSC,Montpellier
+FC Spartak Moscow,Spartak Moskva
+FC Noah,Noah
+RCD Espanyol,Espanyol
+FC St. Gallen,StGallen
+ŠK Slovan Bratislava,Slovan Bratislava
+FC Pari Nizhny Novgorod,Nizhny Novgorod
+# --- wc2022 snapshot divergences (verified vs clubelo_20221120.csv) ---
+K.R.C. Genk,Genk
+Odense Boldklub,Odense
+ES Troyes AC,Troyes
+Brescia Calcio,Brescia
+R. Charleroi,Charleroi
+SD Ponferradina,Ponferradina
+FC Lorient,Lorient
+U.S. Salernitana 1919,Salernitana
+FC Luzern,Luzern
+Stade Malherbe Caen,Caen
+U.S. Cremonese,Cremonese
+S.S.C. Napoli,Napoli

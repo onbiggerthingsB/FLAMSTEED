@@ -20,7 +20,7 @@ import pandas as pd
 # _PER_TEAM_COVS / _PER_MATCH_COVS (kept duplicated here, not imported, to avoid a
 # panel->scoreline import cycle; both must stay in sync — a new covariate is added
 # to both). A covariate absent from the features frame is simply not carried.
-_PER_TEAM_COVS = ("rest_days", "travel_km")
+_PER_TEAM_COVS = ("rest_days", "travel_km", "accl_alt")
 _PER_MATCH_COVS = ("altitude_m",)
 
 def to_match_panel(features_df: pd.DataFrame) -> pd.DataFrame:

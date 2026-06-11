@@ -39,22 +39,39 @@ from wcmodel.model.widening import likelihood_weight
 # the panel's home/away rows). Per-match covariates use a single array applied to
 # both rates. A name absent from BOTH sets is ignored (no offset) — adding a new
 # covariate requires classifying it here, so it can never silently no-op.
-_PER_TEAM_COVS = {"rest_days", "travel_km"}
+_PER_TEAM_COVS = {"rest_days", "travel_km", "accl_alt"}
 _PER_MATCH_COVS = {"altitude_m"}
+
+# Per-team covariates whose HOME and AWAY distributions are STRUCTURALLY different, so
+# the standardization transform must be fit on the POOLED (home + away) observed values
+# rather than the home column alone. `accl_alt` (acclimatized-altitude gap) is the case:
+# the home side of an accustomed nation is ~0 by construction (home teams are acclimatized)
+# while the away side carries all the spread (lowland visitors at altitude). Fitting on the
+# home column alone gives a near-degenerate sd, blowing up the away-side z (clamped to the
+# 10-sigma bound, overflowing exp(rate)). Pooling uses the full observed gap distribution so
+# both sides standardize sanely. rest_days/travel_km are NOT pooled — their home/away
+# distributions are the same population, and the shipped rest_days canary pins the
+# home-column-nanmean behavior; leaving them home-only keeps that exact contract.
+_POOLED_FIT_COVS = {"accl_alt"}
 
 
 def _build_covariates(mp, p_cov: dict):
     """Assemble the leakage-safe covariate transforms + cov/cov_mask design arrays
     from the < cutoff TRAINING panel ``mp``.
 
-    For each enabled covariate present in the panel, ONE CovariateTransform is fit
-    on the HOME-side training column (``mp[name]``) and then applied to BOTH sides:
-    the home column -> cov[name], and (for a per-team covariate) the away team's own
-    column ``mp[f"{name}__away"]`` -> cov[f"{name}__away"], via the SAME fitted
-    transform (home + away share one standardization). The transform is fit on the
-    SAME rows the model trains on, so it can never see past the cutoff
-    (leakage-safe). A per-match covariate has no ``__away`` column (identical on both
-    rows), so only the single array is produced.
+    For each enabled covariate present in the panel, ONE CovariateTransform is fit and
+    then applied to BOTH sides via the SAME fitted transform (home + away share one
+    standardization), so a per-team covariate's two sides are on a common scale. The
+    transform's FIT ROWS depend on the covariate:
+      * default (``rest_days``/``travel_km``): the HOME-side column ``mp[name]`` only —
+        the historical contract (the shipped rest_days canary pins this exact mean), and
+        correct because their home/away distributions are the same population.
+      * ``_POOLED_FIT_COVS`` (``accl_alt``): the POOLED home+away observed values — its
+        home side is ~0 by construction (acclimatized home) so a home-only fit is
+        degenerate; pooling uses the full observed gap distribution.
+    The transform is fit on the SAME rows the model trains on, so it can never see past
+    the cutoff (leakage-safe). A per-match covariate has no ``__away`` column (identical
+    on both rows), so only the single array is produced.
 
     Returns ``(cov, cov_mask, transforms)``: the per-name standardized arrays, their
     masks, and ``{name: CovariateTransform}`` for the Posterior to persist. All
@@ -67,14 +84,21 @@ def _build_covariates(mp, p_cov: dict):
     for name in p_cov.get("enabled", []):
         if name not in mp.columns:
             continue  # enabled but not produced upstream -> no covariate term
-        train = mp[name].to_numpy()
-        t = CovariateTransform.fit(name, train)        # fit on < cutoff training rows
+        home_train = mp[name].to_numpy()
+        away_col = f"{name}__away"                      # per-team covariate: away side
+        has_away = away_col in mp.columns               # (per-match has no __away col)
+        # Fit rows: pooled home+away for the structurally-asymmetric covariates,
+        # else the home column alone (the historical, canaried contract).
+        if name in _POOLED_FIT_COVS and has_away:
+            fit_rows = np.concatenate([home_train, mp[away_col].to_numpy()])
+        else:
+            fit_rows = home_train
+        t = CovariateTransform.fit(name, fit_rows)     # fit on < cutoff training rows
         transforms[name] = t
-        z, mask = t.apply(train)
+        z, mask = t.apply(home_train)
         cov[name] = z
         cov_mask[name] = mask
-        away_col = f"{name}__away"                      # per-team covariate: away side
-        if away_col in mp.columns:                      # (per-match has no __away col)
+        if has_away:
             z_away, mask_away = t.apply(mp[away_col].to_numpy())  # SAME fitted transform
             cov[away_col] = z_away
             cov_mask[away_col] = mask_away

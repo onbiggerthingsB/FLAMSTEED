@@ -11,7 +11,7 @@ def test_config_has_covariate_block_with_defaults():
     assert cov["enabled"] == []                      # OFF by default: baseline is unchanged
     assert cov["beta_scale"] == 0.25                 # tight regularizing prior on each coefficient
     assert cov["host_k"] == 1.4                       # EMPIRICAL (P2b 2026-06-10): k_elo=1.422 [1.18,1.64], n=873; was the 0.5 assumption
-    assert cov["missing_indicator_for"] == ["travel_km", "altitude_m"]  # Q1
+    assert cov["missing_indicator_for"] == ["travel_km", "altitude_m", "accl_alt"]  # Q1 + P2a accl_alt
 
 
 def test_config_hosts_field_matches_the_host_country_constant():
@@ -205,6 +205,95 @@ def test_rest_term_is_exactly_zero_in_the_likelihood_when_missing():
     assert at(0.5) == at(0.0)   # missing -> exactly zero contribution, bit-for-bit
 
 
+# ---- P2a: accl_alt (acclimatized-altitude) enters the likelihood per-team ----
+#
+# accl_alt rides the SAME per-team path as rest_days, but it is the ASYMMETRIC
+# acclimatized-home term: the home side reads its own gap (accl_alt) and the away side
+# its own gap (accl_alt__away). These mirror the rest_days non-vacuity tests above for
+# the new covariate name, proving the per-team machinery handles accl_alt with no
+# special-casing.
+
+
+def test_rates_add_accl_alt_term():
+    # An enabled accl_alt covariate adds a beta_accl_alt coefficient to the model.
+    d = DesignData(
+        home_idx=np.array([0, 1]), away_idx=np.array([1, 0]),
+        home_goals=np.array([1, 0]), away_goals=np.array([0, 1]),
+        neutral=np.array([False, False]), n_teams=2,
+        teams=["A", "B"], weight=np.ones(2),
+        home_provisional=np.zeros(2, bool), away_provisional=np.zeros(2, bool),
+        cov={"accl_alt": np.array([1.0, 0.0]),
+             "accl_alt__away": np.array([0.0, 1.0])},
+        cov_mask={"accl_alt": np.array([1.0, 1.0]),
+                  "accl_alt__away": np.array([1.0, 1.0])},
+    )
+    cfg = load_config()
+    cfg["model"]["covariates"]["enabled"] = ["accl_alt"]
+    m = DixonColesModel().build(d, weight=np.ones(2), config=cfg)
+    assert "beta_accl_alt" in {v.name for v in m.free_RVs}
+
+
+def _build_accl_model(mask_val):
+    # One std-unit of HOME altitude-gap in match0 (away gap zero), so a non-zero beta
+    # moves the home attacking rate (hence the DC likelihood) in match0. mask_val
+    # toggles observed (1.0) vs missing (0.0) for the accl_alt arrays.
+    d = DesignData(
+        home_idx=np.array([0, 1]), away_idx=np.array([1, 0]),
+        home_goals=np.array([3, 0]), away_goals=np.array([0, 1]),
+        neutral=np.array([False, False]), n_teams=2,
+        teams=["A", "B"], weight=np.ones(2),
+        home_provisional=np.zeros(2, bool), away_provisional=np.zeros(2, bool),
+        cov={"accl_alt": np.array([1.5, 0.0]),
+             "accl_alt__away": np.array([0.0, 0.0])},
+        cov_mask={"accl_alt": np.array([mask_val, mask_val]),
+                  "accl_alt__away": np.array([mask_val, mask_val])},
+    )
+    cfg = load_config()
+    cfg["model"]["covariates"]["enabled"] = ["accl_alt"]
+    return DixonColesModel().build(d, weight=np.ones(2), config=cfg)
+
+
+def _accl_like_evaluator(m):
+    """fn(beta) -> the `like` Potential value with every other RV fixed (isolates the
+    likelihood from the beta prior), for the accl_alt model."""
+    like = m["like"]
+    rvs = {v.name: v for v in m.free_RVs}
+    fn = pytensor.function(list(rvs.values()), like, on_unused_input="ignore")
+    order = list(rvs.keys())
+
+    def at(beta):
+        fixed = dict(
+            sigma_att=np.array(1.0), sigma_def=np.array(1.0),
+            att_raw=np.array([0.1, -0.1]), def_raw=np.array([0.05, -0.05]),
+            mu=np.array(0.0), home_adv=np.array(0.2),
+            beta_accl_alt=np.array(float(beta)), rho=np.array(0.0),
+            # accl_alt IS in missing_indicator_for -> the build also creates a
+            # beta_accl_alt_miss RV. Hold it FIXED so toggling beta_accl_alt still
+            # isolates the masked beta*z term (when mask==1 the miss term's (1-mask)==0
+            # contributes nothing; when mask==0 the miss term is a beta-INDEPENDENT
+            # constant across both eval points -> the delta still isolates beta_accl_alt).
+            beta_accl_alt_miss=np.array(0.0),
+        )
+        return float(fn(*[fixed[k] for k in order]))
+
+    return at
+
+
+def test_accl_alt_term_enters_the_likelihood_when_observed():
+    # mask==1: changing beta_accl_alt (all other RVs fixed) MUST move `like` — the
+    # acclimatized-altitude term reaches the rate/likelihood, not just the prior.
+    at = _accl_like_evaluator(_build_accl_model(mask_val=1.0))
+    assert abs(at(0.5) - at(0.0)) > 1e-6
+
+
+def test_accl_alt_term_is_exactly_zero_in_the_likelihood_when_missing():
+    # mask==0 (unknown venue altitude): the masked beta*z term is EXACTLY zero — a
+    # missing gap is never imputed (the beta_miss intercept is a SEPARATE prior term,
+    # not in this isolated `like` tensor).
+    at = _accl_like_evaluator(_build_accl_model(mask_val=0.0))
+    assert at(0.5) == at(0.0)
+
+
 # ---- T2 hardening (Codex): taxonomy + per-team both-sides guards ----
 
 
@@ -277,6 +366,21 @@ def test_panel_carries_per_team_covariate_home_and_away_columns(small_store):
     assert "rest_days" in mp.columns and "rest_days__away" in mp.columns
     # Per-match altitude is identical on both rows -> carried once, no __away.
     assert "altitude_m" in mp.columns and "altitude_m__away" not in mp.columns
+
+
+def test_panel_carries_accl_alt_home_and_away_columns(small_store):
+    # P2a: accl_alt is a PER-TEAM covariate (venue_alt - that team's accustomed alt),
+    # so to_match_panel must carry BOTH accl_alt (home team's gap) and accl_alt__away
+    # (the away team's OWN gap) — the per-team shape, complement of per-match altitude_m.
+    from wcmodel.data import features
+    from wcmodel.model.panel import to_match_panel
+    mp = to_match_panel(features.build("2024-06-01", small_store, load_config()))
+    assert "accl_alt" in mp.columns and "accl_alt__away" in mp.columns
+    # The small_store has an Argentina-vs-Brazil match at Mexico City (~2240 m); both
+    # are lowland-accustomed (default 0), so both gaps are ~the venue altitude (a real,
+    # non-NaN value) — proving the join produced a meaningful per-team column.
+    mc = mp[mp["home_team"].isin(["Argentina", "Brazil"]) & (mp["accl_alt"] > 1000.0)]
+    assert len(mc) >= 1, "expected a high-altitude (Mexico City) row with a positive home gap"
 
 
 @pytest.mark.slow
@@ -417,6 +521,108 @@ def test_predict_supplied_missing_miss_indicator_covariate_fires_beta_miss(small
     g_obs = post.predict_scoreline(teams[0], teams[1], neutral=True,
                                     covariates={"travel_km": 5000.0})
     assert not np.array_equal(g_base, g_obs)                           # observed value shifts the forecast
+
+
+# ---- P2a: predict consumes the per-fixture accl_alt via the PERSISTED transform ----
+#
+# These slow tests need a fit whose accl_alt transform has SIGNAL (sd > 0), so the
+# fixture must carry SEVERAL distinct-altitude venues. The shared small_store has just
+# one (Mexico City), which fits sd=0 ("single observed row -> no signal", the documented
+# CovariateTransform behavior) — correct, but not enough to exercise the predict path.
+# So we build a compact LOCAL store with a spread of altitude venues (La Paz / Quito /
+# Bogotá / sea-level), pinning strength_prior.enabled=false per the house tiny-fixture
+# pattern (degenerate coarse fits can otherwise flip signs).
+
+
+def _altitude_store(tmp_path):
+    """Compact store with a SPREAD of altitude venues so accl_alt has fit signal.
+
+    CONMEBOL home games (Bolivia/Ecuador/Colombia at their high venues) + lowland
+    games, so the < cutoff accl_alt training column has variance (sd > 0). Built the
+    same way small_store is (POINT_IN_TIME results write), no venues table needed —
+    accl_alt reads `city` directly via the hand-curated table.
+    """
+    import pandas as pd
+    from wcmodel.data.sources.results import normalize_results
+    from wcmodel.data.store import BitemporalStore, Policy
+    rows = [
+        # date, home, away, hs, as, tournament, city, country, neutral
+        ("2023-03-01", "Bolivia", "Brazil", 2, 1, "FIFA World Cup qualification", "La Paz", "Bolivia", False),
+        ("2023-04-01", "Ecuador", "Argentina", 1, 1, "FIFA World Cup qualification", "Quito", "Ecuador", False),
+        ("2023-05-01", "Colombia", "Uruguay", 2, 0, "FIFA World Cup qualification", "Bogotá", "Colombia", False),
+        ("2023-06-01", "Bolivia", "Argentina", 0, 3, "FIFA World Cup qualification", "La Paz", "Bolivia", False),
+        ("2023-07-01", "Brazil", "Argentina", 1, 0, "Friendly", "Miami (Miami Gardens)", "United States", True),
+        ("2023-08-01", "Argentina", "Brazil", 2, 1, "Friendly", "Seattle", "United States", True),
+        ("2023-09-01", "Ecuador", "Colombia", 1, 1, "FIFA World Cup qualification", "Quito", "Ecuador", False),
+        ("2023-10-01", "Uruguay", "Bolivia", 3, 0, "FIFA World Cup qualification", "Seattle", "Uruguay", False),
+        ("2023-11-01", "Colombia", "Brazil", 2, 1, "FIFA World Cup qualification", "Bogotá", "Colombia", False),
+        ("2023-12-01", "Argentina", "Uruguay", 1, 0, "Friendly", "Miami (Miami Gardens)", "United States", True),
+    ]
+    results = normalize_results(pd.DataFrame(
+        rows, columns=["date", "home_team", "away_team", "home_score", "away_score",
+                       "tournament", "city", "country", "neutral"]))
+    store = BitemporalStore(root=tmp_path)
+    store.write("results", results, policy=Policy.POINT_IN_TIME,
+                keys=["match_id"], source="martj42", source_version="test")
+    return store
+
+
+def _accl_cfg():
+    import copy
+    cfg = copy.deepcopy(load_config())
+    cfg["model"]["covariates"]["enabled"] = ["accl_alt"]
+    # Tiny-fixture pattern: degenerate coarse fits can flip the anchor's sign -> pin off.
+    cfg["model"]["strength_prior"] = {"enabled": False, "source": "elo",
+                                      "k_att": 0.0, "k_def": 0.0}
+    return cfg
+
+
+@pytest.mark.slow
+def test_predict_uses_accl_alt_monotonically(tmp_path):
+    # Supplying an acclimatized-altitude gap must CHANGE the forecast (non-vacuity) and
+    # keep it a proper 1X2 distribution. Whatever the SIGN of the fitted beta, a
+    # different per-fixture home/away gap pair must move the forecast. accl_alt rides the
+    # SAME per-team predict path as rest_days (no special-casing) — this pins it for the
+    # new name end-to-end (fit + persisted transform + predict).
+    store = _altitude_store(tmp_path)
+    cfg = _accl_cfg()
+    from wcmodel.model.scoreline import fit
+    post = fit("2024-06-01", store, config=cfg, backend="advi",
+               draws=60, advi_iters=800, seed=0)
+    assert "accl_alt" in post.covariate_transforms          # transform persisted
+    assert post.covariate_transforms["accl_alt"].sd > 0.0   # the fixture gave it signal
+    assert "beta_accl_alt" in post.idata.posterior          # coefficient fitted
+    base = post.predict_1x2("Bolivia", "Brazil", neutral=True)          # no covariates supplied
+    # A high-altitude venue: the home side near its accustomed alt (small gap), the away
+    # side a large positive gap (lowland visitor) — the acclimatized-home asymmetry.
+    altitude = post.predict_1x2("Bolivia", "Brazil", neutral=True,
+                                covariates={"accl_alt": 0.0, "accl_alt__away": 3600.0})
+    assert abs(altitude["home"] - base["home"]) > 1e-6                   # non-vacuity: forecast moved
+    assert abs(altitude["home"] + altitude["draw"] + altitude["away"] - 1.0) < 1e-6  # proper distribution
+
+
+@pytest.mark.slow
+def test_predict_accl_alt_supplied_missing_fires_beta_miss(tmp_path):
+    # accl_alt IS in missing_indicator_for, so beta_accl_alt_miss is fitted. A SUPPLIED-
+    # missing accl_alt (unknown venue altitude) must MOVE the forecast away from
+    # covariates=None (which short-circuits to baseline), because the per-side term is
+    # beta*z*mask + beta_miss*(1-mask) and mask==0 -> the term is beta_miss (NOT zero) —
+    # the same shift fit applied to an altitude-unknown match. Mirrors the travel_km case.
+    store = _altitude_store(tmp_path)
+    cfg = _accl_cfg()
+    from wcmodel.model.scoreline import fit
+    post = fit("2024-06-01", store, config=cfg, backend="advi",
+               draws=60, advi_iters=800, seed=0)
+    assert "beta_accl_alt_miss" in post.idata.posterior     # miss intercept WAS fitted
+    g_base = post.predict_scoreline("Bolivia", "Brazil", neutral=True)  # covariates=None -> baseline
+    g_nan = post.predict_scoreline("Bolivia", "Brazil", neutral=True,
+                                   covariates={"accl_alt": float("nan"),
+                                               "accl_alt__away": float("nan")})
+    assert not np.array_equal(g_base, g_nan)                            # miss term fires -> moved
+    p_nan = post.predict_1x2("Bolivia", "Brazil", neutral=True,
+                             covariates={"accl_alt": float("nan"),
+                                         "accl_alt__away": float("nan")})
+    assert abs(p_nan["home"] + p_nan["draw"] + p_nan["away"] - 1.0) < 1e-9  # still a proper distribution
 
 
 # ---- T5: host advantage = k * home_adv for the 2026 hosts' home games ----

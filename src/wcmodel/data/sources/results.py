@@ -20,19 +20,30 @@ from wcmodel.data.store import BitemporalStore, Policy
 # Pinned to a specific commit (never `master`) so a re-pull is reproducible.
 # Bumped 2026-06-09 (GitHub API: latest master = 6b6f8e9f, committed 2026-06-09T07:12Z)
 # to ingest results through today before WC-2026 kickoff (Phase 0 §1).
+#
+# This pin is the REPRODUCIBILITY ANCHOR: every default fetch uses it. The fetch
+# path also accepts an OPTIONAL ``commit=`` runtime override (e.g. the operator's
+# ``daily_update.py --latest`` resolving the freshest master sha via the GitHub
+# commits API). The override is threaded per-call into both the raw URL and the
+# cache key — it NEVER mutates this constant at runtime, so the default path stays
+# byte-identical and a re-pull at the pin remains reproducible.
 MARTJ42_COMMIT = "6b6f8e9f321414957cc17861d8c2dbf25c4437b0"
-MARTJ42_RAW_URL = (
-    "https://raw.githubusercontent.com/martj42/international_results/"
-    f"{MARTJ42_COMMIT}/results.csv"
-)
+
+
+def _martj42_raw_url(filename: str, commit: str) -> str:
+    """The martj42 raw-content URL for ``filename`` at a specific ``commit``."""
+    return (
+        "https://raw.githubusercontent.com/martj42/international_results/"
+        f"{commit}/{filename}"
+    )
+
+
+MARTJ42_RAW_URL = _martj42_raw_url("results.csv", MARTJ42_COMMIT)
 # martj42 ships shootout winners in a SEPARATE file (the same pinned commit). The
 # main results.csv stores only the regulation/ET score and DROPS the shootout winner,
 # which is exactly why sim.tournament.simulate_one fails loud on a level pinned KO
 # (Phase-4 D3 deferral). Ingesting this resolves D3 (Phase-5 L3, before R32).
-MARTJ42_SHOOTOUTS_URL = (
-    "https://raw.githubusercontent.com/martj42/international_results/"
-    f"{MARTJ42_COMMIT}/shootouts.csv"
-)
+MARTJ42_SHOOTOUTS_URL = _martj42_raw_url("shootouts.csv", MARTJ42_COMMIT)
 
 _CARRY = ["home_team", "away_team", "home_score", "away_score",
           "tournament", "neutral", "city", "country"]
@@ -135,42 +146,63 @@ def join_shootout_winners(results: pd.DataFrame,
     return out
 
 
-def fetch_results(cache_dir: str | Path) -> pd.DataFrame:
-    """Pull the real martj42 CSV (network). Cached by content key + commit."""
+def fetch_results(cache_dir: str | Path, *, commit: str | None = None) -> pd.DataFrame:
+    """Pull the real martj42 CSV (network). Cached by content key + commit.
+
+    ``commit`` is an optional RUNTIME override of the pinned ``MARTJ42_COMMIT``
+    (default ``None`` -> the pin, byte-identical). It is threaded into both the
+    raw URL and the cache key, so an override pulls (and caches) a distinct sha
+    without mutating the module constant."""
+    commit = commit or MARTJ42_COMMIT
+    url = _martj42_raw_url("results.csv", commit)
+
     def _fetch() -> pd.DataFrame:
-        resp = httpx.get(MARTJ42_RAW_URL, timeout=30.0, follow_redirects=True)
+        resp = httpx.get(url, timeout=30.0, follow_redirects=True)
         resp.raise_for_status()
         from io import StringIO
         return pd.read_csv(StringIO(resp.text))
 
     return cached_pull(
         "martj42_results",
-        {"commit": MARTJ42_COMMIT},
+        {"commit": commit},
         _fetch,
         cache_dir=cache_dir,
     )
 
 
-def fetch_shootouts(cache_dir: str | Path) -> pd.DataFrame:
-    """Pull martj42's separate shootouts.csv (network). Cached by content key + commit."""
+def fetch_shootouts(cache_dir: str | Path, *, commit: str | None = None) -> pd.DataFrame:
+    """Pull martj42's separate shootouts.csv (network). Cached by content key + commit.
+
+    ``commit`` is the same optional RUNTIME override as ``fetch_results`` (default
+    ``None`` -> the pinned ``MARTJ42_COMMIT``)."""
+    commit = commit or MARTJ42_COMMIT
+    url = _martj42_raw_url("shootouts.csv", commit)
+
     def _fetch() -> pd.DataFrame:
-        resp = httpx.get(MARTJ42_SHOOTOUTS_URL, timeout=30.0, follow_redirects=True)
+        resp = httpx.get(url, timeout=30.0, follow_redirects=True)
         resp.raise_for_status()
         from io import StringIO
         return pd.read_csv(StringIO(resp.text))
 
     return cached_pull(
         "martj42_shootouts",
-        {"commit": MARTJ42_COMMIT},
+        {"commit": commit},
         _fetch,
         cache_dir=cache_dir,
     )
 
 
-def load_results(store: BitemporalStore, cache_dir: str | Path) -> None:
-    """Fetch -> normalize -> attach shootout winners -> write to the bitemporal store."""
-    normalized = normalize_results(fetch_results(cache_dir))
-    shootouts = fetch_shootouts(cache_dir)
+def load_results(store: BitemporalStore, cache_dir: str | Path,
+                 *, commit: str | None = None) -> None:
+    """Fetch -> normalize -> attach shootout winners -> write to the bitemporal store.
+
+    ``commit`` is an optional RUNTIME override of the pinned ``MARTJ42_COMMIT``
+    (default ``None`` -> the pin; the store ``source_version`` records whichever
+    sha was actually fetched). It flows verbatim into ``fetch_results`` /
+    ``fetch_shootouts`` so both files come from the SAME commit."""
+    commit = commit or MARTJ42_COMMIT
+    normalized = normalize_results(fetch_results(cache_dir, commit=commit))
+    shootouts = fetch_shootouts(cache_dir, commit=commit)
     df = join_shootout_winners(normalized, shootouts)
     store.write(
         "results",
@@ -178,5 +210,5 @@ def load_results(store: BitemporalStore, cache_dir: str | Path) -> None:
         policy=Policy.POINT_IN_TIME,
         keys=["match_id"],
         source="martj42",
-        source_version=MARTJ42_COMMIT,
+        source_version=commit,
     )

@@ -86,14 +86,21 @@ def verify_cutoff_gate(store: BitemporalStore) -> None:
     asof = store.read("results", cutoff=CUTOFF)
     dates = pd.to_datetime(asof["date"])
     cut_day = pd.Timestamp(CUTOFF).tz_convert("UTC").tz_localize(None).normalize()
-    leaked = asof[dates >= cut_day]
     played = valid_played_results(asof)
-    played_max = pd.to_datetime(played["date"]).max()
+    played_dates = pd.to_datetime(played["date"])
+    played_max = played_dates.max()
+    # Mirror of daily_update.step_gate (kept in SYNC — rehearsal finding #3): the
+    # leak check applies to VALID-PLAYED rows only. Upstream martj42 carries some
+    # upcoming fixtures as NaN-score schedule rows; at a future cutoff they are
+    # PIT-visible but informationally inert (every training/conditioning consumer
+    # applies the same valid-played filter). This script's pinned past CUTOFF never
+    # surfaces them, but the two gates must not silently diverge.
+    leaked = played[played_dates >= cut_day]
     print(f"[leakage] read(results, cutoff={CUTOFF}): {len(asof)} rows; "
           f"max date = {dates.max()}; max VALID-PLAYED date = {played_max}")
     if len(leaked) > 0:
-        print(f"[leakage] ABORT: {len(leaked)} row(s) dated >= cutoff leaked into the "
-              f"as-of read — refusing to build a contaminated snapshot:", file=sys.stderr)
+        print(f"[leakage] ABORT: {len(leaked)} PLAYED row(s) dated >= cutoff leaked into "
+              f"the as-of read — refusing to build a contaminated snapshot:", file=sys.stderr)
         print(leaked[["date", "home_team", "away_team", "home_score", "away_score"]]
               .head(20).to_string(), file=sys.stderr)
         raise SystemExit(1)
