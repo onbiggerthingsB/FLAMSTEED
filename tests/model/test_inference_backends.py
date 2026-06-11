@@ -21,7 +21,6 @@ import numpy as np
 import pytest
 
 from tests.model.test_scoreline import _sim_design
-from wcmodel.model import inference
 from wcmodel.model.inference import (
     _resolve_nuts_sampler,
     nuts_diagnostics,
@@ -108,15 +107,16 @@ def test_resolve_nuts_sampler_unknown_name_raises_valueerror():
 def test_resolve_nuts_sampler_prefers_accelerated_when_importable(monkeypatch):
     """If an accelerated engine WERE importable, AUTO must prefer it over native.
     We simulate nutpie being importable via a fake import to prove the preference
-    order without installing anything (lazy __import__ is monkeypatched)."""
-    real_import = inference.__import__ if hasattr(inference, "__import__") else __import__
+    order without installing anything (the lazy __import__ is monkeypatched)."""
+    import builtins
+    real_import = builtins.__import__
 
     def fake_import(name, *a, **k):
         if name == "nutpie":
             return object()  # pretend nutpie imports
         return real_import(name, *a, **k)
 
-    monkeypatch.setattr("builtins.__import__", fake_import)
+    monkeypatch.setattr(builtins, "__import__", fake_import)
     assert _resolve_nuts_sampler(None) == "nutpie"
 
 
