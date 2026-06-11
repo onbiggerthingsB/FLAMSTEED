@@ -67,17 +67,24 @@ def _stub_store_and_heldout(mod, monkeypatch):
 def _recorders(mod, monkeypatch, calls):
     """Replace the heavy per-cell fit+score with a recorder returning synthetic
     per-match RPS arrays, so no fit/sim/network runs. The k=0.4 cell is made the
-    clear knee that beats k=0 and improves the slice -> a deterministic ADOPT."""
+    clear knee that beats k=0 with strong (>=75%) bootstrap support and improves
+    the slice -> a deterministic ADOPT. The k_elo=0.0 YARDSTICK arm is scored
+    WORSE than the k_elo=0.6 baseline (the known-real Elo effect)."""
     _stub_store_and_heldout(mod, monkeypatch)
     rng = np.random.default_rng(0)
     base_overall = rng.uniform(0.2, 0.6, 120)
     base_slice = rng.uniform(0.2, 0.6, 30)
 
-    def fake_fit_and_score(*, cutoff, tag, k_squad, **kwargs):
-        calls.append({"cutoff": cutoff, "tag": tag, "k_squad": k_squad})
-        # Make k=0.4 the knee (lowest overall), and improve the slice with k.
-        bump = {0.0: 0.0, 0.2: -0.01, 0.4: -0.03, 0.6: -0.02}[round(k_squad, 2)]
-        sbump = {0.0: 0.0, 0.2: -0.003, 0.4: -0.006, 0.6: -0.004}[round(k_squad, 2)]
+    def fake_fit_and_score(*, cutoff, tag, k_squad, k_elo=mod.K_ELO, **kwargs):
+        calls.append({"cutoff": cutoff, "tag": tag, "k_squad": k_squad,
+                      "k_elo": k_elo})
+        if abs(k_elo) < 1e-9:                    # YARDSTICK arm (k_elo=0): worse.
+            bump = +0.05
+        else:
+            # Make k=0.4 the knee (lowest overall); improve the slice with k.
+            bump = {0.0: 0.0, 0.2: -0.01, 0.4: -0.03, 0.6: -0.02}[round(k_squad, 2)]
+        sbump = {0.0: 0.0, 0.2: -0.003, 0.4: -0.006, 0.6: -0.004}.get(
+            round(k_squad, 2), 0.0)
         return {
             "overall_rps": list(base_overall + bump),
             "slice_rps": list(base_slice + sbump),
@@ -86,22 +93,26 @@ def _recorders(mod, monkeypatch, calls):
             "n_train": 1000,
             "max_train_date": cutoff[:10],
             "cache_hit": False,
+            "max_favorite": 0.62,               # well under the 0.95 sanity ceiling
         }
 
     monkeypatch.setattr(mod, "fit_and_score_cell", fake_fit_and_score)
 
 
-def test_walks_full_grid_for_both_cutoffs(mod, monkeypatch, capsys):
+def test_walks_full_grid_plus_yardstick_for_both_cutoffs(mod, monkeypatch, capsys):
     calls: list = []
     _recorders(mod, monkeypatch, calls)
     rc = mod.main([])
     assert rc == 0
-    # 4 k * 2 cutoffs = 8 cells.
-    assert len(calls) == 8
-    ks = sorted({c["k_squad"] for c in calls})
-    assert ks == [0.0, 0.2, 0.4, 0.6]
-    tags = {c["tag"] for c in calls}
-    assert tags == {"wc2022", "euro2024"}
+    # 4 k_squad * 2 cutoffs = 8 sweep cells + 1 yardstick (k_elo=0) * 2 = 10.
+    assert len(calls) == 10
+    sweep = [c for c in calls if abs(c["k_elo"] - mod.K_ELO) < 1e-9]
+    yard = [c for c in calls if abs(c["k_elo"]) < 1e-9]
+    assert len(sweep) == 8 and len(yard) == 2
+    assert sorted({c["k_squad"] for c in sweep}) == [0.0, 0.2, 0.4, 0.6]
+    # The yardstick arms are k_elo=0.0, k_squad=0.0 at BOTH cutoffs.
+    assert all(abs(c["k_squad"]) < 1e-9 for c in yard)
+    assert {c["tag"] for c in yard} == {"wc2022", "euro2024"}
     out = capsys.readouterr().out
     assert "P3SWEEP VERDICT:" in out
 
@@ -113,22 +124,41 @@ def test_verdict_line_is_machine_readable_adopt(mod, monkeypatch, capsys):
     out = capsys.readouterr().out
     verdict_line = next(l for l in out.splitlines() if l.startswith("P3SWEEP VERDICT:"))
     assert "ADOPT k_squad=0.4" in verdict_line
+    # exactly ONE machine-readable verdict line (the grammar contract).
+    assert sum(l.startswith("P3SWEEP VERDICT:") for l in out.splitlines()) == 1
 
 
-def test_no_lift_verdict_when_anchor_hurts(mod, monkeypatch, capsys):
+def test_report_emits_support_sign_split_sanity_and_yardstick(mod, monkeypatch, capsys):
+    calls: list = []
+    _recorders(mod, monkeypatch, calls)
+    mod.main([])
+    out = capsys.readouterr().out.lower()
+    # ADDENDUM-2 evidence the report MUST surface.
+    assert "support" in out                       # bootstrap support %
+    assert "sign split" in out or "per-tournament" in out
+    assert "sanity" in out or "over-anchor" in out or "max favorite" in out
+    assert "yardstick" in out                      # the power yardstick section
+    # The yardstick reports the k_elo 0->0.6 contrast.
+    assert "k_elo 0->0.6" in out or "k_elo 0→0.6" in out
+
+
+def test_no_lift_verdict_when_support_too_low(mod, monkeypatch, capsys):
     calls: list = []
     _stub_store_and_heldout(mod, monkeypatch)
     rng = np.random.default_rng(1)
     base_overall = rng.uniform(0.2, 0.6, 120)
     base_slice = rng.uniform(0.2, 0.6, 30)
 
-    def fake(*, cutoff, tag, k_squad, **kwargs):
-        # every k>0 is WORSE -> knee is k=0 -> NO-LIFT.
-        bump = {0.0: 0.0, 0.2: 0.02, 0.4: 0.03, 0.6: 0.04}[round(k_squad, 2)]
+    def fake(*, cutoff, tag, k_squad, k_elo=mod.K_ELO, **kwargs):
+        # every k_squad>0 is WORSE -> knee is k=0 -> NO support -> NO-LIFT.
+        bump = {0.0: 0.0, 0.2: 0.02, 0.4: 0.03, 0.6: 0.04}.get(round(k_squad, 2), 0.05)
+        if abs(k_elo) < 1e-9:
+            bump = 0.05
         return {"overall_rps": list(base_overall + bump),
                 "slice_rps": list(base_slice + bump),
                 "n_overall": len(base_overall), "n_slice": len(base_slice),
-                "n_train": 1000, "max_train_date": cutoff[:10], "cache_hit": False}
+                "n_train": 1000, "max_train_date": cutoff[:10], "cache_hit": False,
+                "max_favorite": 0.6}
 
     monkeypatch.setattr(mod, "fit_and_score_cell", fake)
     mod.main([])
@@ -137,13 +167,112 @@ def test_no_lift_verdict_when_anchor_hurts(mod, monkeypatch, capsys):
     assert "NO-LIFT" in verdict_line
 
 
+def test_morning_call_grammar_in_support_band(mod, monkeypatch, capsys):
+    # An edge buried in per-match noise so pooled support lands in [60, 75) ->
+    # the harness emits the MORNING-CALL line and NEVER adopts.
+    _stub_store_and_heldout(mod, monkeypatch)
+
+    def make(seed, mean_bump, noise):
+        rng = np.random.default_rng(seed)
+        base = rng.uniform(0.2, 0.6, 120)
+        jit = rng.normal(0.0, noise, 120)
+
+        def fake(*, cutoff, tag, k_squad, k_elo=mod.K_ELO, **kwargs):
+            if abs(k_elo) < 1e-9:
+                b = +0.05
+            else:
+                b = {0.0: 0.0, 0.2: mean_bump / 2, 0.4: mean_bump,
+                     0.6: mean_bump * 0.8}[round(k_squad, 2)]
+                b = b + (jit if round(k_squad, 2) == 0.4 else 0.0)
+            arr = base + b
+            return {"overall_rps": list(arr), "slice_rps": list(arr[:30]),
+                    "n_overall": 120, "n_slice": 30, "n_train": 1000,
+                    "max_train_date": cutoff[:10], "cache_hit": False,
+                    "max_favorite": 0.6}
+        return fake
+
+    # Search a (seed, mean, noise) grid for a MORNING-CALL verdict (a small edge
+    # buried in heavy noise lands pooled support in the [60,75) band somewhere).
+    found = False
+    for seed in range(30):
+        for mean_bump, noise in ((-0.004, 0.12), (-0.006, 0.14), (-0.003, 0.12),
+                                 (-0.005, 0.16), (-0.008, 0.18)):
+            monkeypatch.setattr(mod, "fit_and_score_cell",
+                                make(seed, mean_bump=mean_bump, noise=noise))
+            mod.main([])
+            out = capsys.readouterr().out
+            vl = next(l for l in out.splitlines() if l.startswith("P3SWEEP VERDICT:"))
+            if "MORNING-CALL" in vl:
+                assert "support=" in vl and "[60,75)" in vl
+                found = True
+                break
+        if found:
+            break
+    assert found, "no MORNING-CALL verdict constructed in-band"
+
+
+def test_yardstick_never_changes_verdict(mod, monkeypatch, capsys):
+    # Even if the yardstick arm is BETTER than baseline, it must not flip the
+    # k_squad verdict (it is context only).
+    calls: list = []
+    _stub_store_and_heldout(mod, monkeypatch)
+    rng = np.random.default_rng(7)
+    base_overall = rng.uniform(0.2, 0.6, 120)
+    base_slice = rng.uniform(0.2, 0.6, 30)
+
+    def fake(*, cutoff, tag, k_squad, k_elo=mod.K_ELO, **kwargs):
+        # k_squad sweep: every k>0 WORSE (knee=0 -> NO-LIFT). Yardstick BETTER.
+        if abs(k_elo) < 1e-9:
+            bump = -0.10                          # yardstick much better — irrelevant
+        else:
+            bump = {0.0: 0.0, 0.2: 0.02, 0.4: 0.03, 0.6: 0.04}[round(k_squad, 2)]
+        return {"overall_rps": list(base_overall + bump),
+                "slice_rps": list(base_slice + bump),
+                "n_overall": 120, "n_slice": 30, "n_train": 1000,
+                "max_train_date": cutoff[:10], "cache_hit": False,
+                "max_favorite": 0.6}
+
+    monkeypatch.setattr(mod, "fit_and_score_cell", fake)
+    mod.main([])
+    out = capsys.readouterr().out
+    vl = next(l for l in out.splitlines() if l.startswith("P3SWEEP VERDICT:"))
+    assert "NO-LIFT" in vl                         # yardstick win did NOT adopt
+
+
+def test_sanity_over_anchor_blocks_adopt(mod, monkeypatch, capsys):
+    # Strong support + slice ok, but the knee cell shows a >95% favourite ->
+    # over-anchoring sanity fails -> not ADOPT.
+    _stub_store_and_heldout(mod, monkeypatch)
+    rng = np.random.default_rng(0)
+    base_overall = rng.uniform(0.2, 0.6, 120)
+    base_slice = rng.uniform(0.2, 0.6, 30)
+
+    def fake(*, cutoff, tag, k_squad, k_elo=mod.K_ELO, **kwargs):
+        bump = {0.0: 0.0, 0.2: -0.01, 0.4: -0.03, 0.6: -0.02}.get(round(k_squad, 2), 0.05)
+        if abs(k_elo) < 1e-9:
+            bump = 0.05
+        fav = 0.97 if (round(k_squad, 2) == 0.4 and abs(k_elo) > 1e-9) else 0.6
+        return {"overall_rps": list(base_overall + bump),
+                "slice_rps": list(base_slice + bump / 5),
+                "n_overall": 120, "n_slice": 30, "n_train": 1000,
+                "max_train_date": cutoff[:10], "cache_hit": False,
+                "max_favorite": fav}
+
+    monkeypatch.setattr(mod, "fit_and_score_cell", fake)
+    mod.main([])
+    out = capsys.readouterr().out
+    vl = next(l for l in out.splitlines() if l.startswith("P3SWEEP VERDICT:"))
+    assert "ADOPT k_squad" not in vl               # sanity vetoed the adopt
+
+
 def test_single_cutoff_flag_restricts_grid(mod, monkeypatch, capsys):
     calls: list = []
     _recorders(mod, monkeypatch, calls)
     rc = mod.main(["--only", "wc2022"])
     assert rc == 0
     assert {c["tag"] for c in calls} == {"wc2022"}
-    assert len(calls) == 4
+    # 4 sweep + 1 yardstick for the single cutoff.
+    assert len(calls) == 5
 
 
 # --------------------------------------------------------------------------- #

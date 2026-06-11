@@ -11,27 +11,39 @@ OPS-ONLY harness. Implements the LOCKED pre-registration
     TOURNAMENT matches — finals matches played STRICTLY AFTER each cutoff, within
     that tournament's window. Each cutoff uses its committed clubelo snapshot
     (clubelo_20221120.csv / clubelo_20240614.csv), strictly pre-cutoff (prereg §5).
-  * REPORT: a per-k table (overall RPS, the has_squad=0-involving slice RPS, n per
-    cell) + the two gates evaluated mechanically (``wcmodel.backtest.squad_sweep``):
-      G1 knee-beats-zero  — the chosen k is the RPS knee AND strictly beats k=0.
-      G2 slice non-regression — the has_squad=0 slice does not regress vs k=0
-         (paired-bootstrap CI overlap; prereg fixes no numeric tolerance so we use
-         CI overlap and SAY SO here — an explicit implementation choice).
-  * VERDICT: a machine-readable line — ``P3SWEEP VERDICT: ADOPT k_squad=<k> ...``
-    or ``P3SWEEP VERDICT: NO-LIFT ...``.
+  * REPORT (ADDENDUM-2 evidence, on the POOLED 113 held-out matches): a per-k
+    table (overall RPS, the has_squad=0-involving slice RPS, n, max_favorite per
+    cell) + the five pre-registered evidence items, evaluated mechanically
+    (``wcmodel.backtest.squad_sweep``):
+      #1 paired ΔRPS vs k=0 (seeded paired bootstrap).
+      #2 BOOTSTRAP SUPPORT — % of resamples favouring k>0 (the verdict gate).
+      #3 per-tournament SIGN SPLIT — does WC-2022 agree with Euro-2024 in
+         direction? (per-tournament Δ point estimate + support %).
+      #4 G2 has_squad=0-slice non-regression (paired-bootstrap CI overlap;
+         prereg fixes no numeric tolerance so we use CI overlap and SAY SO here).
+      #5 over-anchoring SANITY — no >0.95 single-game favourite (house precedent).
+  * DECISION RULE (ADDENDUM-2, on the pooled knee arm's support):
+      ADOPT      iff support >= 75% AND G2 holds AND sanity holds.
+      NO-LIFT    iff support <  60%  (or a binding gate vetoes a high-support knee).
+      60–75%     -> MORNING-CALL (default no-adopt; the harness NEVER adopts here).
+    Point estimates alone never adopt — the support threshold is the gate.
+  * POWER YARDSTICK (+2 authorized fits): the k_elo 0->0.6 contrast at k_squad=0
+    on the SAME 113 matches — the known-real-effect ruler. Reported as a YARDSTICK
+    line (dRPS + support); it is CONTEXT ONLY and NEVER affects the verdict.
+  * VERDICT: exactly ONE machine-readable line — ``P3SWEEP VERDICT: ADOPT
+    k_squad=<k> ...`` | ``P3SWEEP VERDICT: NO-LIFT ...`` | ``P3SWEEP VERDICT:
+    MORNING-CALL (support=NN% in [60,75); default no-adopt) ...``.
 
-Cache: each ``(tag, k_squad)`` is a distinct ``cfg["model"]`` (the strength_prior
-block carries k_squad + squad_tag) -> a distinct posterior cache key, so reruns of
-an already-fit cell HIT the on-disk cache; the k=0 cells reuse an existing cached
-posterior ONLY if the key genuinely matches (it will not, since squad_tag is set
-even at k=0 — but k=0 reads NO squad data and is byte-identical to the pre-squad
-fit; the cache simply treats it as its own key). MIN_MATCHED is INHERITED from the
-data layer (prereg §6: never tuned against sweep RPS).
+Cache: each ``(tag, k_elo, k_squad)`` is a distinct ``cfg["model"]`` (the
+strength_prior block carries k_att/k_def + k_squad + squad_tag) -> a distinct
+posterior cache key, so reruns of an already-fit cell HIT the on-disk cache.
+MIN_MATCHED is INHERITED from the data layer (prereg §6: never tuned vs sweep RPS).
 
 PRODUCTION fidelity: each cell is ONE production-grade ADVI fit (advi_iters from
-config, NOT coarsened — a coarse fit confounds the calibration). 4 k × 2 cutoffs =
-8 cells; the k=0 cells share the byte-identical-off posterior across tags only if
-the per-cutoff feature panel matches, so budget ~4-8 fresh fits (tens of min each).
+config, NOT coarsened — a coarse fit confounds the calibration). 4 k_squad × 2
+cutoffs = 8 sweep cells + 2 YARDSTICK cells (k_elo=0, k_squad=0 at both cutoffs)
+= 10 cells. The posterior cache key includes the git sha, so under a fresh branch
+every cell is a FRESH fit -> budget 10 fresh fits (tens of min each).
 
 Usage (from the worktree):
     PYTHONPATH=src .venv/bin/python scripts/sweep_squad_z.py [--only wc2022|euro2024] \\
@@ -48,7 +60,14 @@ import numpy as np
 import pandas as pd
 
 from wcmodel.backtest.baselines import model_fair_1x2, rps
-from wcmodel.backtest.squad_sweep import evaluate_gates
+from wcmodel.backtest.squad_sweep import (
+    MAX_FAVORITE_CEILING,
+    SUPPORT_ADOPT,
+    SUPPORT_NOLIFT,
+    bootstrap_support,
+    evaluate_gates,
+    paired_bootstrap_delta,
+)
 from wcmodel.config import load_config
 from wcmodel.data.sources.squad_anchor import load_squad_anchor
 import wcmodel.model.cache as _model_cache
@@ -65,6 +84,12 @@ from clv_validation import (  # noqa: E402  (script-local import, after sys.path
 # ---- LOCKED pre-registration constants (prereg §1-§2). DO NOT alter post-fit. ---
 K_SQUAD_GRID: list[float] = [0.0, 0.2, 0.4, 0.6]
 K_ELO: float = 0.6
+
+#: ADDENDUM-2 POWER YARDSTICK (+2 authorized fits): the k_elo 0->0.6 contrast at
+#: k_squad=0 on the SAME held-out matches, as the known-real-effect ruler. The
+#: yardstick arm fits k_elo=0.0 (a pure-uninformative-anchor model); its contrast
+#: vs the k_squad=0 (k_elo=0.6) cell is context ONLY — it never moves the verdict.
+K_ELO_YARDSTICK: float = 0.0
 
 #: The two held-out tournaments. ``cutoff`` is strictly before the first match;
 #: the held-out scoring set is finals matches in (cutoff, end] whose tournament
@@ -112,32 +137,37 @@ def _heldout_tournament_frame(store, spec: dict) -> pd.DataFrame:
     return ho.reset_index(drop=True)
 
 
-def _config_for_cell(base_cfg: dict, tag: str, k_squad: float) -> dict:
-    """Deep-copy config with the anchor ON at (k_elo=0.6, k_squad) for ``tag``.
+def _config_for_cell(base_cfg: dict, tag: str, k_squad: float,
+                     k_elo: float = K_ELO) -> dict:
+    """Deep-copy config with the anchor ON at (``k_elo``, ``k_squad``) for ``tag``.
 
-    k_squad=0.0 is the enabled-but-zero-squad case == today's Elo-anchored model
-    (byte-identical-off for the squad term). The squad_tag is always set so the
-    cache key is unambiguous; at k_squad=0 the fit reads NO squad data."""
+    k_squad=0.0 (at k_elo=0.6) is the enabled-but-zero-squad case == today's
+    Elo-anchored model (byte-identical-off for the squad term). The YARDSTICK arm
+    uses k_elo=0.0 (a pure-uninformative anchor mean = the no-Elo model) at
+    k_squad=0.0. The squad_tag is always set so the cache key is unambiguous; at
+    k_squad=0 the fit reads NO squad data."""
     cfg = copy.deepcopy(base_cfg)
     cfg["model"]["strength_prior"] = {
         "enabled": True, "source": "elo",
-        "k_att": K_ELO, "k_def": K_ELO,
+        "k_att": float(k_elo), "k_def": float(k_elo),
         "k_squad": float(k_squad), "squad_tag": tag,
     }
     return cfg
 
 
 def fit_and_score_cell(*, cutoff: str, tag: str, k_squad: float, base_cfg: dict,
-                       store, heldout: pd.DataFrame) -> dict:
-    """ONE production-fidelity fit at ``cutoff`` (anchor k_squad, tag) -> held-out
-    per-match 1X2 RPS arrays.
+                       store, heldout: pd.DataFrame, k_elo: float = K_ELO) -> dict:
+    """ONE production-fidelity fit at ``cutoff`` (anchor k_elo, k_squad, tag) ->
+    held-out per-match 1X2 RPS arrays.
 
     Returns ``{overall_rps:[...], slice_rps:[...over has_squad=0-involving matches],
-    n_overall, n_slice, n_train, max_train_date, cache_hit}``. The has_squad=0
-    slice (prereg §4(i)): a held-out match where EITHER team is uncovered
-    (has_squad=0) in the tag's squad anchor — the coverage-asymmetry slice.
-    """
-    cfg = _config_for_cell(base_cfg, tag, k_squad)
+    n_overall, n_slice, n_train, max_train_date, cache_hit, max_favorite}``. The
+    has_squad=0 slice (prereg §4(i)): a held-out match where EITHER team is
+    uncovered (has_squad=0) in the tag's squad anchor — the coverage-asymmetry
+    slice. ``max_favorite`` is the LARGEST single-game favourite probability this
+    cell produced on the held-out set (the over-anchoring sanity input — a >0.95
+    single-game favourite is a suspected over-anchor)."""
+    cfg = _config_for_cell(base_cfg, tag, k_squad, k_elo)
     inf = cfg["model"]["inference"]
     post, meta = _model_cache.cached_fit(
         cutoff=pd.Timestamp(cutoff), store=store, backend="advi",
@@ -148,6 +178,7 @@ def fit_and_score_cell(*, cutoff: str, tag: str, k_squad: float, base_cfg: dict,
     known = set(post.teams)
     overall: list[float] = []
     slice_rps: list[float] = []
+    max_favorite = 0.0
     for _, row in heldout.iterrows():
         home, away = str(row["home_team"]), str(row["away_team"])
         if home not in known or away not in known:
@@ -160,6 +191,9 @@ def fit_and_score_cell(*, cutoff: str, tag: str, k_squad: float, base_cfg: dict,
             continue
         r = rps(probs, outcome)
         overall.append(r)
+        # Over-anchoring sanity input: the biggest single-game favourite this cell
+        # produced (max over the three 1X2 legs of the most lopsided match).
+        max_favorite = max(max_favorite, max(probs.values()))
         # has_squad=0-involving slice: EITHER team uncovered in this tag's anchor.
         if anchor.has_squad.get(home, 0) == 0 or anchor.has_squad.get(away, 0) == 0:
             slice_rps.append(r)
@@ -172,6 +206,7 @@ def fit_and_score_cell(*, cutoff: str, tag: str, k_squad: float, base_cfg: dict,
         "n_overall": len(overall), "n_slice": len(slice_rps),
         "n_train": int(len(asof)), "max_train_date": str(max_train.date()),
         "cache_hit": bool(meta["cache_hit"]),
+        "max_favorite": float(max_favorite) if overall else float("nan"),
     }
 
 
@@ -189,13 +224,75 @@ def step_heldout(store, spec: dict) -> pd.DataFrame:
 def _print_table(tag: str, cells: list[dict]) -> None:
     print(f"\n  [{tag}] per-k held-out 1X2 RPS")
     print(f"  {'k_squad':>7} | {'overall_RPS':>11} | {'n':>4} | "
-          f"{'slice(has_sq=0)_RPS':>19} | {'n_sl':>4}")
-    print(f"  {'-'*7}-+-{'-'*11}-+-{'-'*4}-+-{'-'*19}-+-{'-'*4}")
+          f"{'slice(has_sq=0)_RPS':>19} | {'n_sl':>4} | {'max_fav':>7}")
+    print(f"  {'-'*7}-+-{'-'*11}-+-{'-'*4}-+-{'-'*19}-+-{'-'*4}-+-{'-'*7}")
     for c in cells:
         o = np.mean(c["overall_rps"]) if c["overall_rps"] else float("nan")
         s = np.mean(c["slice_rps"]) if c["slice_rps"] else float("nan")
+        fav = c.get("max_favorite", float("nan"))
         print(f"  {c['k']:>7.2f} | {o:>11.5f} | {c['n_overall']:>4} | "
-              f"{s:>19.5f} | {c['n_slice']:>4}")
+              f"{s:>19.5f} | {c['n_slice']:>4} | {fav:>7.3f}")
+
+
+def _pool_cells(per_tag_cells: dict[str, list[dict]], ks: list[float]) -> list[dict]:
+    """Concatenate the per-tournament per-match RPS arrays into POOLED cells (one
+    per k over ALL held-out matches — the 113-match set the ADDENDUM-2 evidence
+    is read on). The pooled cell's ``max_favorite`` is the MAX across tournaments
+    (the most lopsided single-game favourite anywhere = the over-anchoring read)."""
+    pooled: list[dict] = []
+    for k in ks:
+        overall: list[float] = []
+        slice_rps: list[float] = []
+        favs: list[float] = []
+        for cells in per_tag_cells.values():
+            c = next((c for c in cells if abs(c["k"] - k) < 1e-9), None)
+            if c is None:
+                continue
+            overall.extend(c["overall_rps"])
+            slice_rps.extend(c["slice_rps"])
+            if not np.isnan(c.get("max_favorite", float("nan"))):
+                favs.append(c["max_favorite"])
+        pooled.append({
+            "k": k, "overall_rps": overall, "slice_rps": slice_rps,
+            "n_overall": len(overall), "n_slice": len(slice_rps),
+            "max_favorite": (max(favs) if favs else float("nan")),
+        })
+    return pooled
+
+
+def _sign_split(per_tag_cells: dict[str, list[dict]], knee_k: float,
+                *, seed: int, n_boot: int) -> dict[str, dict]:
+    """ADDENDUM-2 evidence #3: the per-tournament Δ point estimate + support % at
+    the pooled knee k (vs that tournament's own k=0 cell). The 'sign split' is
+    whether the two tournaments AGREE in direction (both Δ<0 = both favour k>0)."""
+    out: dict[str, dict] = {}
+    for tag, cells in per_tag_cells.items():
+        c0 = next((c for c in cells if abs(c["k"]) < 1e-9), None)
+        ck = next((c for c in cells if abs(c["k"] - knee_k) < 1e-9), None)
+        if c0 is None or ck is None:
+            continue
+        d = paired_bootstrap_delta(c0["overall_rps"], ck["overall_rps"],
+                                   seed=seed, n_boot=n_boot)
+        out[tag] = {"delta": d["delta"], "support": d["support"],
+                    "sign": ("k>0" if d["delta"] < 0 else "k=0")}
+    return out
+
+
+def _yardstick(per_tag_yard: dict[str, list[float]],
+               per_tag_k0: dict[str, list[float]],
+               *, seed: int, n_boot: int) -> dict:
+    """ADDENDUM-2 POWER YARDSTICK: the k_elo 0->0.6 contrast at k_squad=0, pooled
+    over ALL held-out matches. ``a`` = the k_elo=0 (yardstick) RPS, ``b`` = the
+    k_elo=0.6 (k_squad=0 baseline) RPS — so support is the % of resamples favouring
+    k_elo=0.6 (the known-real Elo effect). Returns ``{delta, support, n}``."""
+    a: list[float] = []     # k_elo=0
+    b: list[float] = []     # k_elo=0.6
+    for tag in per_tag_yard:
+        if tag in per_tag_k0:
+            a.extend(per_tag_yard[tag])
+            b.extend(per_tag_k0[tag])
+    d = paired_bootstrap_delta(a, b, seed=seed, n_boot=n_boot)
+    return {"delta": d["delta"], "support": d["support"], "n": len(a)}
 
 
 def main(argv=None) -> int:
@@ -225,12 +322,18 @@ def main(argv=None) -> int:
     print("[G2] has_squad=0-slice non-regression judged by PAIRED-BOOTSTRAP CI "
           "OVERLAP (lo95<=0) — the prereg fixes no numeric tolerance, so this is "
           "an explicit implementation choice.")
+    print(f"[ADDENDUM-2] decision on POOLED held-out bootstrap SUPPORT (% of "
+          f"resamples favouring k>0): ADOPT>={SUPPORT_ADOPT:.0f}% AND G2 AND "
+          f"sanity; NO-LIFT<{SUPPORT_NOLIFT:.0f}%; [{SUPPORT_NOLIFT:.0f},"
+          f"{SUPPORT_ADOPT:.0f}%)=MORNING-CALL (default no-adopt). Sanity: no "
+          f">{MAX_FAVORITE_CEILING:.2f} single-game favourite (over-anchoring).")
 
     store = step_store()
+    seed = int(base_cfg["seed"])
 
-    per_tag_verdict: dict[str, dict] = {}
-    overall_adopt = True
-    adopted_ks: list[float] = []
+    per_tag_cells: dict[str, list[dict]] = {}
+    per_tag_yard: dict[str, list[float]] = {}     # k_elo=0 (yardstick) overall RPS
+    per_tag_k0: dict[str, list[float]] = {}       # k_elo=0.6, k_squad=0 overall RPS
 
     for spec in heldouts:
         tag = spec["tag"]
@@ -246,61 +349,96 @@ def main(argv=None) -> int:
             o = np.mean(res["overall_rps"]) if res["overall_rps"] else float("nan")
             print(f"  [k={k:.2f}] {'HIT' if res.get('cache_hit') else 'fit'}  "
                   f"overall_RPS={o:.5f} n={res['n_overall']} slice_n={res['n_slice']} "
+                  f"max_fav={res['max_favorite']:.3f} "
                   f"(train max {res['max_train_date']} < {spec['cutoff'][:10]})",
                   flush=True)
+        per_tag_cells[tag] = cells
+        if any(abs(c["k"]) < 1e-9 for c in cells):
+            per_tag_k0[tag] = next(c["overall_rps"] for c in cells if abs(c["k"]) < 1e-9)
+
+        # YARDSTICK arm: k_elo=0.0, k_squad=0.0 at this cutoff (same held-out set).
+        yres = fit_and_score_cell(cutoff=spec["cutoff"], tag=tag, k_squad=0.0,
+                                  base_cfg=base_cfg, store=store, heldout=heldout,
+                                  k_elo=K_ELO_YARDSTICK)
+        per_tag_yard[tag] = yres["overall_rps"]
+        yo = np.mean(yres["overall_rps"]) if yres["overall_rps"] else float("nan")
+        print(f"  [YARDSTICK k_elo={K_ELO_YARDSTICK:.2f},k_squad=0.00] "
+              f"{'HIT' if yres.get('cache_hit') else 'fit'}  overall_RPS={yo:.5f} "
+              f"n={yres['n_overall']}", flush=True)
 
         _print_table(tag, cells)
 
-        gate_cells = [{"k": c["k"], "overall_rps": c["overall_rps"],
-                       "slice_rps": c["slice_rps"]} for c in cells]
-        try:
-            v = evaluate_gates(gate_cells, seed=int(base_cfg["seed"]), n_boot=args.n_boot)
-        except ValueError as exc:
-            print(f"  [{tag}] cannot evaluate gates: {exc}")
-            overall_adopt = False
-            continue
-        per_tag_verdict[tag] = v
-        od, sd = v["overall_delta_vs0"], v["slice_delta_vs0"]
-        print(f"  [{tag}] knee k={v['knee_k']:.2f}  "
-              f"G1(beats-0)={'PASS' if v['g1_pass'] else 'FAIL'} "
-              f"[overall Δvs0={od['delta']:+.5f} CI({od['lo95']:+.5f},{od['hi95']:+.5f})]  "
-              f"G2(slice)={'PASS' if v['g2_pass'] else 'FAIL'} "
-              f"[slice Δvs0={sd['delta']:+.5f} CI({sd['lo95']:+.5f},{sd['hi95']:+.5f})]")
-        print(f"  [{tag}] -> {v['verdict']}"
-              + (f" k_squad={v['k']:.2f}" if v["verdict"] == "ADOPT" else ""))
-        if v["verdict"] == "ADOPT":
-            adopted_ks.append(v["k"])
-        else:
-            overall_adopt = False
+    # ---- POOLED evidence over ALL held-out matches (the 113-match set). ----
+    pooled = _pool_cells(per_tag_cells, ks)
+    n_pool = pooled[0]["n_overall"] if pooled else 0
+    print(f"\n[POOLED] {'+'.join(per_tag_cells)} -> {n_pool} held-out matches.")
+    _print_table("POOLED", [{**c} for c in pooled])
 
-    # ---- The single machine-readable verdict line. ----
-    print("\n" + "=" * 78)
-    # ADOPT only if EVERY evaluated held-out tournament adopts the SAME knee k
-    # (the prereg adopts at the knee that beats zero on the held-out set; a split
-    # across the two tournaments is NOT a clean adopt -> NO-LIFT, flag for user).
-    consistent = (overall_adopt and per_tag_verdict
-                  and len(set(round(k, 6) for k in adopted_ks)) == 1
-                  and len(adopted_ks) == len(per_tag_verdict))
-    if consistent:
-        k = adopted_ks[0]
-        print(f"P3SWEEP VERDICT: ADOPT k_squad={k:.2f} (knee beats k=0 on overall "
-              f"held-out 1X2 RPS AND the has_squad=0 slice does not regress, on "
-              f"{'+'.join(per_tag_verdict)}). Set model.strength_prior.k_squad="
-              f"{k:.2f} + squad_tag per cutoff.")
-    else:
-        reasons = []
-        for tag, v in per_tag_verdict.items():
-            if v["verdict"] != "ADOPT":
-                why = []
-                if not v["g1_pass"]:
-                    why.append("G1 knee-does-not-beat-0")
-                if not v["g2_pass"]:
-                    why.append("G2 slice-regressed")
-                reasons.append(f"{tag}:{'/'.join(why) or 'no-knee'}")
-        if overall_adopt and adopted_ks and len(set(round(k, 6) for k in adopted_ks)) > 1:
-            reasons.append(f"knee split across tournaments {adopted_ks}")
+    try:
+        v = evaluate_gates(pooled, seed=seed, n_boot=args.n_boot)
+    except ValueError as exc:
+        print("\n" + "=" * 78)
         print(f"P3SWEEP VERDICT: NO-LIFT (keep model.strength_prior.k_squad=0.0). "
-              f"Reasons: {'; '.join(reasons) or 'no held-out adopted'}.")
+              f"Reasons: cannot evaluate gates: {exc}.")
+        print("=" * 78)
+        return 0
+
+    od, sd = v["overall_delta_vs0"], v["slice_delta_vs0"]
+    knee_k, support = v["knee_k"], v["support"]
+    print(f"\n[POOLED] knee k_squad={knee_k:.2f}  SUPPORT={support:.1f}% "
+          f"(% of resamples favouring k>0; evidence #2)")
+    print(f"  paired ΔRPS vs k=0 = {od['delta']:+.5f} "
+          f"CI95({od['lo95']:+.5f},{od['hi95']:+.5f})  [evidence #1]")
+    print(f"  G2(has_sq=0 slice non-regression) = {'PASS' if v['g2_pass'] else 'FAIL'} "
+          f"[slice Δvs0={sd['delta']:+.5f} CI({sd['lo95']:+.5f},{sd['hi95']:+.5f})]  "
+          f"[evidence #4]")
+    print(f"  sanity(no >{MAX_FAVORITE_CEILING:.2f} favourite) = "
+          f"{'PASS' if v['sanity_pass'] else 'FAIL'} "
+          f"[knee max_fav={v['max_favorite']:.3f}]  [evidence #5]")
+
+    # Evidence #3: per-tournament sign split at the pooled knee.
+    split = _sign_split(per_tag_cells, knee_k, seed=seed, n_boot=args.n_boot)
+    agree = (len({s["sign"] for s in split.values()}) == 1) if split else False
+    print(f"\n[SIGN SPLIT] per-tournament Δ at pooled knee k={knee_k:.2f} "
+          f"(evidence #3) — directions {'AGREE' if agree else 'DISAGREE'}:")
+    for tag, s in split.items():
+        print(f"  {tag:>9}: ΔRPS={s['delta']:+.5f} support={s['support']:.1f}% "
+              f"-> favours {s['sign']}")
+
+    # POWER YARDSTICK (context only — NEVER affects the verdict).
+    yard = _yardstick(per_tag_yard, per_tag_k0, seed=seed, n_boot=args.n_boot)
+    print(f"\n[YARDSTICK] k_elo 0->0.6 (at k_squad=0) on the SAME {yard['n']} "
+          f"matches — the known-real-effect ruler; read the k_squad arms against "
+          f"this (it NEVER affects the verdict):")
+    print(f"  k_elo 0->0.6: dRPS={yard['delta']:+.5f}, support={yard['support']:.1f}%")
+
+    # ---- The single machine-readable verdict line (ADOPT/NO-LIFT/MORNING-CALL). ----
+    print("\n" + "=" * 78)
+    tags_str = "+".join(per_tag_cells)
+    if v["verdict"] == "ADOPT":
+        k = v["k"]
+        print(f"P3SWEEP VERDICT: ADOPT k_squad={k:.2f} (support={support:.0f}% "
+              f">={SUPPORT_ADOPT:.0f}% on pooled held-out 1X2 RPS AND G2 slice "
+              f"non-regression AND over-anchoring sanity hold, on {tags_str}). "
+              f"Set model.strength_prior.k_squad={k:.2f} + squad_tag per cutoff.")
+    elif v["verdict"] == "MORNING-CALL":
+        print(f"P3SWEEP VERDICT: MORNING-CALL (support={support:.0f}% in "
+              f"[{SUPPORT_NOLIFT:.0f},{SUPPORT_ADOPT:.0f}); default no-adopt) "
+              f"k_squad={knee_k:.2f} knee on {tags_str} — the user's call.")
+    else:                                           # NO-LIFT
+        why = []
+        if np.isnan(support) or abs(knee_k) <= 1e-9:
+            why.append("knee is k=0 / no support")
+        elif support < SUPPORT_NOLIFT:
+            why.append(f"support={support:.0f}%<{SUPPORT_NOLIFT:.0f}%")
+        else:                                       # high support but a gate vetoed
+            if not v["g2_pass"]:
+                why.append("G2 slice regressed")
+            if not v["sanity_pass"]:
+                why.append(f"sanity: >{MAX_FAVORITE_CEILING:.2f} favourite "
+                           f"({v['max_favorite']:.3f})")
+        print(f"P3SWEEP VERDICT: NO-LIFT (keep model.strength_prior.k_squad=0.0). "
+              f"Reasons: {'; '.join(why) or 'no held-out adopted'}.")
     print("=" * 78)
     return 0
 
