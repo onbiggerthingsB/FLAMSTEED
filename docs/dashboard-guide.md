@@ -272,6 +272,23 @@ genuine model. The banner is about the **odds/betting** side, not the model's fo
 
 ---
 
+## Known limitations
+
+- **Scoreline tails in mismatched games run hot (P4 finding, 2026-06-11).** On
+  2,111 held-out internationals scored with the production-config posterior, the
+  model OVER-predicts blowout-tail outcomes in heavily mismatched games: in the
+  top-decile |Elo-gap| bucket, predicted P(favourite scores 4+) was 0.499 vs a
+  realized 0.366, with the same direction across all four tail markets (ratios
+  0.73–0.87, 95% CIs excluding 1). Evenly-matched and mid-gap games are
+  calibrated. Practical reading: in a heavy-mismatch fixture, the scoreline
+  grid's big-margin cells and the most-likely blowout scores lean high; the
+  headline 1X2 and advance probabilities are unaffected (Part B reliability,
+  n=2,111). A correction ("4c-thin") is SPEC'D BUT NOT SHIPPED — pre-registered
+  evaluation gates apply before any adoption, and no mid-tournament adoption
+  happens without passing them. Details: reports/tails_2026-06-10.md (including
+  the controller's note on why the automated 4b verdict there is not
+  trustworthy).
+
 ## The operator's 60-second daily freshness check
 
 1. **Top bar — Forecast clock.** Read *"as of …"*. After an overnight run it should be
