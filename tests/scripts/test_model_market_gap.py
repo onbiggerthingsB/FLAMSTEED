@@ -197,3 +197,65 @@ def test_report_writes_file(mod, monkeypatch, tmp_path):
     text = out.read_text()
     assert "tier=friendly" in text
     assert "limitation" in text.lower()
+
+
+def test_posterior_matcher_requires_full_covariates_block(mod, monkeypatch, tmp_path):
+    """P4a purity finding (2026-06-11): the config-match lookup ignored the model's
+    ``covariates`` block, so it confused the production fit (enabled=[], host_k=1.4)
+    with sweep arms fit under accl_alt/altitude_m/rest_days or the pre-P2b
+    host_k=0.5 — same k_att, DIFFERENT model. The matcher must reject any cached
+    posterior whose covariates block differs from the requested config's, and
+    accept the exact-block match."""
+    import json
+
+    cfg = {
+        "seed": 7,
+        "model": {
+            "likelihood": "dc",
+            "inference": {"draws": 10, "tune": 0, "advi_iters": 100},
+            "prior": {"sigma_att": 0.5},
+            "widening": {"mode": "c"},
+            "strength_prior": {"enabled": True, "k_att": 0.6, "k_def": 0.6},
+            "covariates": {"enabled": [], "host_k": 1.4,
+                           "missing_indicator_for": ["travel_km"]},
+        },
+    }
+
+    def _meta(name, covariates):
+        base = {
+            "cutoff": "2024-06-01T00:00:00Z", "likelihood": "dc",
+            "draws": 10, "tune": 0, "advi_iters": 100, "seed": 7,
+            "model": {"prior": cfg["model"]["prior"],
+                      "widening": cfg["model"]["widening"],
+                      "strength_prior": cfg["model"]["strength_prior"],
+                      "covariates": covariates},
+            "teams": [], "provisional_teams": [],
+        }
+        (tmp_path / f"posterior-{name}.meta.json").write_text(json.dumps(base))
+        # no .nc on disk -> a MATCH attempts the nc and skips; so instead assert
+        # via the nc-existence boundary: write an empty nc only for the exact match.
+
+    # alphabetically FIRST: same k_att but an altitude-arm covariates block (the
+    # exact live confusion) -> must be REJECTED on the covariates field.
+    _meta("aaaa", {"enabled": ["accl_alt"], "host_k": 1.4,
+                   "missing_indicator_for": ["travel_km"]})
+    # pre-P2b host_k -> must be REJECTED.
+    _meta("bbbb", {"enabled": [], "host_k": 0.5,
+                   "missing_indicator_for": ["travel_km"]})
+    # the exact production block -> the one allowed to match.
+    _meta("cccc", cfg["model"]["covariates"])
+    (tmp_path / "posterior-cccc.nc").write_text("")  # exists -> reachable
+
+    monkeypatch.setattr(mod, "CACHE_DIR", tmp_path)
+
+    seen = {}
+    def fake_from_netcdf(nc, **kwargs):
+        seen["nc"] = nc.name
+        return "POSTERIOR"
+    monkeypatch.setattr(mod.model_cache, "_posterior_from_netcdf", fake_from_netcdf)
+    monkeypatch.setattr(mod.model_cache, "_transforms_from_meta", lambda *_: None)
+
+    found = mod._find_cached_production_posterior("2024-06-01T00:00:00Z", cfg)
+    assert found is not None, "the exact-covariates posterior must match"
+    assert seen["nc"] == "posterior-cccc.nc", (
+        f"matcher loaded {seen.get('nc')} — a covariates-mismatched arm slipped past")

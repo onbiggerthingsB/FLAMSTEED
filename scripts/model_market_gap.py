@@ -145,6 +145,12 @@ def _find_cached_production_posterior(cutoff: str, cfg: dict):
         "prior": cfg["model"]["prior"],
         "widening": cfg["model"]["widening"],
         "strength_prior": cfg["model"].get("strength_prior"),
+        # COVARIATES are part of the posterior's content (P4a purity finding,
+        # 2026-06-11): without this field the matcher confused the production fit
+        # (covariates.enabled=[], host_k=1.4) with sweep arms fit under accl_alt /
+        # altitude_m / rest_days or the pre-P2b host_k=0.5 — same k_att, different
+        # model. Full-block match: enabled list, host_k, hosts, scales, indicators.
+        "covariates": cfg["model"].get("covariates"),
     }
     for meta_path in sorted(CACHE_DIR.glob("posterior-*.meta.json")):
         try:
@@ -163,6 +169,7 @@ def _find_cached_production_posterior(cutoff: str, cfg: dict):
                 "prior": m_model.get("prior"),
                 "widening": m_model.get("widening"),
                 "strength_prior": m_model.get("strength_prior"),
+                "covariates": m_model.get("covariates"),
             }
         except (TypeError, ValueError):
             continue
