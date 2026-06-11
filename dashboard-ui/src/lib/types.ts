@@ -55,6 +55,15 @@ export interface OneXTwo {
   draw: number;
   away: number;
 }
+// The ±1.5 goal-line cover pair: a DERIVED scalar read off the scoreline grid (spec §10
+// Derived — P(home covers −1.5) = Σ grid[h,a] over h−a>=2; away is the complement, a half
+// line has no push so the pair sums to 1). NOT a posterior estimate with its own ± — the
+// scoreline DISTRIBUTION is the uncertainty (like one_x_two / the shortlist), so it renders
+// inside a data-uncertainty="distribution" region, never as a naked number.
+export interface CoverPair {
+  home: number; // P(home −1.5)
+  away: number; // P(away +1.5)
+}
 export interface ForecastSummary {
   most_likely: MostLikely;
   one_x_two: OneXTwo;
@@ -62,6 +71,10 @@ export interface ForecastSummary {
   // score = shortlist, never a lone score"). A pure projection of the gated forecast's
   // already-computed shortlist (top-3); the serializer GATES every entry's prob in [0,1].
   shortlist: MostLikely[];
+  // The ±1.5 goal-line cover pair — Derived from the scoreline grid (see CoverPair). OPTIONAL
+  // on the type so an un-regenerated bundle (no cover key) still parses; the SpreadLine renders
+  // it only when present, inside the marked distribution region.
+  cover?: CoverPair;
   // GHOST LINE: the OPTIONAL de-vigged ENTRY market 1X2 — a DERIVED model-vs-market
   // comparison (the de-vig of the decision-time ENTRY odds the edge was priced against),
   // ghosted into the WinBar as the `line` prop. Present ONLY where a real (non-gap) edge
@@ -120,6 +133,8 @@ export interface Forecast {
   shortlist: MostLikely[];
   grid: number[][];
   one_x_two: OneXTwo;
+  // The ±1.5 cover pair Derived from this fixture's grid (optional for bundle back-compat).
+  cover?: CoverPair;
 }
 export interface Strength {
   attack: ValueCi;

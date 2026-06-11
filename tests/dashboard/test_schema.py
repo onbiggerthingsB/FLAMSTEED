@@ -248,6 +248,64 @@ def test_gate_fixture_forecast_rejects_a_lone_1x2_outcome():
         gate_fixture_forecast(f)
 
 
+def test_gate_fixture_forecast_accepts_a_valid_cover_pair():
+    """The ±1.5 cover pair (Derived from the grid) — both sides finite in [0,1], sum ~1 —
+    passes the fixture gate alongside the grid/1X2/shortlist."""
+    f = {"most_likely": {"home_goals": 1, "away_goals": 0, "prob": 0.12},
+         "shortlist": [{"home_goals": 1, "away_goals": 0, "prob": 0.12}],
+         "grid": [[0.5, 0.2], [0.2, 0.1]],
+         "one_x_two": {"home": 0.7, "draw": 0.2, "away": 0.1},
+         "cover": {"home": 0.2, "away": 0.8}}
+    gate_fixture_forecast(f)  # no raise
+
+
+def test_gate_fixture_forecast_rejects_incoherent_cover_pair():
+    """A cover pair that does not sum to ~1 (impossible for a half-goal no-push line) STOPS."""
+    f = {"most_likely": {"home_goals": 1, "away_goals": 0, "prob": 0.12},
+         "grid": [[0.5, 0.2], [0.2, 0.1]],
+         "one_x_two": {"home": 0.7, "draw": 0.2, "away": 0.1},
+         "cover": {"home": 0.5, "away": 0.6}}  # sums 1.1
+    with pytest.raises(ValueError, match="(?i)cover|sum"):
+        gate_fixture_forecast(f)
+
+
+def test_gate_fixture_forecast_rejects_lone_cover_side():
+    """A cover node missing a side is a lone number, not a distribution — STOPPED."""
+    f = {"most_likely": {"home_goals": 1, "away_goals": 0, "prob": 0.12},
+         "grid": [[0.5, 0.2], [0.2, 0.1]],
+         "one_x_two": {"home": 0.7, "draw": 0.2, "away": 0.1},
+         "cover": {"home": 0.2}}  # no away
+    with pytest.raises(ValueError, match="(?i)cover|side|both"):
+        gate_fixture_forecast(f)
+
+
+def test_gate_fixture_forecast_absent_cover_is_fine():
+    """The cover field is OPTIONAL: a pre-feature forecast with no cover key still gates clean
+    (so an un-regenerated bundle never hard-fails on the gate)."""
+    f = {"most_likely": {"home_goals": 1, "away_goals": 0, "prob": 0.12},
+         "grid": [[0.5, 0.2], [0.2, 0.1]],
+         "one_x_two": {"home": 0.7, "draw": 0.2, "away": 0.1}}
+    assert "cover" not in f
+    gate_fixture_forecast(f)  # no raise
+
+
+def test_gate_schedule_accepts_and_value_checks_the_cover_pair():
+    """The row-projected cover pair is value-checked in gate_schedule too: a valid pair passes,
+    a NaN side STOPS, and an absent cover is fine (optional projection)."""
+    row = _good_group_row()
+    row["forecast_summary"]["cover"] = {"home": 0.18, "away": 0.82}
+    gate_schedule({"group": [row], "knockout": []})  # no raise
+
+    bad = _good_group_row()
+    bad["forecast_summary"]["cover"] = {"home": float("nan"), "away": 0.82}
+    with pytest.raises(ValueError, match="(?i)cover|finite"):
+        gate_schedule({"group": [bad], "knockout": []})
+
+    plain = _good_group_row()
+    assert "cover" not in plain["forecast_summary"]
+    gate_schedule({"group": [plain], "knockout": []})  # absent -> no raise
+
+
 def test_gate_track_rejects_a_nan_metric():
     gate_track({"beat_close_rate": 0.56, "avg_clv": 0.018, "rps": {"model": 0.1}})  # ok
     with pytest.raises(ValueError, match="(?i)nan|finite"):

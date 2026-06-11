@@ -8,6 +8,7 @@
   import CoverageGap from '../components/CoverageGap.svelte';
   import WinBar from '../components/WinBar.svelte';
   import ScorePill from '../components/ScorePill.svelte';
+  import SpreadLine from '../components/SpreadLine.svelte';
 
   let { data }: { data: ScheduleData } = $props();
   const STAGES = ['group', 'knockout'] as const;
@@ -64,7 +65,13 @@
             ><WinBar
               model={r.forecast_summary.one_x_two}
               line={r.forecast_summary.market_1x2 ?? null}
-            /></span>
+            />
+            <!-- ±1.5 goal-line cover, ONE line UNDER the outcome bar. A DERIVED readout of the
+                 scoreline distribution (model probability; the does-not-beat-the-market banner
+                 covers the framing) — rendered only when the bundle carries the cover pair. -->
+            {#if r.forecast_summary.cover}
+              <SpreadLine cover={r.forecast_summary.cover} home={r.home} away={r.away} />
+            {/if}</span>
           <!-- The top-3 shortlist, each a distribution-marked "h–a · p%" ScorePill. This
                replaces the single lone score: the predicted score is a shortlist. Every
                ScorePill prob stays inside data-uncertainty="distribution". -->

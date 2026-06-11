@@ -80,10 +80,20 @@ def test_edge_actually_attaches_to_matching_fixture(small_store, synthetic_tourn
         "(the edge key never matched edges_by_event's stringified-date key)"
     )
 
+    # ±1.5 COVER (the new Derived scalar): the freshly-built fixture detail carries a coherent
+    # cover pair, and the row summary projects the SAME pair. Acceptance 2 (sum~1) + 3 (strict
+    # subset of home win) verified over a REAL build, not just the staged bundle.
+    cov = matched["forecast"]["cover"]
+    assert set(cov) == {"home", "away"}
+    assert abs(cov["home"] + cov["away"] - 1.0) < 1e-9, "cover pair must sum to 1 (half line, no push)"
+    assert cov["home"] < matched["forecast"]["one_x_two"]["home"], "P(home −1.5) must be < P(home win)"
+
     # And the schedule ROW for the same fixture carries the same REAL edge.
     sched = json.loads((b / "schedule.json").read_text())["data"]["group"]
     rows = [r for r in sched if r["home"] == "Brazil" and r["away"] == "Mexico"]
     assert rows and _is_real_edge(rows[0]["edge"]), "edge did NOT attach to the schedule row"
+    # The row summary projects the SAME cover pair the fixture detail computed (pure projection).
+    assert rows[0]["forecast_summary"]["cover"] == cov, "row cover must project the fixture cover"
 
     # CONTROL: a fixture with NO live odds item still gaps HONESTLY (no fabricated edge).
     other = None
