@@ -6,6 +6,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from wcmodel.dashboard.spread import cover_line
+
 
 def scoreline_shortlist(grid: np.ndarray, *, top: int = 6) -> list[dict]:
     """Top-N most-likely scorelines from the joint grid[h, a], each with its probability."""
@@ -36,6 +38,11 @@ def fixture_forecast(posterior, *, home: str, away: str, neutral: bool,
                  for h in range(grid.shape[0])],
         "one_x_two": posterior.predict_1x2(home, away, neutral, max_goals,
                                            host_factor=host_factor),
+        # ±1.5 goal-line cover pair (spec §10: DERIVED from the SAME scoreline grid — no model,
+        # no odds). P(home covers −1.5) = Σ grid[h,a] over h−a>=2; P(away covers +1.5) is its
+        # complement (half line, no push). cover_line reads the identical orientation
+        # predict_1x2 uses, so home-cover ⊂ home-win by construction.
+        "cover": cover_line(grid),
     }
 
 

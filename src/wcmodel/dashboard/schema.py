@@ -75,6 +75,21 @@ def _check_1x2_distribution(oxt: dict, *, where: str, tol: float = 0.05) -> None
         raise ValueError(f"{where}: 1x2 outcomes must sum to ~1 (the distribution is the uncertainty); got {sum(vals)!r}")
 
 
+def _check_cover_pair(cov: dict, *, where: str, tol: float = 0.05) -> None:
+    """SHARED: the ±1.5 goal-line cover pair (Derived from the scoreline grid) must show BOTH
+    sides — ``{home, away}`` — each a finite probability in [0,1], AND sum to ~1 (a half-goal
+    line has no push, so the two cover outcomes partition the space). This is the IDENTICAL
+    all-sides-present + value + sum~1 discipline ``_check_1x2_distribution`` applies; the cover
+    distribution IS its own uncertainty (no per-side CI), exactly like the 1X2 and shortlist."""
+    if not isinstance(cov, dict) or not all(k in cov for k in ("home", "away")):
+        raise ValueError(f"{where}: cover must show both sides (home/away), never a lone side")
+    vals = [cov["home"], cov["away"]]
+    if not all(_prob_in_unit(v) for v in vals):
+        raise ValueError(f"{where}: each cover side must be a finite probability in [0,1] (got {vals!r})")
+    if abs(sum(vals) - 1.0) > tol:
+        raise ValueError(f"{where}: cover pair must sum to ~1 (±1.5 is a half line, no push); got {sum(vals)!r}")
+
+
 def assert_uncertainty_companion(node: dict) -> None:
     """Every emitted probability must carry a REAL uncertainty companion — a finite ``se``
     (an MC SE; 0.0 is valid for a certain p in {0,1}) or a ``ci`` of two finite bounds.
@@ -140,6 +155,11 @@ def gate_fixture_forecast(f: dict, *, tol: float = 0.05) -> None:
     shortlist = f.get("shortlist")
     if shortlist is not None:
         _check_shortlist_probs(shortlist, where="fixture forecast")
+    # The ±1.5 cover pair (Derived from the grid) — when present, both sides finite in [0,1]
+    # and sum ~1. Optional so a pre-feature forecast (no cover key) still gates clean.
+    cover = f.get("cover")
+    if cover is not None:
+        _check_cover_pair(cover, where="fixture forecast", tol=tol)
 
 
 def _is_gap(node) -> bool:
@@ -206,6 +226,11 @@ def gate_schedule(payload: dict, *, tol: float = 0.05) -> None:
             shortlist = (fs or {}).get("shortlist")
             if shortlist is not None:
                 _check_shortlist_probs(shortlist, where="schedule group row")
+            # The ±1.5 cover pair projected into the row (Derived from the grid). When present:
+            # both sides finite in [0,1], sum ~1. Optional (a pre-feature row has no cover key).
+            cover = (fs or {}).get("cover")
+            if cover is not None:
+                _check_cover_pair(cover, where="schedule group row", tol=tol)
             # GHOST LINE: the OPTIONAL de-vigged ENTRY market 1X2 (a DERIVED comparison ghosted
             # into the win-bar). When present it must be a coherent all-three sum~1 distribution
             # — value-checked like the model 1X2 — but it carries NO uncertainty companion (a

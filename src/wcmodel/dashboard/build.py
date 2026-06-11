@@ -253,6 +253,13 @@ def _forecast_summary(forecast: dict, edge: dict | None = None) -> dict:
         "one_x_two": forecast["one_x_two"],
         "shortlist": forecast["shortlist"][:3],
     }
+    # ±1.5 cover pair: a PURE PROJECTION of the already-computed forecast["cover"] (Derived
+    # from the grid in fixture_forecast — never recomputed here). The row card renders it under
+    # the win-bar as a model-probability line. Optional: a hand-built forecast (older test
+    # state) with no cover key simply projects no cover line — gate_schedule treats it as absent.
+    cover = forecast.get("cover")
+    if isinstance(cover, dict):
+        summary["cover"] = cover
     market_1x2 = (edge or {}).get("market_1x2") if isinstance(edge, dict) else None
     if isinstance(market_1x2, dict):
         summary["market_1x2"] = market_1x2

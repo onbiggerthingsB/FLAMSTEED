@@ -32,6 +32,7 @@ import Tournament from '../src/surfaces/Tournament.svelte';
 import Track from '../src/surfaces/Track.svelte';
 import MatchDetail from '../src/surfaces/MatchDetail.svelte';
 import WinBar from '../src/components/WinBar.svelte';
+import SpreadLine from '../src/components/SpreadLine.svelte';
 import HonestyBar from '../src/components/HonestyBar.svelte';
 import BracketTree from '../src/components/BracketTree.svelte';
 import App from '../src/App.svelte';
@@ -253,6 +254,37 @@ describe('no naked numbers — every surface honours the uncertainty/gap/derived
     const legend = container.querySelector('.ln');
     expect(legend, 'expected the de-vigged line legend to render').not.toBeNull();
     expect(PCT.test(legend?.textContent ?? '')).toBe(true);
+    assertNoNakedNumbers(container);
+  });
+
+  test('SpreadLine (±1.5 cover) renders both %s inside the distribution region — no naked number', () => {
+    // The cover line is a DERIVED readout of the scoreline distribution: both cover %s must
+    // sit inside data-uncertainty="distribution" (the distribution IS the uncertainty, like
+    // the WinBar legend), so the SAME guard passes. A regression that moved a % outside the
+    // region would be caught (NON-VACUITY block at the bottom proves the guard has teeth).
+    const { container } = render(SpreadLine, {
+      cover: { home: 0.246, away: 0.754 },
+      home: 'Brazil',
+      away: 'Mexico',
+    });
+    // Sanity: the cover %s actually rendered (else this state is vacuous).
+    expect(PCT.test(container.textContent ?? '')).toBe(true);
+    assertNoNakedNumbers(container);
+  });
+
+  test('Schedule (GROUP stage) WITH a cover line has no naked numbers', () => {
+    // Inject a cover pair into the first non-gap group row so the SpreadLine renders, then run
+    // the WHOLE Schedule group surface through the guard — the new cover %s must be marked.
+    const sched = J('schedule.json').data;
+    sched.group = sched.group.map((r: Record<string, unknown>, i: number) => {
+      const fs = r.forecast_summary as Record<string, unknown>;
+      return i === 0 && !('coverage_gap' in fs)
+        ? { ...r, forecast_summary: { ...fs, cover: { home: 0.22, away: 0.78 } } }
+        : r;
+    });
+    const { container } = render(Schedule, { data: sched });
+    // Sanity: the cover line actually rendered (non-vacuous coverage of the new element).
+    expect(container.querySelector('[data-spread]')).not.toBeNull();
     assertNoNakedNumbers(container);
   });
 

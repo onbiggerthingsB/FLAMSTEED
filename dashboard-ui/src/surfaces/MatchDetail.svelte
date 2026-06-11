@@ -7,6 +7,7 @@
   import WinBar from '../components/WinBar.svelte';
   import ScorelineGrid from '../components/ScorelineGrid.svelte';
   import ScorePill from '../components/ScorePill.svelte';
+  import SpreadLine from '../components/SpreadLine.svelte';
   import CredibleInterval from '../components/CredibleInterval.svelte';
   import CoverageGap from '../components/CoverageGap.svelte';
   import EdgeChip from '../components/EdgeChip.svelte';
@@ -42,6 +43,11 @@
          prop. The market line lives on the edge node (a DERIVED comparison, present only when
          the edge is a real, non-gap node that carries it); a coverage-gap edge has no line. -->
     <WinBar model={d.forecast.one_x_two} line={isGap(d.edge) ? null : (d.edge.market_1x2 ?? null)} />
+    <!-- ±1.5 goal-line cover, UNDER the outcome bar (model probability; a DERIVED readout of
+         the scoreline distribution). Rendered only when the fixture carries the cover pair. -->
+    {#if d.forecast.cover}
+      <SpreadLine cover={d.forecast.cover} home={d.home} away={d.away} />
+    {/if}
     <ScorelineGrid grid={d.forecast.grid} home={d.home} away={d.away} />
   </section>
 
