@@ -1,0 +1,25 @@
+# NOTICE — licenses & data attribution
+
+The **source code** in this repository is licensed under the MIT License (see `LICENSE`).
+
+**Bundled data retains its upstream license** — and some of it is more restrictive
+than MIT. Full per-source provenance, snapshot versions, and the bitemporal /
+leakage policy are in `SOURCES.md`. Summary of redistribution terms:
+
+| Bundled data | Source | License / terms |
+|---|---|---|
+| match results (cache, regenerated from source) | [martj42/international_results](https://github.com/martj42/international_results) | CC0 (public domain) |
+| club-Elo snapshots — `config/squads/clubelo_*.csv` | [clubelo.com](http://clubelo.com) | free to use, attribution appreciated |
+| tournament squad lists — `config/squads/{wc2026,wc2022,euro2024}.csv` | Wikipedia | **CC BY-SA 4.0** (share-alike + attribution) |
+| xG coverage table — `reports/phase1_statsbomb_coverage.csv` | [StatsBomb Open Data](https://github.com/statsbomb/open-data) | **non-commercial, attribution required** |
+| match-venue weather (pulled at runtime, not committed) | [Open-Meteo](https://open-meteo.com) | CC BY 4.0 ("Weather data by Open-Meteo.com") |
+
+Data provided by StatsBomb. Squad data © Wikipedia contributors (CC BY-SA 4.0).
+
+**Practical takeaway for reuse:** the code is MIT — do what you like. The bundled
+**StatsBomb-derived coverage table is non-commercial**; for a commercial use, drop
+or regenerate that one file (`reports/phase1_statsbomb_coverage.csv`). The
+Wikipedia-sourced squad lists are share-alike. Everything else is permissive.
+
+This project forecasts; it is not betting advice. Its own validation
+(`reports/headroom_2026-06-10.md`) finds it ties — not beats — sharp markets.
