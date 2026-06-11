@@ -113,12 +113,21 @@ schedule/result row, so `read(cutoff)` sees it and the sim conditions on it.
 > day-`D` match, `cutoff_day` must be **strictly after `D`** (i.e. `cutoff ≥ D+1
 > 00:00 UTC`).
 >
-> So `--manual-results` **auto-implies `cutoff = (max manual-row date) + 1 day` at
-> `00:00:00Z`** when you don't pass `--cutoff` — making today's finals condition. If
-> you pass an explicit `--cutoff` that is **not** strictly after a manual row's date,
-> the run **fails loud** (that result could never condition — an operator error, not a
-> silent no-op). At the implied `D+1` cutoff the day-`D` match is unambiguously in the
-> past: it informs **both** the fit (Elo update) and the sim conditioning, leakage-safe.
+> So `--manual-results` **auto-implies the cutoff** when you don't pass `--cutoff`:
+> the **next UTC midnight after both** the latest manual-row date **and** your entry
+> time. The second bound exists because the bitemporal PIT read also requires
+> **`observed_at ≤ cutoff`**, and a manual row's `observed_at` is the moment you ran
+> the script (2026-06-10 dress-rehearsal finding): a **02:00 UTC kickoff entered at
+> ~05:00 UTC** — routine at a North-American World Cup — would otherwise be
+> *invisible* at the date-implied midnight: gate green, bundle **silently
+> unconditioned**. With the entry-time bound the hand-entered rows are always
+> PIT-visible **and** condition.
+>
+> If you pass an explicit `--cutoff` that is **not** strictly after a manual row's
+> date, **or earlier than your entry time** (the same silent hole via the explicit
+> path), the run **fails loud** — an operator error, never a silent no-op. At the
+> implied cutoff the day-`D` match is unambiguously in the past: it informs
+> **both** the fit (Elo update) and the sim conditioning, leakage-safe.
 
 > **Re-run / cache note.** The fit is cutoff-keyed. A same-day rerun with the **same**
 > manual rows reuses the cached posterior **only if** the `< cutoff` training-panel
@@ -170,8 +179,9 @@ step prints a `[step]` line; the order is fixed:
    claims freshness it didn't fetch and a hand-entered run is auditable.
 
 `--cutoff` defaults to **today 00:00 UTC** (`YYYY-MM-DDT00:00:00Z`); with
-`--manual-results` and no `--cutoff` it instead auto-implies `(max manual date)+1
-day` so today's finals condition (see the manual-fallback section).
+`--manual-results` and no `--cutoff` it instead auto-implies the next UTC midnight
+after **both** the max manual date **and** your entry time, so today's finals
+condition *and* stay PIT-visible (see the manual-fallback section).
 `--latest` resolves and ingests the newest martj42 `master` commit (see the
 post-matchday recipe above) instead of the source pin; the default is the pin
 (byte-identical).
