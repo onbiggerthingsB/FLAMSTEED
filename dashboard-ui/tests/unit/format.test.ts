@@ -1,4 +1,4 @@
-import { pct, pctPlusMinus, ciText, edgeChip, formatDate } from '../../src/lib/format';
+import { pct, pctPlusMinus, numPlusMinus, ciText, edgeChip, formatDate } from '../../src/lib/format';
 
 test('pct formats a probability', () => {
   expect(pct(0.147)).toBe('15%');
@@ -49,6 +49,28 @@ test('edgeChip: a very small negative edge still renders signed with the U+2212 
 test('pct: very small probability does not round to a misleading naked 0 without %', () => {
   expect(pct(0.004)).toBe('0%');     // still carries the % unit
   expect(pct(0.004, 1)).toBe('0.4%');
+});
+
+// --- numPlusMinus (E[Pts] / E[GD]: a NON-probability estimate that still carries its SE) ---
+
+test('numPlusMinus binds a plain-number estimate to its SE (never naked)', () => {
+  expect(numPlusMinus(6.4, 0.02)).toBe('6.4 ±0.0');          // E[Pts]: unsigned, 1dp
+  expect(numPlusMinus(4.1, 0.03, { signedValue: true })).toBe('+4.1 ±0.0');   // E[GD]: signed +
+  expect(numPlusMinus(-5.3, 0.04, { signedValue: true })).toBe('−5.3 ±0.0');  // E[GD]: U+2212 minus
+});
+
+test('numPlusMinus: null value -> em-dash, null/NaN SE -> explicit ±? (never silent)', () => {
+  expect(numPlusMinus(null, 0.1)).toBe('—');
+  expect(numPlusMinus(undefined, 0.1)).toBe('—');
+  expect(numPlusMinus(NaN, 0.1)).toBe('—');
+  expect(numPlusMinus(5.0, null)).toBe('5.0 ±?');
+  expect(numPlusMinus(5.0, NaN)).toBe('5.0 ±?');
+  expect(numPlusMinus(Infinity, 0.1)).toBe('—');
+});
+
+test('numPlusMinus respects the dp option', () => {
+  expect(numPlusMinus(5.25, 0.123, { dp: 2 })).toBe('5.25 ±0.12');
+  expect(numPlusMinus(5.25, 0.123, { dp: 0 })).toBe('5 ±0');
 });
 
 test('non-finite inputs never render a malformed token', () => {

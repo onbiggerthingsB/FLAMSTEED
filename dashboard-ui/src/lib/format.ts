@@ -19,6 +19,23 @@ export function pctPlusMinus(value: number | null | undefined, se: number | null
   return `${v} ±${pts.toFixed(dp)}`;
 }
 
+// A non-probability estimate (E[Pts], E[GD]) ALWAYS carries its SE — same no-naked-number
+// rule as pctPlusMinus, but the value is a plain number (points / goal difference), NOT a
+// percentage. `signedValue` renders E[GD] with an explicit + / − sign (a goal difference is
+// signed); E[Pts] is unsigned. value null -> "—" (a null, never a bare number). se null ->
+// "±?" (explicit unknown), never a silent bare number.
+export function numPlusMinus(
+  value: number | null | undefined,
+  se: number | null | undefined,
+  { dp = 1, signedValue = false }: { dp?: number; signedValue?: boolean } = {},
+): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+  const sign = signedValue ? (value < 0 ? '−' : '+') : '';
+  const v = `${sign}${Math.abs(value).toFixed(dp)}`;
+  if (se === null || se === undefined || !Number.isFinite(se)) return `${v} ±?`;
+  return `${v} ±${Math.abs(se).toFixed(dp)}`;
+}
+
 const MINUS = '−'; // U+2212, not hyphen
 function signed(x: number, dp = 2): string {
   const s = (Math.abs(x) * 100).toFixed(dp === 2 ? 1 : dp);

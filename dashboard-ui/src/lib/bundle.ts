@@ -1,6 +1,6 @@
 import type {
   Envelope, Provenance, ScheduleData, TournamentData, TrackData, MetaData, FixtureDetail,
-  ValueBundle, ValueBet, ValueCoverageGap,
+  StandingsData, ValueBundle, ValueBet, ValueCoverageGap,
 } from './types';
 
 export function unwrap<T>(e: Envelope<T>): T { return e.data; }
@@ -12,22 +12,39 @@ async function getJson<T>(url: string): Promise<Envelope<T>> {
   return (await r.json()) as Envelope<T>;
 }
 
+// Optional artifact: a PRE-FEATURE bundle (built before Item A) has no standings.json. We
+// fetch it best-effort and return null on any failure (404 / parse error) so the standings
+// chip degrades cleanly to a coverage gap rather than taking the whole Forecast group down.
+async function getJsonOptional<T>(url: string): Promise<Envelope<T> | null> {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    return (await r.json()) as Envelope<T>;
+  } catch {
+    return null;
+  }
+}
+
 export interface Bundle {
   meta: Envelope<MetaData>;
   schedule: Envelope<ScheduleData>;
   tournament: Envelope<TournamentData>;
   track: Envelope<TrackData>;
+  // OPTIONAL (Item A): null on a pre-feature bundle with no standings.json — the standings
+  // chip then renders a coverage gap, never a crash.
+  standings: Envelope<StandingsData> | null;
 }
 
 export async function loadBundle(baseUrl: string): Promise<Bundle> {
   const b = baseUrl.replace(/\/$/, '');
-  const [meta, schedule, tournament, track] = await Promise.all([
+  const [meta, schedule, tournament, track, standings] = await Promise.all([
     getJson<MetaData>(`${b}/meta.json`),
     getJson<ScheduleData>(`${b}/schedule.json`),
     getJson<TournamentData>(`${b}/tournament.json`),
     getJson<TrackData>(`${b}/track.json`),
+    getJsonOptional<StandingsData>(`${b}/standings.json`),
   ]);
-  return { meta, schedule, tournament, track };
+  return { meta, schedule, tournament, track, standings };
 }
 
 export function loadFixture(baseUrl: string, matchId: string): Promise<Envelope<FixtureDetail>> {

@@ -29,6 +29,7 @@ import type { KoRow } from '../src/lib/types';
 afterEach(() => cleanup());
 import Schedule from '../src/surfaces/Schedule.svelte';
 import Tournament from '../src/surfaces/Tournament.svelte';
+import Standings from '../src/surfaces/Standings.svelte';
 import Track from '../src/surfaces/Track.svelte';
 import MatchDetail from '../src/surfaces/MatchDetail.svelte';
 import WinBar from '../src/components/WinBar.svelte';
@@ -166,6 +167,26 @@ describe('no naked numbers — every surface honours the uncertainty/gap/derived
     // Sanity: both an Estimate occupant % AND a coverage gap actually rendered (non-vacuous).
     expect(container.querySelector('[data-estimate]')).not.toBeNull();
     expect(container.querySelector('[data-coverage-gap]')).not.toBeNull();
+    assertNoNakedNumbers(container);
+  });
+
+  test('Standings (E[Pts]/E[GD] + fate probabilities) has no naked numbers', () => {
+    // Every E[Pts]/E[GD] (NumEstimate) and fate probability (Estimate) must carry its ±
+    // companion — the fate COLOUR is a summary, the numbers are the claim and stay marked.
+    const { container } = render(Standings, { data: J('standings.json').data });
+    // Sanity: the surface renders estimates (else the guard is vacuous here).
+    expect(container.querySelector('[data-estimate]')).not.toBeNull();
+    assertNoNakedNumbers(container);
+  });
+
+  test('Standings rendered via the Schedule chip (KO-style nav) has no naked numbers', async () => {
+    const { container, getByRole } = render(Schedule, {
+      data: J('schedule.json').data,
+      standings: J('standings.json').data,
+    });
+    await fireEvent.click(getByRole('button', { name: 'standings' }));
+    await waitFor(() => expect(container.querySelector('[data-row="standings"]')).not.toBeNull());
+    expect(container.querySelector('[data-estimate]')).not.toBeNull(); // non-vacuous
     assertNoNakedNumbers(container);
   });
 

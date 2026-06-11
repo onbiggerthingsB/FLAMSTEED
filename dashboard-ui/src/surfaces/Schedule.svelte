@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import type { ScheduleData } from '../lib/types';
+  import type { ScheduleData, StandingsData } from '../lib/types';
   import { isGap } from '../lib/guards';
   import { formatDate } from '../lib/format';
   import Estimate from '../components/Estimate.svelte';
@@ -9,10 +9,15 @@
   import WinBar from '../components/WinBar.svelte';
   import ScorePill from '../components/ScorePill.svelte';
   import SpreadLine from '../components/SpreadLine.svelte';
+  import Standings from './Standings.svelte';
 
-  let { data }: { data: ScheduleData } = $props();
-  const STAGES = ['group', 'knockout'] as const;
-  let stage = $state<'group' | 'knockout'>('group');
+  // `standings` is the predicted group standings (Item A). OPTIONAL: null on a pre-feature
+  // bundle with no standings.json — the standings chip then renders a coverage gap, never a
+  // crash. It rides ALONGSIDE the group/knockout fixture stages as a third chip.
+  let { data, standings = null }: { data: ScheduleData; standings?: StandingsData | null } =
+    $props();
+  const STAGES = ['group', 'knockout', 'standings'] as const;
+  let stage = $state<'group' | 'knockout' | 'standings'>('group');
 
   // Next-up anchor (spec D6): the FIRST group row still 'upcoming' is the next fixture.
   // Mark exactly that row [data-nextup] and scroll it into view on mount so the landing
@@ -91,7 +96,7 @@
       </li>
     {/each}
   </ul>
-{:else}
+{:else if stage === 'knockout'}
   <ul class="rows">
     {#each data.knockout as k (k.match)}
       <li class="card row" data-row="ko">
@@ -115,6 +120,16 @@
       </li>
     {/each}
   </ul>
+{:else}
+  <!-- Standings chip (Item A). On a pre-feature bundle (standings null) or an empty payload,
+       degrade cleanly to a coverage gap — never a crash, never a blank surface. -->
+  <div data-row="standings">
+    {#if standings && Object.keys(standings).length > 0}
+      <Standings data={standings} />
+    {:else}
+      <CoverageGap reason="standings not available in this bundle" />
+    {/if}
+  </div>
 {/if}
 
 <style>

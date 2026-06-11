@@ -1,0 +1,126 @@
+{
+  "provenance": {
+    "as_of": "2026-06-06T19:31:22Z",
+    "posterior_key": "123a88ae08fd5ae5",
+    "git": "eb4b7b1",
+    "is_synthetic": true,
+    "n_sims": 20000,
+    "banner": "DRY-RUN \u00b7 SYNTHETIC ODDS \u00b7 NOT REAL \u2014 no real odds were sourced, no bet was placed, and no number here is a real CLV/ROI claim."
+  },
+  "data": {
+    "A": [
+      {
+        "team": "Brazil",
+        "exp_points": {
+          "value": 6.4,
+          "se": 0.02
+        },
+        "exp_gd": {
+          "value": 4.1,
+          "se": 0.03
+        },
+        "p_top2": {
+          "value": 0.78,
+          "se": 0.002929163703175362
+        },
+        "p_third_qualify": {
+          "value": 0.12,
+          "se": 0.0022978250586152115
+        },
+        "p_eliminated": {
+          "value": 0.1,
+          "se": 0.0021213203435596424
+        },
+        "p_advance": {
+          "value": 0.9,
+          "se": 0.0021213203435596424
+        },
+        "fate": "advance"
+      },
+      {
+        "team": "Argentina",
+        "exp_points": {
+          "value": 5.1,
+          "se": 0.02
+        },
+        "exp_gd": {
+          "value": 1.8,
+          "se": 0.03
+        },
+        "p_top2": {
+          "value": 0.62,
+          "se": 0.003432200460346103
+        },
+        "p_third_qualify": {
+          "value": 0.18,
+          "se": 0.002716615541441225
+        },
+        "p_eliminated": {
+          "value": 0.2,
+          "se": 0.0028284271247461905
+        },
+        "p_advance": {
+          "value": 0.8,
+          "se": 0.0028284271247461896
+        },
+        "fate": "advance"
+      },
+      {
+        "team": "Mexico",
+        "exp_points": {
+          "value": 3.2,
+          "se": 0.02
+        },
+        "exp_gd": {
+          "value": -0.6,
+          "se": 0.03
+        },
+        "p_top2": {
+          "value": 0.34,
+          "se": 0.003349626844888845
+        },
+        "p_third_qualify": {
+          "value": 0.22,
+          "se": 0.002929163703175362
+        },
+        "p_eliminated": {
+          "value": 0.44,
+          "se": 0.003509985754956849
+        },
+        "p_advance": {
+          "value": 0.56,
+          "se": 0.0035099857549568485
+        },
+        "fate": "eliminated"
+      },
+      {
+        "team": "Malta",
+        "exp_points": {
+          "value": 1.1,
+          "se": 0.02
+        },
+        "exp_gd": {
+          "value": -5.3,
+          "se": 0.03
+        },
+        "p_top2": {
+          "value": 0.06,
+          "se": 0.0016792855623746663
+        },
+        "p_third_qualify": {
+          "value": 0.1,
+          "se": 0.0021213203435596424
+        },
+        "p_eliminated": {
+          "value": 0.84,
+          "se": 0.002592296279363144
+        },
+        "p_advance": {
+          "value": 0.16,
+          "se": 0.0025922962793631437
+        },
+        "fate": "eliminated"
+      }
+    ]
+  }
+}

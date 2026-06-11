@@ -80,7 +80,9 @@
       Independent forecast — does NOT beat the market; kept for interest only.
     </p>
     {#if route.name === 'schedule'}
-      <Schedule data={bundle.schedule.data} />
+      <!-- `standings` (Item A) is OPTIONAL: null on a pre-feature bundle with no standings.json
+           — the standings chip then renders a coverage gap. -->
+      <Schedule data={bundle.schedule.data} standings={bundle.standings?.data ?? null} />
     {:else if route.name === 'tournament'}
       <Tournament
         data={bundle.tournament.data}

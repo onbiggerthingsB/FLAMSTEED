@@ -126,6 +126,26 @@ export interface ScheduleData {
   knockout: KoRow[];
 }
 
+// ── Item A: predicted GROUP STANDINGS (standings.json) ──────────────────────────────────
+// Per group, per team: the group-stage E[Pts]/E[GD] (Direct {value,se} from the sim's
+// standings hook) and the qualification fate split P(top2)/P(3rd qualify)/P(eliminated)
+// (Derived {value,se}). Each is an {value, se} envelope — every number carries its SE
+// companion (no naked numbers). `fate` is the most-likely outcome, a COLOUR summary over the
+// always-visible probabilities. Rows arrive pre-sorted by P(advance) desc from the builder.
+export type Fate = 'advance' | 'possible_third' | 'eliminated';
+export interface StandingRow {
+  team: string;
+  exp_points: ValueSe;       // E[Pts] (NOT a probability — unbounded; still carries its SE)
+  exp_gd: ValueSe;           // E[GD]  (NOT a probability — signed; still carries its SE)
+  p_top2: ValueSe;           // P(finish top 2)
+  p_third_qualify: ValueSe;  // P(finish 3rd AND qualify as a best-8 third)
+  p_eliminated: ValueSe;     // P(eliminated) = 1 − P(top2) − P(3rd qualify)
+  p_advance: ValueSe;        // P(top2) + P(3rd qualify) — the sort key
+  fate: Fate | null;         // most-likely fate (colour summary); null if undetermined
+}
+// {group_letter: [rows...]} — the wire shape of standings.json's `data`.
+export type StandingsData = Record<string, StandingRow[]>;
+
 export interface Forecast {
   home: string;
   away: string;
