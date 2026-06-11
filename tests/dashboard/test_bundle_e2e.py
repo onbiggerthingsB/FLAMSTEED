@@ -20,7 +20,7 @@ def test_full_bundle_emitted_gated_and_stamped(small_store, synthetic_tournament
                                                "cache_dir": str(tmp_path / "fc")},
                        tournament=synthetic_tournament, out_root=tmp_path / "out")
     names = {p.name for p in b.glob("*.json")}
-    assert {"schedule.json", "tournament.json", "track.json", "meta.json"} <= names
+    assert {"schedule.json", "tournament.json", "standings.json", "track.json", "meta.json"} <= names
     assert (b / "fixtures").is_dir() and any((b / "fixtures").glob("*.json"))
     for p in b.rglob("*.json"):                       # every file stamped + NON-REAL (synthetic items)
         env = json.loads(p.read_text())
@@ -29,6 +29,21 @@ def test_full_bundle_emitted_gated_and_stamped(small_store, synthetic_tournament
     # track is an honest coverage-gap when no backtest records supplied
     track = json.loads((b / "track.json").read_text())["data"]
     assert track.get("coverage_gap") is True
+
+    # Item A: standings.json carries per-group, per-team rows; every row's probability node is
+    # an {value, se} envelope and the fate partition is coherent (gate_standings enforced this
+    # at build time — re-assert the on-disk shape here).
+    standings = json.loads((b / "standings.json").read_text())["data"]
+    assert standings and isinstance(standings, dict)          # {group: [rows]}
+    for rows in standings.values():
+        for row in rows:
+            for fld in ("exp_points", "exp_gd", "p_top2", "p_third_qualify",
+                        "p_eliminated", "p_advance"):
+                assert "value" in row[fld] and "se" in row[fld]      # no naked number
+            top2, q3 = row["p_top2"]["value"], row["p_third_qualify"]["value"]
+            elim = row["p_eliminated"]["value"]
+            if None not in (top2, q3, elim):
+                assert abs((top2 + q3 + elim) - 1.0) < 1e-6           # acceptance #1 on disk
 
 
 def _is_real_edge(node: dict) -> bool:

@@ -119,6 +119,24 @@ class SimResult:
     se: pd.DataFrame               # index=team, cols=markets -> binomial MC SE
     random_tail_rate: float        # fraction of sims where a rank_group random tail fired
     n_sims: int
+    # --- ADDITIVE-ONLY standings aggregates (Item A) ---------------------------------------
+    # All FOUR are team-indexed and OPTIONAL (None on a SimResult constructed without the
+    # standings hook), so the pre-existing progression/se/random_tail_rate/n_sims contract is
+    # byte-identical whether or not a consumer reads them. They never feed back into the sim.
+    #
+    #   * standings   : per-team {value,se} for the group-stage E[Pts] and E[GD] — the mean
+    #     over draws of the realized per-draw group points / goal difference, paired with the
+    #     Monte-Carlo SE of THAT mean (sd/sqrt(N), NOT a binomial SE: points/GD are not
+    #     0/1 markets). A DataFrame index=team, cols MultiIndex (stat, kind) over
+    #     {exp_points, exp_gd} x {value, se}.
+    #   * third_split : per-team {third_qualify, third_eliminated} PROBABILITIES + binomial MC
+    #     SE — the qualify-as-best-8-third vs eliminated decomposition of the `third` placing
+    #     market. By construction third_qualify + third_eliminated == third (the placing
+    #     market) per team, so first+second+third_qualify+third_eliminated == 1. A DataFrame
+    #     index=team, cols MultiIndex (market, kind) over
+    #     {third_qualify, third_eliminated} x {value, se}.
+    standings: pd.DataFrame | None = None
+    third_split: pd.DataFrame | None = None
 
 
 @dataclass(frozen=True)
@@ -296,6 +314,15 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None,
     group_rankings = {}            # {group: [1st, 2nd, 3rd, 4th]}
     thirds_stats = {}              # {group: {points, gd, gf}} for the 3rd-placer
     placing = {}                   # {team: 0-based group finish}
+    # ADDITIVE-ONLY standings hook (Item A). Per team, the realized group-stage points + goal
+    # difference for THIS draw, read off the SAME group_table that ranks the group — NO extra
+    # scoreline sampling, NO RNG consumed, NO change to the ranking/seeded path. `group_third`
+    # flags each group's 3rd-placer (placing==2) so simulate_tournament can split its later
+    # qualify-as-3rd vs eliminated decomposition against the best-8 thirds. Purely OUTPUT: the
+    # pre-existing return keys (depth/groups/champion/random_tail) are byte-identical with or
+    # without this dict present.
+    group_stats = {}               # {team: {"points": int, "gd": int}}
+    group_third = {}               # {group_letter: third_placer_team}
     # CANONICAL group iteration (Codex T7 stale-serve guard): walk groups in sorted-key
     # order, NOT dict-insertion order. This loop consumes the per-sim RNG (scoreline
     # sampling below + rank_group's seeded tail), so its order determines the seeded
@@ -326,8 +353,16 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None,
         group_rankings[g] = ranking
         for pos, team in enumerate(ranking):
             placing[team] = pos
+        # Standings hook: the per-team realized points + GD for THIS draw, read off the SAME
+        # group_table the ranking already implies — no re-sampling, no RNG. group_table is a
+        # pure tally over the (already-drawn) `results`, so computing it here is INERT w.r.t.
+        # the seeded RNG stream (the existing thirds_stats path below reuses the SAME table).
+        tbl = group_table(teams, results)
+        for team in teams:
+            group_stats[team] = {"points": tbl[team]["points"], "gd": tbl[team]["gd"]}
+        if len(ranking) >= 3:
+            group_third[g] = ranking[2]      # the group's 3rd-placer (placing==2) this draw
         if bracket.third_place_slots:    # only needed when the bracket has best-third slots
-            tbl = group_table(teams, results)
             third = ranking[2]
             thirds_stats[g] = {k: tbl[third][k] for k in ("points", "gd", "gf")}
 
@@ -403,8 +438,15 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None,
             if d == _DEPTH_FINAL:
                 champion = w
 
+    # Standings hook: which groups' 3rd-placers reached the best-8 (qualified as a third) THIS
+    # draw — the VALUES of third_by_match are exactly the 8 qualifying groups (assign_thirds_
+    # to_slots maps each R32 third-slot match -> the group whose 3rd fills it). Empty when the
+    # bracket has no best-third slots (e.g. tiny_bracket: no thirds qualify). This is read off
+    # the ALREADY-computed third_by_match — no new RNG, no re-derivation.
+    qualified_third_groups = set(third_by_match.values())
     return {"depth": furthest, "groups": placing, "champion": champion,
-            "random_tail": random_tail}
+            "random_tail": random_tail, "group_stats": group_stats,
+            "group_third": group_third, "qualified_third_groups": qualified_third_groups}
 
 
 def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale,
@@ -448,6 +490,21 @@ def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale
     # is guaranteed because each sim records exactly one Final winner.
     counts = {col: np.zeros(n_teams, dtype=np.int64) for col in _COLUMNS}
     random_tail_hits = 0
+
+    # --- ADDITIVE-ONLY standings accumulators (Item A) -------------------------------------
+    # Running sums over sims for the per-team group-stage E[Pts]/E[GD] (mean + MC-SE of the
+    # mean) and the qualify-as-3rd vs eliminated split. These ONLY read out["group_stats"]/
+    # out["group_third"]/out["qualified_third_groups"]; they consume NO RNG and touch none of
+    # the pre-existing `counts`, so progression/se are byte-identical with the hook present.
+    pts_sum = np.zeros(n_teams, dtype=np.float64)      # Σ points
+    pts_sq = np.zeros(n_teams, dtype=np.float64)       # Σ points^2 (for the SE of the mean)
+    gd_sum = np.zeros(n_teams, dtype=np.float64)       # Σ goal difference
+    gd_sq = np.zeros(n_teams, dtype=np.float64)        # Σ gd^2
+    # A team appears in group_stats every sim (its group is always played), so the count is N
+    # for every team; tracked explicitly so a team missing from a sim (defensive) is exact.
+    gs_n = np.zeros(n_teams, dtype=np.int64)
+    third_qualify = np.zeros(n_teams, dtype=np.int64)      # sims this team was a QUALIFYING 3rd
+    third_eliminated = np.zeros(n_teams, dtype=np.int64)   # sims this team was an ELIMINATED 3rd
 
     # `_match_depths` is pure structure (the winner-feeder DAG) -> compute ONCE here and
     # reuse for the advance threshold AND every sim (passed into simulate_one), rather than
@@ -493,6 +550,25 @@ def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale
         if champ is not None:
             counts["champion"][team_idx[champ]] += 1
 
+        # Standings hook (additive). Accumulate the per-team group points/GD for THIS draw and
+        # split each group's 3rd-placer into qualify-as-best-8-third vs eliminated. Reads only
+        # the new out[...] keys; never touches `counts`, never draws RNG.
+        for team, gst in out.get("group_stats", {}).items():
+            i = team_idx[team]
+            p, g = float(gst["points"]), float(gst["gd"])
+            pts_sum[i] += p
+            pts_sq[i] += p * p
+            gd_sum[i] += g
+            gd_sq[i] += g * g
+            gs_n[i] += 1
+        qualified = out.get("qualified_third_groups") or set()
+        for grp, team in out.get("group_third", {}).items():
+            i = team_idx[team]
+            if grp in qualified:
+                third_qualify[i] += 1
+            else:
+                third_eliminated[i] += 1
+
     # `win_group` IS the per-group `first` market (both are group placing == 0). Copy the
     # single counted array so the two columns are IDENTICAL by construction (design note 1:
     # never two inconsistent computations); `[:]` writes into the pre-allocated array.
@@ -508,5 +584,44 @@ def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale
         index=teams,
     )
     se.index.name = "team"
+
+    # --- Standings aggregates (Item A): E[Pts]/E[GD] mean + MC-SE-of-the-mean, and the
+    # qualify-as-3rd vs eliminated split (probability + binomial MC SE). ----------------------
+    # SE of a sample mean = sample_sd / sqrt(N), with the population variance estimated as
+    # E[X^2] - E[X]^2 (the MC variance of the per-draw realized stat). A team always plays its
+    # group every sim, so gs_n == N for every team; we divide by the per-team count defensively
+    # so a (hypothetically) absent team yields NaN rather than a wrong mean. With N draws the
+    # mean's MC SE is sqrt(var/N).
+    safe_n = np.where(gs_n > 0, gs_n.astype(np.float64), np.nan)
+    pts_mean = pts_sum / safe_n
+    gd_mean = gd_sum / safe_n
+    pts_var = np.maximum(pts_sq / safe_n - pts_mean ** 2, 0.0)   # clamp tiny negative FP drift
+    gd_var = np.maximum(gd_sq / safe_n - gd_mean ** 2, 0.0)
+    pts_se = np.sqrt(pts_var / safe_n)
+    gd_se = np.sqrt(gd_var / safe_n)
+    standings = pd.DataFrame(
+        {("exp_points", "value"): pts_mean, ("exp_points", "se"): pts_se,
+         ("exp_gd", "value"): gd_mean, ("exp_gd", "se"): gd_se},
+        index=teams,
+    )
+    standings.index.name = "team"
+    standings.columns = pd.MultiIndex.from_tuples(standings.columns, names=["stat", "kind"])
+
+    # third_qualify / third_eliminated: probabilities + binomial MC SE sqrt(p(1-p)/N). By
+    # construction P(third_qualify)+P(third_eliminated) == P(third) per team (every group 3rd
+    # is exactly one of the two each sim), so first+second+third_qualify+third_eliminated == 1.
+    tq_p = third_qualify / n
+    te_p = third_eliminated / n
+    third_split = pd.DataFrame(
+        {("third_qualify", "value"): tq_p,
+         ("third_qualify", "se"): np.sqrt(tq_p * (1.0 - tq_p) / n),
+         ("third_eliminated", "value"): te_p,
+         ("third_eliminated", "se"): np.sqrt(te_p * (1.0 - te_p) / n)},
+        index=teams,
+    )
+    third_split.index.name = "team"
+    third_split.columns = pd.MultiIndex.from_tuples(third_split.columns, names=["market", "kind"])
+
     return SimResult(progression=prob[_COLUMNS], se=se[_COLUMNS],
-                     random_tail_rate=random_tail_hits / n, n_sims=n_sims)
+                     random_tail_rate=random_tail_hits / n, n_sims=n_sims,
+                     standings=standings, third_split=third_split)

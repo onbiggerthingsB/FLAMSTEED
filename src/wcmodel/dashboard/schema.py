@@ -244,6 +244,64 @@ def gate_schedule(payload: dict, *, tol: float = 0.05) -> None:
         _check_occupants(row.get("away_occupants"), where="schedule KO row (away)")
 
 
+def gate_standings(payload: dict, *, tol: float = 1e-6) -> None:
+    """Item A: the predicted GROUP STANDINGS artifact (``{group: [team_row, ...]}``) is a true
+    STOP — no naked number, and the qualification partition is coherent. For each team row:
+
+      * every ``{value, se}`` envelope (exp_points/exp_gd/p_top2/p_third_qualify/p_eliminated/
+        p_advance) carries its uncertainty companion (``assert_uncertainty_companion``) — a
+        value with no finite se is a naked number and RAISES;
+      * each PROBABILITY field is a finite probability in [0,1] when present (exp_points/exp_gd
+        are NOT probabilities — they are unbounded counts/differences — so they are companion-
+        checked but NOT [0,1]-bounded);
+      * the 3-way fate partition is coherent: when all three of P(top2), P(3rd qualify),
+        P(eliminated) are present they sum to ~1 (every sim draw lands in exactly one fate),
+        and P(advance) == P(top2) + P(3rd qualify) (~tol);
+      * ``fate`` (when present) is one of the three known fate labels.
+
+    A null (value=None) field is an honest absence (exempt from the value/sum checks), never a
+    naked number. ``standings_view`` produces null-safe rows, so this gate holds on real data
+    and STOPS a regression that emitted a naked or incoherent standings row."""
+    _PROB_FIELDS = ("p_top2", "p_third_qualify", "p_eliminated", "p_advance")
+    _FATES = {"advance", "possible_third", "eliminated"}
+    for group, rows in (payload or {}).items():
+        if not isinstance(rows, (list, tuple)):
+            raise ValueError(f"standings group {group!r}: rows must be a list of team rows")
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ValueError(f"standings group {group!r}: a team row must be a dict")
+            # No-naked: every {value, se} envelope carries a real uncertainty companion.
+            for field in ("exp_points", "exp_gd", *_PROB_FIELDS):
+                cell = row.get(field)
+                if isinstance(cell, dict) and "value" in cell:
+                    assert_uncertainty_companion(cell)
+            # Each PROBABILITY field is a finite probability in [0,1] when present.
+            for field in _PROB_FIELDS:
+                v = (row.get(field) or {}).get("value")
+                if v is not None and not _prob_in_unit(v):
+                    raise ValueError(
+                        f"standings {group!r}/{row.get('team')!r}: {field}={v!r} is not a "
+                        "finite probability in [0,1]")
+            # Coherent 3-way partition (sum ~1) + the advance identity, when all present.
+            top2 = (row.get("p_top2") or {}).get("value")
+            q3 = (row.get("p_third_qualify") or {}).get("value")
+            elim = (row.get("p_eliminated") or {}).get("value")
+            adv = (row.get("p_advance") or {}).get("value")
+            if None not in (top2, q3, elim):
+                if abs((top2 + q3 + elim) - 1.0) > tol:
+                    raise ValueError(
+                        f"standings {group!r}/{row.get('team')!r}: fate partition "
+                        f"P(top2)+P(3rd qualify)+P(eliminated)={top2 + q3 + elim!r} != 1")
+            if None not in (top2, q3, adv) and abs(adv - (top2 + q3)) > tol:
+                raise ValueError(
+                    f"standings {group!r}/{row.get('team')!r}: P(advance)={adv!r} != "
+                    f"P(top2)+P(3rd qualify)={top2 + q3!r}")
+            fate = row.get("fate")
+            if fate is not None and fate not in _FATES:
+                raise ValueError(
+                    f"standings {group!r}/{row.get('team')!r}: unknown fate {fate!r}")
+
+
 def gate_track(t: dict) -> None:
     """Track-record metrics must be finite numbers or explicit null/coverage_gap — never a
     NaN/inf token (the JSON gate uses allow_nan=False; a NaN must be sanitized to null first)

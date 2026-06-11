@@ -511,7 +511,7 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
                    SimConfig.from_config(cfg, n_sims=cfg["dashboard"]["n_sims"],
                                          tournament=tournament))
 
-    from wcmodel.dashboard.tournament_view import team_progression
+    from wcmodel.dashboard.tournament_view import standings_view, team_progression
     tournament_view = team_progression(sim)
     gate_artifact(tournament_view)                  # STOP: never write a naked/incoherent table
 
@@ -520,6 +520,14 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
     repo_root = Path(__file__).resolve().parents[3]
     tdict = _load_tournament(tournament, repo_root)
     bracket = build_bracket(tdict)
+
+    # Item A: the predicted GROUP STANDINGS artifact, Direct (E[Pts]/E[GD] from the sim's new
+    # standings hook) + Derived (the P(top2)/P(3rd qualify)/P(eliminated) fate split over the
+    # placing + third_split hooks). Built from the SAME bracket.groups the sim ranked, gated as
+    # a true STOP (no naked number, coherent fate partition) before any write.
+    from wcmodel.dashboard.schema import gate_standings
+    standings = standings_view(sim, groups=bracket.groups)
+    gate_standings(standings)                        # STOP: never write a naked/incoherent standings
 
     # --- Live edges (PRIMARY 1X2 surface), re-keyed by event. Heavy compute stays in scan ->
     # decide_live -> cached_fit/simulate; a missing/odds-less item is a counted non-bet (the
@@ -659,6 +667,7 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
     bundle.mkdir(parents=True, exist_ok=True)
 
     _write(bundle, "tournament.json", tournament_view, prov)
+    _write(bundle, "standings.json", standings, prov)
     _write(bundle, "schedule.json", schedule_payload, prov)
     _write(bundle, "track.json", track, prov)
     _write(bundle, "meta.json",
