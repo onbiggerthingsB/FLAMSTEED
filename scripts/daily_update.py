@@ -237,14 +237,28 @@ def step_gate(store: BitemporalStore, cutoff: str, *, manual_rows=None) -> None:
     asof = store.read("results", cutoff=cutoff)
     dates = pd.to_datetime(asof["date"])
     cut_day = pd.Timestamp(cutoff).tz_convert("UTC").tz_localize(None).normalize()
-    leaked = asof[dates >= cut_day]
     played = valid_played_results(asof)
-    played_max = pd.to_datetime(played["date"]).max()
+    played_dates_all = pd.to_datetime(played["date"])
+    played_max = played_dates_all.max()
+    # The leak check applies to VALID-PLAYED rows only (rehearsal finding #3,
+    # 2026-06-11): upstream martj42 carries some UPCOMING fixtures as NaN-score
+    # schedule rows, and a manual-results run is the first path with a FUTURE
+    # cutoff — those rows become visible to read(cutoff) but carry NO result
+    # (features.build and the sim conditioning both drop them via the same
+    # valid_played filter). A future-dated row WITH a real score is the genuine
+    # leak and still aborts. The exclusion is loud, never silent.
+    leaked = played[played_dates_all >= cut_day]
+    future_unplayed = int((dates >= cut_day).sum()) - len(leaked)
     print(f"[gate] read(results, cutoff={cutoff}): {len(asof)} rows; "
           f"max date = {dates.max()}; max VALID-PLAYED date = {played_max}")
+    if future_unplayed > 0:
+        print(f"[gate] note: {future_unplayed} UNPLAYED (NaN-score) schedule row(s) "
+              f"dated >= the cutoff day are visible at this future cutoff — "
+              f"informationally inert (excluded from training + conditioning by the "
+              f"valid-played filter), excluded from the leak check.")
     if len(leaked) > 0:
-        print(f"[gate] ABORT: {len(leaked)} row(s) dated >= cutoff leaked into the "
-              f"as-of read — refusing to build a contaminated snapshot:", file=sys.stderr)
+        print(f"[gate] ABORT: {len(leaked)} PLAYED row(s) dated >= cutoff leaked into "
+              f"the as-of read — refusing to build a contaminated snapshot:", file=sys.stderr)
         print(leaked[["date", "home_team", "away_team", "home_score", "away_score"]]
               .head(20).to_string(), file=sys.stderr)
         raise SystemExit(1)

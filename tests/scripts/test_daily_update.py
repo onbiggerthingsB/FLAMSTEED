@@ -291,6 +291,49 @@ def _ingested_store(mod, tmp_path, observed_at: str):
     return store, rows
 
 
+def test_gate_ignores_future_dated_unplayed_schedule_rows(mod, tmp_path, capsys):
+    """REHEARSAL FINDING #3 (2026-06-11 00:00Z, live abort): upstream martj42 carries
+    some UPCOMING fixtures as NaN-score schedule rows (e.g. United States v Paraguay,
+    2026-06-12). The manual-results flow is the first path with a FUTURE cutoff, so
+    those rows become visible to read(cutoff) — and the gate's first check scanned ALL
+    rows, aborting on informationally-inert unplayed schedule rows. An unplayed row
+    carries no result: the leak check must apply to VALID-PLAYED rows only (the
+    played_max check remains the result-leak guard)."""
+    store, rows = _ingested_store(mod, tmp_path, "2026-06-11T23:00:00")
+    # A future-dated UNPLAYED schedule row (NaN scores), written through the SAME
+    # normalize path the martj42 adapter uses — visible at the future cutoff.
+    _write_raw_result(store, home_score=float("nan"), away_score=float("nan"))
+    mod.step_gate(store, "2026-06-12T00:00:00Z", manual_rows=rows)  # must NOT raise
+    out = capsys.readouterr().out
+    assert "unplayed" in out.lower()      # the exclusion is loud, never silent
+
+
+def test_gate_still_aborts_on_future_dated_PLAYED_result(mod, tmp_path, capsys):
+    """TEETH PRESERVED: a future-dated row WITH a real score (an actual result on/after
+    the cutoff day) must still abort — that is the genuine leak the gate exists for."""
+    store, rows = _ingested_store(mod, tmp_path, "2026-06-11T23:00:00")
+    _write_raw_result(store, home_score=2.0, away_score=0.0)
+    with pytest.raises(SystemExit) as ei:
+        mod.step_gate(store, "2026-06-12T00:00:00Z", manual_rows=rows)
+    assert ei.value.code != 0
+
+
+def _write_raw_result(store, *, home_score, away_score):
+    """Write one 2026-06-12 United States v Paraguay row through the SAME
+    normalize path the martj42 adapter uses (match_id-keyed POINT_IN_TIME;
+    valid_as_of == observed_at == date — the upstream stamping)."""
+    from wcmodel.data.sources.results import normalize_results
+    from wcmodel.data.store import Policy
+    raw = pd.DataFrame([{
+        "date": "2026-06-12", "home_team": "United States", "away_team": "Paraguay",
+        "home_score": home_score, "away_score": away_score,
+        "tournament": "FIFA World Cup", "neutral": False,
+        "city": "Los Angeles", "country": "United States",
+    }])
+    store.write("results", normalize_results(raw),
+                policy=Policy.POINT_IN_TIME, keys=["match_id"])
+
+
 def test_gate_aborts_when_manual_rows_invisible_at_cutoff(mod, tmp_path, capsys):
     """DEFENSE-IN-DEPTH (canary-timing audit Finding 1): the gate is the LAST line of
     defense, and a manual row hidden by ``observed_at > cutoff`` is simply ABSENT from
