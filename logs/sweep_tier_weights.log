@@ -1,0 +1,31 @@
+==============================================================================
+TIER WEIGHTS — held-out 1X2 RPS sweep (OFFLINE, no odds, no credits)
+==============================================================================
+[fit] PRODUCTION fidelity: advi_iters=30000 draws=1000
+[leakage] max training date < cutoff = 2024-05-31 (< 2024-06-01). OK
+[heldout] 2190 valid-played internationals after 2024-06-01.
+
+[fit] arm tier_w[friendly]=1.0 ...
+Finished [100%]: Average Loss = 4,012.3
+[fit] arm w=1.0 fresh; 335 teams.
+[score] non-friendly RPS=0.33284 (n=1670)  all-matches RPS=0.33492 (n=2188)
+
+[fit] arm tier_w[friendly]=0.8 ...
+Finished [100%]: Average Loss = 3,791.6
+[fit] arm w=0.8 fresh; 335 teams.
+[score] non-friendly RPS=0.33278 (n=1670)  all-matches RPS=0.33501 (n=2188)
+
+[fit] arm tier_w[friendly]=0.6 ...
+Finished [100%]: Average Loss = 3,569.7
+[fit] arm w=0.6 fresh; 335 teams.
+[score] non-friendly RPS=0.33278 (n=1670)  all-matches RPS=0.33520 (n=2188)
+
+[fit] arm tier_w[friendly]=0.4 ...
+Finished [100%]: Average Loss = 3,346.6
+[fit] arm w=0.4 fresh; 335 teams.
+[score] non-friendly RPS=0.33287 (n=1670)  all-matches RPS=0.33551 (n=2188)
+
+==============================================================================
+P2C VERDICT: NO-LIFT (no friendly weight strictly beats 1.0 beyond the paired CI)
+==============================================================================
+[done] report -> reports/tier_weights_2026-06-10.md
