@@ -257,3 +257,187 @@ def posterior_predictive_checks(posterior, match_panel) -> dict:
         "mean_total_goals": {"obs": obs_total, "pred": float(np.mean(pred_total))},
         "n_matches": n,
     }
+
+
+# ---------------------------------------------------------------------------
+# Favorite-band reliability diagnostic (J/G/K Phase 1, READ-ONLY).
+# Pure helpers + aggregation: no fit, no I/O. The walk-forward harness that fits
+# the production model per cutoff lives in scripts/diagnose_favorite_band.py.
+# ---------------------------------------------------------------------------
+
+def grid_to_1x2(grid: np.ndarray) -> dict:
+    """Collapse a (home,away) scoreline grid into the 1X2 distribution.
+
+    ``grid[i, j] = P(home scores i, away scores j)``. Home win = lower triangle
+    (i > j), draw = diagonal (i == j), away win = upper triangle (i < j). Mirrors
+    ``posterior.predict_1x2`` exactly so the diagnostic 1X2 equals what the model
+    ships. The grid is assumed already normalized (predict_scoreline output)."""
+    g = np.asarray(grid, dtype=float)
+    return {
+        "home": float(np.tril(g, -1).sum()),
+        "draw": float(np.trace(g)),
+        "away": float(np.triu(g, 1).sum()),
+    }
+
+
+def grid_margin_stats(grid: np.ndarray) -> dict:
+    """Expected goal margin and margin-tail probabilities from a scoreline grid.
+
+    margin = |home - away|. Returns ``e_margin`` (sum |i-j| * p[i,j]) and
+    ``p_marg_ge2`` / ``p_marg_ge3`` / ``p_marg_ge4`` (sum of p over cells with
+    |i-j| >= k). The blowout-tail check for favorite-band calibration."""
+    g = np.asarray(grid, dtype=float)
+    n = g.shape[0]
+    idx = np.arange(n)
+    margin = np.abs(idx[:, None] - idx[None, :])
+    return {
+        "e_margin": float((margin * g).sum()),
+        "p_marg_ge2": float(g[margin >= 2].sum()),
+        "p_marg_ge3": float(g[margin >= 3].sum()),
+        "p_marg_ge4": float(g[margin >= 4].sum()),
+    }
+
+
+# Favorite-probability buckets for the reliability diagnostic. Half-open
+# [lo, hi); the top band's hi is 1.0+eps so a 1.0 favorite lands in it.
+FAVORITE_BANDS = [
+    (0.55, 0.65, "0.55-0.65"),
+    (0.65, 0.75, "0.65-0.75"),
+    (0.75, 0.85, "0.75-0.85"),
+    (0.85, 1.0 + 1e-9, "0.85+"),
+]
+
+
+def _band_label(p_fav: float):
+    """The band a favorite probability falls in, or None if p_fav < 0.55."""
+    for lo, hi, label in FAVORITE_BANDS:
+        if lo <= p_fav < hi:
+            return label
+    return None
+
+
+def _aggregate_band(rows: list) -> dict:
+    """Per-bucket reliability metrics for a list of favorite-fixture rows.
+
+    Each row: {"probs": {home,draw,away}, "outcome": label,
+    "realized_margin": int, "e_margin","p_marg_ge2/3/4": float}. The favorite
+    side is derived per row (home if p_home >= p_away else away). Predicted rates
+    are model means; realized rates are empirical frequencies; the favorite-win
+    reliability SE is binomial sqrt(p(1-p)/n), used to flag miscalibration."""
+    n = len(rows)
+    if n == 0:
+        return {
+            "n": 0, "pred_fav_win": None, "real_fav_win": None,
+            "pred_draw": None, "real_draw": None, "pred_dog_win": None,
+            "real_dog_win": None, "mean_rps": None, "mean_logloss": None,
+            "e_margin_pred": None, "e_margin_real": None,
+            "pred_marg_ge2": None, "real_marg_ge2": None,
+            "pred_marg_ge3": None, "real_marg_ge3": None,
+            "pred_marg_ge4": None, "real_marg_ge4": None,
+            "real_fav_win_se": None, "miscalibrated": None,
+        }
+    pred_fav, pred_draw, pred_dog = [], [], []
+    real_fav, real_draw, real_dog = [], [], []
+    rps_vals, ll_vals = [], []
+    e_margin_pred, real_margin = [], []
+    pred2, pred3, pred4 = [], [], []
+    real2, real3, real4 = [], [], []
+    for r in rows:
+        p = r["probs"]
+        fav_side = "home" if p["home"] >= p["away"] else "away"
+        dog_side = "away" if fav_side == "home" else "home"
+        pred_fav.append(p[fav_side]); pred_draw.append(p["draw"]); pred_dog.append(p[dog_side])
+        real_fav.append(1.0 if r["outcome"] == fav_side else 0.0)
+        real_draw.append(1.0 if r["outcome"] == "draw" else 0.0)
+        real_dog.append(1.0 if r["outcome"] == dog_side else 0.0)
+        rps_vals.append(rps(p, r["outcome"]))
+        ll_vals.append(log_loss(p, r["outcome"]))
+        e_margin_pred.append(float(r["e_margin"])); real_margin.append(float(r["realized_margin"]))
+        pred2.append(float(r["p_marg_ge2"])); pred3.append(float(r["p_marg_ge3"])); pred4.append(float(r["p_marg_ge4"]))
+        m = int(r["realized_margin"])
+        real2.append(1.0 if m >= 2 else 0.0); real3.append(1.0 if m >= 3 else 0.0); real4.append(1.0 if m >= 4 else 0.0)
+    rfw = float(np.mean(real_fav))
+    se = float(np.sqrt(max(rfw * (1.0 - rfw), 0.0) / n))
+    pfw = float(np.mean(pred_fav))
+    # Miscalibrated iff the predicted favorite-win rate is outside the realized
+    # +/-1.96*SE band (binomial). n==0 returned above.
+    miscalibrated = bool(abs(pfw - rfw) > 1.96 * se) if se > 0 else bool(pfw != rfw)
+    return {
+        "n": n,
+        "pred_fav_win": pfw, "real_fav_win": rfw,
+        "pred_draw": float(np.mean(pred_draw)), "real_draw": float(np.mean(real_draw)),
+        "pred_dog_win": float(np.mean(pred_dog)), "real_dog_win": float(np.mean(real_dog)),
+        "mean_rps": float(np.mean(rps_vals)), "mean_logloss": float(np.mean(ll_vals)),
+        "e_margin_pred": float(np.mean(e_margin_pred)), "e_margin_real": float(np.mean(real_margin)),
+        "pred_marg_ge2": float(np.mean(pred2)), "real_marg_ge2": float(np.mean(real2)),
+        "pred_marg_ge3": float(np.mean(pred3)), "real_marg_ge3": float(np.mean(real3)),
+        "pred_marg_ge4": float(np.mean(pred4)), "real_marg_ge4": float(np.mean(real4)),
+        "real_fav_win_se": se, "miscalibrated": miscalibrated,
+    }
+
+
+def favorite_band_reliability(rows: list, bands=FAVORITE_BANDS) -> dict:
+    """Bucket favorite fixtures by model favorite probability and report
+    predicted-vs-realized reliability per band, plus an ``all`` aggregate.
+
+    A "favorite fixture" has p_fav = max(p_home, p_away) >= 0.55 (the lowest band
+    floor); rows below that are ignored (not favorites). Returns
+    {band_label: metrics, ..., "all": metrics}. Pure: no fit, no I/O."""
+    by_band: dict = {label: [] for (_lo, _hi, label) in bands}
+    favorites: list = []
+    for r in rows:
+        p = r["probs"]
+        p_fav = max(float(p["home"]), float(p["away"]))
+        label = _band_label(p_fav)
+        if label is None:
+            continue
+        by_band[label].append(r)
+        favorites.append(r)
+    out = {label: _aggregate_band(by_band[label]) for (_lo, _hi, label) in bands}
+    out["all"] = _aggregate_band(favorites)
+    return out
+
+
+def score_fixtures(posterior, heldout: pd.DataFrame, *, cutoff,
+                   max_goals: int = _MAX_GOALS) -> list:
+    """Score each held-out fixture with an already-fit ``posterior`` into a
+    favorite-band row. Leakage guard: every held-out match must be dated on/after
+    the cutoff DAY (the training window is strictly ``< cutoff``); a held-out row
+    before the cutoff would mean fit-and-eval overlap and raises. Fixtures with a
+    team the posterior never trained on are skipped (cannot be priced)."""
+    cutoff_day = pd.Timestamp(cutoff)
+    if cutoff_day.tz is not None:
+        cutoff_day = cutoff_day.tz_convert("UTC").tz_localize(None)
+    cutoff_day = cutoff_day.normalize()
+    known = set(posterior.teams)
+    rows: list = []
+    for _, row in heldout.iterrows():
+        d = pd.Timestamp(row["date"])
+        if d.tz is not None:
+            d = d.tz_convert("UTC").tz_localize(None)
+        assert d.normalize() >= cutoff_day, (
+            f"LEAKAGE: held-out match {row['home_team']} v {row['away_team']} "
+            f"dated {d.date()} is before cutoff {cutoff_day.date()}")
+        home, away = str(row["home_team"]), str(row["away_team"])
+        if home not in known or away not in known:
+            continue
+        neutral = bool(row["neutral"])
+        try:
+            grid = posterior.predict_scoreline(home, away, neutral=neutral,
+                                               max_goals=max_goals)
+        except KeyError:
+            continue
+        probs = grid_to_1x2(grid)
+        margin = grid_margin_stats(grid)
+        hs, as_ = int(row["home_score"]), int(row["away_score"])
+        rows.append({
+            "home": home, "away": away,
+            "probs": probs,
+            "outcome": _outcome(hs, as_),
+            "realized_margin": abs(hs - as_),
+            "e_margin": margin["e_margin"],
+            "p_marg_ge2": margin["p_marg_ge2"],
+            "p_marg_ge3": margin["p_marg_ge3"],
+            "p_marg_ge4": margin["p_marg_ge4"],
+        })
+    return rows
