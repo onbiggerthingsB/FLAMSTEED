@@ -36,7 +36,13 @@ from wcmodel.config import load_config
 from wcmodel.data.features import valid_played_results
 from wcmodel.data.sources.results import load_results
 from wcmodel.data.store import BitemporalStore
-from wcmodel.live.manual_results import ingest_manual_rows, validate_manual_csv
+from wcmodel.data.tournament import host_home_factor
+from wcmodel.live.manual_results import (
+    _load_draw,
+    _venue_country_map,
+    ingest_manual_rows,
+    validate_manual_csv,
+)
 from wcmodel.model.calibration import favorite_band_reliability, score_fixtures
 
 REPORTS_DIR = Path("reports")
@@ -74,25 +80,54 @@ def _heldout(played: pd.DataFrame, cutoff: str, window_end: str) -> pd.DataFrame
     return played.loc[mask].reset_index(drop=True)
 
 
-def score_population(store, segments, *, label: str, config: dict | None = None) -> dict:
+def _apply_host_factor(heldout: pd.DataFrame, venue_country: dict, cfg: dict) -> pd.DataFrame:
+    """Add the production-faithful ``host_factor`` + ``neutral`` columns to a 2026
+    held-out frame, EXACTLY mirroring dashboard/build.py:573-575: host_factor =
+    host_home_factor(home, away, venue_city, venue_country, cfg) (host_k iff the
+    HOME team is a 2026 host at a venue in its own country, else None); neutral =
+    (host_factor is None). This overrides the raw data ``neutral`` flag so the
+    diagnostic scores a host home game at host_k*home_adv (not 1.0*home_adv) and a
+    host-listed-away game as neutral — the way the frozen model actually forecast."""
+    df = heldout.copy()
+    has_city = "city" in df.columns
+    hf = [
+        host_home_factor(r["home_team"], r["away_team"],
+                         (r["city"] if has_city else None), venue_country, cfg)
+        for _, r in df.iterrows()
+    ]
+    df["host_factor"] = hf
+    df["neutral"] = [x is None for x in hf]
+    return df
+
+
+def score_population(store, segments, *, label: str, config: dict | None = None,
+                     apply_host: bool = False) -> dict:
     """Fit the production model at each segment cutoff, score its held-out window,
-    accumulate favorite-band rows across segments, and aggregate."""
+    accumulate favorite-band rows across segments, and aggregate.
+
+    ``apply_host`` (2026 population only): recompute each fixture's host_factor +
+    neutral from the 2026 draw so host home games are scored as production did."""
     cfg = config or load_config()
     inf = cfg["model"]["inference"]
     played = _all_played(store)
+    venue_country = _venue_country_map(_load_draw()) if apply_host else {}
     rows: list = []
+    n_heldout = 0
     for cutoff, window_end, _seg in segments:
         ho = _heldout(played, cutoff, window_end)
         if ho.empty:
             continue
+        if apply_host:
+            ho = _apply_host_factor(ho, venue_country, cfg)
+        n_heldout += len(ho)
         post, _meta = _model_cache.cached_fit(
             cutoff=pd.Timestamp(cutoff), store=store, backend="advi",
             draws=int(inf["draws"]), seed=int(cfg["seed"]),
             advi_iters=int(inf["advi_iters"]), cache_dir="data/cache", config=cfg,
         )
         rows.extend(score_fixtures(post, ho, cutoff=cutoff))
-    return {"label": label, "n_scored": len(rows),
-            "bands": favorite_band_reliability(rows)}
+    return {"label": label, "n_scored": len(rows), "n_heldout": n_heldout,
+            "n_skipped": n_heldout - len(rows), "bands": favorite_band_reliability(rows)}
 
 
 def _wc2026_segments(played: pd.DataFrame) -> list:
@@ -180,7 +215,8 @@ def main(argv=None) -> int:
         print(f"[store] overlaid {n_manual} manual 2026 group result(s)")
         wc26 = _wc2026_segments(_all_played(store))
         if wc26:
-            pops.append(score_population(store, wc26, label="wc2026_group", config=cfg))
+            pops.append(score_population(store, wc26, label="wc2026_group",
+                                         config=cfg, apply_host=True))
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     stem = args.out or str(REPORTS_DIR / f"favorite_band_calibration_{date.today().isoformat()}")

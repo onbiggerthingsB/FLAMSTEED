@@ -410,6 +410,11 @@ def score_fixtures(posterior, heldout: pd.DataFrame, *, cutoff,
         cutoff_day = cutoff_day.tz_convert("UTC").tz_localize(None)
     cutoff_day = cutoff_day.normalize()
     known = set(posterior.teams)
+    # A pre-computed per-fixture host_factor (the 2026 host-home multiplier) lets
+    # the harness score host games EXACTLY as production does (host_factor*home_adv,
+    # neutral=False) instead of the ordinary 1.0*home_adv. Absent column / NaN ->
+    # None (ordinary home/neutral), matching every non-host and historical fixture.
+    has_hf = "host_factor" in heldout.columns
     rows: list = []
     for _, row in heldout.iterrows():
         d = pd.Timestamp(row["date"])
@@ -422,9 +427,13 @@ def score_fixtures(posterior, heldout: pd.DataFrame, *, cutoff,
         if home not in known or away not in known:
             continue
         neutral = bool(row["neutral"])
+        host_factor = None
+        if has_hf and not pd.isna(row["host_factor"]):
+            host_factor = float(row["host_factor"])
         try:
             grid = posterior.predict_scoreline(home, away, neutral=neutral,
-                                               max_goals=max_goals)
+                                               max_goals=max_goals,
+                                               host_factor=host_factor)
         except KeyError:
             continue
         probs = grid_to_1x2(grid)

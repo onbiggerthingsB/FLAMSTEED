@@ -142,3 +142,52 @@ def test_score_fixtures_rejects_heldout_before_cutoff():
     ])
     with pytest.raises(AssertionError, match="LEAKAGE"):
         score_fixtures(_FakePosterior(), heldout, cutoff="2025-06-01")
+
+
+class _RecordingPosterior:
+    """Captures the (neutral, host_factor) each predict_scoreline call receives,
+    so we can prove score_fixtures threads the production-faithful host context."""
+    teams = ["A", "B"]
+
+    def __init__(self):
+        self.calls = []
+
+    def predict_scoreline(self, home, away, neutral=False, max_goals=10,
+                          covariates=None, host_factor=None):
+        self.calls.append({"neutral": neutral, "host_factor": host_factor})
+        g = np.array([[0.20, 0.10], [0.50, 0.20]], dtype=float)
+        return g / g.sum()
+
+
+def test_score_fixtures_passes_host_factor_column():
+    # A 2026 host-home fixture: host_factor=1.4, neutral=False. score_fixtures must
+    # pass BOTH through to predict_scoreline (else the host favorite is under-scored
+    # at 1.0*home_adv instead of the production 1.4*home_adv).
+    post = _RecordingPosterior()
+    heldout = pd.DataFrame([
+        {"home_team": "A", "away_team": "B", "home_score": 2, "away_score": 0,
+         "neutral": False, "host_factor": 1.4, "date": pd.Timestamp("2026-06-11")},
+    ])
+    rows = score_fixtures(post, heldout, cutoff="2026-06-11")
+    assert len(rows) == 1
+    assert post.calls[0]["host_factor"] == 1.4
+    assert post.calls[0]["neutral"] is False
+
+
+def test_score_fixtures_host_factor_absent_or_nan_is_none():
+    # No host_factor column -> None. A NaN host_factor (non-host 2026 fixture) -> None.
+    post = _RecordingPosterior()
+    heldout = pd.DataFrame([
+        {"home_team": "A", "away_team": "B", "home_score": 1, "away_score": 1,
+         "neutral": True, "host_factor": float("nan"), "date": pd.Timestamp("2026-06-11")},
+    ])
+    score_fixtures(post, heldout, cutoff="2026-06-11")
+    assert post.calls[0]["host_factor"] is None
+
+    post2 = _RecordingPosterior()
+    heldout2 = pd.DataFrame([
+        {"home_team": "A", "away_team": "B", "home_score": 1, "away_score": 1,
+         "neutral": True, "date": pd.Timestamp("2026-06-11")},
+    ])
+    score_fixtures(post2, heldout2, cutoff="2026-06-11")
+    assert post2.calls[0]["host_factor"] is None
