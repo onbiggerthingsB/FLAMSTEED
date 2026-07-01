@@ -55,7 +55,12 @@ from wcmodel.data.store import BitemporalStore
 # whenever ``build``'s output schema/semantics change to force a clean miss.
 # v2 (P2a): added the per-team ``accl_alt`` column (acclimatized-altitude gap) — a new
 # panel column the elo/windows config + < cutoff results do not capture, so bump to miss.
-PANEL_SCHEMA_VERSION = "2"
+# v3 (review-v2 Fix 2, finding C2): ``valid_played_results`` now drops
+# content-identical duplicate matches (manual + martj42 rows of the SAME game
+# whose match_ids fork on orientation/city) — the panel row set changes, so a
+# cached v2 panel must never be served. NOTE for a joint merge with
+# feat/accuracy-A-elo-post-anchor (which independently uses "3"): resolve to "4".
+PANEL_SCHEMA_VERSION = "3"
 
 
 def valid_played_results(results: pd.DataFrame) -> pd.DataFrame:
@@ -79,6 +84,20 @@ def valid_played_results(results: pd.DataFrame) -> pd.DataFrame:
     including 0 (a 0-0 is a played match), are unaffected; the martj42 feed is
     already clean integers, so this is a no-op there and a guard everywhere else.
 
+    DUPLICATE-MATCH DEDUP (review-v2 Fix 2, finding C2). A manual
+    (``wc2026_live``) row and a martj42 row for the SAME match fork into
+    different ``match_id``s when the sources disagree on home/away orientation
+    or merely on the city string — the live store held 16 such doubled matches,
+    each counted twice by Elo and the fit panel. After the validity filter,
+    rows that are CONTENT-IDENTICAL — same normalized date + same unordered
+    team pair + identical team->goals map — collapse to one, preferring the
+    ``wc2026_live`` row (canonical draw orientation/city), else the first
+    occurrence. Same-pair/same-date rows with DIFFERENT scores (the real 1974
+    Tahiti v New Caledonia double-header) are two genuine matches and are
+    NEVER collapsed; a cross-source SCORE CONFLICT for one real match would
+    also survive here by design (fail-visible in the gates, not silently
+    resolved). Original row order is preserved.
+
     Returns a COPY; the input frame is never mutated.
     """
     out = results.copy()
@@ -88,8 +107,36 @@ def valid_played_results(results: pd.DataFrame) -> pd.DataFrame:
         # for non-integral AND for NaN/inf, so the mask keeps only finite,
         # non-negative, whole-number scores.
         out[_c] = s.where(np.isfinite(s) & (s >= 0) & (s == s.round()))
-    return out.loc[
+    out = out.loc[
         out["home_score"].notna() & out["away_score"].notna()].copy()
+    # The dedup needs the match-identity columns; a slimmed frame (some callers
+    # pass score-only slices — the pre-C2 contract) skips it unchanged. Real
+    # store reads always carry all three.
+    if len(out) == 0 or not {"date", "home_team", "away_team"}.issubset(out.columns):
+        return out
+    # --- C2 dedup: orientation-invariant content key per row. ---
+    d = pd.to_datetime(out["date"])
+    if getattr(d.dt, "tz", None) is not None:
+        d = d.dt.tz_convert("UTC").dt.tz_localize(None)
+    day = d.dt.normalize().astype(str).to_numpy()
+    keys = np.array([
+        f"{dy}|{sorted([(str(h), float(hs)), (str(a), float(asc))])}"
+        for dy, h, a, hs, asc in zip(
+            day, out["home_team"].to_numpy(), out["away_team"].to_numpy(),
+            out["home_score"].to_numpy(), out["away_score"].to_numpy())
+    ], dtype=object)
+    src = (out["source"].astype(str).to_numpy() if "source" in out.columns
+           else np.full(len(out), "", dtype=object))
+    prio = (src != "wc2026_live").astype(int)      # 0 = manual row, preferred
+    # Stable preference order: priority first, original position second.
+    order = np.lexsort((np.arange(len(out)), prio))
+    seen: set = set()
+    keep = np.zeros(len(out), dtype=bool)
+    for i in order:
+        if keys[i] not in seen:
+            seen.add(keys[i])
+            keep[i] = True
+    return out[keep]                                # original order preserved
 
 
 def _try_read(store: BitemporalStore, name: str, cutoff: pd.Timestamp):
