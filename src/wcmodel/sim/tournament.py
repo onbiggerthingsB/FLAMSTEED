@@ -362,7 +362,20 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None,
         # (shootouts live in a separate file it does not ingest). So a level played KO
         # score is VALID data we cannot yet pin to its actual winner — not malformed
         # input — and we fail loud rather than guess/randomize a KNOWN outcome.
-        ko_score = played_ko_results.get((home, away, ko_match_dates.get(m)))
+        # Review-v2 Fix 1 (finding C1): the store may record a decided KO with
+        # home/away REVERSED relative to the drawn feeder orientation. Exact
+        # orientation is authoritative; on a miss the reversed triple is
+        # consulted with the SCORE flipped into the drawn orientation. The
+        # winner lookup below uses the key that actually MATCHED (ko_key), so a
+        # shootout winner recorded under the store's orientation still resolves
+        # (winner_override holds a team NAME — orientation-free by nature).
+        ko_key = (home, away, ko_match_dates.get(m))
+        ko_score = played_ko_results.get(ko_key)
+        if ko_score is None:
+            rev_key = (away, home, ko_match_dates.get(m))
+            rev_score = played_ko_results.get(rev_key)
+            if rev_score is not None:
+                ko_score, ko_key = (rev_score[1], rev_score[0]), rev_key
         if ko_score is not None:
             hg, ag = ko_score
             if hg == ag:
@@ -371,7 +384,9 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None,
                 # winner_override -> knockout_winners). No RNG is drawn — the winner is
                 # FACT, not a coin-flip. The guard is PRESERVED: a level KO with NO
                 # recorded winner (genuinely-missing data) still fails loud.
-                ko_winner = played_ko_winners.get((home, away, ko_match_dates.get(m)))
+                # ko_key is whichever orientation MATCHED above, so a winner
+                # recorded under the store's (possibly reversed) triple resolves.
+                ko_winner = played_ko_winners.get(ko_key)
                 if ko_winner is None:
                     raise ValueError(
                         f"pinned knockout fixture {home!r} vs {away!r} (match {m}) has a "

@@ -217,11 +217,21 @@ def _build_played(store, cutoff, group_dates: dict, ko_dates: dict) -> dict:
         (r.home_team, r.away_team, r.date): (int(r.home_score), int(r.away_score))
         for r in played.itertuples(index=False)
     }
-    group_played = {
-        (home, away): by_triple[(home, away, date)]
-        for (home, away), date in group_dates.items()
-        if (home, away, date) in by_triple
-    }
+    # Review-v2 Fix 1 (finding C1): a played result recorded with home/away
+    # REVERSED relative to the draw yaml (martj42 did this for 3 real matchday-3
+    # games) must still condition its fixture — the exact-triple lookup alone
+    # silently left those games SAMPLED every draw. Exact orientation stays
+    # authoritative; the reversed twin is consulted only on a miss, with the
+    # SCORE flipped into the fixture's orientation. The played-content hash in
+    # the sim cache covers this automatically (the conditioning map gains
+    # entries -> different key -> no stale serve).
+    group_played = {}
+    for (home, away), date in group_dates.items():
+        if (home, away, date) in by_triple:
+            group_played[(home, away)] = by_triple[(home, away, date)]
+        elif (away, home, date) in by_triple:
+            hg, ag = by_triple[(away, home, date)]
+            group_played[(home, away)] = (ag, hg)
     # D3 (Phase-5 L3): the actual shootout winner per played triple, from the nullable
     # `winner_override` column (NaN -> no override, so a non-shootout KO is unaffected).
     # `simulate_one` reads this to resolve a level pinned KO instead of failing loud.
