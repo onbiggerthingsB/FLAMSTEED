@@ -115,6 +115,14 @@ def _posterior_hash(posterior) -> str:
     h = hashlib.sha256()
     h.update(repr(list(posterior.teams)).encode())
     h.update(str(posterior.likelihood).encode())
+    # Review-v2 Fix 3 (Codex pass-4): ``RateBook`` reads
+    # ``posterior._cfg["neutral_home_adv_fraction"]`` to build every neutral
+    # fixture's rates, so it is output-determining for the sim and MUST be in
+    # the key — two posteriors with identical draws but a different fraction
+    # previously shared a hash, letting ``cached_sim`` stale-serve across a
+    # config change of that tunable. It is the ONLY ``_cfg`` field the sim
+    # sampling path consumes (widening acts on prediction grids, not RateBook).
+    h.update(repr(float(posterior._cfg["neutral_home_adv_fraction"])).encode())
     post = posterior.idata.posterior
     for name in sorted(post.data_vars):
         arr = np.ascontiguousarray(post[name].values)
