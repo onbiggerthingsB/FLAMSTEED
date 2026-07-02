@@ -1,0 +1,1547 @@
+{
+ "rows": [
+  {
+   "home": "Mexico",
+   "away": "South Africa",
+   "probs": {
+    "home": 0.7834286832837225,
+    "draw": 0.15590876436092446,
+    "away": 0.06066255235535314
+   },
+   "outcome": "home",
+   "realized_margin": 2,
+   "e_margin": 2.0881074672027324,
+   "p_marg_ge2": 0.5777109179891722,
+   "p_marg_ge3": 0.347198453607224,
+   "p_marg_ge4": 0.18323229278699457,
+   "date": "2026-06-11",
+   "stage": "group",
+   "total_goals": 2
+  },
+  {
+   "home": "South Korea",
+   "away": "Czech Republic",
+   "probs": {
+    "home": 0.49403276289465936,
+    "draw": 0.25609800730356086,
+    "away": 0.24986922980177978
+   },
+   "outcome": "home",
+   "realized_margin": 1,
+   "e_margin": 1.3514360197501332,
+   "p_marg_ge2": 0.3722320531231237,
+   "p_marg_ge3": 0.15445149180620235,
+   "p_marg_ge4": 0.05594528875821358,
+   "date": "2026-06-11",
+   "stage": "group",
+   "total_goals": 3
+  },
+  {
+   "home": "Canada",
+   "away": "Bosnia and Herzegovina",
+   "probs": {
+    "home": 0.7522006771502587,
+    "draw": 0.17354169499019306,
+    "away": 0.07425762785954809
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 1.94178966572998,
+   "p_marg_ge2": 0.540696074856065,
+   "p_marg_ge3": 0.30987576865014277,
+   "p_marg_ge4": 0.15615569673627203,
+   "date": "2026-06-12",
+   "stage": "group",
+   "total_goals": 2
+  },
+  {
+   "home": "United States",
+   "away": "Paraguay",
+   "probs": {
+    "home": 0.34646515647688114,
+    "draw": 0.2739178385915124,
+    "away": 0.37961700493160666
+   },
+   "outcome": "home",
+   "realized_margin": 3,
+   "e_margin": 1.2473405559989539,
+   "p_marg_ge2": 0.3389819221879029,
+   "p_marg_ge3": 0.1269739380070399,
+   "p_marg_ge4": 0.04047358031652149,
+   "date": "2026-06-12",
+   "stage": "group",
+   "total_goals": 5
+  },
+  {
+   "home": "Qatar",
+   "away": "Switzerland",
+   "probs": {
+    "home": 0.04125138142344373,
+    "draw": 0.10106962190723744,
+    "away": 0.8576789966693189
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 2.718038060935307,
+   "p_marg_ge2": 0.7042509249270834,
+   "p_marg_ge3": 0.4970774518696282,
+   "p_marg_ge4": 0.312707918322924,
+   "date": "2026-06-13",
+   "stage": "group",
+   "total_goals": 2
+  },
+  {
+   "home": "Brazil",
+   "away": "Morocco",
+   "probs": {
+    "home": 0.4752674333921413,
+    "draw": 0.29103800554688736,
+    "away": 0.23369456106097142
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 1.1967024076694028,
+   "p_marg_ge2": 0.31877533401503716,
+   "p_marg_ge3": 0.11704129753306164,
+   "p_marg_ge4": 0.03749819917694321,
+   "date": "2026-06-13",
+   "stage": "group",
+   "total_goals": 2
+  },
+  {
+   "home": "Haiti",
+   "away": "Scotland",
+   "probs": {
+    "home": 0.2334111716296013,
+    "draw": 0.24016199788530426,
+    "away": 0.5264268304850943
+   },
+   "outcome": "away",
+   "realized_margin": 1,
+   "e_margin": 1.4471145151947664,
+   "p_marg_ge2": 0.401427984268529,
+   "p_marg_ge3": 0.17916254763315248,
+   "p_marg_ge4": 0.07072856246387858,
+   "date": "2026-06-13",
+   "stage": "group",
+   "total_goals": 1
+  },
+  {
+   "home": "Australia",
+   "away": "Turkey",
+   "probs": {
+    "home": 0.35336867976548086,
+    "draw": 0.28337513012072735,
+    "away": 0.3632561901137917
+   },
+   "outcome": "home",
+   "realized_margin": 2,
+   "e_margin": 1.207244522086298,
+   "p_marg_ge2": 0.3248212723922578,
+   "p_marg_ge3": 0.11731986584577023,
+   "p_marg_ge4": 0.03596378471900366,
+   "date": "2026-06-13",
+   "stage": "group",
+   "total_goals": 2
+  },
+  {
+   "home": "Netherlands",
+   "away": "Japan",
+   "probs": {
+    "home": 0.3253284825976937,
+    "draw": 0.2907790829395936,
+    "away": 0.3838924344627126
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 1.1812734953049855,
+   "p_marg_ge2": 0.3151806624662441,
+   "p_marg_ge3": 0.11163914407965259,
+   "p_marg_ge4": 0.03368041531565166,
+   "date": "2026-06-14",
+   "stage": "group",
+   "total_goals": 4
+  },
+  {
+   "home": "Sweden",
+   "away": "Tunisia",
+   "probs": {
+    "home": 0.399938201097796,
+    "draw": 0.2701157867784494,
+    "away": 0.32994601212375463
+   },
+   "outcome": "home",
+   "realized_margin": 4,
+   "e_margin": 1.454219922555849,
+   "p_marg_ge2": 0.38164876583919305,
+   "p_marg_ge3": 0.18418594937365607,
+   "p_marg_ge4": 0.08722634434940943,
+   "date": "2026-06-14",
+   "stage": "group",
+   "total_goals": 6
+  },
+  {
+   "home": "Germany",
+   "away": "Cura\u00e7ao",
+   "probs": {
+    "home": 0.8806556167626255,
+    "draw": 0.08513049060263798,
+    "away": 0.034213892634736336
+   },
+   "outcome": "home",
+   "realized_margin": 6,
+   "e_margin": 2.9748283164172937,
+   "p_marg_ge2": 0.7448651605860508,
+   "p_marg_ge3": 0.5517032131499503,
+   "p_marg_ge4": 0.3670949282637063,
+   "date": "2026-06-14",
+   "stage": "group",
+   "total_goals": 8
+  },
+  {
+   "home": "Ivory Coast",
+   "away": "Ecuador",
+   "probs": {
+    "home": 0.1441900613838801,
+    "draw": 0.29321512170726266,
+    "away": 0.5625948169088574
+   },
+   "outcome": "home",
+   "realized_margin": 1,
+   "e_margin": 1.2208879684432774,
+   "p_marg_ge2": 0.32664546906147446,
+   "p_marg_ge3": 0.126743286961313,
+   "p_marg_ge4": 0.04307187735675658,
+   "date": "2026-06-14",
+   "stage": "group",
+   "total_goals": 1
+  },
+  {
+   "home": "Belgium",
+   "away": "Egypt",
+   "probs": {
+    "home": 0.5601977607165392,
+    "draw": 0.26682186244490647,
+    "away": 0.17298037683855427
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 1.3222215783239193,
+   "p_marg_ge2": 0.3612059067289899,
+   "p_marg_ge3": 0.14937091996367646,
+   "p_marg_ge4": 0.054205269140732974,
+   "date": "2026-06-15",
+   "stage": "group",
+   "total_goals": 2
+  },
+  {
+   "home": "Iran",
+   "away": "New Zealand",
+   "probs": {
+    "home": 0.5250244873636578,
+    "draw": 0.25712481554197514,
+    "away": 0.21785069709436708
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 1.3564954442447394,
+   "p_marg_ge2": 0.37301044358489777,
+   "p_marg_ge3": 0.15649393684315366,
+   "p_marg_ge4": 0.05765340333022355,
+   "date": "2026-06-15",
+   "stage": "group",
+   "total_goals": 4
+  },
+  {
+   "home": "Spain",
+   "away": "Cape Verde",
+   "probs": {
+    "home": 0.9161821476389702,
+    "draw": 0.06510440564549967,
+    "away": 0.01871344671553021
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 3.247858417018132,
+   "p_marg_ge2": 0.7927988756406781,
+   "p_marg_ge3": 0.6110025118208219,
+   "p_marg_ge4": 0.4223044771783197,
+   "date": "2026-06-15",
+   "stage": "group",
+   "total_goals": 0
+  },
+  {
+   "home": "Saudi Arabia",
+   "away": "Uruguay",
+   "probs": {
+    "home": 0.09822471705500535,
+    "draw": 0.22686877017815782,
+    "away": 0.674906512766837
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 1.5629330127158436,
+   "p_marg_ge2": 0.43752511370635205,
+   "p_marg_ge3": 0.21271932642315888,
+   "p_marg_ge4": 0.09033245555877742,
+   "date": "2026-06-15",
+   "stage": "group",
+   "total_goals": 2
+  },
+  {
+   "home": "Iraq",
+   "away": "Norway",
+   "probs": {
+    "home": 0.1287507852681926,
+    "draw": 0.2258820597468988,
+    "away": 0.6453671549849086
+   },
+   "outcome": "away",
+   "realized_margin": 3,
+   "e_margin": 1.5659688895837647,
+   "p_marg_ge2": 0.4369168308748699,
+   "p_marg_ge3": 0.21248831061898676,
+   "p_marg_ge4": 0.09120556019264102,
+   "date": "2026-06-16",
+   "stage": "group",
+   "total_goals": 5
+  },
+  {
+   "home": "Argentina",
+   "away": "Algeria",
+   "probs": {
+    "home": 0.6751843110566099,
+    "draw": 0.22707342233055317,
+    "away": 0.0977422666128369
+   },
+   "outcome": "home",
+   "realized_margin": 3,
+   "e_margin": 1.5629943425207633,
+   "p_marg_ge2": 0.43800633653042925,
+   "p_marg_ge3": 0.21287992240090595,
+   "p_marg_ge4": 0.09025385247866372,
+   "date": "2026-06-16",
+   "stage": "group",
+   "total_goals": 3
+  },
+  {
+   "home": "Austria",
+   "away": "Jordan",
+   "probs": {
+    "home": 0.5725658216576832,
+    "draw": 0.2402088735770129,
+    "away": 0.1872253047653038
+   },
+   "outcome": "home",
+   "realized_margin": 2,
+   "e_margin": 1.459118846527863,
+   "p_marg_ge2": 0.4054220670442592,
+   "p_marg_ge3": 0.18345330530521506,
+   "p_marg_ge4": 0.0732074397568435,
+   "date": "2026-06-16",
+   "stage": "group",
+   "total_goals": 4
+  },
+  {
+   "home": "France",
+   "away": "Senegal",
+   "probs": {
+    "home": 0.5511513226371951,
+    "draw": 0.2542233600921141,
+    "away": 0.1946253172706908
+   },
+   "outcome": "home",
+   "realized_margin": 2,
+   "e_margin": 1.3859078276548233,
+   "p_marg_ge2": 0.38164351914425865,
+   "p_marg_ge3": 0.16486116693338415,
+   "p_marg_ge4": 0.06301490628440612,
+   "date": "2026-06-16",
+   "stage": "group",
+   "total_goals": 4
+  },
+  {
+   "home": "England",
+   "away": "Croatia",
+   "probs": {
+    "home": 0.5033725484653107,
+    "draw": 0.2883415536945753,
+    "away": 0.20828589784011398
+   },
+   "outcome": "home",
+   "realized_margin": 2,
+   "e_margin": 1.2149567238831773,
+   "p_marg_ge2": 0.3258901361848965,
+   "p_marg_ge3": 0.12234349219223263,
+   "p_marg_ge4": 0.039830122290214966,
+   "date": "2026-06-17",
+   "stage": "group",
+   "total_goals": 6
+  },
+  {
+   "home": "Portugal",
+   "away": "DR Congo",
+   "probs": {
+    "home": 0.6672247865592409,
+    "draw": 0.22590503352742664,
+    "away": 0.10687017991333263
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 1.5767184030995725,
+   "p_marg_ge2": 0.4402388649162638,
+   "p_marg_ge3": 0.21613232246693348,
+   "p_marg_ge4": 0.0934015767966346,
+   "date": "2026-06-17",
+   "stage": "group",
+   "total_goals": 2
+  },
+  {
+   "home": "Uzbekistan",
+   "away": "Colombia",
+   "probs": {
+    "home": 0.102684518929478,
+    "draw": 0.2016154724235925,
+    "away": 0.6957000086469294
+   },
+   "outcome": "away",
+   "realized_margin": 2,
+   "e_margin": 1.7393960312227779,
+   "p_marg_ge2": 0.4851291230209046,
+   "p_marg_ge3": 0.25748489438565053,
+   "p_marg_ge4": 0.12104926905518047,
+   "date": "2026-06-17",
+   "stage": "group",
+   "total_goals": 4
+  },
+  {
+   "home": "Ghana",
+   "away": "Panama",
+   "probs": {
+    "home": 0.22186288044660818,
+    "draw": 0.25497613280214615,
+    "away": 0.5231609867512458
+   },
+   "outcome": "home",
+   "realized_margin": 1,
+   "e_margin": 1.3654470029069177,
+   "p_marg_ge2": 0.3767409777850148,
+   "p_marg_ge3": 0.15862261115973653,
+   "p_marg_ge4": 0.05843454631247429,
+   "date": "2026-06-17",
+   "stage": "group",
+   "total_goals": 1
+  },
+  {
+   "home": "Czech Republic",
+   "away": "South Africa",
+   "probs": {
+    "home": 0.4855353291007647,
+    "draw": 0.2717915853726797,
+    "away": 0.2426730855265556
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 1.2774460498033733,
+   "p_marg_ge2": 0.347867485632849,
+   "p_marg_ge3": 0.13619049113817064,
+   "p_marg_ge4": 0.04629460269747729,
+   "date": "2026-06-18",
+   "stage": "group",
+   "total_goals": 2
+  },
+  {
+   "home": "Switzerland",
+   "away": "Bosnia and Herzegovina",
+   "probs": {
+    "home": 0.7313790068890413,
+    "draw": 0.17915130542918647,
+    "away": 0.08946968768177213
+   },
+   "outcome": "home",
+   "realized_margin": 3,
+   "e_margin": 1.9006716103038643,
+   "p_marg_ge2": 0.5291708795739078,
+   "p_marg_ge3": 0.2990142058009356,
+   "p_marg_ge4": 0.14912163060555486,
+   "date": "2026-06-18",
+   "stage": "group",
+   "total_goals": 5
+  },
+  {
+   "home": "Canada",
+   "away": "Qatar",
+   "probs": {
+    "home": 0.8189297187993126,
+    "draw": 0.13097839755090984,
+    "away": 0.05009188364977766
+   },
+   "outcome": "home",
+   "realized_margin": 6,
+   "e_margin": 2.3334941145179933,
+   "p_marg_ge2": 0.63270776660972,
+   "p_marg_ge3": 0.40769152258369795,
+   "p_marg_ge4": 0.23161913057508288,
+   "date": "2026-06-18",
+   "stage": "group",
+   "total_goals": 6
+  },
+  {
+   "home": "Mexico",
+   "away": "South Korea",
+   "probs": {
+    "home": 0.5661461602437102,
+    "draw": 0.2506047187831708,
+    "away": 0.18324912097311916
+   },
+   "outcome": "home",
+   "realized_margin": 1,
+   "e_margin": 1.4106417462245,
+   "p_marg_ge2": 0.38878037132340126,
+   "p_marg_ge3": 0.1714548124100196,
+   "p_marg_ge4": 0.06716844738909705,
+   "date": "2026-06-18",
+   "stage": "group",
+   "total_goals": 1
+  },
+  {
+   "home": "Turkey",
+   "away": "Paraguay",
+   "probs": {
+    "home": 0.3508274046270506,
+    "draw": 0.2763100473348718,
+    "away": 0.3728625480380777
+   },
+   "outcome": "away",
+   "realized_margin": 1,
+   "e_margin": 1.240258035260703,
+   "p_marg_ge2": 0.33670070353029846,
+   "p_marg_ge3": 0.12547906447690355,
+   "p_marg_ge4": 0.039829889635025324,
+   "date": "2026-06-19",
+   "stage": "group",
+   "total_goals": 1
+  },
+  {
+   "home": "Scotland",
+   "away": "Morocco",
+   "probs": {
+    "home": 0.1943410288315331,
+    "draw": 0.2949801097478095,
+    "away": 0.5106788614206573
+   },
+   "outcome": "away",
+   "realized_margin": 1,
+   "e_margin": 1.187691765549891,
+   "p_marg_ge2": 0.3163364610219239,
+   "p_marg_ge3": 0.11598659256047161,
+   "p_marg_ge4": 0.036778889886441464,
+   "date": "2026-06-19",
+   "stage": "group",
+   "total_goals": 1
+  },
+  {
+   "home": "Brazil",
+   "away": "Haiti",
+   "probs": {
+    "home": 0.8480407310175072,
+    "draw": 0.10455345145341893,
+    "away": 0.047405817529074024
+   },
+   "outcome": "home",
+   "realized_margin": 3,
+   "e_margin": 2.7214780356979924,
+   "p_marg_ge2": 0.6983189324683174,
+   "p_marg_ge3": 0.49434521422338096,
+   "p_marg_ge4": 0.3147638182873964,
+   "date": "2026-06-19",
+   "stage": "group",
+   "total_goals": 3
+  },
+  {
+   "home": "United States",
+   "away": "Australia",
+   "probs": {
+    "home": 0.3720679725262029,
+    "draw": 0.27363468184202355,
+    "away": 0.3542973456317737
+   },
+   "outcome": "home",
+   "realized_margin": 2,
+   "e_margin": 1.2501598221643921,
+   "p_marg_ge2": 0.34043618987418545,
+   "p_marg_ge3": 0.12777646856945116,
+   "p_marg_ge4": 0.040736000573400585,
+   "date": "2026-06-19",
+   "stage": "group",
+   "total_goals": 2
+  },
+  {
+   "home": "Ecuador",
+   "away": "Cura\u00e7ao",
+   "probs": {
+    "home": 0.8624156575710367,
+    "draw": 0.1059848743979489,
+    "away": 0.03159946803101446
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 2.609573342558547,
+   "p_marg_ge2": 0.6895544415935514,
+   "p_marg_ge3": 0.4729116643867636,
+   "p_marg_ge4": 0.2868886120264566,
+   "date": "2026-06-20",
+   "stage": "group",
+   "total_goals": 0
+  },
+  {
+   "home": "Tunisia",
+   "away": "Japan",
+   "probs": {
+    "home": 0.08876797479681646,
+    "draw": 0.19515992682373312,
+    "away": 0.7160720983794504
+   },
+   "outcome": "away",
+   "realized_margin": 4,
+   "e_margin": 1.7661035612511888,
+   "p_marg_ge2": 0.49620062069476434,
+   "p_marg_ge3": 0.2650326683979118,
+   "p_marg_ge4": 0.12371400824435169,
+   "date": "2026-06-20",
+   "stage": "group",
+   "total_goals": 4
+  },
+  {
+   "home": "Germany",
+   "away": "Ivory Coast",
+   "probs": {
+    "home": 0.5842513891489778,
+    "draw": 0.24132578086274087,
+    "away": 0.17442282998828135
+   },
+   "outcome": "home",
+   "realized_margin": 1,
+   "e_margin": 1.4601758619955685,
+   "p_marg_ge2": 0.4047593605515984,
+   "p_marg_ge3": 0.18421186124804034,
+   "p_marg_ge4": 0.07420333099302491,
+   "date": "2026-06-20",
+   "stage": "group",
+   "total_goals": 3
+  },
+  {
+   "home": "Netherlands",
+   "away": "Sweden",
+   "probs": {
+    "home": 0.6351436390072369,
+    "draw": 0.18882024318516397,
+    "away": 0.17603611780759926
+   },
+   "outcome": "home",
+   "realized_margin": 4,
+   "e_margin": 2.093998704953858,
+   "p_marg_ge2": 0.5344714417072178,
+   "p_marg_ge3": 0.3337082329522169,
+   "p_marg_ge4": 0.19948829791878103,
+   "date": "2026-06-20",
+   "stage": "group",
+   "total_goals": 6
+  },
+  {
+   "home": "Belgium",
+   "away": "Iran",
+   "probs": {
+    "home": 0.47493619681370586,
+    "draw": 0.26632520216527517,
+    "away": 0.25873860102101903
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 1.3013962467679092,
+   "p_marg_ge2": 0.3555072333256529,
+   "p_marg_ge3": 0.14173403123851908,
+   "p_marg_ge4": 0.04932262984795063,
+   "date": "2026-06-21",
+   "stage": "group",
+   "total_goals": 0
+  },
+  {
+   "home": "New Zealand",
+   "away": "Egypt",
+   "probs": {
+    "home": 0.30958466064372403,
+    "draw": 0.30345276169807534,
+    "away": 0.38696257765820063
+   },
+   "outcome": "away",
+   "realized_margin": 2,
+   "e_margin": 1.12883760872083,
+   "p_marg_ge2": 0.29611472588644505,
+   "p_marg_ge3": 0.09917115075337264,
+   "p_marg_ge4": 0.02810548375464727,
+   "date": "2026-06-21",
+   "stage": "group",
+   "total_goals": 4
+  },
+  {
+   "home": "Spain",
+   "away": "Saudi Arabia",
+   "probs": {
+    "home": 0.8546444354922602,
+    "draw": 0.11040480857587587,
+    "away": 0.03495075593186391
+   },
+   "outcome": "home",
+   "realized_margin": 4,
+   "e_margin": 2.5334616654436015,
+   "p_marg_ge2": 0.6780321816715071,
+   "p_marg_ge3": 0.45711960754864345,
+   "p_marg_ge4": 0.27077881842573354,
+   "date": "2026-06-21",
+   "stage": "group",
+   "total_goals": 4
+  },
+  {
+   "home": "Uruguay",
+   "away": "Cape Verde",
+   "probs": {
+    "home": 0.7137073014458509,
+    "draw": 0.2042931140902388,
+    "away": 0.08199958446391038
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 1.7172592022617328,
+   "p_marg_ge2": 0.4813779031619795,
+   "p_marg_ge3": 0.2526899210365057,
+   "p_marg_ge4": 0.11631402749328548,
+   "date": "2026-06-21",
+   "stage": "group",
+   "total_goals": 4
+  },
+  {
+   "home": "France",
+   "away": "Iraq",
+   "probs": {
+    "home": 0.7909471540885162,
+    "draw": 0.14903556822574146,
+    "away": 0.06001727768574242
+   },
+   "outcome": "home",
+   "realized_margin": 3,
+   "e_margin": 2.153483744613961,
+   "p_marg_ge2": 0.5927492784966997,
+   "p_marg_ge3": 0.36327529317951257,
+   "p_marg_ge4": 0.1958840076578124,
+   "date": "2026-06-22",
+   "stage": "group",
+   "total_goals": 3
+  },
+  {
+   "home": "Norway",
+   "away": "Senegal",
+   "probs": {
+    "home": 0.452358952741962,
+    "draw": 0.26549054435555325,
+    "away": 0.2821505029024847
+   },
+   "outcome": "home",
+   "realized_margin": 1,
+   "e_margin": 1.3019258077144917,
+   "p_marg_ge2": 0.3563913805743005,
+   "p_marg_ge3": 0.14164280438925206,
+   "p_marg_ge4": 0.048913869213200456,
+   "date": "2026-06-22",
+   "stage": "group",
+   "total_goals": 5
+  },
+  {
+   "home": "Jordan",
+   "away": "Algeria",
+   "probs": {
+    "home": 0.17549181733817584,
+    "draw": 0.22450505495595846,
+    "away": 0.6000031277058657
+   },
+   "outcome": "away",
+   "realized_margin": 1,
+   "e_margin": 1.5500670571911976,
+   "p_marg_ge2": 0.43364148392992347,
+   "p_marg_ge3": 0.20707168006123167,
+   "p_marg_ge4": 0.0870105953286927,
+   "date": "2026-06-22",
+   "stage": "group",
+   "total_goals": 3
+  },
+  {
+   "home": "Argentina",
+   "away": "Austria",
+   "probs": {
+    "home": 0.6853736229892705,
+    "draw": 0.22344072840241747,
+    "away": 0.09118564860831219
+   },
+   "outcome": "home",
+   "realized_margin": 2,
+   "e_margin": 1.5886163423539277,
+   "p_marg_ge2": 0.44569253299098144,
+   "p_marg_ge3": 0.2197314444774891,
+   "p_marg_ge4": 0.09445537560135539,
+   "date": "2026-06-22",
+   "stage": "group",
+   "total_goals": 2
+  },
+  {
+   "home": "Portugal",
+   "away": "Uzbekistan",
+   "probs": {
+    "home": 0.6641730590866455,
+    "draw": 0.21571877168978315,
+    "away": 0.12010816922357133
+   },
+   "outcome": "home",
+   "realized_margin": 5,
+   "e_margin": 1.6340879008925289,
+   "p_marg_ge2": 0.4566204962102206,
+   "p_marg_ge3": 0.2303010466821204,
+   "p_marg_ge4": 0.10257056163945846,
+   "date": "2026-06-23",
+   "stage": "group",
+   "total_goals": 5
+  },
+  {
+   "home": "Panama",
+   "away": "Croatia",
+   "probs": {
+    "home": 0.19690301538169586,
+    "draw": 0.23094576827947647,
+    "away": 0.5721512163388278
+   },
+   "outcome": "away",
+   "realized_margin": 1,
+   "e_margin": 1.508186766450406,
+   "p_marg_ge2": 0.42056997798497414,
+   "p_marg_ge3": 0.1956673526954533,
+   "p_marg_ge4": 0.08037419569266961,
+   "date": "2026-06-23",
+   "stage": "group",
+   "total_goals": 1
+  },
+  {
+   "home": "England",
+   "away": "Ghana",
+   "probs": {
+    "home": 0.7964021813687928,
+    "draw": 0.15168003110268108,
+    "away": 0.05191778752852629
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 2.1103368266202844,
+   "p_marg_ge2": 0.5859480030624407,
+   "p_marg_ge3": 0.35301204438530764,
+   "p_marg_ge4": 0.18583477730759582,
+   "date": "2026-06-23",
+   "stage": "group",
+   "total_goals": 0
+  },
+  {
+   "home": "Colombia",
+   "away": "DR Congo",
+   "probs": {
+    "home": 0.7059394505242298,
+    "draw": 0.2039792415365096,
+    "away": 0.09008130793926065
+   },
+   "outcome": "home",
+   "realized_margin": 1,
+   "e_margin": 1.72188037046137,
+   "p_marg_ge2": 0.48172806732087026,
+   "p_marg_ge3": 0.25358756847758795,
+   "p_marg_ge4": 0.11753137371709657,
+   "date": "2026-06-23",
+   "stage": "group",
+   "total_goals": 1
+  },
+  {
+   "home": "Mexico",
+   "away": "Czech Republic",
+   "probs": {
+    "home": 0.6361672473123493,
+    "draw": 0.22458036620679944,
+    "away": 0.1392523864808513
+   },
+   "outcome": "home",
+   "realized_margin": 3,
+   "e_margin": 1.5654750972579201,
+   "p_marg_ge2": 0.43735375333341275,
+   "p_marg_ge3": 0.2120389786395944,
+   "p_marg_ge4": 0.09057346406711476,
+   "date": "2026-06-24",
+   "stage": "group",
+   "total_goals": 3
+  },
+  {
+   "home": "Bosnia and Herzegovina",
+   "away": "Qatar",
+   "probs": {
+    "home": 0.4870458960823187,
+    "draw": 0.2639233617597275,
+    "away": 0.24903074215795376
+   },
+   "outcome": "home",
+   "realized_margin": 2,
+   "e_margin": 1.312013774158736,
+   "p_marg_ge2": 0.3598760577465312,
+   "p_marg_ge3": 0.1445126221783592,
+   "p_marg_ge4": 0.050370609375358415,
+   "date": "2026-06-24",
+   "stage": "group",
+   "total_goals": 4
+  },
+  {
+   "home": "South Africa",
+   "away": "South Korea",
+   "probs": {
+    "home": 0.14898989131159535,
+    "draw": 0.24437011099110406,
+    "away": 0.6066399976973005
+   },
+   "outcome": "home",
+   "realized_margin": 1,
+   "e_margin": 1.4470031267997054,
+   "p_marg_ge2": 0.40176040504798405,
+   "p_marg_ge3": 0.1815887043603543,
+   "p_marg_ge4": 0.0720372300616194,
+   "date": "2026-06-24",
+   "stage": "group",
+   "total_goals": 1
+  },
+  {
+   "home": "Morocco",
+   "away": "Haiti",
+   "probs": {
+    "home": 0.6854391689153759,
+    "draw": 0.21779065562601976,
+    "away": 0.09677017545860446
+   },
+   "outcome": "home",
+   "realized_margin": 2,
+   "e_margin": 1.61106278510209,
+   "p_marg_ge2": 0.4532380641700363,
+   "p_marg_ge3": 0.22495656900805133,
+   "p_marg_ge4": 0.09707494344225097,
+   "date": "2026-06-24",
+   "stage": "group",
+   "total_goals": 6
+  },
+  {
+   "home": "Canada",
+   "away": "Switzerland",
+   "probs": {
+    "home": 0.31138049294190095,
+    "draw": 0.28414673459246814,
+    "away": 0.40447277246563107
+   },
+   "outcome": "away",
+   "realized_margin": 1,
+   "e_margin": 1.209383299328333,
+   "p_marg_ge2": 0.3253809855412785,
+   "p_marg_ge3": 0.11830173655898797,
+   "p_marg_ge4": 0.03672421687698898,
+   "date": "2026-06-24",
+   "stage": "group",
+   "total_goals": 3
+  },
+  {
+   "home": "Scotland",
+   "away": "Brazil",
+   "probs": {
+    "home": 0.11863609172259167,
+    "draw": 0.18713184257875584,
+    "away": 0.6942320656986525
+   },
+   "outcome": "away",
+   "realized_margin": 3,
+   "e_margin": 1.8438651640007495,
+   "p_marg_ge2": 0.5117493212649376,
+   "p_marg_ge3": 0.2836272605574103,
+   "p_marg_ge4": 0.13999858812394325,
+   "date": "2026-06-24",
+   "stage": "group",
+   "total_goals": 3
+  },
+  {
+   "home": "United States",
+   "away": "Turkey",
+   "probs": {
+    "home": 0.3797778120872197,
+    "draw": 0.25038096606888205,
+    "away": 0.3698412218438982
+   },
+   "outcome": "away",
+   "realized_margin": 1,
+   "e_margin": 1.3595974282735916,
+   "p_marg_ge2": 0.3775284974449015,
+   "p_marg_ge3": 0.15517054653114654,
+   "p_marg_ge4": 0.054609088493501094,
+   "date": "2026-06-25",
+   "stage": "group",
+   "total_goals": 5
+  },
+  {
+   "home": "Ecuador",
+   "away": "Germany",
+   "probs": {
+    "home": 0.3224929990757571,
+    "draw": 0.30137216661393706,
+    "away": 0.3761348343103059
+   },
+   "outcome": "home",
+   "realized_margin": 1,
+   "e_margin": 1.1374678360602184,
+   "p_marg_ge2": 0.29923066724688113,
+   "p_marg_ge3": 0.10123734221439591,
+   "p_marg_ge4": 0.029036942107616735,
+   "date": "2026-06-25",
+   "stage": "group",
+   "total_goals": 3
+  },
+  {
+   "home": "Tunisia",
+   "away": "Netherlands",
+   "probs": {
+    "home": 0.07483453261532669,
+    "draw": 0.15266318268669604,
+    "away": 0.7725022846979772
+   },
+   "outcome": "away",
+   "realized_margin": 2,
+   "e_margin": 2.1206107656471334,
+   "p_marg_ge2": 0.5839892786618717,
+   "p_marg_ge3": 0.3552766167739902,
+   "p_marg_ge4": 0.19043722747162983,
+   "date": "2026-06-25",
+   "stage": "group",
+   "total_goals": 4
+  },
+  {
+   "home": "Cura\u00e7ao",
+   "away": "Ivory Coast",
+   "probs": {
+    "home": 0.10289845465382036,
+    "draw": 0.20258304746217895,
+    "away": 0.6945184978840007
+   },
+   "outcome": "away",
+   "realized_margin": 2,
+   "e_margin": 1.7150441728455441,
+   "p_marg_ge2": 0.48102679342753407,
+   "p_marg_ge3": 0.2514486583659404,
+   "p_marg_ge4": 0.11530531211355961,
+   "date": "2026-06-25",
+   "stage": "group",
+   "total_goals": 2
+  },
+  {
+   "home": "Paraguay",
+   "away": "Australia",
+   "probs": {
+    "home": 0.31503944438828263,
+    "draw": 0.317285940477524,
+    "away": 0.36767461513419347
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 1.077571281208985,
+   "p_marg_ge2": 0.2770144735884984,
+   "p_marg_ge3": 0.08770042707354306,
+   "p_marg_ge4": 0.023352428890162744,
+   "date": "2026-06-25",
+   "stage": "group",
+   "total_goals": 0
+  },
+  {
+   "home": "Japan",
+   "away": "Sweden",
+   "probs": {
+    "home": 0.6555123038878305,
+    "draw": 0.19272249830053598,
+    "away": 0.1517651978116334
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 2.078395957881816,
+   "p_marg_ge2": 0.5313538680713277,
+   "p_marg_ge3": 0.3310995636277078,
+   "p_marg_ge4": 0.1969502753836271,
+   "date": "2026-06-25",
+   "stage": "group",
+   "total_goals": 2
+  },
+  {
+   "home": "Uruguay",
+   "away": "Spain",
+   "probs": {
+    "home": 0.16454079335858618,
+    "draw": 0.2573044411485398,
+    "away": 0.5781547654928741
+   },
+   "outcome": "away",
+   "realized_margin": 1,
+   "e_margin": 1.3751488302469173,
+   "p_marg_ge2": 0.37876673436801034,
+   "p_marg_ge3": 0.1630455597840043,
+   "p_marg_ge4": 0.061626893180804505,
+   "date": "2026-06-26",
+   "stage": "group",
+   "total_goals": 1
+  },
+  {
+   "home": "Norway",
+   "away": "France",
+   "probs": {
+    "home": 0.23889640371381135,
+    "draw": 0.24323149020059062,
+    "away": 0.5178721060855979
+   },
+   "outcome": "away",
+   "realized_margin": 3,
+   "e_margin": 1.4267892541400857,
+   "p_marg_ge2": 0.39630129701418365,
+   "p_marg_ge3": 0.17405795663272125,
+   "p_marg_ge4": 0.06711843230269142,
+   "date": "2026-06-26",
+   "stage": "group",
+   "total_goals": 5
+  },
+  {
+   "home": "New Zealand",
+   "away": "Belgium",
+   "probs": {
+    "home": 0.13957156355161252,
+    "draw": 0.2060123213325989,
+    "away": 0.6544161151157885
+   },
+   "outcome": "away",
+   "realized_margin": 4,
+   "e_margin": 1.6930751964195152,
+   "p_marg_ge2": 0.472463018605682,
+   "p_marg_ge3": 0.24469127135558627,
+   "p_marg_ge4": 0.11252003636889389,
+   "date": "2026-06-26",
+   "stage": "group",
+   "total_goals": 6
+  },
+  {
+   "home": "Senegal",
+   "away": "Iraq",
+   "probs": {
+    "home": 0.5985162634473998,
+    "draw": 0.24488340434025826,
+    "away": 0.156600332212342
+   },
+   "outcome": "home",
+   "realized_margin": 5,
+   "e_margin": 1.4381092898343235,
+   "p_marg_ge2": 0.39949384862945203,
+   "p_marg_ge3": 0.17893703131685645,
+   "p_marg_ge4": 0.07017521831332225,
+   "date": "2026-06-26",
+   "stage": "group",
+   "total_goals": 5
+  },
+  {
+   "home": "Cape Verde",
+   "away": "Saudi Arabia",
+   "probs": {
+    "home": 0.3154831690046379,
+    "draw": 0.30818070777290574,
+    "away": 0.3763361232224565
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 1.1107645978989102,
+   "p_marg_ge2": 0.2897098492669316,
+   "p_marg_ge3": 0.09499759876298834,
+   "p_marg_ge4": 0.02624659103562929,
+   "date": "2026-06-26",
+   "stage": "group",
+   "total_goals": 0
+  },
+  {
+   "home": "Egypt",
+   "away": "Iran",
+   "probs": {
+    "home": 0.2624203592205836,
+    "draw": 0.3107384753194272,
+    "away": 0.4268411654599892
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 1.1090570839308047,
+   "p_marg_ge2": 0.28839475027680683,
+   "p_marg_ge3": 0.09564122257860362,
+   "p_marg_ge4": 0.027086949455672873,
+   "date": "2026-06-26",
+   "stage": "group",
+   "total_goals": 2
+  },
+  {
+   "home": "Croatia",
+   "away": "Ghana",
+   "probs": {
+    "home": 0.6244851094970012,
+    "draw": 0.234851887218612,
+    "away": 0.14066300328438702
+   },
+   "outcome": "home",
+   "realized_margin": 1,
+   "e_margin": 1.503615890742862,
+   "p_marg_ge2": 0.4193796721481425,
+   "p_marg_ge3": 0.19633000005719564,
+   "p_marg_ge4": 0.08067123028462357,
+   "date": "2026-06-27",
+   "stage": "group",
+   "total_goals": 3
+  },
+  {
+   "home": "Panama",
+   "away": "England",
+   "probs": {
+    "home": 0.0842560107935599,
+    "draw": 0.1841514581251265,
+    "away": 0.7315925310813136
+   },
+   "outcome": "away",
+   "realized_margin": 2,
+   "e_margin": 1.8508412821103661,
+   "p_marg_ge2": 0.5188672813437273,
+   "p_marg_ge3": 0.28674289262368857,
+   "p_marg_ge4": 0.13875163252012973,
+   "date": "2026-06-27",
+   "stage": "group",
+   "total_goals": 2
+  },
+  {
+   "home": "Colombia",
+   "away": "Portugal",
+   "probs": {
+    "home": 0.4084964538888946,
+    "draw": 0.2678803079015856,
+    "away": 0.32362323820951966
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 1.2830921562142918,
+   "p_marg_ge2": 0.35131618372134005,
+   "p_marg_ge3": 0.13645499301988012,
+   "p_marg_ge4": 0.04545038171241642,
+   "date": "2026-06-27",
+   "stage": "group",
+   "total_goals": 0
+  },
+  {
+   "home": "Jordan",
+   "away": "Argentina",
+   "probs": {
+    "home": 0.020687680487715777,
+    "draw": 0.07708390726303138,
+    "away": 0.902228412249253
+   },
+   "outcome": "away",
+   "realized_margin": 2,
+   "e_margin": 2.980338108245686,
+   "p_marg_ge2": 0.7593637242327125,
+   "p_marg_ge3": 0.5592249923325793,
+   "p_marg_ge4": 0.3644983820413244,
+   "date": "2026-06-27",
+   "stage": "group",
+   "total_goals": 4
+  },
+  {
+   "home": "DR Congo",
+   "away": "Uzbekistan",
+   "probs": {
+    "home": 0.3609852330105172,
+    "draw": 0.33764814331692905,
+    "away": 0.30136662367255357
+   },
+   "outcome": "home",
+   "realized_margin": 2,
+   "e_margin": 1.0112878257930122,
+   "p_marg_ge2": 0.2520254763118127,
+   "p_marg_ge3": 0.07394771338893757,
+   "p_marg_ge4": 0.018173333741237946,
+   "date": "2026-06-27",
+   "stage": "group",
+   "total_goals": 4
+  },
+  {
+   "home": "Algeria",
+   "away": "Austria",
+   "probs": {
+    "home": 0.3312681438604953,
+    "draw": 0.29966516337190513,
+    "away": 0.36906669276759957
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 1.143037731957839,
+   "p_marg_ge2": 0.3018651498827709,
+   "p_marg_ge3": 0.10227458363357964,
+   "p_marg_ge4": 0.029249358468101526,
+   "date": "2026-06-27",
+   "stage": "group",
+   "total_goals": 6
+  },
+  {
+   "home": "South Africa",
+   "away": "Canada",
+   "probs": {
+    "home": 0.14172956282493435,
+    "draw": 0.2563841310108926,
+    "away": 0.6018863061641729
+   },
+   "outcome": "away",
+   "realized_margin": 1,
+   "e_margin": 1.3887820046135388,
+   "p_marg_ge2": 0.38365150433017176,
+   "p_marg_ge3": 0.16751267467608266,
+   "p_marg_ge4": 0.06393188761325101,
+   "date": "2026-06-28",
+   "stage": "R32",
+   "total_goals": 1
+  },
+  {
+   "home": "Netherlands",
+   "away": "Morocco",
+   "probs": {
+    "home": 0.37317699649160896,
+    "draw": 0.3066299256646058,
+    "away": 0.3201930778437854
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 1.116634591253714,
+   "p_marg_ge2": 0.2921129204324164,
+   "p_marg_ge3": 0.09626126994991648,
+   "p_marg_ge4": 0.026711843742472915,
+   "date": "2026-06-29",
+   "stage": "R32",
+   "total_goals": 2
+  },
+  {
+   "home": "Brazil",
+   "away": "Japan",
+   "probs": {
+    "home": 0.44259029022672525,
+    "draw": 0.27482111240703516,
+    "away": 0.28258859736623954
+   },
+   "outcome": "home",
+   "realized_margin": 1,
+   "e_margin": 1.2608345824328464,
+   "p_marg_ge2": 0.34244726128106484,
+   "p_marg_ge3": 0.13168373707970632,
+   "p_marg_ge4": 0.04392917051358824,
+   "date": "2026-06-29",
+   "stage": "R32",
+   "total_goals": 3
+  },
+  {
+   "home": "Germany",
+   "away": "Paraguay",
+   "probs": {
+    "home": 0.5109996114327469,
+    "draw": 0.25458496258261837,
+    "away": 0.23441542598463455
+   },
+   "outcome": "draw",
+   "realized_margin": 0,
+   "e_margin": 1.3631429934089971,
+   "p_marg_ge2": 0.3768815824529376,
+   "p_marg_ge3": 0.15782620988477014,
+   "p_marg_ge4": 0.057489773870969506,
+   "date": "2026-06-29",
+   "stage": "R32",
+   "total_goals": 2
+  },
+  {
+   "home": "Mexico",
+   "away": "Ecuador",
+   "probs": {
+    "home": 0.31814217492163366,
+    "draw": 0.35058128822515633,
+    "away": 0.33127653685320996
+   },
+   "outcome": "home",
+   "realized_margin": 2,
+   "e_margin": 0.9717714591648536,
+   "p_marg_ge2": 0.23703796298258153,
+   "p_marg_ge3": 0.0661351104460489,
+   "p_marg_ge4": 0.015392444786438161,
+   "date": "2026-06-30",
+   "stage": "R32",
+   "total_goals": 2
+  },
+  {
+   "home": "France",
+   "away": "Sweden",
+   "probs": {
+    "home": 0.7397567530593949,
+    "draw": 0.15025698072968222,
+    "away": 0.10998626621092296
+   },
+   "outcome": "home",
+   "realized_margin": 3,
+   "e_margin": 2.5321969774304627,
+   "p_marg_ge2": 0.6212294769564054,
+   "p_marg_ge3": 0.43197506330407187,
+   "p_marg_ge4": 0.28392996417590527,
+   "date": "2026-06-30",
+   "stage": "R32",
+   "total_goals": 3
+  },
+  {
+   "home": "Ivory Coast",
+   "away": "Norway",
+   "probs": {
+    "home": 0.23335973564367193,
+    "draw": 0.2708999423516849,
+    "away": 0.4957403220046433
+   },
+   "outcome": "away",
+   "realized_margin": 1,
+   "e_margin": 1.2883709101579017,
+   "p_marg_ge2": 0.35142624441038456,
+   "p_marg_ge3": 0.13931447838387975,
+   "p_marg_ge4": 0.04821466272263596,
+   "date": "2026-06-30",
+   "stage": "R32",
+   "total_goals": 3
+  }
+ ],
+ "bands": {
+  "0.55-0.65": {
+   "n": 16,
+   "pred_fav_win": 0.5934638811850562,
+   "real_fav_win": 0.8125,
+   "pred_draw": 0.242432949034432,
+   "real_draw": 0.0625,
+   "pred_dog_win": 0.16410316978051184,
+   "real_dog_win": 0.125,
+   "mean_rps": 0.1552509298983745,
+   "mean_logloss": 0.7421506326111895,
+   "e_margin_pred": 1.4809568429277777,
+   "e_margin_real": 1.75,
+   "pred_marg_ge2": 0.4071538966380088,
+   "real_marg_ge2": 0.375,
+   "pred_marg_ge3": 0.18928024237397656,
+   "real_marg_ge3": 0.25,
+   "pred_marg_ge4": 0.0794978652233988,
+   "real_marg_ge4": 0.125,
+   "real_fav_win_se": 0.09757809372497497,
+   "miscalibrated": true
+  },
+  "0.65-0.75": {
+   "n": 17,
+   "pred_fav_win": 0.6932427996462625,
+   "real_fav_win": 0.7647058823529411,
+   "pred_draw": 0.2025796817992057,
+   "real_draw": 0.23529411764705882,
+   "pred_dog_win": 0.10417751855453183,
+   "real_dog_win": 0.0,
+   "mean_rps": 0.09482956230681011,
+   "mean_logloss": 0.6405011492107539,
+   "e_margin_pred": 1.770302488992595,
+   "e_margin_real": 2.1176470588235294,
+   "pred_marg_ge2": 0.487153985998019,
+   "real_marg_ge2": 0.7058823529411765,
+   "pred_marg_ge3": 0.26318321172892095,
+   "real_marg_ge3": 0.4117647058823529,
+   "pred_marg_ge4": 0.12842793431286287,
+   "real_marg_ge4": 0.17647058823529413,
+   "real_fav_win_se": 0.10287936849355368,
+   "miscalibrated": false
+  },
+  "0.75-0.85": {
+   "n": 7,
+   "pred_fav_win": 0.794635918629441,
+   "real_fav_win": 0.7142857142857143,
+   "pred_draw": 0.14548015576722356,
+   "real_draw": 0.2857142857142857,
+   "pred_dog_win": 0.059883925603335476,
+   "real_dog_win": 0.0,
+   "mean_rps": 0.10172501313462978,
+   "mean_logloss": 0.6769461044800217,
+   "e_margin_pred": 2.209900088575725,
+   "e_margin_real": 2.2857142857142856,
+   "pred_marg_ge2": 0.601731464592041,
+   "real_marg_ge2": 0.7142857142857143,
+   "pred_marg_ge3": 0.3758107019147508,
+   "real_marg_ge3": 0.42857142857142855,
+   "pred_marg_ge4": 0.20827527868896917,
+   "real_marg_ge4": 0.14285714285714285,
+   "real_fav_win_se": 0.17074694419062766,
+   "miscalibrated": false
+  },
+  "0.85+": {
+   "n": 6,
+   "pred_fav_win": 0.878967544397244,
+   "real_fav_win": 0.5,
+   "pred_draw": 0.09079635139870519,
+   "real_draw": 0.5,
+   "pred_dog_win": 0.030236104204050738,
+   "real_dog_win": 0.0,
+   "mean_rps": 0.19746374021410473,
+   "mean_logloss": 1.2758689289760747,
+   "e_margin_pred": 2.8440163184364287,
+   "e_margin_real": 2.0,
+   "pred_marg_ge2": 0.7281442181085972,
+   "real_marg_ge2": 0.5,
+   "pred_marg_ge3": 0.5248399068513978,
+   "real_marg_ge3": 0.3333333333333333,
+   "pred_marg_ge4": 0.3373788560430775,
+   "real_marg_ge4": 0.3333333333333333,
+   "real_fav_win_se": 0.2041241452319315,
+   "miscalibrated": false
+  },
+  "all": {
+   "n": 46,
+   "pred_fav_win": 0.6981914432551504,
+   "real_fav_win": 0.7391304347826086,
+   "pred_draw": 0.19317219508478709,
+   "real_draw": 0.21739130434782608,
+   "pred_dog_win": 0.10863636166006266,
+   "real_dog_win": 0.043478260869565216,
+   "mean_rps": 0.13028206458297392,
+   "mean_logloss": 0.7642775209473575,
+   "e_margin_pred": 1.8766054419645044,
+   "e_margin_real": 2.0,
+   "pred_marg_ge2": 0.5081970797602247,
+   "real_marg_ge2": 0.5652173913043478,
+   "pred_marg_ge3": 0.2887459311279766,
+   "real_marg_ge3": 0.34782608695652173,
+   "pred_marg_ge4": 0.1508139307385717,
+   "real_marg_ge4": 0.17391304347826086,
+   "real_fav_win_se": 0.06474307670904994,
+   "miscalibrated": false
+  }
+ },
+ "tails": {
+  "p_marg_ge2": {
+   "pred": 0.435109857724866,
+   "real": 0.45569620253164556
+  },
+  "p_marg_ge3": {
+   "pred": 0.22119044630131884,
+   "real": 0.24050632911392406
+  },
+  "p_marg_ge4": {
+   "pred": 0.10562041335076529,
+   "real": 0.11392405063291139
+  }
+ }
+}
