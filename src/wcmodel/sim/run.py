@@ -222,9 +222,13 @@ def _build_played(store, cutoff, group_dates: dict, ko_dates: dict) -> dict:
     # games) must still condition its fixture — the exact-triple lookup alone
     # silently left those games SAMPLED every draw. Exact orientation stays
     # authoritative; the reversed twin is consulted only on a miss, with the
-    # SCORE flipped into the fixture's orientation. The played-content hash in
-    # the sim cache covers this automatically (the conditioning map gains
-    # entries -> different key -> no stale serve).
+    # SCORE flipped into the fixture's orientation. Cache-key coverage
+    # (reviewer finding I-2): for THIS group path the played-content hash covers
+    # the change automatically (the conditioning map gains entries -> different
+    # key). The KO-path reversal in simulate_one resolves IN-LOOP, so
+    # knockout_results is byte-identical pre/post-reversal there — that path's
+    # stale-serve protection comes from the sim key's git/worktree component
+    # (committed code change -> new key), NOT from _played_hash.
     group_played = {}
     for (home, away), date in group_dates.items():
         if (home, away, date) in by_triple:
