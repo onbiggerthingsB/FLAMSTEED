@@ -1,78 +1,92 @@
-# External deep-research: what improves international-tournament forecast accuracy (2026-07-02)
+# External deep-research: what improves international-tournament forecast accuracy (2026-07-02, v2)
 
-Multi-agent research run (`wf_ace751ad-6e0`): 5 search angles → 7 primary
-sources deep-read → 30 claims extracted → 25 adversarially verified (3-vote;
-23 confirmed, 2 refuted). Full artifact with per-claim votes/evidence in the
-workflow transcript; this file is the distilled, actionable menu. NOTE the
-coverage gap at the bottom — 12 fetch agents died on a usage-credit outage,
-starving angles 4-6.
+Multi-agent research run (`wf_ace751ad-6e0`, completed in two passes — the
+first starved by a credit outage, resumed from cache after top-up): 5 search
+angles → **20 primary sources deep-read → 98 claims extracted → 25
+adversarially verified (3-vote; 22 confirmed, 3 refuted) → 8 synthesized
+findings.** Full artifact with per-claim votes in the workflow transcript.
 
-## The blunt headline (verified, multi-source)
+## The blunt headline (verified, multi-source, now quantified tightly)
 
-**Bookmaker odds dominate.** Pure statistical models trail market accuracy by
-~1.1-1.3pp average correct-1X2 probability (~0.002-0.004 RPS) on World Cup
-matches (Groll/Schauberger/Tutz 2015: 40.2/40.3% vs 41.45%; Groll et al. 2019:
-bookmaker RPS 0.188 vs 0.190 best-pure-statistical on 256 WC matches). The
-ONLY published method that edges the market — Groll et al.'s hybrid random
-forest, RPS 0.187 vs 0.188 — does it by INGESTING odds-derived abilities.
-LASSO picks odds FIRST among ~18 covariates when available; odds absorb most
-other information including the host effect.
+**De-vigged bookmaker odds are the effective accuracy ceiling.** Best
+published statistical models roughly TIE them (±0.001-0.003 RPS/Brier), and
+more often lose: Peeters 2018 (961 internationals — the largest sample in the
+set): odds Brier 0.1556 vs best covariate model 0.1584 (p=0.0495), odds win
+every Brier-decomposition component. Robberechts & Davis: 2018-WC
+out-of-sample, bookmakers beat the deployed Elo+ODM logit (RPS 0.1976 vs
+0.2072). The rare model-over-odds results are razor-thin and carry tuning
+leakage.
 
-## Ranked improvement menu (vs OUR system specifically)
+## Ranked improvement menu (vs OUR system)
 
-1. **Market-odds blending** — highest expected gain, and unusually cheap for
-   us: the odds plumbing (The Odds API fetch, de-vig, PIT snapshots) already
-   exists in the value-scanner subsystem; it has just never fed the FORECAST.
-   Two architectures, no published head-to-head (open question #1):
-   (a) prior-level anchoring (shrink attack/defense priors toward odds-implied
-   strengths — same pattern as our Elo anchor, k swept on held-out data);
-   (b) post-hoc stacking (logistic blend of our 1X2 probs with de-vigged
-   market probs, weight fit on held-out internationals).
-   Expected order: closes most of the ~0.002-0.004 RPS model-vs-market gap.
-2. **Transfermarkt log market-value differences as a covariate** — the
-   dominant player-level feature in the Groll/Zeileis lineage (variable
-   importance #1 in the EURO-2020/WC-2022 hybrid; ahead of CL/EL player
-   counts and FIFA rank; GDP/population/age ~zero after regularization).
-   Caveat: no paper ablates it AGAINST an Elo-anchored goal model — its
-   marginal value over our anchor is genuinely unknown (open question #2).
-   PIT source: archived pre-tournament Transfermarkt squad values.
-3. **Stacking layer generally** (our DC probs + market probs [+ market value]
-   into a light blender) — the design pattern behind the only measured
-   over-market result. Deltas ~0.003-0.005 RPS, measured on CV not fresh
-   holdouts — treat as upper bounds.
+1. **Market-odds integration** — two concrete, replicable recipes:
+   - **(a) Stacking** (Groll/Zeileis lineage): odds enter as a dominant
+     covariate/input to a blender; LASSO picks odds FIRST of 18 covariates;
+     odds subsume the host effect.
+   - **(b) Likelihood-level anchoring** (Egidi, Pauli & Torelli): each team's
+     Poisson goal rate = a convex combination of the historical-data rate and
+     a bookmaker-implied rate (recovered by inverting 1X2 odds through the
+     Skellam distribution), mixing weight learned with a Beta prior.
+     **Directly transplantable to our PyMC Dixon-Coles** — this is the
+     engineering blueprint for a prior/likelihood-level version of our Elo
+     anchor, with odds instead of Elo. Caveat: validated on CLUB data;
+     transfer to internationals is assumed, not measured (open question #1:
+     (a) vs (b) has NO published head-to-head — we can be first).
+   - Expected gain: closes most of the model→odds gap (~0.002-0.010
+     RPS/Brier for unanchored models); does not exceed the market.
+2. **Transfermarkt squad market value** — now with measured numbers: probit
+   on log squad value beat an Elo probit **Brier 0.1578 vs 0.1613 on 592
+   held-out non-friendly internationals** (Peeters; FIFA-rank probit 0.1645),
+   with residual signal beyond odds. Two caveats that shrink it for us: the
+   losing benchmark was a NAIVE Elo probit (not a tuned Elo-anchored DC), and
+   Transfermarkt's valuation methodology changed post-2021 (effect sizes are
+   2008-2014 vintage).
+3. **Shin de-vig (cheap sub-lever)** — when consuming odds, Shin-style de-vig
+   beats basic inverse-odds normalization by ~0.002-0.004 log-loss (5
+   bookmakers tested; preprint-grade evidence, likely in-sample). One-day
+   check of our existing de-vig module when the odds-blending work starts.
+4. **Elo ordered-logit 1X2 head as an ensemble cross-check (cheap
+   structural)** — on 2002-2014 WCs with IDENTICAL Elo inputs, a result-based
+   ordered logit beat the goal-based bivariate Poisson's implied 1X2 (RPS
+   0.1860 vs 0.1866, log-loss 0.9375 vs 1.0045). Candidate: average/cross-check
+   our DC 1X2 with an Elo ordered logit — near-zero cost, uses data we have.
+   (Context: our own pooled-185 RPS is 0.1896 — same ballpark, different pool.)
 
-## Verified DON'T-DOs (saves future effort)
+## Verified DON'T-DOs (now stronger than v1)
 
-- **Rating-system swaps** (Bayesian BTD, pi-ratings, official FIFA rank,
-  Glicko-class): marginal, stage-dependent, often qualitative-only on
-  internationals; best-in-class in Lasek et al. 2013 was a goal-difference-
-  aware Elo variant — which is what we already run, with a swept anchor.
-- **Demographic covariates** (GDP, population): shrink to ~zero.
-- **Chasing betting-ROI results as accuracy evidence**: the WC2014 "+33%"
-  value-bet returns came from models LESS accurate than the market (n=64, no
-  significance test) — price-inefficiency exploitation, not forecast skill.
+- **Rating-system swaps**: no alternative rating has demonstrated an edge over
+  tuned goal-difference-aware Elo as a prior anchor on internationals.
+- **Complexity for its own sake measurably HURTS on small samples**: Elo+ODM
+  augmentation scored WORSE than Elo alone (RPS 0.1878 vs 0.1860); a
+  16-feature RF *including odds* lost to a plain Elo ordered logit. The
+  field's best group deployed their SECOND-simplest model for this reason.
+- Demographics (GDP/population), betting-ROI-as-accuracy-evidence: unchanged
+  from v1.
 
-## Method discipline (verified, and it validates ours)
+## The formerly-starved angles — now a real (negative) answer
 
-Every published delta (0.002-0.005 RPS) sits near the noise floor of a
-50-200-match holdout; flagship forecasts (Zeileis 2022) publish NO accuracy
-metric at all. Pre-registered paired match-level tests — our house standard —
-are a first-order requirement, not a nicety.
+The resume pass searched structural variants (time-decay schedules, copulas,
+Koopman & Lit state-space dynamics, zero-inflation) and tournament effects
+(rest days, dead rubbers, knockout draw shifts, ET/pens) properly this time:
+**no claim on any of them survived adversarial verification** — the
+literature simply lacks measured international-tournament evidence for these
+levers. This is no longer a coverage gap; it is a finding: nobody has shown
+these matter on internationals. They stay off the menu absent new evidence.
 
-## Coverage gaps (starved by the credit outage — NOT evidence of absence)
+## Method discipline (reinforced)
 
-Angles with no surviving verified claims: structural variants (time-decay
-schedules, Koopman & Lit state-space dynamics, copula dependence,
-zero-inflation), tournament effects (rest days, dead rubbers, knockout draw
-rates, ET/pens modeling), and competition/ensembling evidence (Kaggle WC,
-Machine Learning journal challenges). Also lost: Peeters 2018 (Transfermarkt
-wisdom-of-crowds, IJoF) — directly relevant to item 2. Resumable from the
-workflow's cached prefix (`resumeFromRunId: wf_ace751ad-6e0`).
+Samples are 64-250 matches everywhere, essentially nothing is
+significance-tested, and the 2018-WC out-of-sample run REVERSED the 2002-2014
+backtest ordering — near-tied method rankings are unstable. Our prereg'd
+paired-test discipline is the difference between measuring and guessing.
 
-## Open questions the internal program should answer
+## Post-tournament experiment program (updated)
 
-1. Prior-anchoring vs post-hoc stacking of market odds — no published
-   head-to-head; we can measure it ourselves on the 185-pool.
-2. Ablated delta of a market-value covariate ON TOP OF the Elo anchor.
-3. The starved angles above, after a resume pass.
-4. Does the hybrid-RF gain survive genuinely held-out tournaments?
+1. Odds integration head-to-head: Egidi-style likelihood anchoring vs
+   stacking, on the 185-pool + full 2026 (~104 matches) — no published
+   comparison exists; we'd be first.
+2. Shin de-vig check inside our odds path (sub-experiment of #1).
+3. Transfermarkt ablation ON TOP OF the tuned Elo anchor (answers whether
+   Peeters' gain survives a real baseline + post-2021 TM data).
+4. Elo ordered-logit ensemble cross-check (cheapest; can piggyback on #1's
+   eval harness).
