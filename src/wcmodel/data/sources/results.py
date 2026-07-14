@@ -69,6 +69,17 @@ def normalize_results(raw: pd.DataFrame) -> pd.DataFrame:
     every non-colliding row's id identical to the bare formula.
     """
     df = raw.copy()
+    # PLACEHOLDER guard (live 2026-07-14, upstream commit a77ed04): martj42 now
+    # ships schedule rows for not-yet-determined knockout fixtures (3rd-place +
+    # final) with NaN team names. They carry no information (no teams, no
+    # scores), cannot be keyed, and would crash the hasher — drop them LOUDLY.
+    _nan_team = df["home_team"].isna() | df["away_team"].isna()
+    if _nan_team.any():
+        dropped = df.loc[_nan_team, ["date", "city"]]
+        print(f"[normalize_results] dropping {int(_nan_team.sum())} NaN-team "
+              f"placeholder schedule row(s): "
+              f"{[f'{d}@{c}' for d, c in dropped.itertuples(index=False)]}")
+        df = df[~_nan_team].copy()
     # Hash on the original (string) date so the id is stable regardless of how
     # the parsed timestamp later renders.
     base = (df["date"].astype(str) + "|" + df["home_team"].astype(str) + "|"
@@ -99,9 +110,12 @@ def normalize_results(raw: pd.DataFrame) -> pd.DataFrame:
     # mis-suffixed a colliding row would trip here, not in some later join.
     # These are explicit raises, NOT asserts: `python -O` strips `assert`, which
     # would silently disable this integrity guard in optimized runs.
-    if len(out) != len(raw):
+    # Compared against the POST-placeholder-guard frame `df`, not `raw`: the
+    # NaN-team drop above is deliberate and loud; this invariant exists to catch
+    # ACCIDENTAL drops in the keying/selection logic below it.
+    if len(out) != len(df):
         raise ValueError(
-            f"normalize_results dropped rows: in={len(raw)}, out={len(out)}")
+            f"normalize_results dropped rows: in={len(df)}, out={len(out)}")
     if not out["match_id"].is_unique:
         raise ValueError(
             "normalize_results produced duplicate match_id after disambiguation")
