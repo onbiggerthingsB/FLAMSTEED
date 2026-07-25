@@ -1,0 +1,65 @@
+"""Build one citable forecast release (product spec Phase 1, rev 2).
+
+Usage:
+  PYTHONPATH=src .venv/bin/python scripts/build_release.py \
+      --cutoff 2026-09-20T00:00:00Z --fixtures afcon_q_md1.csv \
+      --label "September qualifiers, matchday 1" \
+      --store data/stores/full_final --out releases/2026-09-20/
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+import pandas as pd
+
+from wcmodel.config import load_config
+from wcmodel.data.store import BitemporalStore
+from wcmodel.model.cache import cached_fit
+from wcmodel.releases.build import build_release
+from wcmodel.releases.fixtures import load_fixtures
+from wcmodel.releases.render import render_csv, render_html
+
+
+def _latest_result(store, cutoff) -> str:
+    df = store.read("results", cutoff=cutoff)
+    return pd.to_datetime(df["date"]).max().strftime("%Y-%m-%d")
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--cutoff", required=True)
+    ap.add_argument("--fixtures", required=True)
+    ap.add_argument("--label", required=True)
+    ap.add_argument("--store", required=True)
+    ap.add_argument("--out", required=True)
+    args = ap.parse_args(argv)
+
+    cfg = load_config()
+    inf = cfg["model"]["inference"]
+    fixtures = load_fixtures(args.fixtures)
+    store = BitemporalStore(root=Path(args.store))
+    post, meta = cached_fit(cutoff=pd.Timestamp(args.cutoff), store=store,
+                            backend=inf["backend"], draws=inf["draws"],
+                            seed=int(cfg["seed"]), advi_iters=inf["advi_iters"],
+                            cache_dir="data/cache", config=cfg)
+    print(f"[fit] {'HIT' if meta['cache_hit'] else 'FIT'} key={meta['key']}")
+
+    sizes = post.idata.posterior.sizes
+    n_draws = int(sizes["chain"] * sizes["draw"])
+    release = build_release(cutoff=args.cutoff, fixtures=fixtures, post=post,
+                            posterior_key=meta["key"], window_label=args.label,
+                            n_draws=n_draws,
+                            latest_result=_latest_result(store, args.cutoff))
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "release.json").write_text(json.dumps(release, indent=1))
+    (out / "release.html").write_text(render_html(release))
+    (out / "release.csv").write_text(render_csv(release))
+    print(f"[release] {len(release['rows'])} fixtures -> {out}/release.{{json,html,csv}}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
