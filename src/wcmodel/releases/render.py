@@ -5,12 +5,20 @@ provenance + freshness footer always on-page. CSV: machine-readable, full
 precision, the SAME envelope as comment-header lines (F2)."""
 from __future__ import annotations
 
+import csv
 import html as _html
 import io
 
 
 def _pct(x: float) -> str:
-    return f"{100.0 * float(x):.1f}%"
+    """One decimal, with the endpoints clamped: a rounded "100.0%" would read as
+    certainty and "0.0%" as impossibility, neither of which the model ever says."""
+    v = float(x)
+    if 0.0 < v < 0.001:
+        return "<0.1%"
+    if 0.999 < v < 1.0:
+        return ">99.9%"
+    return f"{100.0 * v:.1f}%"
 
 
 def render_html(release: dict) -> str:
@@ -61,14 +69,17 @@ def render_csv(release: dict) -> str:
     buf.write(f"# data_source: {ds['name']} latest_result: {ds['latest_result']}\n")
     buf.write(f"# methodology: {release['methodology_url']}\n")
     buf.write(f"# archive: {release['archive_url']}\n")
-    buf.write("date,home,away,neutral,p_home,p_draw,p_away,"
-              "over_1_5,over_2_5,over_3_5,modal_score,modal_score_p\n")
+    # csv.writer (not ",".join): team names legitimately contain commas and
+    # quotes, and a hand-joined row would silently split into extra fields.
+    w = csv.writer(buf, lineterminator="\n")
+    w.writerow(["date", "home", "away", "neutral", "p_home", "p_draw", "p_away",
+                "over_1_5", "over_2_5", "over_3_5", "modal_score", "modal_score_p"])
     for r in release["rows"]:
         o, t = r["one_x_two"], r["totals"]
-        buf.write(",".join([
-            r["date"], r["home"], r["away"], str(int(r["neutral"])),
-            f"{o['home']}", f"{o['draw']}", f"{o['away']}",
-            f"{t['over_1_5']}", f"{t['over_2_5']}", f"{t['over_3_5']}",
-            r["modal_score"], f"{r['modal_score_p']}",
-        ]) + "\n")
+        w.writerow([
+            r["date"], r["home"], r["away"], int(r["neutral"]),
+            o["home"], o["draw"], o["away"],
+            t["over_1_5"], t["over_2_5"], t["over_3_5"],
+            r["modal_score"], r["modal_score_p"],
+        ])
     return buf.getvalue()

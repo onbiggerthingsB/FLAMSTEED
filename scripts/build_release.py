@@ -23,8 +23,13 @@ from wcmodel.releases.render import render_csv, render_html
 
 
 def _latest_result(store, cutoff) -> str:
+    """Freshness stamp. An empty read is a wrong store or a wrong cutoff — never a
+    release with a NaT freshness line, so fail loud instead of stamping garbage."""
     df = store.read("results", cutoff=cutoff)
-    return pd.to_datetime(df["date"]).max().strftime("%Y-%m-%d")
+    latest = pd.to_datetime(df["date"]).max() if len(df) else pd.NaT
+    if pd.isna(latest):
+        raise ValueError(f"store has no results before cutoff {cutoff}")
+    return latest.strftime("%Y-%m-%d")
 
 
 def main(argv=None) -> int:
@@ -40,7 +45,10 @@ def main(argv=None) -> int:
     inf = cfg["model"]["inference"]
     fixtures = load_fixtures(args.fixtures)
     store = BitemporalStore(root=Path(args.store))
-    post, meta = cached_fit(cutoff=pd.Timestamp(args.cutoff), store=store,
+    # ONE parse of the cutoff, shared by the fit and the freshness read, so the two
+    # can never disagree about the leakage boundary.
+    cutoff_ts = pd.Timestamp(args.cutoff)
+    post, meta = cached_fit(cutoff=cutoff_ts, store=store,
                             backend=inf["backend"], draws=inf["draws"],
                             seed=int(cfg["seed"]), advi_iters=inf["advi_iters"],
                             cache_dir="data/cache", config=cfg)
@@ -51,7 +59,7 @@ def main(argv=None) -> int:
     release = build_release(cutoff=args.cutoff, fixtures=fixtures, post=post,
                             posterior_key=meta["key"], window_label=args.label,
                             n_draws=n_draws,
-                            latest_result=_latest_result(store, args.cutoff))
+                            latest_result=_latest_result(store, cutoff_ts))
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "release.json").write_text(json.dumps(release, indent=1))

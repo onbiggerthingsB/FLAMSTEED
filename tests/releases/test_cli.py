@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
+import pytest
 
 _MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "build_release.py"
 
@@ -24,6 +25,18 @@ class FakePost:
     def predict_scoreline(self, home, away, neutral=False, max_goals=10, **kw):
         n = max_goals + 1
         return np.full((n, n), 1.0 / (n * n))
+
+
+class EmptyStore:
+    def read(self, name, *, cutoff):
+        return pd.DataFrame({"date": []})
+
+
+def test_latest_result_rejects_empty_store():
+    """An empty store must not silently stamp NaT as the freshness date."""
+    cli = _load()
+    with pytest.raises(ValueError, match="store has no results before cutoff"):
+        cli._latest_result(EmptyStore(), pd.Timestamp("2026-09-20T00:00:00Z"))
 
 
 def test_cli_end_to_end(tmp_path, monkeypatch):

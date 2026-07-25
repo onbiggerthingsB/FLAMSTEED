@@ -1,7 +1,11 @@
 """Renderers: full envelope in BOTH formats, escaping, no betting vocabulary."""
+import copy
+import csv
+import io
+
 import pytest
 
-from wcmodel.releases.render import render_csv, render_html
+from wcmodel.releases.render import _pct, render_csv, render_html
 
 REL = {
     "provenance": {"as_of": "2026-09-20T00:00:00Z", "posterior_key": "deadbeef",
@@ -53,6 +57,28 @@ def test_csv_keeps_full_precision():
     data = [l for l in c.splitlines() if not l.startswith("#")]
     assert data[0].split(",")[4] == "p_home" or data[0].startswith("date")
     assert "0.5731" in c
+
+
+def test_csv_quotes_a_team_name_containing_a_comma():
+    """csv.writer must quote embedded commas so the row round-trips as 12 fields."""
+    rel = copy.deepcopy(REL)
+    rel["rows"][0]["home"] = "Bosnia, Herzegovina"
+    data = [l for l in render_csv(rel).splitlines() if not l.startswith("#")]
+    row = next(csv.reader(io.StringIO("\n".join(data[1:]))))
+    assert len(row) == 12
+    assert row[1] == "Bosnia, Herzegovina"
+
+
+@pytest.mark.parametrize("p,expected", [
+    (0.99996, ">99.9%"),   # would round to "100.0%" — never claim certainty
+    (0.00004, "<0.1%"),    # would round to "0.0%" — never claim impossibility
+    (0.0, "0.0%"),         # exact endpoints unchanged
+    (1.0, "100.0%"),
+    (0.001, "0.1%"),       # boundary is inclusive of the representable value
+    (0.999, "99.9%"),
+])
+def test_pct_clamps_display_extremes(p, expected):
+    assert _pct(p) == expected
 
 
 def test_no_betting_vocabulary_in_either_output():

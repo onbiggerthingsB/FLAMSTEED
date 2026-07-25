@@ -46,6 +46,13 @@ def test_rejects_bad_date(tmp_path):
         load_fixtures(_write(tmp_path, "date,home,away\nnope,Senegal,Mozambique\n"))
 
 
+def test_rejects_tz_aware_date(tmp_path):
+    """A tz-aware date would blow up later in the PIT compare with a raw TypeError."""
+    with pytest.raises(ValueError, match="tz-aware"):
+        load_fixtures(_write(
+            tmp_path, "date,home,away\n2026-09-21T12:00:00+02:00,Senegal,Mozambique\n"))
+
+
 def test_rejects_blank_team(tmp_path):
     with pytest.raises(ValueError, match="blank team"):
         load_fixtures(_write(tmp_path, "date,home,away\n2026-09-21,,Mozambique\n"))

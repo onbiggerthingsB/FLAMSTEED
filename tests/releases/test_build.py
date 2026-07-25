@@ -43,6 +43,22 @@ def test_cutoff_must_be_utc_midnight():
         _build(_fx(), cutoff="2026-09-20T15:30:00Z")
 
 
+@pytest.mark.parametrize("bad", [
+    "2026-09-20T00:00:00-05:00",   # offset form — as_of would not be canonical
+    "2026-09-20",                  # date only
+    "2026-09-20 00:00:00",         # space separator, no zone
+    "2026-09-20T00:00:00",         # no zone marker
+])
+def test_cutoff_must_be_the_literal_canonical_form(bad):
+    with pytest.raises(ValueError, match="literal form"):
+        _build(_fx(), cutoff=bad)
+
+
+def test_canonical_cutoff_form_accepted():
+    assert _build(_fx(), cutoff="2026-09-20T00:00:00Z")["provenance"]["as_of"] == \
+        "2026-09-20T00:00:00Z"
+
+
 def test_pit_guard_rejects_past_fixture():
     with pytest.raises(ValueError, match="before the release cutoff"):
         _build(_fx("2026-09-19"))
@@ -74,3 +90,45 @@ def test_coherence_gate_negative_component():
     # components sum to 1.0 but one is negative — must still trip
     with pytest.raises(ValueError, match="incoherent 1X2"):
         _build(_fx(), post=FakePost(np.array([[0.60, 0.70], [-0.40, 0.10]])))
+
+
+def test_coherence_gate_totals_escape_grid():
+    """1X2 is coherent (0.35/0.35/0.30) but the totals ladder goes negative."""
+    escape = np.array([[0.40, 0.10, 0.10],
+                       [0.20, 0.15, 0.10],
+                       [0.10, 0.05, -0.20]])
+    with pytest.raises(ValueError, match="incoherent totals"):
+        _build(_fx(), post=FakePost(escape))
+
+
+def test_hygiene_rejects_newline_in_label():
+    with pytest.raises(ValueError, match="newline in"):
+        build_release(cutoff="2026-09-20T00:00:00Z", fixtures=_fx(), post=FakePost(),
+                      posterior_key="deadbeef", window_label="Test\nwindow",
+                      n_draws=4000, latest_result="2026-09-18")
+
+
+def test_hygiene_rejects_newline_in_team_name():
+    with pytest.raises(ValueError, match="newline in"):
+        _build(_fx(home="A\rZ"))
+
+
+def test_hygiene_rejects_formula_prefix_label():
+    with pytest.raises(ValueError, match="formula-prefix"):
+        build_release(cutoff="2026-09-20T00:00:00Z", fixtures=_fx(), post=FakePost(),
+                      posterior_key="deadbeef", window_label="=cmd|' /c calc'!A1",
+                      n_draws=4000, latest_result="2026-09-18")
+
+
+@pytest.mark.parametrize("name", ["=A1", "+A1", "@SUM(1)"])
+def test_hygiene_rejects_formula_prefix_team_name(name):
+    with pytest.raises(ValueError, match="formula-prefix"):
+        _build(_fx(home=name))
+
+
+def test_hygiene_allows_hyphen_and_comma_names():
+    """'-' and ',' are NOT banned: real names and 1-0 scores must survive."""
+    post = FakePost()
+    post._idx = {"Bosnia, Herzegovina": 0, "Guinea-Bissau": 1}
+    rel = _build(_fx(home="Bosnia, Herzegovina", away="Guinea-Bissau"), post=post)
+    assert rel["rows"][0]["home"] == "Bosnia, Herzegovina"

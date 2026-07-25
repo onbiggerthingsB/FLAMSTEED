@@ -24,6 +24,11 @@ def load_fixtures(path: str | Path) -> pd.DataFrame:
     df = df[["date", "home", "away", "neutral"]].copy()
 
     dates = pd.to_datetime(df["date"], errors="coerce")
+    # A tz-aware column would otherwise survive to the PIT compare in build.py and
+    # die there as a raw TypeError; fixtures dates are calendar days, never instants.
+    if dates.dtype.kind != "M" or getattr(dates.dt, "tz", None) is not None:
+        raise ValueError("tz-aware (or mixed-offset) date(s) in fixtures CSV; "
+                         "use naive calendar dates, e.g. 2026-09-21")
     if dates.isna().any():
         raise ValueError(
             f"unparseable date(s) in fixtures CSV: {df.loc[dates.isna(), 'date'].tolist()}")
