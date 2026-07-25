@@ -30,7 +30,7 @@ import pytest
 from wcmodel.dashboard.spread import cover_line
 
 # The staged production bundle the dashboard reads (read-only per the controller's instruction).
-_BUNDLE = Path("~/worldcup/dashboard-ui/public/bundle")
+_BUNDLE = Path(__file__).resolve().parents[2] / "dashboard-ui" / "public" / "bundle"
 _FIXTURES_DIR = _BUNDLE / "fixtures"
 
 
