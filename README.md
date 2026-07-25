@@ -32,16 +32,22 @@ reproducible from the committed per-match records (`reports/`).
   combined **7 of 7**. Of the six misses, four were penalty shootouts, one was
   the third-place exhibition, and exactly one was a true 90-minute upset
   (Norway over Brazil). Regulation-decided, full-stakes knockouts: **24/25**.
-- Group stage: correct 1X2 outcome in **45 of 72 (62.5%)** against a
-  three-way market; favorites above 55% won at 72.7% — almost exactly as
-  priced.
+- Group stage: correct 1X2 outcome in **46 of 72 (63.9%)** against a
+  three-way market (final-store point-in-time replay; 45/72 on the
+  in-tournament store).
 
-**Calibration (proper scoring, point-in-time, verified)**
-- **Beat its Elo baseline live: RPS 0.157 vs 0.163.**
-- Favorites: predicted 69.8% win rate, realized 73.9% — calibrated, with the
-  error on the humble side.
-- Goal-margin tails within ~2pp of reality at every threshold
-  (≥2: 43.5% pred / 45.6% real; ≥3: 22.1/24.1; ≥4: 10.6/11.4).
+**Calibration (proper scoring, point-in-time, verified — full 104-game
+scorecard: `reports/live_scorecard_final.md`)**
+- Vs its naive-Elo baseline: ahead over the group stage as played live
+  (RPS 0.157 vs 0.163 on the in-tournament store); over the full 104-game
+  replay on the final consolidated store the two are **statistically tied**
+  (0.1561 vs 0.1557). Reported both ways, because honest scoring is the
+  point of the system.
+- Favorites: predicted 69.7% win rate, realized 76.8% (56 favorite-band
+  games) — calibrated, with the error on the humble side.
+- Goal-margin tails within ~1.5pp of reality at every threshold
+  (≥2: 42.8% pred / 43.3% real; ≥3: 21.5/21.2; ≥4: 10.2/8.7); draw rate
+  predicted 23.4% vs realized 23.1%.
 - Its upsets clustered in its least-confident calls: the model was rarely
   wrong where it claimed to be sure, and the games it called coin flips
   (the final: 50.7/49.3) genuinely were.
