@@ -29,7 +29,9 @@ reproducible from the committed per-match records (`reports/`).
 
 **Match outcomes**
 - Knockout ties: the model's favorite won **26 of 32 (81%)**; QF+SF+Final
-  combined **7 of 7**. Of the six misses, four were penalty shootouts, one was
+  combined **7 of 7**. (Counted by tie-winner — which team advanced. The full
+  scorecard's stricter 1X2-modal scoring, where a shootout game counts as a
+  draw, gives 25/32; both definitions stated to avoid metric ambiguity.) Of the six misses, four were penalty shootouts, one was
   the third-place exhibition, and exactly one was a true 90-minute upset
   (Norway over Brazil). Regulation-decided, full-stakes knockouts: **24/25**.
 - Group stage: correct 1X2 outcome in **46 of 72 (63.9%)** against a
