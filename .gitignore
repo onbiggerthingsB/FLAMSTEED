@@ -38,3 +38,4 @@ venv/
 
 # internal working docs — never publish
 docs/superpowers/
+docs/reviews/codex-simlayer*/
