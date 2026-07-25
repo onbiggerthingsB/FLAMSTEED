@@ -62,6 +62,23 @@ def test_rejects_self_match(tmp_path):
         load_fixtures(_write(tmp_path, "date,home,away\n2026-09-21,Senegal,Senegal\n"))
 
 
+def test_rejects_empty_frame(tmp_path):
+    with pytest.raises(ValueError, match="no rows"):
+        load_fixtures(_write(tmp_path, "date,home,away\n"))
+
+
+def test_rejects_whitespace_only_team(tmp_path):
+    with pytest.raises(ValueError, match="blank team"):
+        load_fixtures(_write(tmp_path, "date,home,away\n2026-09-21,   ,Mozambique\n"))
+
+
+def test_padded_duplicate_rejected_after_strip(tmp_path):
+    dup = ("date,home,away\n2026-09-21, Senegal ,Mozambique\n"
+           "2026-09-21,Senegal,Mozambique\n")
+    with pytest.raises(ValueError, match="duplicate fixture"):
+        load_fixtures(_write(tmp_path, dup))
+
+
 def test_unknown_teams_exact_set(tmp_path):
     fx = load_fixtures(_write(
         tmp_path, "date,home,away\n2026-09-21,X,B\n2026-09-22,A,Y\n"))

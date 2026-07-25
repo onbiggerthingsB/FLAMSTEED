@@ -48,6 +48,9 @@ def load_fixtures(path: str | Path) -> pd.DataFrame:
         raise ValueError(f"invalid neutral value(s): {sorted(raw[bad].unique())} "
                          f"(allowed: 0/1/true/false/blank)")
     df["neutral"] = raw.isin(_TRUE)
+
+    if df.empty:
+        raise ValueError("fixtures CSV has no rows")
     return df.reset_index(drop=True)
 
 
