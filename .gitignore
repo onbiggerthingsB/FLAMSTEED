@@ -35,3 +35,6 @@ venv/
 /reports/totals_paper_ledger.jsonl
 /reports/live_paper_ledger.jsonl
 /reports/value_paper_ledger.jsonl
+
+# internal working docs — never publish
+docs/superpowers/
