@@ -12,6 +12,40 @@ number it produces ships behind a NOT-REAL banner, and the mission brief
 (`docs/missions/2026-06-accuracy-upgrade.md`) explicitly forbids confusing
 "interesting disagreement with a market" with "validated edge".
 
+## How it did — World Cup 2026 final record
+
+The system ran live wire-to-wire: all 104 matches ingested point-in-time,
+~40 daily production refits, zero leakage violations. Every number below is
+reproducible from the committed per-match records (`reports/`).
+
+**Tournament calls**
+- **Champion correct: Spain** — the model's co-favorite throughout, and its
+  50.7%/49.3% pick in the final itself. The final's regulation score (0-0) was
+  the model's single most likely scoreline (13.9%); Spain won in extra time.
+- **Both finalists correctly identified** — Spain and Argentina were its top
+  two in title odds from the group stage onward.
+- **All four semifinalists** were in its projected quarterfinal eight published
+  before the Round of 32 had finished.
+
+**Match outcomes**
+- Knockout ties: the model's favorite won **26 of 32 (81%)**; QF+SF+Final
+  combined **7 of 7**. Of the six misses, four were penalty shootouts, one was
+  the third-place exhibition, and exactly one was a true 90-minute upset
+  (Norway over Brazil). Regulation-decided, full-stakes knockouts: **24/25**.
+- Group stage: correct 1X2 outcome in **45 of 72 (62.5%)** against a
+  three-way market; favorites above 55% won at 72.7% — almost exactly as
+  priced.
+
+**Calibration (proper scoring, point-in-time, verified)**
+- **Beat its Elo baseline live: RPS 0.157 vs 0.163.**
+- Favorites: predicted 69.8% win rate, realized 73.9% — calibrated, with the
+  error on the humble side.
+- Goal-margin tails within ~2pp of reality at every threshold
+  (≥2: 43.5% pred / 45.6% real; ≥3: 22.1/24.1; ≥4: 10.6/11.4).
+- Its upsets clustered in its least-confident calls: the model was rarely
+  wrong where it claimed to be sure, and the games it called coin flips
+  (the final: 50.7/49.3) genuinely were.
+
 ## How it works
 
 ```
