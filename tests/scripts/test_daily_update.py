@@ -626,3 +626,43 @@ def test_dry_run_prints_tournament_and_runs_nothing(mod, monkeypatch, capsys, tm
     assert calls == []                                   # nothing ran
     assert _AC_YAML in out                               # the plan names the draw
     assert "1 validated" in out                          # AC CSV validated OK
+
+
+def test_bad_tournament_path_fails_loud_before_any_step(mod, monkeypatch, capsys,
+                                                        tmp_path):
+    """Review-round fix: a typo'd --tournament yaml must abort at arg time (exit
+    2, NOTHING run) — a real run must never survive to the minutes-long martj42
+    ingest only to die inside build_snapshot."""
+    calls: list = []
+    _kw_recorders(mod, monkeypatch, calls)
+    with pytest.raises(SystemExit) as ei:
+        mod.main(["--tournament", "config/tournament_ac2077_TYPO.yaml",
+                  "--cutoff", "2027-01-08T00:00:00Z"])
+    assert ei.value.code == 2
+    assert calls == []                                   # aborted before ingest
+    assert "tournament_ac2077_TYPO" in capsys.readouterr().err
+
+    # Directory-path case (review round 2): an EXISTING directory must be
+    # rejected just as loudly — Path.exists() lets `--tournament config` sail
+    # through to a plausible dry-run plan and the slow ingest; only a regular
+    # FILE may pass the guard.
+    calls.clear()
+    with pytest.raises(SystemExit) as ei:
+        mod.main(["--tournament", str(tmp_path),
+                  "--cutoff", "2027-01-08T00:00:00Z"])
+    assert ei.value.code == 2
+    assert calls == []                                   # aborted before ingest
+    assert str(tmp_path) in capsys.readouterr().err
+
+
+def test_dry_run_rejects_bad_tournament_path(mod, monkeypatch, capsys):
+    """--dry-run must reject a nonexistent --tournament too (exit 2), never
+    print a plausible plan for a draw that does not exist."""
+    calls: list = []
+    _kw_recorders(mod, monkeypatch, calls)
+    with pytest.raises(SystemExit) as ei:
+        mod.main(["--dry-run", "--tournament", "config/tournament_ac2077_TYPO.yaml",
+                  "--cutoff", "2027-01-08T00:00:00Z"])
+    assert ei.value.code == 2
+    assert calls == []
+    assert "tournament_ac2077_TYPO" in capsys.readouterr().err

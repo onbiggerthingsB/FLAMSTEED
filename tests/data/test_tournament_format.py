@@ -214,6 +214,24 @@ def test_ac_ingest_stamps_format_tags_and_is_pit_correct(tmp_path):
     assert (pd.to_datetime(ramp["date"]) <= pd.Timestamp("2027-01-09")).all()
 
 
+def test_ingest_guard_names_the_edition_not_wc(tmp_path):
+    """Review-round fix: the post-kickoff ingest guard names the edition being
+    ingested (format competition_name) — an AC-2027 back-stamp says 'AFC Asian
+    Cup', the blockless WC path says 'FIFA World Cup', never the literal 'WC'."""
+    from wcmodel.data.store import BitemporalStore
+    from wcmodel.data.tournament import ingest_wc_group_fixtures
+
+    store = BitemporalStore(root=tmp_path / "store")
+    # AC first kickoff is 2027-01-07 -> observing the schedule on Jan 8 is late.
+    with pytest.raises(ValueError, match="after the first AFC Asian Cup fixture"):
+        ingest_wc_group_fixtures(_real_ac(), store, observed_at="2027-01-08")
+    # WC first kickoff is 2026-06-11 -> Jun 12 is late; the guard still fires
+    # and names the default format's competition, resolved not hardcoded.
+    with pytest.raises(ValueError, match="after the first FIFA World Cup fixture"):
+        ingest_wc_group_fixtures(load_tournament(_REAL), store,
+                                 observed_at="2026-06-12")
+
+
 def test_wc_ingest_tags_are_byte_identical_defaults():
     """The WC path must keep stamping EXACTLY today's literals once the tags
     come from the format block: no format block -> competition_name ==

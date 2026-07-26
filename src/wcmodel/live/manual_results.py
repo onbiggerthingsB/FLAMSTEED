@@ -108,20 +108,22 @@ def _fixture_index(draw: dict):
 
       * ``group_by_triple`` : ``{(home, away, date): fixture}`` for GROUP fixtures
         (``match is None`` — concrete drawn nations), the matchday-1 path;
-      * ``ko_dates`` : the set of KNOCKOUT fixture dates (``match is not None``) —
-        a concrete-team KO result can't match a placeholder KO fixture by triple,
-        so it is accepted iff both teams are drawn AND its date is a KO date
-        (spec §2.2).
+      * ``ko_cities_by_date`` : ``{date: [venue city, ...]}`` over the KNOCKOUT
+        fixtures (``match is not None``) — a concrete-team KO result can't match
+        a placeholder KO fixture by triple, so it is accepted iff both teams are
+        drawn AND its date is a KO date (spec §2.2); the day's venue cities let a
+        formatted edition resolve the day's (single) venue country for the host
+        neutral test.
     """
     group_by_triple = {}
-    ko_dates = set()
+    ko_cities_by_date: dict[str, list] = {}
     for fx in draw.get("fixtures", []):
         date = str(fx.get("date"))
         if fx.get("match") is not None:
-            ko_dates.add(date)
+            ko_cities_by_date.setdefault(date, []).append(fx.get("venue"))
         else:
             group_by_triple[(fx.get("home"), fx.get("away"), date)] = fx
-    return group_by_triple, ko_dates
+    return group_by_triple, ko_cities_by_date
 
 
 def _parse_int_score(raw, *, field: str, rownum: int):
@@ -160,7 +162,7 @@ def validate_manual_csv(csv_path: str | Path,
     fmt = tournament_format(draw)
     drawn = set(draw["teams"])
     venue_country = _venue_country_map(draw)
-    group_by_triple, ko_dates = _fixture_index(draw)
+    group_by_triple, ko_cities_by_date = _fixture_index(draw)
     host_by_country = {code: team for team, code in fmt["hosts"].items()}
 
     path = Path(csv_path)
@@ -209,11 +211,28 @@ def validate_manual_csv(csv_path: str | Path,
             # Not a group fixture. Accept as a KNOCKOUT result iff the date is a
             # real KO fixture date (both teams already verified drawn). Otherwise
             # reject: a flipped home/away, wrong date, or non-fixture pairing.
-            if date in ko_dates:
+            if date in ko_cities_by_date:
                 is_knockout = True
                 city = None
                 country = None
                 neutral = True
+                if "format" in draw:
+                    # Formatted edition (Phase-2A F11): a KO row still prices the
+                    # format HOSTS. The exact stadium is unknowable (placeholder
+                    # bracket -> city None), but when every KO fixture that day
+                    # sits in ONE venue country, that country is certain — apply
+                    # the same host test as group rows. The BLOCKLESS WC draw
+                    # keeps the verbatim legacy neutral=True path above
+                    # (byte-identical WC behaviour).
+                    day_countries = {venue_country.get(c)
+                                     for c in ko_cities_by_date[date]}
+                    if len(day_countries) == 1:
+                        (ko_country,) = day_countries
+                        if ko_country is not None:
+                            country = ko_country
+                            host_team = host_by_country.get(country)
+                            neutral = not (host_team is not None
+                                           and host_team in (home, away))
             else:
                 raise ManualResultsError(
                     f"row {i}: ({home!r}, {away!r}, {date!r}) is not a scheduled "

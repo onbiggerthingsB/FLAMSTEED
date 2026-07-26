@@ -607,9 +607,10 @@ def ingest_wc_group_fixtures(
         first_kickoff = pd.to_datetime(out["date"]).min()
         if observed_at > first_kickoff:
             raise ValueError(
-                f"observed_at {observed_at.date()} is after the first WC "
-                f"fixture {first_kickoff.date()}: the schedule must be ingested "
-                "as knowable on/before kickoff (PIT valid_as_of==date)"
+                f"observed_at {observed_at.date()} is after the first "
+                f"{fmt['competition_name']} fixture {first_kickoff.date()}: "
+                "the schedule must be ingested as knowable on/before kickoff "
+                "(PIT valid_as_of==date)"
             )
 
     store.write(

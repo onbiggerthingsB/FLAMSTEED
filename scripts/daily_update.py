@@ -406,6 +406,15 @@ def main(argv: list[str] | None = None) -> int:
                     help="print the resolved plan and exit 0 — no network, no fit, no writes")
     args = ap.parse_args(argv)
 
+    # --tournament must point at a REAL yaml FILE before any work (dry-run
+    # included): a typo'd path — or a directory like `config` — has to die here
+    # with exit 2, not survive the minutes-long martj42 ingest only to fail
+    # inside build_snapshot, and --dry-run must never print a plausible plan
+    # for a draw that does not exist. is_file(), not exists(): a directory is
+    # not a draw.
+    if args.tournament is not None and not Path(args.tournament).is_file():
+        ap.error(f"--tournament yaml is not a file: {args.tournament}")
+
     # Pre-VALIDATE the manual CSV up-front (fail-loud BEFORE anything else) so both the
     # dry-run plan and the cutoff auto-resolution can see the rows. This also makes a
     # bad CSV abort with a clear message and a non-zero exit, never a partial run.

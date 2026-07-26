@@ -332,3 +332,48 @@ def test_ac_rows_ingest_with_ac_tournament_tag(tmp_path):
     assert len(out) == 1
     assert (out["tournament"] == "AFC Asian Cup").all()
     assert bool(out["neutral"].iloc[0]) is False
+
+
+# A real AC-2027 KNOCKOUT date from the committed draw (R16 day 1: two fixtures,
+# both at Riyadh venues — ONE venue country, SA).
+_AC_KO_DATE = "2027-01-22"
+
+
+def test_ac_ko_row_with_host_prices_host_ground_not_neutral(tmp_path):
+    """Review-round fix (F11): a hand-entered AC-2027 KNOCKOUT result must price
+    the format hosts, not the WC KO literal neutral=True. Every AC KO venue is
+    in SA, so the day's single venue country is certain even though the exact
+    stadium is not (placeholder bracket -> city None): a KO row involving
+    Saudi Arabia is NON-neutral, country='SA'."""
+    csv = _write_csv(tmp_path,
+        "date,home_team,away_team,home_score,away_score,shootout_winner\n"
+        f"{_AC_KO_DATE},Saudi Arabia,Iran,1,0,\n")
+    r = validate_manual_csv(csv, tournament_path=_AC_YAML)[0]
+    assert r.is_knockout is True
+    assert r.city is None
+    assert r.country == "SA"
+    assert r.neutral is False
+
+
+def test_ac_ko_row_without_host_stays_neutral_with_country(tmp_path):
+    """Same KO day, hosts NOT involved -> neutral stays True, but the certain
+    single venue country is still resolved onto the row."""
+    csv = _write_csv(tmp_path,
+        "date,home_team,away_team,home_score,away_score,shootout_winner\n"
+        f"{_AC_KO_DATE},Iran,Japan,2,1,\n")
+    r = validate_manual_csv(csv, tournament_path=_AC_YAML)[0]
+    assert r.is_knockout is True
+    assert r.city is None
+    assert r.country == "SA"
+    assert r.neutral is True
+
+
+def test_wc_ko_row_keeps_legacy_neutral_true_path(tmp_path):
+    """Byte-identical WC guard: the BLOCKLESS WC draw keeps the verbatim legacy
+    KO path — city None, country None, neutral True."""
+    csv = _write_csv(tmp_path,
+        "date,home_team,away_team,home_score,away_score,shootout_winner\n"
+        f"{_KO_DATE},{_HOME},{_AWAY},2,1,\n")
+    r = validate_manual_csv(csv)[0]
+    assert r.is_knockout is True
+    assert r.city is None and r.country is None and r.neutral is True
