@@ -108,7 +108,21 @@ def validate_tournament(data: dict) -> dict:
 
     Returns ``data`` unchanged when valid. This does NOT author or infer any
     draw content — it only checks the shape of a user-supplied structure.
+
+    FORMAT DISPATCH (Phase-2A). A document carrying a ``format`` block declares
+    its own shape and is validated by :func:`_validate_formatted` against THAT
+    format. A document WITHOUT one — every WC-2026 document, including the
+    published ``config/tournament_2026.yaml`` — falls through to the frozen body
+    below, which is unchanged byte-for-byte: the WC path never routes through the
+    generalized checks, so it cannot be perturbed by them.
     """
+    has_format = "format" in data
+    if has_format:
+        # Raises on ``format: null`` / non-dict / partial block (fail loud — a
+        # malformed format block is a config bug, never a silent WC default).
+        fmt = tournament_format(data)
+        return _validate_formatted(data, fmt)
+
     groups = data.get("groups")
     if not isinstance(groups, list) or len(groups) != N_GROUPS:
         n = len(groups) if isinstance(groups, list) else "missing"
@@ -237,13 +251,158 @@ HOST_COUNTRY_BY_TEAM = {
     "Canada": "CA",
 }
 
+#: Every key a ``format`` block must declare. Deliberately EXHAUSTIVE and with no
+#: per-key defaults: a partially-specified edition is a config bug that must fail
+#: loud at load time, not silently inherit half of the World Cup's shape.
+_FORMAT_KEYS = ("n_groups", "teams_per_group", "per_group_advance", "best_thirds",
+                "third_place_match", "tiebreak_order", "assignment_table",
+                "competition_name", "source_tag", "hosts", "ko_host_advantage")
 
-def host_home_factor(home, away, venue_city, venue_country, cfg):
+#: The frozen WC-2026 shape — the effective format of every document WITHOUT a
+#: ``format`` block. Values mirror the module constants above so the two can never
+#: disagree; ``hosts`` is copied per call (see :func:`tournament_format`) so a
+#: caller mutating the returned map cannot corrupt :data:`HOST_COUNTRY_BY_TEAM`.
+_WC2026_FORMAT = {
+    "n_groups": N_GROUPS, "teams_per_group": TEAMS_PER_GROUP,
+    "per_group_advance": ADVANCE_PER_GROUP, "best_thirds": BEST_THIRDS,
+    "third_place_match": True, "tiebreak_order": "fifa_2026",
+    "assignment_table": "third_place_assignment.json",
+    "competition_name": "FIFA World Cup", "source_tag": "wc2026_schedule",
+    "hosts": dict(HOST_COUNTRY_BY_TEAM), "ko_host_advantage": False,
+}
+
+
+def tournament_format(data: dict) -> dict:
+    """Effective format. Absent 'format' key -> frozen WC-2026 defaults
+    (byte-identical published path). Present -> ALL keys required, fail loud.
+    format: null / non-dict is a config bug, never a silent default."""
+    if "format" in data:
+        fmt = data["format"]
+        if not isinstance(fmt, dict):
+            raise ValueError("format must be a mapping")
+        missing = [k for k in _FORMAT_KEYS if k not in fmt]
+        if missing:
+            raise ValueError(f"format block missing key(s): {missing}")
+        out = {k: fmt[k] for k in _FORMAT_KEYS}
+        out["hosts"] = dict(out["hosts"])
+        return out
+    return {**_WC2026_FORMAT, "hosts": dict(HOST_COUNTRY_BY_TEAM)}
+
+
+def _validate_formatted(data: dict, fmt: dict) -> dict:
+    """Validate a tournament that DECLARES its format (the non-WC path).
+
+    Replicates the structural guarantees of the frozen WC-2026 branch — group
+    count/size, distinct teams, no placeholder-shaped nation names, top-level
+    ``teams`` equal to the group union — but derives every count from ``fmt``
+    instead of the WC literals, and replaces the single ``N_FIXTURES`` check with
+    a group/knockout SPLIT check (group fixtures carry no ``match`` key, knockout
+    fixtures do):
+
+      - ``len(group fixtures) == n_groups * 6`` (each 4-team group plays 6 games);
+      - ``len(knockout fixtures) == (advancers - 1) + third_place_match``, where
+        ``advancers = n_groups * per_group_advance + best_thirds``. A single-
+        elimination bracket needs exactly one match per eliminated team, plus the
+        third-place play-off IFF the edition stages one (the AFC Asian Cup does
+        NOT — 24 teams, 16 advancers, 15 knockout matches, 51 total).
+
+    The legacy ``advancement`` / ``third_place_tiebreakers`` / ``bracket.paths``
+    LITERAL checks are deliberately NOT applied here: those facts are declared by
+    the format block itself (``per_group_advance`` / ``best_thirds`` /
+    ``tiebreak_order``), and the two-halves bracket shape is a WC-specific
+    convention. ``bracket.paths`` is left unchecked for formatted editions.
+    """
+    groups = data.get("groups")
+    if not isinstance(groups, list) or len(groups) != fmt["n_groups"]:
+        n = len(groups) if isinstance(groups, list) else "missing"
+        raise ValueError(f"expected exactly {fmt['n_groups']} groups, got {n}")
+
+    all_teams: list[str] = []
+    for group in groups:
+        teams = group.get("teams") if isinstance(group, dict) else None
+        if not isinstance(teams, list) or len(teams) != fmt["teams_per_group"]:
+            name = group.get("name") if isinstance(group, dict) else group
+            n = len(teams) if isinstance(teams, list) else "missing"
+            raise ValueError(
+                f"group {name!r}: expected exactly {fmt['teams_per_group']} teams, got {n}"
+            )
+        all_teams.extend(teams)
+
+    n_teams = fmt["n_groups"] * fmt["teams_per_group"]
+    if len(all_teams) != n_teams:
+        raise ValueError(
+            f"expected {n_teams} teams total across groups, got {len(all_teams)}"
+        )
+    if len(set(all_teams)) != n_teams:
+        dupes = sorted({t for t in all_teams if all_teams.count(t) > 1})
+        raise ValueError(f"team names must be distinct; duplicates: {dupes}")
+
+    # Placeholder-SHAPED name guard — identical policy to the WC branch: a bracket
+    # slot/ref smuggled into a group AND top-level `teams` is self-consistent, so
+    # reject the SHAPE outright (see _is_placeholder_team).
+    candidate_names = list(all_teams)
+    raw_teams = data.get("teams")
+    if isinstance(raw_teams, list):
+        candidate_names.extend(raw_teams)
+    offending = sorted(
+        {n for n in candidate_names if _is_placeholder_team(n)}, key=str
+    )
+    if offending:
+        raise ValueError(
+            "team names must be real nations, not knockout-bracket placeholders; "
+            f"offending: {offending}"
+        )
+
+    teams = data.get("teams")
+    if not isinstance(teams, list) or len(teams) != n_teams:
+        n = len(teams) if isinstance(teams, list) else "missing"
+        raise ValueError(
+            f"top-level 'teams' must be a list of exactly {n_teams}, got {n}"
+        )
+    if len(set(teams)) != n_teams:
+        dupes = sorted({t for t in teams if teams.count(t) > 1})
+        raise ValueError(f"top-level 'teams' must be distinct; duplicates: {dupes}")
+    if set(teams) != set(all_teams):
+        only_top = sorted(set(teams) - set(all_teams))
+        only_grp = sorted(set(all_teams) - set(teams))
+        raise ValueError(
+            "top-level 'teams' must equal the union of group teams; "
+            f"in 'teams' but no group: {only_top}; in a group but not 'teams': "
+            f"{only_grp}"
+        )
+
+    fixtures = data.get("fixtures")
+    if not isinstance(fixtures, list):
+        raise ValueError("'fixtures' must be a list")
+
+    group_fx = [f for f in fixtures if f.get("match") is None]
+    ko_fx = [f for f in fixtures if f.get("match") is not None]
+    if len(group_fx) != fmt["n_groups"] * 6:
+        raise ValueError(f"group fixture count {len(group_fx)} != {fmt['n_groups'] * 6}")
+    advancers = fmt["n_groups"] * fmt["per_group_advance"] + fmt["best_thirds"]
+    expected_ko = (advancers - 1) + (1 if fmt["third_place_match"] else 0)
+    if len(ko_fx) != expected_ko:
+        raise ValueError(f"knockout fixture count {len(ko_fx)} != {expected_ko}")
+    if fmt["teams_per_group"] != 4:
+        raise ValueError("only 4-team groups supported (6-games-per-group math)")
+
+    return data
+
+
+def host_home_factor(home, away, venue_city, venue_country, cfg, hosts=None):
     """The T5 host-advantage multiplier for one fixture, or ``None`` for neutral ground.
 
-    Returns ``cfg["model"]["covariates"]["host_k"]`` IFF the HOME team is a 2026 host
-    nation AND the fixture's venue is in **that same host's country**; otherwise
-    ``None`` (the fixture is modelled on neutral ground — the existing WC default).
+    Returns ``cfg["model"]["covariates"]["host_k"]`` IFF the HOME team is a host
+    nation of THIS edition AND the fixture's venue is in **that same host's country**;
+    otherwise ``None`` (the fixture is modelled on neutral ground — the existing WC
+    default).
+
+    ``hosts`` is the edition's ``{team: ISO-country}`` map. ``None`` (the default)
+    means the frozen WC-2026 module literal :data:`HOST_COUNTRY_BY_TEAM`, so every
+    pre-Phase-2A call site is byte-identical; a formatted edition passes its own map
+    (``tournament_format(t)["hosts"]``). The map is read HERE rather than at the
+    caller so no call site can accidentally keep applying the World Cup's hosts to
+    another tournament (Phase-2A F5: the fix belongs at the source).
 
     This is the focal host-detection rule the predict path consumes as ``host_factor``
     (a prediction-time scalar on the already-fitted ``home_adv`` — NO new fitted DOF).
@@ -261,9 +420,11 @@ def host_home_factor(home, away, venue_city, venue_country, cfg):
     host's code, so it correctly yields ``None``. The ``away`` argument is accepted for a
     symmetric, self-documenting signature even though the rule is HOME-only (a future
     refinement could read it; today it is intentionally unused)."""
-    host_code = HOST_COUNTRY_BY_TEAM.get(home)
+    if hosts is None:
+        hosts = HOST_COUNTRY_BY_TEAM      # frozen WC-2026 default (byte-identical)
+    host_code = hosts.get(home)
     if host_code is None:
-        return None                       # home team is not a 2026 host nation
+        return None                       # home team is not a host nation
     if venue_country.get(venue_city) != host_code:
         return None                       # venue is not in the host's own country
     return cfg["model"]["covariates"]["host_k"]
@@ -281,15 +442,22 @@ def host_factor_map(tournament, cfg):
     A tournament dict with no ``venues`` block (e.g. a tiny synthetic test bracket) yields
     an EMPTY country map, so no fixture is ever host-home and the map is ``{}`` — the sim
     is then byte-identical to its neutral default. Knockout fixtures (placeholder feeders,
-    no concrete home team) are skipped: host advantage in the KO bracket is out of scope
-    for T5 (the hosts' KO venues are not pre-assigned to a host)."""
+    no concrete home team) are skipped here: a KO host advantage cannot be resolved from
+    the draw (the feeders are placeholders), so it is applied IN-SIM once the participants
+    are concrete — and only for editions whose format sets ``ko_host_advantage``.
+
+    The host map comes from the tournament's own format block
+    (``tournament_format(t)["hosts"]``), so a non-WC edition never inherits the World
+    Cup's hosts; a document with no ``format`` block resolves to the frozen WC literal."""
+    hosts = tournament_format(tournament)["hosts"]
     venue_country = {v["city"]: v.get("country") for v in tournament.get("venues", [])}
     out = {}
     for fx in tournament.get("fixtures", []):
         if fx.get("match") is not None:
             continue                      # skip knockouts (placeholder feeders, no concrete home)
         home, away = fx.get("home"), fx.get("away")
-        factor = host_home_factor(home, away, fx.get("venue"), venue_country, cfg)
+        factor = host_home_factor(home, away, fx.get("venue"), venue_country, cfg,
+                                  hosts=hosts)
         if factor is not None:
             out[(home, away)] = factor
     return out
@@ -337,10 +505,13 @@ def ingest_wc_group_fixtures(
         history);
       - ``date`` = the fixture date, ``home_score`` / ``away_score`` = **NaN**
         (the match has not been played — it is a *schedule*, not a result);
-      - ``neutral`` = ``False`` iff a host nation (Mexico/USA/Canada) plays a
-        venue in **its own** country (:data:`HOST_COUNTRY_BY_TEAM`), else
-        ``True``;
-      - ``tournament = "FIFA World Cup"``, ``city`` / ``country`` from the venue;
+      - ``neutral`` = ``False`` iff one of the EDITION's host nations (the
+        format's ``hosts`` map — the WC-2026 default is exactly
+        :data:`HOST_COUNTRY_BY_TEAM`: Mexico/USA/Canada) plays at a venue in
+        **its own** country, else ``True``;
+      - ``tournament`` = the format's ``competition_name`` (WC default:
+        the literal ``"FIFA World Cup"``), ``city`` / ``country`` from the
+        venue;
       - a deterministic ``match_id`` (the standard
         ``sha1(date|home|away|city)`` via :func:`normalize_results`);
       - ``valid_as_of == observed_at == date`` (POINT_IN_TIME): the fixture
@@ -372,6 +543,12 @@ def ingest_wc_group_fixtures(
     # already-validated dict returns it unchanged.)
     validate_tournament(tournament)
     observed_at = pd.Timestamp(observed_at)
+    # Provenance + host wiring come from the EFFECTIVE FORMAT (Phase-2A F11):
+    # a document with no `format` block resolves to the frozen WC-2026 defaults
+    # — competition_name "FIFA World Cup", source_tag WC2026_SOURCE, hosts ==
+    # HOST_COUNTRY_BY_TEAM — so every WC row below is byte-identical to the
+    # pre-format literals; a formatted edition stamps its own tags and hosts.
+    fmt = tournament_format(tournament)
 
     # Drawn-48 set derived from the GROUP teams — the VALIDATED source — with
     # placeholder-shaped names excluded as a SECOND guard (see `_drawn_teams`).
@@ -384,8 +561,8 @@ def ingest_wc_group_fixtures(
     # and so can never be written as a group row.
     drawn = _drawn_teams(tournament)
     venue_country = {v["city"]: v.get("country") for v in tournament["venues"]}
-    # country-code -> host team name, for the neutral-ground test.
-    host_by_country = {code: team for team, code in HOST_COUNTRY_BY_TEAM.items()}
+    # country-code -> host team name, for the neutral-ground test (edition hosts).
+    host_by_country = {code: team for team, code in fmt["hosts"].items()}
 
     rows: list[dict] = []
     for fx in tournament["fixtures"]:
@@ -408,7 +585,7 @@ def ingest_wc_group_fixtures(
             "away_team": away,
             "home_score": np.nan,   # UNPLAYED — schedule, not result
             "away_score": np.nan,
-            "tournament": "FIFA World Cup",
+            "tournament": fmt["competition_name"],
             "neutral": neutral,
             "city": city,
             "country": country,
@@ -430,9 +607,10 @@ def ingest_wc_group_fixtures(
         first_kickoff = pd.to_datetime(out["date"]).min()
         if observed_at > first_kickoff:
             raise ValueError(
-                f"observed_at {observed_at.date()} is after the first WC "
-                f"fixture {first_kickoff.date()}: the schedule must be ingested "
-                "as knowable on/before kickoff (PIT valid_as_of==date)"
+                f"observed_at {observed_at.date()} is after the first "
+                f"{fmt['competition_name']} fixture {first_kickoff.date()}: "
+                "the schedule must be ingested as knowable on/before kickoff "
+                "(PIT valid_as_of==date)"
             )
 
     store.write(
@@ -440,7 +618,7 @@ def ingest_wc_group_fixtures(
         out,
         policy=Policy.POINT_IN_TIME,
         keys=["match_id"],
-        source=WC2026_SOURCE,
-        source_version=WC2026_SOURCE,
+        source=fmt["source_tag"],
+        source_version=fmt["source_tag"],
     )
     return len(out)

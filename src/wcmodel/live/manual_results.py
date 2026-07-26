@@ -30,7 +30,7 @@ from pathlib import Path
 import pandas as pd
 
 from wcmodel.data.features import valid_played_results
-from wcmodel.data.tournament import HOST_COUNTRY_BY_TEAM, load_tournament
+from wcmodel.data.tournament import load_tournament, tournament_format
 from wcmodel.live.ingest_live import ingest_live_result
 
 #: The required CSV columns (in order). ``shootout_winner`` is an OPTIONAL last
@@ -43,6 +43,9 @@ _REAL_DRAW = Path(__file__).resolve().parents[3] / "config" / "tournament_2026.y
 
 #: The tournament tag stamped on a manual WC result (matches the schedule rows so
 #: the ``match_id`` and downstream tier mapping are identical to the real fixture).
+#: Phase-2A: the DEFAULT only — a draw loaded with ``tournament_path`` stamps its
+#: own format ``competition_name`` instead (the WC format resolves to this exact
+#: literal, so the default path is byte-identical).
 MANUAL_TOURNAMENT = "FIFA World Cup"
 
 
@@ -69,6 +72,9 @@ class ManualRow:
     neutral: bool
     is_knockout: bool
     shootout_winner: str | None
+    #: The competition tag the row is ingested under — the draw's format
+    #: ``competition_name`` (WC default: exactly :data:`MANUAL_TOURNAMENT`).
+    tournament: str = MANUAL_TOURNAMENT
 
 
 def manual_file_sha256(csv_path: str | Path) -> str:
@@ -77,10 +83,18 @@ def manual_file_sha256(csv_path: str | Path) -> str:
     return hashlib.sha256(Path(csv_path).read_bytes()).hexdigest()
 
 
-def _load_draw(tournament: dict | None = None) -> dict:
-    """The validated 2026 draw dict (default: ``config/tournament_2026.yaml``)."""
+def _load_draw(tournament: dict | None = None,
+               tournament_path: str | Path | None = None) -> dict:
+    """The validated draw dict.
+
+    Resolution order: an explicit ``tournament`` dict (test escape hatch) >
+    ``tournament_path`` (loaded + validated via ``load_tournament`` — the
+    Phase-2A multi-edition hook, e.g. ``config/tournament_ac2027.yaml``) >
+    the default ``config/tournament_2026.yaml`` (byte-identical WC path)."""
     if tournament is not None:
         return tournament
+    if tournament_path is not None:
+        return load_tournament(tournament_path)
     return load_tournament(_REAL_DRAW)
 
 
@@ -94,20 +108,22 @@ def _fixture_index(draw: dict):
 
       * ``group_by_triple`` : ``{(home, away, date): fixture}`` for GROUP fixtures
         (``match is None`` — concrete drawn nations), the matchday-1 path;
-      * ``ko_dates`` : the set of KNOCKOUT fixture dates (``match is not None``) —
-        a concrete-team KO result can't match a placeholder KO fixture by triple,
-        so it is accepted iff both teams are drawn AND its date is a KO date
-        (spec §2.2).
+      * ``ko_cities_by_date`` : ``{date: [venue city, ...]}`` over the KNOCKOUT
+        fixtures (``match is not None``) — a concrete-team KO result can't match
+        a placeholder KO fixture by triple, so it is accepted iff both teams are
+        drawn AND its date is a KO date (spec §2.2); the day's venue cities let a
+        formatted edition resolve the day's (single) venue country for the host
+        neutral test.
     """
     group_by_triple = {}
-    ko_dates = set()
+    ko_cities_by_date: dict[str, list] = {}
     for fx in draw.get("fixtures", []):
         date = str(fx.get("date"))
         if fx.get("match") is not None:
-            ko_dates.add(date)
+            ko_cities_by_date.setdefault(date, []).append(fx.get("venue"))
         else:
             group_by_triple[(fx.get("home"), fx.get("away"), date)] = fx
-    return group_by_triple, ko_dates
+    return group_by_triple, ko_cities_by_date
 
 
 def _parse_int_score(raw, *, field: str, rownum: int):
@@ -124,21 +140,30 @@ def _parse_int_score(raw, *, field: str, rownum: int):
 
 
 def validate_manual_csv(csv_path: str | Path,
-                        tournament: dict | None = None) -> list[ManualRow]:
-    """Parse + STRICTLY validate a manual-results CSV against the 2026 draw.
+                        tournament: dict | None = None,
+                        tournament_path: str | Path | None = None) -> list[ManualRow]:
+    """Parse + STRICTLY validate a manual-results CSV against a draw.
+
+    The draw defaults to the 2026 World Cup yaml; ``tournament_path`` validates
+    against another edition's committed draw instead (Phase-2A F11 — e.g.
+    ``config/tournament_ac2027.yaml``), with the drawn-team set, fixture index,
+    venue map, HOSTS (neutral flags) and the competition tag all taken from
+    THAT document and its format block. The WC default resolves to the same
+    hosts/tag literals as before — byte-identical behaviour.
 
     Returns the list of validated :class:`ManualRow`. Raises
     :class:`ManualResultsError` (fail-loud, naming the row + the violated rule) on
     the FIRST violation — the whole file is validated before any caller ingests,
     so a bad file never produces a partial write. Validation order (spec §2.1):
-    header → team names (EXACT, drawn-48) → scheduled-fixture match → scores →
+    header → team names (EXACT, drawn set) → scheduled-fixture match → scores →
     KO-level→shootout_winner.
     """
-    draw = _load_draw(tournament)
+    draw = _load_draw(tournament, tournament_path)
+    fmt = tournament_format(draw)
     drawn = set(draw["teams"])
     venue_country = _venue_country_map(draw)
-    group_by_triple, ko_dates = _fixture_index(draw)
-    host_by_country = {code: team for team, code in HOST_COUNTRY_BY_TEAM.items()}
+    group_by_triple, ko_cities_by_date = _fixture_index(draw)
+    host_by_country = {code: team for team, code in fmt["hosts"].items()}
 
     path = Path(csv_path)
     if not path.exists():
@@ -168,12 +193,13 @@ def validate_manual_csv(csv_path: str | Path,
         away = (r.get("away_team") or "").strip()
         shootout = (r.get("shootout_winner") or "").strip() or None
 
-        # (2) TEAM NAMES — EXACT membership of the drawn-48 set (NEVER fuzzy).
+        # (2) TEAM NAMES — EXACT membership of the drawn set (NEVER fuzzy).
         for who, name in (("home_team", home), ("away_team", away)):
             if name not in drawn:
                 raise ManualResultsError(
-                    f"row {i}: {who}={name!r} is not a 2026 drawn nation — names must "
-                    "EXACTLY match config/tournament_2026.yaml (no fuzzy matching)"
+                    f"row {i}: {who}={name!r} is not a drawn nation of the "
+                    f"{fmt['competition_name']} draw — names must EXACTLY match "
+                    "the draw yaml (no fuzzy matching)"
                 )
         if home == away:
             raise ManualResultsError(f"row {i}: home and away team are identical ({home!r})")
@@ -185,15 +211,33 @@ def validate_manual_csv(csv_path: str | Path,
             # Not a group fixture. Accept as a KNOCKOUT result iff the date is a
             # real KO fixture date (both teams already verified drawn). Otherwise
             # reject: a flipped home/away, wrong date, or non-fixture pairing.
-            if date in ko_dates:
+            if date in ko_cities_by_date:
                 is_knockout = True
                 city = None
                 country = None
                 neutral = True
+                if "format" in draw:
+                    # Formatted edition (Phase-2A F11): a KO row still prices the
+                    # format HOSTS. The exact stadium is unknowable (placeholder
+                    # bracket -> city None), but when every KO fixture that day
+                    # sits in ONE venue country, that country is certain — apply
+                    # the same host test as group rows. The BLOCKLESS WC draw
+                    # keeps the verbatim legacy neutral=True path above
+                    # (byte-identical WC behaviour).
+                    day_countries = {venue_country.get(c)
+                                     for c in ko_cities_by_date[date]}
+                    if len(day_countries) == 1:
+                        (ko_country,) = day_countries
+                        if ko_country is not None:
+                            country = ko_country
+                            host_team = host_by_country.get(country)
+                            neutral = not (host_team is not None
+                                           and host_team in (home, away))
             else:
                 raise ManualResultsError(
-                    f"row {i}: ({home!r}, {away!r}, {date!r}) is not a scheduled 2026 "
-                    "fixture — check the home/away order and the date (no fuzzy match)"
+                    f"row {i}: ({home!r}, {away!r}, {date!r}) is not a scheduled "
+                    f"{fmt['competition_name']} fixture — check the home/away order "
+                    "and the date (no fuzzy match)"
                 )
         else:
             city = fixture.get("venue")
@@ -235,6 +279,7 @@ def validate_manual_csv(csv_path: str | Path,
             city=city, country=country, neutral=neutral,
             is_knockout=is_knockout,
             shootout_winner=shootout if (is_knockout and level) else None,
+            tournament=fmt["competition_name"],
         ))
     return out
 
@@ -257,7 +302,7 @@ def ingest_manual_rows(store, rows: list[ManualRow], *,
             store,
             home_team=row.home_team, away_team=row.away_team,
             date=row.date, home_score=row.home_score, away_score=row.away_score,
-            tournament=MANUAL_TOURNAMENT, neutral=row.neutral,
+            tournament=row.tournament, neutral=row.neutral,
             city=row.city if row.city is not None else "",
             country=row.country if row.country is not None else "",
             observed_at=observed_at,

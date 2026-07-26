@@ -247,7 +247,8 @@ def _read_table(path: Path, columns: list[str]) -> pd.DataFrame:
 
 
 def cached_sim(*, cutoff, posterior, bracket, n_sims, seed, max_goals, et_scale,
-               pen_home_prob, cache_dir, played=None, host_factors=None):
+               pen_home_prob, cache_dir, played=None, host_factors=None, fmt=None,
+               ko_host_factor=None):
     """Run ``simulate_tournament`` through the content-addressed sim cache.
 
     Returns ``(SimResult, {"cache_hit": bool, "key": str})``. On a HIT the
@@ -261,7 +262,12 @@ def cached_sim(*, cutoff, posterior, bracket, n_sims, seed, max_goals, et_scale,
     the GIT-KEY POLICY in the module docstring). Any change -> a different key -> a miss
     (never a stale serve). Cache validity assumes COMMITTED code; the ``git_worktree``
     component makes uncommitted TRACKED sim edits miss, but a new UNTRACKED file is not in
-    ``git diff HEAD`` — commit or clear the cache when iterating on sim code."""
+    ``git diff HEAD`` — commit or clear the cache when iterating on sim code.
+
+    ``fmt`` / ``ko_host_factor`` (Phase-2A) are threaded on BOTH sides: into the key
+    (only when supplied — see below) AND into the cold-path ``simulate_tournament``
+    call, so a formatted edition can never be stored under a format-specific key while
+    having been simulated with WC-2026 semantics."""
     params = {
         "cutoff": str(pd.Timestamp(cutoff)),
         "posterior_hash": _posterior_hash(posterior),
@@ -282,6 +288,15 @@ def cached_sim(*, cutoff, posterior, bracket, n_sims, seed, max_goals, et_scale,
         # (Sim-cache-local; the shared content_key/_git_commit convention is untouched.)
         "git_worktree": _git_worktree_hash(),
     }
+    # Phase-2A format threading (F6). The format block and the KO-host scalar are
+    # output-affecting for a formatted edition, so they belong in the key — but they are
+    # added ONLY when supplied. ABSENT != null: a fmt=None / ko_host_factor=None call must
+    # assemble the EXACT pre-Phase-2A params dict, so every WC-2026 key already on disk
+    # stays valid instead of being silently invalidated by a null-valued entry.
+    if fmt is not None:
+        params["fmt"] = fmt
+    if ko_host_factor is not None:
+        params["ko_host_factor"] = ko_host_factor
     key = content_key("sim", params)
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -303,7 +318,7 @@ def cached_sim(*, cutoff, posterior, bracket, n_sims, seed, max_goals, et_scale,
     res = simulate_tournament(
         posterior, bracket=bracket, n_sims=n_sims, seed=seed, max_goals=max_goals,
         et_scale=et_scale, pen_home_prob=pen_home_prob, played=played,
-        host_factors=host_factors,
+        host_factors=host_factors, fmt=fmt, ko_host_factor=ko_host_factor,
     )
     # Persist the tables with the team index as a column (reset_index) so the parquet
     # round-trip is lossless and the reload re-imposes the exact index + column order.

@@ -553,3 +553,116 @@ def test_run_log_line_carries_commit_and_source(mod, tmp_path):
     assert row["commit"] == "abc1234abc1234abc1234abc1234abc1234abc1"
     assert row["commit_source"] == "latest-resolved"
     assert rec["commit_source"] == "latest-resolved"
+
+
+# --------------------------------------------------------------------------- #
+# `--tournament` flag (Phase-2A Task 6): thread a NON-WC edition's draw yaml  #
+# into ingest (manual-CSV validation) + snapshot (build_snapshot tournament). #
+# All recorders — no fit/sim/network.                                          #
+# --------------------------------------------------------------------------- #
+_AC_YAML = "config/tournament_ac2027.yaml"
+# The hosts' opener from the committed real AC-2027 draw (group A, matchday 1).
+_AC_HOME, _AC_AWAY, _AC_DATE = "Saudi Arabia", "Palestine", "2027-01-07"
+
+
+def _ac_manual_csv(tmp_path):
+    p = tmp_path / "ac_day1.csv"
+    p.write_text("date,home_team,away_team,home_score,away_score,shootout_winner\n"
+                 f"{_AC_DATE},{_AC_HOME},{_AC_AWAY},2,0,\n")
+    return p
+
+
+def test_tournament_flag_threads_path_into_ingest_and_snapshot(mod, monkeypatch):
+    calls: list = []
+    _kw_recorders(mod, monkeypatch, calls)
+    rc = mod.main(["--tournament", _AC_YAML, "--cutoff", "2027-01-08T00:00:00Z"])
+    assert rc == 0
+    ingest = next(c for c in calls if c[0] == "ingest")
+    assert ingest[2].get("tournament_path") == _AC_YAML
+    snapshot = next(c for c in calls if c[0] == "snapshot")
+    assert snapshot[2].get("tournament") == _AC_YAML
+
+
+def test_default_run_keeps_wc_tournament(mod, monkeypatch):
+    """No --tournament -> the WC default: ingest sees no tournament_path and
+    snapshot passes tournament=None (-> config/tournament_2026.yaml inside
+    build_snapshot) — the pre-flag call shape, byte-identical."""
+    calls: list = []
+    _kw_recorders(mod, monkeypatch, calls)
+    rc = mod.main(["--cutoff", "2026-06-12T00:00:00Z"])
+    assert rc == 0
+    ingest = next(c for c in calls if c[0] == "ingest")
+    assert ingest[2].get("tournament_path") is None
+    snapshot = next(c for c in calls if c[0] == "snapshot")
+    assert snapshot[2].get("tournament") is None
+
+
+def test_manual_results_validated_against_tournament_flag(mod, monkeypatch, tmp_path):
+    """--manual-results + --tournament: the pre-validation (and the ingest
+    threading) must run against the FLAGGED draw — an AC-2027 fixture would be
+    rejected by the default WC draw, so this test is RED until the path is
+    threaded. The implied cutoff (max manual date + 1 day) must still hold."""
+    calls: list = []
+    _kw_recorders(mod, monkeypatch, calls)
+    _freeze_now(mod, monkeypatch, "2027-01-07T23:00:00")
+    csv = _ac_manual_csv(tmp_path)
+    rc = mod.main(["--manual-results", str(csv), "--tournament", _AC_YAML])
+    assert rc == 0
+    gate = next(c for c in calls if c[0] == "gate")
+    assert gate[1][1] == "2027-01-08T00:00:00Z"          # implied D+1 cutoff
+    ingest = next(c for c in calls if c[0] == "ingest")
+    assert ingest[2].get("manual_results") == str(csv)
+    assert ingest[2].get("tournament_path") == _AC_YAML
+
+
+def test_dry_run_prints_tournament_and_runs_nothing(mod, monkeypatch, capsys, tmp_path):
+    calls: list = []
+    _kw_recorders(mod, monkeypatch, calls)
+    _freeze_now(mod, monkeypatch, "2027-01-07T23:00:00")
+    rc = mod.main(["--dry-run", "--tournament", _AC_YAML,
+                   "--manual-results", str(_ac_manual_csv(tmp_path))])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert calls == []                                   # nothing ran
+    assert _AC_YAML in out                               # the plan names the draw
+    assert "1 validated" in out                          # AC CSV validated OK
+
+
+def test_bad_tournament_path_fails_loud_before_any_step(mod, monkeypatch, capsys,
+                                                        tmp_path):
+    """Review-round fix: a typo'd --tournament yaml must abort at arg time (exit
+    2, NOTHING run) — a real run must never survive to the minutes-long martj42
+    ingest only to die inside build_snapshot."""
+    calls: list = []
+    _kw_recorders(mod, monkeypatch, calls)
+    with pytest.raises(SystemExit) as ei:
+        mod.main(["--tournament", "config/tournament_ac2077_TYPO.yaml",
+                  "--cutoff", "2027-01-08T00:00:00Z"])
+    assert ei.value.code == 2
+    assert calls == []                                   # aborted before ingest
+    assert "tournament_ac2077_TYPO" in capsys.readouterr().err
+
+    # Directory-path case (review round 2): an EXISTING directory must be
+    # rejected just as loudly — Path.exists() lets `--tournament config` sail
+    # through to a plausible dry-run plan and the slow ingest; only a regular
+    # FILE may pass the guard.
+    calls.clear()
+    with pytest.raises(SystemExit) as ei:
+        mod.main(["--tournament", str(tmp_path),
+                  "--cutoff", "2027-01-08T00:00:00Z"])
+    assert ei.value.code == 2
+    assert calls == []                                   # aborted before ingest
+    assert str(tmp_path) in capsys.readouterr().err
+
+
+def test_dry_run_rejects_bad_tournament_path(mod, monkeypatch, capsys):
+    """--dry-run must reject a nonexistent --tournament too (exit 2), never
+    print a plausible plan for a draw that does not exist."""
+    calls: list = []
+    _kw_recorders(mod, monkeypatch, calls)
+    with pytest.raises(SystemExit) as ei:
+        mod.main(["--dry-run", "--tournament", "config/tournament_ac2077_TYPO.yaml",
+                  "--cutoff", "2027-01-08T00:00:00Z"])
+    assert ei.value.code == 2
+    assert calls == []
+    assert "tournament_ac2077_TYPO" in capsys.readouterr().err

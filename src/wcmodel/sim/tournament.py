@@ -46,15 +46,24 @@ import pandas as pd
 from wcmodel.sim.groups import group_table, rank_group
 from wcmodel.sim.knockout import resolve_tie
 from wcmodel.sim.scoreline import RateBook, sample_score
-from wcmodel.sim.thirds import assign_thirds_to_slots, rank_thirds
+from wcmodel.sim.thirds import (_DEFAULT_TABLE as _DEFAULT_ASSIGNMENT_TABLE,
+                                assign_thirds_to_slots, rank_thirds)
 
-# Feeder-token grammar (mirrors bracket.py / config/tournament_2026.yaml):
+# Feeder-token grammar (mirrors bracket.py / the draw YAMLs). Edition-agnostic: the
+# group-letter ceiling and the third-set length are NOT baked in, so a 6-group AFC
+# bracket ("3rd-ABC") and a >12-group bracket ("1M") parse through the same code.
 #   "1A"/"2B"  -> group-position slot: digit (1=winner, 2=runner-up) + group letter
-#   "3rd-ABCDF"-> best-third slot: the third assigned to this match (Annex C lookup)
+#   "3rd-ABCDF"-> best-third slot: the third assigned to this match (table lookup)
 #   "W74"      -> winner of match 74 ; "L101" -> loser of match 101 (3rd-place feeders)
-_GROUP_SLOT = re.compile(r"^([12])([A-L])$")
-_THIRD_SLOT = re.compile(r"^3rd-[A-L]+$")
+_GROUP_SLOT = re.compile(r"^([12])([A-Z])$")
+_THIRD_SLOT = re.compile(r"^3rd-[A-Z]{2,}$")
 _WL_REF = re.compile(r"^([WL])(\d+)$")
+
+# Frozen WC-2026 defaults for every format-driven knob, applied whenever the sim is
+# called with no ``fmt`` (the published path). Kept HERE, next to the consumers, so a
+# fmt-absent run is provably the pre-Phase-2A behaviour.
+_DEFAULT_TIEBREAK_ORDER = "fifa_2026"
+_DEFAULT_BEST_THIRDS = 8
 
 # Depth-from-final -> ladder semantic. Smaller depth = further in the tournament.
 _DEPTH_FINAL = 0
@@ -150,8 +159,20 @@ class _FixtureSampler:
         lh, la = self._rb.rates(home, away, neutral, draw=self._draw, host_factor=host_factor)
         return self._sample_at(lh, la, rng)
 
-    def knockout_sampler(self, home, away, *, neutral):
-        lh, la = self._rb.rates(home, away, neutral, draw=self._draw)
+    def knockout_sampler(self, home, away, *, neutral, host_factor=None,
+                         host_is_away=False):
+        # ``host_factor`` (Phase-2A KO host policy) is the same prediction-time scalar
+        # on the fitted home_adv that a host's HOME group game carries. RateBook.rates
+        # always credits the home term to its FIRST argument, so when the host sits in
+        # the bracket's AWAY slot we query the REVERSED orientation and swap the rates
+        # back — the host is advantaged, the drawn orientation is preserved for
+        # resolve_tie. None (WC default) -> the pre-existing neutral/home_adv behaviour.
+        if host_factor is not None and host_is_away:
+            la, lh = self._rb.rates(away, home, neutral, draw=self._draw,
+                                    host_factor=host_factor)
+        else:
+            lh, la = self._rb.rates(home, away, neutral, draw=self._draw,
+                                    host_factor=host_factor)
 
         def sample(phase, rng):
             # ET = 30/90 of a regulation match -> scale ALL Poisson goal rates by et_scale.
@@ -213,6 +234,31 @@ def _match_depths(bracket) -> dict:
     return depth
 
 
+def _ko_host_side(home, away, hosts) -> str | None:
+    """Which SIDE of a knockout tie carries the host advantage: ``"home"``,
+    ``"away"``, or ``None`` for a neutral tie.
+
+    The EXACTLY-ONE-HOST rule: the advantage exists only when precisely one of the
+    two concrete participants is a host nation of this edition. Both hosts (a
+    co-hosted edition's all-host tie) or neither host => ``None``, i.e. the tie is
+    modelled on neutral ground exactly as today. ``hosts`` is the edition's
+    ``{team: ISO-country}`` map (``tournament_format(t)["hosts"]``); an empty map can
+    never fire, which is why the WC-2026 path — whose format sets
+    ``ko_host_advantage: False`` and never calls this — is untouched.
+
+    NOTE this rule is deliberately WEAKER than the group-stage
+    ``host_home_factor`` test, which also requires the VENUE to be in the host's own
+    country. Knockout venues are not pre-assigned to a bracket slot in the draw
+    (the feeders are placeholders), so the venue is unknown at this point; the
+    edition opts in via ``ko_host_advantage`` precisely because its knockout rounds
+    are all staged in the host country."""
+    home_host = home in hosts
+    away_host = away in hosts
+    if home_host == away_host:            # both hosts, or neither -> neutral
+        return None
+    return "home" if home_host else "away"
+
+
 def _resolve_feeder(ref, *, group_rankings, third_by_match, winners, losers, match_no):
     """Resolve one feeder token to a concrete team for ``match_no``.
 
@@ -233,7 +279,7 @@ def _resolve_feeder(ref, *, group_rankings, third_by_match, winners, losers, mat
 
 
 def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None,
-                 host_factors=None):
+                 host_factors=None, fmt=None, ko_host_factor=None):
     """Simulate ONE tournament at a single fixed posterior ``draw``.
 
     Returns ``{"depth": {team: furthest_depth}, "groups": {team: placing}, "champion":
@@ -271,8 +317,25 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None,
 
     ``depths`` is the pre-computed ``_match_depths(bracket)`` (pure structure). It is passed
     in so ``simulate_tournament`` computes it ONCE per run rather than per sim; if omitted
-    (direct call) it is computed here. Behaviour is identical either way."""
+    (direct call) it is computed here. Behaviour is identical either way.
+
+    FORMAT (Phase-2A). ``fmt`` is the edition's effective format
+    (:func:`wcmodel.data.tournament.tournament_format`) or ``None``. It drives the group
+    tiebreak ``order``, the ``best_thirds`` count, the third-place ``assignment_table``,
+    and the knockout host policy (``ko_host_advantage`` + ``hosts``, with the scalar
+    ``ko_host_factor`` supplied by the caller from cfg). EVERY lookup below falls back to
+    the frozen WC-2026 value, so ``fmt=None`` is bit-identical to the pre-Phase-2A loop —
+    including RNG consumption (a fmt-absent run never takes a new branch). NB the KO host
+    policy needs BOTH ``fmt["ko_host_advantage"]`` and a ``ko_host_factor``: a direct call
+    that opts in but supplies no scalar simply runs neutral knockouts (the production
+    entry point ``sim.run.simulate`` always supplies the scalar when the format opts in)."""
     played = played or {}
+    # Bound at ENTRY: `rank_group` is consulted inside the group loop, which runs BEFORE
+    # the thirds block, so binding `f` lazily further down would be a NameError (F3).
+    f = fmt or {}
+    tiebreak_order = f.get("tiebreak_order", _DEFAULT_TIEBREAK_ORDER)
+    ko_hosts = f.get("hosts") or {}
+    ko_host_on = bool(f.get("ko_host_advantage")) and ko_host_factor is not None
     # T5 host advantage: {(home, away): k} for the GROUP fixtures that are host-home (a
     # 2026 host playing at a venue in its OWN country). A fixture absent from this map is
     # neutral. None/{} (the default) -> every fixture neutral -> byte-identical to the
@@ -290,6 +353,15 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None,
 
     sampler = _FixtureSampler(ratebook, draw, cfg)
     random_tail = False
+
+    # Per-group FINAL-MATCHDAY pairings — the precondition of the AFC penalties
+    # tiebreak criterion (regs Art. 7.3.2.7 applies only to two teams that "played
+    # their last group Match against each other"). Read as the LAST TWO fixtures of
+    # each group's fixture list. DOCUMENTED ASSUMPTION: a group's fixture list is in
+    # schedule order — true for both draw YAMLs (each group's 6 fixtures are emitted
+    # matchday 1, 2, 3, two per matchday). Ignored entirely by the fifa_2026 order.
+    final_pairings = {g: {frozenset(pair) for pair in fixtures[-2:]}
+                      for g, fixtures in bracket.group_fixtures.items()}
 
     # --- Group stage: play each group's fixtures, rank (FIFA 2026 tiebreakers), and
     # capture the 3rd-placer's (points, gd, gf) from the SAME scorelines (no re-sampling). ---
@@ -321,7 +393,9 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None,
                                               host_factor=host_factors.get((home, away))))
             for home, away in fixtures
         }
-        ranking, used = rank_group(teams, results, rng=rng, _return_random_used=True)
+        ranking, used = rank_group(teams, results, rng=rng, order=tiebreak_order,
+                                   final_pairings=final_pairings.get(g),
+                                   _return_random_used=True)
         random_tail = random_tail or used
         group_rankings[g] = ranking
         for pos, team in enumerate(ranking):
@@ -335,7 +409,10 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None,
     # third slots, e.g. tiny_bracket -> no FIFA Annex-C lookup, no RNG touched there). ---
     third_by_match = {}
     if bracket.third_place_slots:
-        third_by_match = assign_thirds_to_slots(rank_thirds(thirds_stats, rng=rng))
+        third_by_match = assign_thirds_to_slots(
+            rank_thirds(thirds_stats, rng=rng,
+                        best_n=f.get("best_thirds", _DEFAULT_BEST_THIRDS)),
+            table_file=f.get("assignment_table", _DEFAULT_ASSIGNMENT_TABLE))
 
     # --- Knockouts: resolve every match in match-number (topological) order. Winner-fed
     # matches propagate champions toward the Final; the loser-fed 3rd-place match is
@@ -405,7 +482,16 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None,
             else:
                 w = home if hg > ag else away            # ACTUAL winner, no RNG drawn
         else:
-            sample = sampler.knockout_sampler(home, away, neutral=cfg.neutral)
+            # KO HOST POLICY (Phase-2A F5). Opt-in per edition: the host side of the tie
+            # carries the same k*home_adv scalar its home group games do, but ONLY when
+            # exactly one participant is a host (see _ko_host_side). WC-2026's format
+            # sets ko_host_advantage=False, so `side` is never computed there and the
+            # sampler call is bit-identical to the pre-Phase-2A one.
+            side = _ko_host_side(home, away, ko_hosts) if ko_host_on else None
+            sample = sampler.knockout_sampler(
+                home, away, neutral=cfg.neutral,
+                host_factor=None if side is None else ko_host_factor,
+                host_is_away=(side == "away"))
             w = resolve_tie(home, away, sample=sample, rng=rng, et_scale=cfg.et_scale,
                             pen_home_prob=cfg.pen_home_prob)
         winners[m] = w
@@ -423,7 +509,8 @@ def simulate_one(bracket, ratebook, draw, rng, cfg, played=None, *, depths=None,
 
 
 def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale,
-                        pen_home_prob, played=None, host_factors=None):
+                        pen_home_prob, played=None, host_factors=None, fmt=None,
+                        ko_host_factor=None):
     """Run ``n_sims`` full-posterior MC tournaments over ``bracket`` -> ``SimResult``.
 
     Focal property #3 (seeded determinism): ``SeedSequence(seed).spawn(n_sims)`` derives
@@ -452,7 +539,13 @@ def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale
     neutral default. ``None`` (the default) keeps every fixture neutral, byte-identical to
     the pre-T5 sim. It is the SAME map in every sim, so it never touches RNG consumption —
     the seeded determinism / leakage invariance is unchanged. ``k`` is a prediction-time
-    scalar on the already-fitted ``home_adv``: NO new fitted parameter enters the sim."""
+    scalar on the already-fitted ``home_adv``: NO new fitted parameter enters the sim.
+
+    ``fmt`` (Phase-2A) is the edition's effective format dict, forwarded UNCHANGED to
+    every ``simulate_one`` (it is the same mapping in every sim, so it never perturbs RNG
+    consumption); ``ko_host_factor`` is the scalar the KO host policy applies, computed by
+    ``sim.run.simulate`` from cfg exactly as ``host_home_factor`` does. Both default to
+    ``None`` = the frozen WC-2026 behaviour."""
     ratebook = RateBook(posterior)
     cfg = _Cfg(max_goals=max_goals, et_scale=et_scale, pen_home_prob=pen_home_prob)
     teams = list(posterior.teams)
@@ -478,7 +571,8 @@ def simulate_tournament(posterior, *, bracket, n_sims, seed, max_goals, et_scale
         rng = np.random.default_rng(child)                 # the ONLY RNG inside the sim
         s = int(rng.integers(ratebook.n_draws))            # ONE posterior draw, fixed for the sim
         out = simulate_one(bracket, ratebook, draw=s, rng=rng, cfg=cfg, played=played,
-                           depths=depths, host_factors=host_factors)
+                           depths=depths, host_factors=host_factors, fmt=fmt,
+                           ko_host_factor=ko_host_factor)
         random_tail_hits += int(out["random_tail"])
 
         # Per-group placing markets: bucket the 0-based group finish to first/second/third/

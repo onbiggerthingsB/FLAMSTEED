@@ -264,3 +264,116 @@ def test_upstream_supersedes_manual_at_read_when_observed_later(tmp_path):
     assert int(row["home_score"].iloc[0]) == 2 and int(row["away_score"].iloc[0]) == 1, (
         "supersede-by-upstream failed: the later-observed martj42 row must win the "
         "deterministic tie-break (observed_at DESC) at a post-both read")
+
+
+# --------------------------------------------------------------------------- #
+# Phase-2A Task 6 (F11): tournament_path — validate manual results against a  #
+# NON-WC edition; hosts/neutral + the tournament tag come from its format.    #
+# --------------------------------------------------------------------------- #
+# The hosts' opener from the committed real AC-2027 draw (group A, matchday 1).
+_AC_YAML = "config/tournament_ac2027.yaml"
+_AC_HOME, _AC_AWAY, _AC_DATE = "Saudi Arabia", "Palestine", "2027-01-07"
+
+
+def test_ac_tournament_path_validates_ac_fixture(tmp_path):
+    """An AC-2027 group result validates against the AC draw when tournament_path
+    is given: venue/country resolved from ITS venues block, neutral=False via ITS
+    format hosts (Saudi Arabia at a SA venue), and the row tagged with ITS
+    competition name (so tier mapping sees a continental cup, not a World Cup)."""
+    csv = _write_csv(tmp_path,
+        "date,home_team,away_team,home_score,away_score,shootout_winner\n"
+        f"{_AC_DATE},{_AC_HOME},{_AC_AWAY},2,0,\n")
+    rows = validate_manual_csv(csv, tournament_path=_AC_YAML)
+    assert len(rows) == 1
+    r = rows[0]
+    assert (r.home_team, r.away_team, r.home_score, r.away_score) == (
+        _AC_HOME, _AC_AWAY, 2, 0)
+    assert r.is_knockout is False
+    assert r.city == "Riyadh (King Fahd)" and r.country == "SA"
+    assert r.neutral is False                      # format hosts, not the WC literal
+    assert r.tournament == "AFC Asian Cup"         # format competition_name
+
+
+def test_ac_fixture_rejected_against_default_wc_draw(tmp_path):
+    """The SAME CSV without tournament_path must fail against the default WC
+    draw (Saudi Arabia v Palestine 2027-01-07 is not a 2026 fixture; Palestine
+    is not a drawn-48 nation) — the default path is unchanged."""
+    csv = _write_csv(tmp_path,
+        "date,home_team,away_team,home_score,away_score,shootout_winner\n"
+        f"{_AC_DATE},{_AC_HOME},{_AC_AWAY},2,0,\n")
+    with pytest.raises(ManualResultsError):
+        validate_manual_csv(csv)
+
+
+def test_wc_default_rows_keep_fifa_world_cup_tag(tmp_path):
+    """Byte-identical WC default: with NO tournament_path a validated row still
+    carries tournament='FIFA World Cup' and ingests with that exact literal."""
+    store = BitemporalStore(tmp_path / "store")
+    csv = _write_csv(tmp_path,
+        "date,home_team,away_team,home_score,away_score,shootout_winner\n"
+        f"{_DATE},{_HOME},{_AWAY},3,1,\n")
+    rows = validate_manual_csv(csv)
+    assert rows[0].tournament == "FIFA World Cup"
+    ingest_manual_rows(store, rows, observed_at="2026-06-11T23:00:00Z")
+    out = store.read("results", cutoff="2026-06-13T00:00:00Z")
+    assert (out["tournament"] == "FIFA World Cup").all()
+
+
+def test_ac_rows_ingest_with_ac_tournament_tag(tmp_path):
+    """An AC manual row reaches the store tagged 'AFC Asian Cup' (the format's
+    competition_name), through the SAME leakage-safe ingest_live path."""
+    store = BitemporalStore(tmp_path / "store")
+    csv = _write_csv(tmp_path,
+        "date,home_team,away_team,home_score,away_score,shootout_winner\n"
+        f"{_AC_DATE},{_AC_HOME},{_AC_AWAY},2,0,\n")
+    rows = validate_manual_csv(csv, tournament_path=_AC_YAML)
+    ingest_manual_rows(store, rows, observed_at="2027-01-07T23:00:00Z")
+    out = store.read("results", cutoff="2027-01-09T00:00:00Z")
+    assert len(out) == 1
+    assert (out["tournament"] == "AFC Asian Cup").all()
+    assert bool(out["neutral"].iloc[0]) is False
+
+
+# A real AC-2027 KNOCKOUT date from the committed draw (R16 day 1: two fixtures,
+# both at Riyadh venues — ONE venue country, SA).
+_AC_KO_DATE = "2027-01-22"
+
+
+def test_ac_ko_row_with_host_prices_host_ground_not_neutral(tmp_path):
+    """Review-round fix (F11): a hand-entered AC-2027 KNOCKOUT result must price
+    the format hosts, not the WC KO literal neutral=True. Every AC KO venue is
+    in SA, so the day's single venue country is certain even though the exact
+    stadium is not (placeholder bracket -> city None): a KO row involving
+    Saudi Arabia is NON-neutral, country='SA'."""
+    csv = _write_csv(tmp_path,
+        "date,home_team,away_team,home_score,away_score,shootout_winner\n"
+        f"{_AC_KO_DATE},Saudi Arabia,Iran,1,0,\n")
+    r = validate_manual_csv(csv, tournament_path=_AC_YAML)[0]
+    assert r.is_knockout is True
+    assert r.city is None
+    assert r.country == "SA"
+    assert r.neutral is False
+
+
+def test_ac_ko_row_without_host_stays_neutral_with_country(tmp_path):
+    """Same KO day, hosts NOT involved -> neutral stays True, but the certain
+    single venue country is still resolved onto the row."""
+    csv = _write_csv(tmp_path,
+        "date,home_team,away_team,home_score,away_score,shootout_winner\n"
+        f"{_AC_KO_DATE},Iran,Japan,2,1,\n")
+    r = validate_manual_csv(csv, tournament_path=_AC_YAML)[0]
+    assert r.is_knockout is True
+    assert r.city is None
+    assert r.country == "SA"
+    assert r.neutral is True
+
+
+def test_wc_ko_row_keeps_legacy_neutral_true_path(tmp_path):
+    """Byte-identical WC guard: the BLOCKLESS WC draw keeps the verbatim legacy
+    KO path — city None, country None, neutral True."""
+    csv = _write_csv(tmp_path,
+        "date,home_team,away_team,home_score,away_score,shootout_winner\n"
+        f"{_KO_DATE},{_HOME},{_AWAY},2,1,\n")
+    r = validate_manual_csv(csv)[0]
+    assert r.is_knockout is True
+    assert r.city is None and r.country is None and r.neutral is True

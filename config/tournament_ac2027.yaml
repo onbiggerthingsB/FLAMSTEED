@@ -1,0 +1,492 @@
+# AFC Asian Cup 2027 tournament structure — REAL DRAW (Phase-2A Task 6).
+#
+# PROVENANCE
+#   groups (draw)     : AFC Final Draw, 2026-05-09, At-Turaif/Salwa Palace, Riyadh
+#                       (the-afc.com "AFC Asian Cup Saudi Arabia 2027 - The Groups";
+#                       cross-checked vs khelnow.com final-draw report, 2026-05-10).
+#                       The E4 slot (Lebanon/Yemen) resolved to Yemen via the
+#                       2026-06-04 playoff in Doha (Yemen 2-0 Lebanon).
+#   fixtures + venues : official AFC Match Schedule (issue 5 June 2026), archived at
+#                       docs/superpowers/research/AC27F_MatchSchedule_5june26.pdf
+#                       (assets.the-afc.com/2027_AFC_Asian_Cup/Downloads/Match_Schedule/
+#                       AC27F_MatchSchedule_5june26.pdf). 51 matches: 36 group (numbers
+#                       1-36, kept as comments — group rows carry no `match` key by the
+#                       format contract) + 15 knockout (`match:` 37-51). No kickoff
+#                       times: the wall chart publishes dates only; nothing is invented.
+#   knockout wiring   : identical to regs Arts. 9.8-9.12 (R16 pairings, QF/SF/Final
+#                       linkage) under the schedule's numbering — verified 1:1 in
+#                       config/afc2027_rules_extract.md. Third slots 38/39/40/44 match
+#                       config/third_place_assignment_ac2027.json (renumbered to the
+#                       schedule; scripts/verify_thirds_table.py PASS).
+#   team names        : martj42 store keys (P1-WC2026 reconciliation process), so
+#                       features.build joins each team's history. 19/24 identical to
+#                       the AFC official names; 5 mapped:
+#                         DPR Korea                -> North Korea
+#                         Islamic Republic of Iran -> Iran
+#                         Kyrgyz Republic          -> Kyrgyzstan
+#                         China PR                 -> China
+#                         Korea Republic           -> South Korea
+#   venues            : the schedule's 8 stadiums (capacity from the chart). `city`
+#                       labels are stadium-qualified (WC-2026 multi-stadium-city
+#                       convention) and are the keys fixtures reference via `venue`;
+#                       all venues carry country SA (host detection + neutral flags).
+#
+# Group fixtures carry REAL drawn nations (martj42 keys). Knockout fixtures are
+# STRUCTURE placeholders only (1A/2B seeds, 3rd-XXX best-third slots, W{n}
+# winner refs) — the participants are not yet known.
+
+format:
+  n_groups: 6
+  teams_per_group: 4
+  per_group_advance: 2
+  best_thirds: 4
+  third_place_match: false
+  tiebreak_order: afc_2027
+  assignment_table: third_place_assignment_ac2027.json
+  competition_name: AFC Asian Cup
+  source_tag: ac2027_schedule
+  hosts:
+    Saudi Arabia: SA
+  ko_host_advantage: true
+
+teams:
+- Saudi Arabia
+- Kuwait
+- Oman
+- Palestine
+- Uzbekistan
+- Bahrain
+- North Korea
+- Jordan
+- Iran
+- Syria
+- Kyrgyzstan
+- China
+- Australia
+- Tajikistan
+- Iraq
+- Singapore
+- South Korea
+- United Arab Emirates
+- Vietnam
+- Yemen
+- Japan
+- Qatar
+- Thailand
+- Indonesia
+
+groups:
+- name: A
+  teams:
+  - Saudi Arabia
+  - Kuwait
+  - Oman
+  - Palestine
+- name: B
+  teams:
+  - Uzbekistan
+  - Bahrain
+  - North Korea
+  - Jordan
+- name: C
+  teams:
+  - Iran
+  - Syria
+  - Kyrgyzstan
+  - China
+- name: D
+  teams:
+  - Australia
+  - Tajikistan
+  - Iraq
+  - Singapore
+- name: E
+  teams:
+  - South Korea
+  - United Arab Emirates
+  - Vietnam
+  - Yemen
+- name: F
+  teams:
+  - Japan
+  - Qatar
+  - Thailand
+  - Indonesia
+
+fixtures:
+# match 1
+- home: Saudi Arabia
+  away: Palestine
+  date: '2027-01-07'
+  group: A
+  round: Matchday 1
+  venue: Riyadh (King Fahd)
+# match 2
+- home: Kuwait
+  away: Oman
+  date: '2027-01-08'
+  group: A
+  round: Matchday 1
+  venue: Riyadh (King Saud University)
+# match 3
+- home: Bahrain
+  away: North Korea
+  date: '2027-01-08'
+  group: B
+  round: Matchday 1
+  venue: Riyadh (Imam Mohammed Bin Saud)
+# match 4
+- home: Uzbekistan
+  away: Jordan
+  date: '2027-01-08'
+  group: B
+  round: Matchday 1
+  venue: Jeddah (King Abdullah)
+# match 5
+- home: Syria
+  away: Kyrgyzstan
+  date: '2027-01-09'
+  group: C
+  round: Matchday 1
+  venue: Riyadh (King Fahd)
+# match 6
+- home: Iran
+  away: China
+  date: '2027-01-09'
+  group: C
+  round: Matchday 1
+  venue: Riyadh (Kingdom Arena)
+# match 7
+- home: Australia
+  away: Singapore
+  date: '2027-01-09'
+  group: D
+  round: Matchday 1
+  venue: Al Khobar (Aramco)
+# match 8
+- home: Tajikistan
+  away: Iraq
+  date: '2027-01-10'
+  group: D
+  round: Matchday 1
+  venue: Riyadh (Al Shabab)
+# match 9
+- home: South Korea
+  away: Yemen
+  date: '2027-01-10'
+  group: E
+  round: Matchday 1
+  venue: Jeddah (King Abdullah)
+# match 10
+- home: United Arab Emirates
+  away: Vietnam
+  date: '2027-01-11'
+  group: E
+  round: Matchday 1
+  venue: Riyadh (King Saud University)
+# match 11
+- home: Qatar
+  away: Thailand
+  date: '2027-01-11'
+  group: F
+  round: Matchday 1
+  venue: Riyadh (Imam Mohammed Bin Saud)
+# match 12
+- home: Japan
+  away: Indonesia
+  date: '2027-01-11'
+  group: F
+  round: Matchday 1
+  venue: Jeddah (Al Faisal)
+# match 13
+- home: Oman
+  away: Saudi Arabia
+  date: '2027-01-12'
+  group: A
+  round: Matchday 2
+  venue: Riyadh (King Fahd)
+# match 14
+- home: North Korea
+  away: Uzbekistan
+  date: '2027-01-12'
+  group: B
+  round: Matchday 2
+  venue: Riyadh (Kingdom Arena)
+# match 15
+- home: Palestine
+  away: Kuwait
+  date: '2027-01-12'
+  group: A
+  round: Matchday 2
+  venue: Al Khobar (Aramco)
+# match 16
+- home: Kyrgyzstan
+  away: Iran
+  date: '2027-01-13'
+  group: C
+  round: Matchday 2
+  venue: Riyadh (Al Shabab)
+# match 17
+- home: Jordan
+  away: Bahrain
+  date: '2027-01-13'
+  group: B
+  round: Matchday 2
+  venue: Jeddah (King Abdullah)
+# match 18
+- home: Iraq
+  away: Australia
+  date: '2027-01-14'
+  group: D
+  round: Matchday 2
+  venue: Riyadh (King Saud University)
+# match 19
+- home: Singapore
+  away: Tajikistan
+  date: '2027-01-14'
+  group: D
+  round: Matchday 2
+  venue: Riyadh (Imam Mohammed Bin Saud)
+# match 20
+- home: China
+  away: Syria
+  date: '2027-01-14'
+  group: C
+  round: Matchday 2
+  venue: Jeddah (Al Faisal)
+# match 21
+- home: Yemen
+  away: United Arab Emirates
+  date: '2027-01-15'
+  group: E
+  round: Matchday 2
+  venue: Riyadh (King Fahd)
+# match 22
+- home: Vietnam
+  away: South Korea
+  date: '2027-01-15'
+  group: E
+  round: Matchday 2
+  venue: Riyadh (Kingdom Arena)
+# match 23
+- home: Thailand
+  away: Japan
+  date: '2027-01-16'
+  group: F
+  round: Matchday 2
+  venue: Riyadh (Al Shabab)
+# match 24
+- home: Indonesia
+  away: Qatar
+  date: '2027-01-16'
+  group: F
+  round: Matchday 2
+  venue: Al Khobar (Aramco)
+# match 25
+- home: Oman
+  away: Palestine
+  date: '2027-01-17'
+  group: A
+  round: Matchday 3
+  venue: Riyadh (King Saud University)
+# match 26
+- home: North Korea
+  away: Jordan
+  date: '2027-01-17'
+  group: B
+  round: Matchday 3
+  venue: Riyadh (Imam Mohammed Bin Saud)
+# match 27
+- home: Saudi Arabia
+  away: Kuwait
+  date: '2027-01-17'
+  group: A
+  round: Matchday 3
+  venue: Jeddah (King Abdullah)
+# match 28
+- home: Uzbekistan
+  away: Bahrain
+  date: '2027-01-17'
+  group: B
+  round: Matchday 3
+  venue: Jeddah (Al Faisal)
+# match 29
+- home: Iran
+  away: Syria
+  date: '2027-01-18'
+  group: C
+  round: Matchday 3
+  venue: Riyadh (King Fahd)
+# match 30
+- home: Kyrgyzstan
+  away: China
+  date: '2027-01-18'
+  group: C
+  round: Matchday 3
+  venue: Riyadh (Kingdom Arena)
+# match 31
+- home: Australia
+  away: Tajikistan
+  date: '2027-01-19'
+  group: D
+  round: Matchday 3
+  venue: Riyadh (Al Shabab)
+# match 32
+- home: Iraq
+  away: Singapore
+  date: '2027-01-19'
+  group: D
+  round: Matchday 3
+  venue: Al Khobar (Aramco)
+# match 33
+- home: South Korea
+  away: United Arab Emirates
+  date: '2027-01-20'
+  group: E
+  round: Matchday 3
+  venue: Riyadh (King Saud University)
+# match 34
+- home: Japan
+  away: Qatar
+  date: '2027-01-20'
+  group: F
+  round: Matchday 3
+  venue: Riyadh (Imam Mohammed Bin Saud)
+# match 35
+- home: Thailand
+  away: Indonesia
+  date: '2027-01-20'
+  group: F
+  round: Matchday 3
+  venue: Jeddah (King Abdullah)
+# match 36
+- home: Vietnam
+  away: Yemen
+  date: '2027-01-20'
+  group: E
+  round: Matchday 3
+  venue: Jeddah (Al Faisal)
+- match: 37
+  home: 2A
+  away: 2C
+  date: '2027-01-22'
+  round: Round of 16
+  venue: Riyadh (Kingdom Arena)
+- match: 38
+  home: 1B
+  away: 3rd-ACD
+  date: '2027-01-22'
+  round: Round of 16
+  venue: Riyadh (Al Shabab)
+- match: 39
+  home: 1D
+  away: 3rd-BEF
+  date: '2027-01-23'
+  round: Round of 16
+  venue: Riyadh (Imam Mohammed Bin Saud)
+- match: 40
+  home: 1A
+  away: 3rd-CDE
+  date: '2027-01-23'
+  round: Round of 16
+  venue: Al Khobar (Aramco)
+- match: 41
+  home: 1F
+  away: 2E
+  date: '2027-01-24'
+  round: Round of 16
+  venue: Riyadh (King Fahd)
+- match: 42
+  home: 2B
+  away: 2F
+  date: '2027-01-24'
+  round: Round of 16
+  venue: Jeddah (Al Faisal)
+- match: 43
+  home: 1E
+  away: 2D
+  date: '2027-01-25'
+  round: Round of 16
+  venue: Riyadh (King Saud University)
+- match: 44
+  home: 1C
+  away: 3rd-ABF
+  date: '2027-01-25'
+  round: Round of 16
+  venue: Jeddah (King Abdullah)
+- match: 45
+  home: W37
+  away: W39
+  date: '2027-01-28'
+  round: Quarter-Finals
+  venue: Riyadh (Kingdom Arena)
+- match: 46
+  home: W38
+  away: W41
+  date: '2027-01-28'
+  round: Quarter-Finals
+  venue: Jeddah (King Abdullah)
+- match: 47
+  home: W44
+  away: W43
+  date: '2027-01-29'
+  round: Quarter-Finals
+  venue: Riyadh (King Fahd)
+- match: 48
+  home: W40
+  away: W42
+  date: '2027-01-29'
+  round: Quarter-Finals
+  venue: Al Khobar (Aramco)
+- match: 49
+  home: W45
+  away: W46
+  date: '2027-02-01'
+  round: Semi-Finals
+  venue: Al Khobar (Aramco)
+- match: 50
+  home: W47
+  away: W48
+  date: '2027-02-02'
+  round: Semi-Finals
+  venue: Jeddah (King Abdullah)
+- match: 51
+  home: W49
+  away: W50
+  date: '2027-02-05'
+  round: Final
+  venue: Riyadh (King Fahd)
+
+venues:
+- name: King Fahd Sports City Stadium
+  city: Riyadh (King Fahd)
+  country: SA
+  capacity: 72000
+- name: King Saud University Stadium
+  city: Riyadh (King Saud University)
+  country: SA
+  capacity: 26000
+- name: Kingdom Arena
+  city: Riyadh (Kingdom Arena)
+  country: SA
+  capacity: 26000
+- name: Imam Mohammed Bin Saud University Stadium
+  city: Riyadh (Imam Mohammed Bin Saud)
+  country: SA
+  capacity: 25000
+- name: Al Shabab Stadium
+  city: Riyadh (Al Shabab)
+  country: SA
+  capacity: 13000
+- name: King Abdullah Sports City Stadium
+  city: Jeddah (King Abdullah)
+  country: SA
+  capacity: 60000
+- name: Prince Abdullah Al Faisal Sports City Stadium
+  city: Jeddah (Al Faisal)
+  country: SA
+  capacity: 26000
+- name: Aramco Stadium
+  city: Al Khobar (Aramco)
+  country: SA
+  capacity: 45000

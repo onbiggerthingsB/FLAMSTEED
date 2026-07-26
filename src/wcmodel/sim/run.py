@@ -41,7 +41,8 @@ import pandas as pd
 
 from wcmodel.config import load_config
 from wcmodel.data.features import valid_played_results
-from wcmodel.data.tournament import host_factor_map, load_tournament
+from wcmodel.data.tournament import (host_factor_map, load_tournament,
+                                     tournament_format)
 from wcmodel.sim.bracket import build_bracket
 from wcmodel.sim.tournament import simulate_tournament
 
@@ -299,6 +300,17 @@ def simulate(cutoff, posterior, store, config: SimConfig):
     # legacy behaviour for direct construction).
     host_cfg = config.config if config.config is not None else load_config()
     host_factors = host_factor_map(tournament, host_cfg)
+    # Phase-2A format threading. A document with NO `format` block passes fmt=None, which
+    # is the frozen WC-2026 path everywhere downstream — including the cache key, which
+    # must stay byte-identical to the pre-Phase-2A key (absent, never null). A formatted
+    # edition passes its full effective format.
+    fmt_full = tournament_format(tournament)
+    fmt = fmt_full if "format" in tournament else None
+    # The KO host policy applies the SAME prediction-time scalar on the fitted home_adv
+    # that a host's home GROUP game carries (host_home_factor's return value), read from
+    # the same caller cfg. None unless the edition opts in -> the WC key is unchanged.
+    ko_host_factor = (host_cfg["model"]["covariates"]["host_k"]
+                      if fmt_full["ko_host_advantage"] else None)
     if config.cache_dir is not None:
         # Imported lazily so the (default) uncached path keeps no dependency on the
         # cache module / its parquet round-trip.
@@ -316,6 +328,8 @@ def simulate(cutoff, posterior, store, config: SimConfig):
             played=played,
             host_factors=host_factors,
             cache_dir=config.cache_dir,
+            fmt=fmt,
+            ko_host_factor=ko_host_factor,
         )
         return result
     return simulate_tournament(
@@ -328,4 +342,6 @@ def simulate(cutoff, posterior, store, config: SimConfig):
         pen_home_prob=config.pen_home_prob,
         played=played,
         host_factors=host_factors,
+        fmt=fmt,
+        ko_host_factor=ko_host_factor,
     )

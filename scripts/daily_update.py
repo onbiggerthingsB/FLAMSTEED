@@ -187,7 +187,8 @@ def _resolve_cutoff_with_manual(cutoff: str | None, manual_rows, *,
 def step_ingest(cache_dir: Path, *, commit: str | None = None,
                 manual_results: str | Path | None = None,
                 manual_observed_at: str | pd.Timestamp | None = None,
-                tournament: dict | None = None) -> BitemporalStore:
+                tournament: dict | None = None,
+                tournament_path: str | None = None) -> BitemporalStore:
     """Assemble the real bitemporal store from martj42 via the canonical load path.
 
     Mirrors ``build_real_snapshot.build_real_store``: a fresh, isolated ``BitemporalStore``
@@ -200,12 +201,17 @@ def step_ingest(cache_dir: Path, *, commit: str | None = None,
     ``source_version``. No constant is mutated.
 
     ``manual_results`` (default ``None``) is a validated-on-read CSV of hand-entered
-    played WC fixtures threaded — AFTER the martj42 assembly — through the EXISTING
+    played fixtures threaded — AFTER the martj42 assembly — through the EXISTING
     leakage-safe ``ingest_live_result`` POINT_IN_TIME path (``manual_observed_at`` =
     the operator's entry time ``now``). This is the matchday-1 fallback: it composes
     with ``--latest``/``--cutoff`` because it runs after ``load_results``, regardless
     of which commit the martj42 fetch used. Returns the store; the manual row count is
-    available via the caller's pre-validation (``validate_manual_csv``)."""
+    available via the caller's pre-validation (``validate_manual_csv``).
+
+    ``tournament_path`` (default ``None`` -> the WC-2026 draw) is the ``--tournament``
+    edition yaml the manual CSV is validated against (Phase-2A: e.g.
+    ``config/tournament_ac2027.yaml`` — its format block supplies the drawn-team
+    set, hosts/neutral flags and the competition tag)."""
     store_root = Path(tempfile.mkdtemp(prefix="wc-daily-update-store-"))
     print(f"[ingest] assembling real martj42 store at {store_root} "
           f"(commit={commit or PINNED_COMMIT}) ...")
@@ -214,7 +220,8 @@ def step_ingest(cache_dir: Path, *, commit: str | None = None,
     if manual_results is not None:
         # Validate the WHOLE file (fail-loud) BEFORE writing any row, then thread each
         # validated row through ingest_live_result (observed_at = the operator's now).
-        rows = validate_manual_csv(manual_results, tournament=tournament)
+        rows = validate_manual_csv(manual_results, tournament=tournament,
+                                   tournament_path=tournament_path)
         n = ingest_manual_rows(store, rows, observed_at=manual_observed_at)
         print(f"[ingest] manual results: ingested {n} hand-entered row(s) from "
               f"{manual_results} (observed_at={manual_observed_at}).")
@@ -287,21 +294,28 @@ def step_gate(store: BitemporalStore, cutoff: str, *, manual_rows=None) -> None:
     print("[gate] OK: every training row is strictly before the cutoff.")
 
 
-def step_snapshot(cutoff: str, store: BitemporalStore, cfg: dict) -> Path:
+def step_snapshot(cutoff: str, store: BitemporalStore, cfg: dict,
+                  tournament: str | None = None) -> Path:
     """Build the FULL dashboard bundle at ``cutoff``. Mirrors ``build_real_snapshot.main``'s
-    ``build_snapshot(...)`` call verbatim (parameterized by ``cutoff``): the real 2026 draw
-    (``tournament=None``), NO odds feed (``items=[]`` -> every edge coverage-gaps, bundle
-    NON-REAL), no backtest records, the production config. ``build_snapshot`` internally
-    composes panel -> fit -> 20k-sim -> gated-write through the content-addressed caches, so a
-    same-day re-run is a cache HIT and the bundle is byte-identical."""
+    ``build_snapshot(...)`` call verbatim (parameterized by ``cutoff``): NO odds feed
+    (``items=[]`` -> every edge coverage-gaps, bundle NON-REAL), no backtest records, the
+    production config. ``build_snapshot`` internally composes panel -> fit -> 20k-sim ->
+    gated-write through the content-addressed caches, so a same-day re-run is a cache HIT
+    and the bundle is byte-identical.
+
+    ``tournament`` (default ``None`` -> the verified ``config/tournament_2026.yaml``) is
+    the ``--tournament`` edition yaml path, resolved inside ``build_snapshot`` via the
+    sim's ``_load_tournament`` (path -> loaded + validated; its format block drives the
+    whole sim shape)."""
     out_root = Path(cfg["dashboard"]["output_dir"])  # data/dashboard (gitignored)
-    print(f"[snapshot] build_snapshot(cutoff={cutoff}) over the verified 2026 draw — "
-          "this takes minutes (48-team posterior fit + 20k-sim MC) ...")
+    draw_name = tournament or "the verified 2026 draw"
+    print(f"[snapshot] build_snapshot(cutoff={cutoff}) over {draw_name} — "
+          "this takes minutes (posterior fit + 20k-sim MC) ...")
     bundle = build_snapshot(
         cutoff,
         store=store,
         config=cfg,
-        tournament=None,        # -> config/tournament_2026.yaml (the verified 48-team draw)
+        tournament=tournament,  # None -> config/tournament_2026.yaml (verified 48-team draw)
         items=[],               # NO real odds -> every edge coverage-gaps; bundle NON-REAL
         backtest_records=None,  # -> track.json is an honest coverage_gap
         out_root=out_root,
@@ -381,17 +395,35 @@ def main(argv: list[str] | None = None) -> int:
                          "--cutoff, implies the next UTC midnight after BOTH the max manual "
                          "date AND your entry time, so today's finals condition (strict "
                          "date<cutoff_day rule) and stay PIT-visible (observed_at<=cutoff).")
+    ap.add_argument("--tournament", default=None, metavar="YAML",
+                    help="edition draw yaml the run operates on (default: the WC-2026 "
+                         "draw config/tournament_2026.yaml). Phase-2A: pass "
+                         "config/tournament_ac2027.yaml to run the AFC Asian Cup 2027 "
+                         "daily loop — the yaml's format block drives the sim shape, "
+                         "tiebreaks, thirds table, hosts and provenance tags, and "
+                         "--manual-results CSVs are validated against THAT draw.")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the resolved plan and exit 0 — no network, no fit, no writes")
     args = ap.parse_args(argv)
 
+    # --tournament must point at a REAL yaml FILE before any work (dry-run
+    # included): a typo'd path — or a directory like `config` — has to die here
+    # with exit 2, not survive the minutes-long martj42 ingest only to fail
+    # inside build_snapshot, and --dry-run must never print a plausible plan
+    # for a draw that does not exist. is_file(), not exists(): a directory is
+    # not a draw.
+    if args.tournament is not None and not Path(args.tournament).is_file():
+        ap.error(f"--tournament yaml is not a file: {args.tournament}")
+
     # Pre-VALIDATE the manual CSV up-front (fail-loud BEFORE anything else) so both the
     # dry-run plan and the cutoff auto-resolution can see the rows. This also makes a
     # bad CSV abort with a clear message and a non-zero exit, never a partial run.
+    # Validation runs against the --tournament draw (default: WC-2026).
     manual_rows = None
     manual_file_sha = None
     if args.manual_results is not None:
-        manual_rows = validate_manual_csv(args.manual_results)
+        manual_rows = validate_manual_csv(args.manual_results,
+                                          tournament_path=args.tournament)
         manual_file_sha = manual_file_sha256(args.manual_results)
 
     # Resolve the cutoff, accounting for the manual-conditioning rule (the load-bearing
@@ -406,6 +438,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         print("[daily_update] DRY-RUN — printing the plan, executing nothing.")
         print(f"  cutoff   : {cutoff}")
+        print(f"  tournament: {args.tournament or 'config/tournament_2026.yaml (default)'}")
         print(f"  store    : fresh tempdir (martj42 cache: {CACHE_DIR})")
         print(f"  out_root : {load_config()['dashboard']['output_dir']}")
         print(f"  log      : {DEFAULT_LOG_PATH}")
@@ -456,13 +489,15 @@ def main(argv: list[str] | None = None) -> int:
     # vector: a result is observed when hand-entered; valid_as_of stays the match date).
     manual_observed_at = run_now.isoformat()
     print(f"[daily_update] cutoff={cutoff}; martj42_commit={commit} ({commit_source}); "
+          f"tournament={args.tournament or 'config/tournament_2026.yaml (default)'}; "
           f"manual_rows={0 if manual_rows is None else len(manual_rows)}; "
           f"steps: {' -> '.join(STEP_PLAN)}")
     store = step_ingest(CACHE_DIR, commit=commit,
                         manual_results=args.manual_results,
-                        manual_observed_at=manual_observed_at)
+                        manual_observed_at=manual_observed_at,
+                        tournament_path=args.tournament)
     step_gate(store, cutoff, manual_rows=manual_rows)
-    bundle = step_snapshot(cutoff, store, cfg)
+    bundle = step_snapshot(cutoff, store, cfg, tournament=args.tournament)
     step_stage()
     step_provenance(bundle, duration_s=round(time.monotonic() - started, 1),
                     commit=commit, commit_source=commit_source,

@@ -1,0 +1,22 @@
+{
+ "progression_sha256": "0797ec79faa0267469275d03bd2b8c6395eafd15cd9be43474a1703e20e5ebf2",
+ "se_sha256": "b6a4e86cfc41fc5fce8c459f259d85f4c378ca9b4a7eb2b52198960d85ba8905",
+ "columns": [
+  "win_group",
+  "advance_from_group",
+  "reach_r16",
+  "reach_qf",
+  "reach_sf",
+  "reach_final",
+  "champion",
+  "first",
+  "second",
+  "third",
+  "out"
+ ],
+ "params": {
+  "n_sims": 500,
+  "seed": 3,
+  "max_goals": 8
+ }
+}
