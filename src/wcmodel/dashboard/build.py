@@ -401,11 +401,13 @@ def _ko_row(match_no: int, bracket, team_progression: dict) -> dict:
     eligible = bracket.third_place_slots.get(match_no)
 
     def _occupants_for(ref: str):
-        m = re.fullmatch(r"([12])([A-L])", ref)
+        # Edition-agnostic slot grammar (mirrors sim/tournament.py and bracket.py): no
+        # A..L group ceiling, no fixed third-set length (the AFC publishes 3-letter sets).
+        m = re.fullmatch(r"([12])([A-Z])", ref)
         if m:
             placing = _placing_for_group(team_progression, bracket.groups.get(m.group(2), []))
             return ko_slot_occupants(slot_source=ref, placing=placing)
-        if re.fullmatch(r"3rd-([A-L]{5})", ref) and eligible:
+        if re.fullmatch(r"3rd-([A-Z]{2,})", ref) and eligible:
             # Eligible-group thirds (verified slot->eligible mapping from the bracket).
             teams = [t for g in sorted(eligible) for t in bracket.groups.get(g, [])]
             placing = _placing_for_group(team_progression, teams)
@@ -556,7 +558,7 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
     # is in that nation — host_home_factor) carries host_factor = k*home_adv instead of
     # neutral; every other fixture stays neutral. host_factor is a prediction-time scalar
     # on the already-fitted home_adv — NO new fitted DOF.
-    from wcmodel.data.tournament import host_home_factor
+    from wcmodel.data.tournament import host_home_factor, tournament_format
     from wcmodel.dashboard.fixtures import build_schedule, fixture_forecast
 
     group_fixtures = [fx for fx in tdict["fixtures"] if fx.get("match") is None]
@@ -564,13 +566,17 @@ def build_snapshot(cutoff, *, store, config=None, fit_kwargs=None, items=None,
     # Venue {city: ISO-country} from the draw's venues block, for the host-home test.
     # Absent on a synthetic tournament -> empty map -> every fixture stays neutral.
     venue_country = {v["city"]: v.get("country") for v in tdict.get("venues", [])}
+    # Hosts come from THIS tournament's format block (WC-2026 literal when absent), so a
+    # non-WC edition is never priced against Mexico/USA/Canada. Read once per build.
+    hosts = tournament_format(tdict)["hosts"]
 
     fixture_details: dict[str, dict] = {}
     by_pair_date: dict[tuple, dict] = {}
     for fx in group_fixtures:
         home, away, date = fx["home"], fx["away"], fx["date"]
         # None for a neutral fixture; k (host_k) for a host playing at home in-country.
-        host_factor = host_home_factor(home, away, fx.get("venue"), venue_country, cfg)
+        host_factor = host_home_factor(home, away, fx.get("venue"), venue_country, cfg,
+                                       hosts=hosts)
         forecast = fixture_forecast(posterior, home=home, away=away,
                                     neutral=(host_factor is None), host_factor=host_factor)
         gate_fixture_forecast(forecast)              # STOP: never write a naked/degenerate forecast

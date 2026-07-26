@@ -389,12 +389,20 @@ def _validate_formatted(data: dict, fmt: dict) -> dict:
     return data
 
 
-def host_home_factor(home, away, venue_city, venue_country, cfg):
+def host_home_factor(home, away, venue_city, venue_country, cfg, hosts=None):
     """The T5 host-advantage multiplier for one fixture, or ``None`` for neutral ground.
 
-    Returns ``cfg["model"]["covariates"]["host_k"]`` IFF the HOME team is a 2026 host
-    nation AND the fixture's venue is in **that same host's country**; otherwise
-    ``None`` (the fixture is modelled on neutral ground — the existing WC default).
+    Returns ``cfg["model"]["covariates"]["host_k"]`` IFF the HOME team is a host
+    nation of THIS edition AND the fixture's venue is in **that same host's country**;
+    otherwise ``None`` (the fixture is modelled on neutral ground — the existing WC
+    default).
+
+    ``hosts`` is the edition's ``{team: ISO-country}`` map. ``None`` (the default)
+    means the frozen WC-2026 module literal :data:`HOST_COUNTRY_BY_TEAM`, so every
+    pre-Phase-2A call site is byte-identical; a formatted edition passes its own map
+    (``tournament_format(t)["hosts"]``). The map is read HERE rather than at the
+    caller so no call site can accidentally keep applying the World Cup's hosts to
+    another tournament (Phase-2A F5: the fix belongs at the source).
 
     This is the focal host-detection rule the predict path consumes as ``host_factor``
     (a prediction-time scalar on the already-fitted ``home_adv`` — NO new fitted DOF).
@@ -412,9 +420,11 @@ def host_home_factor(home, away, venue_city, venue_country, cfg):
     host's code, so it correctly yields ``None``. The ``away`` argument is accepted for a
     symmetric, self-documenting signature even though the rule is HOME-only (a future
     refinement could read it; today it is intentionally unused)."""
-    host_code = HOST_COUNTRY_BY_TEAM.get(home)
+    if hosts is None:
+        hosts = HOST_COUNTRY_BY_TEAM      # frozen WC-2026 default (byte-identical)
+    host_code = hosts.get(home)
     if host_code is None:
-        return None                       # home team is not a 2026 host nation
+        return None                       # home team is not a host nation
     if venue_country.get(venue_city) != host_code:
         return None                       # venue is not in the host's own country
     return cfg["model"]["covariates"]["host_k"]
@@ -432,15 +442,22 @@ def host_factor_map(tournament, cfg):
     A tournament dict with no ``venues`` block (e.g. a tiny synthetic test bracket) yields
     an EMPTY country map, so no fixture is ever host-home and the map is ``{}`` — the sim
     is then byte-identical to its neutral default. Knockout fixtures (placeholder feeders,
-    no concrete home team) are skipped: host advantage in the KO bracket is out of scope
-    for T5 (the hosts' KO venues are not pre-assigned to a host)."""
+    no concrete home team) are skipped here: a KO host advantage cannot be resolved from
+    the draw (the feeders are placeholders), so it is applied IN-SIM once the participants
+    are concrete — and only for editions whose format sets ``ko_host_advantage``.
+
+    The host map comes from the tournament's own format block
+    (``tournament_format(t)["hosts"]``), so a non-WC edition never inherits the World
+    Cup's hosts; a document with no ``format`` block resolves to the frozen WC literal."""
+    hosts = tournament_format(tournament)["hosts"]
     venue_country = {v["city"]: v.get("country") for v in tournament.get("venues", [])}
     out = {}
     for fx in tournament.get("fixtures", []):
         if fx.get("match") is not None:
             continue                      # skip knockouts (placeholder feeders, no concrete home)
         home, away = fx.get("home"), fx.get("away")
-        factor = host_home_factor(home, away, fx.get("venue"), venue_country, cfg)
+        factor = host_home_factor(home, away, fx.get("venue"), venue_country, cfg,
+                                  hosts=hosts)
         if factor is not None:
             out[(home, away)] = factor
     return out
