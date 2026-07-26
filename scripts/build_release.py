@@ -23,10 +23,23 @@ from wcmodel.releases.render import render_csv, render_html
 
 
 def _latest_result(store, cutoff) -> str:
-    """Freshness stamp. An empty read is a wrong store or a wrong cutoff — never a
-    release with a NaT freshness line, so fail loud instead of stamping garbage."""
+    """Freshness stamp — the latest result date STRICTLY before the cutoff day.
+
+    Mirrors the TRAINING boundary (features.build filters `date < cutoff_day`,
+    features.py:203), not store.read's visibility: the store's point-in-time
+    read is `<= cutoff`, so at an exactly-midnight cutoff a result dated ON the
+    cutoff day is visible to the read while the fit never saw it. Stamping that
+    date would overstate freshness and contradict the artifact's own
+    "all data strictly before" line (acceptance-run finding: the 2026-07-19
+    final surfaced as its own release's latest_result). An empty strictly-before
+    slice is a wrong store or a wrong cutoff — never a release with a NaT
+    freshness line, so fail loud instead of stamping garbage."""
     df = store.read("results", cutoff=cutoff)
-    latest = pd.to_datetime(df["date"]).max() if len(df) else pd.NaT
+    ts = pd.Timestamp(cutoff)
+    cutoff_day = (ts.tz_localize(None) if ts.tzinfo else ts).normalize()
+    dates = pd.to_datetime(df["date"]) if len(df) else pd.Series([], dtype="datetime64[ns]")
+    dates = dates[dates < cutoff_day]
+    latest = dates.max() if len(dates) else pd.NaT
     if pd.isna(latest):
         raise ValueError(f"store has no results before cutoff {cutoff}")
     return latest.strftime("%Y-%m-%d")
