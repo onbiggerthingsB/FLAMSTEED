@@ -505,10 +505,13 @@ def ingest_wc_group_fixtures(
         history);
       - ``date`` = the fixture date, ``home_score`` / ``away_score`` = **NaN**
         (the match has not been played — it is a *schedule*, not a result);
-      - ``neutral`` = ``False`` iff a host nation (Mexico/USA/Canada) plays a
-        venue in **its own** country (:data:`HOST_COUNTRY_BY_TEAM`), else
-        ``True``;
-      - ``tournament = "FIFA World Cup"``, ``city`` / ``country`` from the venue;
+      - ``neutral`` = ``False`` iff one of the EDITION's host nations (the
+        format's ``hosts`` map — the WC-2026 default is exactly
+        :data:`HOST_COUNTRY_BY_TEAM`: Mexico/USA/Canada) plays at a venue in
+        **its own** country, else ``True``;
+      - ``tournament`` = the format's ``competition_name`` (WC default:
+        the literal ``"FIFA World Cup"``), ``city`` / ``country`` from the
+        venue;
       - a deterministic ``match_id`` (the standard
         ``sha1(date|home|away|city)`` via :func:`normalize_results`);
       - ``valid_as_of == observed_at == date`` (POINT_IN_TIME): the fixture
@@ -540,6 +543,12 @@ def ingest_wc_group_fixtures(
     # already-validated dict returns it unchanged.)
     validate_tournament(tournament)
     observed_at = pd.Timestamp(observed_at)
+    # Provenance + host wiring come from the EFFECTIVE FORMAT (Phase-2A F11):
+    # a document with no `format` block resolves to the frozen WC-2026 defaults
+    # — competition_name "FIFA World Cup", source_tag WC2026_SOURCE, hosts ==
+    # HOST_COUNTRY_BY_TEAM — so every WC row below is byte-identical to the
+    # pre-format literals; a formatted edition stamps its own tags and hosts.
+    fmt = tournament_format(tournament)
 
     # Drawn-48 set derived from the GROUP teams — the VALIDATED source — with
     # placeholder-shaped names excluded as a SECOND guard (see `_drawn_teams`).
@@ -552,8 +561,8 @@ def ingest_wc_group_fixtures(
     # and so can never be written as a group row.
     drawn = _drawn_teams(tournament)
     venue_country = {v["city"]: v.get("country") for v in tournament["venues"]}
-    # country-code -> host team name, for the neutral-ground test.
-    host_by_country = {code: team for team, code in HOST_COUNTRY_BY_TEAM.items()}
+    # country-code -> host team name, for the neutral-ground test (edition hosts).
+    host_by_country = {code: team for team, code in fmt["hosts"].items()}
 
     rows: list[dict] = []
     for fx in tournament["fixtures"]:
@@ -576,7 +585,7 @@ def ingest_wc_group_fixtures(
             "away_team": away,
             "home_score": np.nan,   # UNPLAYED — schedule, not result
             "away_score": np.nan,
-            "tournament": "FIFA World Cup",
+            "tournament": fmt["competition_name"],
             "neutral": neutral,
             "city": city,
             "country": country,
@@ -608,7 +617,7 @@ def ingest_wc_group_fixtures(
         out,
         policy=Policy.POINT_IN_TIME,
         keys=["match_id"],
-        source=WC2026_SOURCE,
-        source_version=WC2026_SOURCE,
+        source=fmt["source_tag"],
+        source_version=fmt["source_tag"],
     )
     return len(out)
