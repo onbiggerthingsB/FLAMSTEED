@@ -1,0 +1,36 @@
+{
+ "_meta": {
+  "columns_winner_slot_to_match": {
+   "1A": 43,
+   "1B": 39,
+   "1C": 41,
+   "1D": 38
+  },
+  "slot_eligible_groups": {
+   "1A": ["C", "D", "E"],
+   "1B": ["A", "C", "D"],
+   "1C": ["A", "B", "F"],
+   "1D": ["B", "E", "F"]
+  },
+  "note": "key = sorted 4 qualifying group letters; value = {R16 match number: group whose 3rd-place team fills that slot}",
+  "source": "AFC Asian Cup Saudi Arabia 2027 Competition Regulations, Art. 9.8 (eligible sets) and Art. 9.9 (complete 15-row C(6,4) pairing table), pages 28-29; transcribed verbatim (extract: config/afc2027_rules_extract.md)",
+  "match_numbering": "Regs-derived encoding: the regulations publish NO schedule match numbers (Art. 11 defers to the AFC competitions calendar) and label the R16 as R16-1..R16-8 (Art. 9.8, explicitly not chronological). Numbers here = 36 group matches (Arts. 9.2-9.3) + R16 index: 1D=R16-2->38, 1B=R16-3->39, 1C=R16-5->41, 1A=R16-7->43. Task 6 MUST reconcile against the official Match Schedule PDF and renumber table+_meta together (then re-run scripts/verify_thirds_table.py) if the schedule assigns different numbers."
+ },
+ "table": {
+  "ABCD": {"38": "B", "39": "D", "41": "A", "43": "C"},
+  "ABCE": {"38": "E", "39": "A", "41": "B", "43": "C"},
+  "ABCF": {"38": "F", "39": "A", "41": "B", "43": "C"},
+  "ABDE": {"38": "E", "39": "A", "41": "B", "43": "D"},
+  "ABDF": {"38": "F", "39": "A", "41": "B", "43": "D"},
+  "ABEF": {"38": "F", "39": "A", "41": "B", "43": "E"},
+  "ACDE": {"38": "E", "39": "D", "41": "A", "43": "C"},
+  "ACDF": {"38": "F", "39": "D", "41": "A", "43": "C"},
+  "ACEF": {"38": "E", "39": "A", "41": "F", "43": "C"},
+  "ADEF": {"38": "E", "39": "A", "41": "F", "43": "D"},
+  "BCDE": {"38": "E", "39": "D", "41": "B", "43": "C"},
+  "BCDF": {"38": "F", "39": "D", "41": "B", "43": "C"},
+  "BCEF": {"38": "F", "39": "C", "41": "B", "43": "E"},
+  "BDEF": {"38": "F", "39": "D", "41": "B", "43": "E"},
+  "CDEF": {"38": "E", "39": "D", "41": "F", "43": "C"}
+ }
+}
