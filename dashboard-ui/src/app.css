@@ -29,6 +29,7 @@
   /* Type: a quiet, readable scale; tabular numerals so probabilities line up. */
   --fs-sm: 0.85rem;
   --fs-base: 1rem;
+  --fs-md: 1.1rem;
   --fs-lg: 1.25rem;
   --fs-xl: 1.6rem;
 

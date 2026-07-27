@@ -1,0 +1,99 @@
+.wc-embed {
+  all: initial;
+  --bg: #0f1115;
+  --card: #171a21;
+  --ink: #e8eaed;
+  --muted: #9aa0a8;
+  --line: #2a2f3a;
+  --accent: #4f8cff;
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+  --good: #39d98a;
+  --warn: #ffb020;
+  --radius: 14px;
+  --pad: 18px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --fs-sm: 0.85rem;
+  --fs-base: 1rem;
+  --fs-md: 1.1rem;
+  --fs-lg: 1.25rem;
+  --fs-xl: 1.6rem;
+  direction: ltr;
+  display: block;
+  padding: var(--pad);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.wc-embed *,
+.wc-embed *::before,
+.wc-embed *::after {
+  box-sizing: border-box;
+}
+
+.wc-embed :is(h2, h3, h4) {
+  letter-spacing: -0.01em;
+}
+
+.wc-embed h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-xl);
+  font-weight: 650;
+}
+
+.wc-embed h3 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+
+.wc-embed h4 {
+  margin: var(--space-4) 0 var(--space-2);
+  color: var(--muted);
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+
+.wc-embed .card {
+  padding: var(--pad);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.wc-embed .muted {
+  color: var(--muted);
+}
+
+.wc-embed table,
+.wc-embed .metrics,
+.wc-embed .score,
+.wc-embed .prob,
+.wc-embed .val {
+  font-variant-numeric: tabular-nums;
+}
+
+.wc-embed a {
+  color: var(--accent);
+}
+
+.wc-embed-foot {
+  margin-top: var(--space-3);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+.wc-embed-err,
+.wc-embed-loading {
+  color: var(--muted);
+  font-size: var(--fs-base);
+}

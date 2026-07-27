@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "node scripts/copy-bundle.mjs && vite",
     "build": "node scripts/copy-bundle.mjs && vite build",
+    "build:embed": "vite build -c vite.embed.config.ts",
     "preview": "vite preview --port 4173",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
