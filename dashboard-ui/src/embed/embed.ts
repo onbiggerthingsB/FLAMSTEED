@@ -9,10 +9,11 @@ export interface EmbedOptions {
   tournament: string;
   surface?: 'ladder' | 'schedule';
   theme?: Record<string, string>;
+  frameKey?: string;
 }
 
 export function mountEmbed(element: HTMLElement, options: EmbedOptions) {
-  const client = createClient(options.endpoint, options.publisherId);
+  const client = createClient(options.endpoint, options.publisherId, options.frameKey);
   const app = mountSvelte(EmbedApp, {
     target: element,
     props: {

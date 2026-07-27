@@ -10,14 +10,19 @@ export interface EmbedClient {
   getJson<T>(path: string): Promise<T>;
 }
 
-export function createClient(endpoint: string, publisherId: string): EmbedClient {
+export function createClient(
+  endpoint: string,
+  publisherId: string,
+  frameKey?: string,
+): EmbedClient {
   const base = endpoint.replace(/\/+$/, '');
   let token: Tok | null = null;
   let inFlightToken: Promise<Tok> | null = null;
+  const frameQuery = frameKey ? `&k=${encodeURIComponent(frameKey)}` : '';
 
   async function fetchToken(): Promise<Tok> {
     const response = await fetch(
-      `${base}/v1/token?pid=${encodeURIComponent(publisherId)}`,
+      `${base}/v1/token?pid=${encodeURIComponent(publisherId)}${frameQuery}`,
       { credentials: 'omit' },
     );
     if (!response.ok) throw new Error(`token refused: ${response.status}`);
@@ -46,7 +51,7 @@ export function createClient(endpoint: string, publisherId: string): EmbedClient
       const current = await getToken();
       const separator = path.includes('?') ? '&' : '?';
       const response = await fetch(
-        `${base}${path}${separator}t=${encodeURIComponent(current.token)}`,
+        `${base}${path}${separator}t=${encodeURIComponent(current.token)}${frameQuery}`,
         { credentials: 'omit' },
       );
       if (response.ok) return (await response.json()) as T;

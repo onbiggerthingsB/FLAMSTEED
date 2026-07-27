@@ -4,6 +4,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 export default defineConfig({
   plugins: [svelte({ hot: false })],
   resolve: { conditions: ['browser'] },
+  publicDir: false,
   build: {
     outDir: 'dist-embed',
     emptyOutDir: true,

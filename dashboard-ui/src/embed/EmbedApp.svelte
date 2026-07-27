@@ -7,6 +7,8 @@
     TournamentData,
   } from '../lib/types';
   import type { EmbedClient, Tok } from './client';
+  import EmbedSchedule from './EmbedSchedule.svelte';
+  import EmbedDetail from './EmbedDetail.svelte';
 
   let {
     client,
@@ -24,7 +26,13 @@
   let tournamentData = $state<Envelope<TournamentData> | null>(null);
   let schedule = $state<Envelope<ScheduleData> | null>(null);
   let entitlement = $state<Tok | null>(null);
+  let selectedMatch = $state<string | null>(null);
   let error = $state(false);
+
+  $effect(() => {
+    surface;
+    selectedMatch = null;
+  });
 
   $effect(() => {
     let cancelled = false;
@@ -61,14 +69,25 @@
   {#if error}
     <p class="wc-embed-err">forecast unavailable</p>
   {:else if meta && tournamentData && schedule}
-    {#if surface === 'ladder'}
+    {#if selectedMatch && entitlement?.tier === 'advanced'}
+      <EmbedDetail
+        {client}
+        {tournament}
+        matchId={selectedMatch}
+        onBack={() => (selectedMatch = null)}
+      />
+    {:else if surface === 'ladder'}
       <Tournament
         data={tournamentData.data}
         markets={meta.data.markets}
         knockout={schedule.data.knockout ?? []}
       />
     {:else}
-      <p class="wc-embed-loading">schedule unavailable</p>
+      <EmbedSchedule
+        data={schedule.data}
+        allowDetail={entitlement?.tier === 'advanced'}
+        onSelectMatch={(matchId) => (selectedMatch = matchId)}
+      />
     {/if}
     <footer class="wc-embed-foot">
       Forecasts · as-of {meta.provenance?.as_of ?? 'unknown'} ·
