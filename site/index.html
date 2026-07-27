@@ -1,0 +1,1161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A Bayesian scoreline model that published a probability for every match of the 2026 World Cup before it was played — with the full scorecard.">
+  <title>THE MODEL — Point-in-time forecasting</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ground: #101719;
+      --ground-deep: #0b1113;
+      --panel: #172023;
+      --text: #f1ecdf;
+      --muted: #b9b6aa;
+      --faint: #868b86;
+      --rule: #3c4647;
+      --rule-strong: #66706f;
+      --accent: #ed8a52;
+      --accent-deep: #a84222;
+      --paper: #e8e1d2;
+      --ink: #1b2223;
+      --display: "Iowan Old Style", "Palatino Linotype", Charter, Georgia, serif;
+      --figure: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --sans: "Avenir Next", Avenir, "Helvetica Neue", Helvetica, sans-serif;
+      --page: min(100% - 40px, 1240px);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--ground);
+      scroll-behavior: smooth;
+      overflow-x: hidden;
+    }
+
+    body {
+      min-width: 0;
+      max-width: 100%;
+      margin: 0;
+      overflow-x: hidden;
+      background:
+        linear-gradient(90deg, transparent 0, transparent calc(50% - .5px), rgba(241, 236, 223, .035) calc(50% - .5px), rgba(241, 236, 223, .035) calc(50% + .5px), transparent calc(50% + .5px)),
+        var(--ground);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.55;
+      text-rendering: optimizeLegibility;
+    }
+
+    a {
+      color: inherit;
+      text-decoration-color: var(--accent);
+      text-decoration-thickness: 1px;
+      text-underline-offset: .22em;
+    }
+
+    a:hover {
+      color: var(--accent);
+    }
+
+    a:focus-visible {
+      border-radius: 2px;
+      outline: 3px solid var(--accent);
+      outline-offset: 5px;
+    }
+
+    ::selection {
+      background: var(--accent);
+      color: var(--ground-deep);
+    }
+
+    .shell {
+      width: var(--page);
+      margin-inline: auto;
+    }
+
+    .mono,
+    .eyebrow,
+    .wordmark,
+    .proof-label,
+    .proof-value,
+    .section-kicker,
+    th,
+    td,
+    .calibration-fact,
+    .footer-note {
+      font-family: var(--figure);
+      font-variant-numeric: tabular-nums lining-nums;
+    }
+
+    .site-header {
+      display: flex;
+      min-height: 84px;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--rule-strong);
+    }
+
+    .wordmark {
+      color: var(--text);
+      font-size: .78rem;
+      font-weight: 700;
+      letter-spacing: .2em;
+      text-decoration: none;
+    }
+
+    .header-note {
+      margin: 0;
+      color: var(--muted);
+      font-family: var(--figure);
+      font-size: .68rem;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 24px;
+      min-height: 590px;
+      padding-block: 66px 72px;
+      border-bottom: 1px solid var(--rule-strong);
+    }
+
+    .eyebrow {
+      grid-column: 1 / -1;
+      align-self: start;
+      margin: 0;
+      color: var(--accent);
+      font-size: .72rem;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      grid-column: 1 / 11;
+      margin: 42px 0 0;
+      font-family: var(--display);
+      font-size: clamp(3.6rem, 7.35vw, 7.2rem);
+      font-weight: 400;
+      letter-spacing: -.055em;
+      line-height: .88;
+      text-wrap: balance;
+    }
+
+    h1 span {
+      display: block;
+    }
+
+    .hero-copy {
+      grid-column: 7 / -1;
+      align-self: end;
+      padding-top: 52px;
+    }
+
+    .hero-copy p {
+      max-width: 620px;
+      margin-bottom: 32px;
+      color: var(--muted);
+      font-family: var(--display);
+      font-size: clamp(1.15rem, 2vw, 1.55rem);
+      line-height: 1.45;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 24px;
+      align-items: center;
+    }
+
+    .action {
+      display: inline-flex;
+      min-height: 46px;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 17px;
+      border: 1px solid var(--accent);
+      color: var(--ground-deep);
+      background: var(--accent);
+      font-family: var(--figure);
+      font-size: .74rem;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-decoration: none;
+      text-transform: uppercase;
+      transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
+    }
+
+    .action.secondary {
+      color: var(--text);
+      background: transparent;
+    }
+
+    .action:hover {
+      color: var(--text);
+      background: transparent;
+      transform: translateY(-2px);
+    }
+
+    .action.secondary:hover {
+      color: var(--ground-deep);
+      background: var(--accent);
+    }
+
+    .proof-strip {
+      display: grid;
+      grid-template-columns: 1.05fr 1.35fr .78fr 1.18fr;
+      border-bottom: 1px solid var(--rule-strong);
+    }
+
+    .proof-item {
+      min-width: 0;
+      padding: 34px 26px 38px;
+      border-left: 1px solid var(--rule);
+    }
+
+    .proof-item:first-child {
+      padding-left: 0;
+      border-left: 0;
+    }
+
+    .proof-label {
+      display: block;
+      min-height: 2.5em;
+      margin-bottom: 24px;
+      color: var(--muted);
+      font-size: .66rem;
+      letter-spacing: .075em;
+      line-height: 1.25;
+      text-transform: uppercase;
+    }
+
+    .proof-value {
+      display: block;
+      margin-bottom: 18px;
+      color: var(--text);
+      font-size: clamp(1.5rem, 3vw, 2.7rem);
+      font-weight: 500;
+      letter-spacing: -.06em;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .proof-item:nth-child(3) .proof-value {
+      font-family: var(--display);
+      font-style: italic;
+      letter-spacing: -.045em;
+    }
+
+    .proof-footnote {
+      max-width: 31ch;
+      margin: 0;
+      color: var(--muted);
+      font-size: .8rem;
+      line-height: 1.45;
+    }
+
+    .section {
+      padding-block: 92px 104px;
+      border-bottom: 1px solid var(--rule-strong);
+    }
+
+    .section-heading {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 24px;
+      align-items: start;
+      margin-bottom: 50px;
+    }
+
+    .section-heading h2 {
+      grid-column: 1 / 6;
+      margin: 0;
+      font-family: var(--display);
+      font-size: clamp(2.9rem, 5vw, 5.1rem);
+      font-weight: 400;
+      letter-spacing: -.045em;
+      line-height: .95;
+    }
+
+    .section-heading p {
+      grid-column: 7 / -1;
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: .88rem;
+      line-height: 1.6;
+    }
+
+    .table-wrap {
+      max-width: 100%;
+      overflow-x: auto;
+      overscroll-behavior-inline: contain;
+      scrollbar-color: var(--accent) var(--panel);
+    }
+
+    table {
+      width: 100%;
+      min-width: 680px;
+      border-collapse: collapse;
+      color: var(--text);
+    }
+
+    caption {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--rule);
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    thead th {
+      padding: 0 18px 15px;
+      color: var(--muted);
+      font-size: .68rem;
+      font-weight: 500;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    tbody th,
+    tbody td {
+      padding: 18px;
+      font-size: clamp(.84rem, 1.5vw, 1.04rem);
+      font-weight: 400;
+      transition: background-color 160ms ease, color 160ms ease;
+    }
+
+    th:first-child,
+    td:first-child {
+      padding-left: 0;
+      text-align: left;
+    }
+
+    th:last-child,
+    td:last-child {
+      padding-right: 0;
+    }
+
+    tbody tr:hover th,
+    tbody tr:hover td {
+      color: var(--accent);
+      background: rgba(237, 138, 82, .035);
+    }
+
+    tbody tr.total th,
+    tbody tr.total td {
+      border-top: 1px solid var(--accent);
+      border-bottom-color: var(--accent);
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .record-note {
+      display: grid;
+      grid-template-columns: 6fr 6fr;
+      gap: 24px;
+      margin: 28px 0 0;
+      color: var(--text);
+      font-family: var(--figure);
+      font-size: .78rem;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.55;
+    }
+
+    .record-note::before {
+      width: 54px;
+      height: 1px;
+      margin-top: .72em;
+      background: var(--accent);
+      content: "";
+    }
+
+    .record-note span {
+      grid-column: 2;
+    }
+
+    .calibration .section-heading {
+      margin-bottom: 58px;
+    }
+
+    .calibration-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      border-top: 1px solid var(--rule-strong);
+      border-bottom: 1px solid var(--rule-strong);
+    }
+
+    .calibration-item {
+      padding: 32px 28px 36px;
+      border-left: 1px solid var(--rule);
+    }
+
+    .calibration-item:first-child {
+      padding-left: 0;
+      border-left: 0;
+    }
+
+    .calibration-fact {
+      margin-bottom: 24px;
+      color: var(--text);
+      font-size: clamp(1.15rem, 2.1vw, 1.8rem);
+      letter-spacing: -.04em;
+      line-height: 1.18;
+    }
+
+    .calibration-context {
+      max-width: 41ch;
+      margin: 0;
+      color: var(--muted);
+      font-size: .8rem;
+      line-height: 1.55;
+    }
+
+    .honest-wrap {
+      width: min(100% - 24px, 1320px);
+      margin: 12px auto;
+      padding-block: 12px;
+      border-top: 1px solid var(--accent);
+      border-bottom: 1px solid var(--accent);
+    }
+
+    .honest {
+      position: relative;
+      overflow: hidden;
+      padding: 78px clamp(24px, 6vw, 88px) 86px;
+      background: var(--paper);
+      color: var(--ink);
+    }
+
+    .honest::after {
+      position: absolute;
+      right: -4vw;
+      bottom: -16vw;
+      width: 34vw;
+      height: 34vw;
+      border: 1px solid rgba(168, 66, 34, .25);
+      border-radius: 50%;
+      box-shadow:
+        0 0 0 5vw rgba(168, 66, 34, .045),
+        0 0 0 10vw rgba(168, 66, 34, .035);
+      content: "";
+      pointer-events: none;
+    }
+
+    .honest h2 {
+      position: relative;
+      z-index: 1;
+      max-width: 850px;
+      margin: 0 0 66px;
+      font-family: var(--display);
+      font-size: clamp(4rem, 9.6vw, 9.5rem);
+      font-weight: 400;
+      letter-spacing: -.065em;
+      line-height: .82;
+    }
+
+    .honest-copy {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 1.25fr .75fr;
+      gap: clamp(30px, 7vw, 94px);
+      align-items: start;
+    }
+
+    .honest p {
+      margin: 0;
+      line-height: 1.62;
+    }
+
+    .honest p:first-child {
+      font-family: var(--display);
+      font-size: clamp(1.22rem, 2.25vw, 1.8rem);
+    }
+
+    .honest p:last-child {
+      padding-top: 8px;
+      border-top: 4px solid var(--accent-deep);
+      font-family: var(--figure);
+      font-size: .84rem;
+    }
+
+    .honest strong {
+      color: var(--accent-deep);
+      font-weight: 700;
+    }
+
+    .publishers {
+      border-bottom: 0;
+    }
+
+    .publisher-lead {
+      grid-column: 7 / -1;
+      margin: 7px 0 0;
+      color: var(--text) !important;
+      font-family: var(--display);
+      font-size: clamp(1.2rem, 2.3vw, 1.7rem) !important;
+      line-height: 1.4 !important;
+    }
+
+    .publisher-points {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      margin: 0;
+      padding: 0;
+      border-top: 1px solid var(--rule-strong);
+      list-style: none;
+    }
+
+    .publisher-points li {
+      display: grid;
+      grid-template-columns: .86fr 1.14fr;
+      gap: 26px;
+      padding: 30px 26px 34px 0;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .publisher-points li:nth-child(even) {
+      padding-right: 0;
+      padding-left: 26px;
+      border-left: 1px solid var(--rule);
+    }
+
+    .point-title {
+      color: var(--text);
+      font-family: var(--figure);
+      font-size: .82rem;
+      font-weight: 700;
+      line-height: 1.4;
+    }
+
+    .point-copy {
+      color: var(--muted);
+      font-size: .81rem;
+      line-height: 1.55;
+    }
+
+    .publisher-close {
+      display: grid;
+      grid-template-columns: 7fr 5fr;
+      gap: 24px;
+      align-items: end;
+      padding-top: 44px;
+    }
+
+    .publisher-close p {
+      max-width: 700px;
+      margin: 0;
+      color: var(--muted);
+      font-size: .9rem;
+    }
+
+    .publisher-close .action {
+      justify-self: end;
+    }
+
+    .site-footer {
+      background: var(--ground-deep);
+      border-top: 1px solid var(--rule-strong);
+    }
+
+    .footer-inner {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 24px;
+      padding-block: 48px 54px;
+    }
+
+    .footer-brand {
+      grid-column: 1 / 4;
+      margin: 0;
+      color: var(--text);
+      font-family: var(--figure);
+      font-size: .78rem;
+      font-weight: 700;
+      letter-spacing: .2em;
+    }
+
+    .footer-nav {
+      grid-column: 5 / 9;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 24px;
+      align-content: start;
+    }
+
+    .footer-nav a {
+      color: var(--muted);
+      font-family: var(--figure);
+      font-size: .7rem;
+      text-underline-offset: .3em;
+    }
+
+    .footer-nav a:hover {
+      color: var(--accent);
+    }
+
+    .footer-copy {
+      grid-column: 9 / -1;
+    }
+
+    .footer-copy p {
+      margin-bottom: 16px;
+      color: var(--muted);
+      font-size: .76rem;
+      line-height: 1.55;
+    }
+
+    .footer-copy p:last-child {
+      margin-bottom: 0;
+      color: var(--faint);
+      font-size: .68rem;
+    }
+
+    .reveal {
+      opacity: 0;
+      animation: rise-in 720ms cubic-bezier(.2, .65, .28, 1) forwards;
+    }
+
+    .site-header.reveal {
+      animation-delay: 40ms;
+    }
+
+    .hero .eyebrow {
+      animation-delay: 120ms;
+    }
+
+    .hero h1 {
+      animation-delay: 210ms;
+    }
+
+    .hero-copy {
+      animation-delay: 320ms;
+    }
+
+    .proof-strip {
+      animation-delay: 430ms;
+    }
+
+    @keyframes rise-in {
+      from {
+        opacity: 0;
+        transform: translateY(18px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (max-width: 900px) {
+      .hero {
+        min-height: auto;
+      }
+
+      h1 {
+        grid-column: 1 / -1;
+      }
+
+      .hero-copy {
+        grid-column: 5 / -1;
+      }
+
+      .proof-strip {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .proof-item:nth-child(3) {
+        padding-left: 0;
+        border-left: 0;
+        border-top: 1px solid var(--rule);
+      }
+
+      .proof-item:nth-child(4) {
+        border-top: 1px solid var(--rule);
+      }
+
+      .calibration-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .calibration-item:last-child {
+        grid-column: 1 / -1;
+        padding-left: 0;
+        border-top: 1px solid var(--rule);
+        border-left: 0;
+      }
+
+      .honest-copy {
+        grid-template-columns: 1fr;
+      }
+
+      .publisher-points {
+        grid-template-columns: 1fr;
+      }
+
+      .publisher-points li:nth-child(even) {
+        padding-left: 0;
+        border-left: 0;
+      }
+
+      .footer-brand {
+        grid-column: 1 / 5;
+      }
+
+      .footer-nav {
+        grid-column: 5 / -1;
+      }
+
+      .footer-copy {
+        grid-column: 5 / -1;
+        margin-top: 20px;
+      }
+    }
+
+    @media (max-width: 719px) {
+      :root {
+        --page: min(100% - 28px, 1240px);
+      }
+
+      body {
+        background: var(--ground);
+      }
+
+      .site-header {
+        min-height: 68px;
+      }
+
+      .header-note {
+        max-width: 19ch;
+        text-align: right;
+      }
+
+      .hero {
+        display: block;
+        padding-block: 42px 50px;
+      }
+
+      .hero .eyebrow {
+        margin-bottom: 48px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(3.25rem, 15vw, 5rem);
+        line-height: .91;
+      }
+
+      .hero-copy {
+        padding-top: 44px;
+      }
+
+      .hero-copy p {
+        font-size: 1.12rem;
+      }
+
+      .actions {
+        align-items: stretch;
+        gap: 10px;
+      }
+
+      .action {
+        width: 100%;
+      }
+
+      .proof-strip {
+        display: block;
+      }
+
+      .proof-item,
+      .proof-item:first-child,
+      .proof-item:nth-child(3) {
+        display: grid;
+        grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr);
+        gap: 16px 20px;
+        padding: 25px 0 27px;
+        border-top: 1px solid var(--rule);
+        border-left: 0;
+      }
+
+      .proof-item:first-child {
+        border-top: 0;
+      }
+
+      .proof-item:nth-child(4) {
+        border-left: 0;
+      }
+
+      .proof-label {
+        min-height: 0;
+        margin: 3px 0 0;
+      }
+
+      .proof-value {
+        margin-bottom: 0;
+        font-size: 1.72rem;
+        white-space: normal;
+      }
+
+      .proof-footnote {
+        grid-column: 2;
+      }
+
+      .section {
+        padding-block: 68px 76px;
+      }
+
+      .section-heading {
+        display: block;
+        margin-bottom: 38px;
+      }
+
+      .section-heading h2 {
+        margin-bottom: 28px;
+      }
+
+      .section-heading p {
+        margin-top: 0;
+      }
+
+      table {
+        min-width: 620px;
+      }
+
+      thead th {
+        padding-right: 14px;
+        padding-left: 14px;
+      }
+
+      tbody th,
+      tbody td {
+        padding: 16px 14px;
+      }
+
+      .record-note {
+        display: block;
+      }
+
+      .record-note::before {
+        display: block;
+        margin-bottom: 16px;
+      }
+
+      .calibration-grid {
+        display: block;
+      }
+
+      .calibration-item,
+      .calibration-item:first-child,
+      .calibration-item:last-child {
+        padding: 28px 0 30px;
+        border-top: 1px solid var(--rule);
+        border-left: 0;
+      }
+
+      .calibration-item:first-child {
+        border-top: 0;
+      }
+
+      .honest-wrap {
+        width: calc(100% - 14px);
+        margin-block: 7px;
+        padding-block: 7px;
+      }
+
+      .honest {
+        padding: 60px 21px 66px;
+      }
+
+      .honest h2 {
+        margin-bottom: 48px;
+        font-size: clamp(3.7rem, 19vw, 5.8rem);
+      }
+
+      .honest p:first-child {
+        font-size: 1.22rem;
+      }
+
+      .honest p:last-child {
+        font-size: .78rem;
+      }
+
+      .publisher-lead {
+        margin-top: 0;
+      }
+
+      .publisher-points {
+        display: block;
+      }
+
+      .publisher-points li,
+      .publisher-points li:nth-child(even) {
+        display: block;
+        padding: 26px 0 29px;
+        border-left: 0;
+      }
+
+      .point-title {
+        display: block;
+        margin-bottom: 12px;
+      }
+
+      .publisher-close {
+        display: block;
+      }
+
+      .publisher-close .action {
+        margin-top: 28px;
+      }
+
+      .footer-inner {
+        display: block;
+        padding-block: 40px 44px;
+      }
+
+      .footer-brand {
+        margin-bottom: 28px;
+      }
+
+      .footer-nav {
+        margin-bottom: 34px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+
+      *,
+      *::before,
+      *::after {
+        animation-duration: .01ms !important;
+        animation-delay: 0ms !important;
+        scroll-behavior: auto !important;
+        transition-duration: .01ms !important;
+      }
+
+      .reveal {
+        opacity: 1;
+      }
+    }
+  </style>
+</head>
+<body id="top">
+  <header class="site-header shell reveal">
+    <!-- BRAND: placeholder wordmark. Replace this string (appears 3× — wordmark, <title>, footer) when the brand name is chosen. -->
+    <a class="wordmark" href="#top" aria-label="Back to the top">THE MODEL</a>
+    <p class="header-note">Point-in-time forecasting</p>
+  </header>
+
+  <main>
+    <section class="hero shell" aria-labelledby="hero-title">
+      <p class="eyebrow reveal">Point-in-time forecasting · 2026 season, run live</p>
+      <h1 class="reveal" id="hero-title"><span>104 matches.</span> <span>Forecast before kickoff.</span> <span>Scored after.</span></h1>
+      <div class="hero-copy reveal">
+        <p>A Bayesian scoreline model that published a probability for every match of the 2026 World Cup before it was played — and publishes the scorecard, including the parts that were only average.</p>
+        <nav class="actions" aria-label="Primary">
+          <a class="action" href="./methodology.html">Read the methodology</a>
+          <a class="action secondary" href="./archive/">Browse the archive</a>
+        </nav>
+      </div>
+    </section>
+
+    <section class="proof-strip shell reveal" aria-label="The four headline calls">
+      <article class="proof-item">
+        <span class="proof-label">Champion called</span>
+        <strong class="proof-value">Spain</strong>
+        <p class="proof-footnote">its co-favorite throughout; a 50.7% / 49.3% call in the final itself</p>
+      </article>
+      <article class="proof-item">
+        <span class="proof-label">Both finalists</span>
+        <strong class="proof-value">Spain · Argentina</strong>
+        <p class="proof-footnote">its top two in title probabilities from the group stage onward</p>
+      </article>
+      <article class="proof-item">
+        <span class="proof-label">All four semifinalists</span>
+        <strong class="proof-value">4 / 4</strong>
+        <p class="proof-footnote">inside its projected quarterfinal eight, published before the Round of 32 finished</p>
+      </article>
+      <article class="proof-item">
+        <span class="proof-label">Most likely final score</span>
+        <strong class="proof-value">0–0</strong>
+        <p class="proof-footnote">13.9% — the single most likely scoreline; Spain won in extra time</p>
+      </article>
+    </section>
+
+    <section class="section record shell" aria-labelledby="record-title">
+      <div class="section-heading">
+        <h2 id="record-title">The record</h2>
+        <p>Modal-outcome hits are against the model's own 1X2 pick. Point-in-time: each match priced by a model that had seen only earlier results.</p>
+      </div>
+
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Match record by tournament stage">
+        <table>
+          <caption>Match record by stage. Modal-outcome hits are against the model's own 1X2 pick. Each match was priced point-in-time using only earlier results.</caption>
+          <thead>
+            <tr>
+              <th scope="col">Stage</th>
+              <th scope="col">Matches</th>
+              <th scope="col">Mean RPS</th>
+              <th scope="col">Modal hits</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Group</th>
+              <td>72</td>
+              <td>0.157</td>
+              <td>46 / 72</td>
+            </tr>
+            <tr>
+              <th scope="row">Round of 32</th>
+              <td>16</td>
+              <td>0.116</td>
+              <td>12 / 16</td>
+            </tr>
+            <tr>
+              <th scope="row">Round of 16</th>
+              <td>8</td>
+              <td>0.188</td>
+              <td>6 / 8</td>
+            </tr>
+            <tr>
+              <th scope="row">Quarter-finals</th>
+              <td>4</td>
+              <td>0.134</td>
+              <td>4 / 4</td>
+            </tr>
+            <tr>
+              <th scope="row">Semi-finals</th>
+              <td>2</td>
+              <td>0.196</td>
+              <td>2 / 2</td>
+            </tr>
+            <tr>
+              <th scope="row">Third place</th>
+              <td>1</td>
+              <td>0.333</td>
+              <td>0 / 1</td>
+            </tr>
+            <tr>
+              <th scope="row">Final</th>
+              <td>1</td>
+              <td>0.271</td>
+              <td>1 / 1</td>
+            </tr>
+            <tr class="total">
+              <th scope="row">All knockout</th>
+              <td>32</td>
+              <td>0.153</td>
+              <td>25 / 32</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="record-note"><span>Knockout ties by which team advanced: 26 of 32 (81%). Quarter-finals onward: 7 of 7.</span></p>
+    </section>
+
+    <section class="section calibration shell" aria-labelledby="calibration-title">
+      <div class="section-heading">
+        <h2 id="calibration-title">Calibration</h2>
+      </div>
+      <div class="calibration-grid">
+        <article class="calibration-item">
+          <h3 class="calibration-fact">Favorites: predicted 69.7%, realized 76.8%</h3>
+          <p class="calibration-context">across 56 favorite-band matches — calibrated, with the error on the humble side</p>
+        </article>
+        <article class="calibration-item">
+          <h3 class="calibration-fact">Draw rate: predicted 23.4%, realized 23.1%</h3>
+        </article>
+        <article class="calibration-item">
+          <h3 class="calibration-fact">Goal-margin tails within ~1.5 points at every threshold</h3>
+          <p class="calibration-context">≥2 goals: 42.8% predicted / 43.3% real · ≥3: 21.5 / 21.2 · ≥4: 10.2 / 8.7</p>
+        </article>
+      </div>
+    </section>
+
+    <div class="honest-wrap">
+      <section class="honest" aria-labelledby="honest-title">
+        <h2 id="honest-title">What it didn't do</h2>
+        <div class="honest-copy">
+          <p>Over the full 104-match replay, the model and a plain Elo baseline are <strong>statistically tied</strong> — 0.1561 against 0.1557. It was ahead through the group stage as played live (0.157 against 0.163), and the two converged across the knockouts. Both numbers are published because a forecaster that only reports its good window is not a forecaster.</p>
+          <p>It has <strong>no demonstrated edge against sharp betting markets</strong> — its own audit found a statistical tie there too. Nothing here is betting advice, and nothing on this site is sold as one.</p>
+        </div>
+      </section>
+    </div>
+
+    <section class="section publishers shell" aria-labelledby="publishers-title">
+      <div class="section-heading">
+        <h2 id="publishers-title">For publishers</h2>
+        <p class="publisher-lead">An embeddable forecast surface for your football coverage — probabilities, not picks.</p>
+      </div>
+
+      <ul class="publisher-points">
+        <li>
+          <span class="point-title">Every number ships with its uncertainty</span>
+          <span class="point-copy">no bare percentages anywhere; a missing input renders as a stated gap, never as a zero</span>
+        </li>
+        <li>
+          <span class="point-title">Point-in-time by construction</span>
+          <span class="point-copy">a forecast is a read at a timestamp; a result that wasn't knowable then cannot change it</span>
+        </li>
+        <li>
+          <span class="point-title">Your styling</span>
+          <span class="point-copy">CSS-variable theming, your domain, no cookies and no tracking of your readers</span>
+        </li>
+        <li>
+          <span class="point-title">A public archive behind every claim</span>
+          <span class="point-copy">each forecast is timestamped and republished; performance claims link to the record</span>
+        </li>
+      </ul>
+
+      <div class="publisher-close">
+        <p>Two tiers — the tournament ladder and schedule, or the full per-fixture detail. Availability by tournament window.</p>
+        <!-- CONTACT: placeholder email address. Replace before publication. -->
+        <a class="action secondary" href="mailto:TODO-address@example.com">Enquire about a tournament window</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner shell">
+      <p class="footer-brand">THE MODEL</p>
+      <nav class="footer-nav" aria-label="Footer">
+        <a href="./methodology.html">Methodology</a>
+        <a href="./archive/">Archive</a>
+        <a href="./archive/">Track record</a>
+      </nav>
+      <div class="footer-copy">
+        <p class="footer-note">Forecasts are probabilistic statements about uncertain events. Not betting advice.</p>
+        <p>Independent project. Not affiliated with, endorsed by, or connected to any football governing body or competition organiser.</p>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
