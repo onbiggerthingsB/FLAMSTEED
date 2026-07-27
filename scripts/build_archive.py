@@ -25,6 +25,7 @@ import subprocess
 from pathlib import Path
 
 from wcmodel.releases import BETTING_FIELD_DENYLIST
+from wcmodel.releases.projection import strip_betting
 
 _EXCLUDE_FILES = {"track.json"}
 _RESERVED_NAMES = {"releases", "manifest.json", "index.html"}
@@ -61,15 +62,6 @@ def _assert_under(out_root: Path, dest: Path) -> Path:
     except ValueError:
         raise ValueError(f"write destination escapes out_root: {dest}")
     return dest
-
-
-def strip_betting(obj):
-    if isinstance(obj, dict):
-        return {k: strip_betting(v) for k, v in obj.items()
-                if k not in BETTING_FIELD_DENYLIST}
-    if isinstance(obj, list):
-        return [strip_betting(v) for v in obj]
-    return obj
 
 
 def assemble_archive(src_root: Path, out_root: Path, include: list[str],

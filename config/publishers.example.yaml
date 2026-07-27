@@ -1,0 +1,15 @@
+# Copy to data/publishers/publishers.yaml, replace every fake value, and keep
+# the real registry out of version control. This example secret is deliberately
+# rejected by load_registry so the template cannot accidentally be deployed.
+publishers:
+  example-news:
+    name: Example Newsroom
+    tier: advanced
+    origins:
+      - https://publisher.example
+    secret: replace-with-a-unique-32-character-secret
+    valid_from: 2026-12-01
+    valid_until: 2027-02-28
+    tournaments: [ac2027]
+    browser_issue: true
+    max_origins: 3

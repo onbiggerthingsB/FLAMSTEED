@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Forecast service status</title>
+  </head>
+  <body>
+    <main>
+      <h1>Service status</h1>
+      <div id="status">loading…</div>
+    </main>
+    <script>
+      const statusNode = document.getElementById('status');
+
+      function paragraph(value) {
+        const node = document.createElement('p');
+        node.textContent = value;
+        return node;
+      }
+
+      fetch('/v1/status')
+        .then((response) => response.json())
+        .then((data) => {
+          statusNode.textContent = '';
+          if (!data.ok) {
+            statusNode.appendChild(paragraph('DEGRADED'));
+            return;
+          }
+          const tournaments = Object.entries(data.tournaments || {});
+          if (tournaments.length === 0) {
+            statusNode.appendChild(paragraph('no tournaments served'));
+            return;
+          }
+          for (const [tournament, asOf] of tournaments) {
+            const parsed = Date.parse(String(asOf));
+            const ageHours = (Date.now() - parsed) / 3.6e6;
+            const state = Number.isFinite(ageHours) && ageHours <= 48 ? 'fresh' : 'STALE';
+            statusNode.appendChild(
+              paragraph(`${String(tournament)}: as-of ${String(asOf)} — ${state}`),
+            );
+          }
+        })
+        .catch(() => {
+          statusNode.textContent = 'UNREACHABLE';
+        });
+    </script>
+  </body>
+</html>

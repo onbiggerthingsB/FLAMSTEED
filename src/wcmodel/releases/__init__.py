@@ -17,5 +17,14 @@ DATA_SOURCE_NAME = "martj42/international_results (community dataset)"
 BETTING_FIELD_DENYLIST = frozenset({
     "edge", "edges", "staked", "stake", "stake_signal", "entry_odds",
     "close_odds", "odds", "clv", "roi", "kelly", "bankroll", "value_bets",
-    "ev", "vig", "book", "bookmaker",
+    "ev", "vig", "book", "bookmaker", "market_1x2", "beat_close_rate",
+    "avg_clv",
+})
+
+# Words that must not appear in any publisher JSON string value. This is
+# deliberately narrower than arbitrary substrings: team names such as Real
+# Betis and ordinary words containing "roi" remain valid.
+BETTING_VOCAB = frozenset({
+    "odds", "bet", "bets", "betting", "stake", "staked", "kelly", "clv",
+    "roi", "bookmaker", "wager", "vig", "edge",
 })

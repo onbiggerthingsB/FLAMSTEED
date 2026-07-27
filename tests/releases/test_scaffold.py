@@ -22,7 +22,8 @@ def test_no_tournament_marks_in_model_name():
 def test_betting_denylist_covers_known_bundle_fields():
     # The fields production build.py actually attaches to forecast surfaces.
     for key in ("edge", "staked", "stake_signal", "entry_odds", "clv",
-                "roi", "kelly", "bankroll", "value_bets", "odds"):
+                "roi", "kelly", "bankroll", "value_bets", "odds",
+                "market_1x2", "beat_close_rate", "avg_clv"):
         assert key in releases.BETTING_FIELD_DENYLIST
 
 

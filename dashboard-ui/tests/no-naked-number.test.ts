@@ -36,31 +36,10 @@ import SpreadLine from '../src/components/SpreadLine.svelte';
 import HonestyBar from '../src/components/HonestyBar.svelte';
 import BracketTree from '../src/components/BracketTree.svelte';
 import App from '../src/App.svelte';
+import { assertNoNakedNumbers, PCT } from './helpers/guard';
 
 const dir = resolve(__dirname, 'fixtures/bundle');
 const J = (f: string) => JSON.parse(readFileSync(resolve(dir, f), 'utf8'));
-
-// A probability-shaped token: a digit (optionally with decimals), optional space, then %.
-// Catches "45%", "6.9%", "29 %" — i.e. any visible percentage readout.
-const PCT = /\d+(\.\d+)?\s*%/;
-
-// The conscious exemption set: the markers under which a probability MAY render.
-// [data-estimate] is included because an estimate's point value (its ".val" text,
-// e.g. "29%") legitimately lives inside the estimate — and invariant (1) below
-// SEPARATELY guarantees that estimate carries a [data-uncertainty] ± companion (or
-// is a "—" null). So a % inside a [data-estimate] is never naked: its uncertainty is
-// enforced by (1). A bare "45%" with no [data-estimate] ancestor still has no escape.
-//
-// MARKER-DISCIPLINE NOTE on [data-derived] (FIX 3 — read before adding any new use):
-//   [data-derived] is a CONSCIOUSLY-REVIEWED exemption for NON-FORECAST numbers ONLY —
-//   namely DERIVED signals (the EdgeChip's edge %, the ¼-Kelly stake signal, entry odds)
-//   and BACKWARD-LOOKING performance stats (the Track record: beat-close rate, CLV, RPS,
-//   reliability bins). These are not posteriors, so they carry no ± companion by design.
-//   It must NEVER wrap a FORWARD-LOOKING FORECAST probability — a forecast must keep its
-//   uncertainty companion (± / "distribution" region / coverage-gap). The guard cannot
-//   infer semantics from markup, so it CANNOT tell a derived % from a smuggled forecast %;
-//   every new [data-derived] use is therefore a manual review checkpoint, not a free pass.
-const EXEMPT = '[data-uncertainty], [data-coverage-gap], [data-derived], [data-estimate]';
 
 /**
  * The load-bearing guard. Factored out so the REAL surfaces (which must pass) and a
@@ -79,7 +58,10 @@ const EXEMPT = '[data-uncertainty], [data-coverage-gap], [data-derived], [data-e
  *      ScorelineGrid titles) all live inside data-uncertainty="distribution", so they
  *      pass; this closes the door on FUTURE forecasts leaking a % via an attribute.
  */
+/* Historical implementation extracted to tests/helpers/guard.ts.
 function assertNoNakedNumbers(container: HTMLElement) {
+  // Extracted verbatim to tests/helpers/guard.ts. Historical body retained as
+     a reviewable record; it is comments only and executes zero assertions.
   // (1) every estimate carries an uncertainty companion (or is a null em-dash, or inside a gap).
   container.querySelectorAll('[data-estimate]').forEach((est) => {
     const hasCompanion = est.querySelector('[data-uncertainty]') !== null;
@@ -114,6 +96,7 @@ function assertNoNakedNumbers(container: HTMLElement) {
     }
   });
 }
+*/
 
 describe('no naked numbers — every surface honours the uncertainty/gap/derived markers', () => {
   test('Schedule (GROUP stage) has no naked numbers', () => {
