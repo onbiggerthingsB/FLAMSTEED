@@ -25,7 +25,7 @@ def test_rps_of_devig_rewards_calibrated_probabilities():
     odds_list = [[1.57, 4.20, 6.50], [2.0, 3.4, 4.0]]
     outcomes = ["home", "away"]                  # realised results, OUTCOMES-labelled
     rps = rps_of_devig(odds_list, outcomes, method="shin")
-    assert 0.0 <= rps <= 2.0                     # RPS for a 3-way market is in [0, 2]
+    assert 0.0 <= rps <= 1.0                     # ÷2-normalized (OA F16): [0, 1]
 
 
 def test_choose_devig_picks_lowest_rps_with_shin_default_on_tie():

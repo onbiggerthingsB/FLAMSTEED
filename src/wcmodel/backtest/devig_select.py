@@ -22,6 +22,7 @@ from __future__ import annotations
 from wcmodel.config import load_config
 from wcmodel.data import devig as _devig
 from wcmodel.backtest.odds_ingest import OUTCOMES
+from wcmodel.model.calibration import rps as _canonical_rps
 
 #: The ONLY choosable de-vig methods. Buchdahl is never here (see module docstring).
 DEVIG_METHODS = ("shin", "multiplicative", "power")
@@ -48,20 +49,10 @@ def devig(odds: list[float], *, method: str) -> list[float]:
 
 
 def _rps(probs: list[float], outcome: str) -> float:
-    """Ranked Probability Score for one 3-way forecast vs the realised outcome.
-
-    RPS = sum over the first K-1 categories of (cumulative_pred - cumulative_obs)^2,
-    on the ordered categories ``OUTCOMES`` = (home, draw, away). For a 3-way market
-    RPS lies in [0, 2]; lower is better-calibrated.
-    """
-    obs = [1.0 if o == outcome else 0.0 for o in OUTCOMES]
-    cum_p = cum_o = 0.0
-    total = 0.0
-    for k in range(len(OUTCOMES) - 1):           # K-1 = 2 cumulative terms
-        cum_p += probs[k]
-        cum_o += obs[k]
-        total += (cum_p - cum_o) ** 2
-    return total
+    """Canonical ÷2-normalized 3-way RPS in [0,1] (delegates to
+    ``wcmodel.model.calibration.rps`` — ONE convention codebase-wide, OA F16)."""
+    return _canonical_rps(
+        {"home": probs[0], "draw": probs[1], "away": probs[2]}, outcome)
 
 
 def rps_of_devig(odds_list: list[list[float]], outcomes: list[str],
