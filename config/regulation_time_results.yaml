@@ -1,0 +1,212 @@
+# 90-minute (regulation) results for knockout fixtures (OA finding 3).
+#
+# Bookmaker 1X2 settles at 90 minutes, so extra-time-inclusive final scores
+# must never be scored against 1X2 prices. score_90 is the score at the END OF
+# 90 MINUTES (stoppage time included; 90+n counts as inside 90'). went_et means
+# the match continued into extra time, which is only possible from a 90' draw.
+# Group-stage matches need no entry — there the store score IS the 90' score.
+#
+# Team names AND home/away orientation match the martj42 store
+# (data/stores/full_final). Wikipedia's bracket sometimes lists the pair the
+# other way round (e.g. the Euro-2024 QF as "Spain vs Germany"); those rows are
+# flipped, score included, so the table joins to the store on (date,home,away).
+# Curated from the Wikipedia match reports listed in each row's source field:
+# every row's teams/date/final score were cross-checked against the store, and
+# each 90' score was derived from the goal-minute annotations in that report.
+# Counts: wc2022 16, euro2024 15, wc2026 32 = 63 rows. No fixture was omitted.
+
+
+# --- wc2022 (16 knockout fixtures) ---
+- {pool: wc2022, date: 2022-12-03, home: Argentina, away: Australia,
+   score_90: [2, 1], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2022_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2022, date: 2022-12-03, home: Netherlands, away: United States,
+   score_90: [3, 1], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2022_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2022, date: 2022-12-04, home: England, away: Senegal,
+   score_90: [3, 0], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2022_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2022, date: 2022-12-04, home: France, away: Poland,
+   score_90: [3, 1], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2022_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2022, date: 2022-12-05, home: Brazil, away: South Korea,
+   score_90: [4, 1], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2022_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2022, date: 2022-12-05, home: Japan, away: Croatia,
+   score_90: [1, 1], went_et: true,
+   source: "https://en.wikipedia.org/wiki/2022_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2022, date: 2022-12-06, home: Morocco, away: Spain,
+   score_90: [0, 0], went_et: true,
+   source: "https://en.wikipedia.org/wiki/2022_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2022, date: 2022-12-06, home: Portugal, away: Switzerland,
+   score_90: [6, 1], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2022_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2022, date: 2022-12-09, home: Croatia, away: Brazil,
+   score_90: [0, 0], went_et: true,
+   source: "https://en.wikipedia.org/wiki/2022_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2022, date: 2022-12-09, home: Netherlands, away: Argentina,
+   score_90: [2, 2], went_et: true,
+   source: "https://en.wikipedia.org/wiki/Battle_of_Lusail"}
+- {pool: wc2022, date: 2022-12-10, home: England, away: France,
+   score_90: [1, 2], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2022_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2022, date: 2022-12-10, home: Morocco, away: Portugal,
+   score_90: [1, 0], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2022_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2022, date: 2022-12-13, home: Argentina, away: Croatia,
+   score_90: [3, 0], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2022_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2022, date: 2022-12-14, home: France, away: Morocco,
+   score_90: [2, 0], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2022_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2022, date: 2022-12-17, home: Croatia, away: Morocco,
+   score_90: [2, 1], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2022_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2022, date: 2022-12-18, home: Argentina, away: France,
+   score_90: [2, 2], went_et: true,
+   source: "https://en.wikipedia.org/wiki/2022_FIFA_World_Cup_final"}
+
+# --- euro2024 (15 knockout fixtures) ---
+- {pool: euro2024, date: 2024-06-29, home: Germany, away: Denmark,
+   score_90: [2, 0], went_et: false,
+   source: "https://en.wikipedia.org/wiki/UEFA_Euro_2024_knockout_stage"}
+- {pool: euro2024, date: 2024-06-29, home: Switzerland, away: Italy,
+   score_90: [2, 0], went_et: false,
+   source: "https://en.wikipedia.org/wiki/UEFA_Euro_2024_knockout_stage"}
+- {pool: euro2024, date: 2024-06-30, home: England, away: Slovakia,
+   score_90: [1, 1], went_et: true,
+   source: "https://en.wikipedia.org/wiki/UEFA_Euro_2024_knockout_stage"}
+- {pool: euro2024, date: 2024-06-30, home: Spain, away: Georgia,
+   score_90: [4, 1], went_et: false,
+   source: "https://en.wikipedia.org/wiki/UEFA_Euro_2024_knockout_stage"}
+- {pool: euro2024, date: 2024-07-01, home: France, away: Belgium,
+   score_90: [1, 0], went_et: false,
+   source: "https://en.wikipedia.org/wiki/UEFA_Euro_2024_knockout_stage"}
+- {pool: euro2024, date: 2024-07-01, home: Portugal, away: Slovenia,
+   score_90: [0, 0], went_et: true,
+   source: "https://en.wikipedia.org/wiki/UEFA_Euro_2024_knockout_stage"}
+- {pool: euro2024, date: 2024-07-02, home: Austria, away: Turkey,
+   score_90: [1, 2], went_et: false,
+   source: "https://en.wikipedia.org/wiki/UEFA_Euro_2024_knockout_stage"}
+- {pool: euro2024, date: 2024-07-02, home: Romania, away: Netherlands,
+   score_90: [0, 3], went_et: false,
+   source: "https://en.wikipedia.org/wiki/UEFA_Euro_2024_knockout_stage"}
+- {pool: euro2024, date: 2024-07-05, home: Germany, away: Spain,
+   score_90: [1, 1], went_et: true,
+   source: "https://en.wikipedia.org/wiki/UEFA_Euro_2024_knockout_stage"}
+- {pool: euro2024, date: 2024-07-05, home: Portugal, away: France,
+   score_90: [0, 0], went_et: true,
+   source: "https://en.wikipedia.org/wiki/UEFA_Euro_2024_knockout_stage"}
+- {pool: euro2024, date: 2024-07-06, home: England, away: Switzerland,
+   score_90: [1, 1], went_et: true,
+   source: "https://en.wikipedia.org/wiki/UEFA_Euro_2024_knockout_stage"}
+- {pool: euro2024, date: 2024-07-06, home: Netherlands, away: Turkey,
+   score_90: [2, 1], went_et: false,
+   source: "https://en.wikipedia.org/wiki/UEFA_Euro_2024_knockout_stage"}
+- {pool: euro2024, date: 2024-07-09, home: Spain, away: France,
+   score_90: [2, 1], went_et: false,
+   source: "https://en.wikipedia.org/wiki/UEFA_Euro_2024_knockout_stage"}
+- {pool: euro2024, date: 2024-07-10, home: Netherlands, away: England,
+   score_90: [1, 2], went_et: false,
+   source: "https://en.wikipedia.org/wiki/UEFA_Euro_2024_knockout_stage"}
+- {pool: euro2024, date: 2024-07-14, home: Spain, away: England,
+   score_90: [2, 1], went_et: false,
+   source: "https://en.wikipedia.org/wiki/UEFA_Euro_2024_final"}
+
+# --- wc2026 (32 knockout fixtures) ---
+- {pool: wc2026, date: 2026-06-28, home: South Africa, away: Canada,
+   score_90: [0, 1], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_round_of_32"}
+- {pool: wc2026, date: 2026-06-29, home: Brazil, away: Japan,
+   score_90: [2, 1], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_round_of_32"}
+- {pool: wc2026, date: 2026-06-29, home: Germany, away: Paraguay,
+   score_90: [1, 1], went_et: true,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_round_of_32"}
+- {pool: wc2026, date: 2026-06-29, home: Netherlands, away: Morocco,
+   score_90: [1, 1], went_et: true,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_round_of_32"}
+- {pool: wc2026, date: 2026-06-30, home: France, away: Sweden,
+   score_90: [3, 0], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_round_of_32"}
+- {pool: wc2026, date: 2026-06-30, home: Ivory Coast, away: Norway,
+   score_90: [1, 2], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_round_of_32"}
+- {pool: wc2026, date: 2026-06-30, home: Mexico, away: Ecuador,
+   score_90: [2, 0], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_round_of_32"}
+- {pool: wc2026, date: 2026-07-01, home: Belgium, away: Senegal,
+   score_90: [2, 2], went_et: true,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_round_of_32"}
+- {pool: wc2026, date: 2026-07-01, home: England, away: DR Congo,
+   score_90: [2, 1], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_round_of_32"}
+- {pool: wc2026, date: 2026-07-01, home: United States, away: Bosnia and Herzegovina,
+   score_90: [2, 0], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_round_of_32"}
+- {pool: wc2026, date: 2026-07-02, home: Portugal, away: Croatia,
+   score_90: [2, 1], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_round_of_32"}
+- {pool: wc2026, date: 2026-07-02, home: Spain, away: Austria,
+   score_90: [3, 0], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_round_of_32"}
+- {pool: wc2026, date: 2026-07-02, home: Switzerland, away: Algeria,
+   score_90: [2, 0], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_round_of_32"}
+- {pool: wc2026, date: 2026-07-03, home: Argentina, away: Cape Verde,
+   score_90: [1, 1], went_et: true,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_round_of_32"}
+- {pool: wc2026, date: 2026-07-03, home: Australia, away: Egypt,
+   score_90: [1, 1], went_et: true,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_round_of_32"}
+- {pool: wc2026, date: 2026-07-03, home: Colombia, away: Ghana,
+   score_90: [1, 0], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_round_of_32"}
+- {pool: wc2026, date: 2026-07-04, home: Canada, away: Morocco,
+   score_90: [0, 3], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2026, date: 2026-07-04, home: Paraguay, away: France,
+   score_90: [0, 1], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2026, date: 2026-07-05, home: Brazil, away: Norway,
+   score_90: [1, 2], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2026, date: 2026-07-05, home: Mexico, away: England,
+   score_90: [2, 3], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2026, date: 2026-07-06, home: Portugal, away: Spain,
+   score_90: [0, 1], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2026, date: 2026-07-06, home: United States, away: Belgium,
+   score_90: [1, 4], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2026, date: 2026-07-07, home: Argentina, away: Egypt,
+   score_90: [3, 2], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2026, date: 2026-07-07, home: Switzerland, away: Colombia,
+   score_90: [0, 0], went_et: true,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2026, date: 2026-07-09, home: France, away: Morocco,
+   score_90: [2, 0], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2026, date: 2026-07-10, home: Spain, away: Belgium,
+   score_90: [2, 1], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2026, date: 2026-07-11, home: Argentina, away: Switzerland,
+   score_90: [1, 1], went_et: true,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2026, date: 2026-07-11, home: Norway, away: England,
+   score_90: [1, 1], went_et: true,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2026, date: 2026-07-14, home: France, away: Spain,
+   score_90: [0, 2], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2026, date: 2026-07-15, home: England, away: Argentina,
+   score_90: [1, 2], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2026, date: 2026-07-18, home: France, away: England,
+   score_90: [4, 6], went_et: false,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_knockout_stage"}
+- {pool: wc2026, date: 2026-07-19, home: Spain, away: Argentina,
+   score_90: [0, 0], went_et: true,
+   source: "https://en.wikipedia.org/wiki/2026_FIFA_World_Cup_final"}
