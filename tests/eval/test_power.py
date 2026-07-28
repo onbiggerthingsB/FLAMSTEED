@@ -66,6 +66,20 @@ def test_power_monotone_in_effect():
     assert p_large > 0.9
 
 
+def test_power_at_the_floor_is_a_coin_flip():
+    # The MDE is set by the DISPERSION of the simulated panel mean, not by the
+    # floor: with the true effect EQUAL to the floor, half the panels miss the
+    # floor on noise alone, so power(delta == floor) must be ~0.5. support_req=0
+    # isolates the floor half of the gate. A panel draw that is a permutation
+    # rather than a resample makes d.mean() exactly -delta and collapses this
+    # curve to a step, while every other test in this file still passes.
+    pool, day, rng = _fake_panel(seed=6)
+    noise = rng.normal(0.0, 0.0133, size=len(pool))
+    p = simulate_power(noise, pool, day, delta=0.002, floor=0.002,
+                       support_req=0.0, n_sims=400, n_boot=1, seed=0)
+    assert 0.40 < p < 0.60
+
+
 def test_effect_is_measured_from_the_centered_noise():
     # delta means "true effect", which holds only because simulate_power
     # subtracts the noise sample's own mean: the empirical k0.5-k0.6 diffs
@@ -137,6 +151,11 @@ def test_length_mismatch_is_rejected():
         simulate_power(np.concatenate([diffs, diffs]), pool, day, delta=0.001,
                        floor=0.002, support_req=0.8, n_sims=2, n_boot=10,
                        seed=0)
+    # a floor no panel can clear: with every sim skipped before the bootstrap,
+    # simulate_power's OWN guard is the only thing left to catch the mismatch
+    with pytest.raises(ValueError, match="length"):
+        simulate_power(np.concatenate([diffs, diffs]), pool, day, delta=0.0,
+                       floor=1.0, support_req=0.8, n_sims=3, n_boot=10, seed=0)
 
 
 def test_detail_reports_which_half_of_the_gate_binds():
