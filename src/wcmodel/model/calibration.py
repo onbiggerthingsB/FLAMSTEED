@@ -55,7 +55,7 @@ RPS/CLV belong to Phase 4.
 
 Reproducible & NULL-safe: ``vs_elo_baseline`` is a deterministic reduction over a
 fitted ``Posterior`` (the seeded fit is the caller's); the played filter
-guarantees integer goals so ``_outcome`` never sees a NaN score.
+guarantees integer goals so ``outcome_1x2`` never sees a NaN score.
 """
 from __future__ import annotations
 
@@ -101,8 +101,9 @@ def log_loss(probs: dict, outcome: str) -> float:
     return -math.log(max(float(probs[outcome]), 1e-15))
 
 
-def _outcome(home_goals, away_goals) -> str:
-    """Map a (home, away) goal pair to its 1X2 label."""
+def outcome_1x2(home_goals, away_goals) -> str:
+    """Map a (home, away) goal pair to its 1X2 label (the canonical mapper —
+    public so no other module needs a second copy, cf. finding 16)."""
     h, a = int(home_goals), int(away_goals)
     if h > a:
         return "home"
@@ -184,7 +185,7 @@ def vs_elo_baseline(posterior, store, cutoff, config=None) -> dict:
     model_scores: list[float] = []
     elo_scores: list[float] = []
     for row in mp.itertuples(index=False):
-        outcome = _outcome(row.home_goals, row.away_goals)
+        outcome = outcome_1x2(row.home_goals, row.away_goals)
         neutral = bool(row.neutral)
 
         model_p = posterior.predict_1x2(

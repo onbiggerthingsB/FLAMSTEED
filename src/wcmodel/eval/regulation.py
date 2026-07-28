@@ -10,22 +10,57 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-_PATH = Path("config/regulation_time_results.yaml")
+from wcmodel.model.calibration import outcome_1x2
+
+# regulation.py lives at src/wcmodel/eval/ -> the repo root (which holds config/)
+# is parents[3] (eval -> wcmodel -> src -> repo); the consumers are a script and
+# a WSGI app, neither of which owns the cwd.
+_PATH = Path(__file__).resolve().parents[3] / "config" / "regulation_time_results.yaml"
+
+_REQUIRED = ("pool", "date", "home", "away", "score_90", "went_et", "source")
+
+
+def _score_90(value) -> tuple[int, int]:
+    """Exactly two non-negative integers. A third element, a missing one or a
+    float are all hand-edit errors: refuse them rather than read the first two
+    or truncate (``int(2.9) == 2`` would pass off a typo as a real scoreline)."""
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        raise ValueError(f"score_90 must be [home, away]; got {value!r}")
+    for goals in value:
+        if isinstance(goals, bool) or not isinstance(goals, int):
+            raise ValueError(f"score_90 entries must be integers; got {value!r}")
+        if goals < 0:
+            raise ValueError(f"negative 90' score: {value!r}")
+    return int(value[0]), int(value[1])
 
 
 def load_regulation_table(path: Path = _PATH) -> pd.DataFrame:
     rows = yaml.safe_load(path.read_text())
     df = pd.DataFrame(rows)
-    df["h90"] = df["score_90"].map(lambda s: int(s[0]))
-    df["a90"] = df["score_90"].map(lambda s: int(s[1]))
+    missing = [c for c in _REQUIRED if c not in df.columns]
+    if missing:
+        raise ValueError(f"missing column(s) {missing} in {path}")
+    scores = df["score_90"].map(_score_90)
+    df["h90"] = scores.map(lambda s: s[0])
+    df["a90"] = scores.map(lambda s: s[1])
     df["date"] = df["date"].astype(str)
-    if (df["h90"] < 0).any() or (df["a90"] < 0).any():
-        raise ValueError("negative 90' score")
+    if df["went_et"].dtype != bool:
+        raise ValueError("went_et must be true/false on every row")
     dupes = df.duplicated(["pool", "date", "home", "away"])
     if dupes.any():
         raise ValueError(f"duplicate fixtures:\n{df[dupes]}")
+    # Every row is a KNOCKOUT fixture, so the two invariants are exact
+    # complements: ET happened IFF the 90' was level. Neither is visible to the
+    # store cross-check — an ET match recorded with a 90' winner still joins.
+    drew = df["h90"] == df["a90"]
+    if (df["went_et"] & ~drew).any():
+        raise ValueError(f"went_et but not level at 90':\n{df[df['went_et'] & ~drew]}")
+    if (~df["went_et"] & drew).any():
+        raise ValueError(f"level at 90' but went_et false:\n{df[~df['went_et'] & drew]}")
     return df.drop(columns=["score_90"])
 
 
 def regulation_outcome(h90: int, a90: int) -> str:
-    return "home" if h90 > a90 else ("away" if a90 > h90 else "draw")
+    """1X2 label of a 90' score — delegates to the canonical mapper so this
+    package adds no second score->outcome convention (finding 16)."""
+    return outcome_1x2(h90, a90)
