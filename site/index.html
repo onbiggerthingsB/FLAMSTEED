@@ -1,1020 +1,632 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="A Bayesian scoreline model that published a probability for every match of the 2026 World Cup before it was played — with the full scorecard.">
-  <title>THE MODEL — Point-in-time forecasting</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --ground: #101719;
-      --ground-deep: #0b1113;
-      --panel: #172023;
-      --text: #f1ecdf;
-      --muted: #b9b6aa;
-      --faint: #868b86;
-      --rule: #3c4647;
-      --rule-strong: #66706f;
-      --accent: #ed8a52;
-      --accent-deep: #a84222;
-      --paper: #e8e1d2;
-      --ink: #1b2223;
-      --display: "Iowan Old Style", "Palatino Linotype", Charter, Georgia, serif;
-      --figure: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-      --sans: "Avenir Next", Avenir, "Helvetica Neue", Helvetica, sans-serif;
-      --page: min(100% - 40px, 1240px);
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    html {
-      background: var(--ground);
-      scroll-behavior: smooth;
-      overflow-x: hidden;
-    }
-
-    body {
-      min-width: 0;
-      max-width: 100%;
-      margin: 0;
-      overflow-x: hidden;
-      background:
-        linear-gradient(90deg, transparent 0, transparent calc(50% - .5px), rgba(241, 236, 223, .035) calc(50% - .5px), rgba(241, 236, 223, .035) calc(50% + .5px), transparent calc(50% + .5px)),
-        var(--ground);
-      color: var(--text);
-      font-family: var(--sans);
-      font-size: 16px;
-      line-height: 1.55;
-      text-rendering: optimizeLegibility;
-    }
-
-    a {
-      color: inherit;
-      text-decoration-color: var(--accent);
-      text-decoration-thickness: 1px;
-      text-underline-offset: .22em;
-    }
-
-    a:hover {
-      color: var(--accent);
-    }
-
-    a:focus-visible {
-      border-radius: 2px;
-      outline: 3px solid var(--accent);
-      outline-offset: 5px;
-    }
-
-    ::selection {
-      background: var(--accent);
-      color: var(--ground-deep);
-    }
-
-    .shell {
-      width: var(--page);
-      margin-inline: auto;
-    }
-
-    .mono,
-    .eyebrow,
-    .wordmark,
-    .proof-label,
-    .proof-value,
-    .section-kicker,
-    th,
-    td,
-    .calibration-fact,
-    .footer-note {
-      font-family: var(--figure);
-      font-variant-numeric: tabular-nums lining-nums;
-    }
-
-    .site-header {
-      display: flex;
-      min-height: 84px;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid var(--rule-strong);
-    }
-
-    .wordmark {
-      color: var(--text);
-      font-size: .78rem;
-      font-weight: 700;
-      letter-spacing: .2em;
-      text-decoration: none;
-    }
-
-    .header-note {
-      margin: 0;
-      color: var(--muted);
-      font-family: var(--figure);
-      font-size: .68rem;
-      letter-spacing: .09em;
-      text-transform: uppercase;
-    }
-
-    .hero {
-      display: grid;
-      grid-template-columns: repeat(12, minmax(0, 1fr));
-      gap: 24px;
-      min-height: 590px;
-      padding-block: 66px 72px;
-      border-bottom: 1px solid var(--rule-strong);
-    }
-
-    .eyebrow {
-      grid-column: 1 / -1;
-      align-self: start;
-      margin: 0;
-      color: var(--accent);
-      font-size: .72rem;
-      letter-spacing: .1em;
-      text-transform: uppercase;
-    }
-
-    h1,
-    h2,
-    h3,
-    p {
-      margin-top: 0;
-    }
-
-    h1 {
-      grid-column: 1 / 11;
-      margin: 42px 0 0;
-      font-family: var(--display);
-      font-size: clamp(3.6rem, 7.35vw, 7.2rem);
-      font-weight: 400;
-      letter-spacing: -.055em;
-      line-height: .88;
-      text-wrap: balance;
-    }
-
-    h1 span {
-      display: block;
-    }
-
-    .hero-copy {
-      grid-column: 7 / -1;
-      align-self: end;
-      padding-top: 52px;
-    }
-
-    .hero-copy p {
-      max-width: 620px;
-      margin-bottom: 32px;
-      color: var(--muted);
-      font-family: var(--display);
-      font-size: clamp(1.15rem, 2vw, 1.55rem);
-      line-height: 1.45;
-    }
-
-    .actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px 24px;
-      align-items: center;
-    }
-
-    .action {
-      display: inline-flex;
-      min-height: 46px;
-      align-items: center;
-      justify-content: center;
-      padding: 10px 17px;
-      border: 1px solid var(--accent);
-      color: var(--ground-deep);
-      background: var(--accent);
-      font-family: var(--figure);
-      font-size: .74rem;
-      font-weight: 700;
-      letter-spacing: .04em;
-      text-decoration: none;
-      text-transform: uppercase;
-      transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
-    }
-
-    .action.secondary {
-      color: var(--text);
-      background: transparent;
-    }
-
-    .action:hover {
-      color: var(--text);
-      background: transparent;
-      transform: translateY(-2px);
-    }
-
-    .action.secondary:hover {
-      color: var(--ground-deep);
-      background: var(--accent);
-    }
-
-    .proof-strip {
-      display: grid;
-      grid-template-columns: 1.05fr 1.35fr .78fr 1.18fr;
-      border-bottom: 1px solid var(--rule-strong);
-    }
-
-    .proof-item {
-      min-width: 0;
-      padding: 34px 26px 38px;
-      border-left: 1px solid var(--rule);
-    }
-
-    .proof-item:first-child {
-      padding-left: 0;
-      border-left: 0;
-    }
-
-    .proof-label {
-      display: block;
-      min-height: 2.5em;
-      margin-bottom: 24px;
-      color: var(--muted);
-      font-size: .66rem;
-      letter-spacing: .075em;
-      line-height: 1.25;
-      text-transform: uppercase;
-    }
-
-    .proof-value {
-      display: block;
-      margin-bottom: 18px;
-      color: var(--text);
-      font-size: clamp(1.5rem, 3vw, 2.7rem);
-      font-weight: 500;
-      letter-spacing: -.06em;
-      line-height: 1;
-      white-space: nowrap;
-    }
-
-    .proof-item:nth-child(3) .proof-value {
-      font-family: var(--display);
-      font-style: italic;
-      letter-spacing: -.045em;
-    }
-
-    .proof-footnote {
-      max-width: 31ch;
-      margin: 0;
-      color: var(--muted);
-      font-size: .8rem;
-      line-height: 1.45;
-    }
-
-    .section {
-      padding-block: 92px 104px;
-      border-bottom: 1px solid var(--rule-strong);
-    }
-
-    .section-heading {
-      display: grid;
-      grid-template-columns: repeat(12, minmax(0, 1fr));
-      gap: 24px;
-      align-items: start;
-      margin-bottom: 50px;
-    }
-
-    .section-heading h2 {
-      grid-column: 1 / 6;
-      margin: 0;
-      font-family: var(--display);
-      font-size: clamp(2.9rem, 5vw, 5.1rem);
-      font-weight: 400;
-      letter-spacing: -.045em;
-      line-height: .95;
-    }
-
-    .section-heading p {
-      grid-column: 7 / -1;
-      margin: 7px 0 0;
-      color: var(--muted);
-      font-size: .88rem;
-      line-height: 1.6;
-    }
-
-    .table-wrap {
-      max-width: 100%;
-      overflow-x: auto;
-      overscroll-behavior-inline: contain;
-      scrollbar-color: var(--accent) var(--panel);
-    }
-
-    table {
-      width: 100%;
-      min-width: 680px;
-      border-collapse: collapse;
-      color: var(--text);
-    }
-
-    caption {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      padding: 0;
-      margin: -1px;
-      overflow: hidden;
-      clip: rect(0, 0, 0, 0);
-      white-space: nowrap;
-      border: 0;
-    }
-
-    th,
-    td {
-      border-bottom: 1px solid var(--rule);
-      text-align: right;
-      white-space: nowrap;
-    }
-
-    thead th {
-      padding: 0 18px 15px;
-      color: var(--muted);
-      font-size: .68rem;
-      font-weight: 500;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-    }
-
-    tbody th,
-    tbody td {
-      padding: 18px;
-      font-size: clamp(.84rem, 1.5vw, 1.04rem);
-      font-weight: 400;
-      transition: background-color 160ms ease, color 160ms ease;
-    }
-
-    th:first-child,
-    td:first-child {
-      padding-left: 0;
-      text-align: left;
-    }
-
-    th:last-child,
-    td:last-child {
-      padding-right: 0;
-    }
-
-    tbody tr:hover th,
-    tbody tr:hover td {
-      color: var(--accent);
-      background: rgba(237, 138, 82, .035);
-    }
-
-    tbody tr.total th,
-    tbody tr.total td {
-      border-top: 1px solid var(--accent);
-      border-bottom-color: var(--accent);
-      color: var(--accent);
-      font-weight: 700;
-    }
-
-    .record-note {
-      display: grid;
-      grid-template-columns: 6fr 6fr;
-      gap: 24px;
-      margin: 28px 0 0;
-      color: var(--text);
-      font-family: var(--figure);
-      font-size: .78rem;
-      font-variant-numeric: tabular-nums;
-      line-height: 1.55;
-    }
-
-    .record-note::before {
-      width: 54px;
-      height: 1px;
-      margin-top: .72em;
-      background: var(--accent);
-      content: "";
-    }
-
-    .record-note span {
-      grid-column: 2;
-    }
-
-    .calibration .section-heading {
-      margin-bottom: 58px;
-    }
-
-    .calibration-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      border-top: 1px solid var(--rule-strong);
-      border-bottom: 1px solid var(--rule-strong);
-    }
-
-    .calibration-item {
-      padding: 32px 28px 36px;
-      border-left: 1px solid var(--rule);
-    }
-
-    .calibration-item:first-child {
-      padding-left: 0;
-      border-left: 0;
-    }
-
-    .calibration-fact {
-      margin-bottom: 24px;
-      color: var(--text);
-      font-size: clamp(1.15rem, 2.1vw, 1.8rem);
-      letter-spacing: -.04em;
-      line-height: 1.18;
-    }
-
-    .calibration-context {
-      max-width: 41ch;
-      margin: 0;
-      color: var(--muted);
-      font-size: .8rem;
-      line-height: 1.55;
-    }
-
-    .honest-wrap {
-      width: min(100% - 24px, 1320px);
-      margin: 12px auto;
-      padding-block: 12px;
-      border-top: 1px solid var(--accent);
-      border-bottom: 1px solid var(--accent);
-    }
-
-    .honest {
-      position: relative;
-      overflow: hidden;
-      padding: 78px clamp(24px, 6vw, 88px) 86px;
-      background: var(--paper);
-      color: var(--ink);
-    }
-
-    .honest::after {
-      position: absolute;
-      right: -4vw;
-      bottom: -16vw;
-      width: 34vw;
-      height: 34vw;
-      border: 1px solid rgba(168, 66, 34, .25);
-      border-radius: 50%;
-      box-shadow:
-        0 0 0 5vw rgba(168, 66, 34, .045),
-        0 0 0 10vw rgba(168, 66, 34, .035);
-      content: "";
-      pointer-events: none;
-    }
-
-    .honest h2 {
-      position: relative;
-      z-index: 1;
-      max-width: 850px;
-      margin: 0 0 66px;
-      font-family: var(--display);
-      font-size: clamp(4rem, 9.6vw, 9.5rem);
-      font-weight: 400;
-      letter-spacing: -.065em;
-      line-height: .82;
-    }
-
-    .honest-copy {
-      position: relative;
-      z-index: 1;
-      display: grid;
-      grid-template-columns: 1.25fr .75fr;
-      gap: clamp(30px, 7vw, 94px);
-      align-items: start;
-    }
-
-    .honest p {
-      margin: 0;
-      line-height: 1.62;
-    }
-
-    .honest p:first-child {
-      font-family: var(--display);
-      font-size: clamp(1.22rem, 2.25vw, 1.8rem);
-    }
-
-    .honest p:last-child {
-      padding-top: 8px;
-      border-top: 4px solid var(--accent-deep);
-      font-family: var(--figure);
-      font-size: .84rem;
-    }
-
-    .honest strong {
-      color: var(--accent-deep);
-      font-weight: 700;
-    }
-
-    .publishers {
-      border-bottom: 0;
-    }
-
-    .publisher-lead {
-      grid-column: 7 / -1;
-      margin: 7px 0 0;
-      color: var(--text) !important;
-      font-family: var(--display);
-      font-size: clamp(1.2rem, 2.3vw, 1.7rem) !important;
-      line-height: 1.4 !important;
-    }
-
-    .publisher-points {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      margin: 0;
-      padding: 0;
-      border-top: 1px solid var(--rule-strong);
-      list-style: none;
-    }
-
-    .publisher-points li {
-      display: grid;
-      grid-template-columns: .86fr 1.14fr;
-      gap: 26px;
-      padding: 30px 26px 34px 0;
-      border-bottom: 1px solid var(--rule);
-    }
-
-    .publisher-points li:nth-child(even) {
-      padding-right: 0;
-      padding-left: 26px;
-      border-left: 1px solid var(--rule);
-    }
-
-    .point-title {
-      color: var(--text);
-      font-family: var(--figure);
-      font-size: .82rem;
-      font-weight: 700;
-      line-height: 1.4;
-    }
-
-    .point-copy {
-      color: var(--muted);
-      font-size: .81rem;
-      line-height: 1.55;
-    }
-
-    .publisher-close {
-      display: grid;
-      grid-template-columns: 7fr 5fr;
-      gap: 24px;
-      align-items: end;
-      padding-top: 44px;
-    }
-
-    .publisher-close p {
-      max-width: 700px;
-      margin: 0;
-      color: var(--muted);
-      font-size: .9rem;
-    }
-
-    .publisher-close .action {
-      justify-self: end;
-    }
-
-    .site-footer {
-      background: var(--ground-deep);
-      border-top: 1px solid var(--rule-strong);
-    }
-
-    .footer-inner {
-      display: grid;
-      grid-template-columns: repeat(12, minmax(0, 1fr));
-      gap: 24px;
-      padding-block: 48px 54px;
-    }
-
-    .footer-brand {
-      grid-column: 1 / 4;
-      margin: 0;
-      color: var(--text);
-      font-family: var(--figure);
-      font-size: .78rem;
-      font-weight: 700;
-      letter-spacing: .2em;
-    }
-
-    .footer-nav {
-      grid-column: 5 / 9;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px 24px;
-      align-content: start;
-    }
-
-    .footer-nav a {
-      color: var(--muted);
-      font-family: var(--figure);
-      font-size: .7rem;
-      text-underline-offset: .3em;
-    }
-
-    .footer-nav a:hover {
-      color: var(--accent);
-    }
-
-    .footer-copy {
-      grid-column: 9 / -1;
-    }
-
-    .footer-copy p {
-      margin-bottom: 16px;
-      color: var(--muted);
-      font-size: .76rem;
-      line-height: 1.55;
-    }
-
-    .footer-copy p:last-child {
-      margin-bottom: 0;
-      color: var(--faint);
-      font-size: .68rem;
-    }
-
-    .reveal {
-      opacity: 0;
-      animation: rise-in 720ms cubic-bezier(.2, .65, .28, 1) forwards;
-    }
-
-    .site-header.reveal {
-      animation-delay: 40ms;
-    }
-
-    .hero .eyebrow {
-      animation-delay: 120ms;
-    }
-
-    .hero h1 {
-      animation-delay: 210ms;
-    }
-
-    .hero-copy {
-      animation-delay: 320ms;
-    }
-
-    .proof-strip {
-      animation-delay: 430ms;
-    }
-
-    @keyframes rise-in {
-      from {
-        opacity: 0;
-        transform: translateY(18px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    @media (max-width: 900px) {
-      .hero {
-        min-height: auto;
-      }
-
-      h1 {
-        grid-column: 1 / -1;
-      }
-
-      .hero-copy {
-        grid-column: 5 / -1;
-      }
-
-      .proof-strip {
-        grid-template-columns: 1fr 1fr;
-      }
-
-      .proof-item:nth-child(3) {
-        padding-left: 0;
-        border-left: 0;
-        border-top: 1px solid var(--rule);
-      }
-
-      .proof-item:nth-child(4) {
-        border-top: 1px solid var(--rule);
-      }
-
-      .calibration-grid {
-        grid-template-columns: 1fr 1fr;
-      }
-
-      .calibration-item:last-child {
-        grid-column: 1 / -1;
-        padding-left: 0;
-        border-top: 1px solid var(--rule);
-        border-left: 0;
-      }
-
-      .honest-copy {
-        grid-template-columns: 1fr;
-      }
-
-      .publisher-points {
-        grid-template-columns: 1fr;
-      }
-
-      .publisher-points li:nth-child(even) {
-        padding-left: 0;
-        border-left: 0;
-      }
-
-      .footer-brand {
-        grid-column: 1 / 5;
-      }
-
-      .footer-nav {
-        grid-column: 5 / -1;
-      }
-
-      .footer-copy {
-        grid-column: 5 / -1;
-        margin-top: 20px;
-      }
-    }
-
-    @media (max-width: 719px) {
-      :root {
-        --page: min(100% - 28px, 1240px);
-      }
-
-      body {
-        background: var(--ground);
-      }
-
-      .site-header {
-        min-height: 68px;
-      }
-
-      .header-note {
-        max-width: 19ch;
-        text-align: right;
-      }
-
-      .hero {
-        display: block;
-        padding-block: 42px 50px;
-      }
-
-      .hero .eyebrow {
-        margin-bottom: 48px;
-      }
-
-      h1 {
-        margin: 0;
-        font-size: clamp(3.25rem, 15vw, 5rem);
-        line-height: .91;
-      }
-
-      .hero-copy {
-        padding-top: 44px;
-      }
-
-      .hero-copy p {
-        font-size: 1.12rem;
-      }
-
-      .actions {
-        align-items: stretch;
-        gap: 10px;
-      }
-
-      .action {
-        width: 100%;
-      }
-
-      .proof-strip {
-        display: block;
-      }
-
-      .proof-item,
-      .proof-item:first-child,
-      .proof-item:nth-child(3) {
-        display: grid;
-        grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr);
-        gap: 16px 20px;
-        padding: 25px 0 27px;
-        border-top: 1px solid var(--rule);
-        border-left: 0;
-      }
-
-      .proof-item:first-child {
-        border-top: 0;
-      }
-
-      .proof-item:nth-child(4) {
-        border-left: 0;
-      }
-
-      .proof-label {
-        min-height: 0;
-        margin: 3px 0 0;
-      }
-
-      .proof-value {
-        margin-bottom: 0;
-        font-size: 1.72rem;
-        white-space: normal;
-      }
-
-      .proof-footnote {
-        grid-column: 2;
-      }
-
-      .section {
-        padding-block: 68px 76px;
-      }
-
-      .section-heading {
-        display: block;
-        margin-bottom: 38px;
-      }
-
-      .section-heading h2 {
-        margin-bottom: 28px;
-      }
-
-      .section-heading p {
-        margin-top: 0;
-      }
-
-      table {
-        min-width: 620px;
-      }
-
-      thead th {
-        padding-right: 14px;
-        padding-left: 14px;
-      }
-
-      tbody th,
-      tbody td {
-        padding: 16px 14px;
-      }
-
-      .record-note {
-        display: block;
-      }
-
-      .record-note::before {
-        display: block;
-        margin-bottom: 16px;
-      }
-
-      .calibration-grid {
-        display: block;
-      }
-
-      .calibration-item,
-      .calibration-item:first-child,
-      .calibration-item:last-child {
-        padding: 28px 0 30px;
-        border-top: 1px solid var(--rule);
-        border-left: 0;
-      }
-
-      .calibration-item:first-child {
-        border-top: 0;
-      }
-
-      .honest-wrap {
-        width: calc(100% - 14px);
-        margin-block: 7px;
-        padding-block: 7px;
-      }
-
-      .honest {
-        padding: 60px 21px 66px;
-      }
-
-      .honest h2 {
-        margin-bottom: 48px;
-        font-size: clamp(3.7rem, 19vw, 5.8rem);
-      }
-
-      .honest p:first-child {
-        font-size: 1.22rem;
-      }
-
-      .honest p:last-child {
-        font-size: .78rem;
-      }
-
-      .publisher-lead {
-        margin-top: 0;
-      }
-
-      .publisher-points {
-        display: block;
-      }
-
-      .publisher-points li,
-      .publisher-points li:nth-child(even) {
-        display: block;
-        padding: 26px 0 29px;
-        border-left: 0;
-      }
-
-      .point-title {
-        display: block;
-        margin-bottom: 12px;
-      }
-
-      .publisher-close {
-        display: block;
-      }
-
-      .publisher-close .action {
-        margin-top: 28px;
-      }
-
-      .footer-inner {
-        display: block;
-        padding-block: 40px 44px;
-      }
-
-      .footer-brand {
-        margin-bottom: 28px;
-      }
-
-      .footer-nav {
-        margin-bottom: 34px;
-      }
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      html {
-        scroll-behavior: auto;
-      }
-
-      *,
-      *::before,
-      *::after {
-        animation-duration: .01ms !important;
-        animation-delay: 0ms !important;
-        scroll-behavior: auto !important;
-        transition-duration: .01ms !important;
-      }
-
-      .reveal {
-        opacity: 1;
-      }
-    }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- BRAND: placeholder wordmark. Replace this string (appears 3× — wordmark, <title>, footer) when the brand name is chosen. -->
+<title>THE MODEL — Point-in-time forecasting</title>
+<meta name="description" content="A Bayesian scoreline model that published a probability for every match of the 2026 World Cup before it was played — and publishes the scorecard.">
+<style>
+/* ============================================================
+   THE LEDGER — a statistical annual, set in motion.
+   Design system: dark editorial ground; one warm accent;
+   serif display vs mono data; FIG-numbered plates; motion that
+   reveals and never performs. Zero external requests.
+   ============================================================ */
+:root {
+  --ground: #101319;
+  --ground-deep: #0b0e13;
+  --plate: #161a22;
+  --ink: #ece7dc;
+  --ink-dim: #a49e90;
+  --hairline: #2b3140;
+  --hairline-soft: #232837;
+  --accent: #d08b3c;
+  --accent-dim: #8a5f2e;
+  --serif: "Iowan Old Style", "Palatino Nova", Palatino, Charter, "Times New Roman", Georgia, serif;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  --shell: min(1120px, calc(100vw - clamp(40px, 8vw, 128px)));
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+::selection { background: var(--accent); color: var(--ground-deep); }
+
+a { color: inherit; }
+
+.shell { width: var(--shell); margin-inline: auto; }
+
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- scroll progress hairline ---------- */
+.progress {
+  position: fixed;
+  top: 0; left: 0;
+  height: 2px;
+  width: 100%;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  background: var(--accent);
+  z-index: 30;
+}
+
+/* ---------- header ---------- */
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: color-mix(in srgb, var(--ground) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid transparent;
+  transition: border-color .5s var(--ease-out);
+}
+.site-header.scrolled { border-bottom-color: var(--hairline-soft); }
+.header-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-block: 22px;
+}
+.wordmark {
+  font-family: var(--mono);
+  font-size: .82rem;
+  font-weight: 700;
+  letter-spacing: .34em;
+  text-decoration: none;
+  transition: letter-spacing .6s var(--ease-out), color .3s;
+}
+.wordmark:hover, .wordmark:focus-visible { letter-spacing: .44em; color: var(--accent); }
+.header-note {
+  font-family: var(--mono);
+  font-size: .68rem;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+/* ---------- hero with scoreline-grid atmosphere ---------- */
+.hero {
+  position: relative;
+  padding-block: clamp(84px, 14vh, 168px) clamp(72px, 11vh, 140px);
+  overflow: hidden;
+}
+.gridfield {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: grid;
+  grid-template-columns: repeat(22, 1fr);
+  gap: 2px;
+  opacity: .5;
+  mask-image: radial-gradient(120% 90% at 72% 18%, #000 0%, transparent 68%);
+  -webkit-mask-image: radial-gradient(120% 90% at 72% 18%, #000 0%, transparent 68%);
+  pointer-events: none;
+}
+.gridfield span {
+  background: var(--hairline-soft);
+  opacity: .12;
+  animation: cell-breathe 9s ease-in-out infinite;
+}
+@keyframes cell-breathe {
+  0%, 100% { opacity: .07; }
+  50%      { opacity: var(--peak, .3); }
+}
+.hero-inner { position: relative; z-index: 1; }
+.eyebrow {
+  font-family: var(--mono);
+  font-size: .72rem;
+  letter-spacing: .26em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: clamp(26px, 4vh, 44px);
+}
+h1 {
+  font-size: clamp(3rem, 7.6vw, 6.4rem);
+  line-height: .98;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  max-width: 16ch;
+}
+h1 .line {
+  display: block;
+  overflow: hidden;
+}
+h1 .line > span { display: inline-block; }
+h1 em {
+  font-style: italic;
+  color: var(--accent);
+}
+.hero-copy {
+  margin-top: clamp(30px, 5vh, 52px);
+  display: grid;
+  grid-template-columns: minmax(0, 52ch) 1fr;
+  gap: 32px;
+  align-items: end;
+}
+.hero-copy p {
+  color: var(--ink-dim);
+  font-size: 1.06rem;
+  line-height: 1.65;
+}
+.actions {
+  display: flex;
+  gap: 26px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.action {
+  font-family: var(--mono);
+  font-size: .78rem;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--ink);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--accent);
+  white-space: nowrap;
+  position: relative;
+  transition: color .3s;
+}
+.action::after {
+  content: "→";
+  display: inline-block;
+  margin-left: .6em;
+  transition: transform .35s var(--ease-out);
+}
+.action:hover, .action:focus-visible { color: var(--accent); }
+.action:hover::after, .action:focus-visible::after { transform: translateX(.35em); }
+.action.secondary { border-bottom-color: var(--hairline); }
+
+/* ---------- FIG plates ---------- */
+.fig {
+  font-family: var(--mono);
+  font-size: .68rem;
+  letter-spacing: .3em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: clamp(30px, 5vh, 52px);
+}
+.fig b { color: var(--accent); font-weight: 700; }
+.fig .rule {
+  flex: 1;
+  height: 1px;
+  background: var(--hairline);
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  transition: transform 1.1s var(--ease-out) .15s;
+}
+.in .fig .rule { transform: scaleX(1); }
+
+.section { padding-block: clamp(64px, 10vh, 120px); }
+
+.section-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 44ch);
+  gap: 28px;
+  align-items: end;
+  margin-bottom: clamp(34px, 5vh, 56px);
+}
+h2 {
+  font-size: clamp(1.9rem, 3.6vw, 3rem);
+  font-weight: 500;
+  letter-spacing: -.01em;
+  line-height: 1.05;
+}
+.section-heading p {
+  color: var(--ink-dim);
+  font-size: .92rem;
+  line-height: 1.6;
+}
+
+/* ---------- reveal machinery (JS-gated: no-JS sees everything) ---------- */
+.js .reveal {
+  opacity: 0;
+  transform: translateY(22px);
+  transition: opacity .9s var(--ease-out), transform .9s var(--ease-out);
+}
+.js .in .reveal, .js .reveal.in {
+  opacity: 1;
+  transform: none;
+}
+.js .stagger > * {
+  opacity: 0;
+  transform: translateY(26px);
+  transition: opacity .85s var(--ease-out), transform .85s var(--ease-out);
+}
+.js .in.stagger > *, .js .stagger.in > *, .js .in .stagger > * { opacity: 1; transform: none; }
+.stagger > *:nth-child(1) { transition-delay: .05s; }
+.stagger > *:nth-child(2) { transition-delay: .16s; }
+.stagger > *:nth-child(3) { transition-delay: .27s; }
+.stagger > *:nth-child(4) { transition-delay: .38s; }
+.stagger > *:nth-child(5) { transition-delay: .49s; }
+.stagger > *:nth-child(6) { transition-delay: .60s; }
+.stagger > *:nth-child(7) { transition-delay: .71s; }
+.stagger > *:nth-child(8) { transition-delay: .82s; }
+
+.js h1 .line > span {
+  transform: translateY(110%);
+  transition: transform 1.1s var(--ease-out);
+}
+.js h1.in .line > span { transform: none; }
+h1 .line:nth-child(2) > span { transition-delay: .12s; }
+h1 .line:nth-child(3) > span { transition-delay: .24s; }
+
+/* ---------- proof strip ---------- */
+.proof-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-block: 1px solid var(--hairline);
+}
+.proof-item {
+  padding: clamp(28px, 4vh, 44px) 26px;
+  border-left: 1px solid var(--hairline-soft);
+  transition: background .4s;
+}
+.proof-item:first-child { border-left: 0; padding-left: 0; }
+.proof-item:hover { background: color-mix(in srgb, var(--plate) 60%, transparent); }
+.proof-label {
+  display: block;
+  font-family: var(--mono);
+  font-size: .66rem;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-bottom: 18px;
+}
+.proof-value {
+  display: block;
+  font-size: clamp(1.5rem, 2.6vw, 2.2rem);
+  font-weight: 500;
+  letter-spacing: -.01em;
+  margin-bottom: 14px;
+}
+.proof-footnote {
+  color: var(--ink-dim);
+  font-size: .84rem;
+  line-height: 1.55;
+}
+
+/* ---------- record table ---------- */
+.table-wrap { overflow-x: auto; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  min-width: 560px;
+}
+caption {
+  text-align: left;
+  color: var(--ink-dim);
+  font-size: .74rem;
+  letter-spacing: .06em;
+  padding-bottom: 16px;
+}
+thead th {
+  font-size: .66rem;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  font-weight: 400;
+  text-align: right;
+  padding: 0 18px 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+thead th:first-child { text-align: left; padding-left: 0; }
+tbody th, tbody td {
+  padding: 17px 18px;
+  border-bottom: 1px solid var(--hairline-soft);
+  text-align: right;
+  font-size: .95rem;
+  font-weight: 400;
+}
+tbody th {
+  text-align: left;
+  padding-left: 0;
+  font-family: var(--serif);
+  font-size: 1.02rem;
+}
+tbody tr { transition: background .35s; position: relative; }
+tbody tr:hover { background: color-mix(in srgb, var(--plate) 70%, transparent); }
+td.hits {
+  position: relative;
+  min-width: 150px;
+}
+td.hits .bar {
+  position: absolute;
+  left: 18px; right: 18px; bottom: 9px;
+  height: 2px;
+  background: var(--hairline);
+  overflow: hidden;
+}
+td.hits .bar i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: var(--accent-dim);
+  transform: scaleX(var(--frac, 0));
+  transform-origin: 0 50%;
+  transition: transform 1.2s var(--ease-out) .4s;
+}
+.js td.hits .bar i { transform: scaleX(0); }
+.js .in td.hits .bar i { transform: scaleX(var(--frac, 0)); }
+tr.total th, tr.total td {
+  border-top: 1px solid var(--hairline);
+  border-bottom: 0;
+  font-weight: 700;
+  color: var(--accent);
+  padding-top: 20px;
+}
+tr.total th { color: var(--ink); font-weight: 500; }
+.record-note {
+  margin-top: 26px;
+  font-family: var(--mono);
+  font-size: .8rem;
+  letter-spacing: .04em;
+  color: var(--ink-dim);
+}
+.record-note b { color: var(--ink); font-weight: 700; }
+
+/* ---------- calibration ---------- */
+.calibration-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--hairline-soft);
+  border: 1px solid var(--hairline-soft);
+}
+.calibration-item {
+  background: var(--ground);
+  padding: clamp(26px, 4vh, 40px) 28px;
+}
+.calibration-fact {
+  font-size: 1.12rem;
+  font-weight: 500;
+  line-height: 1.4;
+  margin-bottom: 12px;
+}
+.calibration-context {
+  color: var(--ink-dim);
+  font-size: .86rem;
+  line-height: 1.6;
+  font-family: var(--mono);
+}
+
+/* ---------- the disclosure: deliberately still ----------
+   This section never animates. Everything else on the page earns
+   attention through motion; this one is simply, immediately there. */
+.honest-wrap {
+  background: var(--ground-deep);
+  border-block: 1px solid var(--hairline);
+  padding-block: clamp(64px, 10vh, 110px);
+}
+.honest {
+  width: var(--shell);
+  margin-inline: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 58ch);
+  gap: clamp(28px, 5vw, 80px);
+}
+.disclosure-label {
+  font-family: var(--mono);
+  font-size: .68rem;
+  letter-spacing: .3em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-bottom: 22px;
+}
+.disclosure-label b { color: var(--accent); }
+.honest h2 { max-width: 12ch; }
+.honest-copy p {
+  color: var(--ink);
+  font-size: 1.04rem;
+  line-height: 1.7;
+}
+.honest-copy p + p { margin-top: 22px; }
+.honest-copy strong { color: var(--accent); font-weight: 700; }
+
+/* ---------- publishers ---------- */
+.publisher-lead { font-size: 1rem !important; color: var(--ink) !important; }
+.publisher-points {
+  list-style: none;
+  border-top: 1px solid var(--hairline);
+}
+.publisher-points li {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 30ch) 1fr;
+  gap: 26px;
+  align-items: baseline;
+  padding-block: 26px;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.point-index {
+  font-family: var(--mono);
+  font-size: .78rem;
+  color: var(--ink-dim);
+  transition: color .35s, transform .35s var(--ease-out);
+}
+.publisher-points li:hover .point-index {
+  color: var(--accent);
+  transform: translateX(6px);
+}
+.point-title { font-size: 1.08rem; font-weight: 500; }
+.point-copy { color: var(--ink-dim); font-size: .9rem; line-height: 1.6; }
+.publisher-close {
+  margin-top: clamp(34px, 5vh, 52px);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.publisher-close p { color: var(--ink-dim); font-size: .94rem; max-width: 52ch; }
+
+/* ---------- footer ---------- */
+.site-footer {
+  border-top: 1px solid var(--hairline);
+  padding-block: clamp(44px, 7vh, 72px);
+  background: var(--ground-deep);
+}
+.footer-inner {
+  display: grid;
+  gap: 30px;
+}
+.footer-brand {
+  font-family: var(--mono);
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .34em;
+}
+.footer-nav { display: flex; gap: 30px; flex-wrap: wrap; }
+.footer-nav a {
+  font-family: var(--mono);
+  font-size: .74rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  padding-bottom: 4px;
+  transition: color .3s, border-color .3s;
+}
+.footer-nav a:hover, .footer-nav a:focus-visible {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.footer-copy p {
+  color: var(--ink-dim);
+  font-size: .8rem;
+  line-height: 1.7;
+  max-width: 72ch;
+}
+.footer-note { color: var(--ink); }
+
+/* ---------- focus + responsive ---------- */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 1px;
+}
+
+@media (max-width: 880px) {
+  .hero-copy { grid-template-columns: 1fr; }
+  .actions { justify-content: flex-start; }
+  .proof-strip { grid-template-columns: 1fr 1fr; }
+  .proof-item:nth-child(odd) { border-left: 0; padding-left: 0; }
+  .proof-item:nth-child(-n+2) { border-bottom: 1px solid var(--hairline-soft); }
+  .section-heading { grid-template-columns: 1fr; }
+  .calibration-grid { grid-template-columns: 1fr; }
+  .honest { grid-template-columns: 1fr; }
+  .publisher-points li { grid-template-columns: 48px 1fr; }
+  .point-copy { grid-column: 2; }
+}
+@media (max-width: 560px) {
+  .proof-strip { grid-template-columns: 1fr; }
+  .proof-item { border-left: 0; padding-left: 0; border-bottom: 1px solid var(--hairline-soft); }
+  .header-note { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .js .reveal, .js .stagger > *, .js h1 .line > span {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .gridfield { display: none; }
+  .progress { display: none; }
+}
+</style>
 </head>
 <body id="top">
-  <header class="site-header shell reveal">
-    <!-- BRAND: placeholder wordmark. Replace this string (appears 3× — wordmark, <title>, footer) when the brand name is chosen. -->
-    <a class="wordmark" href="#top" aria-label="Back to the top">THE MODEL</a>
-    <p class="header-note">Point-in-time forecasting</p>
+  <div class="progress" aria-hidden="true"></div>
+
+  <header class="site-header" id="siteHeader">
+    <div class="shell header-row">
+      <!-- BRAND: placeholder wordmark. Replace this string (appears 3× — wordmark, <title>, footer) when the brand name is chosen. -->
+      <a class="wordmark" href="#top" aria-label="Back to the top">THE MODEL</a>
+      <p class="header-note">Point-in-time forecasting</p>
+    </div>
   </header>
 
   <main>
-    <section class="hero shell" aria-labelledby="hero-title">
-      <p class="eyebrow reveal">Point-in-time forecasting · 2026 season, run live</p>
-      <h1 class="reveal" id="hero-title"><span>104 matches.</span> <span>Forecast before kickoff.</span> <span>Scored after.</span></h1>
-      <div class="hero-copy reveal">
-        <p>A Bayesian scoreline model that published a probability for every match of the 2026 World Cup before it was played — and publishes the scorecard, including the parts that were only average.</p>
-        <nav class="actions" aria-label="Primary">
-          <a class="action" href="./methodology.html">Read the methodology</a>
-          <a class="action secondary" href="./archive/">Browse the archive</a>
-        </nav>
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="gridfield" id="gridfield" aria-hidden="true"></div>
+      <div class="shell hero-inner watch">
+        <p class="eyebrow reveal">Point-in-time forecasting · 2026 season, run live</p>
+        <h1 id="hero-title" class="watch">
+          <span class="line"><span>104 matches.</span></span>
+          <span class="line"><span>Forecast before kickoff.</span></span>
+          <span class="line"><span><em>Scored after.</em></span></span>
+        </h1>
+        <div class="hero-copy stagger watch">
+          <p>A Bayesian scoreline model that published a probability for every match of the 2026 World Cup before it was played — and publishes the scorecard, including the parts that were only average.</p>
+          <nav class="actions" aria-label="Primary">
+            <a class="action" href="./methodology.html">Read the methodology</a>
+            <a class="action secondary" href="./archive/">Browse the archive</a>
+          </nav>
+        </div>
       </div>
     </section>
 
-    <section class="proof-strip shell reveal" aria-label="The four headline calls">
-      <article class="proof-item">
-        <span class="proof-label">Champion called</span>
-        <strong class="proof-value">Spain</strong>
-        <p class="proof-footnote">its co-favorite throughout; a 50.7% / 49.3% call in the final itself</p>
-      </article>
-      <article class="proof-item">
-        <span class="proof-label">Both finalists</span>
-        <strong class="proof-value">Spain · Argentina</strong>
-        <p class="proof-footnote">its top two in title probabilities from the group stage onward</p>
-      </article>
-      <article class="proof-item">
-        <span class="proof-label">All four semifinalists</span>
-        <strong class="proof-value">4 / 4</strong>
-        <p class="proof-footnote">inside its projected quarterfinal eight, published before the Round of 32 finished</p>
-      </article>
-      <article class="proof-item">
-        <span class="proof-label">Most likely final score</span>
-        <strong class="proof-value">0–0</strong>
-        <p class="proof-footnote">13.9% — the single most likely scoreline; Spain won in extra time</p>
-      </article>
+    <section class="section shell watch" aria-label="The four headline calls">
+      <p class="fig"><b>FIG. 01</b> Headline calls <span class="rule"></span></p>
+      <div class="proof-strip stagger watch">
+        <article class="proof-item">
+          <span class="proof-label">Champion called</span>
+          <strong class="proof-value">Spain</strong>
+          <p class="proof-footnote mono">its co-favorite throughout; a 50.7% / 49.3% call in the final itself</p>
+        </article>
+        <article class="proof-item">
+          <span class="proof-label">Both finalists</span>
+          <strong class="proof-value">Spain · Argentina</strong>
+          <p class="proof-footnote mono">its top two in title probabilities from the group stage onward</p>
+        </article>
+        <article class="proof-item">
+          <span class="proof-label">All four semifinalists</span>
+          <strong class="proof-value">4 / 4</strong>
+          <p class="proof-footnote mono">inside its projected quarterfinal eight, published before the Round of 32 finished</p>
+        </article>
+        <article class="proof-item">
+          <span class="proof-label">Most likely final score</span>
+          <strong class="proof-value">0–0</strong>
+          <p class="proof-footnote mono">13.9% — the single most likely scoreline; Spain won in extra time</p>
+        </article>
+      </div>
     </section>
 
-    <section class="section record shell" aria-labelledby="record-title">
-      <div class="section-heading">
+    <section class="section shell watch" aria-labelledby="record-title">
+      <p class="fig"><b>FIG. 02</b> The record <span class="rule"></span></p>
+      <div class="section-heading reveal">
         <h2 id="record-title">The record</h2>
         <p>Modal-outcome hits are against the model's own 1X2 pick. Point-in-time: each match priced by a model that had seen only earlier results.</p>
       </div>
 
-      <div class="table-wrap" tabindex="0" role="region" aria-label="Match record by tournament stage">
+      <div class="table-wrap watch" tabindex="0" role="region" aria-label="Match record by tournament stage">
         <table>
           <caption>Match record by stage. Modal-outcome hits are against the model's own 1X2 pick. Each match was priced point-in-time using only earlier results.</caption>
           <thead>
@@ -1025,67 +637,68 @@
               <th scope="col">Modal hits</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody class="stagger">
             <tr>
               <th scope="row">Group</th>
               <td>72</td>
               <td>0.157</td>
-              <td>46 / 72</td>
+              <td class="hits">46 / 72<span class="bar" aria-hidden="true" style="--frac:.639"><i></i></span></td>
             </tr>
             <tr>
               <th scope="row">Round of 32</th>
               <td>16</td>
               <td>0.116</td>
-              <td>12 / 16</td>
+              <td class="hits">12 / 16<span class="bar" aria-hidden="true" style="--frac:.75"><i></i></span></td>
             </tr>
             <tr>
               <th scope="row">Round of 16</th>
               <td>8</td>
               <td>0.188</td>
-              <td>6 / 8</td>
+              <td class="hits">6 / 8<span class="bar" aria-hidden="true" style="--frac:.75"><i></i></span></td>
             </tr>
             <tr>
               <th scope="row">Quarter-finals</th>
               <td>4</td>
               <td>0.134</td>
-              <td>4 / 4</td>
+              <td class="hits">4 / 4<span class="bar" aria-hidden="true" style="--frac:1"><i></i></span></td>
             </tr>
             <tr>
               <th scope="row">Semi-finals</th>
               <td>2</td>
               <td>0.196</td>
-              <td>2 / 2</td>
+              <td class="hits">2 / 2<span class="bar" aria-hidden="true" style="--frac:1"><i></i></span></td>
             </tr>
             <tr>
               <th scope="row">Third place</th>
               <td>1</td>
               <td>0.333</td>
-              <td>0 / 1</td>
+              <td class="hits">0 / 1<span class="bar" aria-hidden="true" style="--frac:0"><i></i></span></td>
             </tr>
             <tr>
               <th scope="row">Final</th>
               <td>1</td>
               <td>0.271</td>
-              <td>1 / 1</td>
+              <td class="hits">1 / 1<span class="bar" aria-hidden="true" style="--frac:1"><i></i></span></td>
             </tr>
             <tr class="total">
               <th scope="row">All knockout</th>
               <td>32</td>
               <td>0.153</td>
-              <td>25 / 32</td>
+              <td class="hits">25 / 32<span class="bar" aria-hidden="true" style="--frac:.781"><i></i></span></td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      <p class="record-note"><span>Knockout ties by which team advanced: 26 of 32 (81%). Quarter-finals onward: 7 of 7.</span></p>
+      <p class="record-note reveal watch">Knockout ties by which team advanced: <b>26 of 32 (81%)</b>. Quarter-finals onward: <b>7 of 7</b>.</p>
     </section>
 
-    <section class="section calibration shell" aria-labelledby="calibration-title">
-      <div class="section-heading">
+    <section class="section shell watch" aria-labelledby="calibration-title">
+      <p class="fig"><b>FIG. 03</b> Calibration <span class="rule"></span></p>
+      <div class="section-heading reveal">
         <h2 id="calibration-title">Calibration</h2>
       </div>
-      <div class="calibration-grid">
+      <div class="calibration-grid stagger watch">
         <article class="calibration-item">
           <h3 class="calibration-fact">Favorites: predicted 69.7%, realized 76.8%</h3>
           <p class="calibration-context">across 56 favorite-band matches — calibrated, with the error on the humble side</p>
@@ -1100,9 +713,13 @@
       </div>
     </section>
 
+    <!-- The one section that never animates: it is simply, immediately there. -->
     <div class="honest-wrap">
       <section class="honest" aria-labelledby="honest-title">
-        <h2 id="honest-title">What it didn't do</h2>
+        <div>
+          <p class="disclosure-label"><b>DISCLOSURE</b> — not a figure</p>
+          <h2 id="honest-title">What it didn't do</h2>
+        </div>
         <div class="honest-copy">
           <p>Over the full 104-match replay, the model and a plain Elo baseline are <strong>statistically tied</strong> — 0.1561 against 0.1557. It was ahead through the group stage as played live (0.157 against 0.163), and the two converged across the knockouts. Both numbers are published because a forecaster that only reports its good window is not a forecaster.</p>
           <p>It has <strong>no demonstrated edge against sharp betting markets</strong> — its own audit found a statistical tie there too. Nothing here is betting advice, and nothing on this site is sold as one.</p>
@@ -1110,32 +727,37 @@
       </section>
     </div>
 
-    <section class="section publishers shell" aria-labelledby="publishers-title">
-      <div class="section-heading">
+    <section class="section shell watch" aria-labelledby="publishers-title">
+      <p class="fig"><b>FIG. 04</b> For publishers <span class="rule"></span></p>
+      <div class="section-heading reveal">
         <h2 id="publishers-title">For publishers</h2>
         <p class="publisher-lead">An embeddable forecast surface for your football coverage — probabilities, not picks.</p>
       </div>
 
-      <ul class="publisher-points">
+      <ul class="publisher-points stagger watch">
         <li>
+          <span class="point-index mono">01</span>
           <span class="point-title">Every number ships with its uncertainty</span>
           <span class="point-copy">no bare percentages anywhere; a missing input renders as a stated gap, never as a zero</span>
         </li>
         <li>
+          <span class="point-index mono">02</span>
           <span class="point-title">Point-in-time by construction</span>
           <span class="point-copy">a forecast is a read at a timestamp; a result that wasn't knowable then cannot change it</span>
         </li>
         <li>
+          <span class="point-index mono">03</span>
           <span class="point-title">Your styling</span>
           <span class="point-copy">CSS-variable theming, your domain, no cookies and no tracking of your readers</span>
         </li>
         <li>
+          <span class="point-index mono">04</span>
           <span class="point-title">A public archive behind every claim</span>
           <span class="point-copy">each forecast is timestamped and republished; performance claims link to the record</span>
         </li>
       </ul>
 
-      <div class="publisher-close">
+      <div class="publisher-close reveal watch">
         <p>Two tiers — the tournament ladder and schedule, or the full per-fixture detail. Availability by tournament window.</p>
         <!-- CONTACT: placeholder email address. Replace before publication. -->
         <a class="action secondary" href="mailto:TODO-address@example.com">Enquire about a tournament window</a>
@@ -1157,5 +779,60 @@
       </div>
     </div>
   </footer>
+
+<script>
+/* Motion is additive: without JS, the page renders complete and still. */
+document.documentElement.classList.add('js');
+
+/* Scoreline-grid atmosphere: a field of cells breathing at different
+   phases — the model's own object (a scoreline probability grid), not
+   decoration. Deterministic pattern, no randomness. */
+(function () {
+  var field = document.getElementById('gridfield');
+  if (!field) return;
+  var COLS = 22, ROWS = 9;
+  for (var r = 0; r < ROWS; r++) {
+    for (var c = 0; c < COLS; c++) {
+      var s = document.createElement('span');
+      var phase = ((r * 7 + c * 13) % 90) / 10;        /* 0–8.9s */
+      var peak = 0.08 + ((r * 5 + c * 3) % 7) * 0.045; /* 0.08–0.35 */
+      s.style.animationDelay = phase + 's';
+      s.style.setProperty('--peak', peak.toFixed(3));
+      field.appendChild(s);
+    }
+  }
+})();
+
+/* Scroll progress hairline. */
+(function () {
+  var bar = document.querySelector('.progress');
+  var header = document.getElementById('siteHeader');
+  function onScroll() {
+    var h = document.documentElement;
+    var max = h.scrollHeight - h.clientHeight;
+    bar.style.transform = 'scaleX(' + (max > 0 ? h.scrollTop / max : 0) + ')';
+    header.classList.toggle('scrolled', h.scrollTop > 8);
+  }
+  addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+
+/* Reveal-on-intersection. Elements marked .watch get .in once. */
+(function () {
+  if (!('IntersectionObserver' in window)) {
+    document.documentElement.classList.remove('js');
+    return;
+  }
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) {
+        e.target.classList.add('in');
+        io.unobserve(e.target);
+      }
+    });
+  }, { rootMargin: '0px 0px -12% 0px', threshold: 0.05 });
+  document.querySelectorAll('.watch').forEach(function (el) { io.observe(el); });
+})();
+</script>
 </body>
 </html>
