@@ -66,6 +66,39 @@ def test_power_monotone_in_effect():
     assert p_large > 0.9
 
 
+def test_effect_is_measured_from_the_centered_noise():
+    # delta means "true effect", which holds only because simulate_power
+    # subtracts the noise sample's own mean: the empirical k0.5-k0.6 diffs
+    # carry mean -0.000502 (0.51 iid se, 25% of the 0.002 floor) in the
+    # power-inflating direction, so an uncentered noise model would smuggle
+    # that head start into every delta — including delta=0, where the reported
+    # number IS the gate's simulated false-positive rate under a true null.
+    pool, day, rng = _fake_panel(seed=4)
+    noise = rng.normal(-0.004, 0.010, size=len(pool))   # deliberately off-centre
+    p_null = simulate_power(noise, pool, day, delta=0.0, floor=0.002,
+                            support_req=0.8, n_sims=200, n_boot=200, seed=0)
+    assert p_null < 0.10
+
+
+def test_support_requirement_is_inclusive_at_its_boundary():
+    # support is a discrete k/n_boot fraction, so a simulation landing EXACTLY
+    # on support_req is reachable, and ">=80% support" is the pre-registered
+    # spec constant — the boundary case counts as a pass. Re-running with
+    # support_req set to a support value the run actually achieves (its
+    # observed minimum) must therefore leave power untouched; a strict > would
+    # reject that simulation. Derived at runtime, not hardcoded, so the test
+    # pins the comparison rather than one numpy version's draws.
+    pool, day, rng = _fake_panel(seed=5)
+    noise = rng.normal(0.0, 0.05, size=len(pool))
+    kw = dict(delta=0.006, floor=0.002, n_sims=40, n_boot=200, seed=0)
+    loose = simulate_power_detail(noise, pool, day, support_req=0.0, **kw)
+    assert 0.0 < loose.min_support < 1.0     # interior: strictly achievable
+    at_boundary = simulate_power_detail(noise, pool, day,
+                                        support_req=loose.min_support, **kw)
+    assert at_boundary.power == loose.power > 0.0
+    assert at_boundary.support_reject == 0
+
+
 def test_blocks_widen_support_on_correlated_panel():
     # On block-correlated data, ignoring the (pool, day) blocks understates the
     # spread of the bootstrap mean and so overstates support — by enough to

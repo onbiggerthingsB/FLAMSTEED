@@ -17,6 +17,12 @@ assert len(keys) == 185, f"expected the 185-pool, got {len(keys)}"
 noise = np.array([A[k]["rps"] - B[k]["rps"] for k in keys])
 pool = np.array([k.split("|")[0] for k in keys])
 day = np.array([k.split("|")[1] for k in keys])
+# key schema is pool|date|home|away; a pool/day swap would stratify by matchday
+# and block by pool — inverting the estimator with both arrays still length 185,
+# so no length check downstream can catch it.
+assert set(pool) == {"wc2022", "euro2024", "wc2026"}, (
+    f"unexpected pool labels {sorted(set(pool))} — expected key schema "
+    "pool|date|home|away")
 
 FLOOR, SUPPORT_REQ = 0.002, 0.8
 TARGET = 0.80                  # power a delta needs to count as detectable
@@ -76,6 +82,18 @@ lines = ["# OA MDE analysis (2026-07-28, seed 0)", "",
 lines += [f"| {d:.3f} | {p:.2f} |" for d, p in rows]
 lines += ["", f"MDE (smallest delta with power >= {TARGET:.2f}): "
           + ("none in this grid" if m is None else f"{m:.3f}") + ".", "",
+          "Common random numbers: every row above is simulated from the same "
+          "seed, and each simulation draws its panel BEFORE the floor is "
+          "tested, so simulation s at one delta is simulation s at any other "
+          "delta shifted by the delta difference — same resampled noise, same "
+          "bootstrap block draws. Floor-passing and support are therefore both "
+          "nested across the grid, and the curve is monotone BY CONSTRUCTION. "
+          "That is deliberate variance reduction (delta-to-delta comparisons "
+          "carry no Monte-Carlo noise), but it makes the monotonicity "
+          "arithmetic rather than a check: it would come out just as smooth if "
+          "the machinery were wrong. Task 7's prereg must not cite the shape "
+          "of this curve as evidence the machinery works — that evidence is "
+          "tests/eval/test_power.py.", "",
           f"Binding constraint: the mean<=-{FLOOR:.3f} floor, NOT the support "
           f"requirement. Across every delta above, {floor_pass} simulated "
           f"panels cleared the floor and {support_reject} of them were then "
