@@ -107,8 +107,15 @@ PART_B_CUTOFF = "2024-06-01T00:00:00Z"
 
 # G1 thresholds (the brief): aggregate market gap small -> Phase 2 only; large ->
 # Phase 3 priority. The gap is RPS_model - RPS_market (positive = market ahead).
-G1_SMALL = 0.005
-G1_LARGE = 0.010
+#
+# ON THE CANONICAL ÷2 RPS SCALE (OA finding 16, 2026-07-28). The gap arrives from
+# ``headroom.paired_rps`` -> ``baselines.rps``, which now delegates to
+# ``calibration.rps`` ([0, 1]); a uniform ÷2 HALVES every difference, so the brief's
+# original 0.005 / 0.010 (set against the [0, 2] scale — see the recorded run in
+# reports/headroom_2026-06-10.md, RPS_model 0.2854 / RPS_market 0.3055) are re-derived
+# here. Same true forecast difference, same recommendation, before and after.
+G1_SMALL = 0.0025    # = pre-F16 0.005
+G1_LARGE = 0.005     # = pre-F16 0.010
 
 # Outcome letter for paired_rps, from realized scores.
 def _outcome_letter(home_score: int, away_score: int) -> str:
@@ -492,15 +499,15 @@ def _g1_recommendation(gap: float) -> str:
                 "(no matched fixtures) — resolve coverage before deciding.")
     if gap < G1_SMALL:
         return (f"**G1 recommendation:** aggregate market gap {gap:+.4f} RPS is "
-                f"below ~{G1_SMALL:.3f} — the model is already near the de-vigged "
+                f"below ~{G1_SMALL:.4f} — the model is already near the de-vigged "
                 "sharp ceiling. Pursue **Phase 2** calibration refinements only; "
                 "do NOT prioritise Phase 3.")
     if gap >= G1_LARGE:
         return (f"**G1 recommendation:** aggregate market gap {gap:+.4f} RPS is at "
-                f"or above ~{G1_LARGE:.3f} — there is material headroom to the "
+                f"or above ~{G1_LARGE:.4f} — there is material headroom to the "
                 "sharp close. **Phase 3 is a priority.**")
     return (f"**G1 recommendation:** aggregate market gap {gap:+.4f} RPS sits in the "
-            f"~{G1_SMALL:.3f}-{G1_LARGE:.3f} grey band — modest headroom. **Phase 2** "
+            f"~{G1_SMALL:.4f}-{G1_LARGE:.4f} grey band — modest headroom. **Phase 2** "
             "first; reassess Phase 3 after.")
 
 

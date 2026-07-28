@@ -220,10 +220,19 @@ def assemble_report(part: dict, *, cutoff: str, today: str) -> str:
     return "\n".join(L)
 
 
+# Both constants are absolute RPS DIFFERENCES on the canonical ÷2 scale (OA finding 16,
+# 2026-07-28): ``rps`` now delegates to ``calibration.rps`` ([0, 1]), and a uniform ÷2
+# halves every difference, so the pre-F16 values are re-derived here rather than left to
+# silently demand twice the true effect. (The recorded run predates the rescale — see
+# reports/altitude_2026-06-10.md, overall RPS 0.332 / CONMEBOL 0.431.)
+TOL = 5e-5          # overall-no-regression tolerance (MC noise); = pre-F16 1e-4
+TOO_GOOD = -0.01    # CONMEBOL improvement past which we audit for leakage; = pre-F16 -0.02
+
+
 def _verdict(arms: list[dict]) -> tuple[str, str]:
     """ADOPT only if the PRIMARY accl_alt arm IMPROVES the CONMEBOL-q slice (Δ<0) AND does
     not regress overall (Δ≤~0, a tiny tolerance for MC noise). Else NO-LIFT. Too-good guard:
-    a CONMEBOL improvement larger than ~0.02 RPS flags a manual audit."""
+    a CONMEBOL improvement larger than ~0.01 RPS flags a manual audit."""
     off = arms[0]
     primary = next((a for a in arms if a["enabled"] == ["accl_alt"]), None)
     if primary is None or np.isnan(primary["rps_conmebol"]) or np.isnan(off["rps_conmebol"]):
@@ -232,9 +241,9 @@ def _verdict(arms: list[dict]) -> tuple[str, str]:
                 "`enabled: []`.")
     d_con = primary["rps_conmebol"] - off["rps_conmebol"]
     d_all = primary["rps_overall"] - off["rps_overall"]
-    TOL = 1e-4  # overall-no-regression tolerance (MC noise)
     if d_con < 0 and d_all <= TOL:
-        too_good = "  ⚠ TOO-GOOD: audit for leakage before believing." if d_con < -0.02 else ""
+        too_good = ("  ⚠ TOO-GOOD: audit for leakage before believing."
+                    if d_con < TOO_GOOD else "")
         return ("ADOPT (CONMEBOL-q RPS improves, overall does not regress)",
                 f"accl_alt improves the CONMEBOL-qualifier slice by {-d_con:.5f} RPS with "
                 f"overall Δ={d_all:+.5f}.{too_good} NOTE: per the spec, ADOPT here means the "

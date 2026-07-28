@@ -164,7 +164,13 @@ def test_report_has_ranked_table_limitation_and_recommendation(mod):
 
 
 def test_report_recommendation_tracks_thresholds(mod):
-    """Gap >= ~0.01 -> Phase-3 priority; small gap (< ~0.005) -> Phase 2 only."""
+    """A comfortably-large gap -> Phase-3 priority; a small one -> Phase 2 only.
+
+    Canned deltas, so this pins only the BRANCHING, never the threshold's SCALE — it
+    stayed green through the OA-F16 ÷2 rescale that halved every real delta. The
+    boundary is pinned through ``baselines.rps`` in
+    ``tests/eval/test_rps_scale_consumers.py``; keep both.
+    """
     big = mod.assemble_report(_canned_part_a(delta=0.012, lo=0.004, hi=0.020),
                               _canned_part_b(), today="2026-06-10")
     assert "Phase 3" in big or "phase 3" in big.lower()

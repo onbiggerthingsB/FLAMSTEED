@@ -34,8 +34,13 @@ through it avoids the circular import that blocked consolidation before
 importing from ``baselines`` would close a cycle; ``calibration`` imports neither).
 
 SCALE CHANGE: RPS values reported by this module are HALF their pre-F16 values.
-Deltas and rankings are unaffected (it is a uniform rescaling), but any absolute
-RPS threshold read from a pre-2026-07-28 report is on the old [0, 2] scale.
+Sign, ordering and ratios are preserved; every RPS LEVEL and every RPS DIFFERENCE is
+halved (Δ_new = Δ_old / 2). Any absolute threshold on a level OR on a delta must be
+re-derived — a threshold left on the old [0, 2] scale silently demands twice the true
+effect to fire, and any absolute RPS figure read from a pre-2026-07-28 report is on
+that old scale. (Re-derived at the 2026-07-28 boundary: ``scripts/model_market_gap.py``
+G1_SMALL/G1_LARGE, ``scripts/sweep_altitude.py`` TOL/TOO_GOOD,
+``scripts/clv_validation.py`` RED_GAP; pinned by ``tests/eval/test_rps_scale_consumers.py``.)
 """
 from __future__ import annotations
 
