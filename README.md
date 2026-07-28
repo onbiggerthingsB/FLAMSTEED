@@ -1,5 +1,8 @@
 # worldcup — a forecast-first model of the 2026 FIFA World Cup
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21641225.svg)](https://doi.org/10.5281/zenodo.21641225)
+Forecast archive (24 point-in-time snapshots, CC BY 4.0): [doi:10.5281/zenodo.21641225](https://doi.org/10.5281/zenodo.21641225)
+
 A quantitative forecasting system for the 2026 World Cup: a Bayesian scoreline
 model fit on 49k+ international results, a 20,000-draw Monte-Carlo tournament
 simulator over the real 48-team bracket, and a dashboard that refuses to show a

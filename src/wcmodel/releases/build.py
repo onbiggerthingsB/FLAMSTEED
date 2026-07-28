@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from wcmodel.dashboard.provenance import Provenance, _git_rev
-from wcmodel.releases import (ARCHIVE_URL, BETTING_FIELD_DENYLIST,
+from wcmodel.releases import (ARCHIVE_URL, BETTING_FIELD_DENYLIST, WC2026_ARCHIVE_DOI,
                               DATA_SOURCE_NAME, LICENSE_STAMP,
                               METHODOLOGY_URL, MODEL_NAME)
 from wcmodel.releases.fixtures import unknown_teams
@@ -93,6 +93,7 @@ def build_release(*, cutoff: str, fixtures: pd.DataFrame, post,
         "model_name": MODEL_NAME,
         "methodology_url": METHODOLOGY_URL,
         "archive_url": ARCHIVE_URL,
+        "track_record_doi": WC2026_ARCHIVE_DOI,
         "window_label": str(window_label),
         "n_draws": int(n_draws),
         "data_source": {"name": DATA_SOURCE_NAME,

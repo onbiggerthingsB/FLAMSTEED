@@ -42,6 +42,20 @@ def test_csv_full_envelope():
         assert needle in c, f"CSV missing {needle!r}"
 
 
+def test_doi_cited_in_both_formats_when_present():
+    rel = copy.deepcopy(REL)
+    rel["track_record_doi"] = "10.5281/zenodo.21641225"
+    assert "https://doi.org/10.5281/zenodo.21641225" in render_html(rel)
+    assert "10.5281/zenodo.21641225" in render_csv(rel)
+
+
+def test_payload_without_doi_still_renders():
+    # Pre-DOI payloads (and tournaments with no archived dataset yet) must not
+    # crash or emit a dangling citation.
+    assert "doi.org" not in render_html(REL)
+    assert "doi" not in render_csv(REL)
+
+
 def test_html_escapes_team_names():
     h = render_html(REL)
     assert "S<enegal" not in h and "S&lt;enegal" in h

@@ -29,3 +29,10 @@ def test_betting_denylist_covers_known_bundle_fields():
 
 def test_archive_url_uses_current_github_owner():
     assert "onbiggerthingsB" in releases.ARCHIVE_URL   # repo moved 2026-07-25
+
+
+def test_wc2026_archive_doi_is_pinned_zenodo_doi():
+    # Published 2026-07-28; a DOI never changes, so this is an exact pin.
+    assert releases.WC2026_ARCHIVE_DOI == "10.5281/zenodo.21641225"
+    assert releases.WC2026_ARCHIVE_DOI_URL == (
+        "https://doi.org/" + releases.WC2026_ARCHIVE_DOI)

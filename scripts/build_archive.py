@@ -65,7 +65,8 @@ def _assert_under(out_root: Path, dest: Path) -> Path:
 
 
 def assemble_archive(src_root: Path, out_root: Path, include: list[str],
-                     releases_dir: Path | None = None) -> dict:
+                     releases_dir: Path | None = None,
+                     doi: str | None = None) -> dict:
     src_root, out_root = Path(src_root), Path(out_root)
     if not include:
         raise ValueError("no bundles selected — pass explicit --include names")
@@ -153,7 +154,12 @@ def assemble_archive(src_root: Path, out_root: Path, include: list[str],
         f"Integrity: manifest.json ({HASH_SEMANTICS}, per file). "
         "Built from code rev "
         f"{manifest['generated_from_git']}.</p>"
-        f"<ul>{items}</ul>"
+        # DOI is per-assembly (each tournament's archive gets its own record),
+        # so it arrives as an argument, never as a baked-in constant.
+        + (f"<p>Canonical archived copy of this dataset: "
+           f"<a href='https://doi.org/{html.escape(doi, quote=True)}'>"
+           f"doi:{html.escape(doi)}</a>.</p>" if doi else "")
+        + f"<ul>{items}</ul>"
         + (f"<h2>Forecast releases</h2><ul>{rel_items}</ul>" if rel_items else "")
         + "</body></html>")
     return manifest
@@ -165,10 +171,14 @@ def main(argv=None) -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--include", action="append", default=[])
     ap.add_argument("--releases", default=None)
+    ap.add_argument("--doi", default=None,
+                    help="DOI of this archive's canonical published copy "
+                         "(e.g. 10.5281/zenodo.21641225); cited in index.html")
     args = ap.parse_args(argv)
     manifest = assemble_archive(
         Path(args.src), Path(args.out), include=args.include,
-        releases_dir=Path(args.releases) if args.releases else None)
+        releases_dir=Path(args.releases) if args.releases else None,
+        doi=args.doi)
     n = sum(len(v) for v in manifest["bundles"].values())
     print(f"[archive] {len(manifest['bundles'])} bundles, {n} files, "
           f"{len(manifest['releases'])} releases -> {args.out}")

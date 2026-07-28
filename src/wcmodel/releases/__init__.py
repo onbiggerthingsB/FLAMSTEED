@@ -9,6 +9,11 @@ LICENSE_STAMP = "CC BY 4.0 — free to republish with attribution and link"
 METHODOLOGY_URL = "https://github.com/onbiggerthingsB/worldcup#how-it-works"
 ARCHIVE_URL = "https://github.com/onbiggerthingsB/worldcup/tree/main/reports"
 DATA_SOURCE_NAME = "martj42/international_results (community dataset)"
+# Canonical citable copy of the WC-2026 forecast archive (Zenodo, CC BY 4.0,
+# published 2026-07-28). Scoped by tournament on purpose: a future tournament's
+# archive gets its own DOI, never a reuse of this one.
+WC2026_ARCHIVE_DOI = "10.5281/zenodo.21641225"
+WC2026_ARCHIVE_DOI_URL = "https://doi.org/" + WC2026_ARCHIVE_DOI
 
 # Every JSON key that marks betting/edge content in dashboard bundles
 # (build.py attaches `edge` nodes to schedule + fixture surfaces; track/meta

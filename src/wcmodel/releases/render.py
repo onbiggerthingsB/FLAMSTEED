@@ -21,6 +21,16 @@ def _pct(x: float) -> str:
     return f"{100.0 * v:.1f}%"
 
 
+def _doi_html(release: dict) -> str:
+    """Footer citation for the archived track record — empty when the payload
+    has none (a tournament whose archive has no DOI yet cites nothing)."""
+    doi = release.get("track_record_doi")
+    if not doi:
+        return ""
+    e = _html.escape(doi, quote=True)
+    return f'verified record: <a href="https://doi.org/{e}">doi:{e}</a> · '
+
+
 def render_html(release: dict) -> str:
     p, ds = release["provenance"], release["data_source"]
     rows_html = []
@@ -54,7 +64,7 @@ def render_html(release: dict) -> str:
 <footer>as-of (all data strictly before): {p['as_of']} · posterior {p['posterior_key']}
 · code {p['git']} · {release['n_draws']:,} posterior draws ·
 data: {_html.escape(ds['name'])}, latest result {ds['latest_result']} ·
-{_html.escape(release['license'])}</footer>
+{_doi_html(release)}{_html.escape(release['license'])}</footer>
 </body></html>"""
 
 
@@ -69,6 +79,8 @@ def render_csv(release: dict) -> str:
     buf.write(f"# data_source: {ds['name']} latest_result: {ds['latest_result']}\n")
     buf.write(f"# methodology: {release['methodology_url']}\n")
     buf.write(f"# archive: {release['archive_url']}\n")
+    if release.get("track_record_doi"):
+        buf.write(f"# track_record_doi: {release['track_record_doi']}\n")
     # csv.writer (not ",".join): team names legitimately contain commas and
     # quotes, and a hand-joined row would silently split into extra fields.
     w = csv.writer(buf, lineterminator="\n")
