@@ -1,6 +1,20 @@
 """Track-record artifact: realized CLV (beat-close + avg CLV%), ROI, and RPS vs the
 market & Elo baselines (Direct from the backtest), plus a DERIVED reliability diagram
-(binned forecast-vs-outcome). Paper/synthetic in v1."""
+(binned forecast-vs-outcome). Paper/synthetic in v1.
+
+RPS SCALE BOUNDARY (2026-07-28, OA finding 16)
+----------------------------------------------
+``rps.{model,market,elo}`` average the per-bet ``rps_*`` fields the walk-forward
+emits through ``baselines.rps``, which now delegates to the canonical ÷2-normalized
+``wcmodel.model.calibration.rps`` (range [0, 1]). Bundles built BEFORE that date
+carry the old unnormalized [0, 2] values, so the FIRST rebuild after it HALVES all
+three numbers rendered by ``Track.svelte`` under "RPS vs baselines" — a pure unit
+change, not a model improvement: the deltas and the model/market/elo ordering are
+identical. ``schema.gate_track`` bounds these at [0, inf), so the guard does NOT
+flag the shift; a cross-bundle comparison spanning this date must be read in the
+knowledge of it. (The public site's live-scorecard RPS figures are unaffected —
+``scripts/live_scorecard_final.py`` has always scored through the canonical
+function.)"""
 from __future__ import annotations
 
 import numpy as np

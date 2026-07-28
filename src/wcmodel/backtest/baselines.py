@@ -20,10 +20,13 @@ ranked-probability score the de-vig selection uses, on the ordered
 RPS DRY note (OA finding 16)
 ----------------------------
 There is now ONE canonical RPS codebase-wide: ``wcmodel.model.calibration.rps``,
-the ÷2-normalized convention with range [0, 1]. This module's public ``rps`` and
-the private ``devig_select._rps`` are thin container adapters that DELEGATE to it
-(dict-keyed here, positional ``list[float]`` there) — they no longer carry their
-own loop, so they cannot silently diverge.
+the ÷2-normalized convention with range [0, 1]. This module's public ``rps``, the
+private ``devig_select._rps``, and the private ``report._rps`` (the permutation
+null's scorer) are thin container adapters that DELEGATE to it (dict-keyed here
+and in ``report``, positional ``list[float]`` in ``devig_select``) — none carries
+its own loop, so they cannot silently diverge. ``headroom._row_rps`` reaches the
+same convention through this module's ``rps``. ``tests/eval/test_rps_canonical.py``
+pins each adapter to the canonical value.
 
 ``calibration`` is the shared third module the earlier note called for: routing
 through it avoids the circular import that blocked consolidation before

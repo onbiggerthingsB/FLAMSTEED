@@ -25,6 +25,7 @@ import numpy as np
 from wcmodel.backtest.clv import clv_summary
 from wcmodel.backtest.odds_ingest import OUTCOMES
 from wcmodel.backtest.staking import roi_metrics
+from wcmodel.model.calibration import rps as _canonical_rps
 
 #: A stratum with fewer than this many sharp-priced bets is a COVERAGE GAP, never
 #: averaged into a headline (Phase-0 §5 selection-bias discipline).
@@ -130,13 +131,14 @@ def baseline_beat_verdict(summary: dict) -> dict:
 
 
 def _rps(probs: dict, outcome: str) -> float:
-    obs = [1.0 if o == outcome else 0.0 for o in OUTCOMES]
-    cum_p = cum_o = total = 0.0
-    for k in range(len(OUTCOMES) - 1):
-        cum_p += probs[OUTCOMES[k]]
-        cum_o += obs[k]
-        total += (cum_p - cum_o) ** 2
-    return total
+    """Canonical ÷2-normalized RPS in [0,1] over ``OUTCOMES`` (delegates to
+    ``wcmodel.model.calibration.rps`` — ONE convention codebase-wide, OA F16).
+
+    SCALE CHANGE: ``permutation_null``'s ``real_rps`` is HALF its pre-F16 value.
+    ``percentile`` is unaffected (real and null are scored through the same
+    function, so a uniform rescaling cannot move a comparison).
+    """
+    return _canonical_rps(probs, outcome)
 
 
 #: Pre-registered minimum permutation-null shuffles (D4; mirrors config

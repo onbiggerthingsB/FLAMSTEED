@@ -4,6 +4,7 @@ import numpy as np
 from wcmodel.model.calibration import rps as canonical_rps
 from wcmodel.backtest.devig_select import _rps as devig_rps
 from wcmodel.backtest.baselines import rps as baselines_rps
+from wcmodel.backtest.report import _rps as report_rps
 
 
 def test_devig_rps_matches_canonical_on_random_forecasts():
@@ -17,14 +18,27 @@ def test_devig_rps_matches_canonical_on_random_forecasts():
 
 
 def test_baselines_rps_matches_canonical_on_random_forecasts():
-    # Third implementation (the backtest/headroom/ablation scoring path) — it
-    # must obey the SAME convention, else "one canonical RPS" is only partial.
+    # The backtest/headroom/ablation scoring path — it must obey the SAME
+    # convention, else "one canonical RPS" is only partial.
     rng = np.random.default_rng(1)
     for _ in range(200):
         p = rng.dirichlet([1.0, 1.0, 1.0])
         outcome = ("home", "draw", "away")[rng.integers(0, 3)]
         probs_dict = {"home": p[0], "draw": p[1], "away": p[2]}
         assert abs(baselines_rps(probs_dict, outcome)
+                   - canonical_rps(probs_dict, outcome)) < 1e-12
+
+
+def test_report_rps_matches_canonical_on_random_forecasts():
+    # The permutation-null scorer: its ``real_rps`` is emitted alongside the
+    # ablation numbers that now come from the canonical scale, so a divergent
+    # convention here would put one field of the SAME report on the old [0,2].
+    rng = np.random.default_rng(2)
+    for _ in range(200):
+        p = rng.dirichlet([1.0, 1.0, 1.0])
+        outcome = ("home", "draw", "away")[rng.integers(0, 3)]
+        probs_dict = {"home": p[0], "draw": p[1], "away": p[2]}
+        assert abs(report_rps(probs_dict, outcome)
                    - canonical_rps(probs_dict, outcome)) < 1e-12
 
 
