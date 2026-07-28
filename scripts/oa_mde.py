@@ -177,37 +177,55 @@ def assemble_report(rows, contrasts, *, headline: Contrast) -> str:
         "evidence the machinery works — that evidence is "
         "tests/eval/test_power.py.", ""]
 
-    if binders:
-        # the TIGHTEST binder, not the widest: it bounds how little extra
-        # dispersion it takes before support starts rejecting, and it does not
-        # depend on the order ALTS happens to list the arms in.
-        b = min(binders, key=lambda c: c.sd)
-        caveat = (
-            f"That is conditional on the noise model, not on n: on the more "
-            f"dispersed {b.label}-vs-{BASE} contrast (sd={b.sd:.5f}, only "
-            f"{b.sd / headline.sd:.1f}x the headline) measured on this SAME 185 "
-            f"pool, support>={SUPPORT_REQ:.2f} DOES reject {b.support_reject} "
-            f"floor-passers (min support {b.min_support:.3f}) — and it is the "
-            f"tightest of {len(binders)} alternative contrasts that bind.")
+    # The whole paragraph — not just the SCOPE summary — must agree with which
+    # half of the gate binds under THE HEADLINE; the floor-only wording below
+    # is provably false the moment headline.support_reject > 0 (review round 5).
+    if headline.support_reject == 0:
+        if binders:
+            # the TIGHTEST binder, not the widest: it bounds how little extra
+            # dispersion it takes before support starts rejecting, and it does
+            # not depend on the order ALTS happens to list the arms in.
+            b = min(binders, key=lambda c: c.sd)
+            caveat = (
+                f"That is conditional on the noise model, not on n: on the more "
+                f"dispersed {b.label}-vs-{BASE} contrast (sd={b.sd:.5f}, only "
+                f"{b.sd / headline.sd:.1f}x the headline) measured on this SAME 185 "
+                f"pool, support>={SUPPORT_REQ:.2f} DOES reject {b.support_reject} "
+                f"floor-passers (min support {b.min_support:.3f}) — and it is the "
+                f"tightest of {len(binders)} alternative contrasts that bind.")
+        else:
+            caveat = ("No alternative contrast on this pool makes support bind "
+                      "either, but that is still a statement about the arms on "
+                      "disk, not about n=185.")
+        binding_para = (
+            f"Binding constraint: the mean<=-{FLOOR:.3f} floor, NOT the support "
+            f"requirement. Across every delta above, {headline.floor_pass} "
+            f"simulated panels cleared the floor and {headline.support_reject} of "
+            f"them were then rejected by support>={SUPPORT_REQ:.2f}; the smallest "
+            f"support among floor-passers was {headline.min_support:.3f}, so "
+            f"support_req would have to exceed {headline.min_support:.3f} before it "
+            f"rejected a single one. support>={SUPPORT_REQ:.2f} only asks that the "
+            "panel mean sit ~0.84 bootstrap standard errors below zero, which at "
+            "this n and this dispersion the floor already implies with room to "
+            "spare. Every power number in the table is therefore the power of the "
+            f"floor alone. {caveat} Task 7's prereg must state the conditioned "
+            f"form — at n=185 AND sd(noise)={headline.sd:.5f} the support "
+            "requirement is a sign/robustness check rather than a second binding "
+            "hurdle — not the unconditional claim.")
     else:
-        caveat = ("No alternative contrast on this pool makes support bind "
-                  "either, but that is still a statement about the arms on "
-                  "disk, not about n=185.")
+        binding_para = (
+            f"Binding constraint: BOTH halves of the gate bind at this "
+            f"configuration. Across every delta above, {headline.floor_pass} "
+            f"simulated panels cleared the floor and support>={SUPPORT_REQ:.2f} "
+            f"then rejected {headline.support_reject} of them (smallest support "
+            f"among floor-passers {headline.min_support:.3f}, below the "
+            "requirement). The power table is therefore the power of the JOINT "
+            "gate, not of the floor alone. Task 7's prereg must state the "
+            f"conditioned form — at n=185 AND sd(noise)={headline.sd:.5f} the "
+            "support requirement IS a second binding hurdle — not the "
+            "floor-only claim.")
     lines += [
-        f"Binding constraint: the mean<=-{FLOOR:.3f} floor, NOT the support "
-        f"requirement. Across every delta above, {headline.floor_pass} "
-        f"simulated panels cleared the floor and {headline.support_reject} of "
-        f"them were then rejected by support>={SUPPORT_REQ:.2f}; the smallest "
-        f"support among floor-passers was {headline.min_support:.3f}, so "
-        f"support_req would have to exceed {headline.min_support:.3f} before it "
-        f"rejected a single one. support>={SUPPORT_REQ:.2f} only asks that the "
-        "panel mean sit ~0.84 bootstrap standard errors below zero, which at "
-        "this n and this dispersion the floor already implies with room to "
-        "spare. Every power number in the table is therefore the power of the "
-        f"floor alone. {caveat} Task 7's prereg must state the conditioned "
-        f"form — at n=185 AND sd(noise)={headline.sd:.5f} the support "
-        "requirement is a sign/robustness check rather than a second binding "
-        "hurdle — not the unconditional claim.", "",
+        binding_para, "",
         f"Reading: the smallest delta with power >= {TARGET:.2f} is the MDE. "
         "Here " + _reading(headline, by_delta), "",
         "## Noise-model sensitivity", "",

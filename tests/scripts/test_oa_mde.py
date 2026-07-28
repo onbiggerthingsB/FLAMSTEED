@@ -99,6 +99,24 @@ def test_report_reports_support_binding_only_when_a_contrast_shows_it(mod):
     assert "0.02972" in binding_para and "0.03261" not in binding_para
 
 
+def test_binding_paragraph_flips_when_the_headline_itself_binds(mod):
+    # Reachable by editing ONE constant (HEADLINE) — and this very report
+    # argues the wider contrasts are the realistic reading, so that is the
+    # likely next edit. The floor-only claims must not ship in that state.
+    head = _contrast(mod, "nuts_k0.6", 0.03252, 0.004, power_null=0.21,
+                     support_reject=20, min_support=0.753)
+    quiet = _contrast(mod, "k0.5", 0.01334, 0.003)
+    md = mod.assemble_report(_ROWS, [head, quiet], headline=head)
+    para = md.split("Binding constraint:")[1].split("\n\n")[0]
+    assert "NOT the support requirement" not in para
+    assert "power of the floor alone" not in para
+    assert "sign/robustness check" not in para
+    assert "BOTH halves" in para and "rejected 20" in para
+    # prereg-form sentence must say support IS binding at this configuration
+    assert "IS a second binding hurdle" in para
+    assert "sd(noise)=0.03252" in para
+
+
 def test_report_flags_a_contrast_that_cannot_resolve_the_band(mod):
     head = _contrast(mod, "k0.5", 0.01334, 0.003)
     dead = _contrast(mod, "k0.0", 0.08066, None, power_null=0.20,
