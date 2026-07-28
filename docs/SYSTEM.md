@@ -229,7 +229,10 @@ def[team] ~ Normal(k_def · elo_z[team], σ_def)      # k_def = 0.6  (strong tea
   | 1.0 | 0.33267 | 0.34045 |
 
   Note the old model was *worse than plain Elo*; the anchored model beats both. k=0.6 is the knee
-  of the plateau (full gain, least anchoring). Reproduce with `scripts/sweep_strength_k.py`.
+  of the plateau (full gain, least anchoring). Reproduce with `scripts/sweep_strength_k.py` — but
+  read the scale first: these are **pre-F16 `[0, 2]` RPS** (recorded 2026-06), and since the
+  2026-07-28 canonical-RPS consolidation (OA finding 16) a re-run prints their **halves**. That is
+  a unit change, not an accuracy gain; the k ranking and the decision are unchanged.
 - **Validated production effect** (cutoff 2026-06-07): Germany v Curaçao 39% → **88.4%**; Spain v
   Cape Verde 91.4%; Brazil 48% > Morocco 23% (correct order, appropriately cautious); Argentina v
   Curaçao 94.7%. None faked (gate was 75–92%; >95% would have been flagged as over-anchoring).
@@ -440,7 +443,8 @@ provenance stamp is missing from a bundle.
 ## 12. Validated results (the numbers, all leakage-guarded)
 
 **Forecast quality (after the strength anchor, k=0.6):**
-- Held-out 1X2 RPS 0.33277 (old model 0.35922; plain-Elo baseline 0.34045; n=2,111).
+- Held-out 1X2 RPS 0.33277 (old model 0.35922; plain-Elo baseline 0.34045; n=2,111) — pre-F16
+  `[0, 2]` scale; a re-run after 2026-07-28 prints half of each (§5.2).
 - Production-cutoff discrimination: Germany 88.4% v Curaçao (was 39%); Spain 91.4% v Cape Verde;
   Brazil 48% > Morocco 23% (was *leaning Morocco*); France 76.4% v New Zealand; Argentina 94.7%.
 - Champion board (20k sims): **Spain 12.8%, Argentina 12.8%**, Brazil 6.8%, France 5.2%,

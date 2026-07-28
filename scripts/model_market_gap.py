@@ -108,14 +108,31 @@ PART_B_CUTOFF = "2024-06-01T00:00:00Z"
 # G1 thresholds (the brief): aggregate market gap small -> Phase 2 only; large ->
 # Phase 3 priority. The gap is RPS_model - RPS_market (positive = market ahead).
 #
-# ON THE CANONICAL ÷2 RPS SCALE (OA finding 16, 2026-07-28). The gap arrives from
-# ``headroom.paired_rps`` -> ``baselines.rps``, which now delegates to
-# ``calibration.rps`` ([0, 1]); a uniform ÷2 HALVES every difference, so the brief's
-# original 0.005 / 0.010 (set against the [0, 2] scale — see the recorded run in
-# reports/headroom_2026-06-10.md, RPS_model 0.2854 / RPS_market 0.3055) are re-derived
-# here. Same true forecast difference, same recommendation, before and after.
-G1_SMALL = 0.0025    # = pre-F16 0.005
-G1_LARGE = 0.005     # = pre-F16 0.010
+# HALVED UNDER AN ASSUMPTION, NOT DERIVED (OA finding 16, 2026-07-28). The gap now
+# arrives on the canonical ÷2 scale (``headroom.paired_rps`` -> ``baselines.rps`` ->
+# ``calibration.rps``, [0, 1]), which halves every difference. The originals come from
+# docs/missions/2026-06-accuracy-upgrade.md:71, written BEFORE this harness existed —
+# so no output of this harness can establish which RPS convention their author meant,
+# and nothing else records it. Halving ASSUMES the unnormalized [0, 2] levels ambient
+# in the project at the time (e.g. config.yaml's k_att note); if the normalized
+# convention was meant, the originals stand and this gate is 2x too eager. That is a
+# judgement on the USER's gate, so it is surfaced in the rendered recommendation
+# (``_G1_SCALE_ASSUMPTION``) rather than settled here. No recorded verdict moves
+# either way: the recorded run's aggregate gap was NEGATIVE (the too-good branch),
+# which is Phase-2-only under both constant sets, and sign is scale-invariant.
+G1_SMALL = 0.0025    # = the brief's 0.005, halved
+G1_LARGE = 0.005     # = the brief's 0.010, halved
+
+_G1_SCALE_ASSUMPTION = (
+    "**Scale assumption (yours to rule on).** These thresholds are the brief's "
+    "0.005 / 0.010 halved, because the RPS this harness reports is the canonical "
+    "÷2-normalized value (OA finding 16, 2026-07-28) and halving keeps the same true "
+    "forecast difference tripping the same branch. But the brief "
+    "(`docs/missions/2026-06-accuracy-upgrade.md`) predates this harness and does not "
+    "say which convention it meant: if it meant the normalized one, the originals "
+    "stand and this gate now fires at half the headroom you asked for. Say so and the "
+    "constants revert."
+)
 
 # Outcome letter for paired_rps, from realized scores.
 def _outcome_letter(home_score: int, away_score: int) -> str:
@@ -492,8 +509,15 @@ def _fmt(x, nd=4) -> str:
 
 
 def _g1_recommendation(gap: float) -> str:
-    """The brief's threshold rule on the aggregate market gap (RPS_model -
-    RPS_market). Larger gap = more market headroom = higher-phase priority."""
+    """The brief's threshold rule on the aggregate market gap, plus the one open
+    judgement behind its constants — the gate is the user's, so the assumption
+    travels with every verdict instead of living only in a source comment."""
+    return _g1_verdict(gap) + "\n\n" + _G1_SCALE_ASSUMPTION
+
+
+def _g1_verdict(gap: float) -> str:
+    """The threshold rule itself (RPS_model - RPS_market). Larger gap = more market
+    headroom = higher-phase priority."""
     if gap is None or (isinstance(gap, float) and np.isnan(gap)):
         return ("**G1 recommendation:** the aggregate market gap is undefined "
                 "(no matched fixtures) — resolve coverage before deciding.")

@@ -19,6 +19,7 @@ could not see the breaks. With ``outcome = home`` the canonical score is
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
@@ -103,6 +104,31 @@ def test_g1_near_ceiling_recommends_phase_2_only(gap_mod):
     # already near the de-vigged sharp ceiling.
     md = gap_mod.assemble_report(_part_a(*G1_NEAR_CEILING), None, today="2026-07-28")
     assert "do NOT prioritise Phase 3" in md
+
+
+@pytest.mark.parametrize("pair", [G1_MATERIAL, G1_GREY, G1_NEAR_CEILING])
+def test_g1_report_surfaces_the_scale_assumption_in_every_branch(gap_mod, pair):
+    """G1 is the USER's gate and its constants rest on one unrecorded judgement —
+    which RPS convention the brief's 0.005/0.010 were written against. Halving them
+    is defensible but is an assumption, so it must travel with every verdict instead
+    of being settled in a source comment the decider never reads."""
+    md = gap_mod.assemble_report(_part_a(*pair), None, today="2026-07-28")
+    assert "Scale assumption" in md
+    # Names the constants' real source — a brief written BEFORE this harness — so the
+    # reader can check the intent rather than trust the halving.
+    assert "docs/missions/2026-06-accuracy-upgrade.md" in md
+    # And says what reverting looks like, in the brief's own numbers.
+    assert "0.005 / 0.010" in md
+
+
+def test_g1_constants_do_not_cite_harness_output_as_their_derivation():
+    """``reports/headroom_*.md`` is OUTPUT of this script and postdates the brief that
+    set the thresholds: it can establish the harness's own output scale, never the
+    units the threshold author intended. Citing it beside the constants dressed an
+    assumption as a mechanical derivation."""
+    src = (_SCRIPTS / "model_market_gap.py").read_text()
+    block = src[src.index("# G1 thresholds"):src.index("G1_LARGE")]
+    assert "reports/headroom_2026-06-10.md" not in block
 
 
 # --------------------------------------------------------------------------- #
@@ -224,3 +250,65 @@ def test_clv_near_perfect_rps_is_always_red(clv_mod):
     line = clv_mod._adversarial_verdict(1e-9, 0.06, 20)
     assert "[RED]" in line
     assert "peeking" in line
+
+
+# --------------------------------------------------------------------------- #
+# PUBLISHERS of absolute RPS LEVELS — config/config.yaml's ``k_att`` note and     #
+# scripts/sweep_strength_k.py, the sweep that reproduces it. Nothing BRANCHES on  #
+# these numbers (the sweep's picker compares arms with ±1e-9 float-noise          #
+# epsilons only), so the gate tests above cannot see them. The trap is an         #
+# operator re-validating the shipped k=0.6 DOF, reading model_RPS≈0.166 against   #
+# the config's documented ~0.333, and calling a pure unit change a 2x accuracy    #
+# gain — or concluding the anchor decision no longer reproduces.                  #
+# --------------------------------------------------------------------------- #
+_ROOT = Path(__file__).resolve().parents[2]
+
+# The held-out levels the k_att note cites, recorded pre-F16 on the [0, 2] scale.
+PRE_F16_K_SWEEP_LEVELS = (0.359, 0.340, 0.333)
+
+
+def _floats(text: str) -> list[float]:
+    return [float(m) for m in re.findall(r"\d+\.\d+", text)]
+
+
+def _assert_each_level_is_paired_with_its_canonical_half(text: str) -> None:
+    seen = _floats(text)
+    for level in PRE_F16_K_SWEEP_LEVELS:
+        assert any(abs(v - level) < 1e-9 for v in seen), f"level {level} no longer published"
+        assert any(abs(v - level / 2) < 1e-4 for v in seen), (
+            f"pre-F16 level {level} is published without its canonical "
+            f"{level / 2:.4f} — the halving is invisible to whoever re-runs the sweep")
+
+
+def _k_att_annotation() -> str:
+    """The ``k_att`` line plus the comment lines contiguous with it."""
+    lines = (_ROOT / "config" / "config.yaml").read_text().splitlines()
+    i = next(n for n, ln in enumerate(lines) if ln.strip().startswith("k_att:"))
+    out = [lines[i]]
+    j = i + 1
+    while j < len(lines) and lines[j].strip().startswith("#"):
+        out.append(lines[j])
+        j += 1
+    return "\n".join(out)
+
+
+@pytest.fixture
+def sweep_mod():
+    return _load_script("sweep_strength_k")
+
+
+def test_config_k_att_note_carries_the_scale_boundary():
+    """The config justifies a PRODUCTION model parameter with absolute RPS levels; it
+    is the fourth publisher of them and the only live one."""
+    note = _k_att_annotation()
+    assert "F16" in note, "no scale marker beside the k_att RPS levels"
+    _assert_each_level_is_paired_with_its_canonical_half(note)
+
+
+def test_sweep_prints_the_scale_banner_above_its_table(sweep_mod):
+    """Both sides of the comparison must be marked: the config's levels AND the fresh
+    numbers the operator is reading them against."""
+    assert "F16" in sweep_mod.SCALE_BANNER
+    _assert_each_level_is_paired_with_its_canonical_half(sweep_mod.SCALE_BANNER)
+    src = (_SCRIPTS / "sweep_strength_k.py").read_text()
+    assert "print(SCALE_BANNER)" in src, "banner defined but never printed"
