@@ -1,0 +1,746 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- BRAND: placeholder wordmark. Replace this string (appears 3× — wordmark, <title>, footer) when the brand name is chosen. -->
+<title>THE MODEL — Methodology</title>
+<meta name="description" content="How the point-in-time football forecast is fitted, simulated, scored, tested, and reproduced.">
+<style>
+/* ============================================================
+   THE LEDGER — reference-document edition.
+   Design system: dark editorial ground; one warm accent;
+   serif display vs mono data; FIG-numbered plates. No external
+   requests, and no motion beyond the section rules.
+   ============================================================ */
+:root {
+  --ground: #101319;
+  --ground-deep: #0b0e13;
+  --plate: #161a22;
+  --ink: #ece7dc;
+  --ink-dim: #a49e90;
+  --hairline: #2b3140;
+  --hairline-soft: #232837;
+  --accent: #d08b3c;
+  --accent-dim: #8a5f2e;
+  --serif: "Iowan Old Style", "Palatino Nova", Palatino, Charter, "Times New Roman", Georgia, serif;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  --shell: min(1120px, calc(100vw - clamp(40px, 8vw, 128px)));
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+::selection { background: var(--accent); color: var(--ground-deep); }
+
+a { color: inherit; }
+
+.shell { width: var(--shell); margin-inline: auto; }
+
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.skip-link {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 40;
+  padding: 10px 14px;
+  background: var(--accent);
+  color: var(--ground-deep);
+  font-family: var(--mono);
+  font-size: .76rem;
+  text-decoration: none;
+  transform: translateY(-160%);
+}
+.skip-link:focus { transform: none; }
+
+/* ---------- header ---------- */
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: color-mix(in srgb, var(--ground) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.header-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 28px;
+  padding-block: 22px;
+}
+.wordmark {
+  font-family: var(--mono);
+  font-size: .82rem;
+  font-weight: 700;
+  letter-spacing: .34em;
+  text-decoration: none;
+  transition: letter-spacing .6s var(--ease-out), color .3s;
+}
+.wordmark:hover, .wordmark:focus-visible {
+  letter-spacing: .44em;
+  color: var(--accent);
+}
+.header-note {
+  font-family: var(--mono);
+  font-size: .68rem;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+/* ---------- document masthead ---------- */
+.hero {
+  padding-block: clamp(80px, 13vh, 148px) clamp(64px, 10vh, 112px);
+  border-bottom: 1px solid var(--hairline);
+}
+.eyebrow {
+  font-family: var(--mono);
+  font-size: .72rem;
+  letter-spacing: .26em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: clamp(24px, 4vh, 40px);
+}
+h1 {
+  max-width: 13ch;
+  font-size: clamp(3rem, 7vw, 6rem);
+  line-height: .98;
+  font-weight: 500;
+  letter-spacing: -.015em;
+}
+h1 em {
+  color: var(--accent);
+  font-style: italic;
+}
+.hero-copy {
+  display: grid;
+  grid-template-columns: minmax(0, 58ch) minmax(0, 1fr);
+  gap: 34px;
+  align-items: end;
+  margin-top: clamp(30px, 5vh, 52px);
+}
+.hero-copy > p {
+  color: var(--ink-dim);
+  font-size: 1.06rem;
+  line-height: 1.7;
+}
+.contents {
+  display: flex;
+  justify-content: flex-end;
+  gap: 18px 26px;
+  flex-wrap: wrap;
+}
+.contents a, .source-link {
+  font-family: var(--mono);
+  font-size: .74rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--ink-dim);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--hairline);
+  transition: color .3s, border-color .3s;
+}
+.contents a:hover, .contents a:focus-visible,
+.source-link:hover, .source-link:focus-visible {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ---------- FIG plates ---------- */
+.section { padding-block: clamp(64px, 10vh, 112px); }
+.section + .section { border-top: 1px solid var(--hairline-soft); }
+.fig {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: clamp(30px, 5vh, 48px);
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: .68rem;
+  letter-spacing: .3em;
+  text-transform: uppercase;
+}
+.fig b { color: var(--accent); font-weight: 700; }
+.fig .rule {
+  flex: 1;
+  height: 1px;
+  background: var(--hairline);
+  transform-origin: 0 50%;
+  animation: draw-rule .9s var(--ease-out) both;
+}
+@keyframes draw-rule {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.section-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 46ch);
+  gap: 28px;
+  align-items: end;
+  margin-bottom: clamp(34px, 5vh, 54px);
+}
+h2 {
+  font-size: clamp(1.9rem, 3.6vw, 3rem);
+  font-weight: 500;
+  letter-spacing: -.01em;
+  line-height: 1.05;
+}
+.section-heading p {
+  color: var(--ink-dim);
+  font-size: .94rem;
+  line-height: 1.65;
+}
+.prose {
+  max-width: 72ch;
+}
+.prose p {
+  font-size: 1.03rem;
+  line-height: 1.75;
+}
+.prose p + p { margin-top: 22px; }
+.prose strong { color: var(--accent); font-weight: 700; }
+.prose code {
+  font-family: var(--mono);
+  font-size: .84em;
+  color: var(--ink);
+}
+.prose a, td a, .source-list a {
+  color: var(--ink);
+  text-decoration-color: var(--accent-dim);
+  text-underline-offset: .22em;
+  text-decoration-thickness: 1px;
+}
+.prose a:hover, .prose a:focus-visible,
+td a:hover, td a:focus-visible,
+.source-list a:hover, .source-list a:focus-visible {
+  color: var(--accent);
+  text-decoration-color: var(--accent);
+}
+
+/* ---------- evidence table ---------- */
+.table-wrap {
+  margin-top: 42px;
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+caption {
+  padding-bottom: 16px;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: .74rem;
+  letter-spacing: .06em;
+  text-align: left;
+}
+thead th {
+  padding: 0 18px 14px;
+  border-bottom: 1px solid var(--hairline);
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: .66rem;
+  font-weight: 400;
+  letter-spacing: .2em;
+  text-align: left;
+  text-transform: uppercase;
+}
+thead th:first-child { padding-left: 0; }
+tbody th, tbody td {
+  padding: 17px 18px;
+  border-bottom: 1px solid var(--hairline-soft);
+  font-size: .9rem;
+  font-weight: 400;
+  line-height: 1.55;
+  text-align: left;
+  vertical-align: top;
+}
+tbody th {
+  padding-left: 0;
+  font-family: var(--serif);
+  font-size: 1rem;
+}
+.verdict {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: .74rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  white-space: nowrap;
+}
+.verdict.no-lift { color: var(--ink-dim); }
+
+/* ---------- discipline ---------- */
+.discipline-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 36%);
+  gap: clamp(32px, 6vw, 80px);
+  align-items: start;
+}
+.clock-list {
+  list-style: none;
+  border-top: 1px solid var(--hairline);
+}
+.clock-list li {
+  padding-block: 22px;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.clock-list code {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: .78rem;
+}
+.clock-list span {
+  color: var(--ink-dim);
+  font-size: .9rem;
+  line-height: 1.6;
+}
+blockquote {
+  margin-top: 34px;
+  padding: 26px 28px;
+  border-left: 2px solid var(--accent);
+  background: var(--plate);
+  font-size: clamp(1.2rem, 2vw, 1.5rem);
+  font-style: italic;
+  line-height: 1.45;
+}
+blockquote cite {
+  display: block;
+  margin-top: 16px;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: .68rem;
+  font-style: normal;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+/* ---------- scoring ---------- */
+.score-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  margin-top: 42px;
+  border: 1px solid var(--hairline-soft);
+  background: var(--hairline-soft);
+}
+.score-card {
+  padding: clamp(28px, 4vw, 42px);
+  background: var(--ground);
+}
+.score-label {
+  display: block;
+  margin-bottom: 16px;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: .68rem;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+}
+.score-value {
+  display: block;
+  font-size: clamp(1.55rem, 3vw, 2.35rem);
+  font-weight: 500;
+  letter-spacing: -.01em;
+}
+.score-detail {
+  margin-top: 10px;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: .8rem;
+}
+.report-row {
+  margin-top: 28px;
+  text-align: right;
+}
+
+/* ---------- disclosure ---------- */
+.honest-wrap {
+  background: var(--ground-deep);
+  border-block: 1px solid var(--hairline);
+  padding-block: clamp(64px, 10vh, 110px);
+}
+.honest {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 58ch);
+  gap: clamp(28px, 5vw, 80px);
+}
+.disclosure-label {
+  margin-bottom: 22px;
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: .68rem;
+  letter-spacing: .3em;
+  text-transform: uppercase;
+}
+.disclosure-label b { color: var(--accent); }
+.honest h2 { max-width: 12ch; }
+.honest-copy p {
+  font-size: 1.04rem;
+  line-height: 1.7;
+}
+.honest-copy p + p { margin-top: 22px; }
+.honest-copy strong { color: var(--accent); font-weight: 700; }
+.honest-copy .source-link {
+  display: inline-block;
+  margin-top: 28px;
+}
+
+/* ---------- reproducibility ---------- */
+.repro-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  margin-top: 42px;
+  border: 1px solid var(--hairline-soft);
+  background: var(--hairline-soft);
+}
+.repro-item {
+  padding: clamp(26px, 4vh, 38px) 28px;
+  background: var(--ground);
+}
+.repro-item h3 {
+  margin-bottom: 12px;
+  font-size: 1.12rem;
+  font-weight: 500;
+}
+.repro-item p {
+  color: var(--ink-dim);
+  font-size: .86rem;
+  line-height: 1.65;
+}
+.source-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 32px;
+  margin-top: 42px;
+  border-top: 1px solid var(--hairline);
+  list-style: none;
+}
+.source-list li {
+  padding-block: 18px;
+  border-bottom: 1px solid var(--hairline-soft);
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: .78rem;
+  line-height: 1.55;
+}
+
+/* ---------- footer ---------- */
+.site-footer {
+  border-top: 1px solid var(--hairline);
+  padding-block: clamp(44px, 7vh, 72px);
+  background: var(--ground-deep);
+}
+.footer-inner {
+  display: grid;
+  gap: 30px;
+}
+.footer-brand {
+  font-family: var(--mono);
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .34em;
+}
+.footer-nav { display: flex; gap: 30px; flex-wrap: wrap; }
+.footer-nav a {
+  color: var(--ink-dim);
+  font-family: var(--mono);
+  font-size: .74rem;
+  letter-spacing: .12em;
+  text-decoration: none;
+  text-transform: uppercase;
+  border-bottom: 1px solid transparent;
+  padding-bottom: 4px;
+  transition: color .3s, border-color .3s;
+}
+.footer-nav a:hover, .footer-nav a:focus-visible {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.footer-copy p {
+  max-width: 72ch;
+  color: var(--ink-dim);
+  font-size: .8rem;
+  line-height: 1.7;
+}
+.footer-note { color: var(--ink); }
+
+/* ---------- focus + responsive ---------- */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 1px;
+}
+
+@media (max-width: 880px) {
+  .hero-copy, .section-heading, .discipline-grid, .honest {
+    grid-template-columns: 1fr;
+  }
+  .contents { justify-content: flex-start; }
+  .repro-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .header-note { display: none; }
+  .score-grid, .source-list { grid-template-columns: 1fr; }
+  .report-row { text-align: left; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+</style>
+</head>
+<body id="top">
+  <a class="skip-link" href="#main">Skip to methodology</a>
+
+  <header class="site-header">
+    <div class="shell header-row">
+      <!-- BRAND: placeholder wordmark. Replace this string (appears 3× — wordmark, <title>, footer) when the brand name is chosen. -->
+      <a class="wordmark" href="./index.html" aria-label="Back to the home page">THE MODEL</a>
+      <p class="header-note">Methodology · point-in-time forecasting</p>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" aria-labelledby="methodology-title">
+      <div class="shell">
+        <p class="eyebrow">Methods, evidence, limits</p>
+        <h1 id="methodology-title">How the numbers are <em>made.</em></h1>
+        <div class="hero-copy">
+          <p>A source-backed reference for editors checking how the forecast was fitted, what information it could see, how the tournament was simulated, and how the published record was scored.</p>
+          <nav class="contents" aria-label="On this page">
+            <a href="#model">Model</a>
+            <a href="#discipline">Discipline</a>
+            <a href="#simulation">Simulation</a>
+            <a href="#scoring">Scoring</a>
+            <a href="#limits">Limits</a>
+            <a href="#reproducibility">Reproduce</a>
+          </nav>
+        </div>
+      </div>
+    </section>
+
+    <section class="section shell" id="model" aria-labelledby="model-title">
+      <p class="fig"><b>FIG. 01</b> The model <span class="rule"></span></p>
+      <div class="section-heading">
+        <h2 id="model-title">A scoreline model, judged out of sample</h2>
+        <p>The machinery matters; the decisions about what not to add matter just as much.</p>
+      </div>
+      <div class="prose">
+        <p>The forecast begins with a <strong>Bayesian scoreline model in the Dixon–Coles family</strong>, fitted with ADVI variational inference on 49k+ international results. Team attack and defence priors are anchored to point-in-time Elo strength, and host advantage is represented explicitly.</p>
+        <p>Additions are configuration-gated and must prove that switching them off restores the previous behavior byte for byte. Adoption is decided from pre-registered, held-out evidence. A negative result is published as a result, not hidden as a failed experiment. The full record is in the repository’s <a href="https://github.com/onbiggerthingsB/worldcup#decision-log-empirical-record">empirical decision log</a>.</p>
+      </div>
+
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Empirical model decision log">
+        <table>
+          <caption>Model decisions recorded in the project README.</caption>
+          <thead>
+            <tr>
+              <th scope="col">Candidate</th>
+              <th scope="col">Verdict</th>
+              <th scope="col">Evidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Elo-anchored strength prior (k=0.6)</th>
+              <td><span class="verdict">Adopted</span></td>
+              <td>Held-out RPS, n=2,111.</td>
+            </tr>
+            <tr>
+              <th scope="row">Host advantage (host_k=1.4)</th>
+              <td><span class="verdict">Adopted</span></td>
+              <td>MLE on n=873 finals-tier host games; 95% CI [1.18, 1.64].</td>
+            </tr>
+            <tr>
+              <th scope="row">Altitude covariate</th>
+              <td><span class="verdict no-lift">No lift</span></td>
+              <td><a href="https://github.com/onbiggerthingsB/worldcup/blob/main/reports/altitude_2026-06-10.md">Committed altitude report</a>.</td>
+            </tr>
+            <tr>
+              <th scope="row">Club-Elo squad anchor (k_squad)</th>
+              <td><span class="verdict no-lift">No lift</span></td>
+              <td>Pooled support 0.0% on 113 held-out tournament matches.</td>
+            </tr>
+            <tr>
+              <th scope="row">Friendly tier down-weighting</th>
+              <td><span class="verdict no-lift">No lift</span></td>
+              <td>Flat RPS across the weight grid.</td>
+            </tr>
+            <tr>
+              <th scope="row">Scoreline tails in mismatches</th>
+              <td><span class="verdict">Open finding</span></td>
+              <td>Top-decile ratios 0.73–0.87; correction specified, not shipped. <a href="https://github.com/onbiggerthingsB/worldcup/blob/main/reports/tails_2026-06-10.md">Committed tails report</a>.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section shell" id="discipline" aria-labelledby="discipline-title">
+      <p class="fig"><b>FIG. 02</b> Point-in-time discipline <span class="rule"></span></p>
+      <div class="section-heading">
+        <h2 id="discipline-title">The model cannot learn tomorrow’s result today</h2>
+        <p>Point-in-time is a storage rule, a training rule, and a testable invariant.</p>
+      </div>
+
+      <div class="discipline-grid">
+        <div class="prose">
+          <p>Results live in a <strong>bitemporal store</strong>: one clock records when an event was valid, and another records when the system actually observed it. A read at a cutoff exposes a row only when both clocks say it was knowable then.</p>
+          <p>All downstream features and fits use the same cutoff. Training data is strictly before it—<code>date &lt; cutoff_day</code>—and later corrections cannot silently rewrite an earlier forecast.</p>
+          <blockquote>
+            “a canary that cannot fail is treated as a bug.”
+            <cite>README · How it works</cite>
+          </blockquote>
+        </div>
+        <ul class="clock-list" aria-label="Point-in-time eligibility checks">
+          <li>
+            <code>observed_at &lt;= cutoff</code>
+            <span>Was the information in the system by then?</span>
+          </li>
+          <li>
+            <code>valid_as_of &lt;= cutoff</code>
+            <span>Did the information describe a state valid by then?</span>
+          </li>
+          <li>
+            <code>positive control</code>
+            <span>Each leakage canary is paired with an injected leak that must trip it, proving the alarm is capable of failing.</span>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section shell" id="simulation" aria-labelledby="simulation-title">
+      <p class="fig"><b>FIG. 03</b> The tournament simulation <span class="rule"></span></p>
+      <div class="section-heading">
+        <h2 id="simulation-title">The bracket is simulated, not approximated away</h2>
+        <p>The scoreline posterior is carried through the actual competition shape.</p>
+      </div>
+      <div class="prose">
+        <p>Each published tournament forecast aggregates <strong>20,000 seeded Monte Carlo draws</strong>. Every draw samples match scorelines, ranks the groups, assigns the qualifying third-placed teams, and resolves the real 48-team bracket through the final. Results already known at the cutoff are fixed; only the future is simulated.</p>
+        <p>The simulator is format-aware. The frozen WC-2026 path uses the FIFA tiebreak order and bracket assignment; the AC-2027 format supplies its own AFC tiebreak order, advancement shape, hosts, and assignment table. The rules are encoded from the official regulations described in the <a href="https://github.com/onbiggerthingsB/worldcup/blob/main/docs/tournament-formats.md">committed tournament-format document</a>.</p>
+        <p>The same document records the deliberate approximations: seeded stand-ins are used for criteria such as cards, drawing of lots, and the applicable penalty tail when the source data cannot model them directly. Those limits are part of the method, not implementation details left out of the claim.</p>
+      </div>
+    </section>
+
+    <section class="section shell" id="scoring" aria-labelledby="scoring-title">
+      <p class="fig"><b>FIG. 04</b> Scoring <span class="rule"></span></p>
+      <div class="section-heading">
+        <h2 id="scoring-title">A probability forecast gets a probability score</h2>
+        <p>The scorecard reports both forecast quality and the simpler question of whether the most likely outcome happened.</p>
+      </div>
+      <div class="prose">
+        <p><strong>RPS</strong>, or ranked probability score, evaluates the probability assigned across the three ordered outcomes—home win, draw, away win—rather than treating the forecast as a single pick. Lower is better. Because the full distribution is scored, it punishes confident wrongness more heavily than a cautious miss.</p>
+        <p>A <strong>modal hit</strong> means the outcome with the model’s highest 1X2 probability was the outcome that occurred. In the committed scorecard, knockout scores include extra time; a match decided by a shootout is scored as a draw.</p>
+      </div>
+
+      <div class="score-grid" aria-label="Headline scorecard results">
+        <article class="score-card">
+          <span class="score-label">Group stage</span>
+          <strong class="score-value mono">46/72</strong>
+          <p class="score-detail">modal hits · mean RPS 0.157</p>
+        </article>
+        <article class="score-card">
+          <span class="score-label">All knockout</span>
+          <strong class="score-value mono">25/32</strong>
+          <p class="score-detail">modal hits · mean RPS 0.153</p>
+        </article>
+      </div>
+      <p class="report-row"><a class="source-link" href="https://github.com/onbiggerthingsB/worldcup/blob/main/reports/live_scorecard_final.md">Read the full committed scorecard</a></p>
+    </section>
+
+    <div class="honest-wrap" id="limits">
+      <section class="honest shell" aria-labelledby="limits-title">
+        <div>
+          <p class="disclosure-label"><b>DISCLOSURE</b> — not a figure</p>
+          <h2 id="limits-title">What it does not claim</h2>
+        </div>
+        <div class="honest-copy">
+          <p>Over the full 104-match replay, the model and a plain Elo baseline are <strong>statistically tied</strong>—0.1561 against 0.1557. It was ahead through the group stage as played live—0.157 against 0.163—and the two converged across the knockouts. Both numbers are published because a forecaster that only reports its good window is not a forecaster.</p>
+          <p>It has <strong>no demonstrated edge against sharp betting markets</strong>. The project’s own audit records a tie there too. Nothing here is betting advice, and nothing on this site is sold as one.</p>
+          <a class="source-link" href="https://github.com/onbiggerthingsB/worldcup/blob/main/reports/headroom_2026-06-10.md">Read the committed headroom audit</a>
+        </div>
+      </section>
+    </div>
+
+    <section class="section shell" id="reproducibility" aria-labelledby="reproducibility-title">
+      <p class="fig"><b>FIG. 05</b> Reproducibility <span class="rule"></span></p>
+      <div class="section-heading">
+        <h2 id="reproducibility-title">The evidence is committed with the code</h2>
+        <p>A rerun should either reproduce the state or explain exactly why its inputs differ.</p>
+      </div>
+      <div class="prose">
+        <p>Posterior fits and tournament simulations use <strong>content-addressed caches</strong>: their keys incorporate the inputs that can change an output, so a changed configuration, dataset, bracket, seed, or code state becomes a clean cache miss rather than a stale result.</p>
+      </div>
+
+      <div class="repro-grid">
+        <article class="repro-item">
+          <h3>Golden-hash oracle</h3>
+          <p>The frozen WC-2026 path is checked against committed hashes from a seeded real-bracket simulation, not inferred from a generally green suite.</p>
+        </article>
+        <article class="repro-item">
+          <h3>Approximately 900 tests</h3>
+          <p>The suite includes leakage canaries with positive controls, model and simulation checks, and publication guards.</p>
+        </article>
+        <article class="repro-item">
+          <h3>Open repository</h3>
+          <p>Source, configurations, specifications, diagnostics, negative findings, and the final scorecard are available for inspection.</p>
+        </article>
+      </div>
+
+      <ul class="source-list" aria-label="Primary source documents">
+        <li><a href="https://github.com/onbiggerthingsB/worldcup">Source repository</a></li>
+        <li><a href="https://github.com/onbiggerthingsB/worldcup/blob/main/README.md">README and decision log</a></li>
+        <li><a href="https://github.com/onbiggerthingsB/worldcup/blob/main/reports/live_scorecard_final.md">Final live scorecard</a></li>
+        <li><a href="https://github.com/onbiggerthingsB/worldcup/blob/main/docs/tournament-formats.md">Tournament formats</a></li>
+        <li><a href="https://github.com/onbiggerthingsB/worldcup/blob/main/docs/SYSTEM.md">Complete system document</a></li>
+        <li><a href="https://github.com/onbiggerthingsB/worldcup/blob/main/tests/sim/test_wc_golden.py">Golden-hash test</a></li>
+        <li><a href="https://github.com/onbiggerthingsB/worldcup/blob/main/tests/golden/wc2026_sim_golden.json">Committed golden hashes</a></li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner shell">
+      <p class="footer-brand">THE MODEL</p>
+      <nav class="footer-nav" aria-label="Footer">
+        <a href="./methodology.html" aria-current="page">Methodology</a>
+        <a href="./archive/">Archive</a>
+        <a href="./archive/">Track record</a>
+      </nav>
+      <div class="footer-copy">
+        <p class="footer-note">Forecasts are probabilistic statements about uncertain events. Not betting advice.</p>
+        <p>Independent project. Not affiliated with, endorsed by, or connected to any football governing body or competition organiser.</p>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
