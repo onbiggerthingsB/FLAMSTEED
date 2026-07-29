@@ -57,7 +57,7 @@ from wcmodel.backtest.baselines import market_fair_1x2, model_fair_1x2, rps
 from wcmodel.backtest.walkforward import _sample_is_synthetic, walkforward
 from wcmodel.config import load_config
 from wcmodel.data.features import valid_played_results
-from wcmodel.data.sources.odds import ODDSAPI_BASE
+from wcmodel.data.sources.odds import ODDSAPI_BASE, event_list
 from wcmodel.data.sources.results import load_results
 from wcmodel.data.store import BitemporalStore
 import wcmodel.model.cache as _model_cache
@@ -512,13 +512,16 @@ def _snapshot_to_real_shape(raw_snap: dict, ts_label: str) -> dict | None:
     """Lift the historical event-odds response into the {timestamp, data:[event]} snapshot
     shape ``parse_snapshot`` consumes, stamped is_synthetic=False. The historical event-odds
     response is itself {timestamp, data:{...event...}} (data is a single event object, not a
-    list); we normalise ``data`` to a one-element list. Returns None if it has no event."""
+    list); the dict/list normalisation delegates to the adapter's own ``odds.event_list``
+    (ONE normaliser codebase-wide — this script used to keep a private third copy).
+    Returns None if it has no event."""
     if not raw_snap:
         return None
     data = raw_snap.get("data")
     if data is None:
         return None
-    event = data[0] if isinstance(data, list) else data
+    events = event_list(data)
+    event = events[0] if events else None
     if not event or "bookmakers" not in event:
         return None
     snap = {

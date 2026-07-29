@@ -13,7 +13,9 @@ snapshot per call:
 
 where ``data`` is a LIST of events on the multi-event routes but ONE bare event
 object on the per-event route ``/historical/sports/{sport}/events/{id}/odds``
-(OA finding 13) — the parser accepts both shapes.
+(OA finding 13) — the parser accepts both shapes via :func:`event_list`, the
+ONE dict/list normalizer (``backtest.odds_ingest`` and
+``scripts/clv_validation.py`` import it rather than keeping private copies).
 
 Store policy for odds is **POINT_IN_TIME** (timestamped): we record what the
 market said at a moment, and that fact never gets revised, so
@@ -50,6 +52,13 @@ ODDSAPI_BASE = "https://api.the-odds-api.com/v4"
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 ODDS_RAW_DIR = _REPO_ROOT / "data" / "odds_raw"
 
+#: Sentinel for "caller said nothing about raw_dir". The default must resolve
+#: AGAINST the transport — an injected (mock/dry-run) transport serves
+#: fabricated bytes that must never land in the real repo archive, while a
+#: real network response is paid evidence and must — and a plain parameter
+#: default cannot see the transport.
+_RAW_DIR_UNSET = object()
+
 # Keys identifying which top-level entries of the fixture/sample are snapshots.
 _SNAPSHOT_REQUIRED = ("timestamp", "data")
 
@@ -59,12 +68,17 @@ def _parse_ts(ts: str) -> datetime:
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
 
 
-def _event_list(data) -> list[dict]:
+def event_list(data) -> list[dict]:
     """Normalize a snapshot's ``data`` payload to a list of events.
 
     The multi-event routes return a LIST of events; the per-event historical
     route (``/historical/sports/{sport}/events/{id}/odds``) wraps ONE bare
     event DICT (OA finding 13). Both are real recorded response shapes.
+
+    EXPORTED as the ONE normalizer for this dual shape: every consumer that
+    reads ``snapshot["data"]`` directly (``backtest.odds_ingest``,
+    ``scripts/clv_validation.py``) goes through here — a private copy per
+    module is how the dict shape got missed on two of three paths.
     """
     if isinstance(data, dict):
         return [data]
@@ -84,7 +98,7 @@ def parse_snapshot(snapshot: dict) -> list[dict]:
     """
     snapshot_ts = snapshot["timestamp"]
     rows: list[dict] = []
-    for event in _event_list(snapshot.get("data")):
+    for event in event_list(snapshot.get("data")):
         event_id = event["id"]
         commence_time = event["commence_time"]
         for book in event.get("bookmakers", []):
@@ -135,11 +149,35 @@ def parse_totals_snapshot(event: dict) -> dict:
             "commence_time": event.get("commence_time"), "books": books}
 
 
+def _strictest_last_update(row: dict, snapshot_ts: str) -> datetime:
+    """The strictest available evidence for a quote's age: the LATEST of the
+    stamps the row actually carries — the bookmaker-level AND the h2h-market-
+    level ``last_update`` (the market stamp is the age of the price itself).
+    Only when a source omits BOTH does the snapshot timestamp stand in, which
+    collapses admissibility leg 2 into leg 1 — the weakest position, taken
+    last, never the default (OA F2)."""
+    stamps = [s for s in (row["bookmaker_last_update"],
+                          row["market_last_update"]) if s]
+    if not stamps:
+        return _parse_ts(snapshot_ts)
+    return max(_parse_ts(s) for s in stamps)
+
+
 def admissible_quote(snapshot_ts: datetime, last_update: datetime,
                      t_issue: datetime, *, buffer_minutes: int = 30) -> bool:
     """A quote is usable at issuance only if BOTH its snapshot and the
     bookmaker's own last_update predate t_issue minus the safety buffer
-    (STRICT <, finding 2)."""
+    (STRICT <, finding 2).
+
+    ``last_update=None`` is a CALLER error (it raises TypeError, loudly): this
+    helper never guesses a quote's age. A source that omits the stamp must be
+    resolved BY THE CALLER to the strictest evidence it does have — the latest
+    of the stamps present, the snapshot timestamp only when there is none
+    (:func:`_strictest_last_update`, the resolution
+    :func:`extract_closing_prices` uses). An unconditional ``or snapshot_ts``
+    fallback instead makes leg 2 vacuous exactly when stricter evidence is
+    available — the T5 ledger must not copy that weakening.
+    """
     cut = t_issue - timedelta(minutes=buffer_minutes)
     return snapshot_ts < cut and last_update < cut
 
@@ -153,11 +191,21 @@ def extract_closing_prices(sample: dict, bookmaker: str) -> dict:
     latest — the line nearest the close. Admissibility is the STRICT
     :func:`admissible_quote` rule at the kickoff cut (buffer 0 — kickoff IS the
     cut for a closing line; the 30-minute issuance buffer belongs to ``t_issue``
-    contexts): BOTH the snapshot ``timestamp`` AND the bookmaker's own
+    contexts): BOTH the snapshot ``timestamp`` AND the quote's own
     ``last_update`` must strictly predate ``commence_time``. An at/after-kickoff
     stamp on either leg is an in-play price, never a closing quote (OA F2).
-    Where a source omits ``last_update`` the snapshot timestamp stands in. For
-    the bundled fixture this resolves to the ``close`` snapshot.
+    The ``last_update`` leg is the STRICTEST available evidence — the latest of
+    the bookmaker-level and h2h-market-level stamps the row carries; only where
+    a source omits both does the snapshot timestamp stand in
+    (:func:`_strictest_last_update`).
+
+    SINGLE-EVENT-ONLY: the return shape (one flat outcomes map, one kickoff
+    cut) cannot describe a multi-event snapshot — outcome names would collide
+    across events and one kicked-off fixture would veto the bookmaker's whole
+    snapshot — so a snapshot holding more than one event is REFUSED loudly.
+    Split multi-event responses per event first (the per-event historical
+    route returns one event per call). For the bundled fixture this resolves
+    to the ``close`` snapshot.
 
     Returns ``{bookmaker, snapshot_ts, outcomes: {name: price, ...}}``.
     """
@@ -169,6 +217,15 @@ def extract_closing_prices(sample: dict, bookmaker: str) -> dict:
     chosen: dict | None = None
     chosen_ts: datetime | None = None
     for snap in snapshots:
+        n_events = len(event_list(snap.get("data")))
+        if n_events > 1:
+            raise ValueError(
+                f"extract_closing_prices is single-event-only: a snapshot "
+                f"holds {n_events} events, and one flat outcomes map cannot "
+                "describe more (names collide across events; one kicked-off "
+                "fixture would veto them all). Split the snapshot per event "
+                "first (OA F13)."
+            )
         rows = [r for r in parse_snapshot(snap) if r["bookmaker"] == bookmaker]
         if not rows:
             continue
@@ -176,7 +233,7 @@ def extract_closing_prices(sample: dict, bookmaker: str) -> dict:
         if not all(
             admissible_quote(
                 ts,
-                _parse_ts(r["bookmaker_last_update"] or snap["timestamp"]),
+                _strictest_last_update(r, snap["timestamp"]),
                 _parse_ts(r["commence_time"]),
                 buffer_minutes=0,
             )
@@ -222,6 +279,46 @@ def _persist_raw(content: bytes, raw_dir: Path | str | None) -> str:
     return digest
 
 
+def _resolve_raw_dir(raw_dir, transport: httpx.BaseTransport | None):
+    """Resolve the ``raw_dir`` default AGAINST the transport. An injected
+    transport serves mocked/dry-run bytes — a fabricated payload must never
+    land in the real repo archive just because a test or dry-run forgot
+    ``raw_dir=tmp_path``. Only a real network response (``transport=None``)
+    is paid evidence that defaults into ``ODDS_RAW_DIR``. An EXPLICIT
+    ``raw_dir`` (incl. ``None`` = disable) is always honored as given."""
+    if raw_dir is _RAW_DIR_UNSET:
+        return None if transport is not None else ODDS_RAW_DIR
+    return raw_dir
+
+
+def _raise_for_status_redacted(resp: httpx.Response, api_key: str) -> None:
+    """``raise_for_status`` that cannot leak the key. httpx's HTTPStatusError
+    message embeds the full request URL, and this API carries
+    ``apiKey=<secret>`` in the query string — error strings from here get
+    written into committed reports and session logs (the OA-0a probe's
+    failure handler), which would exfiltrate the key through our own error
+    handling. Before the message can exist, the response's request is
+    re-pointed at the query-stripped URL (so ``exc.request.url`` /
+    ``resp.url`` hold nothing to resurrect either), the key is belt-and-braces
+    scrubbed from the final message, and the raise chains ``from None`` so no
+    context exception carries the live URL into a rendered traceback."""
+    if resp.is_success:
+        return
+    resp.request = httpx.Request(
+        resp.request.method, resp.request.url.copy_with(query=None)
+    )
+    try:
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        # Belt-and-braces on top of the query-strip; guarded because
+        # str.replace("", "***") would mangle the message char-by-char and
+        # the None-gate upstream does not exclude an empty key.
+        message = str(exc).replace(api_key, "***") if api_key else str(exc)
+        raise httpx.HTTPStatusError(
+            message, request=exc.request, response=resp
+        ) from None
+
+
 def fetch_historical(
     event_id: str,
     ts: str,
@@ -230,7 +327,7 @@ def fetch_historical(
     market: str = "h2h",
     regions: str = "eu",
     sport_key: str | None = None,
-    raw_dir: Path | str | None = ODDS_RAW_DIR,
+    raw_dir: Path | str | None = _RAW_DIR_UNSET,
     transport: httpx.BaseTransport | None = None,
 ) -> dict:
     """Pull a real historical snapshot from The Odds API (network, PAID).
@@ -243,11 +340,17 @@ def fetch_historical(
     wrong key without a code change).
 
     The raw response bytes are sha256-hashed and persisted content-addressed
-    under ``raw_dir`` (default ``data/odds_raw/<sha256>.json``; ``None``
-    disables), and the hash is attached to the returned snapshot as
+    under ``raw_dir`` BEFORE the HTTP status gate — a paid non-2xx body is
+    still a paid response, and it is the evidence a quota/key failure gets
+    audited from. The hash is attached to the returned snapshot as
     ``raw_sha256`` — the provenance link the forecast ledger's
-    ``odds_snapshot_hash`` cites. ``transport`` injects an
-    ``httpx.MockTransport`` in tests; ``None`` uses the real network.
+    ``odds_snapshot_hash`` cites. When ``raw_dir`` is not given, the
+    ``data/odds_raw/<sha256>.json`` default engages ONLY for real-network
+    calls: with an injected ``transport`` (mocks, dry-runs) nothing is
+    persisted unless the caller names a directory explicitly
+    (:func:`_resolve_raw_dir`); ``None`` always disables. HTTP errors raise
+    with the query string (which carries the key) stripped from message and
+    attached request (:func:`_raise_for_status_redacted`).
     """
     if api_key is None:
         raise RuntimeError(
@@ -259,6 +362,7 @@ def fetch_historical(
             "Odds API — pass the per-competition key from config "
             "odds.sport_keys (OA F13)"
         )
+    raw_dir = _resolve_raw_dir(raw_dir, transport)
     # Documented historical endpoint:
     #   GET /v4/historical/sports/{sport}/events/{eventId}/odds
     #   ?apiKey=&date=&markets=&regions=&oddsFormat=decimal
@@ -274,8 +378,8 @@ def fetch_historical(
                 "oddsFormat": "decimal",
             },
         )
-    resp.raise_for_status()
     digest = _persist_raw(resp.content, raw_dir)
+    _raise_for_status_redacted(resp, api_key)
     payload = resp.json()
     if isinstance(payload, dict):
         payload["raw_sha256"] = digest
@@ -287,7 +391,7 @@ def fetch_historical_events(
     ts: str,
     api_key: str | None,
     *,
-    raw_dir: Path | str | None = ODDS_RAW_DIR,
+    raw_dir: Path | str | None = _RAW_DIR_UNSET,
     transport: httpx.BaseTransport | None = None,
 ) -> list[dict]:
     """Discover the events visible at historical time ``ts`` (network, PAID).
@@ -296,19 +400,24 @@ def fetch_historical_events(
     tests drive it only through an injected ``httpx.MockTransport``. Hits the
     documented discovery endpoint
     ``GET /v4/historical/sports/{sport}/events?date=…`` and returns one row per
-    event: ``{event_id, commence_time, home, away}`` (team names ``None`` where
-    the API has not yet named a knockout pairing). The raw response is
-    persisted content-addressed under ``raw_dir`` like the snapshot route.
+    event: ``{event_id, commence_time, home, away, raw_sha256}`` (team names
+    ``None`` where the API has not yet named a knockout pairing;
+    ``raw_sha256`` is the archived response's hash, so a discovery-based claim
+    — "event found y/n" — cites the same provenance a snapshot does). The raw
+    response is persisted content-addressed under ``raw_dir`` BEFORE the
+    status gate, with the same transport-aware default and key-redacting
+    error handling as the snapshot route.
     """
     if api_key is None:
         raise RuntimeError(
             "Odds API pull gated: no api_key — see Phase-0 decision 1"
         )
+    raw_dir = _resolve_raw_dir(raw_dir, transport)
     url = f"{ODDSAPI_BASE}/historical/sports/{sport_key}/events"
     with httpx.Client(transport=transport, timeout=30.0) as client:
         resp = client.get(url, params={"apiKey": api_key, "date": ts})
-    resp.raise_for_status()
-    _persist_raw(resp.content, raw_dir)
+    digest = _persist_raw(resp.content, raw_dir)
+    _raise_for_status_redacted(resp, api_key)
     payload = resp.json()
     data = payload.get("data") if isinstance(payload, dict) else payload
     return [
@@ -317,8 +426,9 @@ def fetch_historical_events(
             "commence_time": event["commence_time"],
             "home": event.get("home_team"),
             "away": event.get("away_team"),
+            "raw_sha256": digest,
         }
-        for event in _event_list(data)
+        for event in event_list(data)
     ]
 
 

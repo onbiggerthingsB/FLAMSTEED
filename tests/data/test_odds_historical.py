@@ -11,6 +11,7 @@ collection-time ImportError.
 """
 import hashlib
 import json
+import traceback
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -155,8 +156,10 @@ _KICKOFF = "2026-06-11T19:00:00Z"
 
 
 def _snap(ts: str, *, commence: str = _KICKOFF,
-          last_update: str | None = None) -> dict:
+          last_update: str | None = None,
+          market_last_update: str | None = None) -> dict:
     lu = last_update or ts
+    mlu = market_last_update or lu
     return {
         "timestamp": ts,
         "previous_timestamp": ts,
@@ -167,7 +170,7 @@ def _snap(ts: str, *, commence: str = _KICKOFF,
             "home_team": "X", "away_team": "Y",
             "bookmakers": [{
                 "key": "pinnacle", "last_update": lu,
-                "markets": [{"key": "h2h", "last_update": lu,
+                "markets": [{"key": "h2h", "last_update": mlu,
                              "outcomes": [{"name": "X", "price": 2.0},
                                           {"name": "Draw", "price": 3.4},
                                           {"name": "Y", "price": 4.0}]}],
@@ -269,11 +272,17 @@ def test_fetch_historical_events_discovers_event_rows(tmp_path):
     (req,) = requests
     assert req.url.path == "/v4/historical/sports/soccer_fifa_world_cup/events"
     assert req.url.params["date"] == "2022-11-30T18:00:00Z"
+    # Discovery is PAID too: every row carries the archived response's sha256,
+    # so a probe's "event found y/n" claim has citable provenance instead of
+    # discarding the hash the archive already computed (review fix 6c).
+    (raw,) = tmp_path.glob("*.json")
+    digest = raw.stem
+    assert hashlib.sha256(raw.read_bytes()).hexdigest() == digest
     assert rows == [
         {"event_id": "evt_NED_USA", "commence_time": "2022-12-03T15:00:00Z",
-         "home": "Netherlands", "away": "United States"},
+         "home": "Netherlands", "away": "United States", "raw_sha256": digest},
         {"event_id": "evt_ARG_AUS", "commence_time": "2022-12-03T19:00:00Z",
-         "home": "Argentina", "away": "Australia"},
+         "home": "Argentina", "away": "Australia", "raw_sha256": digest},
     ]
 
 
@@ -285,3 +294,189 @@ def test_fetch_historical_events_gated_without_key(tmp_path):
         fetch_historical_events("soccer_fifa_world_cup", "2022-11-30T18:00:00Z",
                                 None, raw_dir=tmp_path, transport=transport)
     assert requests == []
+
+
+# ------------------------------------- (review fix 1) key never in an error
+
+
+def _error_transport(status: int = 401) -> httpx.MockTransport:
+    """Answers every request with a keyed-endpoint failure — the exact shapes
+    (401 bad key / 429 quota) a live probe hits first."""
+    return httpx.MockTransport(
+        lambda request: httpx.Response(status, json={"message": "Invalid API key"}))
+
+
+def test_fetch_historical_http_error_never_carries_the_api_key(tmp_path):
+    # The probe's failure handler writes str(exc) into a COMMITTED report
+    # (reports/oa_probe.md); httpx's stock HTTPStatusError message embeds the
+    # full request URL, whose query is apiKey=<secret>. Render the FULL
+    # traceback (message + context chain) — the key must appear nowhere, and
+    # exc.request must not hold a resurrectable copy either.
+    with pytest.raises(httpx.HTTPStatusError) as err:
+        fetch_historical(
+            "evt_NED_USA", "2022-11-30T18:00:00Z", "SECRET-abc123",
+            sport_key="soccer_fifa_world_cup", raw_dir=tmp_path,
+            transport=_error_transport())
+    rendered = "".join(traceback.format_exception(err.value))
+    assert "SECRET-abc123" not in rendered
+    assert "SECRET-abc123" not in str(err.value.request.url)
+    assert err.value.response.status_code == 401     # the probe still reads this
+
+
+def test_fetch_historical_events_http_error_never_carries_the_api_key(tmp_path):
+    from wcmodel.data.sources.odds import fetch_historical_events
+    with pytest.raises(httpx.HTTPStatusError) as err:
+        fetch_historical_events(
+            "soccer_fifa_world_cup", "2022-11-30T18:00:00Z", "SECRET-abc123",
+            raw_dir=tmp_path, transport=_error_transport(429))
+    rendered = "".join(traceback.format_exception(err.value))
+    assert "SECRET-abc123" not in rendered
+    assert "SECRET-abc123" not in str(err.value.request.url)
+    assert err.value.response.status_code == 429
+
+
+def test_redaction_survives_empty_api_key(tmp_path):
+    # api_key="" passes the None-gate, and str.replace("", "***") would mangle
+    # the whole message char-by-char — the redaction must not depend on a
+    # non-empty key (the query-strip already guarantees safety on its own).
+    with pytest.raises(httpx.HTTPStatusError) as err:
+        fetch_historical(
+            "evt_NED_USA", "2022-11-30T18:00:00Z", "",
+            sport_key="soccer_fifa_world_cup", raw_dir=tmp_path,
+            transport=_error_transport())
+    assert str(err.value).startswith("Client error '401")
+
+
+def test_fetch_historical_archives_paid_error_body_before_raising(tmp_path):
+    # "A paid response is never lost" must cover the failure case too: the body
+    # of a non-2xx PAID response is the evidence (quota state, error cause) a
+    # failed spend gets audited from, so it is archived BEFORE the status gate
+    # raises (review fix 6b).
+    with pytest.raises(httpx.HTTPStatusError):
+        fetch_historical(
+            "evt_NED_USA", "2022-11-30T18:00:00Z", "SECRET-abc123",
+            sport_key="soccer_fifa_world_cup", raw_dir=tmp_path,
+            transport=_error_transport())
+    (raw,) = tmp_path.glob("*.json")
+    assert json.loads(raw.read_bytes()) == {"message": "Invalid API key"}
+
+
+# ----------------- (review fix 2) market_last_update is admissibility evidence
+
+
+def test_extract_closing_prices_rejects_market_last_update_after_kickoff():
+    # Snapshot 18:55, kickoff 19:00, bookmaker stamp 18:50 — but the h2h
+    # market's own last_update (the age of the PRICE itself) is 19:05, five
+    # minutes into the match. In-play under a pre-match wrapper: REJECT.
+    from wcmodel.data.sources.odds import extract_closing_prices
+    sample = {"close": _snap("2026-06-11T18:55:00Z",
+                             last_update="2026-06-11T18:50:00Z",
+                             market_last_update="2026-06-11T19:05:00Z")}
+    with pytest.raises(ValueError, match="closing"):
+        extract_closing_prices(sample, bookmaker="pinnacle")
+
+
+def test_extract_closing_prices_uses_market_stamp_when_bookmaker_stamp_missing():
+    # bookmaker last_update MISSING (a shape parse_snapshot deliberately
+    # tolerates) while market last_update 19:05 is PRESENT: the fallback must
+    # reach for the stricter evidence sitting in the row — falling back to the
+    # snapshot timestamp would collapse the BOTH-legs rule into leg 1 exactly
+    # when it matters.
+    from wcmodel.data.sources.odds import extract_closing_prices
+    snap = _snap("2026-06-11T18:55:00Z",
+                 market_last_update="2026-06-11T19:05:00Z")
+    del snap["data"][0]["bookmakers"][0]["last_update"]
+    with pytest.raises(ValueError, match="closing"):
+        extract_closing_prices({"close": snap}, bookmaker="pinnacle")
+
+
+def test_extract_closing_prices_admits_missing_bookmaker_stamp_clean_market():
+    # Non-regression control for the two rejections above: with NO bookmaker
+    # stamp and a strictly pre-kickoff market stamp, the quote stays admissible.
+    from wcmodel.data.sources.odds import extract_closing_prices
+    snap = _snap("2026-06-11T18:55:00Z",
+                 market_last_update="2026-06-11T18:54:00Z")
+    del snap["data"][0]["bookmakers"][0]["last_update"]
+    close = extract_closing_prices({"close": snap}, bookmaker="pinnacle")
+    assert close["snapshot_ts"] == "2026-06-11T18:55:00Z"
+
+
+def test_extract_closing_prices_checks_bookmaker_stamp_even_with_clean_market():
+    # Mutation pin (the reviewer's probe): swapping the check ONTO the market
+    # stamp alone must fail here — every stamp the row carries is evidence.
+    from wcmodel.data.sources.odds import extract_closing_prices
+    sample = {"close": _snap("2026-06-11T18:55:00Z",
+                             last_update="2026-06-11T19:05:00Z",
+                             market_last_update="2026-06-11T18:50:00Z")}
+    with pytest.raises(ValueError, match="closing"):
+        extract_closing_prices(sample, bookmaker="pinnacle")
+
+
+# --------------------- (review fix 4) extract_closing_prices is single-event
+
+
+def test_extract_closing_prices_refuses_multi_event_snapshot():
+    # The return shape (ONE flat outcomes map) cannot describe two events: the
+    # old code merged outcome names across events ('Draw' last-write-wins) and
+    # let one kicked-off fixture veto the whole bookmaker. Single-event-only,
+    # enforced loudly — multi-event snapshots must be split per event first.
+    from wcmodel.data.sources.odds import extract_closing_prices
+    snap = _snap("2026-06-11T18:55:00Z")
+    snap["data"].append({
+        "id": "evt_A_B", "sport_key": "soccer_fifa_world_cup",
+        "commence_time": "2026-06-11T22:00:00Z",
+        "home_team": "A", "away_team": "B",
+        "bookmakers": [{
+            "key": "pinnacle", "last_update": "2026-06-11T18:55:00Z",
+            "markets": [{"key": "h2h", "last_update": "2026-06-11T18:55:00Z",
+                         "outcomes": [{"name": "A", "price": 1.5},
+                                      {"name": "Draw", "price": 4.2},
+                                      {"name": "B", "price": 6.0}]}],
+        }],
+    })
+    with pytest.raises(ValueError, match="single-event"):
+        extract_closing_prices({"close": snap}, bookmaker="pinnacle")
+
+
+# ------------------------ (review fix 5) admissible_quote None-stamp contract
+
+
+def test_admissible_quote_refuses_none_last_update_loudly():
+    # Documented policy (the T5 ledger imports this helper): None is a CALLER
+    # error — resolve a missing stamp to the strictest available evidence
+    # BEFORE calling, the way extract_closing_prices does. The helper never
+    # guesses a quote's age, so weakening this to a silent fallback is a
+    # contract change, not a convenience.
+    from wcmodel.data.sources.odds import admissible_quote
+    t_issue = datetime(2026, 6, 11, 9, 0, tzinfo=timezone.utc)
+    with pytest.raises(TypeError):
+        admissible_quote(t_issue - timedelta(hours=2), None, t_issue)
+
+
+# ------------------- (review fix 6a) default raw_dir vs injected transports
+
+
+def test_default_raw_dir_is_inert_under_an_injected_transport(monkeypatch):
+    # raw_dir defaults to the REAL repo archive while transport is injectable:
+    # a mocked test or dry-run that forgets raw_dir=tmp_path must not write
+    # fabricated payloads into the repo tree. The default engages only for
+    # real-network (paid) responses; an explicit raw_dir is always honored.
+    import wcmodel.data.sources.odds as m
+    seen: list = []
+    real_persist = m._persist_raw
+
+    def spy(content, raw_dir):
+        seen.append(raw_dir)
+        return real_persist(content, None)     # hash, never write
+
+    monkeypatch.setattr(m, "_persist_raw", spy)
+    transport, _ = _capture(_single_event_snapshot())
+    out = m.fetch_historical(
+        "evt_NED_USA", "2022-11-30T18:00:00Z", "test-key",
+        sport_key="soccer_fifa_world_cup", transport=transport)  # raw_dir omitted
+    assert "raw_sha256" in out                 # provenance hash still computed
+    ev_transport, _ = _capture(_events_payload())
+    m.fetch_historical_events(
+        "soccer_fifa_world_cup", "2022-11-30T18:00:00Z", "test-key",
+        transport=ev_transport)                                  # raw_dir omitted
+    assert seen == [None, None]                # mock bytes never hit the archive

@@ -26,8 +26,20 @@ def test_extract_closing_prices_picks_snapshot_nearest_kickoff():
 
 def test_no_network_call_in_tests(monkeypatch):
     import wcmodel.data.sources.odds as m
-    monkeypatch.setattr(m.httpx, "get", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no network")))
+
+    def _boom(*a, **k):
+        raise AssertionError("no network")
+
+    # Both fetchers transport through httpx.Client (the module no longer calls
+    # httpx.get anywhere); patch BOTH so the sentinel stays armed even if the
+    # transport style drifts back.
+    monkeypatch.setattr(m.httpx, "get", _boom)
+    monkeypatch.setattr(m.httpx, "Client", _boom)
     parse_snapshot(_sample()["close"])   # parse path never touches the network
+    # Non-vacuity: the armed sentinel really does intercept the network path.
+    with pytest.raises(AssertionError, match="no network"):
+        m.fetch_historical("evt_BRA_CRO", "2026-06-11T18:55:00Z", "k",
+                           sport_key="soccer_fifa_world_cup", raw_dir=None)
 
 
 def test_fetch_historical_raises_without_key():
