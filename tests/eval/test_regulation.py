@@ -44,6 +44,16 @@ def test_real_table_loads_and_is_complete():
     # every went_et row must be a 90' draw — that's what extra time MEANS
     et = df[df["went_et"]]
     assert (et["h90"] == et["a90"]).all()
+    # ET-count pin. An ET-DECIDED fixture mis-recorded as went_et false carries
+    # its ET-inclusive score, which is NOT level, so both loader invariants read
+    # it as consistent and the join key is unchanged; for those 7 rows the
+    # store's final IS that score, so the non-ET equality check CONFIRMS the
+    # corruption while the 1X2 label silently flips. (The other 12 ET rows went
+    # to penalties: their stored final is a draw, which does trip the loader.)
+    # martj42 keeps only ET-inclusive finals, so no store-derived guard is
+    # possible here — the count is the defence.
+    assert et["pool"].value_counts().to_dict() == {
+        "wc2026": 9, "wc2022": 5, "euro2024": 5}
     assert df["source"].str.startswith("http").all()
 
 
@@ -51,6 +61,15 @@ def test_real_table_loads_from_any_working_directory(tmp_path, monkeypatch):
     """The consumers are a script and a WSGI app — neither one owns the cwd."""
     monkeypatch.chdir(tmp_path)
     assert len(load_regulation_table()) == 63
+
+
+def test_normalizes_string_dates_to_iso(tmp_path):
+    """An UNQUOTED YAML date parses to datetime.date and normalizes for free;
+    a quoted one ("2022-12-3") stays a str that astype(str) leaves un-padded,
+    and the only layer that would notice is the store join — which is skipped
+    wherever the gitignored store is absent."""
+    df = load_regulation_table(_table(tmp_path, {**_ROW, "date": "2022-12-3"}))
+    assert df["date"].tolist() == ["2022-12-03"]
 
 
 def test_rejects_score_90_that_is_not_exactly_two_values(tmp_path):
@@ -77,8 +96,15 @@ def test_rejects_duplicate_fixture(tmp_path):
 
 def test_rejects_row_missing_went_et(tmp_path):
     row = {k: v for k, v in _ROW.items() if k != "went_et"}
+    # A one-row table drops the whole COLUMN, which the _REQUIRED check catches;
+    # alongside a complete row the column survives as object-dtype NaN, a
+    # different code path with the same refusal. Both are real hand-edit shapes.
     with pytest.raises(ValueError, match="went_et"):
         load_regulation_table(_table(tmp_path, row))
+    kept = {**_ROW, "date": "2022-12-04", "home": "England", "away": "Senegal",
+            "score_90": [3, 0]}
+    with pytest.raises(ValueError, match="went_et must be true/false"):
+        load_regulation_table(_table(tmp_path, kept, row))
 
 
 def test_rejects_et_row_that_was_not_level_at_90(tmp_path):

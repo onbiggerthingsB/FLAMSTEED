@@ -14,6 +14,11 @@
 # every row's teams/date/final score were cross-checked against the store, and
 # each 90' score was derived from the goal-minute annotations in that report.
 # Counts: wc2022 16, euro2024 15, wc2026 32 = 63 rows. No fixture was omitted.
+# Of those, 19 went to extra time (wc2022 5, euro2024 5, wc2026 9). Both counts
+# are pinned in tests/eval/test_regulation.py: an ET-DECIDED match flipped to
+# went_et false carries its ET-inclusive (non-level) score, which every other
+# layer accepts — the store records only ET-inclusive finals, so the ET count is
+# the one thing that notices. Adjust either pin ONLY alongside a curated row.
 
 
 # --- wc2022 (16 knockout fixtures) ---

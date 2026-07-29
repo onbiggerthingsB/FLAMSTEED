@@ -43,7 +43,11 @@ def load_regulation_table(path: Path = _PATH) -> pd.DataFrame:
     scores = df["score_90"].map(_score_90)
     df["h90"] = scores.map(lambda s: s[0])
     df["a90"] = scores.map(lambda s: s[1])
-    df["date"] = df["date"].astype(str)
+    # Unquoted YAML dates arrive as datetime.date, quoted ones as str: parse
+    # both to one padded ISO form, the same expression the store cross-check
+    # applies on its side. astype(str) alone left "2022-12-3" un-padded, and a
+    # date that misses the join key is only visible to that store-gated check.
+    df["date"] = pd.to_datetime(df["date"]).dt.date.astype(str)
     if df["went_et"].dtype != bool:
         raise ValueError("went_et must be true/false on every row")
     dupes = df.duplicated(["pool", "date", "home", "away"])
