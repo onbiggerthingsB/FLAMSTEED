@@ -10,7 +10,7 @@
 
 ## Call plan + projected credit cost
 
-15 fixtures x (1 discovery @ 1 credit + 2 snapshots [T-24h, T-1h; h2h x eu = 1 region-market] @ 10 credits): 15 discovery + 30 snapshot calls = **315 credits** projected; modeled spend this run: 315.
+15 fixtures x (1 discovery @ 1 credit + 2 snapshots [T-24h, T-1h; h2h x eu = 1 region-market] @ 10 credits): 15 discovery + 30 snapshot calls = **315 credits** projected; modeled spend this run: 315 (dry-run: 0 actually billed).
 
 | # | fixture | pool | stratum | call | endpoint | at | credits |
 |---|---|---|---|---|---|---|---|

@@ -164,6 +164,9 @@ def test_dry_run_is_the_default_and_writes_the_report_from_mocks(
     assert "DRY-RUN" in md
     assert "NOT measurements" in md              # mock values can't masquerade
     assert "**315 credits**" in md
+    # "modeled spend this run: 315" sits in a ZERO-credits report — a skim
+    # reader at the spend gate must not read 315 as money spent.
+    assert "(dry-run: 0 actually billed)" in md
     # Per-fixture rows: all 15, with the four required observables. Scoped to
     # the results section — the call-plan table also carries a pool column.
     results_section = md.split("## Per-fixture results")[1].split("Provenance")[0]
@@ -322,6 +325,9 @@ def test_live_cap_at_projection_runs_via_mock_and_reports_usage_headers(
     assert "MOCKED TRANSPORT" in md              # not real measurements
     assert "5001" in md and "5045" in md         # first and last used-readings
     assert "SECRET-live-key-999" not in md       # the key never enters the report
+    # The dry-run billing clarifier is dry-run ONLY: on a real live run it
+    # would falsely claim nothing was billed.
+    assert "(dry-run: 0 actually billed)" not in md
 
 
 def test_mocked_live_run_never_archives_into_the_real_raw_store(
@@ -376,3 +382,12 @@ def test_live_snapshot_failure_is_recorded_redacted_and_run_continues(
     assert "apiKey" not in md                    # query string never survives
     # The other 14 fixtures were still probed (their rows carry mock drift).
     assert md.count("3.0") >= 28
+    # The failure text must RIDE the table, not break it: httpx's 429 message
+    # is TWO lines, and an unflattened cell splits the row exactly on the
+    # 401/429 findings this report exists to surface. Pin: the results section
+    # is nothing but table rows, all with the header's pipe count.
+    results = md.split("## Per-fixture results")[1].split("Provenance")[0]
+    rows = [ln for ln in results.splitlines() if ln.strip()]
+    assert len(rows) == 17                       # header + separator + 15 rows
+    assert {ln.count("|") for ln in rows} == {rows[0].count("|")}
+    assert all(ln.startswith("|") and ln.rstrip().endswith("|") for ln in rows)

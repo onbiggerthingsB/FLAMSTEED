@@ -324,6 +324,15 @@ def _norm(name: str) -> str:
     return name.casefold().strip()
 
 
+def _err_cell(exc: Exception) -> str:
+    """Failure text shaped to survive a markdown table cell: httpx messages
+    can span lines (the 429's does) and could carry ``|`` — an embedded
+    newline or pipe would split the committed report's results row on exactly
+    the 401/429/timeout findings the probe exists to surface."""
+    text = " ".join(str(exc).split()).replace("|", "\\|")
+    return f"{type(exc).__name__}: {text}"
+
+
 def _match_event(rows: list, fx: dict):
     """Find the probed fixture among discovered events by team names; a
     flipped home/away orientation still matches (neutral-venue sources
@@ -350,7 +359,7 @@ def _probe_snapshot(fx: dict, event, tag: str, requested: datetime, *,
         # A 401/429/timeout on one call is a FINDING for the coverage report,
         # not a crash; str(exc) is safe here — the adapter's redaction strips
         # the query string (the key) from every message it lets escape.
-        entry["error"] = f"{type(exc).__name__}: {exc}"
+        entry["error"] = _err_cell(exc)
         return entry
     rows = parse_snapshot(snap)
     pin = [r for r in rows if r["bookmaker"] == SHARP_BOOK]
@@ -389,7 +398,7 @@ def run_probe(*, api_key: str, transport: httpx.BaseTransport,
                 key, f"{fx['date']}T00:00:00Z", api_key,
                 raw_dir=raw_dir, transport=recorder)
         except (httpx.HTTPError, ValueError) as exc:
-            row["error"] = f"{type(exc).__name__}: {exc}"
+            row["error"] = _err_cell(exc)
             gate.skip(SNAPSHOTS_PER_FIXTURE * SNAPSHOT_CREDITS)
             continue
         row["n_events_listed"] = len(events)
@@ -472,7 +481,11 @@ def assemble_report(*, mode: str, mocked: bool, sport_keys: dict, plan: list,
         f"{SNAPSHOT_CREDITS} credits): "
         f"{n_disc} discovery + {n_snap} snapshot calls = "
         f"**{projected} credits** projected; modeled spend this run: "
-        f"{spent}.", "",
+        # A skim-reader at the spend gate must not read the modeled figure as
+        # money spent — but only a dry-run may claim zero billing.
+        f"{spent}"
+        + (" (dry-run: 0 actually billed)." if mode == "dry-run" else "."),
+        "",
         "| # | fixture | pool | stratum | call | endpoint | at | credits |",
         "|---|---|---|---|---|---|---|---|"]
     lines += [f"| {i} | {r['fixture']} | {r['pool']} | {r['stratum']} | "
