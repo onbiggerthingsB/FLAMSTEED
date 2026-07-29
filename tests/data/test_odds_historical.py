@@ -749,3 +749,50 @@ def test_strictest_last_update_is_the_exported_stamp_resolution():
     neither = {"bookmaker_last_update": None, "market_last_update": None}
     assert strictest_last_update(neither, snap_ts) == datetime(
         2026, 6, 11, 18, 55, tzinfo=timezone.utc)
+
+
+# ---------- (review round 5, controller fixes) snapshot shape guard + log leak
+
+
+def test_fetch_historical_refuses_dict_payload_without_snapshot_keys(tmp_path):
+    # Mirror of the discovery guard: a 200 dict WITHOUT timestamp/data is a
+    # changed shape, not a snapshot — on a PAID call it must refuse loudly
+    # (citing the archived hash, never key material), not pass as coverage.
+    from wcmodel.data.sources.odds import fetch_historical
+    transport, _ = _capture({"message": "response shape changed"})
+    with pytest.raises(ValueError, match="raw_sha256") as exc:
+        fetch_historical("evt_NED_USA", "2022-11-30T18:00:00Z", "SECRET-key",
+                         sport_key="soccer_fifa_world_cup",
+                         raw_dir=tmp_path, transport=transport)
+    assert "SECRET-key" not in str(exc.value)
+
+
+def test_fetch_historical_refuses_non_dict_payload(tmp_path):
+    # A JSON list 200 previously returned VERBATIM with no raw_sha256 — a
+    # paid response whose provenance silently vanished from the T5 ledger.
+    from wcmodel.data.sources.odds import fetch_historical
+    transport, _ = _capture([{"id": "e1"}])
+    with pytest.raises(ValueError, match="raw_sha256"):
+        fetch_historical("evt_NED_USA", "2022-11-30T18:00:00Z", "SECRET-key",
+                         sport_key="soccer_fifa_world_cup",
+                         raw_dir=tmp_path, transport=transport)
+
+
+def test_info_logging_never_carries_the_api_key(tmp_path, caplog):
+    # httpx's own logger emits the FULL request line (query string included)
+    # at INFO on EVERY call — success and failure alike — which defeats the
+    # redaction helpers on exactly the paid 200s. Both fetchers must silence
+    # it before touching the network.
+    import logging
+    from wcmodel.data.sources.odds import fetch_historical, fetch_historical_events
+    with caplog.at_level(logging.INFO, logger="httpx"):
+        transport, _ = _capture({"timestamp": "t", "data": {}})
+        fetch_historical("evt_NED_USA", "2022-11-30T18:00:00Z", "SECRET-abc123",
+                         sport_key="soccer_fifa_world_cup",
+                         raw_dir=tmp_path, transport=transport)
+        transport, _ = _capture({"timestamp": "t", "data": []})
+        fetch_historical_events("soccer_fifa_world_cup", "2022-11-30T18:00:00Z",
+                                "SECRET-abc123", raw_dir=tmp_path,
+                                transport=transport)
+    joined = "\n".join(r.getMessage() for r in caplog.records)
+    assert "SECRET-abc123" not in joined

@@ -34,6 +34,7 @@ NOT fabricated here (deferred).
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -42,6 +43,15 @@ import httpx
 import pandas as pd
 
 from wcmodel.data.store import BitemporalStore, Policy
+
+
+def _silence_httpx_request_logging() -> None:
+    """httpx's own logger prints the FULL request line — query string, so the
+    API key — at INFO on EVERY call, success and failure alike. The redaction
+    helpers cover exceptions; this covers the 200s. Called by both paid
+    fetchers before any network touch (idempotent; WARNING keeps real
+    transport warnings visible)."""
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 ODDSAPI_BASE = "https://api.the-odds-api.com/v4"
 
@@ -457,6 +467,7 @@ def fetch_historical(
     #   GET /v4/historical/sports/{sport}/events/{eventId}/odds
     #   ?apiKey=&date=&markets=&regions=&oddsFormat=decimal
     url = f"{ODDSAPI_BASE}/historical/sports/{sport_key}/events/{event_id}/odds"
+    _silence_httpx_request_logging()
     with httpx.Client(transport=transport, timeout=30.0) as client:
         resp = _get_redacted(
             client,
@@ -473,8 +484,21 @@ def fetch_historical(
     digest = _persist_raw(resp.content, raw_dir)
     _raise_for_status_redacted(resp, api_key)
     payload = resp.json()
-    if isinstance(payload, dict):
-        payload["raw_sha256"] = digest
+    # Mirror of the discovery guard below: a 200 whose shape is not the
+    # documented {timestamp, previous_timestamp?, next_timestamp?, data}
+    # wrapper must not pass as a snapshot — on a PAID call it would either
+    # masquerade as coverage or (non-dict) return with NO raw_sha256, so the
+    # T5 ledger would record None provenance for money spent.
+    if not isinstance(payload, dict) or "timestamp" not in payload \
+            or "data" not in payload:
+        keys = sorted(payload) if isinstance(payload, dict) \
+            else type(payload).__name__
+        raise ValueError(
+            "unrecognized snapshot payload: expected a dict with 'timestamp' "
+            f"and 'data', got {keys} — a changed shape on a PAID call must "
+            f"not read as a snapshot; archived as raw_sha256={digest} for audit"
+        )
+    payload["raw_sha256"] = digest
     return payload
 
 
@@ -512,6 +536,7 @@ def fetch_historical_events(
         )
     raw_dir = _resolve_raw_dir(raw_dir, transport)
     url = f"{ODDSAPI_BASE}/historical/sports/{sport_key}/events"
+    _silence_httpx_request_logging()
     with httpx.Client(transport=transport, timeout=30.0) as client:
         resp = _get_redacted(client, url, {"apiKey": api_key, "date": ts}, api_key)
     digest = _persist_raw(resp.content, raw_dir)
