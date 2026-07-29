@@ -40,6 +40,16 @@ def load_regulation_table(path: Path = _PATH) -> pd.DataFrame:
     missing = [c for c in _REQUIRED if c not in df.columns]
     if missing:
         raise ValueError(f"missing column(s) {missing} in {path}")
+    # Presence of a COLUMN is not presence of a VALUE: a row that drops one
+    # identity/provenance key loads as NaN, joins nothing on (date, home,
+    # away), and silently leaves the scored set. Must run BEFORE the
+    # to_datetime below — a missing date would otherwise become NaT and
+    # stringify instead of failing here.
+    ident = df[["pool", "date", "home", "away", "source"]]
+    nulls = ident.isna()
+    if nulls.any().any():
+        bad = df[nulls.any(axis=1)]
+        raise ValueError(f"null identity/provenance field(s) in {path}:\n{bad}")
     scores = df["score_90"].map(_score_90)
     df["h90"] = scores.map(lambda s: s[0])
     df["a90"] = scores.map(lambda s: s[1])
