@@ -18,9 +18,13 @@ Modes (hard gates in code, pinned by tests/eval/test_probe.py):
   ``--max-credits N``. Before EVERY transport call the full-plan projected
   total (modeled spend so far + modeled remainder) is checked against N — a
   cap below the projection aborts before the FIRST call. Actual usage is read
-  back from the ``x-requests-used`` / ``x-requests-remaining`` headers and
-  reported. NEVER run by agents: the live probe is the user's decision at the
-  plan-end STOP gate.
+  back from the ``x-requests-used`` / ``x-requests-remaining`` headers,
+  reported, AND enforced: the modeled per-call prices are hypotheses this
+  probe exists to verify, so once the billing counters show actual
+  consumption above N the next call is refused (mid-run abort, non-zero
+  exit) — with the PARTIAL report still written, because the calls already
+  placed were already paid for. NEVER run by agents: the live probe is the
+  user's decision at the plan-end STOP gate.
 
 Output: ``reports/oa_probe.md`` (cwd-relative — run from the repo root, like
 ``scripts/oa_mde.py``).
@@ -196,18 +200,50 @@ class SpendGate:
 
 class _UsageRecorder(httpx.BaseTransport):
     """Wraps the real transport to read back ``x-requests-used`` /
-    ``x-requests-remaining`` from every response — the actual-usage readback
-    the plan requires, without widening the adapter (which returns parsed
+    ``x-requests-remaining`` from every response — and to ENFORCE the cap
+    against them: the SpendGate bounds the MODELED cost, but the model's
+    per-call prices are exactly what this probe exists to verify, so before
+    every call the ACTUAL billed consumption (the ``x-requests-used`` delta
+    since the first response; the first call's own cost is invisible until
+    the counter moves) is checked too and a breach refuses the call. The
+    check sits BEFORE the transport is invoked, never after — a received
+    response is already paid for and must always reach the adapter's archive.
+    Lives here rather than widening the adapter (which returns parsed
     payloads, not responses). ``close`` is a no-op: the adapter opens a
     short-lived ``httpx.Client`` PER call, and letting it close the shared
     inner transport would kill the connection pool between calls (harmless
     for MockTransport, fatal for the live HTTPTransport)."""
 
-    def __init__(self, inner: httpx.BaseTransport):
+    def __init__(self, inner: httpx.BaseTransport, cap=None):
         self._inner = inner
+        self.cap = cap
         self.usage: list = []
 
+    @staticmethod
+    def _as_int(value):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def actual_consumed(self):
+        """Credits the API says were billed since the FIRST response, from
+        the ``x-requests-used`` counter — ``None`` until two responses carry
+        a parseable value (headers are evidence, never assumed present)."""
+        used = [u for u in (self._as_int(entry["requests_used"])
+                            for entry in self.usage) if u is not None]
+        if len(used) < 2:
+            return None
+        return used[-1] - used[0]
+
     def handle_request(self, request: httpx.Request) -> httpx.Response:
+        actual = self.actual_consumed()
+        if self.cap is not None and actual is not None and actual > self.cap:
+            raise CreditCapError(
+                f"actual billed usage {actual} credits (x-requests-used "
+                f"delta since the first response) exceeds --max-credits "
+                f"{self.cap} — aborting before {request.url.path}, no "
+                "further call placed")
         response = self._inner.handle_request(request)
         self.usage.append({
             "path": request.url.path,
@@ -310,13 +346,16 @@ def _live_transport() -> httpx.BaseTransport:
 
 def _live_raw_dir(transport: httpx.BaseTransport):
     """Where a --live run archives raw responses: the repo paid-evidence store
-    for a REAL transport, nowhere for a mock. The adapter's own transport-aware
-    default cannot make this call — the probe's usage-recording wrapper makes
-    the transport non-None even on real runs, so the probe must pass raw_dir
-    explicitly — and an unconditional ODDS_RAW_DIR would let every mocked
-    --live test archive fabricated payloads into the real store (the exact
-    hole the T3 default closed)."""
-    return None if isinstance(transport, httpx.MockTransport) else ODDS_RAW_DIR
+    ONLY for the genuine network transport, nowhere for anything else. An
+    ALLOWLIST on ``httpx.HTTPTransport`` — matching the polarity of the
+    adapter's ``_resolve_raw_dir`` (ANY injected transport means no archive):
+    a denylist on MockTransport would wave every other injected fake (a plain
+    ``BaseTransport`` subclass, the probe's own ``_UsageRecorder`` wrapper)
+    into the real store with fabricated bytes. The adapter's own
+    transport-aware default cannot make this call — the usage-recording
+    wrapper makes the transport non-None even on real runs, so the probe must
+    pass raw_dir explicitly."""
+    return ODDS_RAW_DIR if isinstance(transport, httpx.HTTPTransport) else None
 
 
 # ----------------------------------------------------------------- the probe
@@ -324,13 +363,19 @@ def _norm(name: str) -> str:
     return name.casefold().strip()
 
 
+def _table_text(text) -> str:
+    """Collapse whitespace and escape pipes: EVERY interpolated string —
+    error messages, live team names straight off the wire — must survive a
+    markdown table cell, or an embedded newline/``|`` splits the committed
+    report's results row."""
+    return " ".join(str(text).split()).replace("|", "\\|")
+
+
 def _err_cell(exc: Exception) -> str:
     """Failure text shaped to survive a markdown table cell: httpx messages
-    can span lines (the 429's does) and could carry ``|`` — an embedded
-    newline or pipe would split the committed report's results row on exactly
-    the 401/429/timeout findings the probe exists to surface."""
-    text = " ".join(str(exc).split()).replace("|", "\\|")
-    return f"{type(exc).__name__}: {text}"
+    can span lines (the 429's does) and could carry ``|`` — exactly the
+    401/429/timeout findings the probe exists to surface."""
+    return f"{type(exc).__name__}: {_table_text(exc)}"
 
 
 def _match_event(rows: list, fx: dict):
@@ -355,75 +400,98 @@ def _probe_snapshot(fx: dict, event, tag: str, requested: datetime, *,
             event["event_id"], _iso(requested), api_key, market=MARKET,
             regions=REGIONS, sport_key=sport_key, raw_dir=raw_dir,
             transport=transport)
-    except (httpx.HTTPError, ValueError) as exc:
-        # A 401/429/timeout on one call is a FINDING for the coverage report,
-        # not a crash; str(exc) is safe here — the adapter's redaction strips
-        # the query string (the key) from every message it lets escape.
+        # Provenance FIRST: the archived hash must survive any parse or
+        # arithmetic surprise below — the bytes it names are already paid for.
+        entry["raw_sha256"] = snap.get("raw_sha256")
+        rows = parse_snapshot(snap)
+        pin = [r for r in rows if r["bookmaker"] == SHARP_BOOK]
+        entry.update({
+            "snapshot_ts": snap["timestamp"],
+            "drift_min": round(
+                (requested - _ts(snap["timestamp"])).total_seconds() / 60.0,
+                1),
+            "pinnacle_present": bool(pin),
+            "n_bookmakers": len({r["bookmaker"] for r in rows}),
+        })
+        if pin:
+            lu = strictest_last_update(pin[0], snap["timestamp"])
+            entry["pinnacle_staleness_min"] = round(
+                (requested - lu).total_seconds() / 60.0, 1)
+    except CreditCapError:
+        raise                    # the spend gate is an abort, never a note
+    except Exception as exc:
+        # A 401/429/timeout — or a 200 whose body trips the parse/arithmetic
+        # legs above — is a FINDING for the coverage report, not a crash that
+        # discards the fixtures already paid for. str(exc) is safe here: the
+        # adapter's redaction strips the query string (the key) from every
+        # HTTP-layer message it lets escape, and non-HTTP failures carry only
+        # payload-derived text (the key never enters a payload).
         entry["error"] = _err_cell(exc)
-        return entry
-    rows = parse_snapshot(snap)
-    pin = [r for r in rows if r["bookmaker"] == SHARP_BOOK]
-    entry.update({
-        "snapshot_ts": snap["timestamp"],
-        "drift_min": round(
-            (requested - _ts(snap["timestamp"])).total_seconds() / 60.0, 1),
-        "pinnacle_present": bool(pin),
-        "n_bookmakers": len({r["bookmaker"] for r in rows}),
-        "raw_sha256": snap.get("raw_sha256"),
-    })
-    if pin:
-        lu = strictest_last_update(pin[0], snap["timestamp"])
-        entry["pinnacle_staleness_min"] = round(
-            (requested - lu).total_seconds() / 60.0, 1)
     return entry
 
 
 def run_probe(*, api_key: str, transport: httpx.BaseTransport,
               max_credits, raw_dir, sport_keys: dict) -> dict:
     """Run the 15-fixture probe through ``transport``. Every call passes the
-    SpendGate FIRST; skipped snapshots shrink the projection. Returns
-    ``{"results", "usage", "spent", "projected"}``."""
-    recorder = _UsageRecorder(transport)
+    SpendGate AND the actual-usage check FIRST; skipped snapshots shrink the
+    projection. Returns ``{"results", "usage", "spent", "projected",
+    "aborted"}`` — ``aborted`` carries the cap breach's message when the run
+    stopped mid-flight AFTER paid calls (their partial results are still the
+    user's, so they still get reported); a breach before ANY call re-raises,
+    since there is nothing paid for to report."""
+    recorder = _UsageRecorder(transport, cap=max_credits)
     projected = projected_probe_cost()
     gate = SpendGate(max_credits, projected)
     results = []
-    for fx in PROBE_FIXTURES:
-        key = sport_keys[fx["pool"]]
-        row = {"pool": fx["pool"], "stratum": fx["stratum"],
-               "fixture": _label(fx), "sport_key": key, "snapshots": []}
-        results.append(row)
-        gate.precall(DISCOVERY_CREDITS, f"discovery {_label(fx)}")
-        try:
-            events = fetch_historical_events(
-                key, f"{fx['date']}T00:00:00Z", api_key,
-                raw_dir=raw_dir, transport=recorder)
-        except (httpx.HTTPError, ValueError) as exc:
-            row["error"] = _err_cell(exc)
-            gate.skip(SNAPSHOTS_PER_FIXTURE * SNAPSHOT_CREDITS)
-            continue
-        row["n_events_listed"] = len(events)
-        event, flipped = _match_event(events, fx)
-        row["event_found"] = event is not None
-        if event is None:
-            # No snapshots without an event id: drop them from the projection
-            # and record what discovery DID return — that listing is the
-            # coverage evidence the user reads at the gate.
-            gate.skip(SNAPSHOTS_PER_FIXTURE * SNAPSHOT_CREDITS)
-            row["listed"] = [f"{e['home']} v {e['away']}" for e in events[:5]]
-            continue
-        row.update({"event_id": event["event_id"],
-                    "commence_time": event["commence_time"],
-                    "orientation_flipped": flipped,
-                    "discovery_sha256": event.get("raw_sha256")})
-        commence = _ts(event["commence_time"])
-        for tag, delta in (("T-24h", timedelta(hours=24)),
-                           ("T-1h", timedelta(hours=1))):
-            gate.precall(SNAPSHOT_CREDITS, f"snapshot {tag} {_label(fx)}")
-            row["snapshots"].append(_probe_snapshot(
-                fx, event, tag, commence - delta, sport_key=key,
-                api_key=api_key, transport=recorder, raw_dir=raw_dir))
+    aborted = None
+    try:
+        for fx in PROBE_FIXTURES:
+            key = sport_keys[fx["pool"]]
+            row = {"pool": fx["pool"], "stratum": fx["stratum"],
+                   "fixture": _label(fx), "sport_key": key, "snapshots": []}
+            results.append(row)
+            gate.precall(DISCOVERY_CREDITS, f"discovery {_label(fx)}")
+            try:
+                events = fetch_historical_events(
+                    key, f"{fx['date']}T00:00:00Z", api_key,
+                    raw_dir=raw_dir, transport=recorder)
+                row["n_events_listed"] = len(events)
+                event, flipped = _match_event(events, fx)
+                row["event_found"] = event is not None
+                if event is None:
+                    # No snapshots without an event id: drop them from the
+                    # projection and record what discovery DID return — that
+                    # listing is the coverage evidence read at the gate.
+                    gate.skip(SNAPSHOTS_PER_FIXTURE * SNAPSHOT_CREDITS)
+                    row["listed"] = [f"{e['home']} v {e['away']}"
+                                     for e in events[:5]]
+                    continue
+                row.update({"event_id": event["event_id"],
+                            "commence_time": event["commence_time"],
+                            "orientation_flipped": flipped,
+                            "discovery_sha256": event.get("raw_sha256")})
+                commence = _ts(event["commence_time"])
+            except CreditCapError:
+                raise            # the spend gate is an abort, never a note
+            except Exception as exc:
+                # ANY per-fixture surprise — HTTP, refused shape, a field the
+                # adapter's comprehension trips on — is a FINDING, not a
+                # crash that discards the fixtures already paid for.
+                row["error"] = _err_cell(exc)
+                gate.skip(SNAPSHOTS_PER_FIXTURE * SNAPSHOT_CREDITS)
+                continue
+            for tag, delta in (("T-24h", timedelta(hours=24)),
+                               ("T-1h", timedelta(hours=1))):
+                gate.precall(SNAPSHOT_CREDITS, f"snapshot {tag} {_label(fx)}")
+                row["snapshots"].append(_probe_snapshot(
+                    fx, event, tag, commence - delta, sport_key=key,
+                    api_key=api_key, transport=recorder, raw_dir=raw_dir))
+    except CreditCapError as exc:
+        if not recorder.usage:
+            raise                # zero calls placed: nothing paid, no report
+        aborted = str(exc)
     return {"results": results, "usage": recorder.usage,
-            "spent": gate.spent, "projected": projected}
+            "spent": gate.spent, "projected": projected, "aborted": aborted}
 
 
 # ------------------------------------------------------------------ reporting
@@ -463,12 +531,16 @@ def _snapshot_cell(row: dict, tag: str, field: str):
 
 def assemble_report(*, mode: str, mocked: bool, sport_keys: dict, plan: list,
                     projected: int, spent: int, results: list,
-                    usage: list) -> str:
+                    usage: list, aborted=None) -> str:
     """Pure: canned inputs -> the full markdown report."""
     n_disc = sum(1 for r in plan if r["call"] == "discovery")
     n_snap = len(plan) - n_disc
     lines = ["# OA-0a probe — Odds API coverage + cost (spec finding 13)", ""]
     lines += _mode_banner(mode, mocked)
+    if aborted:
+        lines += ["", f"**RUN ABORTED MID-FLIGHT: {aborted}** Partial "
+                  "results: only the calls placed before the abort appear "
+                  "below."]
     lines += ["", "## Sport keys under test (config `odds.sport_keys`)", ""]
     lines += [f"- {pool}: `{key}` — the probe VERIFIES this exact string; a "
               "wrong key is corrected in config, no code change"
@@ -501,8 +573,13 @@ def assemble_report(*, mode: str, mocked: bool, sport_keys: dict, plan: list,
         if "error" in row:
             notes = row["error"]
         elif not row.get("event_found"):
-            notes = ("not among " + str(row.get("n_events_listed")) +
-                     " listed events: " + "; ".join(row.get("listed", [])))
+            # Team names straight off the live wire: _table_text, or a name
+            # carrying "|" or a newline splits this row — the same corruption
+            # _err_cell guards on the error branches, on the branch the probe
+            # exists to surface.
+            notes = _table_text(
+                "not among " + str(row.get("n_events_listed")) +
+                " listed events: " + "; ".join(row.get("listed", [])))
         else:
             notes = "; ".join(
                 (["orientation flipped vs store"]
@@ -610,17 +687,24 @@ def main(argv=None) -> int:
                         max_credits=cap, raw_dir=raw_dir,
                         sport_keys=sport_keys)
     except CreditCapError as exc:
+        # Aborted before ANY call was placed: nothing was paid for, so there
+        # is nothing to report (a mid-run breach returns partial results
+        # instead — those calls were paid for and their report is owed).
         print(f"ABORT: {exc}", file=sys.stderr)
         return 1
 
     md = assemble_report(
         mode=mode, mocked=isinstance(transport, httpx.MockTransport),
         sport_keys=sport_keys, plan=plan, projected=out["projected"],
-        spent=out["spent"], results=out["results"], usage=out["usage"])
+        spent=out["spent"], results=out["results"], usage=out["usage"],
+        aborted=out["aborted"])
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(md)
     print(f"wrote {out_path}")
+    if out["aborted"]:
+        print(f"ABORT: {out['aborted']}", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -18,6 +18,7 @@ The module is loaded by PATH (``scripts/`` is not a package on ``sys.path``).
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import httpx
@@ -50,10 +51,12 @@ def _load():
 
 
 @pytest.fixture
-def mod(tmp_path, monkeypatch):
+def mod(tmp_path, monkeypatch, isolated_odds_raw_dir):
     # Load from an unrelated cwd: the report default is cwd-relative, so any
     # module-level file access (or accidental probe run) surfaces here instead
-    # of silently touching the committed reports/oa_probe.md.
+    # of silently touching the committed reports/oa_probe.md. The explicit
+    # isolated_odds_raw_dir dependency (autouse anyway) guarantees the source
+    # module is patched BEFORE this load binds oa_probe's own ODDS_RAW_DIR.
     monkeypatch.chdir(tmp_path)
     return _load()
 
@@ -348,8 +351,21 @@ def test_mocked_live_run_never_archives_into_the_real_raw_store(
     assert mod.main(["--live", "--max-credits", "315"]) == 0
     assert not archive.exists()                  # mock bytes: never archived
     # The selection is a pure function of the transport, so the REAL branch
-    # is provable without a network call: only a non-mock transport archives.
+    # is provable without a network call: only the genuine network transport
+    # archives — an ALLOWLIST, matching the adapter's _resolve_raw_dir
+    # polarity (any injected transport -> no archive). A denylist on
+    # MockTransport would wave every OTHER injected fake — a plain
+    # BaseTransport subclass, the probe's own _UsageRecorder wrapper — into
+    # the real paid-evidence store.
     assert mod._live_raw_dir(mod._dry_run_transport(_SPORT_KEYS)) is None
+
+    class _FakeTransport(httpx.BaseTransport):
+        def handle_request(self, request):
+            raise AssertionError("never called")
+
+    assert mod._live_raw_dir(_FakeTransport()) is None
+    assert mod._live_raw_dir(
+        mod._UsageRecorder(mod._dry_run_transport(_SPORT_KEYS))) is None
     real = httpx.HTTPTransport()                 # constructed, never used
     assert mod._live_raw_dir(real) == archive
 
@@ -391,3 +407,219 @@ def test_live_snapshot_failure_is_recorded_redacted_and_run_continues(
     assert len(rows) == 17                       # header + separator + 15 rows
     assert {ln.count("|") for ln in rows} == {rows[0].count("|")}
     assert all(ln.startswith("|") and ln.rstrip().endswith("|") for ln in rows)
+
+
+# --------------------------------------------------------------------------- #
+# The ACTUAL-usage cap: modeled prices are hypotheses under test; the billing  #
+# headers are facts — the cap must bound the facts, not just the model.        #
+# --------------------------------------------------------------------------- #
+def test_live_actual_billing_above_cap_aborts_midrun_with_partial_report(
+        mod, tmp_path, monkeypatch, capsys):
+    # The SpendGate bounds the MODELED cost, but the per-call prices are the
+    # very thing this probe exists to measure — when the server's own
+    # x-requests-used counter shows billing above the model (here 10 credits
+    # for EVERY call, discovery included), the run must stop near the cap
+    # instead of placing all 45 calls (~450 credits against a 315 cap).
+    monkeypatch.setenv("ODDS_API_KEY", "fake-key-overbilled")
+    requests: list[httpx.Request] = []
+    used = iter(range(1010, 1010 + 45 * 10, 10))     # +10 per response
+
+    def overbilling_transport():
+        inner = mod._dry_run_transport(_SPORT_KEYS)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            resp = inner.handler(request)
+            n = next(used)
+            resp.headers["x-requests-used"] = str(n)
+            resp.headers["x-requests-remaining"] = str(20000 - n)
+            return resp
+
+        return httpx.MockTransport(handler)
+
+    monkeypatch.setattr(mod, "_live_transport", overbilling_transport)
+    rc = mod.main(["--live", "--max-credits", "315"])
+    assert rc != 0
+    # Refused BEFORE call 34: after 33 responses the used-delta is
+    # 1330 - 1010 = 320 > 315 (the first call's own cost is invisible until
+    # the counter moves), so exactly 33 of the 45 planned calls were placed.
+    assert len(requests) == 33
+    err = capsys.readouterr().err
+    assert "ABORT" in err and "315" in err and "320" in err
+    # Paid calls happened, so the PARTIAL report is still written — an abort
+    # that discarded it would forfeit the fixtures already paid for (the T3
+    # rule: a paid response is never lost, and the report is its deliverable).
+    md = (tmp_path / "reports" / "oa_probe.md").read_text()
+    assert "ABORT" in md and "320" in md
+    assert "1330" in md                          # last billed counter reported
+
+
+def test_actual_consumed_needs_two_parseable_counters(mod):
+    # Headers are evidence, never assumed: absent/garbage x-requests-used
+    # values mean the actual spend is UNKNOWN (None) — the modeled gate still
+    # holds, but no phantom delta may abort a run (the mocked failure e2e
+    # serves headerless responses and must keep running).
+    rec = mod._UsageRecorder(mod._dry_run_transport(_SPORT_KEYS), cap=10)
+    assert rec.actual_consumed() is None
+    rec.usage.append({"path": "/a", "requests_used": None,
+                      "requests_remaining": None})
+    rec.usage.append({"path": "/b", "requests_used": "garbage",
+                      "requests_remaining": "-"})
+    assert rec.actual_consumed() is None
+    rec.usage.append({"path": "/c", "requests_used": "100",
+                      "requests_remaining": "900"})
+    assert rec.actual_consumed() is None         # one parseable point: no delta
+    rec.usage.append({"path": "/d", "requests_used": "130",
+                      "requests_remaining": "870"})
+    assert rec.actual_consumed() == 30
+
+
+# --------------------------------------------------------------------------- #
+# The coverage-MISS branch: the observable the probe exists for.               #
+# --------------------------------------------------------------------------- #
+def test_event_not_found_shrinks_projection_and_survives_hostile_names(
+        mod, tmp_path, monkeypatch):
+    # When discovery lists events but OURS is not among them, the row must
+    # say n, suppress both snapshots (gate.skip shrinks the modeled spend to
+    # 295), and quote what discovery DID list — team names straight off the
+    # live wire, so a "Foo | Bar" (pipe) or an embedded newline must ride the
+    # table cell exactly like an error message does (a680aca closed the error
+    # branch; this pins the MISS branch).
+    real_factory = mod._dry_run_transport
+    poisoned_date = "2026-07-19"                 # the wc2026 final's discovery
+
+    def missing_event(sport_keys):
+        inner = real_factory(sport_keys)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if (request.url.path.endswith("/events")
+                    and request.url.params["date"].startswith(poisoned_date)):
+                return httpx.Response(200, json={
+                    "timestamp": request.url.params["date"],
+                    "data": [
+                        {"id": "someone_else",
+                         "commence_time": f"{poisoned_date}T18:00:00Z",
+                         "home_team": "Foo | Bar",
+                         "away_team": "Baz\nQux"}]})
+            return inner.handler(request)
+
+        return httpx.MockTransport(handler)
+
+    monkeypatch.setattr(mod, "_dry_run_transport", missing_event)
+    assert mod.main([]) == 0
+    md = (tmp_path / "reports" / "oa_probe.md").read_text()
+    # The gate.skip observable: 2 planned snapshots dropped from the model.
+    assert "modeled spend this run: 295" in md
+    results = md.split("## Per-fixture results")[1].split("Provenance")[0]
+    row = next(ln for ln in results.splitlines()
+               if "Spain v Argentina" in ln)
+    assert "| n | - | - | - | - | - |" in row    # found: n; snapshots suppressed
+    assert "not among 1 listed events" in row
+    assert "Foo \\| Bar v Baz Qux" in row        # escaped pipe, flattened \n
+    # The hostile names must not have split the row: uniform DELIMITER count
+    # (escaped pipes excluded) across the whole results table.
+    rows = [ln for ln in results.splitlines() if ln.strip()]
+    assert len(rows) == 17
+    delims = {ln.count("|") - ln.count("\\|") for ln in rows}
+    assert delims == {rows[0].count("|")}
+
+
+# --------------------------------------------------------------------------- #
+# Post-fetch shape surprises: findings, never crashes that discard the report. #
+# --------------------------------------------------------------------------- #
+def test_post_fetch_shape_surprises_are_findings_not_crashes(
+        mod, tmp_path, monkeypatch):
+    # Both repros from review: (a) a snapshot 200 with the documented
+    # {timestamp, data} wrapper whose data is NOT an event dict (KeyError out
+    # of parse_snapshot), and (b) a discovery 200 whose event lacks
+    # commence_time (KeyError out of the adapter's comprehension). Each is a
+    # paid response already archived — a per-call failure is "a FINDING for
+    # the coverage report, not a crash", so neither may kill the run and
+    # discard the report the other fixtures' calls paid for.
+    real_factory = mod._dry_run_transport
+    bad_snap_event = "mock_wc2022_2022-11-20"    # wc2022 opener's snapshots
+    bad_disc_date = "2024-06-14"                 # euro2024 opener's discovery
+
+    def shape_surprises(sport_keys):
+        inner = real_factory(sport_keys)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if bad_snap_event in request.url.path:
+                return httpx.Response(200, json={
+                    "timestamp": request.url.params["date"],
+                    "data": {"unexpected": True}})
+            if (request.url.path.endswith("/events")
+                    and request.url.params["date"].startswith(bad_disc_date)):
+                return httpx.Response(200, json={
+                    "timestamp": request.url.params["date"],
+                    "data": [{"id": "half-an-event"}]})
+            return inner.handler(request)
+
+        return httpx.MockTransport(handler)
+
+    monkeypatch.setattr(mod, "_dry_run_transport", shape_surprises)
+    assert mod.main([]) == 0                     # findings, not a crash
+    md = (tmp_path / "reports" / "oa_probe.md").read_text()
+    results = md.split("## Per-fixture results")[1].split("Provenance")[0]
+    snap_row = next(ln for ln in results.splitlines()
+                    if "Qatar v Ecuador" in ln)
+    disc_row = next(ln for ln in results.splitlines()
+                    if "Germany v Scotland" in ln)
+    assert "KeyError" in snap_row                # (a) recorded per-snapshot
+    assert "KeyError" in disc_row                # (b) recorded per-fixture
+    # The discovery failure drops its 2 planned snapshots from the model; the
+    # snapshot failures were PLACED calls and still count as modeled spend.
+    assert "modeled spend this run: 295" in md
+    # The other 13 fixtures' drift values prove the run continued.
+    assert md.count("3.0") >= 26
+    rows = [ln for ln in results.splitlines() if ln.strip()]
+    assert len(rows) == 17
+    assert {ln.count("|") for ln in rows} == {rows[0].count("|")}
+
+
+# --------------------------------------------------------------------------- #
+# Cell hygiene + the orientation-flip match: small branches the committed      #
+# report's integrity rides on.                                                 #
+# --------------------------------------------------------------------------- #
+def test_err_cell_flattens_whitespace_and_escapes_pipes(mod):
+    # Both halves are load-bearing for table integrity: httpx's 429 message
+    # spans two lines (whitespace), and a message carrying "|" would add a
+    # phantom cell — either alone splits the committed report's results row.
+    exc = ValueError("first line\nsecond | third")
+    assert mod._err_cell(exc) == "ValueError: first line second \\| third"
+
+
+def test_flipped_discovery_orientation_still_matches_and_is_reported(
+        mod, tmp_path, monkeypatch):
+    # Neutral-venue sources disagree on home/away orientation: a flipped
+    # listing must still count as "event found" (a MISS here would report
+    # missing coverage for an event the API does list, and skip both paid
+    # snapshots) — but the flip itself is a finding the report must carry.
+    real_factory = mod._dry_run_transport
+    target = "mock_euro2024_2024-07-14"          # the euro2024 final's event
+
+    def flipping(sport_keys):
+        inner = real_factory(sport_keys)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            resp = inner.handler(request)
+            if request.url.path.endswith("/events"):
+                payload = json.loads(resp.content)
+                for ev in payload["data"]:
+                    if ev["id"] == target:
+                        ev["home_team"], ev["away_team"] = (
+                            ev["away_team"], ev["home_team"])
+                return httpx.Response(200, json=payload)
+            return resp
+
+        return httpx.MockTransport(handler)
+
+    monkeypatch.setattr(mod, "_dry_run_transport", flipping)
+    assert mod.main([]) == 0
+    md = (tmp_path / "reports" / "oa_probe.md").read_text()
+    results = md.split("## Per-fixture results")[1].split("Provenance")[0]
+    row = next(ln for ln in results.splitlines() if "Spain v England" in ln)
+    assert "| y |" in row                        # found DESPITE the flip
+    assert "orientation flipped vs store" in row
+    # All 30 snapshots still probed: the flip must not suppress the fixture.
+    assert "modeled spend this run: 315" in md
