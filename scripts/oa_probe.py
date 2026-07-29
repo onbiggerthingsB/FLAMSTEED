@@ -55,15 +55,21 @@ from wcmodel.data.sources.odds import (
 
 # ---------------------------------------------------------------- cost model
 # Published Odds-API prices for the historical routes: the events (discovery)
-# endpoint bills 1 credit per call; an odds snapshot bills 10 credits per
-# region-market — h2h x eu is exactly one region-market. The probe MEASURES
-# whether these hold (the usage headers are the readback); the projection the
-# spend gate enforces is built from them.
+# endpoint bills 1 credit per call; an odds snapshot bills 10 credits PER
+# REGION-MARKET. The probe MEASURES whether these hold (the usage headers are
+# the readback); the projection the spend gate enforces is built from them.
 DISCOVERY_CREDITS = 1
-SNAPSHOT_CREDITS = 10
+_CREDITS_PER_REGION_MARKET = 10
 SNAPSHOTS_PER_FIXTURE = 2            # T-24h and T-1h before kickoff
 MARKET = "h2h"
 REGIONS = "eu"
+# MARKET/REGIONS are comma-joinable strings passed straight to the API, so
+# the per-snapshot price is DERIVED from them, never a flat constant: with a
+# flat 10, widening REGIONS to "eu,us" left the projection at 315 while the
+# true bill would be 615 — the gate would authorize half the real spend.
+# Widening now reprices the projection, which trips the pinned 315 loudly.
+N_REGION_MARKETS = len(MARKET.split(",")) * len(REGIONS.split(","))
+SNAPSHOT_CREDITS = _CREDITS_PER_REGION_MARKET * N_REGION_MARKETS
 SHARP_BOOK = "pinnacle"
 
 # Full-program extrapolation base: the 185-pool (wc2022 + euro2024 + wc2026
@@ -198,9 +204,10 @@ class SpendGate:
     Mid-run aborts belong to the ACTUAL-usage check (``_UsageRecorder``),
     which enforces the billing headers this model exists to verify.
     ``cap=None`` (dry-run) never aborts — the gate still accounts: ``spent``
-    is the modeled spend the report cites, and it counts only precalled
-    calls, so suppressed snapshots (event not found, discovery failure)
-    never inflate it.
+    is the modeled spend the report cites, and it counts only calls actually
+    HANDED to the transport — suppressed snapshots (event not found,
+    discovery failure) are never precalled, and a precalled call the
+    actual-usage gate then refuses is refunded (``refund``) by the caller.
     """
 
     def __init__(self, cap, remaining_planned: int):
@@ -217,6 +224,17 @@ class SpendGate:
                 f"far {self.spent}) — aborting, no call placed")
         self.spent += credits
         self.remaining -= credits
+
+    def refund(self, credits: int) -> None:
+        """Reverse a precall whose call was then REFUSED before reaching the
+        transport (``_UsageRecorder.handle_request`` raises BEFORE placing
+        the request): the abort report invites an actual-vs-modeled
+        comparison to expose the true per-call price, and a ``spent`` that
+        counted the refused call would overstate the modeled side by exactly
+        that call's price. Keeps ``spent + remaining`` — the projection —
+        unchanged."""
+        self.spent -= credits
+        self.remaining += credits
 
 
 class _UsageRecorder(httpx.BaseTransport):
@@ -414,7 +432,8 @@ def _match_event(rows: list, fx: dict):
 
 
 def _probe_snapshot(fx: dict, event, tag: str, requested: datetime, *,
-                    sport_key: str, api_key: str, transport, raw_dir) -> dict:
+                    commence: datetime, sport_key: str, api_key: str,
+                    transport, raw_dir) -> dict:
     # Every RETURNED entry was attempted: the only pre-wire refusal is
     # CreditCapError, which propagates instead of returning — the caller's
     # pre-seeded ``attempted: False`` entry then stands.
@@ -429,18 +448,34 @@ def _probe_snapshot(fx: dict, event, tag: str, requested: datetime, *,
         entry["raw_sha256"] = snap.get("raw_sha256")
         rows = parse_snapshot(snap)
         pin = [r for r in rows if r["bookmaker"] == SHARP_BOOK]
+        snap_dt = _ts(snap["timestamp"])
         entry.update({
             "snapshot_ts": snap["timestamp"],
-            "drift_min": round(
-                (requested - _ts(snap["timestamp"])).total_seconds() / 60.0,
-                1),
+            "drift_min": round((requested - snap_dt).total_seconds() / 60.0,
+                               1),
             "pinnacle_present": bool(pin),
             "n_bookmakers": len({r["bookmaker"] for r in rows}),
         })
+        stamps = [("snapshot ts", snap_dt)]
         if pin:
             lu = strictest_last_update(pin[0], snap["timestamp"])
             entry["pinnacle_staleness_min"] = round(
                 (requested - lu).total_seconds() / 60.0, 1)
+            stamps.append(("Pinnacle strictest last_update", lu))
+        # The strict pre-kickoff rule (admissible_quote's convention, OA F2):
+        # an at/after-kickoff stamp on EITHER leg is an in-play price, never
+        # a pre-kickoff quote. Without this guard a snapshot taken mid-match
+        # reports "Pinnacle present: y" with empty notes — a false positive
+        # on the exact claim the purchase decision rests on, signaled only by
+        # a negative drift the report would not define. _iso re-renders the
+        # parsed stamps, so no raw wire string enters the table cell.
+        late = [f"{what} {_iso(dt)}" for what, dt in stamps
+                if dt >= commence]
+        if late:
+            entry["in_play"] = (
+                f"IN-PLAY {tag}: " + " and ".join(late)
+                + f" at/after kickoff {_iso(commence)} — an in-play price, "
+                "never a pre-kickoff quote (strict <, OA F2)")
     except CreditCapError:
         raise                    # the spend gate is an abort, never a note
     except Exception as exc:
@@ -485,9 +520,18 @@ def run_probe(*, api_key: str, transport: httpx.BaseTransport,
             results.append(row)
             try:
                 gate.precall(DISCOVERY_CREDITS, f"discovery {_label(fx)}")
-                events = fetch_historical_events(
-                    key, f"{fx['date']}T00:00:00Z", api_key,
-                    raw_dir=raw_dir, transport=recorder)
+                try:
+                    events = fetch_historical_events(
+                        key, f"{fx['date']}T00:00:00Z", api_key,
+                        raw_dir=raw_dir, transport=recorder)
+                except CreditCapError:
+                    # Refused by the ACTUAL-usage gate BEFORE reaching the
+                    # transport (handle_request checks first): never placed,
+                    # so the modeled spend must not count it — the abort
+                    # report invites an actual-vs-modeled comparison and one
+                    # phantom call distorts the per-call price it exposes.
+                    gate.refund(DISCOVERY_CREDITS)
+                    raise
                 row["attempted"] = True
                 row["n_events_listed"] = len(events)
                 event, flipped = _match_event(events, fx)
@@ -516,19 +560,30 @@ def run_probe(*, api_key: str, transport: httpx.BaseTransport,
                 row["attempted"] = True
                 row["error"] = _err_cell(exc)
                 continue
+            planned = []
             for tag, delta in (("T-24h", timedelta(hours=24)),
                                ("T-1h", timedelta(hours=1))):
                 requested = commence - delta
-                # Appended BEFORE the gates: a refused snapshot call keeps
-                # an explicit not-attempted marker instead of vanishing into
-                # the same "-"/blank a measured miss renders.
+                # BOTH entries appended BEFORE the FIRST gate: an abort
+                # landing on the T-24h call must leave the T-1h entry
+                # standing as an explicit not-attempted marker — appended
+                # per-iteration it would not exist at all, and _snapshot_cell
+                # would render the "-" of a measured miss on the closing-line
+                # proxy itself, with no textual disambiguation in the row.
                 entry = {"tag": tag, "requested_ts": _iso(requested),
                          "attempted": False}
                 row["snapshots"].append(entry)
+                planned.append((tag, requested, entry))
+            for tag, requested, entry in planned:
                 gate.precall(SNAPSHOT_CREDITS, f"snapshot {tag} {_label(fx)}")
-                entry.update(_probe_snapshot(
-                    fx, event, tag, requested, sport_key=key,
-                    api_key=api_key, transport=recorder, raw_dir=raw_dir))
+                try:
+                    entry.update(_probe_snapshot(
+                        fx, event, tag, requested, commence=commence,
+                        sport_key=key, api_key=api_key, transport=recorder,
+                        raw_dir=raw_dir))
+                except CreditCapError:
+                    gate.refund(SNAPSHOT_CREDITS)   # same contract as discovery
+                    raise
     except CreditCapError as exc:
         if not recorder.usage:
             raise                # zero calls placed: nothing paid, no report
@@ -626,7 +681,8 @@ def assemble_report(*, mode: str, mocked: bool, sport_keys: dict, plan: list,
         "", "## Call plan + projected credit cost", "",
         f"{len(PROBE_FIXTURES)} fixtures x (1 discovery @ "
         f"{DISCOVERY_CREDITS} credit + {SNAPSHOTS_PER_FIXTURE} snapshots "
-        f"[T-24h, T-1h; {MARKET} x {REGIONS} = 1 region-market] @ "
+        f"[T-24h, T-1h; {MARKET} x {REGIONS} = {N_REGION_MARKETS} "
+        f"region-market{'s' if N_REGION_MARKETS != 1 else ''}] @ "
         f"{SNAPSHOT_CREDITS} credits): "
         f"{n_disc} discovery + {n_snap} snapshot calls = "
         f"**{projected} credits** projected; modeled spend this run: "
@@ -640,6 +696,29 @@ def assemble_report(*, mode: str, mocked: bool, sport_keys: dict, plan: list,
     lines += [f"| {i} | {r['fixture']} | {r['pool']} | {r['stratum']} | "
               f"{r['call']} | `{r['endpoint']}` | {r['at']} | {r['credits']} |"
               for i, r in enumerate(plan, 1)]
+    # The instants the probe actually bought, per fixture — WITH the
+    # discovered kickoff, so a reader can reconstruct the pre-kickoff check
+    # by hand instead of trusting an unlabeled negative drift.
+    lines += [
+        "", "## Requested instants (discovered kickoff -> the two snapshot "
+        "requests)", "",
+        "Sign convention in the results table: drift = requested - snapshot "
+        "ts, staleness = requested - Pinnacle's strictest last_update (both "
+        "in minutes; NEGATIVE means the stamp postdates the requested "
+        "instant). The strict pre-kickoff rule (OA F2, admissible_quote): a "
+        "snapshot ts or last_update at/after the discovered kickoff is an "
+        "IN-PLAY price and is flagged in the notes column — never a clean "
+        "pre-kickoff quote.", "",
+        "| fixture | discovered kickoff | requested T-24h | requested T-1h |",
+        "|---|---|---|---|"]
+    for row in results:
+        req = {s["tag"]: s.get("requested_ts")
+               for s in row.get("snapshots", [])}
+        kick = row.get("commence_time")
+        lines.append("| " + " | ".join([
+            row["fixture"],
+            _table_text(kick) if kick else "-",     # a wire string: cell-safe
+            req.get("T-24h") or "-", req.get("T-1h") or "-"]) + " |")
     lines += [
         "", "## Per-fixture results", "",
         "| pool | stratum | fixture | event found | Pinnacle T-24h | "
@@ -668,6 +747,7 @@ def assemble_report(*, mode: str, mocked: bool, sport_keys: dict, plan: list,
                 (["orientation flipped vs store"]
                  if row.get("orientation_flipped") else [])
                 + [s["error"] for s in row["snapshots"] if "error" in s]
+                + [s["in_play"] for s in row["snapshots"] if "in_play" in s]
                 + [f"snapshot {s['tag']} not attempted (run aborted)"
                    for s in row["snapshots"]
                    if not s.get("attempted", True)])

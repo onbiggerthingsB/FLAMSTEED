@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+from datetime import timedelta
 from pathlib import Path
 
 import httpx
@@ -120,6 +121,19 @@ def test_projected_probe_cost_is_315_and_matches_the_call_plan(mod):
     plan = mod.build_call_plan(_SPORT_KEYS)
     assert len(plan) == 45                       # 15 discovery + 30 snapshots
     assert sum(row["credits"] for row in plan) == mod.projected_probe_cost()
+
+
+def test_snapshot_price_is_derived_from_the_market_and_region_lists(mod):
+    # VERIFIED MUTATION (review): widening REGIONS to "eu,us" against a FLAT
+    # SNAPSHOT_CREDITS = 10 left this suite green and the projection at 315
+    # while the true bill would be 615 — the gate would authorize about half
+    # the real spend. The per-snapshot price must be DERIVED from the
+    # requested market/region lists (10 credits per region-market), so any
+    # widening reprices the projection and trips the 315 pin above: the
+    # number the user approves moves VISIBLY or not at all.
+    n = len(mod.MARKET.split(",")) * len(mod.REGIONS.split(","))
+    assert mod.N_REGION_MARKETS == n == 1
+    assert mod.SNAPSHOT_CREDITS == 10 * n
 
 
 def test_full_program_budget_keeps_n_dev_an_explicit_input(mod):
@@ -238,6 +252,45 @@ def test_dry_run_snapshot_calls_use_config_sport_keys(mod, monkeypatch):
             if "soccer_uefa_european_championship" in r.url.path]
     assert len(euro) == 15                       # 5 fixtures x (1 disc + 2 snap)
     assert not any("/sports/soccer/" in r.url.path for r in requests)
+
+
+def test_snapshot_requests_buy_kickoff_minus_24h_and_minus_1h(
+        mod, tmp_path, monkeypatch):
+    # The probe's entire deliverable is a measurement of PRE-KICKOFF
+    # coverage, and the mapping fixture -> discovered kickoff -> the two
+    # requested instants was unpinned: the mock echoes whatever `date` it is
+    # given, so buying `commence + delta` (30 paid calls on IN-PLAY prices)
+    # or swapping the tag/offset pairing both left the suite green with a
+    # byte-for-byte-convincing report. Pin BOTH sides against the mock's own
+    # kickoff: the outgoing wire `date` params (in plan order — T-24h is
+    # requested first) and the report's tag-labeled requested instants (a
+    # swapped pairing would relabel the columns, not just reorder calls).
+    requests: list[httpx.Request] = []
+    real_factory = mod._dry_run_transport
+
+    def capturing(sport_keys):
+        inner = real_factory(sport_keys)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return inner.handler(request)
+
+        return httpx.MockTransport(handler)
+
+    monkeypatch.setattr(mod, "_dry_run_transport", capturing)
+    assert mod.main([]) == 0
+    for fx in mod.PROBE_FIXTURES:
+        commence = mod._ts(mod._mock_commence(fx))
+        snaps = [r for r in requests
+                 if f"/events/{mod._event_id(fx)}/odds" in r.url.path]
+        assert len(snaps) == 2, fx
+        assert snaps[0].url.params["date"] == mod._iso(
+            commence - timedelta(hours=24)), fx
+        assert snaps[1].url.params["date"] == mod._iso(
+            commence - timedelta(hours=1)), fx
+    md = (tmp_path / "reports" / "oa_probe.md").read_text()
+    assert ("| Qatar v Ecuador (2022-11-20) | 2022-11-20T18:00:00Z | "
+            "2022-11-19T18:00:00Z | 2022-11-20T17:00:00Z |") in md
 
 
 # --------------------------------------------------------------------------- #
@@ -492,8 +545,13 @@ def test_live_actual_billing_above_cap_aborts_midrun_with_partial_report(
         assert "not attempted" in next(
             ln for ln in results.splitlines() if label in ln)
     assert "Never attempted (4 of 15 fixtures" in md
-    # The partial report also states actual-billed vs cap vs modeled.
+    # The partial report also states actual-billed vs cap vs modeled — and
+    # the refused discovery precall is REFUNDED from the modeled figure: 33
+    # calls were placed (fixtures 1-11 complete), modeled 11x21 = 231, so a
+    # spent of 232 would count the very call the usage gate refused.
     assert "Actual billed this run: **320 credits**" in md
+    assert "modeled spend this run: 231" in md
+    assert "modeled spend 231 credits" in md
 
 
 def test_midrun_abort_landing_on_a_snapshot_call_is_an_abort_not_a_note(
@@ -536,16 +594,27 @@ def test_midrun_abort_landing_on_a_snapshot_call_is_an_abort_not_a_note(
     assert "mock_euro2024_2024-07-14/odds" in md
     results = md.split("## Per-fixture results")[1].split("Provenance")[0]
     # Fixture 10's discovery was measured (y) but BOTH snapshots were refused
-    # by our own gate: the cells must say "not attempted" — a refused call
-    # rendered "-" would be indistinguishable from measured-missing Pinnacle
-    # coverage, and rendered "ERR" it would masquerade as an API failure.
+    # by our own gate: ALL FIVE snapshot-derived cells must say "not
+    # attempted" — the abort landed on the T-24h call, and an entry pre-seeded
+    # only per-iteration would leave the three T-1h cells rendering the "-"
+    # of a measured miss (on the closing-line proxy itself) with no textual
+    # disambiguation anywhere in the row. Rendered "ERR" they would
+    # masquerade as an API failure. Exact full row, all cells + per-tag notes.
     row10 = next(ln for ln in results.splitlines()
                  if "Spain v England" in ln)
-    assert "| y |" in row10
-    assert row10.count("not attempted") >= 2
-    assert "ERR" not in row10
+    assert row10 == (
+        "| euro2024 | final | Spain v England (2024-07-14) | y "
+        "| not attempted | not attempted | not attempted | not attempted "
+        "| not attempted | snapshot T-24h not attempted (run aborted); "
+        "snapshot T-1h not attempted (run aborted) |")
     # Our own gate's refusal never appears as a per-fixture finding.
     assert "CreditCapError" not in results
+    # The refused T-24h precall is REFUNDED: 28 calls were placed (fixtures
+    # 1-9 complete + fixture 10's discovery), modeled 9x21 + 1 = 190 — a
+    # spent figure of 200 would overstate the modeled side of the
+    # actual-vs-modeled comparison by the refused call's price.
+    assert "modeled spend this run: 190" in md
+    assert "modeled spend 190 credits" in md
     # The unreached tail (fixtures 11-15) stays in the frame, marked.
     rows = [ln for ln in results.splitlines() if ln.strip()]
     assert len(rows) == 17
@@ -718,6 +787,63 @@ def test_post_fetch_shape_surprises_are_findings_not_crashes(
     assert "modeled spend this run: 295" in md
     # The other 13 fixtures' drift values prove the run continued.
     assert md.count("3.0") >= 26
+    rows = [ln for ln in results.splitlines() if ln.strip()]
+    assert len(rows) == 17
+    assert {ln.count("|") for ln in rows} == {rows[0].count("|")}
+
+
+def test_at_or_after_kickoff_snapshot_is_flagged_in_play_never_a_clean_y(
+        mod, tmp_path, monkeypatch):
+    # Review repro: the server answers the wc2022 final's T-1h request with a
+    # snapshot stamped 30 minutes INTO the match (bookmaker/market stamps at
+    # 18:29Z against an 18:00Z kickoff). Without a strict pre-kickoff guard
+    # the row read "Pinnacle T-1h: y" with empty notes — a false positive on
+    # exactly the claim the 4,340-credit purchase rests on — and the only
+    # signal was a negative number in a column whose sign convention the
+    # report never defined. The codebase rule (admissible_quote, OA F2): an
+    # at/after-kickoff stamp on EITHER leg is an in-play price, never a
+    # closing quote — so the row must carry an IN-PLAY finding naming both
+    # offending stamps and the kickoff.
+    real_factory = mod._dry_run_transport
+    target = "mock_wc2022_2022-12-18"            # the wc2022 final's event id
+
+    def in_play(sport_keys):
+        inner = real_factory(sport_keys)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            resp = inner.handler(request)
+            if (f"{target}/odds" in request.url.path
+                    and request.url.params["date"] == "2022-12-18T17:00:00Z"):
+                payload = json.loads(resp.content)
+                payload["timestamp"] = "2022-12-18T18:30:00Z"
+                for bk in payload["data"]["bookmakers"]:
+                    bk["last_update"] = "2022-12-18T18:29:00Z"
+                    for mkt in bk["markets"]:
+                        mkt["last_update"] = "2022-12-18T18:29:00Z"
+                return httpx.Response(200, json=payload)
+            return resp
+
+        return httpx.MockTransport(handler)
+
+    monkeypatch.setattr(mod, "_dry_run_transport", in_play)
+    assert mod.main([]) == 0                     # a finding, not a crash
+    md = (tmp_path / "reports" / "oa_probe.md").read_text()
+    results = md.split("## Per-fixture results")[1].split("Provenance")[0]
+    row = next(ln for ln in results.splitlines()
+               if "Argentina v France" in ln)
+    assert "IN-PLAY T-1h" in row
+    assert "snapshot ts 2022-12-18T18:30:00Z" in row
+    assert "last_update 2022-12-18T18:29:00Z" in row
+    assert "kickoff 2022-12-18T18:00:00Z" in row
+    assert row.count("IN-PLAY") == 1             # the clean T-24h leg is not
+    assert "-90.0" in row and "-89.0" in row     # negative drift + staleness
+    # The reader can reconstruct the check by hand: the report prints the
+    # discovered kickoff and BOTH requested instants per fixture, and defines
+    # the drift sign convention it prints numbers under.
+    assert ("| Argentina v France (2022-12-18) | 2022-12-18T18:00:00Z | "
+            "2022-12-17T18:00:00Z | 2022-12-18T17:00:00Z |") in md
+    assert "drift = requested - snapshot ts" in md
+    # The finding rides the table without splitting it.
     rows = [ln for ln in results.splitlines() if ln.strip()]
     assert len(rows) == 17
     assert {ln.count("|") for ln in rows} == {rows[0].count("|")}

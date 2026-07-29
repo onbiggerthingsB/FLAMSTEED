@@ -60,6 +60,28 @@
 | 44 | Spain v Argentina (2026-07-19) | wc2026 | final | snapshot T-24h | `/v4/historical/sports/soccer_fifa_world_cup/events/{event_id}/odds` | discovered kickoff T-24h | 10 |
 | 45 | Spain v Argentina (2026-07-19) | wc2026 | final | snapshot T-1h | `/v4/historical/sports/soccer_fifa_world_cup/events/{event_id}/odds` | discovered kickoff T-1h | 10 |
 
+## Requested instants (discovered kickoff -> the two snapshot requests)
+
+Sign convention in the results table: drift = requested - snapshot ts, staleness = requested - Pinnacle's strictest last_update (both in minutes; NEGATIVE means the stamp postdates the requested instant). The strict pre-kickoff rule (OA F2, admissible_quote): a snapshot ts or last_update at/after the discovered kickoff is an IN-PLAY price and is flagged in the notes column — never a clean pre-kickoff quote.
+
+| fixture | discovered kickoff | requested T-24h | requested T-1h |
+|---|---|---|---|
+| Qatar v Ecuador (2022-11-20) | 2022-11-20T18:00:00Z | 2022-11-19T18:00:00Z | 2022-11-20T17:00:00Z |
+| Argentina v Mexico (2022-11-26) | 2022-11-26T18:00:00Z | 2022-11-25T18:00:00Z | 2022-11-26T17:00:00Z |
+| South Korea v Portugal (2022-12-02) | 2022-12-02T18:00:00Z | 2022-12-01T18:00:00Z | 2022-12-02T17:00:00Z |
+| Netherlands v United States (2022-12-03) | 2022-12-03T18:00:00Z | 2022-12-02T18:00:00Z | 2022-12-03T17:00:00Z |
+| Argentina v France (2022-12-18) | 2022-12-18T18:00:00Z | 2022-12-17T18:00:00Z | 2022-12-18T17:00:00Z |
+| Germany v Scotland (2024-06-14) | 2024-06-14T18:00:00Z | 2024-06-13T18:00:00Z | 2024-06-14T17:00:00Z |
+| Germany v Hungary (2024-06-19) | 2024-06-19T18:00:00Z | 2024-06-18T18:00:00Z | 2024-06-19T17:00:00Z |
+| Georgia v Portugal (2024-06-26) | 2024-06-26T18:00:00Z | 2024-06-25T18:00:00Z | 2024-06-26T17:00:00Z |
+| Spain v Georgia (2024-06-30) | 2024-06-30T18:00:00Z | 2024-06-29T18:00:00Z | 2024-06-30T17:00:00Z |
+| Spain v England (2024-07-14) | 2024-07-14T18:00:00Z | 2024-07-13T18:00:00Z | 2024-07-14T17:00:00Z |
+| Mexico v South Africa (2026-06-11) | 2026-06-11T18:00:00Z | 2026-06-10T18:00:00Z | 2026-06-11T17:00:00Z |
+| Canada v Qatar (2026-06-18) | 2026-06-18T18:00:00Z | 2026-06-17T18:00:00Z | 2026-06-18T17:00:00Z |
+| Colombia v Portugal (2026-06-27) | 2026-06-27T18:00:00Z | 2026-06-26T18:00:00Z | 2026-06-27T17:00:00Z |
+| Brazil v Japan (2026-06-29) | 2026-06-29T18:00:00Z | 2026-06-28T18:00:00Z | 2026-06-29T17:00:00Z |
+| Spain v Argentina (2026-07-19) | 2026-07-19T18:00:00Z | 2026-07-18T18:00:00Z | 2026-07-19T17:00:00Z |
+
 ## Per-fixture results
 
 | pool | stratum | fixture | event found | Pinnacle T-24h | Pinnacle T-1h | snapshot drift T-24h (min) | drift T-1h (min) | Pinnacle last_update staleness at T-1h (min) | notes |
