@@ -112,6 +112,16 @@ backtest:
   # Reproducibility.
   bootstrap_resamples: 2000        # bootstrap CI resamples for ROI/drawdown/etc.
   bootstrap_seed: 20260611         # seeded so CIs are bit-reproducible
+odds:
+  # Per-competition Odds API sport keys for the HISTORICAL routes (OA F13).
+  # The generic `soccer` key the old adapter hardcoded is INVALID — the API
+  # rejects it. These exact strings are VERIFIED by the OA-0a probe
+  # (scripts/oa_probe.py); config-driven so the probe can correct a wrong key
+  # WITHOUT a code change.
+  sport_keys:
+    wc2022: soccer_fifa_world_cup
+    euro2024: soccer_uefa_european_championship
+    wc2026: soccer_fifa_world_cup
 live:
   # L1 SPEND GATE. dry_run=true => NO network, NO real odds spend, NO real bet:
   # the whole live pipeline runs against the fixture / the clearly-labelled-non-real
