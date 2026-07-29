@@ -38,6 +38,7 @@ from wcmodel.backtest.odds_ingest import (
 )
 from wcmodel.backtest.staking import stake_fraction
 from wcmodel.backtest.clv import clv_pct
+from wcmodel.data.sources.odds import event_list
 
 
 def _decision_time_entry(sample: dict, *, bookmaker: str, cutoff, close_ts: str | None):
@@ -90,7 +91,9 @@ def _decision_time_entry(sample: dict, *, bookmaker: str, cutoff, close_ts: str 
     for entry_snap in reversed(candidates):
         if not _snapshot_has_book(entry_snap, bookmaker):
             continue
-        first_event = entry_snap["data"][0]
+        # ``data`` may be a LIST of events or ONE bare event dict (the
+        # per-event historical route) — odds.event_list is the one normalizer.
+        first_event = event_list(entry_snap["data"])[0]
         prices = _bookmaker_prices(
             entry_snap, bookmaker, first_event["home_team"], first_event["away_team"]
         )
@@ -113,7 +116,8 @@ def _event_meta(sample: dict):
     ]
     if not snaps:
         raise ValueError("decide_live: sample has no snapshots")
-    first_event = snaps[0]["data"][0]
+    # Same dual-shape ``data`` contract as ``_decision_time_entry`` (odds.event_list).
+    first_event = event_list(snaps[0]["data"])[0]
     is_synth = bool(
         sample.get(_SYNTHETIC_KEY, False) or any(s.get(_SYNTHETIC_KEY) for s in snaps)
     )

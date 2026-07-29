@@ -207,6 +207,21 @@ def test_extract_closing_prices_rejects_last_update_at_kickoff():
         extract_closing_prices(sample, bookmaker="pinnacle")
 
 
+def test_extract_closing_prices_rejects_post_kickoff_snapshot_with_stale_stamps():
+    # Leg 1 in ISOLATION (mutation pin): the snapshot was PULLED at 19:05 —
+    # five minutes into the match — while BOTH last_update stamps sit at 18:50,
+    # the ordinary suspension pattern (after a book suspends, the historical
+    # route keeps returning the last pre-match stamp unchanged). The stamp leg
+    # alone would ADMIT this in-play snapshot — and, being the latest, CHOOSE
+    # it as the closing line (OA F2). The snapshot-timestamp leg must reject it
+    # on its own; dropping leg 1 survives every other test in this file.
+    from wcmodel.data.sources.odds import extract_closing_prices
+    sample = {"close": _snap("2026-06-11T19:05:00Z",
+                             last_update="2026-06-11T18:50:00Z")}
+    with pytest.raises(ValueError, match="closing"):
+        extract_closing_prices(sample, bookmaker="pinnacle")
+
+
 # ------------------------------------------------- (c) sport-key URL building
 
 
@@ -359,6 +374,42 @@ def test_fetch_historical_archives_paid_error_body_before_raising(tmp_path):
             transport=_error_transport())
     (raw,) = tmp_path.glob("*.json")
     assert json.loads(raw.read_bytes()) == {"message": "Invalid API key"}
+
+
+def _transport_failure(exc: httpx.RequestError) -> httpx.MockTransport:
+    """A transport whose GET dies BELOW the HTTP layer — the read-timeout /
+    connection-failure class, against a paid API at least as likely as the
+    401/429 the status-redaction tests cover."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise exc
+    return httpx.MockTransport(handler)
+
+
+def test_fetch_historical_transport_error_never_carries_the_api_key(tmp_path):
+    # A transport-level failure escapes client.get BEFORE
+    # _raise_for_status_redacted can run, and httpx attaches the UNMODIFIED
+    # request — so exc.request.url carried apiKey=<secret> into the same
+    # committed-report failure handlers the status-error tests protect.
+    with pytest.raises(httpx.ReadTimeout) as err:
+        fetch_historical(
+            "evt_NED_USA", "2022-11-30T18:00:00Z", "SECRET-abc123",
+            sport_key="soccer_fifa_world_cup", raw_dir=tmp_path,
+            transport=_transport_failure(httpx.ReadTimeout("read timed out")))
+    rendered = "".join(traceback.format_exception(err.value))
+    assert "SECRET-abc123" not in rendered
+    assert "SECRET-abc123" not in str(err.value.request.url)
+
+
+def test_fetch_historical_events_transport_error_never_carries_the_api_key(tmp_path):
+    from wcmodel.data.sources.odds import fetch_historical_events
+    with pytest.raises(httpx.ConnectError) as err:
+        fetch_historical_events(
+            "soccer_fifa_world_cup", "2022-11-30T18:00:00Z", "SECRET-abc123",
+            raw_dir=tmp_path,
+            transport=_transport_failure(httpx.ConnectError("connection refused")))
+    rendered = "".join(traceback.format_exception(err.value))
+    assert "SECRET-abc123" not in rendered
+    assert "SECRET-abc123" not in str(err.value.request.url)
 
 
 # ----------------- (review fix 2) market_last_update is admissibility evidence

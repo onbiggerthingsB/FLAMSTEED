@@ -157,6 +157,20 @@ def test_scan_batch_guard_records_exception_detail(small_store, cfg):
     assert ranked.to_dict()["errors"] == detail
 
 
+def test_event_id_reads_dict_shaped_data():
+    # The defensive locator guarded on list-shaped ``data`` only, so a snapshot
+    # in the per-event historical shape (data = ONE bare event dict, OA F13)
+    # silently degraded to event=None — a systemic Plan-2 failure would lose
+    # its event ids exactly when the sidecar is needed to locate it.
+    from wcmodel.live.scan import _event_id
+    item = {"sample": {"snap": {
+        "timestamp": "2026-06-11T18:55:00Z",
+        "data": {"id": "evt_dict_shape", "commence_time": "2026-06-11T19:00:00Z",
+                 "home_team": "X", "away_team": "Y", "bookmakers": []},
+    }}, "liquidity": 50.0}
+    assert _event_id(item) == "evt_dict_shape"
+
+
 def test_scan_is_reproducible_and_tie_break_deterministic(small_store, cfg):
     # REPRODUCIBILITY + STABLE TIE-BREAK (in-house review, now committed). Two scan
     # calls with the SAME seed/inputs -> identical Ranked.to_dict() AND identical

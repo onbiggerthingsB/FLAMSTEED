@@ -14,8 +14,9 @@ snapshot per call:
 where ``data`` is a LIST of events on the multi-event routes but ONE bare event
 object on the per-event route ``/historical/sports/{sport}/events/{id}/odds``
 (OA finding 13) — the parser accepts both shapes via :func:`event_list`, the
-ONE dict/list normalizer (``backtest.odds_ingest`` and
-``scripts/clv_validation.py`` import it rather than keeping private copies).
+ONE dict/list normalizer (``backtest.odds_ingest``, ``scripts/clv_validation.py``
+and the ``live`` decide/validation/scan modules import it rather than keeping
+private copies).
 
 Store policy for odds is **POINT_IN_TIME** (timestamped): we record what the
 market said at a moment, and that fact never gets revised, so
@@ -76,9 +77,13 @@ def event_list(data) -> list[dict]:
     event DICT (OA finding 13). Both are real recorded response shapes.
 
     EXPORTED as the ONE normalizer for this dual shape: every consumer that
-    reads ``snapshot["data"]`` directly (``backtest.odds_ingest``,
-    ``scripts/clv_validation.py``) goes through here — a private copy per
-    module is how the dict shape got missed on two of three paths.
+    reads a raw snapshot's ``data`` directly (``backtest.odds_ingest``,
+    ``scripts/clv_validation.py``, ``live.decide`` / ``live.validation`` /
+    ``live.scan``) goes through here — a private shape assumption per module
+    is how the dict shape got missed on two of the first three paths, then
+    again on the live ones. (``clv_validation``'s later ``["data"][0]`` reads
+    consume its OWN ``_snapshot_to_real_shape`` output, list-shaped by
+    construction — not the raw payload.)
     """
     if isinstance(data, dict):
         return [data]
@@ -301,7 +306,10 @@ def _raise_for_status_redacted(resp: httpx.Response, api_key: str) -> None:
     re-pointed at the query-stripped URL (so ``exc.request.url`` /
     ``resp.url`` hold nothing to resurrect either), the key is belt-and-braces
     scrubbed from the final message, and the raise chains ``from None`` so no
-    context exception carries the live URL into a rendered traceback."""
+    context exception carries the live URL into a rendered traceback.
+
+    RESPONSE path only: a failure BELOW the HTTP layer never reaches here —
+    :func:`_get_redacted` scrubs that leg."""
     if resp.is_success:
         return
     resp.request = httpx.Request(
@@ -316,6 +324,32 @@ def _raise_for_status_redacted(resp: httpx.Response, api_key: str) -> None:
         message = str(exc).replace(api_key, "***") if api_key else str(exc)
         raise httpx.HTTPStatusError(
             message, request=exc.request, response=resp
+        ) from None
+
+
+def _get_redacted(
+    client: httpx.Client, url: str, params: dict, api_key: str
+) -> httpx.Response:
+    """``client.get`` whose TRANSPORT-level failures cannot leak the key.
+
+    :func:`_raise_for_status_redacted` covers only the response path: a
+    failure below the HTTP layer (read timeout, connection refused — against
+    a paid API at least as likely as a 401/429) escapes ``client.get`` as an
+    ``httpx.RequestError`` with the UNMODIFIED request attached by httpx's
+    ``request_context``, so ``exc.request.url`` carried ``apiKey=<secret>``
+    into the same committed-report failure handlers (the OA-0a probe). The
+    re-raise keeps the exception TYPE (callers still catch ``ReadTimeout``
+    etc.) but re-points the request at ``url`` — query-less by construction,
+    since ``params`` ride separately — scrubs the key from the message
+    belt-and-braces, and chains ``from None`` so the original exception
+    (whose attached request still holds the live URL) never enters a
+    rendered traceback."""
+    try:
+        return client.get(url, params=params)
+    except httpx.RequestError as exc:
+        message = str(exc).replace(api_key, "***") if api_key else str(exc)
+        raise type(exc)(
+            message, request=httpx.Request("GET", url)
         ) from None
 
 
@@ -350,7 +384,9 @@ def fetch_historical(
     persisted unless the caller names a directory explicitly
     (:func:`_resolve_raw_dir`); ``None`` always disables. HTTP errors raise
     with the query string (which carries the key) stripped from message and
-    attached request (:func:`_raise_for_status_redacted`).
+    attached request (:func:`_raise_for_status_redacted`); transport-level
+    failures (timeout, connection) re-raise the same way via
+    :func:`_get_redacted`.
     """
     if api_key is None:
         raise RuntimeError(
@@ -368,15 +404,17 @@ def fetch_historical(
     #   ?apiKey=&date=&markets=&regions=&oddsFormat=decimal
     url = f"{ODDSAPI_BASE}/historical/sports/{sport_key}/events/{event_id}/odds"
     with httpx.Client(transport=transport, timeout=30.0) as client:
-        resp = client.get(
+        resp = _get_redacted(
+            client,
             url,
-            params={
+            {
                 "apiKey": api_key,
                 "date": ts,
                 "markets": market,
                 "regions": regions,
                 "oddsFormat": "decimal",
             },
+            api_key,
         )
     digest = _persist_raw(resp.content, raw_dir)
     _raise_for_status_redacted(resp, api_key)
@@ -415,7 +453,7 @@ def fetch_historical_events(
     raw_dir = _resolve_raw_dir(raw_dir, transport)
     url = f"{ODDSAPI_BASE}/historical/sports/{sport_key}/events"
     with httpx.Client(transport=transport, timeout=30.0) as client:
-        resp = client.get(url, params={"apiKey": api_key, "date": ts})
+        resp = _get_redacted(client, url, {"apiKey": api_key, "date": ts}, api_key)
     digest = _persist_raw(resp.content, raw_dir)
     _raise_for_status_redacted(resp, api_key)
     payload = resp.json()
