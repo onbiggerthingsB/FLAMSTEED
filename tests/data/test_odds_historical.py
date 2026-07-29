@@ -236,6 +236,11 @@ def test_fetch_historical_builds_config_driven_sport_key_url(tmp_path):
     assert req.url.params["date"] == "2022-11-30T18:00:00Z"
     assert req.url.params["markets"] == "h2h"
     assert req.url.params["regions"] == "eu"
+    # (review round 4, fix 4) Decimal is load-bearing on a PAID param: a drift
+    # to 'american' would archive moneyline integers (+150) that every
+    # downstream de-vig/CLV/RPS consumer parses as decimal odds (150.0) —
+    # silently corrupting every number computed from paid data.
+    assert req.url.params["oddsFormat"] == "decimal"
 
 
 def test_fetch_historical_refuses_missing_sport_key_before_any_call(tmp_path):
@@ -646,3 +651,101 @@ def test_fetch_historical_events_empty_data_is_a_genuine_no_events(tmp_path):
     assert fetch_historical_events(
         "soccer_fifa_world_cup", "2022-11-30T18:00:00Z", "test-key",
         raw_dir=tmp_path, transport=transport) == []
+
+
+# ---------- (review round 4, fix 1) event identity holds ACROSS snapshots
+
+
+def _event_snap(ts: str, *, event_id: str, home: str, away: str,
+                commence: str, prices: tuple[float, float, float]) -> dict:
+    """One SINGLE-event snapshot for an arbitrary fixture (``_snap`` hardcodes
+    evt_X_Y, so it cannot express a mixed-fixture sample)."""
+    h, d, a = prices
+    return {
+        "timestamp": ts, "previous_timestamp": ts, "next_timestamp": ts,
+        "data": [{
+            "id": event_id, "sport_key": "soccer_fifa_world_cup",
+            "commence_time": commence, "home_team": home, "away_team": away,
+            "bookmakers": [{
+                "key": "pinnacle", "last_update": ts,
+                "markets": [{"key": "h2h", "last_update": ts,
+                             "outcomes": [{"name": home, "price": h},
+                                          {"name": "Draw", "price": d},
+                                          {"name": away, "price": a}]}],
+            }],
+        }],
+    }
+
+
+def test_extract_closing_prices_refuses_sample_spanning_two_fixtures():
+    # The per-snapshot guard counts events WITHIN each snapshot only: a sample
+    # holding SINGLE-event snapshots for two DIFFERENT fixtures sailed through,
+    # and latest-timestamp-wins silently returned Spain-Japan's line for a
+    # sample that also holds Brazil-Croatia — exactly the collision/substitution
+    # the single-event refusal exists to prevent, one level up. A Plan-2
+    # pipeline assembling samples by timestamp rather than by fixture would
+    # attach another match's close to this fixture's CLV/ledger row.
+    from wcmodel.data.sources.odds import extract_closing_prices
+    sample = {
+        "close_A": _event_snap("2026-06-11T18:55:00Z", event_id="evt_BRA_CRO",
+                               home="Brazil", away="Croatia",
+                               commence="2026-06-11T19:00:00Z",
+                               prices=(1.5, 4.0, 7.0)),
+        "close_B": _event_snap("2026-06-11T21:55:00Z", event_id="evt_ESP_JPN",
+                               home="Spain", away="Japan",
+                               commence="2026-06-11T22:00:00Z",
+                               prices=(2.2, 3.3, 3.6)),
+    }
+    with pytest.raises(ValueError, match="single-event"):
+        extract_closing_prices(sample, bookmaker="pinnacle")
+
+
+def test_extract_closing_prices_returns_event_id_for_downstream_assertion():
+    # Belt-and-braces for the same substitution class: the chosen line names
+    # its fixture, so a caller can ASSERT it got the event it asked about
+    # instead of trusting sample assembly it does not control.
+    from wcmodel.data.sources.odds import extract_closing_prices
+    close = extract_closing_prices(
+        {"close": _snap("2026-06-11T18:55:00Z")}, bookmaker="pinnacle")
+    assert close["event_id"] == "evt_X_Y"
+
+
+# ----- (review round 4, fix 2) raw-dir default archives real-network calls
+
+
+def test_resolve_raw_dir_defaults_real_network_calls_into_the_repo_archive(
+        tmp_path):
+    # transport=None is the ONLY path where credits are spent, and nothing
+    # pinned it: mutating the resolver to `return None` (every PAID response
+    # archived nowhere — "a paid response is never lost" silently void) left
+    # the whole suite green. Pin all four (raw_dir, transport) quadrants.
+    from wcmodel.data.sources.odds import (
+        ODDS_RAW_DIR, _RAW_DIR_UNSET, _resolve_raw_dir)
+    mock = httpx.MockTransport(lambda request: httpx.Response(200))
+    assert _resolve_raw_dir(_RAW_DIR_UNSET, None) == ODDS_RAW_DIR
+    assert _resolve_raw_dir(_RAW_DIR_UNSET, mock) is None
+    assert _resolve_raw_dir(tmp_path, mock) == tmp_path
+    assert _resolve_raw_dir(None, None) is None
+
+
+# ---- (review round 4, fix 3) strictest_last_update is the public contract
+
+
+def test_strictest_last_update_is_the_exported_stamp_resolution():
+    # The T5 ledger must IMPORT this resolution, not re-invent the weakening —
+    # the same reason event_list was de-privatized (five modules were keeping
+    # private copies). Latest stamp present wins; the snapshot timestamp
+    # stands in only when BOTH are absent.
+    from wcmodel.data.sources.odds import strictest_last_update
+    snap_ts = "2026-06-11T18:55:00Z"
+    both = {"bookmaker_last_update": "2026-06-11T18:50:00Z",
+            "market_last_update": "2026-06-11T18:57:00Z"}
+    assert strictest_last_update(both, snap_ts) == datetime(
+        2026, 6, 11, 18, 57, tzinfo=timezone.utc)
+    one = {"bookmaker_last_update": "2026-06-11T18:50:00Z",
+           "market_last_update": None}
+    assert strictest_last_update(one, snap_ts) == datetime(
+        2026, 6, 11, 18, 50, tzinfo=timezone.utc)
+    neither = {"bookmaker_last_update": None, "market_last_update": None}
+    assert strictest_last_update(neither, snap_ts) == datetime(
+        2026, 6, 11, 18, 55, tzinfo=timezone.utc)

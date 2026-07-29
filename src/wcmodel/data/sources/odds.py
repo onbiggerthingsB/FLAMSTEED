@@ -160,13 +160,19 @@ def parse_totals_snapshot(event: dict) -> dict:
             "commence_time": event.get("commence_time"), "books": books}
 
 
-def _strictest_last_update(row: dict, snapshot_ts: str) -> datetime:
+def strictest_last_update(row: dict, snapshot_ts: str) -> datetime:
     """The strictest available evidence for a quote's age: the LATEST of the
     stamps the row actually carries — the bookmaker-level AND the h2h-market-
     level ``last_update`` (the market stamp is the age of the price itself).
     Only when a source omits BOTH does the snapshot timestamp stand in, which
     collapses admissibility leg 2 into leg 1 — the weakest position, taken
-    last, never the default (OA F2)."""
+    last, never the default (OA F2).
+
+    EXPORTED (like :func:`event_list`, and for the same reason): this is the
+    binding stamp-resolution contract :func:`admissible_quote` requires of its
+    callers, so the T5 ledger imports it rather than keeping a private copy —
+    a private re-implementation is exactly where the ``or snapshot_ts``
+    weakening crept in before."""
     stamps = [s for s in (row["bookmaker_last_update"],
                           row["market_last_update"]) if s]
     if not stamps:
@@ -186,7 +192,7 @@ def admissible_quote(snapshot_ts: datetime, last_update: datetime,
     helper never guesses a quote's age. A source that omits the stamp must be
     resolved BY THE CALLER to the strictest evidence it does have — the latest
     of the stamps present, the snapshot timestamp only when there is none
-    (:func:`_strictest_last_update`, the resolution
+    (:func:`strictest_last_update`, the resolution
     :func:`extract_closing_prices` uses). An unconditional ``or snapshot_ts``
     fallback instead makes leg 2 vacuous exactly when stricter evidence is
     available — the T5 ledger must not copy that weakening.
@@ -195,7 +201,7 @@ def admissible_quote(snapshot_ts: datetime, last_update: datetime,
         raise TypeError(
             "admissible_quote: last_update is None — resolve the missing "
             "stamp to the strictest evidence available BEFORE calling "
-            "(_strictest_last_update); this helper never guesses a quote's "
+            "(strictest_last_update); this helper never guesses a quote's "
             "age (OA F2)"
         )
     cut = t_issue - timedelta(minutes=buffer_minutes)
@@ -217,35 +223,53 @@ def extract_closing_prices(sample: dict, bookmaker: str) -> dict:
     The ``last_update`` leg is the STRICTEST available evidence — the latest of
     the bookmaker-level and h2h-market-level stamps the row carries; only where
     a source omits both does the snapshot timestamp stand in
-    (:func:`_strictest_last_update`).
+    (:func:`strictest_last_update`).
 
     SINGLE-EVENT-ONLY: the return shape (one flat outcomes map, one kickoff
-    cut) cannot describe a multi-event snapshot — outcome names would collide
+    cut) cannot describe more than one event — outcome names would collide
     across events and one kicked-off fixture would veto the bookmaker's whole
-    snapshot — so a snapshot holding more than one event is REFUSED loudly.
-    Split multi-event responses per event first (the per-event historical
-    route returns one event per call). For the bundled fixture this resolves
-    to the ``close`` snapshot.
+    snapshot — and the identity is enforced BOTH within each snapshot AND
+    across the sample: a sample of single-event snapshots for two DIFFERENT
+    fixtures is the same defect one level up (latest-timestamp-wins would
+    silently attach another match's closing line to this fixture), so either
+    shape is REFUSED loudly. Split multi-event responses per event and
+    assemble samples per fixture (the per-event historical route returns one
+    event per call). For the bundled fixture this resolves to the ``close``
+    snapshot.
 
-    Returns ``{bookmaker, snapshot_ts, outcomes: {name: price, ...}}``.
+    Returns ``{event_id, bookmaker, snapshot_ts, outcomes: {name: price, ...}}``
+    — ``event_id`` names the fixture the line belongs to, so a caller can
+    assert it got the event it asked about.
     """
     snapshots = [
         v for v in sample.values()
         if isinstance(v, dict) and all(k in v for k in _SNAPSHOT_REQUIRED)
     ]
 
+    event_ids: set[str] = set()
+    for snap in snapshots:
+        events = event_list(snap.get("data"))
+        if len(events) > 1:
+            raise ValueError(
+                f"extract_closing_prices is single-event-only: a snapshot "
+                f"holds {len(events)} events, and one flat outcomes map "
+                "cannot describe more (names collide across events; one "
+                "kicked-off fixture would veto them all). Split the snapshot "
+                "per event first (OA F13)."
+            )
+        event_ids.update(e["id"] for e in events)
+    if len(event_ids) > 1:
+        raise ValueError(
+            f"extract_closing_prices is single-event-only: the sample's "
+            f"snapshots span {len(event_ids)} distinct events "
+            f"({sorted(event_ids)}) — latest-timestamp-wins would silently "
+            "attach another fixture's closing line to this one. Assemble the "
+            "sample per fixture (OA F13)."
+        )
+
     chosen: dict | None = None
     chosen_ts: datetime | None = None
     for snap in snapshots:
-        n_events = len(event_list(snap.get("data")))
-        if n_events > 1:
-            raise ValueError(
-                f"extract_closing_prices is single-event-only: a snapshot "
-                f"holds {n_events} events, and one flat outcomes map cannot "
-                "describe more (names collide across events; one kicked-off "
-                "fixture would veto them all). Split the snapshot per event "
-                "first (OA F13)."
-            )
         rows = [r for r in parse_snapshot(snap) if r["bookmaker"] == bookmaker]
         if not rows:
             continue
@@ -253,7 +277,7 @@ def extract_closing_prices(sample: dict, bookmaker: str) -> dict:
         if not all(
             admissible_quote(
                 ts,
-                _strictest_last_update(r, snap["timestamp"]),
+                strictest_last_update(r, snap["timestamp"]),
                 _parse_ts(r["commence_time"]),
                 buffer_minutes=0,
             )
@@ -274,7 +298,10 @@ def extract_closing_prices(sample: dict, bookmaker: str) -> dict:
         for r in parse_snapshot(chosen)
         if r["bookmaker"] == bookmaker
     }
+    # A chosen snapshot has >=1 event, and the guard capped the union at 1.
+    (event_id,) = event_ids
     return {
+        "event_id": event_id,
         "bookmaker": bookmaker,
         "snapshot_ts": chosen["timestamp"],
         "outcomes": outcomes,
