@@ -23,8 +23,13 @@ Modes (hard gates in code, pinned by tests/eval/test_probe.py):
   probe exists to verify, so once the billing counters show actual
   consumption above N the next call is refused (mid-run abort, non-zero
   exit) — with the PARTIAL report still written, because the calls already
-  placed were already paid for. NEVER run by agents: the live probe is the
-  user's decision at the plan-end STOP gate.
+  placed were already paid for. In that partial report every refused or
+  unreached call is marked "not attempted" — our own gate's refusal must
+  never read as a measured coverage miss. A breach first revealed by the
+  FINAL response (no next call left to refuse) still fails the run: the
+  report states actual-billed vs cap vs modeled and the exit is non-zero.
+  NEVER run by agents: the live probe is the user's decision at the
+  plan-end STOP gate.
 
 Output: ``reports/oa_probe.md`` (cwd-relative — run from the repo root, like
 ``scripts/oa_mde.py``).
@@ -114,7 +119,17 @@ PROBE_FIXTURES = (
 
 
 def _ts(s: str) -> datetime:
-    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    # A NAIVE parse is refused, not guessed at: ``astimezone`` reinterprets a
+    # naive datetime as MACHINE-LOCAL time, so a wire ``commence_time``
+    # lacking a UTC designator would shift both PAID snapshot requests by the
+    # host's UTC offset — credits on the wrong instants, and a report that
+    # varies by machine timezone.
+    dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        raise ValueError(
+            f"naive timestamp {s!r}: no UTC designator/offset — refusing to "
+            "guess the machine timezone for a paid snapshot request")
+    return dt
 
 
 def _iso(dt: datetime) -> str:
@@ -173,10 +188,19 @@ class SpendGate:
     spend so far plus the modeled remainder — NOT a running sum: a running sum
     would happily place cap-many credits of calls before tripping, while this
     gate trips on the FIRST precall whenever the whole plan cannot fit under
-    the cap (zero transport calls, zero credits). ``skip`` shrinks the
-    remainder when planned calls are dropped (event not found -> no
-    snapshots), so a smaller actual plan is judged on what it will really
-    spend. ``cap=None`` (dry-run) never aborts — the gate still accounts.
+    the cap (zero transport calls, zero credits). ``precall`` keeps that
+    projection constant and nothing ever raises it, so the modeled gate is a
+    START gate — only the first precall can trip; it still runs before every
+    call purely as an invariant guard against future plan-growing edits.
+    (A ``skip`` hook that shrank the remainder for dropped calls used to live
+    here: with a non-increasing projection it could never affect any check —
+    dead logic that read as a live safety mechanism, so it was removed.)
+    Mid-run aborts belong to the ACTUAL-usage check (``_UsageRecorder``),
+    which enforces the billing headers this model exists to verify.
+    ``cap=None`` (dry-run) never aborts — the gate still accounts: ``spent``
+    is the modeled spend the report cites, and it counts only precalled
+    calls, so suppressed snapshots (event not found, discovery failure)
+    never inflate it.
     """
 
     def __init__(self, cap, remaining_planned: int):
@@ -192,9 +216,6 @@ class SpendGate:
                 f"--max-credits {self.cap} (before {what}; modeled spend so "
                 f"far {self.spent}) — aborting, no call placed")
         self.spent += credits
-        self.remaining -= credits
-
-    def skip(self, credits: int) -> None:
         self.remaining -= credits
 
 
@@ -394,7 +415,10 @@ def _match_event(rows: list, fx: dict):
 
 def _probe_snapshot(fx: dict, event, tag: str, requested: datetime, *,
                     sport_key: str, api_key: str, transport, raw_dir) -> dict:
-    entry = {"tag": tag, "requested_ts": _iso(requested)}
+    # Every RETURNED entry was attempted: the only pre-wire refusal is
+    # CreditCapError, which propagates instead of returning — the caller's
+    # pre-seeded ``attempted: False`` entry then stands.
+    entry = {"tag": tag, "requested_ts": _iso(requested), "attempted": True}
     try:
         snap = fetch_historical(
             event["event_id"], _iso(requested), api_key, market=MARKET,
@@ -433,12 +457,16 @@ def _probe_snapshot(fx: dict, event, tag: str, requested: datetime, *,
 def run_probe(*, api_key: str, transport: httpx.BaseTransport,
               max_credits, raw_dir, sport_keys: dict) -> dict:
     """Run the 15-fixture probe through ``transport``. Every call passes the
-    SpendGate AND the actual-usage check FIRST; skipped snapshots shrink the
-    projection. Returns ``{"results", "usage", "spent", "projected",
-    "aborted"}`` — ``aborted`` carries the cap breach's message when the run
-    stopped mid-flight AFTER paid calls (their partial results are still the
-    user's, so they still get reported); a breach before ANY call re-raises,
-    since there is nothing paid for to report."""
+    SpendGate AND the actual-usage check FIRST. Returns ``{"results",
+    "usage", "spent", "projected", "aborted", "actual", "overrun"}`` —
+    ``aborted`` carries the cap breach's message when the run stopped
+    mid-flight AFTER paid calls (their partial results are still the user's,
+    so they still get reported, with every refused or unreached call marked
+    ``attempted: False`` — never rendered as a measured miss); a breach
+    before ANY call re-raises, since there is nothing paid for to report.
+    ``overrun`` flags the case the pre-call checks cannot see: actual billed
+    usage above the cap first revealed by the FINAL response, when no next
+    call remains to refuse."""
     recorder = _UsageRecorder(transport, cap=max_credits)
     projected = projected_probe_cost()
     gate = SpendGate(max_credits, projected)
@@ -447,22 +475,28 @@ def run_probe(*, api_key: str, transport: httpx.BaseTransport,
     try:
         for fx in PROBE_FIXTURES:
             key = sport_keys[fx["pool"]]
+            # Appended BEFORE any gate, ``attempted: False`` until the
+            # discovery call actually goes to the wire: a cap refusal must
+            # read "not attempted" in the report, never "not among the
+            # listed events" (a refusal is OUR gate; a miss is THEIR data).
             row = {"pool": fx["pool"], "stratum": fx["stratum"],
-                   "fixture": _label(fx), "sport_key": key, "snapshots": []}
+                   "fixture": _label(fx), "sport_key": key,
+                   "attempted": False, "snapshots": []}
             results.append(row)
-            gate.precall(DISCOVERY_CREDITS, f"discovery {_label(fx)}")
             try:
+                gate.precall(DISCOVERY_CREDITS, f"discovery {_label(fx)}")
                 events = fetch_historical_events(
                     key, f"{fx['date']}T00:00:00Z", api_key,
                     raw_dir=raw_dir, transport=recorder)
+                row["attempted"] = True
                 row["n_events_listed"] = len(events)
                 event, flipped = _match_event(events, fx)
                 row["event_found"] = event is not None
                 if event is None:
-                    # No snapshots without an event id: drop them from the
-                    # projection and record what discovery DID return — that
-                    # listing is the coverage evidence read at the gate.
-                    gate.skip(SNAPSHOTS_PER_FIXTURE * SNAPSHOT_CREDITS)
+                    # No event id -> the snapshot precalls simply never
+                    # happen (the modeled spend never counts them). Record
+                    # what discovery DID return — that listing is the
+                    # coverage evidence read at the gate.
                     row["listed"] = [f"{e['home']} v {e['away']}"
                                      for e in events[:5]]
                     continue
@@ -476,22 +510,52 @@ def run_probe(*, api_key: str, transport: httpx.BaseTransport,
             except Exception as exc:
                 # ANY per-fixture surprise — HTTP, refused shape, a field the
                 # adapter's comprehension trips on — is a FINDING, not a
-                # crash that discards the fixtures already paid for.
+                # crash that discards the fixtures already paid for. Only the
+                # cap refuses pre-wire (and it re-raises above), so this call
+                # was attempted.
+                row["attempted"] = True
                 row["error"] = _err_cell(exc)
-                gate.skip(SNAPSHOTS_PER_FIXTURE * SNAPSHOT_CREDITS)
                 continue
             for tag, delta in (("T-24h", timedelta(hours=24)),
                                ("T-1h", timedelta(hours=1))):
+                requested = commence - delta
+                # Appended BEFORE the gates: a refused snapshot call keeps
+                # an explicit not-attempted marker instead of vanishing into
+                # the same "-"/blank a measured miss renders.
+                entry = {"tag": tag, "requested_ts": _iso(requested),
+                         "attempted": False}
+                row["snapshots"].append(entry)
                 gate.precall(SNAPSHOT_CREDITS, f"snapshot {tag} {_label(fx)}")
-                row["snapshots"].append(_probe_snapshot(
-                    fx, event, tag, commence - delta, sport_key=key,
+                entry.update(_probe_snapshot(
+                    fx, event, tag, requested, sport_key=key,
                     api_key=api_key, transport=recorder, raw_dir=raw_dir))
     except CreditCapError as exc:
         if not recorder.usage:
             raise                # zero calls placed: nothing paid, no report
         aborted = str(exc)
+        # Every fixture the loop never reached still gets a row — explicitly
+        # not-attempted, so the PARTIAL report keeps the full 15-fixture
+        # frame instead of silently dropping the tail.
+        for fx in PROBE_FIXTURES[len(results):]:
+            results.append({"pool": fx["pool"], "stratum": fx["stratum"],
+                            "fixture": _label(fx),
+                            "sport_key": sport_keys[fx["pool"]],
+                            "attempted": False, "snapshots": []})
+    actual = recorder.actual_consumed()
+    overrun = None
+    if (aborted is None and max_credits is not None and actual is not None
+            and actual > max_credits):
+        # The pre-call checks can only refuse the NEXT call — a breach first
+        # revealed by the FINAL response has no next call, so it is caught
+        # here: the completed run still fails loudly instead of exiting 0.
+        overrun = (
+            f"actual billed usage {actual} credits (x-requests-used delta "
+            f"since the first response) exceeds --max-credits {max_credits} "
+            "and no further call remained to refuse — the plan completed, "
+            "but the cap did not hold")
     return {"results": results, "usage": recorder.usage,
-            "spent": gate.spent, "projected": projected, "aborted": aborted}
+            "spent": gate.spent, "projected": projected, "aborted": aborted,
+            "actual": actual, "overrun": overrun}
 
 
 # ------------------------------------------------------------------ reporting
@@ -523,6 +587,11 @@ def _fmt(value) -> str:
 def _snapshot_cell(row: dict, tag: str, field: str):
     for snap in row.get("snapshots", []):
         if snap["tag"] == tag:
+            if not snap.get("attempted", True):
+                # A refused call is OUR gate, not their coverage: it must
+                # never render like a measured miss ("-") or an API failure
+                # ("ERR") — the observables the purchase decision turns on.
+                return "not attempted"
             if "error" in snap and field != "error":
                 return "ERR"
             return snap.get(field)
@@ -531,7 +600,8 @@ def _snapshot_cell(row: dict, tag: str, field: str):
 
 def assemble_report(*, mode: str, mocked: bool, sport_keys: dict, plan: list,
                     projected: int, spent: int, results: list,
-                    usage: list, aborted=None) -> str:
+                    usage: list, aborted=None, cap=None, actual=None,
+                    overrun=None) -> str:
     """Pure: canned inputs -> the full markdown report."""
     n_disc = sum(1 for r in plan if r["call"] == "discovery")
     n_snap = len(plan) - n_disc
@@ -540,7 +610,14 @@ def assemble_report(*, mode: str, mocked: bool, sport_keys: dict, plan: list,
     if aborted:
         lines += ["", f"**RUN ABORTED MID-FLIGHT: {aborted}** Partial "
                   "results: only the calls placed before the abort appear "
-                  "below."]
+                  "below; every refused or unreached call is marked \"not "
+                  "attempted\" — a refusal by our own gate, never a "
+                  "measured miss."]
+        never = [r["fixture"] for r in results
+                 if not r.get("attempted", True)]
+        if never:
+            lines += ["", f"Never attempted ({len(never)} of {len(results)} "
+                      "fixtures — no call placed): " + "; ".join(never) + "."]
     lines += ["", "## Sport keys under test (config `odds.sport_keys`)", ""]
     lines += [f"- {pool}: `{key}` — the probe VERIFIES this exact string; a "
               "wrong key is corrected in config, no code change"
@@ -572,6 +649,12 @@ def assemble_report(*, mode: str, mocked: bool, sport_keys: dict, plan: list,
     for row in results:
         if "error" in row:
             notes = row["error"]
+        elif not row.get("attempted", True):
+            # The probe never asked: rendering this row through the MISS
+            # branch would claim "not among the listed events" for a listing
+            # that was never fetched.
+            notes = ("not attempted: the run aborted before this fixture's "
+                     "discovery call was placed")
         elif not row.get("event_found"):
             # Team names straight off the live wire: _table_text, or a name
             # carrying "|" or a newline splits this row — the same corruption
@@ -584,7 +667,10 @@ def assemble_report(*, mode: str, mocked: bool, sport_keys: dict, plan: list,
             notes = "; ".join(
                 (["orientation flipped vs store"]
                  if row.get("orientation_flipped") else [])
-                + [s["error"] for s in row["snapshots"] if "error" in s])
+                + [s["error"] for s in row["snapshots"] if "error" in s]
+                + [f"snapshot {s['tag']} not attempted (run aborted)"
+                   for s in row["snapshots"]
+                   if not s.get("attempted", True)])
         cells = [row["pool"], row["stratum"], row["fixture"],
                  _fmt(row.get("event_found")),
                  _fmt(_snapshot_cell(row, "T-24h", "pinnacle_present")),
@@ -615,6 +701,20 @@ def assemble_report(*, mode: str, mocked: bool, sport_keys: dict, plan: list,
         lines += [f"| {i} | `{u['path']}` | {_fmt(u['requests_used'])} | "
                   f"{_fmt(u['requests_remaining'])} |"
                   for i, u in enumerate(usage, 1)]
+        # The deliverable STATES actual-billed vs cap vs modeled — the
+        # reader at the spend gate must never hand-subtract the table.
+        lines += [
+            "",
+            "Actual billed this run: "
+            + (f"**{actual} credits**" if actual is not None
+               else "unknown (fewer than two parseable `x-requests-used` "
+                    "counters)")
+            + " — the `x-requests-used` delta since the first response, so "
+              "the first call's own price is invisible and the true spend "
+              "is up to one call price higher — vs `--max-credits` "
+            + f"{_fmt(cap)}; modeled spend {spent} credits."]
+        if overrun:
+            lines += ["", f"**ACTUAL BILLING EXCEEDED THE CAP: {overrun}**"]
     lines += [
         "", "## Extrapolated full-program budget", "",
         f"({EVAL_FIXTURES} eval + N_dev) fixtures x {SNAPSHOTS_PER_FIXTURE} "
@@ -697,13 +797,19 @@ def main(argv=None) -> int:
         mode=mode, mocked=isinstance(transport, httpx.MockTransport),
         sport_keys=sport_keys, plan=plan, projected=out["projected"],
         spent=out["spent"], results=out["results"], usage=out["usage"],
-        aborted=out["aborted"])
+        aborted=out["aborted"], cap=cap, actual=out["actual"],
+        overrun=out["overrun"])
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(md)
     print(f"wrote {out_path}")
     if out["aborted"]:
         print(f"ABORT: {out['aborted']}", file=sys.stderr)
+        return 1
+    if out["overrun"]:
+        # A completed run that ended over the cap must not exit 0: nothing
+        # was left to refuse, but the cap still did not hold.
+        print(f"OVER CAP: {out['overrun']}", file=sys.stderr)
         return 1
     return 0
 

@@ -130,7 +130,7 @@ def test_full_program_budget_keeps_n_dev_an_explicit_input(mod):
     assert mod.full_program_budget(100) == 4340 + 100 * 2 * 10
 
 
-def test_spend_gate_aborts_when_projection_exceeds_cap_and_tracks_skips(mod):
+def test_spend_gate_aborts_when_projection_exceeds_cap_at_the_start(mod):
     # The pre-call check is against the FULL projected total (modeled spend so
     # far + modeled remainder), so a cap below the whole plan trips on the
     # FIRST precall — before any transport call — not after burning cap-many
@@ -141,12 +141,16 @@ def test_spend_gate_aborts_when_projection_exceeds_cap_and_tracks_skips(mod):
     ok = mod.SpendGate(cap=315, remaining_planned=315)
     ok.precall(1, "discovery")                  # == cap: proceeds (<= semantics)
     assert (ok.spent, ok.remaining) == (1, 314)
-    # Skipped calls (event not found -> no snapshots) SHRINK the projection:
-    # a run that skips work must not stay blocked on the original plan size.
-    tight = mod.SpendGate(cap=20, remaining_planned=21)
-    tight.skip(10)
-    tight.precall(1, "discovery")
-    assert tight.spent == 1
+    # precall keeps the projection (spent + remaining) CONSTANT, so the
+    # modeled gate is a START gate: once the first precall passes, no later
+    # one can newly trip — mid-run aborts belong to the ACTUAL-usage check.
+    ok.precall(10, "snapshot")
+    assert ok.spent + ok.remaining == 315
+    # No skip/re-projection hook: one shipped, and because the projection is
+    # monotonically non-increasing it could never affect any check — dead
+    # logic that READ as a live safety mechanism, so it was removed rather
+    # than left presenting a judgment that cannot occur.
+    assert not hasattr(mod.SpendGate, "skip")
 
 
 # --------------------------------------------------------------------------- #
@@ -331,6 +335,10 @@ def test_live_cap_at_projection_runs_via_mock_and_reports_usage_headers(
     # The dry-run billing clarifier is dry-run ONLY: on a real live run it
     # would falsely claim nothing was billed.
     assert "(dry-run: 0 actually billed)" not in md
+    # The deliverable must STATE actual-billed vs cap vs modeled — the reader
+    # at the spend gate never hand-subtracts the usage table (5045-5001=44).
+    assert "Actual billed this run: **44 credits**" in md
+    assert "vs `--max-credits` 315; modeled spend 315 credits" in md
 
 
 def test_mocked_live_run_never_archives_into_the_real_raw_store(
@@ -452,6 +460,136 @@ def test_live_actual_billing_above_cap_aborts_midrun_with_partial_report(
     md = (tmp_path / "reports" / "oa_probe.md").read_text()
     assert "ABORT" in md and "320" in md
     assert "1330" in md                          # last billed counter reported
+    # Call 33 was fixture 11's T-1h snapshot, and its RESPONSE was received:
+    # the check that refused call 34 sits BEFORE the transport, never after —
+    # a received response is already paid for and must always reach the
+    # adapter (parse + provenance). Pin both observables: fixture 11 is fully
+    # measured, and its T-1h hash reaches the Provenance section.
+    results = md.split("## Per-fixture results")[1].split("Provenance")[0]
+    row11 = next(ln for ln in results.splitlines()
+                 if "Mexico v South Africa" in ln)
+    assert row11.count(" 3.0 ") == 2             # both drifts measured
+    assert "not attempted" not in row11
+    prov11 = next(ln for ln in md.splitlines()
+                  if ln.startswith("- Mexico v South Africa"))
+    assert "T-24h" in prov11 and "T-1h" in prov11
+    # Fixture 12's discovery is the call OUR gate refused: the probe never
+    # asked, so its row must say NOT ATTEMPTED — never "not among the listed
+    # events" (with a literal None count), which claims a coverage miss that
+    # was never measured.
+    row12 = next(ln for ln in results.splitlines() if "Canada v Qatar" in ln)
+    assert "not attempted" in row12
+    assert "not among" not in row12
+    assert "None" not in results
+    # Fixtures 13-15 were never reached: they must not silently vanish from
+    # the table (12 rows where 15 belong) — the full 15-fixture frame stays,
+    # with the tail explicitly not-attempted, plus the banner's list.
+    rows = [ln for ln in results.splitlines() if ln.strip()]
+    assert len(rows) == 17                       # header + separator + 15 rows
+    assert {ln.count("|") for ln in rows} == {rows[0].count("|")}
+    for label in ("Colombia v Portugal", "Brazil v Japan",
+                  "Spain v Argentina"):
+        assert "not attempted" in next(
+            ln for ln in results.splitlines() if label in ln)
+    assert "Never attempted (4 of 15 fixtures" in md
+    # The partial report also states actual-billed vs cap vs modeled.
+    assert "Actual billed this run: **320 credits**" in md
+
+
+def test_midrun_abort_landing_on_a_snapshot_call_is_an_abort_not_a_note(
+        mod, tmp_path, monkeypatch, capsys):
+    # Overbill at 12 credits per response against a 315 cap: the delta first
+    # breaches before call 29 (12 x 27 = 324 > 315) — fixture 10's T-24h
+    # SNAPSHOT, not a discovery. The cap refusal must propagate as an ABORT
+    # from the snapshot site too (_probe_snapshot's CreditCapError re-raise):
+    # swallowed into the per-snapshot note instead, our own gate's refusal
+    # would be reported as an Odds-API coverage failure ("ERR" cells with
+    # CreditCapError notes) on the single observable the purchase decision
+    # turns on.
+    monkeypatch.setenv("ODDS_API_KEY", "fake-key-overbilled-12")
+    requests: list[httpx.Request] = []
+    used = iter(range(1012, 1012 + 45 * 12, 12))     # +12 per response
+
+    def overbilling_transport():
+        inner = mod._dry_run_transport(_SPORT_KEYS)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            resp = inner.handler(request)
+            n = next(used)
+            resp.headers["x-requests-used"] = str(n)
+            resp.headers["x-requests-remaining"] = str(20000 - n)
+            return resp
+
+        return httpx.MockTransport(handler)
+
+    monkeypatch.setattr(mod, "_live_transport", overbilling_transport)
+    rc = mod.main(["--live", "--max-credits", "315"])
+    assert rc != 0
+    assert len(requests) == 28                   # fixtures 1-9 + one discovery
+    err = capsys.readouterr().err
+    assert "ABORT" in err and "324" in err
+    md = (tmp_path / "reports" / "oa_probe.md").read_text()
+    # The abort banner names the SNAPSHOT endpoint the gate refused — the
+    # euro2024 final's odds route, not some later discovery.
+    assert "RUN ABORTED MID-FLIGHT" in md
+    assert "mock_euro2024_2024-07-14/odds" in md
+    results = md.split("## Per-fixture results")[1].split("Provenance")[0]
+    # Fixture 10's discovery was measured (y) but BOTH snapshots were refused
+    # by our own gate: the cells must say "not attempted" — a refused call
+    # rendered "-" would be indistinguishable from measured-missing Pinnacle
+    # coverage, and rendered "ERR" it would masquerade as an API failure.
+    row10 = next(ln for ln in results.splitlines()
+                 if "Spain v England" in ln)
+    assert "| y |" in row10
+    assert row10.count("not attempted") >= 2
+    assert "ERR" not in row10
+    # Our own gate's refusal never appears as a per-fixture finding.
+    assert "CreditCapError" not in results
+    # The unreached tail (fixtures 11-15) stays in the frame, marked.
+    rows = [ln for ln in results.splitlines() if ln.strip()]
+    assert len(rows) == 17
+    assert {ln.count("|") for ln in rows} == {rows[0].count("|")}
+    assert "Never attempted (5 of 15 fixtures" in md
+
+
+def test_completed_run_billed_over_cap_is_flagged_and_exits_nonzero(
+        mod, tmp_path, monkeypatch, capsys):
+    # The pre-call checks can only refuse the NEXT call: when the breach is
+    # first revealed by the FINAL response (last call bills 500 against a
+    # trickle of 1s), there is no next call — without a post-loop comparison
+    # the run ends far over --max-credits with exit code 0 and no flag
+    # anywhere, and the reader must hand-subtract the usage table.
+    monkeypatch.setenv("ODDS_API_KEY", "fake-key-final-call-bomb")
+    requests: list[httpx.Request] = []
+    used = iter([1000 + n for n in range(1, 45)] + [1544])   # last: +500
+
+    def final_bomb_transport():
+        inner = mod._dry_run_transport(_SPORT_KEYS)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            resp = inner.handler(request)
+            n = next(used)
+            resp.headers["x-requests-used"] = str(n)
+            resp.headers["x-requests-remaining"] = str(20000 - n)
+            return resp
+
+        return httpx.MockTransport(handler)
+
+    monkeypatch.setattr(mod, "_live_transport", final_bomb_transport)
+    rc = mod.main(["--live", "--max-credits", "315"])
+    assert len(requests) == 45                   # nothing left to refuse
+    assert rc != 0                               # but the run still FAILS
+    err = capsys.readouterr().err
+    assert "OVER CAP" in err and "543" in err
+    md = (tmp_path / "reports" / "oa_probe.md").read_text()
+    # Not an abort (all calls placed, all results measured) — an explicit
+    # over-cap statement with the actual-vs-cap-vs-modeled figures.
+    assert "RUN ABORTED" not in md
+    assert "ACTUAL BILLING EXCEEDED THE CAP" in md
+    assert "Actual billed this run: **543 credits**" in md
+    assert "vs `--max-credits` 315; modeled spend 315 credits" in md
 
 
 def test_actual_consumed_needs_two_parseable_counters(mod):
@@ -508,7 +646,8 @@ def test_event_not_found_shrinks_projection_and_survives_hostile_names(
     monkeypatch.setattr(mod, "_dry_run_transport", missing_event)
     assert mod.main([]) == 0
     md = (tmp_path / "reports" / "oa_probe.md").read_text()
-    # The gate.skip observable: 2 planned snapshots dropped from the model.
+    # The suppressed-precalls observable: the 2 planned snapshots are never
+    # precalled, so the modeled spend never counts them (295, not 315).
     assert "modeled spend this run: 295" in md
     results = md.split("## Per-fixture results")[1].split("Provenance")[0]
     row = next(ln for ln in results.splitlines()
@@ -567,6 +706,13 @@ def test_post_fetch_shape_surprises_are_findings_not_crashes(
                     if "Germany v Scotland" in ln)
     assert "KeyError" in snap_row                # (a) recorded per-snapshot
     assert "KeyError" in disc_row                # (b) recorded per-fixture
+    # Provenance survives the parse failure: the hash is recorded BEFORE
+    # parse_snapshot, so both failed snapshots' archived-bytes hashes still
+    # reach the Provenance section — those bytes are already paid for, and
+    # the hash is what a coverage dispute gets audited from.
+    prov = next(ln for ln in md.splitlines()
+                if ln.startswith("- Qatar v Ecuador"))
+    assert "T-24h" in prov and "T-1h" in prov
     # The discovery failure drops its 2 planned snapshots from the model; the
     # snapshot failures were PLACED calls and still count as modeled spend.
     assert "modeled spend this run: 295" in md
@@ -587,6 +733,53 @@ def test_err_cell_flattens_whitespace_and_escapes_pipes(mod):
     # phantom cell — either alone splits the committed report's results row.
     exc = ValueError("first line\nsecond | third")
     assert mod._err_cell(exc) == "ValueError: first line second \\| third"
+
+
+def test_naive_wire_timestamps_are_refused_never_localized(
+        mod, tmp_path, monkeypatch):
+    # astimezone() on a NAIVE datetime silently reinterprets it as MACHINE-
+    # LOCAL time: a commence_time off the wire lacking a UTC designator would
+    # shift both PAID snapshot requests by the host's UTC offset (10 credits
+    # each on the wrong instants, report varying by machine timezone). _ts
+    # must refuse the naive parse instead of letting astimezone guess.
+    with pytest.raises(ValueError, match="naive"):
+        mod._ts("2022-11-20T18:00:00")
+    assert mod._ts("2022-11-20T18:00:00Z").tzinfo is not None
+    assert mod._ts("2022-11-20T18:00:00+00:00").tzinfo is not None
+    # End to end: a discovery whose commence_time is naive becomes a per-
+    # fixture FINDING and suppresses both snapshot calls — no credits are
+    # ever spent on timestamps we could not pin to UTC.
+    requests: list[httpx.Request] = []
+    real_factory = mod._dry_run_transport
+    poisoned_date = "2022-11-20"                 # the wc2022 opener
+
+    def naive_commence(sport_keys):
+        inner = real_factory(sport_keys)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if (request.url.path.endswith("/events")
+                    and request.url.params["date"].startswith(poisoned_date)):
+                return httpx.Response(200, json={
+                    "timestamp": request.url.params["date"],
+                    "data": [
+                        {"id": "mock_wc2022_2022-11-20",
+                         "commence_time": f"{poisoned_date}T18:00:00",
+                         "home_team": "Qatar", "away_team": "Ecuador"}]})
+            return inner.handler(request)
+
+        return httpx.MockTransport(handler)
+
+    monkeypatch.setattr(mod, "_dry_run_transport", naive_commence)
+    assert mod.main([]) == 0                     # a finding, not a crash
+    assert not any("mock_wc2022_2022-11-20/odds" in r.url.path
+                   for r in requests)            # no snapshot ever requested
+    md = (tmp_path / "reports" / "oa_probe.md").read_text()
+    assert "modeled spend this run: 295" in md   # 2 snapshots never precalled
+    results = md.split("## Per-fixture results")[1].split("Provenance")[0]
+    row = next(ln for ln in results.splitlines() if "Qatar v Ecuador" in ln)
+    assert "ValueError" in row and "naive" in row
+    assert "2022-11-20T18:00:00" in row          # the offending value, named
 
 
 def test_flipped_discovery_orientation_still_matches_and_is_reported(
