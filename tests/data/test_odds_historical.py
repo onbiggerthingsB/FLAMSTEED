@@ -531,3 +531,118 @@ def test_default_raw_dir_is_inert_under_an_injected_transport(monkeypatch):
         "soccer_fifa_world_cup", "2022-11-30T18:00:00Z", "test-key",
         transport=ev_transport)                                  # raw_dir omitted
     assert seen == [None, None]                # mock bytes never hit the archive
+
+
+# ----------------- (review round 3, fix 1) raw archive is crash-consistent
+
+
+def test_persist_raw_self_heals_a_torn_archive_file(tmp_path):
+    # write_bytes is not atomic: an interrupt/ENOSPC mid-write leaves a file
+    # NAMED <sha256>.json whose bytes hash to something else, and the old
+    # skip-if-exists dedupe then trusted the torn file FOREVER — silently
+    # breaking "the hash the ledger cites always resolves to the exact bytes",
+    # on a response that costs credits to re-obtain. Same name must be
+    # VERIFIED against the bytes, never assumed.
+    from wcmodel.data.sources.odds import _persist_raw
+    content = json.dumps(_single_event_snapshot()).encode()
+    digest = hashlib.sha256(content).hexdigest()
+    torn = tmp_path / f"{digest}.json"
+    torn.write_bytes(content[: len(content) // 2])   # interrupted earlier write
+    assert _persist_raw(content, tmp_path) == digest
+    assert torn.read_bytes() == content              # healed, not skipped
+    assert list(tmp_path.iterdir()) == [torn]        # and no tmp litter left
+
+
+def test_persist_raw_crash_before_rename_never_taints_the_final_name(
+        tmp_path, monkeypatch):
+    # Atomicity pin: die between tmp-write and rename — the content-addressed
+    # name must NOT exist afterwards. A torn <sha256>.json is exactly what the
+    # dedupe would trust on every later fetch; a missing file just re-archives.
+    import wcmodel.data.sources.odds as m
+
+    def crash(src, dst):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(m.os, "replace", crash)
+    content = b'{"paid": "evidence"}'
+    digest = hashlib.sha256(content).hexdigest()
+    with pytest.raises(OSError):
+        m._persist_raw(content, tmp_path)
+    assert not (tmp_path / f"{digest}.json").exists()
+    assert list(tmp_path.iterdir()) == []            # tmp cleaned up best-effort
+
+
+# --------------- (review round 3, fix 2) empty data payload is zero events
+
+
+def test_event_list_empty_payloads_are_zero_events():
+    # {} is not an event: [{}] is a TRUTHY one-element list that turned the
+    # previously-silent empty case into KeyError('id') in every consumer of
+    # the ONE normalizer; clv_validation's real-shape builder already treats
+    # falsy data as empty.
+    from wcmodel.data.sources.odds import event_list
+    assert event_list({}) == []
+    assert event_list([]) == []
+    assert event_list(None) == []
+
+
+def test_parse_snapshot_empty_dict_data_yields_no_rows():
+    # Pre-T3 code (`snapshot.get("data", [])` iteration) returned [] here.
+    assert parse_snapshot({"timestamp": "2026-06-11T18:00:00Z",
+                           "data": {}}) == []
+
+
+def test_extract_closing_prices_skips_empty_data_snapshot():
+    # An empty-data snapshot must be SKIPPED, not abort the whole call while
+    # a perfectly good close sits right beside it in the sample.
+    from wcmodel.data.sources.odds import extract_closing_prices
+    empty = {"timestamp": "2026-06-11T18:50:00Z",
+             "previous_timestamp": "2026-06-11T18:45:00Z",
+             "next_timestamp": "2026-06-11T18:55:00Z",
+             "data": {}}
+    sample = {"empty": empty, "close": _snap("2026-06-11T18:55:00Z")}
+    close = extract_closing_prices(sample, bookmaker="pinnacle")
+    assert close["snapshot_ts"] == "2026-06-11T18:55:00Z"
+
+
+# ------- (review round 3, fix 3) None-stamp TypeError on EVERY branch
+
+
+def test_admissible_quote_refuses_none_last_update_on_every_branch():
+    # The documented TypeError contract must not depend on short-circuit
+    # order: with the snapshot leg already failing (snapshot_ts == t_issue),
+    # `snapshot_ts < cut and last_update < cut` returned a QUIET False without
+    # ever comparing None. T5's ledger is told it can lean on the loud failure
+    # to catch an unresolved stamp, so the check precedes the comparison.
+    from wcmodel.data.sources.odds import admissible_quote
+    t_issue = datetime(2026, 6, 11, 9, 0, tzinfo=timezone.utc)
+    with pytest.raises(TypeError):
+        admissible_quote(t_issue, None, t_issue)
+
+
+# ------- (review round 3, fix 4) discovery refuses unrecognized payloads
+
+
+def test_fetch_historical_events_refuses_dict_payload_without_data(tmp_path):
+    # A dict payload with NO 'data' key is an unexpected/changed response
+    # shape. On a PAID discovery call, reading it as [] is indistinguishable
+    # from a genuine "no events at this timestamp" — the probe would bill
+    # credits and report zero coverage as truth. Refuse loudly, citing the
+    # archived raw hash for audit.
+    from wcmodel.data.sources.odds import fetch_historical_events
+    transport, _ = _capture({"timestamp": "2022-11-30T18:00:00Z",
+                             "message": "response shape changed"})
+    with pytest.raises(ValueError, match="data"):
+        fetch_historical_events(
+            "soccer_fifa_world_cup", "2022-11-30T18:00:00Z", "test-key",
+            raw_dir=tmp_path, transport=transport)
+
+
+def test_fetch_historical_events_empty_data_is_a_genuine_no_events(tmp_path):
+    # Contrast pin for the guard's boundary: 'data' PRESENT and empty is the
+    # API's real "nothing scheduled here" answer — [] stays the result.
+    from wcmodel.data.sources.odds import fetch_historical_events
+    transport, _ = _capture({"timestamp": "2022-11-30T18:00:00Z", "data": []})
+    assert fetch_historical_events(
+        "soccer_fifa_world_cup", "2022-11-30T18:00:00Z", "test-key",
+        raw_dir=tmp_path, transport=transport) == []

@@ -34,6 +34,7 @@ NOT fabricated here (deferred).
 from __future__ import annotations
 
 import hashlib
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -84,9 +85,14 @@ def event_list(data) -> list[dict]:
     again on the live ones. (``clv_validation``'s later ``["data"][0]`` reads
     consume its OWN ``_snapshot_to_real_shape`` output, list-shaped by
     construction — not the raw payload.)
+
+    An EMPTY payload — ``{}``, ``[]``, ``None`` — is ZERO events: ``{}`` is
+    not an event, and a truthy ``[{}]`` would turn the previously-silent
+    empty case into ``KeyError('id')`` in every consumer (matching how
+    ``clv_validation``'s real-shape builder already treats falsy ``data``).
     """
     if isinstance(data, dict):
-        return [data]
+        return [data] if data else []
     return list(data or [])
 
 
@@ -174,7 +180,9 @@ def admissible_quote(snapshot_ts: datetime, last_update: datetime,
     bookmaker's own last_update predate t_issue minus the safety buffer
     (STRICT <, finding 2).
 
-    ``last_update=None`` is a CALLER error (it raises TypeError, loudly): this
+    ``last_update=None`` is a CALLER error (it raises TypeError, loudly — the
+    check precedes the comparison, so a failing snapshot leg cannot
+    short-circuit an unresolved stamp into a quiet False): this
     helper never guesses a quote's age. A source that omits the stamp must be
     resolved BY THE CALLER to the strictest evidence it does have — the latest
     of the stamps present, the snapshot timestamp only when there is none
@@ -183,6 +191,13 @@ def admissible_quote(snapshot_ts: datetime, last_update: datetime,
     fallback instead makes leg 2 vacuous exactly when stricter evidence is
     available — the T5 ledger must not copy that weakening.
     """
+    if last_update is None:
+        raise TypeError(
+            "admissible_quote: last_update is None — resolve the missing "
+            "stamp to the strictest evidence available BEFORE calling "
+            "(_strictest_last_update); this helper never guesses a quote's "
+            "age (OA F2)"
+        )
     cut = t_issue - timedelta(minutes=buffer_minutes)
     return snapshot_ts < cut and last_update < cut
 
@@ -269,18 +284,30 @@ def extract_closing_prices(sample: dict, bookmaker: str) -> dict:
 def _persist_raw(content: bytes, raw_dir: Path | str | None) -> str:
     """sha256 the raw response bytes; persist them content-addressed.
 
-    Written as ``<raw_dir>/<sha256>.json`` (skipped when the file already
-    exists — same bytes, same name), so a paid response is never lost and the
-    hash the ledger cites always resolves to the exact bytes it was computed
-    from. ``raw_dir=None`` disables persistence (hash still returned).
+    Written as ``<raw_dir>/<sha256>.json``, so a paid response is never lost
+    and the hash the ledger cites always resolves to the exact bytes it was
+    computed from. That invariant is VERIFIED, not assumed: existence alone
+    is no proof — ``write_bytes`` is not atomic, so an interrupted earlier
+    write can leave a file NAMED ``<sha256>.json`` holding other bytes, and
+    a skip-on-existence dedupe would trust the torn file forever. A file
+    already holding the same bytes is left alone; anything else is
+    (re)written via a same-directory tmp file + ``os.replace``, so the
+    content-addressed name only ever holds complete content (pid-suffixed
+    tmp so concurrent processes archiving the same response cannot
+    interleave). ``raw_dir=None`` disables persistence (hash still returned).
     """
     digest = hashlib.sha256(content).hexdigest()
     if raw_dir is not None:
         directory = Path(raw_dir)
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"{digest}.json"
-        if not path.exists():
-            path.write_bytes(content)
+        if not (path.exists() and path.read_bytes() == content):
+            tmp = directory / f"{digest}.json.{os.getpid()}.tmp"
+            try:
+                tmp.write_bytes(content)
+                os.replace(tmp, path)
+            finally:
+                tmp.unlink(missing_ok=True)
     return digest
 
 
@@ -445,6 +472,12 @@ def fetch_historical_events(
     response is persisted content-addressed under ``raw_dir`` BEFORE the
     status gate, with the same transport-aware default and key-redacting
     error handling as the snapshot route.
+
+    A dict payload WITHOUT a ``data`` key is REFUSED loudly (ValueError citing
+    the archived hash): on a paid discovery call an unexpected/changed
+    response shape must not read as a genuine "no events at this timestamp" —
+    the probe would bill credits and report zero coverage as truth.
+    ``{"data": []}`` remains the API's real empty answer.
     """
     if api_key is None:
         raise RuntimeError(
@@ -457,7 +490,17 @@ def fetch_historical_events(
     digest = _persist_raw(resp.content, raw_dir)
     _raise_for_status_redacted(resp, api_key)
     payload = resp.json()
-    data = payload.get("data") if isinstance(payload, dict) else payload
+    if isinstance(payload, dict):
+        if "data" not in payload:
+            raise ValueError(
+                "unrecognized discovery payload: a dict without a 'data' key "
+                f"(keys={sorted(payload)}) cannot be read as 'no events at "
+                "this timestamp' on a PAID call — archived as "
+                f"raw_sha256={digest} for audit"
+            )
+        data = payload["data"]
+    else:
+        data = payload
     return [
         {
             "event_id": event["id"],
