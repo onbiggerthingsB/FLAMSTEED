@@ -9,7 +9,11 @@ transport call (zero requests recorded); and every failure string that could
 reach the COMMITTED report is exercised through the T3 key-redaction path.
 
 NO test here touches the network: every request goes through an
-``httpx.MockTransport`` (live-path tests monkeypatch the transport factory).
+``httpx.MockTransport`` (live-path tests monkeypatch the transport factory),
+and behind that discipline sits the conftest ``no_live_network`` autouse guard
+— env key cleared, the genuine transport's entrypoint replaced with a
+BaseException sentinel the probe cannot swallow — so even a future test that
+forgets its transport monkeypatch cannot reach the wire.
 The real ``--live`` run is the USER's decision at the plan-end STOP gate and is
 never executed by tests or agents.
 
@@ -19,6 +23,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from datetime import timedelta
 from pathlib import Path
 
@@ -155,9 +160,11 @@ def test_spend_gate_aborts_when_projection_exceeds_cap_at_the_start(mod):
     ok = mod.SpendGate(cap=315, remaining_planned=315)
     ok.precall(1, "discovery")                  # == cap: proceeds (<= semantics)
     assert (ok.spent, ok.remaining) == (1, 314)
-    # precall keeps the projection (spent + remaining) CONSTANT, so the
-    # modeled gate is a START gate: once the first precall passes, no later
-    # one can newly trip — mid-run aborts belong to the ACTUAL-usage check.
+    # While the calls placed match the modeled plan, precall keeps the
+    # projection (spent + remaining) CONSTANT, so on the model's own terms
+    # only the first precall can trip — mid-run aborts belong to the
+    # ACTUAL-usage check, plus the plan-overrun clamp pinned in the next
+    # test for calls the model never priced.
     ok.precall(10, "snapshot")
     assert ok.spent + ok.remaining == 315
     # No skip/re-projection hook: one shipped, and because the projection is
@@ -165,6 +172,29 @@ def test_spend_gate_aborts_when_projection_exceeds_cap_at_the_start(mod):
     # logic that READ as a live safety mechanism, so it was removed rather
     # than left presenting a judgment that cannot occur.
     assert not hasattr(mod.SpendGate, "skip")
+
+
+def test_spend_gate_trips_once_calls_outrun_the_modeled_plan(mod):
+    # Review fix: the docstring claimed precall "still runs before every call
+    # purely as an invariant guard against future plan-growing edits" — but
+    # precall does spent += c; remaining -= c, so the checked sum NEVER rises:
+    # a plan that placed MORE calls than projected_probe_cost() modeled (a
+    # third snapshot tag added without touching SNAPSHOTS_PER_FIXTURE) just
+    # drove remaining negative while the checked projection sat at 315,
+    # authorizing all 60 calls = 465 credits against cap 315 — with the only
+    # backstop the header-dependent actual-usage check (silently inert when
+    # the API omits x-requests-used). The guard must be real: with the
+    # projection clamped to spent + max(remaining, 0), an overrun makes it
+    # track modeled spend itself and trip on spent > cap within one call's
+    # price of the cap — the same tolerance as the actual-usage gate.
+    gate = mod.SpendGate(cap=315, remaining_planned=mod.projected_probe_cost())
+    with pytest.raises(mod.CreditCapError, match="exceeds"):
+        for _ in range(len(mod.PROBE_FIXTURES)):
+            gate.precall(mod.DISCOVERY_CREDITS, "discovery")
+            for _ in range(3):                   # one snapshot MORE than modeled
+                gate.precall(mod.SNAPSHOT_CREDITS, "snapshot")
+    assert gate.spent <= 315 + mod.SNAPSHOT_CREDITS   # refused, not authorized
+    assert gate.spent > 315                      # ... and it DID overrun first
 
 
 # --------------------------------------------------------------------------- #
@@ -330,6 +360,45 @@ def test_live_and_dry_run_together_rejected(mod, monkeypatch, capsys):
 
 
 # --------------------------------------------------------------------------- #
+# The conftest network sentinel: the suite-wide backstop BEHIND all the gates   #
+# above (review fix) — non-vacuity proofs that it is armed and unswallowable.   #
+# --------------------------------------------------------------------------- #
+def test_network_sentinel_is_armed_and_env_key_cleared(no_live_network):
+    # The autouse guard must actually intercept the genuine network
+    # transport's entrypoint, and it must be a sentinel the probe CANNOT
+    # downgrade: the probe's per-fixture handlers catch Exception (a
+    # 401/429/timeout is a finding, not a crash), so the suite's usual
+    # AssertionError("no network") idiom would be swallowed into per-fixture
+    # notes — a green run while all 15 fixtures were attempted on the wire.
+    assert issubclass(no_live_network, BaseException)
+    assert not issubclass(no_live_network, Exception)
+    assert "ODDS_API_KEY" not in os.environ     # suite runs key-less by default
+    with pytest.raises(no_live_network, match="refusing live network call"):
+        # 127.0.0.1:9 (discard): even if the patch were missing, no packet
+        # could leave the machine — the failure mode is a local ConnectError,
+        # not a paid call.
+        httpx.HTTPTransport().handle_request(
+            httpx.Request("GET", "http://127.0.0.1:9/never-sent"))
+
+
+def test_forgotten_transport_patch_dies_loudly_before_any_report(
+        mod, no_live_network, monkeypatch, tmp_path):
+    # The exact future accident the sentinel exists for: a mocked --live test
+    # that sets a key but FORGETS its monkeypatch.setattr(mod,
+    # "_live_transport", ...) line. Without the conftest guard that test
+    # would place up to 45 real paid calls with the env key on the wire and
+    # raw_dir resolved to the REAL data/odds_raw; with an Exception-derived
+    # sentinel it would exit 0 and write a LIVE-bannered report whose 15 rows
+    # all read "AssertionError: no network" in the notes. The BaseException
+    # sentinel must instead kill the run before any call — and before any
+    # report exists to mislead.
+    monkeypatch.setenv("ODDS_API_KEY", "fake-key-forgotten-patch")
+    with pytest.raises(no_live_network):
+        mod.main(["--live", "--max-credits", "315"])
+    assert _files_under(tmp_path) == set()       # no report, no archive
+
+
+# --------------------------------------------------------------------------- #
 # The spend gate end-to-end: cap below projection => ZERO transport calls.      #
 # --------------------------------------------------------------------------- #
 def test_live_cap_below_projection_aborts_before_any_transport_call(
@@ -431,6 +500,35 @@ def test_mocked_live_run_never_archives_into_the_real_raw_store(
     assert mod._live_raw_dir(real) == archive
 
 
+def test_mode_banner_uses_the_same_transport_allowlist_as_the_archive(
+        mod, tmp_path, monkeypatch):
+    # Review fix (HIGH): the banner picked LIVE off a DENYLIST (mocked =
+    # isinstance(transport, MockTransport)) while the sibling archive guard
+    # _live_raw_dir allowlists httpx.HTTPTransport — opposite polarity for
+    # the same threat. A plain BaseTransport fake serving canned payloads
+    # then produced rc 0 and a report headed "**MODE: LIVE.** Real paid
+    # responses from The Odds API." — 15 fixtures of fabricated
+    # event-found/Pinnacle/drift values with no MOCKED TRANSPORT string
+    # anywhere, while _live_raw_dir correctly refused the SAME transport an
+    # archive slot. The banner is the strongest claim on the page (the first
+    # line read at a 4,340-credit spend gate), so it must run the SAME
+    # allowlist: only the genuine network transport may print LIVE; anything
+    # else is a mock, loudly.
+    monkeypatch.setenv("ODDS_API_KEY", "fake-key-banner-polarity")
+    handler = mod._dry_run_handler(_SPORT_KEYS)
+
+    class _FakeTransport(httpx.BaseTransport):   # NOT an httpx.MockTransport
+        def handle_request(self, request):
+            return handler(request)
+
+    monkeypatch.setattr(mod, "_live_transport", _FakeTransport)
+    assert mod.main(["--live", "--max-credits", "315"]) == 0
+    md = (tmp_path / "reports" / "oa_probe.md").read_text()
+    assert "**MODE: LIVE.**" not in md           # fabricated values never LIVE
+    assert "MOCKED TRANSPORT" in md
+    assert "NOT real" in md
+
+
 def test_live_snapshot_failure_is_recorded_redacted_and_run_continues(
         mod, tmp_path, monkeypatch):
     # The probe is a COVERAGE instrument: a 429/401 on one fixture is a
@@ -529,10 +627,17 @@ def test_live_actual_billing_above_cap_aborts_midrun_with_partial_report(
     # Fixture 12's discovery is the call OUR gate refused: the probe never
     # asked, so its row must say NOT ATTEMPTED — never "not among the listed
     # events" (with a literal None count), which claims a coverage miss that
-    # was never measured.
+    # was never measured. The EXACT full row (review fix, same treatment as
+    # fixture 10 in the snapshot-site abort test): every measurement cell
+    # must render the "-" of no-measurement — "event found" holds None here,
+    # and a bool() coercion anywhere in the render would publish our own
+    # gate's refusal as a measured Odds-API coverage miss ("n"), the exact
+    # masquerade the not-attempted contract exists to prevent.
     row12 = next(ln for ln in results.splitlines() if "Canada v Qatar" in ln)
-    assert "not attempted" in row12
-    assert "not among" not in row12
+    assert row12 == (
+        "| wc2026 | mid_group | Canada v Qatar (2026-06-18) | - | - | - "
+        "| - | - | - | not attempted: the run aborted before this fixture's "
+        "discovery call was placed |")
     assert "None" not in results
     # Fixtures 13-15 were never reached: they must not silently vanish from
     # the table (12 rows where 15 belong) — the full 15-fixture frame stays,
@@ -732,6 +837,68 @@ def test_event_not_found_shrinks_projection_and_survives_hostile_names(
     assert delims == {rows[0].count("|")}
 
 
+def test_miss_listing_ranks_closest_names_and_states_the_naming_caveat(
+        mod, tmp_path, monkeypatch):
+    # Review fix: the Odds API spells teams its own way ("Korea Republic",
+    # "USA") while the probe spells them like the martj42 store, so a naming
+    # mismatch and genuine absence BOTH surface as "event found: n" with both
+    # paid snapshots suppressed — the listed sample is the ONLY diagnostic
+    # separating them. The old note truncated to the FIRST five discovered
+    # events, so on a whole-slate discovery day the near-miss spelling the
+    # reader needed most was dropped, making "coverage is missing"
+    # indistinguishable from "we spelled it differently" on the headline
+    # observable driving the 4,340-credit purchase. The note must rank the
+    # listing closest-name-first (so the near-miss survives the cap) and
+    # state the naming caveat in prose.
+    real_factory = mod._dry_run_transport
+    poisoned_date = "2022-12-02"                 # South Korea v Portugal
+    decoys = [{"id": f"decoy_{i:02d}",
+               "commence_time": f"{poisoned_date}T{10 + i}:00:00Z",
+               "home_team": f"Zzz Decoy {i:02d} Home",
+               "away_team": f"Zzz Decoy {i:02d} Away"}
+              for i in range(11)]
+    slate = decoys + [                           # the near miss sits LAST —
+        {"id": "the_near_miss",                  # events[:5] dropped it
+         "commence_time": f"{poisoned_date}T18:00:00Z",
+         "home_team": "Korea Republic", "away_team": "Portugal"}]
+
+    def whole_slate(sport_keys):
+        inner = real_factory(sport_keys)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if (request.url.path.endswith("/events")
+                    and request.url.params["date"].startswith(poisoned_date)):
+                return httpx.Response(200, json={
+                    "timestamp": request.url.params["date"], "data": slate})
+            return inner.handler(request)
+
+        return httpx.MockTransport(handler)
+
+    monkeypatch.setattr(mod, "_dry_run_transport", whole_slate)
+    assert mod.main([]) == 0
+    md = (tmp_path / "reports" / "oa_probe.md").read_text()
+    assert "modeled spend this run: 295" in md   # still an honest MISS: both
+    results = md.split("## Per-fixture results")[1].split("Provenance")[0]
+    row = next(ln for ln in results.splitlines()
+               if "South Korea v Portugal" in ln)
+    assert "| n |" in row                        # ... snapshots suppressed
+    assert "not among 12 listed events" in row
+    # (a) The near-miss spelling SURVIVES the cap, ranked before every decoy.
+    assert "Korea Republic v Portugal" in row
+    assert row.index("Korea Republic") < row.index("Zzz Decoy")
+    # The cap still bounds the cell (8 of 12 listed: the near miss + 7
+    # decoys), so a whole-slate day cannot flood the table row.
+    assert row.count(" v Zzz Decoy") == 7
+    # (b) The naming caveat, in the note itself: a reader at the spend gate
+    # must not read a spelling mismatch as absent coverage.
+    assert "spelling mismatch" in row
+    assert "closest names first" in row
+    # The listing rides the table without splitting it.
+    rows = [ln for ln in results.splitlines() if ln.strip()]
+    assert len(rows) == 17
+    assert {ln.count("|") for ln in rows} == {rows[0].count("|")}
+
+
 # --------------------------------------------------------------------------- #
 # Post-fetch shape surprises: findings, never crashes that discard the report. #
 # --------------------------------------------------------------------------- #
@@ -847,6 +1014,71 @@ def test_at_or_after_kickoff_snapshot_is_flagged_in_play_never_a_clean_y(
     rows = [ln for ln in results.splitlines() if ln.strip()]
     assert len(rows) == 17
     assert {ln.count("|") for ln in rows} == {rows[0].count("|")}
+
+
+def test_snapshot_stamped_exactly_at_kickoff_is_in_play_strict_boundary(
+        mod, tmp_path, monkeypatch):
+    # Review fix: the in-play guard implements the strict-< OA F2 convention
+    # (dt >= commence on EITHER leg is in-play), but its equality boundary
+    # was unpinned — mutating >= to > left the suite green because the only
+    # in-play test stamps 29/30 minutes AFTER kickoff. A quote stamped
+    # EXACTLY at kickoff would then read "Pinnacle T-1h: y" with empty notes:
+    # the false positive the guard exists to prevent, on the one claim the
+    # purchase decision rests on. The codebase pins this same boundary for
+    # the same rule (test_admissible_quote_strict_boundary: == cut -> False),
+    # so both legs get an equality case here: (a) the snapshot ts == kickoff
+    # with fresh pre-kickoff bookmaker stamps, (b) the Pinnacle stamps ==
+    # kickoff under a pre-kickoff snapshot ts.
+    real_factory = mod._dry_run_transport
+    snap_eq = "mock_wc2022_2022-12-18"           # (a) the wc2022 final
+    lu_eq = "mock_euro2024_2024-07-14"           # (b) the euro2024 final
+
+    def boundary(sport_keys):
+        inner = real_factory(sport_keys)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            resp = inner.handler(request)
+            if (f"{snap_eq}/odds" in request.url.path
+                    and request.url.params["date"] == "2022-12-18T17:00:00Z"):
+                payload = json.loads(resp.content)
+                payload["timestamp"] = "2022-12-18T18:00:00Z"   # == kickoff
+                for bk in payload["data"]["bookmakers"]:
+                    bk["last_update"] = "2022-12-18T17:45:00Z"  # pre-kickoff
+                    for mkt in bk["markets"]:
+                        mkt["last_update"] = "2022-12-18T17:45:00Z"
+                return httpx.Response(200, json=payload)
+            if (f"{lu_eq}/odds" in request.url.path
+                    and request.url.params["date"] == "2024-07-14T17:00:00Z"):
+                payload = json.loads(resp.content)
+                payload["timestamp"] = "2024-07-14T17:57:00Z"   # pre-kickoff
+                for bk in payload["data"]["bookmakers"]:
+                    bk["last_update"] = "2024-07-14T18:00:00Z"  # == kickoff
+                    for mkt in bk["markets"]:
+                        mkt["last_update"] = "2024-07-14T18:00:00Z"
+                return httpx.Response(200, json=payload)
+            return resp
+
+        return httpx.MockTransport(handler)
+
+    monkeypatch.setattr(mod, "_dry_run_transport", boundary)
+    assert mod.main([]) == 0
+    md = (tmp_path / "reports" / "oa_probe.md").read_text()
+    results = md.split("## Per-fixture results")[1].split("Provenance")[0]
+    # (a) snapshot ts == kickoff: in-play, and ONLY that leg is named (the
+    # exact adjacency "ts ... at/after" proves the fresh last_update leg
+    # stayed out of the finding).
+    row_a = next(ln for ln in results.splitlines()
+                 if "Argentina v France" in ln)
+    assert row_a.count("IN-PLAY") == 1
+    assert ("IN-PLAY T-1h: snapshot ts 2022-12-18T18:00:00Z at/after "
+            "kickoff 2022-12-18T18:00:00Z") in row_a
+    # (b) last_update == kickoff: in-play on the stamp leg alone.
+    row_b = next(ln for ln in results.splitlines()
+                 if "Spain v England" in ln)
+    assert row_b.count("IN-PLAY") == 1
+    assert ("IN-PLAY T-1h: Pinnacle strictest last_update "
+            "2024-07-14T18:00:00Z at/after kickoff "
+            "2024-07-14T18:00:00Z") in row_b
 
 
 # --------------------------------------------------------------------------- #

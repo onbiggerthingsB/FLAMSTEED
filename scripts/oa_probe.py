@@ -40,6 +40,7 @@ import argparse
 import os
 import sys
 from datetime import datetime, timedelta, timezone
+from difflib import SequenceMatcher
 from pathlib import Path
 
 import httpx
@@ -191,13 +192,22 @@ class SpendGate:
     """Pre-call projected-cost abort (the plan's hard gate).
 
     The projection checked before EVERY call is the full-plan total — modeled
-    spend so far plus the modeled remainder — NOT a running sum: a running sum
-    would happily place cap-many credits of calls before tripping, while this
-    gate trips on the FIRST precall whenever the whole plan cannot fit under
-    the cap (zero transport calls, zero credits). ``precall`` keeps that
-    projection constant and nothing ever raises it, so the modeled gate is a
-    START gate — only the first precall can trip; it still runs before every
-    call purely as an invariant guard against future plan-growing edits.
+    spend so far plus the modeled remainder, clamped at ``spent +
+    max(remaining, 0)`` — NOT a running sum: a running sum would happily
+    place cap-many credits of calls before tripping, while this gate trips on
+    the FIRST precall whenever the whole plan cannot fit under the cap (zero
+    transport calls, zero credits). While the calls placed match the modeled
+    plan, ``precall`` keeps that projection constant (``spent + remaining``
+    is invariant), so on the model's own terms only the first precall can
+    trip. The clamp is what makes the per-call check a REAL guard against
+    future plan-growing edits: a loop that places MORE calls than
+    ``projected_probe_cost()`` modeled drives ``remaining`` negative, the
+    clamp then makes the projection track the modeled spend itself, and the
+    gate trips on ``spent > cap`` within one call's price — unclamped, the
+    checked sum never rises and every unmodeled call is authorized (15 x
+    [1 discovery + THREE snapshots] would place all 60 calls, 465 credits
+    against a 315 cap, with only the header-dependent actual-usage check
+    left standing).
     (A ``skip`` hook that shrank the remainder for dropped calls used to live
     here: with a non-increasing projection it could never affect any check —
     dead logic that read as a live safety mechanism, so it was removed.)
@@ -216,7 +226,10 @@ class SpendGate:
         self.spent = 0
 
     def precall(self, credits: int, what: str) -> None:
-        projected = self.spent + self.remaining
+        # max(remaining, 0): the plan-overrun clamp (see class docstring) —
+        # once actual calls outrun the modeled plan, remaining goes negative
+        # and the projection must track spent instead of staying flat.
+        projected = self.spent + max(self.remaining, 0)
         if self.cap is not None and projected > self.cap:
             raise CreditCapError(
                 f"projected total {projected} credits exceeds "
@@ -431,6 +444,32 @@ def _match_event(rows: list, fx: dict):
     return None, None
 
 
+_LISTED_CAP = 8
+
+
+def _closest_listed(events: list, fx: dict) -> list:
+    """The listing sample a MISS note carries — ranked closest-name-first
+    against the probed pair (either orientation), all of it when the slate
+    fits under ``_LISTED_CAP``. The Odds API spells teams its own way ("USA",
+    "Korea Republic") while the probe spells them like the martj42 store, so
+    a spelling mismatch and genuinely absent coverage BOTH read "event
+    found: n" — this listing is the ONLY diagnostic separating them, and a
+    whole-slate discovery day used to truncate to the FIRST five events,
+    dropping the near-miss spelling the reader needed most."""
+    want_h, want_a = _norm(fx["home"]), _norm(fx["away"])
+
+    def closeness(event: dict) -> float:
+        got_h, got_a = _norm(event["home"] or ""), _norm(event["away"] or "")
+        straight = (SequenceMatcher(None, want_h, got_h).ratio()
+                    + SequenceMatcher(None, want_a, got_a).ratio())
+        flipped = (SequenceMatcher(None, want_h, got_a).ratio()
+                   + SequenceMatcher(None, want_a, got_h).ratio())
+        return max(straight, flipped)
+
+    ranked = sorted(events, key=closeness, reverse=True)
+    return [f"{e['home']} v {e['away']}" for e in ranked[:_LISTED_CAP]]
+
+
 def _probe_snapshot(fx: dict, event, tag: str, requested: datetime, *,
                     commence: datetime, sport_key: str, api_key: str,
                     transport, raw_dir) -> dict:
@@ -540,9 +579,9 @@ def run_probe(*, api_key: str, transport: httpx.BaseTransport,
                     # No event id -> the snapshot precalls simply never
                     # happen (the modeled spend never counts them). Record
                     # what discovery DID return — that listing is the
-                    # coverage evidence read at the gate.
-                    row["listed"] = [f"{e['home']} v {e['away']}"
-                                     for e in events[:5]]
+                    # coverage evidence read at the gate, ranked so a
+                    # near-miss spelling survives the cap.
+                    row["listed"] = _closest_listed(events, fx)
                     continue
                 row.update({"event_id": event["event_id"],
                             "commence_time": event["commence_time"],
@@ -738,10 +777,19 @@ def assemble_report(*, mode: str, mocked: bool, sport_keys: dict, plan: list,
             # Team names straight off the live wire: _table_text, or a name
             # carrying "|" or a newline splits this row — the same corruption
             # _err_cell guards on the error branches, on the branch the probe
-            # exists to surface.
+            # exists to surface. The caveat is load-bearing: the API spells
+            # teams its own way, so without it a spelling mismatch reads as
+            # absent coverage on the observable the purchase decision rests
+            # on.
             notes = _table_text(
                 "not among " + str(row.get("n_events_listed")) +
-                " listed events: " + "; ".join(row.get("listed", [])))
+                " listed events (closest names first, up to "
+                f"{_LISTED_CAP}; the API spells teams its own way — e.g. "
+                "'USA'/'Korea Republic' for the store's 'United States'/"
+                "'South Korea' — so a spelling mismatch here reads exactly "
+                "like absent coverage; rule that out against these names "
+                "before concluding the event is missing): "
+                + "; ".join(row.get("listed", [])))
         else:
             notes = "; ".join(
                 (["orientation flipped vs store"]
@@ -873,8 +921,14 @@ def main(argv=None) -> int:
         print(f"ABORT: {exc}", file=sys.stderr)
         return 1
 
+    # The banner's mocked/LIVE split runs the SAME ALLOWLIST as _live_raw_dir:
+    # only the genuine network transport may print "**MODE: LIVE.**" — the
+    # strongest claim on the page, first line read at the spend gate. A
+    # denylist on MockTransport waved every OTHER injected fake (a plain
+    # BaseTransport subclass) into the LIVE banner while the adjacent archive
+    # guard refused the very same transport.
     md = assemble_report(
-        mode=mode, mocked=isinstance(transport, httpx.MockTransport),
+        mode=mode, mocked=not isinstance(transport, httpx.HTTPTransport),
         sport_keys=sport_keys, plan=plan, projected=out["projected"],
         spent=out["spent"], results=out["results"], usage=out["usage"],
         aborted=out["aborted"], cap=cap, actual=out["actual"],
