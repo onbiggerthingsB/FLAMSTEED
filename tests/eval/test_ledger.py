@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -9,6 +13,8 @@ from wcmodel.data.sources.odds import admissible_quote
 from wcmodel.eval.ledger import LEDGER_DTYPES, LedgerWriter, load_ledger
 
 UTC = timezone.utc
+
+SRC = Path(__file__).resolve().parents[2] / "src"
 
 
 def _row(**over):
@@ -81,6 +87,7 @@ def test_probabilities_must_be_a_valid_distribution(tmp_path, probs):
 def test_probability_sum_tolerance_is_1e_9(tmp_path):
     w = LedgerWriter(tmp_path / "ledger.parquet")
     w.append(_row(p_home=0.5 + 5e-10, p_draw=0.25, p_away=0.25))
+    w.flush()
 
 
 def test_duplicate_arm_fixture_rejected_same_writer(tmp_path):
@@ -90,17 +97,84 @@ def test_duplicate_arm_fixture_rejected_same_writer(tmp_path):
         w.append(_row(p_home=0.6, p_draw=0.2, p_away=0.2))
     # a DIFFERENT arm on the same fixture is the normal case, not a duplicate
     w.append(_row(arm="elo_ordlogit"))
+    w.flush()
 
 
 def test_duplicate_arm_fixture_rejected_across_writers(tmp_path):
     """Every arm appends to ONE ledger over many sessions; a second run that
-    re-issues a fixture must not silently double-weight it in the contrast."""
+    re-issues a fixture must not silently double-weight it in the contrast —
+    and the later session's flush must PRESERVE the earlier one's rows rather
+    than rewriting the shared ledger down to what this process happens to
+    hold."""
     path = tmp_path / "ledger.parquet"
     with LedgerWriter(path) as w:
         w.append(_row())
     w2 = LedgerWriter(path)
     with pytest.raises(ValueError, match="duplicate"):
         w2.append(_row())
+    w2.append(_row(arm="elo_ordlogit", p_home=0.4, p_draw=0.3, p_away=0.3))
+    w2.flush()
+
+    df = load_ledger(path).set_index("arm")
+    assert sorted(df.index) == ["elo_ordlogit", "incumbent"]
+    assert df.loc["incumbent", "p_home"] == 0.5
+    assert df.loc["incumbent", "issued_git"] == "deadbee"
+    assert df.loc["elo_ordlogit", "p_home"] == 0.4
+
+
+def test_a_flush_does_not_erase_rows_another_open_writer_flushed(tmp_path):
+    """The multi-arm / multi-session case this module exists for: two writers
+    open on the same ledger. Whoever flushes second must not silently drop the
+    first one's rows — a vanished (arm, fixture) shrinks the paired contrast
+    asymmetrically with no error to notice (OA F9)."""
+    path = tmp_path / "ledger.parquet"
+    with LedgerWriter(path) as w:
+        w.append(_row(odds_snapshot_hash=None))
+    a, b = LedgerWriter(path), LedgerWriter(path)
+    a.append(_row(arm="eprime", p_home=0.45, p_draw=0.3, p_away=0.25))
+    b.append(_row(arm="elo_ordlogit", p_home=0.4, p_draw=0.3, p_away=0.3))
+    a.flush()
+    b.flush()
+
+    df = load_ledger(path)
+    assert dict(df.dtypes.astype(str)) == dict(LEDGER_DTYPES)
+    df = df.set_index("arm")
+    assert sorted(df.index) == ["elo_ordlogit", "eprime", "incumbent"]
+    assert df.loc["eprime", "p_home"] == 0.45
+    # a re-read row survives the merge unchanged, nullable hash included
+    assert pd.isna(df.loc["incumbent", "odds_snapshot_hash"])
+    assert df.loc["incumbent", "t_issue"] == pd.Timestamp("2026-06-12 09:00", tz="UTC")
+
+
+def test_repeated_flushes_accumulate_rather_than_re_append(tmp_path):
+    """An arm flushing per matchday: each flush adds only what was buffered
+    since the last one, and a flush with nothing buffered is a no-op."""
+    path = tmp_path / "ledger.parquet"
+    w = LedgerWriter(path)
+    w.append(_row())
+    w.flush()
+    w.append(_row(arm="eprime", p_home=0.45, p_draw=0.3, p_away=0.25))
+    w.flush()
+    w.flush()
+    assert load_ledger(path)["arm"].tolist() == ["incumbent", "eprime"]
+
+
+# The rejected flush deliberately strands b's buffer — that warning IS the
+# behaviour pinned by test_unflushed_rows_warn_at_interpreter_exit.
+@pytest.mark.filterwarnings(
+    "ignore::wcmodel.eval.ledger.UnflushedLedgerWarning")
+def test_flush_rejects_a_pair_another_writer_wrote_after_this_one_opened(tmp_path):
+    """Duplicate detection must see rows that landed AFTER construction —
+    otherwise the second flush would overwrite, not double-count, and the
+    losing forecast would disappear without a word."""
+    path = tmp_path / "ledger.parquet"
+    a, b = LedgerWriter(path), LedgerWriter(path)
+    a.append(_row(arm="eprime", p_home=0.45, p_draw=0.3, p_away=0.25))
+    b.append(_row(arm="eprime", p_home=0.1, p_draw=0.1, p_away=0.8))
+    a.flush()
+    with pytest.raises(ValueError, match="duplicate"):
+        b.flush()
+    assert load_ledger(path)["p_home"].tolist() == [0.45]
 
 
 def test_training_cutoff_after_t_issue_rejected(tmp_path):
@@ -112,6 +186,7 @@ def test_training_cutoff_after_t_issue_rejected(tmp_path):
     w.append(_row())
     w.append(_row(arm="elo_ordlogit",
                   training_cutoff=datetime(2026, 6, 11, 9, 0, tzinfo=UTC)))
+    w.flush()
 
 
 def test_naive_timestamps_rejected(tmp_path):
@@ -192,8 +267,8 @@ def test_load_ledger_rejects_missing_columns(tmp_path):
         load_ledger(path)
 
 
-def test_flush_is_atomic_on_a_rejected_row(tmp_path):
-    """A rejected append leaves neither the buffer nor the file changed."""
+def test_a_rejected_append_leaves_the_buffer_unchanged(tmp_path):
+    """A rejected append contributes nothing to the eventual flush."""
     path = tmp_path / "ledger.parquet"
     w = LedgerWriter(path)
     w.append(_row())
@@ -201,3 +276,59 @@ def test_flush_is_atomic_on_a_rejected_row(tmp_path):
         w.append(_row(arm="bad", p_home=0.9, p_draw=0.9, p_away=0.9))
     w.flush()
     assert load_ledger(path)["arm"].tolist() == ["incumbent"]
+
+
+@pytest.mark.filterwarnings(  # the torn flush strands w2's buffer, as designed
+    "ignore::wcmodel.eval.ledger.UnflushedLedgerWarning")
+def test_a_torn_flush_leaves_the_previous_sessions_rows_intact(tmp_path, monkeypatch):
+    """flush rewrites the WHOLE accumulated table, so an in-place write that
+    dies mid-parquet would destroy every prior session's forecasts, not just
+    this one's. Same temp+rename contract as features._cached_panel and
+    odds._persist_raw."""
+    path = tmp_path / "ledger.parquet"
+    with LedgerWriter(path) as w:
+        w.append(_row())
+
+    def _die_mid_write(self, dest, *args, **kwargs):
+        Path(dest).write_bytes(b"PAR1-torn")
+        raise OSError("no space left on device")
+
+    w2 = LedgerWriter(path)
+    w2.append(_row(arm="eprime", p_home=0.45, p_draw=0.3, p_away=0.25))
+    monkeypatch.setattr(pd.DataFrame, "to_parquet", _die_mid_write)
+    with pytest.raises(OSError):
+        w2.flush()
+    monkeypatch.undo()
+
+    assert load_ledger(path)["arm"].tolist() == ["incumbent"]
+    assert [p.name for p in tmp_path.iterdir()] == ["ledger.parquet"]
+
+
+_EXIT_SCRIPT = """
+import datetime
+from wcmodel.eval.ledger import LedgerWriter
+w = LedgerWriter({path!r})
+w.append(dict(
+    fixture_id="wc2026-0001", pool="wc2026", date="2026-06-12",
+    home="Mexico", away="Poland",
+    t_issue=datetime.datetime(2026, 6, 12, 9, 0, tzinfo=datetime.timezone.utc),
+    training_cutoff=datetime.datetime(2026, 6, 12, 9, 0, tzinfo=datetime.timezone.utc),
+    arm="incumbent", p_home=0.5, p_draw=0.25, p_away=0.25,
+    issued_git="deadbee", odds_snapshot_hash=None))
+{tail}
+"""
+
+
+@pytest.mark.parametrize("tail,warned", [("", True), ("w.flush()", False)])
+def test_unflushed_rows_warn_at_interpreter_exit(tmp_path, tail, warned):
+    """Rows only reach disk on flush, and an arm that dies mid-run must not
+    look like an arm that simply never ran: in the contrast an absent
+    (arm, fixture) is indistinguishable from a missing forecast (OA F9)."""
+    path = tmp_path / "ledger.parquet"
+    proc = subprocess.run(
+        [sys.executable, "-c", _EXIT_SCRIPT.format(path=str(path), tail=tail)],
+        capture_output=True, text=True,
+        env={**os.environ, "PYTHONPATH": str(SRC)})
+    assert proc.returncode == 0, proc.stderr
+    assert ("never flushed" in proc.stderr) is warned, proc.stderr
+    assert path.exists() is not warned

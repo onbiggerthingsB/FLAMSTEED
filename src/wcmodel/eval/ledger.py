@@ -19,6 +19,9 @@ parsing cleanly is not evidence that it is admissible.
 """
 from __future__ import annotations
 
+import os
+import warnings
+import weakref
 from datetime import date as _date, datetime, timezone
 from pathlib import Path
 
@@ -162,31 +165,91 @@ def _frame(rows: list[dict]) -> pd.DataFrame:
     return df.astype(LEDGER_DTYPES)
 
 
+def _write_atomic(df: pd.DataFrame, path: Path) -> None:
+    """Write via a same-directory tmp file + ``os.replace``.
+
+    A flush rewrites the WHOLE accumulated table, so an interrupted in-place
+    write would destroy every previous session's forecasts, not just this
+    one's. Same contract (and same hazard) as the feature-panel cache and the
+    content-addressed raw-odds archive. The pid suffix keeps two processes
+    flushing the same ledger from sharing a tmp path.
+    """
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        df.to_parquet(tmp, engine="pyarrow", index=False)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+class UnflushedLedgerWarning(UserWarning):
+    """Rows were appended but never reached disk."""
+
+
+def _warn_unflushed(pending: list[dict], path: Path) -> None:
+    if not pending:
+        return
+    arms = sorted({str(row["arm"]) for row in pending})
+    warnings.warn(
+        f"{len(pending)} forecast row(s) for arm(s) {arms} were appended but "
+        f"never flushed to {path} — they are NOT on disk. In the contrast an "
+        "arm that died mid-run is indistinguishable from one that never ran "
+        "(OA F9): call flush() or use the context manager.",
+        UnflushedLedgerWarning, stacklevel=2)
+
+
 class LedgerWriter:
     """Append forecasts to one parquet ledger, validating each row.
 
-    An existing file at ``path`` is loaded (and re-validated) on construction:
-    arms issue over many sessions, so duplicate detection that only saw the
-    current process would let a re-run double-weight a fixture in the
-    contrast. ``flush`` rewrites the whole table.
+    Arms issue over many sessions and (in Plan 2) several arms write the SAME
+    ledger, so a writer never treats its own view as the whole table:
+    construction reads the existing file only to seed duplicate detection, and
+    ``flush`` re-reads it, appends the rows buffered since, and writes the
+    union atomically. A writer therefore cannot erase rows another writer
+    flushed while it was open — a vanished (arm, fixture) would shrink the
+    paired contrast asymmetrically with nothing to notice.
+
+    Rows reach disk only on ``flush`` (the context manager flushes on the
+    success path); a buffer left unflushed warns instead of vanishing.
+
+    (``live.validation.AppendOnlyLedger`` is the append-on-write sibling for
+    bet logs; JSONL can append a line, parquet cannot, and the prereg contract
+    here needs the typed tz-aware table the contrast joins on — hence
+    merge-on-flush rather than append-on-write.)
     """
 
     def __init__(self, path: Path | str):
         self.path = Path(path)
-        self._rows: list[dict] = []
+        self._pending: list[dict] = []
         self._seen: set[tuple[str, str]] = set()
         if self.path.exists():
             for row in load_ledger(self.path).to_dict("records"):
-                self._rows.append(row)
                 self._seen.add((str(row["arm"]), str(row["fixture_id"])))
+        # Holds the buffer, not the writer, so it fires on GC and at exit
+        # without keeping the writer alive; flush empties it in place.
+        weakref.finalize(self, _warn_unflushed, self._pending, self.path)
 
     def append(self, row: dict) -> None:
         validated = _validate(row, self._seen)
-        self._rows.append(validated)
+        self._pending.append(validated)
         self._seen.add((str(validated["arm"]), str(validated["fixture_id"])))
 
     def flush(self) -> Path:
-        _frame(self._rows).to_parquet(self.path, engine="pyarrow", index=False)
+        if not self._pending and self.path.exists():
+            return self.path
+        rows = (load_ledger(self.path).to_dict("records")
+                if self.path.exists() else [])
+        seen = {(str(r["arm"]), str(r["fixture_id"])) for r in rows}
+        for row in self._pending:
+            # Re-checked against what is on disk NOW: a pair another writer
+            # flushed since construction is a duplicate, not something to
+            # overwrite.
+            validated = _validate(row, seen)
+            seen.add((str(validated["arm"]), str(validated["fixture_id"])))
+            rows.append(validated)
+        _write_atomic(_frame(rows), self.path)
+        self._pending.clear()
+        self._seen = seen
         return self.path
 
     def __enter__(self) -> "LedgerWriter":
@@ -194,7 +257,8 @@ class LedgerWriter:
 
     def __exit__(self, exc_type, exc, tb) -> None:
         # Only on the success path: a raising body means the caller's row set
-        # is unknown, and half a ledger is worse than none.
+        # is unknown, and half a ledger is worse than none. The unflushed
+        # buffer still warns, so the loss is never silent.
         if exc_type is None:
             self.flush()
 
