@@ -40,7 +40,20 @@ Modes (hard gates in code, pinned by tests/eval/test_probe.py):
   NEVER run by agents: the live probe is the user's decision at the
   plan-end STOP gate.
 
-Output: ``reports/oa_probe.md`` (cwd-relative — run from the repo root, like
+``--slate`` swaps the 15-fixture eval panel for the DEV-SLATE mini-probe
+(``SLATE_PROBES``): 12 candidate development competitions, 2022-2025, one
+discovery + one T-1h snapshot each — 132 credits projected against the plan's
+150-credit budget. It answers a different question (does the archive carry
+this competition at all?), so it has its own panel and its own report, but
+runs through the SAME gates: dry-run by default, ``--live`` refused without
+both ``ODDS_API_KEY`` and ``--max-credits``, the SpendGate and the
+billing-header check before every call. Its output is what turns config
+``oa_dev_slate.competitions`` from empty into chosen; fixture SELECTION within
+those competitions is the frozen rule in ``src/wcmodel/eval/dev_slate.py`` and
+is untouched by anything measured here.
+
+Output: ``reports/oa_probe.md``, or ``reports/oa_slate_probe.md`` with
+``--slate`` (cwd-relative — run from the repo root, like
 ``scripts/oa_mde.py``).
 """
 # No `from __future__ import annotations`: loaded by PATH in tests
@@ -89,6 +102,7 @@ SHARP_BOOK = "pinnacle"
 EVAL_FIXTURES = 217
 
 OUT_DEFAULT = "reports/oa_probe.md"
+OUT_SLATE_DEFAULT = "reports/oa_slate_probe.md"
 
 #: The dry-run's wire key. NEVER the env ``ODDS_API_KEY``: a dry-run spends
 #: nothing and must not touch real credentials even when one is available.
@@ -133,6 +147,87 @@ PROBE_FIXTURES = (
     {"pool": "wc2026", "stratum": "final",
      "date": "2026-07-19", "home": "Spain", "away": "Argentina"},
 )
+
+
+# ------------------------------------------- the dev-slate mini-probe (V0)
+# A SECOND, much smaller panel answering a DIFFERENT question from
+# PROBE_FIXTURES: not "do these 15 known fixtures price?" but "does the
+# historical archive carry these candidate DEVELOPMENT competitions at all?".
+# Its answer is what turns config `oa_dev_slate.competitions` from empty into
+# chosen — the frozen slate rule (src/wcmodel/eval/dev_slate.py) selects
+# fixtures WITHIN competitions, never the competitions themselves.
+#
+# The sport keys below are CANDIDATES — hypotheses this probe exists to
+# verify, exactly like `odds.sport_keys` for the eval panel. A wrong key costs
+# ONE discovery credit and lands in the report as a finding; correcting it is
+# a one-line data edit here, no logic change. Each `date` is a day the martj42
+# store actually holds senior men's internationals of that `tournament`
+# (pinned by tests/eval/test_probe_slate.py), each sits inside the frozen dev
+# window [2022-01-01, 2025-12-31], and none falls in a scored pool's window —
+# a probe there would measure coverage for fixtures the slate can never hold.
+SLATE_PROBES = (
+    {"competition": "UEFA Nations League (2022 group stage)",
+     "tournament": "UEFA Nations League",
+     "sport_key": "soccer_uefa_nations_league", "date": "2022-06-14"},
+    {"competition": "UEFA Nations League (2025 quarter-finals)",
+     "tournament": "UEFA Nations League",
+     "sport_key": "soccer_uefa_nations_league", "date": "2025-03-20"},
+    {"competition": "CONCACAF Nations League (2023)",
+     "tournament": "CONCACAF Nations League",
+     "sport_key": "soccer_concacaf_nations_league", "date": "2023-11-21"},
+    # Copa America 2024 is deliberately ABSENT: it ran 2024-06-20..07-14,
+    # entirely inside the euro2024 scored-pool window (2024-06-14..07-14), so
+    # the frozen rule excludes every one of its fixtures. Probing it would buy
+    # coverage for a competition that can contribute nothing.
+    {"competition": "Africa Cup of Nations qualification (2024)",
+     "tournament": "African Cup of Nations qualification",
+     "sport_key": "soccer_africa_cup_of_nations_qualification",
+     "date": "2024-10-11"},
+    {"competition": "AFC Asian Cup (2023/24 finals)",
+     "tournament": "AFC Asian Cup",
+     "sport_key": "soccer_afc_asian_cup", "date": "2024-01-23"},
+    {"competition": "Africa Cup of Nations (2023/24 finals)",
+     "tournament": "African Cup of Nations",
+     "sport_key": "soccer_africa_cup_of_nations", "date": "2024-01-22"},
+    {"competition": "CONCACAF Gold Cup (2023)",
+     "tournament": "Gold Cup",
+     "sport_key": "soccer_concacaf_gold_cup", "date": "2023-07-02"},
+    {"competition": "UEFA Euro 2024 qualification",
+     "tournament": "UEFA Euro qualification",
+     "sport_key": "soccer_uefa_european_championship_qualification",
+     "date": "2023-06-16"},
+    {"competition": "FIFA WC qualification — UEFA (2023)",
+     "tournament": "FIFA World Cup qualification",
+     "sport_key": "soccer_fifa_world_cup_qualifiers_europe",
+     "date": "2023-11-21"},
+    {"competition": "FIFA WC qualification — CONMEBOL (2025)",
+     "tournament": "FIFA World Cup qualification",
+     "sport_key": "soccer_fifa_world_cup_qualifers_south_america",
+     "date": "2025-03-25"},
+    {"competition": "FIFA WC qualification — AFC (2024)",
+     "tournament": "FIFA World Cup qualification",
+     "sport_key": "soccer_fifa_world_cup_qualifiers_asia",
+     "date": "2024-06-06"},
+    {"competition": "International friendlies (2024 March window)",
+     "tournament": "Friendly",
+     "sport_key": "soccer_international_friendlies", "date": "2024-03-26"},
+)
+
+#: The plan's mini-probe cap, asked alongside G-A. The projection is DERIVED
+#: from the panel, so adding a probe reprices it and trips the pinned budget
+#: test rather than being discovered at the spend gate.
+SLATE_CREDIT_BUDGET = 150
+SLATE_SNAPSHOT_TAG = "T-1h"
+SLATE_SNAPSHOT_DELTA = timedelta(hours=1)
+
+
+def projected_slate_cost() -> int:
+    """12 x (1 discovery + 1 snapshot @ 10) = 132 credits, under the 150 cap.
+
+    The snapshot leg is the CEILING, not a promise: a competition whose
+    listing comes back empty never has a snapshot precalled, so an
+    uncovered probe costs 1 credit, not 11."""
+    return len(SLATE_PROBES) * (DISCOVERY_CREDITS + SNAPSHOT_CREDITS)
 
 
 def _ts(s: str) -> datetime:
@@ -1023,7 +1118,431 @@ def assemble_report(*, mode: str, mocked: bool, sport_keys: dict, plan: list,
     return "\n".join(lines) + "\n"
 
 
+# ------------------------------------------------- the dev-slate mini-probe
+def build_slate_call_plan() -> list:
+    """One row per planned call (24 = 12 discovery + 12 snapshots). The
+    snapshot's ``at`` is symbolic: it depends on the DISCOVERED kickoff of the
+    deterministically chosen event."""
+    rows = []
+    for probe in SLATE_PROBES:
+        key = probe["sport_key"]
+        base = {"competition": probe["competition"], "sport_key": key,
+                "tournament": probe["tournament"]}
+        rows.append({**base, "call": "discovery",
+                     "endpoint": f"/v4/historical/sports/{key}/events",
+                     "at": f"{probe['date']}T00:00:00Z",
+                     "credits": DISCOVERY_CREDITS})
+        rows.append({**base, "call": f"snapshot {SLATE_SNAPSHOT_TAG}",
+                     "endpoint": (f"/v4/historical/sports/{key}"
+                                  "/events/{event_id}/odds"),
+                     "at": f"discovered kickoff {SLATE_SNAPSHOT_TAG}",
+                     "credits": SNAPSHOT_CREDITS})
+    return rows
+
+
+def _slate_dry_run_transport() -> httpx.MockTransport:
+    """Recorded-shape mock payloads for the slate panel — same geometry as the
+    eval dry-run (3-min snapshot lag, Pinnacle 10 min older), so the report's
+    arithmetic is pinned by the same conventions."""
+    by_key = {(p["sport_key"], f"{p['date']}T00:00:00Z"): p
+              for p in SLATE_PROBES}
+
+    def _mock_event(probe: dict, index: int) -> dict:
+        return {"id": f"mock_slate_{probe['sport_key']}_{index}",
+                "commence_time": f"{probe['date']}T{18 + index}:00:00Z",
+                "home_team": f"Mock {probe['tournament']} Home {index}",
+                "away_team": f"Mock {probe['tournament']} Away {index}"}
+
+    by_event = {_mock_event(p, i)["id"]: (p, i)
+                for p in SLATE_PROBES for i in (0, 1)}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested = request.url.params["date"]
+        parts = request.url.path.split("/")
+        if request.url.path.endswith("/events"):
+            probe = by_key[(parts[4], requested)]
+            # Listed out of chronological order on purpose: the deterministic
+            # pick must not inherit the wire's ordering.
+            return httpx.Response(200, json={
+                "timestamp": requested, "previous_timestamp": requested,
+                "next_timestamp": requested,
+                "data": [_mock_event(probe, 1), _mock_event(probe, 0)]})
+        probe, index = by_event[parts[6]]
+        event = _mock_event(probe, index)
+        ts = _ts(requested) - _MOCK_SNAPSHOT_LAG
+        outcomes = [{"name": event["home_team"], "price": 2.10},
+                    {"name": "Draw", "price": 3.30},
+                    {"name": event["away_team"], "price": 3.60}]
+        return httpx.Response(200, json={
+            "timestamp": _iso(ts), "previous_timestamp": _iso(ts),
+            "next_timestamp": _iso(ts),
+            "data": {**event, "bookmakers": [
+                {"key": SHARP_BOOK, "last_update": _iso(ts - _MOCK_BOOK_LAG),
+                 "markets": [{"key": MARKET,
+                              "last_update": _iso(ts - _MOCK_MARKET_LAG),
+                              "outcomes": outcomes}]}]}})
+
+    return httpx.MockTransport(handler)
+
+
+def _pick_slate_event(events: list):
+    """The event whose snapshot gets bought — chosen by a RULE, never by wire
+    order: earliest kickoff, ties broken by event id. Without this, WHICH
+    fixture a paid snapshot priced would depend on how the API happened to
+    sort its listing, and the probe would not be reproducible.
+    Events with an unparseable/absent kickoff are skipped: the snapshot
+    instant is derived from it, so there is nothing to request."""
+    usable = []
+    for event in events:
+        try:
+            usable.append((_ts(event["commence_time"]),
+                           str(event["event_id"]), event))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not usable:
+        return None
+    return min(usable, key=lambda row: (row[0], row[1]))[2]
+
+
+def _slate_snapshot(event: dict, requested: datetime, *, commence: datetime,
+                    sport_key: str, api_key: str, transport, raw_dir) -> dict:
+    """One pre-kickoff snapshot on the chosen event: does the sharp book quote
+    this competition at all, and how stale is the line? Same failure contract
+    as ``_probe_snapshot`` — the cap aborts, an archive failure is fatal,
+    anything else is a per-competition finding."""
+    entry = {"tag": SLATE_SNAPSHOT_TAG, "requested_ts": _iso(requested),
+             "attempted": True}
+    try:
+        snap = fetch_historical(
+            event["event_id"], _iso(requested), api_key, market=MARKET,
+            regions=REGIONS, sport_key=sport_key, raw_dir=raw_dir,
+            transport=transport)
+        entry["raw_sha256"] = snap.get("raw_sha256")
+        rows = parse_snapshot(snap)
+        pin = [r for r in rows if r["bookmaker"] == SHARP_BOOK]
+        snap_dt = _ts(snap["timestamp"])
+        entry.update({
+            "snapshot_ts": snap["timestamp"],
+            "drift_min": round((requested - snap_dt).total_seconds() / 60.0, 1),
+            "pinnacle_present": bool(pin),
+            "n_bookmakers": len({r["bookmaker"] for r in rows}),
+        })
+        stamps = [("snapshot ts", snap_dt)]
+        if pin:
+            lu = strictest_last_update(pin[0], snap["timestamp"])
+            entry["pinnacle_staleness_min"] = round(
+                (requested - lu).total_seconds() / 60.0, 1)
+            stamps.append(("Pinnacle strictest last_update", lu))
+        late = [f"{what} {_iso(dt)}" for what, dt in stamps if dt >= commence]
+        if late:
+            entry["in_play"] = (
+                "IN-PLAY: " + " and ".join(late)
+                + f" at/after kickoff {_iso(commence)} — an in-play price, "
+                "never a pre-kickoff quote (strict <, OA F2)")
+    except CreditCapError:
+        raise
+    except OSError:
+        raise
+    except Exception as exc:
+        entry["error"] = _err_cell(exc, api_key)
+    return entry
+
+
+def run_slate_probe(*, api_key: str, transport: httpx.BaseTransport,
+                    max_credits, raw_dir) -> dict:
+    """Run the dev-slate mini-probe. Same gates and same return shape as
+    ``run_probe`` (``results``/``usage``/``spent``/``projected``/``aborted``/
+    ``actual``/``overrun``), so the CLI, the cap enforcement and the abort
+    reporting are shared rather than re-derived."""
+    recorder = _UsageRecorder(transport, cap=max_credits)
+    projected = projected_slate_cost()
+    gate = SpendGate(max_credits, projected)
+    results = []
+    aborted = None
+
+    def _pad_unreached():
+        for probe in SLATE_PROBES[len(results):]:
+            results.append({"competition": probe["competition"],
+                            "sport_key": probe["sport_key"],
+                            "date": probe["date"],
+                            "tournament": probe["tournament"],
+                            "attempted": False, "snapshot": None})
+
+    try:
+        for probe in SLATE_PROBES:
+            key = probe["sport_key"]
+            row = {"competition": probe["competition"], "sport_key": key,
+                   "date": probe["date"], "tournament": probe["tournament"],
+                   "attempted": False, "snapshot": None}
+            results.append(row)
+            try:
+                gate.precall(DISCOVERY_CREDITS, f"discovery {probe['competition']}")
+                recorder.next_call_credits = DISCOVERY_CREDITS
+                try:
+                    discovery = fetch_historical_events(
+                        key, f"{probe['date']}T00:00:00Z", api_key,
+                        raw_dir=raw_dir, transport=recorder)
+                except CreditCapError:
+                    gate.refund(DISCOVERY_CREDITS)
+                    raise
+                row["attempted"] = True
+                row["discovery_sha256"] = discovery["raw_sha256"]
+                events = discovery["events"]
+                row["n_events_listed"] = len(events)
+                event = _pick_slate_event(events)
+                if event is None:
+                    # No listing -> no snapshot precall at all: an uncovered
+                    # competition costs ONE credit, and "no coverage" is
+                    # reported from what discovery actually returned.
+                    continue
+                row.update({"event_id": event["event_id"],
+                            "commence_time": event["commence_time"],
+                            "sample_fixture": f"{event['home']} v {event['away']}"})
+                commence = _ts(event["commence_time"])
+            except CreditCapError:
+                raise
+            except OSError as exc:
+                row["attempted"] = True
+                row["error"] = _err_cell(exc, api_key)
+                raise
+            except Exception as exc:
+                # A wrong candidate sport key is exactly what this probe is
+                # for: a finding for the report, never a crash that discards
+                # the competitions already measured.
+                row["attempted"] = True
+                row["error"] = _err_cell(exc, api_key)
+                continue
+            requested = commence - SLATE_SNAPSHOT_DELTA
+            entry = {"tag": SLATE_SNAPSHOT_TAG, "requested_ts": _iso(requested),
+                     "attempted": False}
+            row["snapshot"] = entry
+            gate.precall(SNAPSHOT_CREDITS,
+                         f"snapshot {SLATE_SNAPSHOT_TAG} {probe['competition']}")
+            recorder.next_call_credits = SNAPSHOT_CREDITS
+            try:
+                entry.update(_slate_snapshot(
+                    event, requested, commence=commence, sport_key=key,
+                    api_key=api_key, transport=recorder, raw_dir=raw_dir))
+            except CreditCapError:
+                gate.refund(SNAPSHOT_CREDITS)
+                raise
+            except OSError as exc:
+                entry.update({"attempted": True,
+                              "error": _err_cell(exc, api_key)})
+                raise
+    except CreditCapError as exc:
+        if not recorder.usage:
+            raise
+        aborted = str(exc)
+        _pad_unreached()
+    except OSError as exc:
+        aborted = ("archive/persistence failure — provenance storage is "
+                   "broken, so no further paid call may be placed: "
+                   + _err_cell(exc, api_key))
+        _pad_unreached()
+    actual = recorder.actual_spent()
+    overrun = None
+    if (aborted is None and max_credits is not None and actual is not None
+            and actual > max_credits):
+        overrun = (
+            f"actual billed usage {actual} credits (summed x-requests-last "
+            "costs cross-checked against the x-requests-used delta) exceeds "
+            f"--max-credits {max_credits} and no further call remained to "
+            "refuse — the plan completed, but the cap did not hold")
+    return {"results": results, "usage": recorder.usage,
+            "spent": gate.spent, "projected": projected, "aborted": aborted,
+            "actual": actual, "overrun": overrun}
+
+
+def _slate_notes(row: dict) -> str:
+    if "error" in row:
+        return row["error"]
+    if not row.get("attempted", True):
+        return ("not attempted: the run aborted before this competition's "
+                "discovery call was placed")
+    if not row.get("event_id"):
+        return _table_text(
+            f"no usable event in the {row.get('n_events_listed')} listed for "
+            f"`{row['sport_key']}` on {row['date']} — either the archive does "
+            "not carry this competition or the CANDIDATE sport key is wrong; "
+            "both read the same here, so rule the key out before concluding "
+            "the competition is absent")
+    snap = row.get("snapshot") or {}
+    parts = [f"sample fixture: {_table_text(row.get('sample_fixture'))}"]
+    if not snap.get("attempted", True):
+        parts.append("snapshot not attempted (run aborted)")
+    for field in ("error", "in_play"):
+        if field in snap:
+            parts.append(snap[field])
+    return "; ".join(parts)
+
+
+def assemble_slate_report(*, mode: str, mocked: bool, plan: list,
+                          projected: int, spent: int, results: list,
+                          usage: list, aborted=None, cap=None, actual=None,
+                          overrun=None) -> str:
+    """Pure: canned inputs -> the full markdown mini-probe report."""
+    lines = ["# OA dev-slate mini-probe — which development competitions does "
+             "the archive carry? (OA Plan 2 v2, V0)", ""]
+    lines += _mode_banner(mode, mocked)
+    lines += [
+        "", "Every `sport_key` below is a **CANDIDATE**: a hypothesis this "
+        "probe exists to verify, exactly as `odds.sport_keys` were for the "
+        "OA-0a eval panel. A wrong key costs one discovery credit and shows "
+        "up here as a finding — correcting it is a one-line edit to "
+        "`SLATE_PROBES`, not a logic change. Competitions are named in the "
+        "martj42 store's vocabulary (`tournament`), because that is what "
+        "`oa_dev_slate.competitions` is keyed by.", "",
+        "This probe chooses the COMPETITIONS. Fixture SELECTION within them "
+        "is the frozen rule in `src/wcmodel/eval/dev_slate.py` and is not "
+        "affected by anything measured here."]
+    if aborted:
+        lines += ["", f"**RUN ABORTED MID-FLIGHT: {aborted}** Partial "
+                  "results only; every refused or unreached call is marked "
+                  "\"not attempted\" — a refusal by our own gate, never a "
+                  "measured miss."]
+    lines += [
+        "", "## Call plan + projected credit cost", "",
+        f"{len(SLATE_PROBES)} competitions x (1 discovery @ "
+        f"{DISCOVERY_CREDITS} credit + 1 snapshot [{SLATE_SNAPSHOT_TAG}; "
+        f"{MARKET} x {REGIONS}] @ {SNAPSHOT_CREDITS} credits) = "
+        f"**{projected} credits** projected, against the plan's "
+        f"{SLATE_CREDIT_BUDGET}-credit mini-probe budget; modeled spend this "
+        f"run: {spent}"
+        + (" (dry-run: 0 actually billed)." if mode == "dry-run" else "."),
+        "", "The snapshot leg is a CEILING: a competition whose listing comes "
+        "back empty never has its snapshot precalled, so an uncovered probe "
+        "costs 1 credit, not 11.", "",
+        "| # | competition | store tournament | candidate sport_key | call | "
+        "endpoint | at | credits |",
+        "|---|---|---|---|---|---|---|---|"]
+    lines += [f"| {i} | {r['competition']} | {r['tournament']} | "
+              f"`{r['sport_key']}` | {r['call']} | `{r['endpoint']}` | "
+              f"{r['at']} | {r['credits']} |"
+              for i, r in enumerate(plan, 1)]
+    lines += [
+        "", "## Per-competition coverage", "",
+        "| competition | candidate sport_key | probed date | events listed | "
+        f"Pinnacle {SLATE_SNAPSHOT_TAG} | drift (min) | staleness (min) | "
+        "notes |", "|---|---|---|---|---|---|---|---|"]
+    for row in results:
+        snap = row.get("snapshot") or {}
+        if snap and not snap.get("attempted", True):
+            pinnacle = drift = stale = "not attempted"
+        elif "error" in snap:
+            pinnacle = drift = stale = "ERR"
+        else:
+            pinnacle = _fmt(snap.get("pinnacle_present"))
+            drift = _fmt(snap.get("drift_min"))
+            stale = _fmt(snap.get("pinnacle_staleness_min"))
+        lines.append("| " + " | ".join([
+            row["competition"], f"`{row['sport_key']}`", row["date"],
+            _fmt(row.get("n_events_listed")), pinnacle, drift, stale,
+            _slate_notes(row) or "-"]) + " |")
+    lines += ["", "Provenance (full sha256 of the archived raw response; "
+              "dry-run hashes are of MOCK bytes and are not persisted):", ""]
+    for row in results:
+        shas = [f"discovery {row['discovery_sha256']}"] \
+            if row.get("discovery_sha256") else []
+        snap = row.get("snapshot") or {}
+        if snap.get("raw_sha256"):
+            shas.append(f"{SLATE_SNAPSHOT_TAG} {snap['raw_sha256']}")
+        lines.append(f"- {row['competition']}: " + (", ".join(shas) or "-"))
+    lines += ["", "## Actual usage (`x-requests-last` / `x-requests-used` / "
+              "`x-requests-remaining` headers)", ""]
+    if mode == "dry-run":
+        lines += ["Not available: dry-run serves no live responses, so no "
+                  "usage headers exist (and none are fabricated)."]
+    elif not usage:
+        lines += ["No responses received."]
+    else:
+        lines += ["| call | path | x-requests-last | x-requests-used | "
+                  "x-requests-remaining |", "|---|---|---|---|---|"]
+        lines += [f"| {i} | `{u['path']}` | {_fmt(u.get('requests_last'))} | "
+                  f"{_fmt(u['requests_used'])} | "
+                  f"{_fmt(u['requests_remaining'])} |"
+                  for i, u in enumerate(usage, 1)]
+        lines += [
+            "", "Actual billed this run: "
+            + (f"**{actual} credits**" if actual is not None
+               else "unknown (no parseable `x-requests-last` cost and fewer "
+                    "than two parseable `x-requests-used` counters)")
+            + f" — vs `--max-credits` {_fmt(cap)}; modeled spend {spent} "
+              "credits."]
+        if overrun:
+            lines += ["", f"**ACTUAL BILLING EXCEEDED THE CAP: {overrun}**"]
+    lines += [
+        "", "## What this decides", "",
+        "- `oa_dev_slate.competitions` (config): the competitions above with "
+        "a listing AND a sharp quote. A competition the archive does not "
+        "carry cannot contribute dev fixtures at any price.",
+        "- `oa_dev_slate.n_dev`: sized from those competitions' fixture "
+        "counts against the G-B cap, then frozen — the manifest is hash-bound "
+        "into the V8 lock, so N_dev is pre-registered, never a yield.",
+        "- Neither is decided here by an agent: both land in config as the "
+        "user's call at the spend gate."]
+    return "\n".join(lines) + "\n"
+
+
 # ----------------------------------------------------------------------- CLI
+def _run_slate_cli(args, ap) -> int:
+    """The ``--slate`` branch: same gates as the eval probe, its own panel,
+    its own report."""
+    plan = build_slate_call_plan()
+    projected = sum(r["credits"] for r in plan)
+    print(f"slate call plan: {len(plan)} calls "
+          f"({len(SLATE_PROBES)} discovery + {len(SLATE_PROBES)} snapshots), "
+          f"projected {projected} credits (budget {SLATE_CREDIT_BUDGET})")
+    for row in plan:
+        print(f"  {row['sport_key']:52s} {row['call']:16s} {row['at']:28s} "
+              f"{row['credits']:3d}cr  {row['competition']}")
+
+    if args.live:
+        api_key = os.environ.get("ODDS_API_KEY")
+        if not api_key:
+            ap.error("--live requires the ODDS_API_KEY environment variable "
+                     "(AND --max-credits N); the live probe is the user's "
+                     "spend decision at the STOP gate")
+        if args.max_credits is None:
+            ap.error("--live requires --max-credits N (the pre-call "
+                     "projected-cost abort cap) in addition to ODDS_API_KEY")
+        mode, transport, cap = "live", _live_transport(), args.max_credits
+        raw_dir = _live_raw_dir(transport)
+        try:
+            _preflight_writable(raw_dir, Path(args.out).parent)
+        except OSError as exc:
+            print("ABORT: storage preflight failed — refusing to place any "
+                  f"paid call: {exc}", file=sys.stderr)
+            return 1
+    else:
+        mode, transport, cap = "dry-run", _slate_dry_run_transport(), None
+        api_key, raw_dir = _DRY_RUN_KEY, None
+
+    try:
+        out = run_slate_probe(api_key=api_key, transport=transport,
+                              max_credits=cap, raw_dir=raw_dir)
+    except CreditCapError as exc:
+        print(f"ABORT: {exc}", file=sys.stderr)
+        return 1
+
+    md = assemble_slate_report(
+        mode=mode, mocked=type(transport) is not httpx.HTTPTransport,
+        plan=plan, projected=out["projected"], spent=out["spent"],
+        results=out["results"], usage=out["usage"], aborted=out["aborted"],
+        cap=cap, actual=out["actual"], overrun=out["overrun"])
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(md)
+    print(f"wrote {out_path}")
+    if out["aborted"]:
+        print(f"ABORT: {out['aborted']}", file=sys.stderr)
+        return 1
+    if out["overrun"]:
+        print(f"OVER CAP: {out['overrun']}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__,
@@ -1037,11 +1556,22 @@ def main(argv=None) -> int:
     ap.add_argument("--max-credits", type=int, default=None,
                     help="hard cap for --live: the full-plan projected cost "
                          "is checked against this BEFORE every call")
-    ap.add_argument("--out", default=OUT_DEFAULT,
-                    help=f"report path (default {OUT_DEFAULT})")
+    ap.add_argument("--slate", action="store_true",
+                    help="run the DEV-SLATE mini-probe instead of the "
+                         "15-fixture eval panel: which candidate development "
+                         "competitions (2022-2025) does the historical "
+                         "archive carry? Same gates, its own panel and "
+                         f"report (default {OUT_SLATE_DEFAULT})")
+    ap.add_argument("--out", default=None,
+                    help=f"report path (default {OUT_DEFAULT}, or "
+                         f"{OUT_SLATE_DEFAULT} with --slate)")
     args = ap.parse_args(argv)
     if args.live and args.dry_run:
         ap.error("--live and --dry-run are mutually exclusive")
+    if args.out is None:
+        args.out = OUT_SLATE_DEFAULT if args.slate else OUT_DEFAULT
+    if args.slate:
+        return _run_slate_cli(args, ap)
 
     sport_keys = load_config()["odds"]["sport_keys"]
     plan = build_call_plan(sport_keys)

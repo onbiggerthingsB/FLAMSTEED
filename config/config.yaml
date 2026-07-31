@@ -122,6 +122,45 @@ odds:
     wc2022: soccer_fifa_world_cup
     euro2024: soccer_uefa_european_championship
     wc2026: soccer_fifa_world_cup
+oa_dev_slate:
+  # THE FROZEN DEVELOPMENT-SLATE RULE (OA Plan 2 v2, V0 / Codex finding 9).
+  # Written down BEFORE any coverage was inspected, verbatim:
+  #
+  #   "every completed senior men's international in the probed competitions
+  #    with kickoff in [2022-01-01, 2025-12-31], excluding any fixture in the
+  #    scored pools' windows, ordered chronologically, truncated to the first
+  #    N_dev with admissible coverage"
+  #
+  # The split that makes it a freeze rather than a preference: the COMPETITION
+  # KEYS are chosen by coverage EVIDENCE (the `--slate` mini-probe, then the
+  # G-B acquisition); fixture SELECTION within them is this rule and nothing
+  # else. No "and drop the thin ones", no re-ordering, no second window —
+  # every such knob is researcher degrees of freedom on the very data w is
+  # tuned on. The rule is implemented once in src/wcmodel/eval/dev_slate.py
+  # (THE_RULE / DEV_WINDOW / SCORED_POOL_WINDOWS) and pinned literally by
+  # tests/eval/test_dev_slate.py, so this comment and the code cannot drift.
+  #
+  # scripts/oa_dev_manifest.py applies it and emits `manifest_path`, which is
+  # committed and hash-bound into the V8 prereg lock.
+  window:
+    start: "2022-01-01"
+    end: "2025-12-31"
+  # The scored pools are the CONFIRMATORY set. Any fixture inside these
+  # windows (inclusive of both end days — the pools' own first and last match
+  # days) is excluded from development, or w would be tuned on the period the
+  # verdict scores.
+  scored_pool_windows:
+    wc2022: ["2022-11-20", "2022-12-18"]
+    euro2024: ["2024-06-14", "2024-07-14"]
+    wc2026: ["2026-06-11", "2026-07-19"]
+  # EMPTY until the `--slate` mini-probe reports coverage: pre-seeding these
+  # from a hunch is exactly the degrees of freedom the freeze exists to
+  # remove. Values are martj42 `tournament` labels (the store's vocabulary),
+  # not Odds-API sport keys.
+  competitions: []
+  # null until the mini-probe sizes it against the G-B cap (target ~300).
+  n_dev: null
+  manifest_path: config/oa_dev_manifest.yaml
 live:
   # L1 SPEND GATE. dry_run=true => NO network, NO real odds spend, NO real bet:
   # the whole live pipeline runs against the fixture / the clearly-labelled-non-real

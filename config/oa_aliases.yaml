@@ -1,0 +1,27 @@
+# OA alias map — Odds-API team spellings -> martj42 store spellings.
+#
+# THE EVIDENCE RULE (OA Plan 2 v2, V0 / Codex finding 14): an alias enters this
+# file ONLY when an ARCHIVED raw response contains that exact API spelling, and
+# the record names the archive digest that proves it. An alias seeded from
+# memory is a silent widening of what counts as coverage — it makes the matcher
+# accept a spelling the API may never emit, and no later run can tell the
+# difference between "matched through a real alias" and "matched through a
+# guess". `verify_alias_evidence` re-reads the cited bytes wherever the
+# (gitignored) paid-evidence archive is present.
+#
+# Direction is ONE-WAY and one hop: api_name (what the wire says) -> store_name
+# (what data/stores/full_final says). The map is never applied to the store
+# side, and store_name may not itself be another record's api_name.
+aliases:
+  - api_name: USA
+    store_name: United States
+    evidence_sha256: 5f3181ad3544decedea6adbc30127a55a352aecde59b8a4b0be79f381d951cc2
+    note: >-
+      OA-0a LIVE probe, wc2022 R16 discovery listing for 2022-12-03: the
+      archived payload reads "Netherlands v USA" where the store reads
+      "Netherlands v United States" — the one spelling mismatch the probe
+      surfaced (reports/oa_probe.md, the single event-not-found row).
+      The SAME listing reads "Brazil v South Korea" — the store spelling
+      verbatim — which is why "Korea Republic" is NOT seeded here: it appears
+      in no archived response we hold, so under the evidence rule it is not an
+      alias, it is a memory.
