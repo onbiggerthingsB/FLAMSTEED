@@ -121,6 +121,102 @@ def test_provisional_parity_case_actually_widens(real_posterior):
         "provisional fixture did not widen — the parity case is vacuous")
 
 
+# --------------------------------------------------------------- golden pins
+
+
+#: sha256 of ``production_grid(...).tobytes()`` for each golden case below,
+#: computed ONCE from the deterministic compact ADVI fit (seed 0, draws 40,
+#: advi_iters 300 on the ``_RAW_RESULTS`` panel, cutoff 2024-06-01; the
+#: covariate case is the same fit with ``covariates=("rest_days",)``).
+#:
+#: REGENERATION NOTE (B2-4): these literals pin the map's NUMBERS, not just
+#: path parity — ``predict_scoreline`` DELEGATES to ``production_grid``, so
+#: the bitwise parity test above is tautological against a refactor that
+#: drifts both paths together; this golden set is what catches that. They are
+#: environment-pinned (a legitimate BLAS/pymc/numpy upgrade may shift the
+#: ADVI draws): after verifying the change is an environment change and NOT a
+#: semantic drift of the map (diff the grids, not just the hashes), re-run
+#: ``pytest tests/model/test_draw_api.py -k golden`` and copy the "got"
+#: values from the assertion diff over these literals — the single dict
+#: compare prints every case.
+_GOLDEN_GRID_SHA256 = {
+    "ordinary":
+        "177ecbb07b1b8038c8c8b7daff887c9595cd9794d61312a863183e0373532e63",
+    "neutral":
+        "4c4a465613ee4f03efbdf664f6b71dabeb1f0a463aa6a5efd97b10d59c54d87c",
+    "host":
+        "28852e06c4aa73c3b2e6cb80479c83ae462c61be5fecacd93b365371e419b432",
+    "provisional":
+        "51f2b20179930aafe901363669e1e738147e3d0acdc4cab6ccd52fa72f8c0c5f",
+    "covariate":
+        "b7ca9390c254d8b6a2bb4bcc7030413b16172cb41d1895f9fba4f353b406ff11",
+}
+
+
+@pytest.fixture(scope="module")
+def real_covariate_posterior(tmp_path_factory):
+    """A second compact ADVI fit with the rest_days covariate ENABLED — the
+    production default is covariate-free, so the covariate leg of the map
+    can only be pinned non-vacuously on this fit."""
+    return fit_compact_real_posterior(
+        tmp_path_factory.mktemp("draw_api_cov_store"),
+        covariates=("rest_days",))
+
+
+@pytest.mark.slow
+def test_golden_grids_pin_the_production_map_numbers(real_posterior,
+                                                     real_covariate_posterior):
+    """[LOAD-BEARING, B2-4] Golden real-Posterior grids. The parity test
+    above proves predict == production_grid, but since predict DELEGATES to
+    production_grid that cannot catch a refactor drifting BOTH paths
+    together. These sha256 literals pin the actual grid bytes for every
+    production fixture-context case — ordinary, neutral, host, provisional
+    (widening fired) and covariate (offsets fired) — against the
+    deterministic compact fit, so any semantic drift of the map fails
+    loudly even when parity still holds."""
+    import hashlib
+
+    post = real_posterior
+    cov_post = real_covariate_posterior
+    settled = [t for t in post.teams if t not in post.provisional_teams]
+    home, away = settled[0], settled[1]
+    prov = sorted(post.provisional_teams)[0]
+
+    # the covariate fit sees the same panel: same teams, same provisional set
+    assert cov_post.teams == post.teams
+    assert cov_post.provisional_teams == post.provisional_teams
+    assert sorted(cov_post.covariate_transforms) == ["rest_days"]
+    assert post.covariate_transforms == {}
+
+    cov_ctx = FixtureCtx(home=home, away=away,
+                         covariates={"rest_days": 3.0, "rest_days__away": 9.0})
+    cases = {
+        "ordinary": (post, FixtureCtx(home=home, away=away)),
+        "neutral": (post, FixtureCtx(home=home, away=away, neutral=True)),
+        # 1.4 == the calibrated production host_k, hardcoded so the golden
+        # inputs are self-contained (a config change must not move them).
+        "host": (post, FixtureCtx(home=home, away=away, host_factor=1.4)),
+        "provisional": (post, FixtureCtx(home=home, away=prov, neutral=True)),
+        "covariate": (cov_post, cov_ctx),
+    }
+    grids = {}
+    for label, (p, ctx) in cases.items():
+        g = production_grid(p, ctx)
+        assert g.dtype == np.float64 and g.shape == (11, 11), label
+        grids[label] = g
+
+    # non-vacuity: five genuinely different grids (each context leg fired)...
+    got = {label: hashlib.sha256(g.tobytes()).hexdigest()
+           for label, g in grids.items()}
+    assert len(set(got.values())) == len(got)
+    # ...and the covariate offsets moved the grid on ITS OWN fit's baseline.
+    assert not np.array_equal(
+        grids["covariate"],
+        production_grid(cov_post, FixtureCtx(home=home, away=away)))
+
+    assert got == _GOLDEN_GRID_SHA256
+
+
 # ---------------------------------------------------------- per-draw semantics
 
 
@@ -195,12 +291,12 @@ def test_fixture_ctx_is_frozen_with_predict_default_semantics():
 
 
 def _oa_calls(tree: ast.AST, names: frozenset[str]):
-    """Yield ``(enclosing_function_name, ast.Call)`` for calls to any of
-    ``names`` (bare name or attribute access)."""
+    """Yield ``(enclosing_function_name, callee_name, ast.Call)`` for calls
+    to any of ``names`` (bare name or attribute access)."""
     class _V(ast.NodeVisitor):
         def __init__(self):
             self.stack: list[str] = []
-            self.found: list[tuple[str, ast.Call]] = []
+            self.found: list[tuple[str, str, ast.Call]] = []
 
         def visit_FunctionDef(self, node):
             self.stack.append(node.name)
@@ -215,12 +311,36 @@ def _oa_calls(tree: ast.AST, names: frozenset[str]):
                 f.attr if isinstance(f, ast.Attribute) else None)
             if callee in names:
                 self.found.append((self.stack[-1] if self.stack else "<module>",
-                                   node))
+                                   callee, node))
             self.generic_visit(node)
 
     v = _V()
     v.visit(tree)
     return v.found
+
+
+def _default_is_the_constant_by_name(module_path: Path, func: str,
+                                     param: str = "max_goals") -> bool:
+    """True iff ``func``'s ``param`` default is spelled PRODUCTION_MAX_GOALS
+    in the source — a literal ``10`` passes the VALUE check in (b) while
+    silently detaching from the frozen constant (B2-6)."""
+    tree = ast.parse(module_path.read_text(), filename=str(module_path))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and node.name == func:
+            args = node.args
+            all_args = args.posonlyargs + args.args + args.kwonlyargs
+            defaults = ([None] * (len(args.posonlyargs) + len(args.args)
+                                  - len(args.defaults))
+                        + list(args.defaults) + list(args.kw_defaults))
+            for arg, default in zip(all_args, defaults):
+                if arg.arg != param:
+                    continue
+                return (isinstance(default, ast.Name)
+                        and default.id == "PRODUCTION_MAX_GOALS") or \
+                       (isinstance(default, ast.Attribute)
+                        and default.attr == "PRODUCTION_MAX_GOALS")
+    raise AssertionError(f"{func} not found in {module_path}")
 
 
 def test_production_max_goals_is_frozen_and_every_caller_is_pinned():
@@ -231,16 +351,22 @@ def test_production_max_goals_is_frozen_and_every_caller_is_pinned():
         defaults, the dashboard ``fixture_forecast`` default, the releases
         ``price_fixtures`` default). Changing it is a prereg amendment.
     (b) Those production defaults all EQUAL the constant (inspected, so a
-        drift in any one of them fails here, not in a scored run).
+        drift in any one of them fails here, not in a scored run) — and the
+        dashboard/releases defaults are spelled AS the constant in source
+        (B2-6): a literal ``10`` equals the value today but silently detaches
+        the caller the day the constant is ever amended.
     (c) AST scan of ``src/wcmodel`` + ``scripts``: every call site of
-        ``production_grid`` / ``solve_implied_rates`` either omits
-        ``max_goals`` or passes the constant BY NAME. The single sanctioned
-        pass-through is ``Posterior.predict_scoreline`` forwarding its own
-        ``max_goals`` parameter (whose default is pinned in (b)) so legacy
-        diagnostic harnesses keep their explicit-truncation API; the scan
-        counts it to exactly one so no new caller can ride the exemption.
+        ``production_grid`` / ``solve_implied_rates`` / ``blend_grid`` /
+        ``blend_one_x_two`` (the blend surface rides the same freeze — B2-6)
+        either omits ``max_goals`` or passes the constant BY NAME. The
+        sanctioned pass-throughs are EXACTLY ``Posterior.predict_scoreline``
+        (legacy diagnostic harnesses keep their explicit-truncation API) and
+        ``blend_one_x_two`` forwarding to ``blend_grid`` — each forwarding
+        its own ``max_goals`` parameter whose default is pinned in (b); the
+        scan counts them exactly so no new caller can ride either exemption.
     """
     from wcmodel.dashboard.fixtures import fixture_forecast
+    from wcmodel.eval.blend import blend_grid, blend_one_x_two
     from wcmodel.eval.implied import solve_implied_rates
     from wcmodel.releases.pricing import price_fixtures
 
@@ -253,32 +379,52 @@ def test_production_max_goals_is_frozen_and_every_caller_is_pinned():
 
     assert default_of(production_grid) == PRODUCTION_MAX_GOALS
     assert default_of(solve_implied_rates) == PRODUCTION_MAX_GOALS
+    assert default_of(blend_grid) == PRODUCTION_MAX_GOALS
+    assert default_of(blend_one_x_two) == PRODUCTION_MAX_GOALS
     assert default_of(Posterior.predict_scoreline) == PRODUCTION_MAX_GOALS
     assert default_of(Posterior.predict_1x2) == PRODUCTION_MAX_GOALS
     assert default_of(fixture_forecast) == PRODUCTION_MAX_GOALS
     assert default_of(price_fixtures) == PRODUCTION_MAX_GOALS
     # max_goals is KEYWORD-ONLY on the OA surface, so the AST scan below
     # cannot be bypassed positionally.
-    assert inspect.signature(production_grid).parameters["max_goals"].kind \
-        is inspect.Parameter.KEYWORD_ONLY
-    assert inspect.signature(solve_implied_rates).parameters["max_goals"].kind \
-        is inspect.Parameter.KEYWORD_ONLY
+    for func in (production_grid, solve_implied_rates, blend_grid,
+                 blend_one_x_two):
+        assert inspect.signature(func).parameters["max_goals"].kind \
+            is inspect.Parameter.KEYWORD_ONLY, func
+
+    repo = Path(wcmodel.__file__).resolve().parents[2]
+    # (b, continued) the dashboard/releases defaults are the constant BY
+    # NAME in source, not a detached literal 10 (B2-6).
+    for module, func in (
+        (repo / "src/wcmodel/dashboard/fixtures.py", "fixture_forecast"),
+        (repo / "src/wcmodel/releases/pricing.py", "price_fixtures"),
+    ):
+        assert _default_is_the_constant_by_name(module, func), (
+            f"{module.name}:{func} defaults max_goals to a literal instead "
+            "of PRODUCTION_MAX_GOALS (B2-6)")
 
     # (c) scan every call site.
-    repo = Path(wcmodel.__file__).resolve().parents[2]
     files = sorted((repo / "src" / "wcmodel").rglob("*.py"))
     files += sorted((repo / "scripts").glob("*.py"))
-    names = frozenset({"production_grid", "solve_implied_rates"})
+    # Positional-arity ceiling per callee: max_goals is keyword-only on all
+    # four, so this only guards against a future signature loosening.
+    max_positional = {"production_grid": 2, "solve_implied_rates": 3,
+                      "blend_grid": 4, "blend_one_x_two": 4}
+    names = frozenset(max_positional)
+    sanctioned = {
+        ("posterior.py", "predict_scoreline", "production_grid"),
+        ("blend.py", "blend_one_x_two", "blend_grid"),
+    }
 
     violations: list[str] = []
-    pass_throughs: list[str] = []
+    pass_throughs: list[tuple[str, str, str]] = []
     n_calls = 0
     for path in files:
         tree = ast.parse(path.read_text(), filename=str(path))
-        for func_name, call in _oa_calls(tree, names):
+        for func_name, callee, call in _oa_calls(tree, names):
             n_calls += 1
             where = f"{path.relative_to(repo)}:{call.lineno} (in {func_name})"
-            if len(call.args) > 2:
+            if len(call.args) > max_positional[callee]:
                 violations.append(f"{where}: positional max_goals")
             for kw in call.keywords:
                 if kw.arg != "max_goals":
@@ -288,19 +434,18 @@ def test_production_max_goals_is_frozen_and_every_caller_is_pinned():
                         or (isinstance(v, ast.Attribute)
                             and v.attr == "PRODUCTION_MAX_GOALS"):
                     continue           # the frozen constant, by name
-                if (path.name == "posterior.py"
-                        and func_name == "predict_scoreline"
+                if ((path.name, func_name, callee) in sanctioned
                         and isinstance(v, ast.Name) and v.id == "max_goals"):
-                    pass_throughs.append(where)   # the ONE sanctioned forward
+                    pass_throughs.append((path.name, func_name, callee))
                     continue
                 violations.append(f"{where}: max_goals={ast.dump(v)}")
 
-    assert n_calls >= 1, "scan found no OA-map call sites — the pin is vacuous"
+    assert n_calls >= 2, "scan found no OA-map call sites — the pin is vacuous"
     assert violations == [], (
         "callers overriding the frozen production max_goals:\n"
         + "\n".join(violations))
-    assert len(pass_throughs) == 1, (
-        "exactly one sanctioned predict_scoreline pass-through expected, got "
+    assert sorted(pass_throughs) == sorted(sanctioned), (
+        "exactly the two sanctioned pass-throughs expected once each, got "
         f"{pass_throughs}")
 
 

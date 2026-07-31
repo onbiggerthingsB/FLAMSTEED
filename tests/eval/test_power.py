@@ -2,9 +2,12 @@ import numpy as np
 import pytest
 
 from wcmodel.eval.power import (BLOCK_CORR_THRESHOLD, GATE_FLOOR,
-                                GATE_SUPPORT_REQ, block_bootstrap_support,
-                                draw_panel, floor_pass, gate_pass,
-                                generation_for_correlation, mde, simulate_power,
+                                GATE_SUPPORT_REQ, HOLM_ALPHA, HOLM_FAMILY,
+                                VETO_OPPOSITE_SUPPORT_REQ,
+                                block_bootstrap_support, draw_panel,
+                                floor_pass, gate_pass,
+                                generation_for_correlation, holm_adjust, mde,
+                                sign_flip_veto, simulate_power,
                                 simulate_power_detail, support_pass,
                                 within_block_correlation)
 
@@ -378,3 +381,166 @@ def test_correlation_without_a_within_block_pair_is_an_error():
         within_block_correlation(np.array([0.1, -0.2, 0.3]),
                                  np.array(["a", "a", "a"]),
                                  np.array([0, 1, 2]))
+
+
+# --------------------------------- B3-5: Holm adjustment + sign-flip veto
+
+
+def test_holm_family_and_veto_constants_are_the_preregistered_ones():
+    # the analysis spec's exact four-member family in its fixed table order
+    # (the raw-p tie-break order), alpha, and the veto's inclusive 0.60
+    assert HOLM_FAMILY == ("Eprime_other_devig", "stacking", "elo_ordlogit",
+                           "elo_dc_5050")
+    assert HOLM_ALPHA == 0.05
+    assert VETO_OPPOSITE_SUPPORT_REQ == 0.60
+    # PASS-only downgrade semantics are part of the veto's CONTRACT and must
+    # stay documented where the scorer reads them
+    assert "downgrade" in sign_flip_veto.__doc__
+    assert "PASS" in sign_flip_veto.__doc__
+
+
+def test_holm_adjust_matches_the_hand_worked_example():
+    # By hand, m=4: sorted raw ps (0.005, 0.01, 0.03, 0.04) ->
+    # 4*0.005=0.02, 3*0.01=0.03, 2*0.03=0.06, 1*0.04=0.04 -> monotone
+    # running max: 0.02, 0.03, 0.06, 0.06. Rejections at alpha=0.05: the
+    # first two only.
+    p = {"Eprime_other_devig": 0.01, "stacking": 0.04,
+         "elo_ordlogit": 0.03, "elo_dc_5050": 0.005}
+    out = holm_adjust(p)
+    assert set(out) == set(HOLM_FAMILY)
+    assert out["elo_dc_5050"]["p_adjusted"] == pytest.approx(0.02)
+    assert out["Eprime_other_devig"]["p_adjusted"] == pytest.approx(0.03)
+    assert out["elo_ordlogit"]["p_adjusted"] == pytest.approx(0.06)
+    assert out["stacking"]["p_adjusted"] == pytest.approx(0.06)
+    assert out["elo_dc_5050"]["reject"] is True
+    assert out["Eprime_other_devig"]["reject"] is True
+    assert out["elo_ordlogit"]["reject"] is False
+    assert out["stacking"]["reject"] is False
+    for member, res in out.items():
+        assert res["p_raw"] == p[member]
+
+
+def test_holm_adjustment_is_monotone_enforced_and_capped_at_one():
+    # 3*0.011=0.033 and 2*0.012=0.024 both sit BELOW 4*0.010=0.040: without
+    # the running max the adjusted sequence would DIP, which breaks Holm's
+    # step-down logic (a larger raw p must never end up less adjusted).
+    p = {"Eprime_other_devig": 0.010, "stacking": 0.011,
+         "elo_ordlogit": 0.012, "elo_dc_5050": 0.90}
+    out = holm_adjust(p)
+    assert out["Eprime_other_devig"]["p_adjusted"] == pytest.approx(0.040)
+    assert out["stacking"]["p_adjusted"] == pytest.approx(0.040)
+    assert out["elo_ordlogit"]["p_adjusted"] == pytest.approx(0.040)
+    assert out["elo_dc_5050"]["p_adjusted"] == pytest.approx(0.90)  # 1*0.90
+    ordered = sorted(p, key=lambda m: p[m])
+    adjusted = [out[m]["p_adjusted"] for m in ordered]
+    assert adjusted == sorted(adjusted)
+
+    # the min(1, .) cap: 3*0.4=1.2 would exceed 1 at the second position
+    capped = holm_adjust({"Eprime_other_devig": 0.4, "stacking": 0.5,
+                          "elo_ordlogit": 0.6, "elo_dc_5050": 0.01})
+    assert capped["elo_dc_5050"]["p_adjusted"] == pytest.approx(0.04)
+    assert capped["Eprime_other_devig"]["p_adjusted"] == 1.0
+    assert capped["stacking"]["p_adjusted"] == 1.0
+    assert capped["elo_ordlogit"]["p_adjusted"] == 1.0
+
+
+def test_holm_rejection_is_inclusive_at_alpha():
+    # 4 * 0.0125 == 0.05 exactly in binary FP (scaling by 4 is exact), so
+    # the boundary is genuinely reachable and "p~ <= 0.05" must admit it.
+    p = {"Eprime_other_devig": 0.0125, "stacking": 0.9,
+         "elo_ordlogit": 0.9, "elo_dc_5050": 0.9}
+    out = holm_adjust(p)
+    assert out["Eprime_other_devig"]["p_adjusted"] == 0.05
+    assert out["Eprime_other_devig"]["reject"] is True
+    assert out["stacking"]["reject"] is False
+
+
+def test_holm_raw_p_ties_break_by_the_fixed_family_order():
+    # two identical raw ps: the multiplier each receives depends on its
+    # position, which must come from the FIXED table order, deterministically
+    p = {"Eprime_other_devig": 0.02, "stacking": 0.02,
+         "elo_ordlogit": 0.5, "elo_dc_5050": 0.5}
+    out = holm_adjust(p)
+    # Eprime precedes stacking in the family order: 4*0.02=0.08 then
+    # 3*0.02=0.06 -> running max keeps 0.08 for both
+    assert out["Eprime_other_devig"]["p_adjusted"] == pytest.approx(0.08)
+    assert out["stacking"]["p_adjusted"] == pytest.approx(0.08)
+    assert holm_adjust(p) == holm_adjust(dict(reversed(list(p.items()))))
+
+
+def test_holm_adjust_enforces_the_fixed_cardinality():
+    # finding 6's stance in code: a member that cannot be computed is an
+    # ERROR — never dropped, never re-weighted, never replaced — and a
+    # phantom fifth member cannot enter.
+    good = {m: 0.2 for m in HOLM_FAMILY}
+    assert all(res["p_adjusted"] <= 1.0 for res in holm_adjust(good).values())
+
+    missing = dict(good)
+    del missing["stacking"]
+    with pytest.raises(ValueError, match="stacking"):
+        holm_adjust(missing)
+
+    extra = dict(good)
+    extra["per_tier_w"] = 0.01
+    with pytest.raises(ValueError, match="per_tier_w"):
+        holm_adjust(extra)
+
+    for bad_value in (float("nan"), None, -0.1, 1.2, "0.03"):
+        bad = dict(good)
+        bad["elo_ordlogit"] = bad_value
+        with pytest.raises(ValueError, match="elo_ordlogit"):
+            holm_adjust(bad)
+
+
+def test_sign_flip_veto_boundary_at_exactly_0_60():
+    # "mean > 0 AND opposite support >= 0.60": inclusive at 0.60, strict at
+    # a zero mean — one ULP below the support boundary must NOT veto.
+    pools = {
+        "wc2022": {"n_blocks": 12, "mean_diff": 0.001,
+                   "opposite_support": 0.60},
+        "euro2024": {"n_blocks": 9, "mean_diff": -0.004,
+                     "opposite_support": 0.10},
+    }
+    assert sign_flip_veto(pools) is True
+    pools["wc2022"]["opposite_support"] = float(np.nextafter(0.60, 0.0))
+    assert sign_flip_veto(pools) is False
+    pools["wc2022"] = {"n_blocks": 12, "mean_diff": 0.0,
+                       "opposite_support": 0.99}
+    assert sign_flip_veto(pools) is False               # mean must be > 0
+
+
+def test_sign_flip_veto_single_block_pool_can_veto_alone():
+    # A pool holding ONE matchday block has degenerate bootstrap support:
+    # every resample is that block, so every bootstrap mean IS the pool mean
+    # and opposite support is exactly 1.0 for a positive mean. The spec
+    # accepts that this pool vetoes alone — the conservative direction.
+    diffs = np.array([0.004, 0.006])
+    pool = np.array(["wc2026", "wc2026"])
+    day = np.array([0, 0])
+    assert block_bootstrap_support(diffs, pool, day, n_boot=200, seed=0) == 0.0
+    pools = {
+        "wc2026": {"n_blocks": 1, "mean_diff": float(diffs.mean()),
+                   "opposite_support": 1.0},
+        "euro2024": {"n_blocks": 8, "mean_diff": -0.005,
+                     "opposite_support": 0.02},
+    }
+    assert sign_flip_veto(pools) is True
+
+
+def test_sign_flip_veto_skips_zero_block_pools_but_requires_a_scan():
+    # a pool contributing no block to the primary population is not in the
+    # scan at all (its support is undefined) — but an ENTIRELY empty scan is
+    # an error, because a passed gate implies a non-empty primary population
+    pools = {
+        "wc2022": {"n_blocks": 0},
+        "euro2024": {"n_blocks": 10, "mean_diff": -0.003,
+                     "opposite_support": 0.2},
+    }
+    assert sign_flip_veto(pools) is False
+    with pytest.raises(ValueError, match="pool|block"):
+        sign_flip_veto({"wc2022": {"n_blocks": 0}})
+    with pytest.raises(ValueError, match="pool|block"):
+        sign_flip_veto({})
+    with pytest.raises(ValueError, match="nan|finite"):
+        sign_flip_veto({"wc2026": {"n_blocks": 3, "mean_diff": float("nan"),
+                                   "opposite_support": 0.7}})

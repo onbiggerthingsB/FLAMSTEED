@@ -11,8 +11,10 @@ the whole point of the design: ``w=0`` must be BITWISE the incumbent
 ``production_grid`` on a REAL fitted Posterior (per-draw identity => identical
 mean grid), and ``w=1`` must reproduce the de-vigged 1X2 within 1e-6 BY V2's
 solve definition (constant book rates broadcast across the fixture's own rho
-draws). There is deliberately NO monotonicity-in-w assertion — finding 15
-ruled it unsound; continuity/normalization/determinism stand in for it.
+draws, FINALIZED — the B2-1 ruling: the solver inverts the widened map for a
+provisional fixture, so the endpoint holds for ALL fixtures). There is
+deliberately NO monotonicity-in-w assertion — finding 15 ruled it unsound;
+continuity/normalization/determinism stand in for it.
 
 ``select_w`` is the FROZEN selection procedure (finding 9): monthly
 chronological folds, burn-in first 2 months, fold t scored with the candidate
@@ -145,7 +147,7 @@ def test_w1_reproduces_the_devigged_vector_within_1e6(real_posterior):
     odds = [2.05, 3.30, 3.90]
     for method in OA_DEVIG_METHODS:
         target = oa_devig(odds, method=method)
-        lam_book = solve_implied_rates(post, target)
+        lam_book = solve_implied_rates(post, ctx, target)
         assert lam_book is not None, method
         blended = blend_grid(post, ctx, lam_book, 1.0)
         assert np.array_equal(
@@ -156,18 +158,20 @@ def test_w1_reproduces_the_devigged_vector_within_1e6(real_posterior):
 
 
 @pytest.mark.slow
-def test_w1_provisional_fixture_widens_on_top_of_the_book_map(real_posterior):
-    """Widening is NOT part of the w=1 endpoint claim: it is a per-team
-    predictive reshaping the production path applies downstream of the rates,
-    identically for every w (the implied.py contract). For a provisional
-    fixture the w=1 blend must be BITWISE the finalized (widened) book map —
-    and therefore deliberately NOT the raw de-vig vector."""
+def test_w1_provisional_fixture_reproduces_the_devigged_vector(real_posterior):
+    """[LOAD-BEARING, B2-1 ruling] The w=1 coherence endpoint holds for a
+    PROVISIONAL fixture too: the solver inverts the FINALIZED (widened) map,
+    so the w=1 blend — which IS that widened map at the solved rates, bitwise
+    — reproduces the de-vigged vector within 1e-6. (Before the ruling the
+    solver inverted the unwidened map and the endpoint missed by ~0.029.)
+    Non-vacuity: widening genuinely fired (the widened and unwidened book
+    maps differ at these rates)."""
     post = real_posterior
     home, _ = _settled_pair(post)
     prov = sorted(post.provisional_teams)[0]
     ctx = FixtureCtx(home=home, away=prov, neutral=True)
     target = oa_devig([2.05, 3.30, 3.90], method="shin")
-    lam_book = solve_implied_rates(post, target)
+    lam_book = solve_implied_rates(post, ctx, target)
     assert lam_book is not None
 
     blended = blend_grid(post, ctx, lam_book, 1.0)
@@ -176,6 +180,9 @@ def test_w1_provisional_fixture_widens_on_top_of_the_book_map(real_posterior):
     assert np.array_equal(blended, widened)
     assert not np.array_equal(widened, unwidened), (
         "provisional fixture did not widen — the case is vacuous")
+    p = grid_one_x_two(blended)
+    for i, k in enumerate(("home", "draw", "away")):
+        assert abs(p[k] - target[i]) < RESIDUAL_TOL, k
 
 
 # ---------------------------------------- continuity / normalization / determinism
@@ -198,7 +205,7 @@ def test_blend_is_continuous_normalized_and_deterministic_in_w(real_posterior):
     home, away = _settled_pair(post)
     ctx = FixtureCtx(home=home, away=away, neutral=True)
     target = oa_devig([2.05, 3.30, 3.90], method="shin")
-    lam_book = solve_implied_rates(post, target)
+    lam_book = solve_implied_rates(post, ctx, target)
     assert lam_book is not None
 
     L = 2.0
@@ -253,18 +260,22 @@ def test_blend_grid_refuses_non_dixon_coles_posterior():
 def test_selection_spec_is_frozen():
     """The fold spec is a pre-registered quantity (finding 9): grid, burn-in
     and the spec text are pinned VERBATIM — editing any of them is a prereg
-    amendment, not a refactor."""
+    amendment, not a refactor. (The current text carries the B2-3 dated
+    amendment: the first-two-LEDGER-months burn-in is THE single burn-in;
+    V5 archives every feasible month and never pre-trims.)"""
     assert W_GRID == tuple(round(i * 0.05, 2) for i in range(21))
     assert W_GRID[0] == 0.0 and W_GRID[-1] == 1.0 and len(W_GRID) == 21
     assert SELECTION_BURN_IN_MONTHS == 2
     assert FOLD_SPEC == (
-        "monthly chronological folds over the dev slate; burn-in = first 2 "
-        "months (training-only); fold t is scored with the (w, de-vig) pair "
-        "chosen by mean canonical RPS on folds < t; rows without admissible "
-        "odds are excluded from selection; grid w in {0.00, 0.05, ..., 1.00}; "
-        "ties break to the smaller w, then the lexicographically smaller "
-        "de-vig method; the final (w, de-vig) is the argmin over ALL dev "
-        "months")
+        "monthly chronological folds over the dev ledger, which archives "
+        "EVERY feasible dev-slate month (V5 must not pre-trim: the ledger "
+        "burn-in here is the programme's ONE burn-in); burn-in = first 2 "
+        "ledger months (training-only); fold t is scored with the (w, "
+        "de-vig) pair chosen by mean canonical RPS on folds < t; rows "
+        "without admissible odds are excluded from selection; grid w in "
+        "{0.00, 0.05, ..., 1.00}; ties break to the smaller w, then the "
+        "lexicographically smaller de-vig method; the final (w, de-vig) is "
+        "the argmin over ALL dev months")
 
 
 def test_blend_surface_pins_the_frozen_production_truncation():
@@ -579,6 +590,55 @@ def test_select_w_errors_on_malformed_blend_blocks(tmp_path):
         select_w(path, outcomes=outcomes, manifest=_manifest(ids))
 
 
+def test_select_w_errors_when_a_covered_fixture_has_no_blend_block(tmp_path):
+    """[LOAD-BEARING, B2-2] A covered fixture (rows with a non-null
+    odds_snapshot_hash in the frame) that has NO blend rows used to VANISH
+    from selection silently — manifest 4, selection 3, no error. The expected
+    covered set is now derived explicitly from the frame's non-null-hash rows
+    and a member without its complete 42-arm blend block is a loud error
+    NAMING the fixture."""
+    def quality(method, w):
+        return 0.5
+
+    months = ["2023-01", "2023-02", "2023-03"]
+    rows, outcomes, ids = _month_fixtures(months, 1, quality)
+    # A 4th covered fixture whose blend rows were never archived: its odds
+    # base row proves coverage, so silence would be a lost covered fixture.
+    rows += [
+        _dev_row("dev-lost", "2023-01-12", "dev_dc", (0.4, 0.3, 0.3),
+                 hash_=None),
+        _dev_row("dev-lost", "2023-01-12", "dev_odds_shin", (0.5, 0.3, 0.2)),
+    ]
+    outcomes["dev-lost"] = "home"
+    ids.append("dev-lost")
+    path = _write_ledger(tmp_path / "dev_ledger.parquet", rows)
+    with pytest.raises(ValueError, match="dev-lost"):
+        select_w(path, outcomes=outcomes, manifest=_manifest(ids))
+
+
+def test_select_w_errors_when_blend_and_base_rows_disagree_on_coverage(tmp_path):
+    """[B2-2] An all-null-hash blend block normally means odds-absent
+    (excluded and counted) — but when the SAME fixture carries a non-null
+    odds_snapshot_hash on another row, coverage is incoherent across its
+    arms: error, never a silent exclusion of a covered fixture."""
+    def quality(method, w):
+        return 0.5
+
+    months = ["2023-01", "2023-02", "2023-03"]
+    rows, outcomes, ids = _month_fixtures(months, 1, quality)
+    absent_rows, absent_outcomes, absent_ids = _month_fixtures(
+        ["2023-01"], 1, quality, prefix="odd", hash_=None)
+    # ...but a base row claims the odds snapshot existed:
+    absent_rows.append(_dev_row(absent_ids[0], "2023-01-03", "dev_odds_shin",
+                                (0.5, 0.3, 0.2)))
+    rows += absent_rows
+    outcomes.update(absent_outcomes)
+    ids += absent_ids
+    path = _write_ledger(tmp_path / "dev_ledger.parquet", rows)
+    with pytest.raises(ValueError, match="incoherent|coverage"):
+        select_w(path, outcomes=outcomes, manifest=_manifest(ids))
+
+
 def test_select_w_requires_outcomes_and_enough_months(tmp_path):
     """A missing outcome for an included fixture is an ERROR (silent drops
     shrink the paired comparison asymmetrically); fewer than burn-in+1 months
@@ -609,6 +669,30 @@ def test_select_w_requires_outcomes_and_enough_months(tmp_path):
 # ------------------------------------------------------- selection trace
 
 
+def _consistent_stacking_payload(sel):
+    """A full StackingFit.trace_payload()-shaped mapping CONSISTENT with the
+    selection: same de-vig, same fold months, same fixture accounting — what
+    a real oof_stacking run over the same ledger produces."""
+    def params():
+        return {"c1": -0.4, "s": 0.1, "b_dc": 0.5, "b_odds": 0.9,
+                "b_elo": 0.1}
+    return {
+        "arm": "stacking",
+        "devig_method": sel.devig_method,
+        "feature_order": ["dc", "odds", "elo_ordlogit"],
+        "prior_sd": 3.0,
+        "params": params(),
+        "oof_rps": 0.19,
+        "n_fixtures": sel.n_fixtures,
+        "n_excluded_no_odds": sel.n_excluded_no_odds,
+        "folds": [
+            {"month": f.month, "n_train_fixtures": f.n_train_fixtures,
+             "n_fold_fixtures": f.n_fold_fixtures, "rps": 0.2,
+             "params": params()}
+            for f in sel.folds],
+    }
+
+
 def test_write_selection_trace_is_complete_and_deterministic(tmp_path):
     """The trace is what the V8 lock HASHES: it must carry the selected
     (w, de-vig), the stacking params, the full fold trace, the frozen spec
@@ -623,13 +707,7 @@ def test_write_selection_trace_is_complete_and_deterministic(tmp_path):
     path = _write_ledger(tmp_path / "dev_ledger.parquet", rows)
     sel = select_w(path, outcomes=outcomes, manifest=_manifest(ids))
 
-    stacking = {
-        "devig_method": "shin",
-        "feature_order": ["dc", "odds", "elo_ordlogit"],
-        "params": {"c1": -0.4, "s": 0.1, "b_dc": 0.5, "b_odds": 0.9,
-                   "b_elo": 0.1},
-        "oof_rps": 0.19,
-    }
+    stacking = _consistent_stacking_payload(sel)
     p1 = write_selection_trace(tmp_path / "trace_a.json", sel,
                                stacking=stacking)
     p2 = write_selection_trace(tmp_path / "trace_b.json", sel,
@@ -649,3 +727,47 @@ def test_write_selection_trace_is_complete_and_deterministic(tmp_path):
     assert len(doc["grid_mean_rps"]) == len(OA_DEVIG_METHODS) * len(W_GRID)
     assert doc["n_fixtures"] == 8
     assert doc["n_excluded_no_odds"] == 0
+
+
+def test_write_selection_trace_validates_stacking_consistency(tmp_path):
+    """[B2-2] The trace binds (w, de-vig, stacking params) as ONE artifact,
+    so the writer VALIDATES the pair before the lock can hash it: the
+    stacking payload must be trained under the SELECTED de-vig, over the SAME
+    fold months, with the SAME fixture accounting — and it must be the full
+    payload (a missing key is an error, not a smaller trace)."""
+    def quality(method, w):
+        return 0.85 - abs(w - 0.30)
+
+    months = ["2023-01", "2023-02", "2023-03", "2023-04"]
+    rows, outcomes, ids = _month_fixtures(months, 2, quality)
+    path = _write_ledger(tmp_path / "dev_ledger.parquet", rows)
+    sel = select_w(path, outcomes=outcomes, manifest=_manifest(ids))
+    good = _consistent_stacking_payload(sel)
+    out = tmp_path / "trace.json"
+    assert write_selection_trace(out, sel, stacking=good).exists()
+
+    wrong_method = dict(good)
+    wrong_method["devig_method"] = "multiplicative" \
+        if sel.devig_method == "shin" else "shin"
+    with pytest.raises(ValueError, match="de-vig|devig"):
+        write_selection_trace(out, sel, stacking=wrong_method)
+
+    wrong_months = dict(good)
+    wrong_months["folds"] = good["folds"][:-1]
+    with pytest.raises(ValueError, match="month"):
+        write_selection_trace(out, sel, stacking=wrong_months)
+
+    wrong_n = dict(good)
+    wrong_n["n_fixtures"] = sel.n_fixtures + 1
+    with pytest.raises(ValueError, match="fixture"):
+        write_selection_trace(out, sel, stacking=wrong_n)
+
+    wrong_excl = dict(good)
+    wrong_excl["n_excluded_no_odds"] = sel.n_excluded_no_odds + 3
+    with pytest.raises(ValueError, match="excluded"):
+        write_selection_trace(out, sel, stacking=wrong_excl)
+
+    for key in ("devig_method", "folds", "n_fixtures", "n_excluded_no_odds"):
+        partial = {k: v for k, v in good.items() if k != key}
+        with pytest.raises(ValueError, match="payload|missing"):
+            write_selection_trace(out, sel, stacking=partial)

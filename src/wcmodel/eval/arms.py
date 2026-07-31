@@ -53,7 +53,11 @@ import pandas as pd
 from scipy.optimize import minimize
 from scipy.special import expit, log_expit, logit
 
-from wcmodel.eval.blend import SELECTION_BURN_IN_MONTHS, require_dev_ledger
+from wcmodel.eval.blend import (
+    SELECTION_BURN_IN_MONTHS,
+    _covered_fixture_ids,
+    require_dev_ledger,
+)
 from wcmodel.eval.implied import OA_DEVIG_LABELS, OA_DEVIG_METHODS
 from wcmodel.model.calibration import rps
 
@@ -246,15 +250,29 @@ def _design(frame: pd.DataFrame, outcomes: Mapping[str, str], method: str):
 
     Returns ``(X, y, month_arr, n_excluded)`` in canonical (date,
     fixture_id) row order. Exclusion vs error is the coverage boundary: no
-    odds row -> the odds feature does not exist -> EXCLUDED and counted; a
-    missing DC/elo-ordlogit row, a null-hash odds row, disagreeing dates or
-    a missing outcome -> pipeline bug -> error.
+    odds row AND the fixture is genuinely uncovered -> the odds feature does
+    not exist -> EXCLUDED and counted; a missing DC/elo-ordlogit row, a
+    covered fixture (any non-null odds_snapshot_hash row in the frame —
+    B2-2's explicit expected set) missing its base rows or its
+    ``dev_odds_{method}`` row, a null-hash odds row, disagreeing dates or a
+    missing outcome -> pipeline bug -> error, never a silently smaller
+    stack.
     """
+    covered = _covered_fixture_ids(frame)
     odds_arm = f"dev_odds_{method}"
     keys = {_DC_ARM: "dc", odds_arm: "odds", _ELO_ARM: "elo_ordlogit"}
     rows: dict[str, dict[str, tuple]] = {}
     for row in frame[frame["arm"].isin(list(keys))].itertuples(index=False):
         rows.setdefault(str(row.fixture_id), {})[keys[str(row.arm)]] = row
+
+    baseless = sorted(covered - set(rows))
+    if baseless:
+        raise ValueError(
+            f"covered fixture(s) {baseless[:5]}"
+            f"{' ...' if len(baseless) > 5 else ''} carry non-null "
+            "odds_snapshot_hash rows but NONE of the stacking base arms — "
+            "the fixture would silently vanish from the stack (B2-2); every "
+            "covered fixture must carry its dc/odds/elo base block")
 
     included: dict[str, str] = {}
     n_excluded = 0
@@ -267,6 +285,12 @@ def _design(frame: pd.DataFrame, outcomes: Mapping[str, str], method: str):
                     "odds-free base arms exist for every dev fixture, so an "
                     "absent one is a pipeline bug, never odds absence")
         if "odds" not in got:
+            if fid in covered:
+                raise ValueError(
+                    f"fixture {fid!r} is covered (non-null "
+                    "odds_snapshot_hash rows exist in the ledger) but has "
+                    f"no {odds_arm} row — a covered fixture missing its "
+                    "odds base is a pipeline bug (B2-2), never odds absence")
             n_excluded += 1
             continue
         if pd.isna(got["odds"].odds_snapshot_hash):

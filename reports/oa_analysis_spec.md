@@ -8,7 +8,9 @@ it. A change after the lock is an amendment: a new `lock-v2.json` chaining
 issued under a superseded lock are invalidated.
 
 Governing documents: the prereg
-(`docs/superpowers/specs/2026-07-28-oa-prereg-DRAFT.md`, LOCKED at V8), the
+(`reports/oa_prereg.md` — relocated 2026-08-01 from the gitignored
+`docs/superpowers/specs/2026-07-28-oa-prereg-DRAFT.md` so the V8 lock hashes
+tracked, attributable bytes (finding B3-1); LOCKED at V8), the
 program design (`docs/superpowers/specs/2026-07-28-odds-anchored-accuracy-program-design.md`,
 OA-5), and the plan (`docs/superpowers/plans/2026-08-01-oa-plan2-acquisition-blend-verdict.md`,
 V7). It exists because Codex finding 6 (BLOCKER) and finding 12 (MAJOR) found
@@ -101,6 +103,13 @@ when `p~(i) <= 0.05`. Holm is chosen precisely because it is valid under
 ARBITRARY dependence between the four p-values, which is what common random
 numbers and shared fixtures guarantee they have.
 
+**Implementation** (added 2026-08-01, finding B3-5 — this rule is code, not
+prose): `power.holm_adjust` over the fixed family keys `power.HOLM_FAMILY ==
+("Eprime_other_devig", "stacking", "elo_ordlogit", "elo_dc_5050")`
+(`stacking` is S), raw-p ties broken by that fixed order, monotone-enforced
+adjusted p, rejection inclusive at α. A missing, extra, NaN or out-of-range
+member raises — the fixed-cardinality stance below, enforced at the call.
+
 **Family cardinality is fixed at four.** If any member cannot be computed —
 missing rows, a failed fit, an arm not issued — the analysis **errors**. It is
 never dropped, never re-weighted, never replaced.
@@ -135,8 +144,13 @@ secondaries.
 
 ## 3. Population
 
-Both populations are fixed by the V8 lock **without any outcome data** —
-eligibility depends only on the odds snapshot and the solver.
+Both populations are fixed by the V8 lock **entirely without outcome data**
+— eligibility depends only on the odds snapshot and the solver, and on
+NOTHING downstream of kickoff (amended 2026-08-01, finding B3-3: the
+availability of a verified 90′ result is itself outcome information and
+never enters eligibility — an earlier reading that excluded missing-90′
+fixtures "at lock time" contradicted the outcome-free freeze and is
+withdrawn).
 
 * **`covered` flag** (frozen at V8, per fixture): an admissible cut quote at
   `T_issue − 30 min` (`odds.admissible_quote`, STRICT `<` on both legs) **AND**
@@ -161,13 +175,28 @@ EXACTLY:
 
 * a fixture in the locked population with no ledger row for some arm ⇒ **ERROR**;
 * a ledger row for a fixture outside the locked population ⇒ **ERROR**;
-* a fixture with no verified 90′ regulation outcome ⇒ **ERROR** (the prereg
-  excludes such fixtures at lock time; encountering one after the lock means
-  the inventory and the results table disagree);
+* a locked fixture that cannot be settled at scoring time — no verified 90′
+  regulation outcome in `config/regulation_time_results.yaml` ⇒ **ERROR,
+  and the run produces NO verdict** (amended 2026-08-01, finding B3-3).
+  Eligibility was frozen without outcomes, so settlement availability can
+  never re-shape the population: the fixture is never silently dropped and
+  the population is never re-frozen. The remedy is outside the scorer —
+  complete the curated 90′ table from verified sources, or formally amend
+  the lock (`lock-v2.json` chaining `lock-v1.json`, dated prereg amendment)
+  — and only then can a verdict exist;
 * duplicate `(arm, fixture_id)` ⇒ already rejected by the ledger.
 
 No inner join, no `dropna`, no "score what we have". A missing row changes the
 paired set asymmetrically and is a bug, not a smaller sample.
+
+**ITT scope (pre-committed; amended 2026-08-01, finding B3-4): the ITT
+sensitivity is computed for the PRIMARY contrast only.** The four secondary
+contrasts are covered-population only and are never re-run under ITT: the
+incumbent-fallback construction is an odds-arm device (uncovered rows carry
+the incumbent bitwise, ΔRPS exactly 0.0), so for the odds-free members an
+ITT row is not even well-defined — their forecasts exist everywhere and
+"fallback" has no meaning — and re-running any secondary on a different
+population would break the family's common paired set (§2).
 
 ---
 
@@ -188,6 +217,14 @@ mean(ΔRPS | pool) > 0    AND    own-pool opposite-direction support >= 0.60
 
 the verdict is **`inconclusive-heterogeneous`**, not PASS. Nothing advances to
 AC2027 on a pooled average that one pool contradicts that strongly.
+
+**Implementation** (added 2026-08-01, finding B3-5): `power.sign_flip_veto`
+over per-pool `{n_blocks, mean_diff, opposite_support}` stats —
+`mean_diff > 0` strict, `opposite_support >= power.VETO_OPPOSITE_SUPPORT_REQ
+== 0.60` inclusive, zero-block pools skipped (they are not in the scan), an
+entirely empty scan an error. PASS-only downgrade semantics live in its
+docstring: a True return downgrades a primary PASS and can never rescue a
+FAIL.
 
 Deliberate properties of this rule, pre-committed rather than discovered
 later:

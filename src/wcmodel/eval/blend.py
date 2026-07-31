@@ -15,12 +15,12 @@ endpoints THEOREMS rather than aspirations:
   rates, so the blended per-draw rates ARE the model's and the mean grid is
   BITWISE the incumbent ``production_grid`` (pinned on a real Posterior).
 * ``w=1``: the blended rates are ``lam_book`` broadcast across the fixture
-  posterior's own rho draws — EXACTLY the averaged map the solver inverted —
-  so the 1X2 reproduces the de-vigged vector within the solver's 1e-6
-  residual tolerance, by definition. Widening is not part of that claim: it
-  is a per-team predictive reshaping applied downstream of the rates,
-  identically for every w (the implied.py contract), so a provisional
-  fixture's w=1 forecast is the WIDENED book map, deliberately.
+  posterior's own rho draws, finalized — EXACTLY the map the solver inverted
+  (B2-1 ruling: the solve goes through ``finalize_grid``, widening included,
+  with the same fixture context) — so the 1X2 reproduces the de-vigged
+  vector within the solver's 1e-6 residual tolerance for EVERY fixture,
+  provisional ones included: for those the solved rates already compensate
+  for the widening the blend applies.
 
 There is deliberately NO monotonicity-in-w guarantee and no test asserting
 one — finding 15 ruled it unsound (the map is nonlinear in the rates); the
@@ -35,12 +35,15 @@ owns the arm-name convention so writer and selector cannot drift) — and
 refuses anything else at runtime: a fixture outside the committed dev
 manifest, an arm without the dev_ prefix, a row stamped with a scored pool's
 name. Fold spec, verbatim in :data:`FOLD_SPEC` and pinned by test: monthly
-chronological folds, burn-in = first 2 months, fold t scored with the
-candidate chosen on folds < t, objective = mean canonical RPS
-(:func:`wcmodel.model.calibration.rps`), odds-absent fixtures excluded (they
-carry no signal about w), grid w in {0.00..1.00} step 0.05, ties to the
-smaller w (less market dependence) then the lexicographically smaller de-vig
-method. The FINAL (w, method) is the argmin over ALL dev months — the same
+chronological folds, burn-in = first 2 LEDGER months — THE single burn-in of
+the programme (B2-3 ruling): V5 archives OOF rows for EVERY feasible
+dev-slate month and must not pre-trim, so no second burn-in can stack
+underneath this one — fold t scored with the candidate chosen on folds < t,
+objective = mean canonical RPS (:func:`wcmodel.model.calibration.rps`),
+odds-absent fixtures excluded (they carry no signal about w), grid w in
+{0.00..1.00} step 0.05, ties to the smaller w (less market dependence) then
+the lexicographically smaller de-vig method. The FINAL (w, method) is the
+argmin over ALL dev months — the same
 rule extended one fold past the slate, which is exactly what deployment is.
 The de-vig choice runs through the same protocol over the OA set {shin,
 multiplicative} only (finding 13; labels like "basic" are reporting names,
@@ -82,21 +85,29 @@ from wcmodel.model.draw_api import (
 #: be spelled.
 W_GRID = tuple(round(i * 0.05, 2) for i in range(21))
 
-#: First N distinct dev months are training-only: the walk-forward needs a
-#: history before its first scored fold, and 2 months matches the V5 fit
-#: burn-in.
+#: First N distinct LEDGER months are training-only. This is THE single
+#: burn-in of the programme (B2-3 ruling): V5 archives OOF rows for EVERY
+#: feasible dev-slate month into the dev ledger — it must NOT pre-trim its
+#: first months — and the selection then reserves the first two LEDGER
+#: months as training-only history for the walk-forward. A V5 that trimmed
+#: months before archiving would silently compound two burn-ins and shrink
+#: the scoreable folds.
 SELECTION_BURN_IN_MONTHS = 2
 
 #: The fold spec, verbatim — pinned by test; editing it is a prereg
-#: amendment, not a refactor (finding 9).
+#: amendment, not a refactor (finding 9). Amended 2026-08-01 (B2-3): the
+#: burn-in is stated as a LEDGER property and V5's no-pre-trim contract is
+#: explicit, so a double burn-in cannot hide between the two tasks.
 FOLD_SPEC = (
-    "monthly chronological folds over the dev slate; burn-in = first 2 "
-    "months (training-only); fold t is scored with the (w, de-vig) pair "
-    "chosen by mean canonical RPS on folds < t; rows without admissible "
-    "odds are excluded from selection; grid w in {0.00, 0.05, ..., 1.00}; "
-    "ties break to the smaller w, then the lexicographically smaller "
-    "de-vig method; the final (w, de-vig) is the argmin over ALL dev "
-    "months")
+    "monthly chronological folds over the dev ledger, which archives "
+    "EVERY feasible dev-slate month (V5 must not pre-trim: the ledger "
+    "burn-in here is the programme's ONE burn-in); burn-in = first 2 "
+    "ledger months (training-only); fold t is scored with the (w, "
+    "de-vig) pair chosen by mean canonical RPS on folds < t; rows "
+    "without admissible odds are excluded from selection; grid w in "
+    "{0.00, 0.05, ..., 1.00}; ties break to the smaller w, then the "
+    "lexicographically smaller de-vig method; the final (w, de-vig) is "
+    "the argmin over ALL dev months")
 
 BLEND_ARM_PREFIX = "dev_blend_"
 
@@ -320,6 +331,17 @@ class BlendSelection:
     n_excluded_no_odds: int
 
 
+def _covered_fixture_ids(frame: pd.DataFrame) -> frozenset[str]:
+    """The EXPECTED covered-fixture set, derived explicitly (B2-2): every
+    fixture with ANY non-null ``odds_snapshot_hash`` row in the frame —
+    whatever the arm. A covered fixture that then lacks its complete block
+    for some consumer is a loud error, never a silent shrink of the
+    selection/stacking population."""
+    return frozenset(
+        frame.loc[frame["odds_snapshot_hash"].notna(), "fixture_id"]
+        .astype(str))
+
+
 def _blend_blocks(frame: pd.DataFrame):
     """Per-fixture candidate blocks from the dev ledger's blend rows:
     ``{fixture_id: {(method, w): (p_home, p_draw, p_away)}}`` plus the
@@ -327,13 +349,18 @@ def _blend_blocks(frame: pd.DataFrame):
     exact-cardinality stance — a partial block would make the candidate
     means incomparable, so it is an ERROR, never a drop):
 
+    * every EXPECTED covered fixture (any non-null odds_snapshot_hash row in
+      the frame, any arm — B2-2) carries blend rows at all: a covered
+      fixture with zero blend rows used to vanish from selection silently;
     * every included fixture carries the COMPLETE candidate grid;
     * a fixture whose blend rows all carry a null odds_snapshot_hash is
       odds-absent (the V9 incumbent-fallback convention) — EXCLUDED and
-      counted, whatever its row content, because such rows carry no signal
-      about w;
+      counted, because such rows carry no signal about w — UNLESS another
+      row of the same fixture carries a non-null hash, which makes its
+      coverage incoherent across arms: error;
     * a mixed null/non-null block is incoherent — error.
     """
+    covered = _covered_fixture_ids(frame)
     blocks: dict[str, dict[tuple[str, float], tuple[float, float, float]]] = {}
     dates: dict[str, set[str]] = {}
     null_flags: dict[str, set[bool]] = {}
@@ -351,6 +378,16 @@ def _blend_blocks(frame: pd.DataFrame):
         null_flags.setdefault(fid, set()).add(
             bool(pd.isna(row.odds_snapshot_hash)))
 
+    blockless = sorted(covered - set(blocks))
+    if blockless:
+        raise ValueError(
+            f"covered fixture(s) {blockless[:5]}"
+            f"{' ...' if len(blockless) > 5 else ''} carry non-null "
+            "odds_snapshot_hash rows but NO blend-candidate rows — the "
+            "fixture would silently vanish from selection (B2-2); every "
+            "covered fixture must carry the complete blend block (error, "
+            "never a drop)")
+
     full = set(_CANDIDATES)
     included: dict[str, str] = {}
     n_excluded = 0
@@ -367,6 +404,13 @@ def _blend_blocks(frame: pd.DataFrame):
                 f"fixture {fid!r} blend rows disagree on date: "
                 f"{sorted(dates[fid])}")
         if null_flags[fid] == {True}:
+            if fid in covered:
+                raise ValueError(
+                    f"fixture {fid!r} has an all-null-hash blend block, but "
+                    "another of its rows carries a non-null "
+                    "odds_snapshot_hash — its coverage is incoherent across "
+                    "arms (B2-2): error, never a silent exclusion of a "
+                    "covered fixture")
             n_excluded += 1
             continue
         if True in null_flags[fid]:
@@ -461,11 +505,48 @@ def write_selection_trace(path, selection: BlendSelection, *,
     together), the fold trace, the frozen spec text and the grid table.
     Serialization is deterministic (sorted keys, fixed layout) so the
     artifact's sha256 is a function of the selection alone.
+
+    The writer VALIDATES the pair before the lock can hash it (B2-2): the
+    stacking payload must be trained under the SELECTED de-vig method, over
+    the SAME fold months, with the SAME fixture accounting — both consume
+    the same dev ledger under the complete-block enforcement, so any
+    disagreement means the two halves of the artifact came from different
+    inputs. A missing payload key is an error, not a smaller trace.
     """
     if not isinstance(stacking, Mapping):
         raise ValueError(
             "stacking must be the stacking arm's trace payload mapping — "
             "the V8 lock binds (w, de-vig, stacking params) as ONE artifact")
+    required = ("devig_method", "folds", "n_fixtures", "n_excluded_no_odds")
+    absent = [k for k in required if k not in stacking]
+    if absent:
+        raise ValueError(
+            f"stacking trace payload is missing key(s) {absent} — pass the "
+            "full StackingFit.trace_payload() mapping, never a subset")
+    if stacking["devig_method"] != selection.devig_method:
+        raise ValueError(
+            f"stacking payload was trained under de-vig method "
+            f"{stacking['devig_method']!r} but the selection chose "
+            f"{selection.devig_method!r} — the trace binds ONE deployment "
+            "pair (B2-2)")
+    stack_months = [f["month"] for f in stacking["folds"]]
+    sel_months = [f.month for f in selection.folds]
+    if stack_months != sel_months:
+        raise ValueError(
+            f"stacking fold months {stack_months} disagree with the "
+            f"selection's {sel_months} — both consume the same dev ledger, "
+            "so the folds must coincide (B2-2)")
+    if int(stacking["n_fixtures"]) != selection.n_fixtures:
+        raise ValueError(
+            f"stacking n_fixtures {stacking['n_fixtures']} disagrees with "
+            f"the selection's {selection.n_fixtures} — same ledger, same "
+            "covered population (B2-2)")
+    if int(stacking["n_excluded_no_odds"]) != selection.n_excluded_no_odds:
+        raise ValueError(
+            f"stacking n_excluded_no_odds {stacking['n_excluded_no_odds']} "
+            f"disagrees with the selection's "
+            f"{selection.n_excluded_no_odds} — same ledger, same odds-absent "
+            "set (B2-2)")
     doc = {
         "schema": "oa-selection-trace-v1",
         "fold_spec": FOLD_SPEC,

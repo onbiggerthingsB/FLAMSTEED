@@ -1,20 +1,26 @@
-"""Book-implied goal rates through the REAL averaged production map, plus the
-OA de-vig set (OA Plan 2 v2, V2 / Codex findings 13 & 15).
+"""Book-implied goal rates through the REAL finalized production map, plus the
+OA de-vig set (OA Plan 2 v2, V2 / Codex findings 13 & 15, B2-1 ruling).
 
 :func:`solve_implied_rates` INVERTS the same per-draw map production forecasts
-come from: find ``(lam_h, lam_a)`` such that::
+come from, END TO END: find ``(lam_h, lam_a)`` such that::
 
-    mean_d grid(lam_h, lam_a, rho_d)  ->  1X2  ==  the de-vigged book vector
+    finalize(mean_d grid(lam_h, lam_a, rho_d))  ->  1X2  ==  the de-vigged
+                                                             book vector
 
 with ``rho_d`` the fixture posterior's OWN rho draws — never a single
 collapsed rho, never a Skellam/independent-Poisson stand-in (the incoherence
 finding 15 closed), and never a different truncation (``max_goals`` defaults
 to the frozen production constant and is pinned by the draw-api caller test).
-The E' blend (V6) substitutes ``lam_book`` into the per-draw rate blend, so at
-``w=1`` the blended forecast reproduces the de-vigged vector BY THIS
-DEFINITION. Widening is NOT part of the inversion: the book rates are defined
-by the averaged map itself; widening is a per-TEAM predictive reshaping the
-production path applies downstream of the rates, identically for every ``w``.
+``finalize`` is the production finalization leg
+(:func:`wcmodel.model.draw_api.finalize_grid`): mechanism-'c' widening when
+the fixture is provisional, final renormalization always — which is why the
+solve takes the FIXTURE CONTEXT, whose team identities decide the provisional
+flag. The E' blend (V6) substitutes ``lam_book`` into the per-draw rate blend
+and finalizes identically, so at ``w=1`` the blended forecast reproduces the
+de-vigged vector BY THIS DEFINITION — for EVERY fixture, provisional ones
+included. (B2-1 closed the earlier incoherence: inverting the unwidened map
+while the blend widens put the w=1 endpoint ~0.029 off the de-vigged vector
+on provisional fixtures.)
 
 Acceptance is deliberately strict (finding 15): ``least_squares`` within the
 rate box ``RATE_BOUNDS``, residual below ``RESIDUAL_TOL`` in EVERY 1X2
@@ -42,6 +48,7 @@ from scipy.optimize import least_squares
 from wcmodel.data import devig as _devig
 from wcmodel.model.draw_api import (
     PRODUCTION_MAX_GOALS,
+    finalize_grid,
     grid_one_x_two,
     mean_grid_over_draws,
 )
@@ -104,26 +111,38 @@ def oa_devig(odds: list[float], *, method: str) -> list[float]:
     return _OA_DEVIG_FUNCS[resolved](odds)
 
 
-def solve_implied_rates(posterior, target, *,
+def solve_implied_rates(posterior, fixture_ctx, target, *,
                         max_goals: int = PRODUCTION_MAX_GOALS
                         ) -> tuple[float, float] | None:
-    """Solve ``(lam_h, lam_a)`` so the averaged production map hits ``target``.
+    """Solve ``(lam_h, lam_a)`` so the FINALIZED production map hits ``target``.
 
     ``target`` is the de-vigged ``(p_home, p_draw, p_away)``; ``posterior`` is
-    the fixture's OWN posterior (its rho draws define the map — finding 3).
+    the fixture's OWN posterior (its rho draws define the map — finding 3);
+    ``fixture_ctx`` is the fixture's :class:`~wcmodel.model.draw_api.FixtureCtx`
+    (B2-1 ruling): the map inverted is candidate rates broadcast across the
+    posterior's rho draws -> per-draw correction + renorm -> mean ->
+    ``finalize_grid`` (mechanism-'c' widening when the fixture is provisional,
+    final renormalization always) -> 1X2. Only the ctx's team identities enter
+    (they decide the provisional flag); neutral/host/covariates shape the
+    MODEL rates, not the rate->1X2 map, so they cannot move the inversion.
     Returns the rate pair, or ``None`` when the solve fails ANY acceptance leg
     (non-convergence, residual >= ``RESIDUAL_TOL``, or the two starts
     disagreeing) — fail closed, the fixture is odds-uncovered downstream.
+    Widening compresses the reachable 1X2 set, so a target reachable through
+    the unwidened map may be unreachable for a provisional fixture: that is
+    the CORRECT fail-closed outcome, never a reason to invert a different map.
 
     A MALFORMED target (wrong shape, non-finite, a component outside the open
     interval (0, 1), or a sum off 1 by more than 1e-6 — beyond which no
     distribution can match every component to ``RESIDUAL_TOL`` anyway) is a
     caller bug and raises ``ValueError``; ``None`` is reserved for well-posed
     but unreachable targets (finding 10's population accounting counts None
-    rows as uncovered). A non-Dixon-Coles posterior is refused loudly: the
-    solve inverts the PRODUCTION map, whose dependence correction is the
-    per-draw rho — extending it to another likelihood is a prereg change, not
-    a silent fallback.
+    rows as uncovered). An unknown team raises ``KeyError`` (the predict
+    contract — a silent not-provisional guess would invert the wrong map). A
+    non-Dixon-Coles posterior is refused loudly: the solve inverts the
+    PRODUCTION map, whose dependence correction is the per-draw rho —
+    extending it to another likelihood is a prereg change, not a silent
+    fallback.
     """
     t = np.asarray(target, dtype=float)
     if t.shape != (3,) or not np.all(np.isfinite(t)):
@@ -140,6 +159,11 @@ def solve_implied_rates(posterior, target, *,
             f"(per-draw rho); a {posterior.likelihood!r} posterior carries no "
             "rho draws — extending the OA solve to another likelihood is a "
             "prereg change, not a fallback")
+    for team in (fixture_ctx.home, fixture_ctx.away):
+        if team not in posterior._idx:
+            raise KeyError(team)
+    provisional = (fixture_ctx.home in posterior.provisional_teams) \
+        or (fixture_ctx.away in posterior.provisional_teams)
 
     rho = posterior._post("rho")
     S = rho.shape[-1]
@@ -148,10 +172,13 @@ def solve_implied_rates(posterior, target, *,
         lam_h, lam_a = x
         # Constant candidate rates broadcast across the fixture posterior's
         # draws, through the EXACT production averaging (per-draw tau at each
-        # rho_d, per-draw renorm, mean) and 1X2 projection.
+        # rho_d, per-draw renorm, mean), the finalization leg (widening iff
+        # the fixture is provisional, renorm always — B2-1) and the 1X2
+        # projection: the very map the E' blend evaluates at w=1.
         grid = mean_grid_over_draws(
             np.full(S, lam_h), np.full(S, lam_a),
             likelihood="dixon_coles", rho=rho, max_goals=max_goals)
+        grid = finalize_grid(grid, posterior, provisional=provisional)
         p = grid_one_x_two(grid)
         return np.array([p["home"] - t[0], p["draw"] - t[1], p["away"] - t[2]])
 

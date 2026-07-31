@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from wcmodel.dashboard.spread import cover_line
+from wcmodel.model.draw_api import PRODUCTION_MAX_GOALS
 
 
 def scoreline_shortlist(grid: np.ndarray, *, top: int = 6) -> list[dict]:
@@ -20,7 +21,8 @@ def scoreline_shortlist(grid: np.ndarray, *, top: int = 6) -> list[dict]:
 
 
 def fixture_forecast(posterior, *, home: str, away: str, neutral: bool,
-                     max_goals: int = 10, top: int = 6, host_factor: float | None = None) -> dict:
+                     max_goals: int = PRODUCTION_MAX_GOALS, top: int = 6,
+                     host_factor: float | None = None) -> dict:
     """The forecast for one fixture: most-likely score (with its prob), the shortlist, the
     full joint grid, and the 1X2 split — the score never appears without its probability.
 

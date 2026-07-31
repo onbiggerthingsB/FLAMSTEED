@@ -233,6 +233,37 @@ def test_oof_stacking_excludes_odds_absent_and_errors_on_missing_base(tmp_path):
                      devig_method="shin")
 
 
+def test_oof_stacking_errors_when_a_covered_fixture_lacks_its_bases(tmp_path):
+    """[LOAD-BEARING, B2-2] A covered fixture (rows with a non-null
+    odds_snapshot_hash anywhere in the frame) must carry its stacking base
+    block — silence would make the fixture VANISH from the stack. Two
+    escapes are closed, both errors NAMING the fixture: (a) a covered
+    fixture with none of the three base arms at all (e.g. only blend rows
+    were archived); (b) a covered fixture whose odds row exists only under
+    the OTHER de-vig method — previously counted as 'odds-absent', which a
+    covered fixture never is."""
+    rng = np.random.default_rng(21)
+    months = ["2023-01", "2023-02", "2023-03"]
+    rows, outcomes, ids = _informative_ledger(rng, months, 12)
+
+    lost = rows + [_dev_row("dev-lost", "2023-01-05", "dev_blend_shin_w0.10",
+                            _world(0.2))]
+    path = _write_ledger(tmp_path / "no_bases.parquet", lost)
+    with pytest.raises(ValueError, match="dev-lost"):
+        oof_stacking(path, outcomes={**outcomes, "dev-lost": "home"},
+                     manifest=_manifest(ids + ["dev-lost"]),
+                     devig_method="shin")
+
+    other_method = rows + _base_rows("dev-other", "2023-01-06", _world(0.1),
+                                     _world(0.4), _world(-0.2),
+                                     method="multiplicative")
+    path = _write_ledger(tmp_path / "other_method.parquet", other_method)
+    with pytest.raises(ValueError, match="dev-other"):
+        oof_stacking(path, outcomes={**outcomes, "dev-other": "away"},
+                     manifest=_manifest(ids + ["dev-other"]),
+                     devig_method="shin")
+
+
 def test_oof_stacking_requires_outcomes_manifest_and_months(tmp_path):
     """Same dev-only diet as select_w: manifest membership at runtime, an
     outcome for every included fixture, and enough months for at least one

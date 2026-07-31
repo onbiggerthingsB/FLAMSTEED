@@ -12,13 +12,17 @@ positive within-block correlation. ``generation="block"`` resamples whole
 (pool, matchday) blocks instead; :func:`within_block_correlation` measures the
 correlation and :func:`generation_for_correlation` applies the pre-committed
 0.05 threshold that decides which generation the lock re-states the MDE under.
-The decision rule itself lives here too (:data:`GATE_FLOOR`,
-:data:`GATE_SUPPORT_REQ`, :func:`gate_pass`) so the simulator, the MDE runner
-and the scored-pool scorer cannot drift apart from the analysis spec
-(``reports/oa_analysis_spec.md``).
+The decision rules themselves live here too (:data:`GATE_FLOOR`,
+:data:`GATE_SUPPORT_REQ`, :func:`gate_pass`; the secondary family's
+:func:`holm_adjust` over the fixed four-member :data:`HOLM_FAMILY`; the
+per-pool :func:`sign_flip_veto` — B3-5: prose in the analysis spec is not an
+implementation) so the simulator, the MDE runner and the scored-pool scorer
+cannot drift apart from the analysis spec (``reports/oa_analysis_spec.md``).
 """
 from __future__ import annotations
 
+import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Sequence
 
@@ -253,3 +257,123 @@ def mde(rows: Sequence[tuple[float, float]], *,
         if p >= target:
             return d
     return None
+
+
+# --------------------------------------------- Holm family + sign-flip veto
+
+
+#: The secondary Holm family — EXACTLY the four contrasts of
+#: ``reports/oa_analysis_spec.md`` §2, in the spec table's fixed order
+#: (which is also the raw-p tie-break order). ``stacking`` is the spec's S.
+#: Cardinality is FIXED (finding 6): :func:`holm_adjust` refuses any other
+#: key set, so a member that cannot be computed errors the analysis rather
+#: than being dropped, re-weighted or replaced.
+HOLM_FAMILY = ("Eprime_other_devig", "stacking", "elo_ordlogit",
+               "elo_dc_5050")
+
+#: Pre-registered family-wise level for the Holm step-down, one-sided.
+HOLM_ALPHA = 0.05
+
+#: Pre-registered opposite-direction support at which a positive-mean pool
+#: vetoes a primary PASS (inclusive at the constant).
+VETO_OPPOSITE_SUPPORT_REQ = 0.60
+
+
+def holm_adjust(pvalues: Mapping[str, float],
+                alpha: float = HOLM_ALPHA) -> dict:
+    """Holm step-down over the FIXED four-member secondary family (B3-5).
+
+    ``pvalues`` maps EXACTLY the :data:`HOLM_FAMILY` keys to one-sided raw
+    p-values in [0, 1]; anything else — a missing member, an extra key, a
+    NaN/None/out-of-range value — raises ``ValueError`` (the analysis-spec
+    stance: the family cardinality is fixed at four, and a member that
+    cannot be computed errors the whole analysis). Raw-p ties break by the
+    family's fixed table order, so the output is deterministic.
+
+    Returns ``{member: {"p_raw", "p_adjusted", "reject"}}`` with the
+    monotone-enforced adjusted p ``p~(i) = max_{j<=i} min(1, (m-j+1) p(j))``
+    and ``reject = p~ <= alpha`` (INCLUSIVE at the constant). Holm is valid
+    under arbitrary dependence between the four p-values — which common
+    random numbers and shared fixtures guarantee they have.
+    """
+    unexpected = sorted(set(pvalues) - set(HOLM_FAMILY))
+    absent = sorted(set(HOLM_FAMILY) - set(pvalues))
+    if unexpected or absent:
+        raise ValueError(
+            f"the Holm family is EXACTLY {HOLM_FAMILY} (fixed cardinality — "
+            f"finding 6); got unexpected member(s) {unexpected}, missing "
+            f"member(s) {absent}")
+    clean: dict[str, float] = {}
+    for member in HOLM_FAMILY:
+        v = pvalues[member]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) \
+                or not math.isfinite(float(v)) or not 0.0 <= float(v) <= 1.0:
+            raise ValueError(
+                f"member {member!r} carries p={v!r}: every family member "
+                "needs a finite p-value in [0, 1] — an uncomputable member "
+                "errors the analysis, it is never dropped")
+        clean[member] = float(v)
+
+    m = len(HOLM_FAMILY)
+    order = sorted(HOLM_FAMILY, key=lambda k: (clean[k], HOLM_FAMILY.index(k)))
+    adjusted: dict[str, float] = {}
+    running = 0.0
+    for i, member in enumerate(order):
+        running = max(running, min(1.0, (m - i) * clean[member]))
+        adjusted[member] = running
+    return {
+        member: {"p_raw": clean[member], "p_adjusted": adjusted[member],
+                 "reject": bool(adjusted[member] <= alpha)}
+        for member in HOLM_FAMILY
+    }
+
+
+def sign_flip_veto(per_pool_stats: Mapping[str, Mapping]) -> bool:
+    """The analysis-spec §4 sign-flip veto, one implementation (B3-5).
+
+    ``per_pool_stats`` maps each pool in the scan to a mapping with
+    ``n_blocks`` (that pool's (pool, matchday) block count in the primary
+    population), ``mean_diff`` (its mean paired ΔRPS) and
+    ``opposite_support`` (the fraction of its own-pool bootstrap means
+    strictly > 0). Returns True iff ANY pool has ``mean_diff > 0`` (strict)
+    AND ``opposite_support >= 0.60`` (inclusive at the constant).
+
+    Zero-block pools are SKIPPED — a pool contributing nothing to the
+    primary population is not in the scan and its support is undefined — but
+    an entirely empty scan raises: a passed gate implies a non-empty primary
+    population, so "no pool to scan" is a caller bug, not a no-veto. There
+    is deliberately NO minimum pool size beyond that: a single-block pool
+    has degenerate support (0 or 1) and CAN veto alone — accepted, because
+    the only consequence is inconclusiveness, the conservative direction.
+
+    PASS-only downgrade semantics: a True return downgrades a primary-gate
+    PASS to the ``inconclusive-heterogeneous`` verdict — it can NEVER rescue
+    a FAIL, so callers consult it only after ``gate_pass(...)`` is True, and
+    per-pool effects are reported whatever the verdict.
+    """
+    scanned = 0
+    for pool_name in sorted(per_pool_stats):
+        stats = per_pool_stats[pool_name]
+        n_blocks = int(stats["n_blocks"])
+        if n_blocks < 0:
+            raise ValueError(f"pool {pool_name!r}: negative n_blocks")
+        if n_blocks == 0:
+            continue                     # not in the primary population
+        scanned += 1
+        mean_diff = float(stats["mean_diff"])
+        opposite = float(stats["opposite_support"])
+        if not math.isfinite(mean_diff):
+            raise ValueError(
+                f"pool {pool_name!r}: mean_diff must be finite, got nan/inf")
+        if not (math.isfinite(opposite) and 0.0 <= opposite <= 1.0):
+            raise ValueError(
+                f"pool {pool_name!r}: opposite_support must be a finite "
+                f"fraction in [0, 1], got {opposite!r}")
+        if mean_diff > 0.0 and opposite >= VETO_OPPOSITE_SUPPORT_REQ:
+            return True
+    if scanned == 0:
+        raise ValueError(
+            "no pool with any block in the scan — the primary population "
+            "cannot be empty when the gate passed; passing an empty scan is "
+            "a caller bug, not a no-veto")
+    return False
