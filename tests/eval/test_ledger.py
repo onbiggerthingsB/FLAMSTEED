@@ -22,12 +22,17 @@ SRC = Path(__file__).resolve().parents[2] / "src"
 
 
 def _row(**over):
+    # The default fixture is itself a UTC-rollover case (19:00 UTC-6 on local
+    # matchday 2026-06-12 kicks off 2026-06-13T01:00Z): date is the
+    # venue-LOCAL matchday, and every test that uses the default row rides on
+    # that convention being the accepted one.
     row = {
         "fixture_id": "wc2026-0001",
         "pool": "wc2026",
         "date": "2026-06-12",
         "home": "Mexico",
         "away": "Poland",
+        "kickoff_utc": datetime(2026, 6, 13, 1, 0, tzinfo=UTC),
         "t_issue": datetime(2026, 6, 12, 9, 0, tzinfo=UTC),
         "training_cutoff": datetime(2026, 6, 12, 9, 0, tzinfo=UTC),
         "arm": "incumbent",
@@ -54,6 +59,7 @@ def test_round_trip_preserves_dtypes_tz_and_nullable_hash(tmp_path):
     # tz survives the parquet round-trip as UTC, not as a naive local stamp.
     assert str(df["t_issue"].dt.tz) == "UTC"
     assert str(df["training_cutoff"].dt.tz) == "UTC"
+    assert str(df["kickoff_utc"].dt.tz) == "UTC"
     assert df["t_issue"].tolist() == [pd.Timestamp("2026-06-12 09:00", tz="UTC")] * 2
     assert df["p_home"].tolist() == [0.5, 0.4]
     assert df["odds_snapshot_hash"].tolist()[0] == "a" * 64
@@ -225,11 +231,13 @@ from wcmodel.eval.ledger import LedgerWriter
 path, arm = sys.argv[1], sys.argv[2]
 barrier, n = pathlib.Path(sys.argv[3]), int(sys.argv[4])
 stamp = datetime.datetime(2026, 6, 12, 9, 0, tzinfo=datetime.timezone.utc)
+kick = datetime.datetime(2026, 6, 13, 1, 0, tzinfo=datetime.timezone.utc)
 w = LedgerWriter(path)
 for i in range(n):
     w.append(dict(
         fixture_id="wc2026-%04d" % i, pool="wc2026", date="2026-06-12",
-        home="Mexico", away="Poland", t_issue=stamp, training_cutoff=stamp,
+        home="Mexico", away="Poland", kickoff_utc=kick,
+        t_issue=stamp, training_cutoff=stamp,
         arm=arm, p_home=0.5, p_draw=0.25, p_away=0.25,
         issued_git="deadbee", odds_snapshot_hash=None))
 (barrier / (arm + ".ready")).touch()
@@ -341,6 +349,76 @@ def test_t_issue_accepts_an_equivalent_offset_and_normalizes_to_utc(tmp_path):
     assert load_ledger(path)["t_issue"][0] == pd.Timestamp("2026-06-12 09:00", tz="UTC")
 
 
+def test_wc2026_rollover_fixture_pins_local_matchday_not_utc_date(tmp_path):
+    """The ledger date is the venue-LOCAL matchday of kickoff, NOT the UTC
+    calendar date of the kickoff instant — and the two differ on 36 of the 104
+    WC-2026 fixtures (evening Americas kickoffs roll past midnight UTC).
+
+    Concrete case (config/tournament_2026.yaml): South Korea v Czech Republic,
+    local 2026-06-11 20:00 UTC-6 = kickoff 2026-06-12T02:00Z. Local-matchday
+    row: t_issue 2026-06-11T09:00Z, 17 h pre-kickoff — accepted. The UTC-date
+    misjoin (the natural-looking join key, since The Odds API reports
+    commence_time in UTC) lands t_issue at 2026-06-12T09:00Z — 7 h AFTER
+    kickoff — with an odds cut of 08:30Z that is post-kickoff too, so
+    admissible_quote alone happily admits an in-play price against it. Only
+    the ledger's kickoff invariant can refuse that row."""
+    kickoff = datetime(2026, 6, 12, 2, 0, tzinfo=UTC)
+    path = tmp_path / "ledger.parquet"
+    with LedgerWriter(path) as w:
+        w.append(_row(
+            fixture_id="wc2026-a1", date="2026-06-11",
+            home="South Korea", away="Czech Republic", kickoff_utc=kickoff,
+            t_issue=datetime(2026, 6, 11, 9, 0, tzinfo=UTC),
+            training_cutoff=datetime(2026, 6, 11, 9, 0, tzinfo=UTC)))
+    assert load_ledger(path)["kickoff_utc"][0] == pd.Timestamp(
+        "2026-06-12 02:00", tz="UTC")
+
+    misjoined_t_issue = datetime(2026, 6, 12, 9, 0, tzinfo=UTC)
+    in_play = misjoined_t_issue - timedelta(minutes=31)  # 08:29Z, 6.5 h in-match
+    assert in_play > kickoff
+    assert admissible_quote(in_play, in_play, misjoined_t_issue) is True
+    w2 = LedgerWriter(path)
+    with pytest.raises(ValueError, match="strictly before kickoff_utc"):
+        w2.append(_row(
+            fixture_id="wc2026-a1", arm="eprime", date="2026-06-12",
+            home="South Korea", away="Czech Republic", kickoff_utc=kickoff,
+            t_issue=misjoined_t_issue, training_cutoff=misjoined_t_issue))
+
+
+def test_t_issue_at_or_after_kickoff_rejected(tmp_path):
+    """The pre-kickoff invariant is STRICT: issuing AT kickoff already scores
+    an in-play information set (OA F2)."""
+    w = LedgerWriter(tmp_path / "ledger.parquet")
+    with pytest.raises(ValueError, match="strictly before kickoff_utc"):
+        w.append(_row(kickoff_utc=datetime(2026, 6, 12, 9, 0, tzinfo=UTC)))
+    # the boundary: any kickoff strictly after t_issue is admissible
+    w.append(_row(kickoff_utc=datetime(2026, 6, 12, 9, 0, 1, tzinfo=UTC)))
+    w.flush()
+
+
+def test_kickoff_must_be_tz_aware_and_non_null(tmp_path):
+    w = LedgerWriter(tmp_path / "ledger.parquet")
+    with pytest.raises(ValueError, match="tz-aware"):
+        w.append(_row(kickoff_utc=datetime(2026, 6, 13, 1, 0)))
+    with pytest.raises(ValueError, match="must not be null"):
+        w.append(_row(kickoff_utc=None))
+
+
+def test_load_ledger_rejects_a_post_kickoff_t_issue(tmp_path):
+    """The load-path twin: a foreign writer that joined on the UTC date wrote
+    a post-kickoff t_issue; re-validation must refuse the file."""
+    path = tmp_path / "ledger.parquet"
+    with LedgerWriter(path) as w:
+        w.append(_row())
+    df = load_ledger(path)
+    # default row's kickoff 2026-06-13T01:00Z pulled to 02:00Z on the 12th —
+    # now 7 h before the stored t_issue 09:00Z, the misjoin's exact shape
+    df["kickoff_utc"] = df["kickoff_utc"] - pd.Timedelta(hours=23)
+    df.to_parquet(path, engine="pyarrow", index=False)
+    with pytest.raises(ValueError, match="strictly before kickoff_utc"):
+        load_ledger(path)
+
+
 def test_date_accepts_date_objects_and_pads(tmp_path):
     path = tmp_path / "ledger.parquet"
     with LedgerWriter(path) as w:
@@ -379,7 +457,7 @@ def test_load_ledger_revalidates_a_tampered_file(tmp_path):
 
 
 @pytest.mark.parametrize("mangle", ["string", "naive"])
-@pytest.mark.parametrize("col", ["t_issue", "training_cutoff"])
+@pytest.mark.parametrize("col", ["t_issue", "training_cutoff", "kickoff_utc"])
 def test_load_ledger_rejects_stamp_columns_that_are_not_tz_aware(tmp_path, col, mangle):
     """The load-path twin of ``test_naive_timestamps_rejected``. A foreign
     writer in, say, Europe/Paris emitting naive wall-clock stamps must fail
@@ -469,6 +547,7 @@ w = LedgerWriter({path!r})
 w.append(dict(
     fixture_id="wc2026-0001", pool="wc2026", date="2026-06-12",
     home="Mexico", away="Poland",
+    kickoff_utc=datetime.datetime(2026, 6, 13, 1, 0, tzinfo=datetime.timezone.utc),
     t_issue=datetime.datetime(2026, 6, 12, 9, 0, tzinfo=datetime.timezone.utc),
     training_cutoff=datetime.datetime(2026, 6, 12, 9, 0, tzinfo=datetime.timezone.utc),
     arm="incumbent", p_home=0.5, p_draw=0.25, p_away=0.25,

@@ -8,7 +8,15 @@ later in the analysis:
 
 * ``t_issue`` is exactly 09:00 UTC on the fixture's matchday — the prereg
   default IS the estimand (F2/F9). A drifted config must fail loudly rather
-  than quietly re-define what is being measured.
+  than quietly re-define what is being measured. ``date`` is the venue-LOCAL
+  matchday of kickoff, NOT the UTC calendar date of the kickoff instant: the
+  two differ on 36 of the 104 WC-2026 fixtures (evening Americas kickoffs
+  roll past midnight UTC), and a UTC-date join puts a 09:00-UTC t_issue
+  5-9 hours AFTER kickoff.
+* ``t_issue < kickoff_utc``, strictly — the pre-kickoff invariant that makes
+  the local-matchday convention enforceable per-row rather than a matter of
+  reading: whatever join produced the row, a t_issue at or after kickoff is
+  an in-play information set and is rejected.
 * ``training_cutoff <= t_issue`` — the information-set rule (F2). A fit may
   not have seen the future the forecast is scored against.
 * probabilities are a distribution, and one (arm, fixture) appears once.
@@ -38,6 +46,7 @@ LEDGER_DTYPES: dict[str, str] = {
     "date": "str",
     "home": "str",
     "away": "str",
+    "kickoff_utc": "datetime64[us, UTC]",
     "t_issue": "datetime64[us, UTC]",
     "training_cutoff": "datetime64[us, UTC]",
     "arm": "str",
@@ -142,9 +151,18 @@ def _validate(row: dict, seen: set[tuple[str, str]]) -> dict:
             raise ValueError(f"{field} must not be blank")
 
     out["date"] = _norm_date(out["date"])
+    out["kickoff_utc"] = _norm_ts(out["kickoff_utc"], "kickoff_utc")
     out["t_issue"] = _norm_ts(out["t_issue"], "t_issue")
     out["training_cutoff"] = _norm_ts(out["training_cutoff"], "training_cutoff")
     _check_t_issue(out["t_issue"], out["date"])
+    if out["t_issue"] >= out["kickoff_utc"]:
+        raise ValueError(
+            f"t_issue {out['t_issue'].isoformat()} is not strictly before "
+            f"kickoff_utc {out['kickoff_utc'].isoformat()} — a forecast "
+            "issued at or after kickoff scores an in-play information set. "
+            "The ledger date is the venue-LOCAL matchday: joining fixtures "
+            "on the UTC calendar date of kickoff lands t_issue hours after "
+            "evening Americas kickoffs (OA F2)")
     if out["training_cutoff"] > out["t_issue"]:
         raise ValueError(
             f"training_cutoff {out['training_cutoff'].isoformat()} is after "
@@ -316,7 +334,7 @@ def load_ledger(path: Path | str) -> pd.DataFrame:
     extra = [c for c in df.columns if c not in LEDGER_DTYPES]
     if extra:
         raise ValueError(f"unknown ledger column(s) {extra} in {path}")
-    for field in ("t_issue", "training_cutoff"):
+    for field in ("kickoff_utc", "t_issue", "training_cutoff"):
         # BEFORE the coercion below, which would read a naive or string stamp
         # AS UTC: a foreign writer's local wall clock would land an instant
         # off by its offset and then pass every remaining check, including
