@@ -286,24 +286,30 @@ def test_fetch_historical_persists_raw_response_and_returns_hash(tmp_path):
 def test_fetch_historical_events_discovers_event_rows(tmp_path):
     from wcmodel.data.sources.odds import fetch_historical_events
     transport, requests = _capture(_events_payload())
-    rows = fetch_historical_events(
+    out = fetch_historical_events(
         "soccer_fifa_world_cup", "2022-11-30T18:00:00Z", "test-key",
         raw_dir=tmp_path, transport=transport)
     (req,) = requests
     assert req.url.path == "/v4/historical/sports/soccer_fifa_world_cup/events"
     assert req.url.params["date"] == "2022-11-30T18:00:00Z"
-    # Discovery is PAID too: every row carries the archived response's sha256,
-    # so a probe's "event found y/n" claim has citable provenance instead of
-    # discarding the hash the archive already computed (review fix 6c).
+    # Discovery is PAID too, and provenance is RESPONSE-level (Codex finding
+    # 4): ONE paid response, ONE hash, carried on the envelope — hanging it
+    # on per-event rows lost it on exactly the empty/miss branches a
+    # coverage dispute audits ("event found: n" cited no hash at all).
     (raw,) = tmp_path.glob("*.json")
     digest = raw.stem
     assert hashlib.sha256(raw.read_bytes()).hexdigest() == digest
-    assert rows == [
-        {"event_id": "evt_NED_USA", "commence_time": "2022-12-03T15:00:00Z",
-         "home": "Netherlands", "away": "United States", "raw_sha256": digest},
-        {"event_id": "evt_ARG_AUS", "commence_time": "2022-12-03T19:00:00Z",
-         "home": "Argentina", "away": "Australia", "raw_sha256": digest},
-    ]
+    assert out == {
+        "raw_sha256": digest,
+        "events": [
+            {"event_id": "evt_NED_USA",
+             "commence_time": "2022-12-03T15:00:00Z",
+             "home": "Netherlands", "away": "United States"},
+            {"event_id": "evt_ARG_AUS",
+             "commence_time": "2022-12-03T19:00:00Z",
+             "home": "Argentina", "away": "Australia"},
+        ],
+    }
 
 
 def test_fetch_historical_events_gated_without_key(tmp_path):
@@ -645,12 +651,17 @@ def test_fetch_historical_events_refuses_dict_payload_without_data(tmp_path):
 
 def test_fetch_historical_events_empty_data_is_a_genuine_no_events(tmp_path):
     # Contrast pin for the guard's boundary: 'data' PRESENT and empty is the
-    # API's real "nothing scheduled here" answer — [] stays the result.
+    # API's real "nothing scheduled here" answer — zero events, but STILL a
+    # paid response whose envelope hash stays citable (Codex finding 4).
     from wcmodel.data.sources.odds import fetch_historical_events
     transport, _ = _capture({"timestamp": "2022-11-30T18:00:00Z", "data": []})
-    assert fetch_historical_events(
+    out = fetch_historical_events(
         "soccer_fifa_world_cup", "2022-11-30T18:00:00Z", "test-key",
-        raw_dir=tmp_path, transport=transport) == []
+        raw_dir=tmp_path, transport=transport)
+    assert out["events"] == []
+    (raw,) = tmp_path.glob("*.json")
+    assert out["raw_sha256"] == raw.stem         # the empty answer, archived
+    assert len(out["raw_sha256"]) == 64
 
 
 # ---------- (review round 4, fix 1) event identity holds ACROSS snapshots
@@ -776,6 +787,50 @@ def test_fetch_historical_refuses_non_dict_payload(tmp_path):
         fetch_historical("evt_NED_USA", "2022-11-30T18:00:00Z", "SECRET-key",
                          sport_key="soccer_fifa_world_cup",
                          raw_dir=tmp_path, transport=transport)
+
+
+# --------- (Codex cross-review, finding 6) sport-key validation, both routes
+
+
+def test_blank_or_nonstring_sport_keys_never_reach_the_paid_transport(
+        tmp_path):
+    # fetch_historical rejected only None, and the discovery route validated
+    # nothing at all: sport_key="" placed a PAID request to the malformed
+    # route /historical/sports//events. ONE shared validator refuses
+    # non-string and blank/whitespace keys on BOTH endpoints BEFORE any
+    # logger/client/transport work.
+    from wcmodel.data.sources.odds import (
+        fetch_historical, fetch_historical_events)
+    for bad in (None, "", "   ", "\t\n", 42):
+        transport, requests = _capture(_events_payload())
+        with pytest.raises(ValueError, match="sport_key"):
+            fetch_historical_events(bad, "2022-11-30T18:00:00Z", "test-key",
+                                    raw_dir=tmp_path, transport=transport)
+        assert requests == [], bad
+        transport, requests = _capture(_single_event_snapshot())
+        with pytest.raises(ValueError, match="sport_key"):
+            fetch_historical("evt_NED_USA", "2022-11-30T18:00:00Z",
+                             "test-key", sport_key=bad, raw_dir=tmp_path,
+                             transport=transport)
+        assert requests == [], bad
+
+
+# ------- (Codex cross-review, finding 7) negative buffers reverse the window
+
+
+def test_admissible_quote_rejects_a_negative_buffer_loudly():
+    # (verified repro) buffer_minutes=-30 moved the cut AFTER t_issue: a
+    # quote stamped one minute POST-issuance — an in-play price — was
+    # admitted as usable at issuance. A negative buffer reverses the safety
+    # window this helper exists to enforce, so it must refuse, not compute.
+    from wcmodel.data.sources.odds import admissible_quote
+    t_issue = datetime(2026, 6, 11, 9, 0, tzinfo=timezone.utc)
+    post_issue = t_issue + timedelta(minutes=1)
+    with pytest.raises(ValueError, match="buffer"):
+        admissible_quote(post_issue, post_issue, t_issue, buffer_minutes=-30)
+    # Boundary contrast: buffer 0 stays legal (the kickoff-cut usage).
+    pre = t_issue - timedelta(seconds=1)
+    assert admissible_quote(pre, pre, t_issue, buffer_minutes=0) is True
 
 
 def test_info_logging_never_carries_the_api_key(tmp_path, caplog):

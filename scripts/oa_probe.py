@@ -15,19 +15,28 @@ Modes (hard gates in code, pinned by tests/eval/test_probe.py):
   report is written but LOUDLY labeled: its values prove the pipeline, they
   are NOT measurements.
 - ``--live``: real paid calls. Requires BOTH the ``ODDS_API_KEY`` env var AND
-  ``--max-credits N``. Before EVERY transport call the full-plan projected
-  total (modeled spend so far + modeled remainder) is checked against N — a
-  cap below the projection aborts before the FIRST call. Actual usage is read
-  back from the ``x-requests-used`` / ``x-requests-remaining`` headers,
-  reported, AND enforced: the modeled per-call prices are hypotheses this
-  probe exists to verify, so once the billing counters show actual
-  consumption above N the next call is refused (mid-run abort, non-zero
-  exit) — with the PARTIAL report still written, because the calls already
-  placed were already paid for. In that partial report every refused or
-  unreached call is marked "not attempted" — our own gate's refusal must
-  never read as a measured coverage miss. A breach first revealed by the
-  FINAL response (no next call left to refuse) still fails the run: the
-  report states actual-billed vs cap vs modeled and the exit is non-zero.
+  ``--max-credits N`` — and N is a HARD cap. Before EVERY transport call two
+  modeled checks run: the full-plan projected total (modeled spend so far +
+  modeled remainder) AND the spend so far plus the call's own price must
+  both fit under N — a cap below the projection aborts before the FIRST
+  call, and an unmodeled extra call is refused while spend is still under N,
+  never one call after. Storage is preflighted (raw archive dir + report
+  destination proven writable) before the first call, and any
+  archive/persistence failure mid-run is FATAL — a paid response we cannot
+  durably archive stops all further spending. Actual usage is read back from
+  the ``x-requests-last`` / ``x-requests-used`` / ``x-requests-remaining``
+  headers, reported, AND enforced: the modeled per-call prices are
+  hypotheses this probe exists to verify, so before every call the actual
+  billed consumption (summed per-call ``x-requests-last`` costs
+  cross-checked against the ``x-requests-used`` counter delta, the larger
+  standing) plus the next call's modeled price must fit under N or the call
+  is refused (mid-run abort, non-zero exit) — with the PARTIAL report still
+  written, because the calls already placed were already paid for. In that
+  partial report every refused or unreached call is marked "not attempted"
+  — our own gate's refusal must never read as a measured coverage miss. A
+  breach first revealed by the FINAL response (no next call left to refuse)
+  still fails the run: the report states actual-billed vs cap vs modeled
+  and the exit is non-zero.
   NEVER run by agents: the live probe is the user's decision at the
   plan-end STOP gate.
 
@@ -48,6 +57,7 @@ import httpx
 from wcmodel.config import load_config
 from wcmodel.data.sources.odds import (
     ODDS_RAW_DIR,
+    event_list,
     fetch_historical,
     fetch_historical_events,
     parse_snapshot,
@@ -189,30 +199,37 @@ class CreditCapError(RuntimeError):
 
 
 class SpendGate:
-    """Pre-call projected-cost abort (the plan's hard gate).
+    """Pre-call modeled-cost abort (the plan's hard gate).
 
-    The projection checked before EVERY call is the full-plan total — modeled
-    spend so far plus the modeled remainder, clamped at ``spent +
-    max(remaining, 0)`` — NOT a running sum: a running sum would happily
-    place cap-many credits of calls before tripping, while this gate trips on
-    the FIRST precall whenever the whole plan cannot fit under the cap (zero
-    transport calls, zero credits). While the calls placed match the modeled
-    plan, ``precall`` keeps that projection constant (``spent + remaining``
-    is invariant), so on the model's own terms only the first precall can
-    trip. The clamp is what makes the per-call check a REAL guard against
-    future plan-growing edits: a loop that places MORE calls than
-    ``projected_probe_cost()`` modeled drives ``remaining`` negative, the
-    clamp then makes the projection track the modeled spend itself, and the
-    gate trips on ``spent > cap`` within one call's price — unclamped, the
-    checked sum never rises and every unmodeled call is authorized (15 x
-    [1 discovery + THREE snapshots] would place all 60 calls, 465 credits
-    against a 315 cap, with only the header-dependent actual-usage check
-    left standing).
+    TWO checks run before EVERY call, and the call is authorized only when
+    BOTH fit under the cap:
+
+    - the full-plan projection — modeled spend so far plus the modeled
+      remainder, clamped at ``spent + max(remaining, 0)`` — NOT a running
+      sum: a running sum would happily place cap-many credits of calls
+      before tripping, while this leg trips on the FIRST precall whenever
+      the whole plan cannot fit under the cap (zero transport calls, zero
+      credits); and
+    - the HARD per-call leg, ``spent + credits`` (Codex finding 1): the
+      projection alone goes FLAT once actual calls exhaust the modeled
+      remainder (``spent + max(remaining, 0) == spent`` when ``remaining <=
+      0``), so after the full 315-credit plan an unmodeled ``precall(10)``
+      was authorized — spent 325 against cap 315. Counting the call's own
+      price before authorization makes the cap a ceiling ``spent`` can
+      NEVER cross: an overrunning loop (15 x [1 discovery + THREE
+      snapshots] where the model priced two) is refused while ``spent <=
+      cap``, not one call after.
+
+    While the calls placed match the modeled plan the two legs coincide
+    (``spent + remaining`` is invariant and ``remaining >= credits`` for
+    every modeled call), so on the model's own terms only the first precall
+    can trip.
     (A ``skip`` hook that shrank the remainder for dropped calls used to live
     here: with a non-increasing projection it could never affect any check —
     dead logic that read as a live safety mechanism, so it was removed.)
-    Mid-run aborts belong to the ACTUAL-usage check (``_UsageRecorder``),
-    which enforces the billing headers this model exists to verify.
+    Mid-run aborts on BILLED evidence belong to the ACTUAL-usage check
+    (``_UsageRecorder``), which enforces the billing headers this model
+    exists to verify.
     ``cap=None`` (dry-run) never aborts — the gate still accounts: ``spent``
     is the modeled spend the report cites, and it counts only calls actually
     HANDED to the transport — suppressed snapshots (event not found,
@@ -226,15 +243,16 @@ class SpendGate:
         self.spent = 0
 
     def precall(self, credits: int, what: str) -> None:
-        # max(remaining, 0): the plan-overrun clamp (see class docstring) —
-        # once actual calls outrun the modeled plan, remaining goes negative
-        # and the projection must track spent instead of staying flat.
-        projected = self.spent + max(self.remaining, 0)
+        # max(remaining, 0): the plan-overrun clamp; spent + credits: the
+        # hard per-call leg — BOTH must fit (class docstring).
+        projected = max(self.spent + max(self.remaining, 0),
+                        self.spent + credits)
         if self.cap is not None and projected > self.cap:
             raise CreditCapError(
                 f"projected total {projected} credits exceeds "
                 f"--max-credits {self.cap} (before {what}; modeled spend so "
-                f"far {self.spent}) — aborting, no call placed")
+                f"far {self.spent}, this call {credits}) — aborting, no "
+                "call placed")
         self.spent += credits
         self.remaining -= credits
 
@@ -251,15 +269,22 @@ class SpendGate:
 
 
 class _UsageRecorder(httpx.BaseTransport):
-    """Wraps the real transport to read back ``x-requests-used`` /
-    ``x-requests-remaining`` from every response — and to ENFORCE the cap
-    against them: the SpendGate bounds the MODELED cost, but the model's
-    per-call prices are exactly what this probe exists to verify, so before
-    every call the ACTUAL billed consumption (the ``x-requests-used`` delta
-    since the first response; the first call's own cost is invisible until
-    the counter moves) is checked too and a breach refuses the call. The
-    check sits BEFORE the transport is invoked, never after — a received
-    response is already paid for and must always reach the adapter's archive.
+    """Wraps the real transport to read back the billing headers from every
+    response — ``x-requests-last`` (the API's own price for that very call),
+    ``x-requests-used`` / ``x-requests-remaining`` (the account counters) —
+    and to ENFORCE the cap against them: the SpendGate bounds the MODELED
+    cost, but the model's per-call prices are exactly what this probe exists
+    to verify. Before every call the ACTUAL billed consumption
+    (``actual_spent``: summed per-call ``x-requests-last`` costs
+    cross-checked against the ``x-requests-used`` counter delta, the LARGER
+    standing — the delta alone cannot see the first response's own cost,
+    which is how a completed 315-credit run once read back as 314, Codex
+    finding 2) PLUS the modeled price of the call about to be placed
+    (``next_call_credits``, threaded in by the probe loop) must fit under
+    the cap — refusing BEFORE the overspend, never reacting one billed call
+    later. The check sits BEFORE the transport is invoked, never after — a
+    received response is already paid for and must always reach the
+    adapter's archive.
     Lives here rather than widening the adapter (which returns parsed
     payloads, not responses). ``close`` is a no-op: the adapter opens a
     short-lived ``httpx.Client`` PER call, and letting it close the shared
@@ -270,6 +295,12 @@ class _UsageRecorder(httpx.BaseTransport):
         self._inner = inner
         self.cap = cap
         self.usage: list = []
+        #: Modeled price of the call about to be placed — set by the probe
+        #: loop right before each fetch (DISCOVERY_CREDITS or
+        #: SNAPSHOT_CREDITS). Defaults to the LARGEST modeled price so a
+        #: future call site that forgets to thread it errs toward refusal,
+        #: never toward an authorized overspend.
+        self.next_call_credits = SNAPSHOT_CREDITS
 
     @staticmethod
     def _as_int(value):
@@ -279,26 +310,47 @@ class _UsageRecorder(httpx.BaseTransport):
             return None
 
     def actual_consumed(self):
-        """Credits the API says were billed since the FIRST response, from
-        the ``x-requests-used`` counter — ``None`` until two responses carry
-        a parseable value (headers are evidence, never assumed present)."""
+        """The ``x-requests-used`` counter delta since the FIRST response —
+        ``None`` until two responses carry a parseable value (headers are
+        evidence, never assumed present). A LOWER bound on its own: the
+        first response's cost predates the first counter reading, so
+        ``actual_spent`` folds in the per-call ``x-requests-last`` costs
+        that do count it."""
         used = [u for u in (self._as_int(entry["requests_used"])
                             for entry in self.usage) if u is not None]
         if len(used) < 2:
             return None
         return used[-1] - used[0]
 
+    def actual_spent(self):
+        """Best evidence of the credits billed to THIS run: the sum of the
+        per-call ``x-requests-last`` costs (complete — it counts the first
+        call) cross-checked against the counter delta, the LARGER standing
+        (partial headers can only ever undercount, so the stricter figure
+        wins). ``None`` when neither source has parseable evidence."""
+        last = [v for v in (self._as_int(entry.get("requests_last"))
+                            for entry in self.usage) if v is not None]
+        evidence = [sum(last)] if last else []
+        delta = self.actual_consumed()
+        if delta is not None:
+            evidence.append(delta)
+        return max(evidence) if evidence else None
+
     def handle_request(self, request: httpx.Request) -> httpx.Response:
-        actual = self.actual_consumed()
-        if self.cap is not None and actual is not None and actual > self.cap:
+        actual = self.actual_spent()
+        if (self.cap is not None and actual is not None
+                and actual + self.next_call_credits > self.cap):
             raise CreditCapError(
-                f"actual billed usage {actual} credits (x-requests-used "
-                f"delta since the first response) exceeds --max-credits "
-                f"{self.cap} — aborting before {request.url.path}, no "
-                "further call placed")
+                f"actual billed usage {actual} credits (summed "
+                f"x-requests-last costs cross-checked against the "
+                f"x-requests-used delta) plus the next call's modeled price "
+                f"{self.next_call_credits} exceeds --max-credits {self.cap} "
+                f"— aborting before {request.url.path}, no further call "
+                "placed")
         response = self._inner.handle_request(request)
         self.usage.append({
             "path": request.url.path,
+            "requests_last": response.headers.get("x-requests-last"),
             "requests_used": response.headers.get("x-requests-used"),
             "requests_remaining": response.headers.get("x-requests-remaining"),
         })
@@ -399,15 +451,35 @@ def _live_transport() -> httpx.BaseTransport:
 def _live_raw_dir(transport: httpx.BaseTransport):
     """Where a --live run archives raw responses: the repo paid-evidence store
     ONLY for the genuine network transport, nowhere for anything else. An
-    ALLOWLIST on ``httpx.HTTPTransport`` — matching the polarity of the
-    adapter's ``_resolve_raw_dir`` (ANY injected transport means no archive):
-    a denylist on MockTransport would wave every other injected fake (a plain
-    ``BaseTransport`` subclass, the probe's own ``_UsageRecorder`` wrapper)
-    into the real store with fabricated bytes. The adapter's own
-    transport-aware default cannot make this call — the usage-recording
-    wrapper makes the transport non-None even on real runs, so the probe must
-    pass raw_dir explicitly."""
-    return ODDS_RAW_DIR if isinstance(transport, httpx.HTTPTransport) else None
+    EXACT-TYPE allowlist on ``httpx.HTTPTransport`` (Codex finding 9):
+    ``isinstance`` waved a canned-response HTTPTransport SUBCLASS — pedigree
+    without the network, since a subclass overrides ``handle_request`` —
+    into the real store with fabricated bytes, exactly the fake the
+    allowlist exists to refuse; polarity still matches the adapter's
+    ``_resolve_raw_dir`` (ANY injected transport means no archive). The
+    adapter's own transport-aware default cannot make this call — the
+    usage-recording wrapper makes the transport non-None even on real runs,
+    so the probe must pass raw_dir explicitly."""
+    return ODDS_RAW_DIR if type(transport) is httpx.HTTPTransport else None
+
+
+def _preflight_writable(*dirs) -> None:
+    """Prove report/provenance storage writable BEFORE any paid call (Codex
+    finding 5): persistence runs AFTER a response arrives, so an unwritable
+    archive or report destination would otherwise be discovered only once
+    money was already spent. Create-then-remove a sentinel file in each
+    directory (creating the directory itself if needed) — existence or mode
+    checks alone cannot prove writability (ACLs, read-only mounts, full
+    disks). ``None`` entries (no archive for this transport) are skipped;
+    any OSError propagates to the caller, which aborts at zero credits."""
+    for d in dirs:
+        if d is None:
+            continue
+        directory = Path(d)
+        directory.mkdir(parents=True, exist_ok=True)
+        sentinel = directory / f".writable-preflight.{os.getpid()}.tmp"
+        sentinel.write_bytes(b"oa_probe storage preflight")
+        sentinel.unlink()
 
 
 # ----------------------------------------------------------------- the probe
@@ -423,11 +495,22 @@ def _table_text(text) -> str:
     return " ".join(str(text).split()).replace("|", "\\|")
 
 
-def _err_cell(exc: Exception) -> str:
+def _err_cell(exc: Exception, api_key: str) -> str:
     """Failure text shaped to survive a markdown table cell: httpx messages
     can span lines (the 429's does) and could carry ``|`` — exactly the
-    401/429/timeout findings the probe exists to surface."""
-    return f"{type(exc).__name__}: {_table_text(exc)}"
+    401/429/timeout findings the probe exists to surface. The ACTIVE
+    ``api_key`` is redacted here, at the final report sink, for EVERY error
+    cell regardless of the exception's origin (Codex finding 8): the
+    adapter's redaction covers HTTP-layer messages, but a malformed 200 that
+    ECHOES the key back in its payload (e.g. as its timestamp) surfaces it
+    in payload-derived ValueError text no HTTP-layer scrub ever sees.
+    Redaction runs on the RAW message before pipe-escaping, so a key
+    carrying ``|`` still matches. An empty key is skipped —
+    ``str.replace("", ...)`` would mangle the message char-by-char."""
+    text = str(exc)
+    if api_key:
+        text = text.replace(api_key, "[REDACTED]")
+    return f"{type(exc).__name__}: {_table_text(text)}"
 
 
 def _match_event(rows: list, fx: dict):
@@ -475,7 +558,10 @@ def _probe_snapshot(fx: dict, event, tag: str, requested: datetime, *,
                     transport, raw_dir) -> dict:
     # Every RETURNED entry was attempted: the only pre-wire refusal is
     # CreditCapError, which propagates instead of returning — the caller's
-    # pre-seeded ``attempted: False`` entry then stands.
+    # pre-seeded ``attempted: False`` entry then stands. (An OSError also
+    # propagates, but it is POST-wire — the archive failed on a placed,
+    # paid call — and the caller marks it attempted+error before aborting,
+    # Codex finding 5.)
     entry = {"tag": tag, "requested_ts": _iso(requested), "attempted": True}
     try:
         snap = fetch_historical(
@@ -485,6 +571,31 @@ def _probe_snapshot(fx: dict, event, tag: str, requested: datetime, *,
         # Provenance FIRST: the archived hash must survive any parse or
         # arithmetic surprise below — the bytes it names are already paid for.
         entry["raw_sha256"] = snap.get("raw_sha256")
+        # Event identity (Codex finding 3): a paid per-event response for
+        # the WRONG fixture must never read as coverage — the T3 shape guard
+        # proves {timestamp, data}, not WHICH event was priced. Whenever the
+        # payload names an event id or sport_key, it must match the
+        # request/discovery row; a mismatch is a loud per-fixture error
+        # naming both sides and citing the archived hash (the bytes are
+        # paid for and auditable), caught below as an ERR cell.
+        got_events = event_list(snap.get("data"))
+        got_ids = {e.get("id") for e in got_events if e.get("id")}
+        if got_ids and got_ids != {event["event_id"]}:
+            raise ValueError(
+                "event identity mismatch on a PAID snapshot: requested "
+                f"event_id {event['event_id']} but the response answers for "
+                f"{', '.join(sorted(got_ids))} (archived raw_sha256="
+                f"{snap.get('raw_sha256')}) — never coverage for this "
+                "fixture")
+        got_sports = {e.get("sport_key") for e in got_events
+                      if e.get("sport_key")}
+        if got_sports and got_sports != {sport_key}:
+            raise ValueError(
+                "sport_key mismatch on a PAID snapshot: requested "
+                f"{sport_key} but the response answers for "
+                f"{', '.join(sorted(got_sports))} (archived raw_sha256="
+                f"{snap.get('raw_sha256')}) — never coverage for this "
+                "fixture")
         rows = parse_snapshot(snap)
         pin = [r for r in rows if r["bookmaker"] == SHARP_BOOK]
         snap_dt = _ts(snap["timestamp"])
@@ -517,14 +628,20 @@ def _probe_snapshot(fx: dict, event, tag: str, requested: datetime, *,
                 "never a pre-kickoff quote (strict <, OA F2)")
     except CreditCapError:
         raise                    # the spend gate is an abort, never a note
+    except OSError:
+        # Archive/persistence failure on a PLACED, PAID call: provenance
+        # storage is broken, so this is FATAL — never a coverage note that
+        # lets spending continue (Codex finding 5). The caller records it
+        # and aborts the run.
+        raise
     except Exception as exc:
-        # A 401/429/timeout — or a 200 whose body trips the parse/arithmetic
-        # legs above — is a FINDING for the coverage report, not a crash that
-        # discards the fixtures already paid for. str(exc) is safe here: the
-        # adapter's redaction strips the query string (the key) from every
-        # HTTP-layer message it lets escape, and non-HTTP failures carry only
-        # payload-derived text (the key never enters a payload).
-        entry["error"] = _err_cell(exc)
+        # A 401/429/timeout — or a 200 whose body trips the identity/parse/
+        # arithmetic legs above — is a FINDING for the coverage report, not
+        # a crash that discards the fixtures already paid for. _err_cell
+        # redacts the active key from the text (Codex finding 8): the
+        # adapter strips it from HTTP-layer messages, but payload-derived
+        # text can ECHO it (a malformed 200 with the key as its timestamp).
+        entry["error"] = _err_cell(exc, api_key)
     return entry
 
 
@@ -533,11 +650,13 @@ def run_probe(*, api_key: str, transport: httpx.BaseTransport,
     """Run the 15-fixture probe through ``transport``. Every call passes the
     SpendGate AND the actual-usage check FIRST. Returns ``{"results",
     "usage", "spent", "projected", "aborted", "actual", "overrun"}`` —
-    ``aborted`` carries the cap breach's message when the run stopped
-    mid-flight AFTER paid calls (their partial results are still the user's,
-    so they still get reported, with every refused or unreached call marked
-    ``attempted: False`` — never rendered as a measured miss); a breach
-    before ANY call re-raises, since there is nothing paid for to report.
+    ``aborted`` carries the abort's message when the run stopped mid-flight
+    AFTER paid calls: a cap breach, or an archive/persistence OSError (Codex
+    finding 5 — provenance storage broke, so spending stops at the FIRST
+    one). The partial results are still the user's, so they still get
+    reported, with every refused or unreached call marked ``attempted:
+    False`` — never rendered as a measured miss; a cap breach before ANY
+    call re-raises, since there is nothing paid for to report.
     ``overrun`` flags the case the pre-call checks cannot see: actual billed
     usage above the cap first revealed by the FINAL response, when no next
     call remains to refuse."""
@@ -546,6 +665,17 @@ def run_probe(*, api_key: str, transport: httpx.BaseTransport,
     gate = SpendGate(max_credits, projected)
     results = []
     aborted = None
+
+    def _pad_unreached():
+        # Every fixture the loop never reached still gets a row — explicitly
+        # not-attempted, so the PARTIAL report keeps the full 15-fixture
+        # frame instead of silently dropping the tail.
+        for fx in PROBE_FIXTURES[len(results):]:
+            results.append({"pool": fx["pool"], "stratum": fx["stratum"],
+                            "fixture": _label(fx),
+                            "sport_key": sport_keys[fx["pool"]],
+                            "attempted": False, "snapshots": []})
+
     try:
         for fx in PROBE_FIXTURES:
             key = sport_keys[fx["pool"]]
@@ -559,8 +689,9 @@ def run_probe(*, api_key: str, transport: httpx.BaseTransport,
             results.append(row)
             try:
                 gate.precall(DISCOVERY_CREDITS, f"discovery {_label(fx)}")
+                recorder.next_call_credits = DISCOVERY_CREDITS
                 try:
-                    events = fetch_historical_events(
+                    discovery = fetch_historical_events(
                         key, f"{fx['date']}T00:00:00Z", api_key,
                         raw_dir=raw_dir, transport=recorder)
                 except CreditCapError:
@@ -572,6 +703,13 @@ def run_probe(*, api_key: str, transport: httpx.BaseTransport,
                     gate.refund(DISCOVERY_CREDITS)
                     raise
                 row["attempted"] = True
+                # Response-level provenance FIRST (Codex finding 4): the
+                # archived discovery hash must survive EVERY branch below —
+                # an empty listing, a miss, a naive-timestamp parse failure.
+                # Attached per-event it died with the rows exactly where a
+                # coverage dispute needs it ("event found: n" cited nothing).
+                row["discovery_sha256"] = discovery["raw_sha256"]
+                events = discovery["events"]
                 row["n_events_listed"] = len(events)
                 event, flipped = _match_event(events, fx)
                 row["event_found"] = event is not None
@@ -585,11 +723,17 @@ def run_probe(*, api_key: str, transport: httpx.BaseTransport,
                     continue
                 row.update({"event_id": event["event_id"],
                             "commence_time": event["commence_time"],
-                            "orientation_flipped": flipped,
-                            "discovery_sha256": event.get("raw_sha256")})
+                            "orientation_flipped": flipped})
                 commence = _ts(event["commence_time"])
             except CreditCapError:
                 raise            # the spend gate is an abort, never a note
+            except OSError as exc:
+                # The discovery call was PLACED and paid, but its raw bytes
+                # could not be archived: record it honestly, then abort —
+                # FATAL, never a coverage note (Codex finding 5).
+                row["attempted"] = True
+                row["error"] = _err_cell(exc, api_key)
+                raise
             except Exception as exc:
                 # ANY per-fixture surprise — HTTP, refused shape, a field the
                 # adapter's comprehension trips on — is a FINDING, not a
@@ -597,7 +741,7 @@ def run_probe(*, api_key: str, transport: httpx.BaseTransport,
                 # cap refuses pre-wire (and it re-raises above), so this call
                 # was attempted.
                 row["attempted"] = True
-                row["error"] = _err_cell(exc)
+                row["error"] = _err_cell(exc, api_key)
                 continue
             planned = []
             for tag, delta in (("T-24h", timedelta(hours=24)),
@@ -615,6 +759,7 @@ def run_probe(*, api_key: str, transport: httpx.BaseTransport,
                 planned.append((tag, requested, entry))
             for tag, requested, entry in planned:
                 gate.precall(SNAPSHOT_CREDITS, f"snapshot {tag} {_label(fx)}")
+                recorder.next_call_credits = SNAPSHOT_CREDITS
                 try:
                     entry.update(_probe_snapshot(
                         fx, event, tag, requested, commence=commence,
@@ -623,19 +768,29 @@ def run_probe(*, api_key: str, transport: httpx.BaseTransport,
                 except CreditCapError:
                     gate.refund(SNAPSHOT_CREDITS)   # same contract as discovery
                     raise
+                except OSError as exc:
+                    # Placed and paid (the response arrived; only its
+                    # archival failed) — NO refund, recorded as attempted
+                    # with the failure, then FATAL (Codex finding 5).
+                    entry.update({"attempted": True,
+                                  "error": _err_cell(exc, api_key)})
+                    raise
     except CreditCapError as exc:
         if not recorder.usage:
             raise                # zero calls placed: nothing paid, no report
         aborted = str(exc)
-        # Every fixture the loop never reached still gets a row — explicitly
-        # not-attempted, so the PARTIAL report keeps the full 15-fixture
-        # frame instead of silently dropping the tail.
-        for fx in PROBE_FIXTURES[len(results):]:
-            results.append({"pool": fx["pool"], "stratum": fx["stratum"],
-                            "fixture": _label(fx),
-                            "sport_key": sport_keys[fx["pool"]],
-                            "attempted": False, "snapshots": []})
-    actual = recorder.actual_consumed()
+        _pad_unreached()
+    except OSError as exc:
+        # Archive/persistence failure (Codex finding 5): provenance storage
+        # is broken, so no further paid call may be placed — an ABORT in the
+        # report, never a coverage cell that lets the run march on. The call
+        # that hit it was paid (its response arrived), so the partial report
+        # is owed regardless.
+        aborted = ("archive/persistence failure — provenance storage is "
+                   "broken, so no further paid call may be placed: "
+                   + _err_cell(exc, api_key))
+        _pad_unreached()
+    actual = recorder.actual_spent()
     overrun = None
     if (aborted is None and max_credits is not None and actual is not None
             and actual > max_credits):
@@ -643,10 +798,10 @@ def run_probe(*, api_key: str, transport: httpx.BaseTransport,
         # revealed by the FINAL response has no next call, so it is caught
         # here: the completed run still fails loudly instead of exiting 0.
         overrun = (
-            f"actual billed usage {actual} credits (x-requests-used delta "
-            f"since the first response) exceeds --max-credits {max_credits} "
-            "and no further call remained to refuse — the plan completed, "
-            "but the cap did not hold")
+            f"actual billed usage {actual} credits (summed x-requests-last "
+            "costs cross-checked against the x-requests-used delta) exceeds "
+            f"--max-credits {max_credits} and no further call remained to "
+            "refuse — the plan completed, but the cap did not hold")
     return {"results": results, "usage": recorder.usage,
             "spent": gate.spent, "projected": projected, "aborted": aborted,
             "actual": actual, "overrun": overrun}
@@ -808,15 +963,18 @@ def assemble_report(*, mode: str, mocked: bool, sport_keys: dict, plan: list,
                  _fmt(_snapshot_cell(row, "T-1h", "pinnacle_staleness_min")),
                  notes or "-"]
         lines.append("| " + " | ".join(cells) + " |")
-    lines += ["", "Provenance (sha256 of the archived raw response; dry-run "
-              "hashes are of MOCK bytes and are not persisted):", ""]
+    # FULL digests (Codex finding 4): a truncated 12-hex prefix cannot be
+    # re-verified against the content-addressed archive — the whole point of
+    # citing the hash is that the exact bytes can be re-audited by name.
+    lines += ["", "Provenance (full sha256 of the archived raw response; "
+              "dry-run hashes are of MOCK bytes and are not persisted):", ""]
     for row in results:
-        shas = [f"discovery {row['discovery_sha256'][:12]}"] \
+        shas = [f"discovery {row['discovery_sha256']}"] \
             if row.get("discovery_sha256") else []
-        shas += [f"{s['tag']} {s['raw_sha256'][:12]}"
+        shas += [f"{s['tag']} {s['raw_sha256']}"
                  for s in row.get("snapshots", []) if s.get("raw_sha256")]
         lines.append(f"- {row['fixture']}: " + (", ".join(shas) or "-"))
-    lines += ["", "## Actual usage (`x-requests-used` / "
+    lines += ["", "## Actual usage (`x-requests-last` / `x-requests-used` / "
               "`x-requests-remaining` headers)", ""]
     if mode == "dry-run":
         lines += ["Not available: dry-run serves no live responses, so no "
@@ -824,9 +982,11 @@ def assemble_report(*, mode: str, mocked: bool, sport_keys: dict, plan: list,
     elif not usage:
         lines += ["No responses received."]
     else:
-        lines += ["| call | path | x-requests-used | x-requests-remaining |",
-                  "|---|---|---|---|"]
-        lines += [f"| {i} | `{u['path']}` | {_fmt(u['requests_used'])} | "
+        lines += ["| call | path | x-requests-last | x-requests-used | "
+                  "x-requests-remaining |",
+                  "|---|---|---|---|---|"]
+        lines += [f"| {i} | `{u['path']}` | {_fmt(u.get('requests_last'))} | "
+                  f"{_fmt(u['requests_used'])} | "
                   f"{_fmt(u['requests_remaining'])} |"
                   for i, u in enumerate(usage, 1)]
         # The deliverable STATES actual-billed vs cap vs modeled — the
@@ -835,11 +995,13 @@ def assemble_report(*, mode: str, mocked: bool, sport_keys: dict, plan: list,
             "",
             "Actual billed this run: "
             + (f"**{actual} credits**" if actual is not None
-               else "unknown (fewer than two parseable `x-requests-used` "
-                    "counters)")
-            + " — the `x-requests-used` delta since the first response, so "
-              "the first call's own price is invisible and the true spend "
-              "is up to one call price higher — vs `--max-credits` "
+               else "unknown (no parseable `x-requests-last` cost and fewer "
+                    "than two parseable `x-requests-used` counters)")
+            + " — the LARGER of the summed per-call `x-requests-last` costs "
+              "and the `x-requests-used` counter delta (the delta alone "
+              "cannot see the first response's own cost, so where "
+              "`x-requests-last` is absent the true spend can be up to one "
+              "call price higher) — vs `--max-credits` "
             + f"{_fmt(cap)}; modeled spend {spent} credits."]
         if overrun:
             lines += ["", f"**ACTUAL BILLING EXCEEDED THE CAP: {overrun}**"]
@@ -906,6 +1068,16 @@ def main(argv=None) -> int:
         # transport (_live_raw_dir): a monkeypatched mock serving fabricated
         # bytes must never write into the paid-evidence store.
         raw_dir = _live_raw_dir(transport)
+        # Storage preflight (Codex finding 5): persistence runs AFTER a
+        # response arrives, so writability must be PROVEN before the first
+        # paid call — an unwritable archive or report destination aborts
+        # here, at zero credits, not after money has nowhere to land.
+        try:
+            _preflight_writable(raw_dir, Path(args.out).parent)
+        except OSError as exc:
+            print("ABORT: storage preflight failed — refusing to place any "
+                  f"paid call: {exc}", file=sys.stderr)
+            return 1
     else:
         mode, transport, cap = "dry-run", _dry_run_transport(sport_keys), None
         api_key, raw_dir = _DRY_RUN_KEY, None    # mock bytes: never archived
@@ -921,14 +1093,15 @@ def main(argv=None) -> int:
         print(f"ABORT: {exc}", file=sys.stderr)
         return 1
 
-    # The banner's mocked/LIVE split runs the SAME ALLOWLIST as _live_raw_dir:
-    # only the genuine network transport may print "**MODE: LIVE.**" — the
-    # strongest claim on the page, first line read at the spend gate. A
-    # denylist on MockTransport waved every OTHER injected fake (a plain
-    # BaseTransport subclass) into the LIVE banner while the adjacent archive
-    # guard refused the very same transport.
+    # The banner's mocked/LIVE split runs the SAME EXACT-TYPE ALLOWLIST as
+    # _live_raw_dir: only the genuine network transport may print
+    # "**MODE: LIVE.**" — the strongest claim on the page, first line read
+    # at the spend gate. A denylist on MockTransport waved every OTHER
+    # injected fake into the LIVE banner, and isinstance still waved a
+    # canned-response HTTPTransport SUBCLASS through (Codex finding 9) —
+    # pedigree is not the network when handle_request is overridden.
     md = assemble_report(
-        mode=mode, mocked=not isinstance(transport, httpx.HTTPTransport),
+        mode=mode, mocked=type(transport) is not httpx.HTTPTransport,
         sport_keys=sport_keys, plan=plan, projected=out["projected"],
         spent=out["spent"], results=out["results"], usage=out["usage"],
         aborted=out["aborted"], cap=cap, actual=out["actual"],

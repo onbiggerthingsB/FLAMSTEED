@@ -75,6 +75,22 @@ _RAW_DIR_UNSET = object()
 _SNAPSHOT_REQUIRED = ("timestamp", "data")
 
 
+def _require_sport_key(sport_key) -> None:
+    """ONE validator for both paid endpoints (Codex finding 6): a None,
+    non-string, or blank/whitespace ``sport_key`` must refuse BEFORE any
+    logger/client/transport work — ``""`` builds the malformed route
+    ``/historical/sports//events``, a PAID request to an endpoint that can
+    only answer with a billed error. The generic ``soccer`` key this adapter
+    once hardcoded is equally invalid (OA F13): callers take the
+    per-competition key from config ``odds.sport_keys``."""
+    if not isinstance(sport_key, str) or not sport_key.strip():
+        raise ValueError(
+            f"sport_key required: got {sport_key!r} — pass the non-blank "
+            "per-competition key from config odds.sport_keys (the generic "
+            "'soccer' key is invalid on The Odds API, OA F13)"
+        )
+
+
 def _parse_ts(ts: str) -> datetime:
     """Parse an Odds API ISO-8601 timestamp (trailing 'Z') to an aware datetime."""
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
@@ -206,7 +222,19 @@ def admissible_quote(snapshot_ts: datetime, last_update: datetime,
     :func:`extract_closing_prices` uses). An unconditional ``or snapshot_ts``
     fallback instead makes leg 2 vacuous exactly when stricter evidence is
     available — the T5 ledger must not copy that weakening.
+
+    ``buffer_minutes`` must be >= 0 (Codex finding 7): the subtraction takes
+    any integer, and a NEGATIVE buffer moves the cut AFTER ``t_issue`` —
+    the safety window reverses and a quote stamped after issuance (an
+    in-play price) reads admissible. Refused loudly, never computed.
     """
+    if buffer_minutes < 0:
+        raise ValueError(
+            f"admissible_quote: buffer_minutes must be >= 0 (got "
+            f"{buffer_minutes}) — a negative buffer moves the cut AFTER "
+            "t_issue, reversing the safety window so post-issuance in-play "
+            "quotes read admissible (Codex finding 7)"
+        )
     if last_update is None:
         raise TypeError(
             "admissible_quote: last_update is None — resolve the missing "
@@ -430,12 +458,14 @@ def fetch_historical(
 ) -> dict:
     """Pull a real historical snapshot from The Odds API (network, PAID).
 
-    GATED: raises without an ``api_key`` (Phase-0 decision 1) and then without
-    an explicit ``sport_key`` — the generic ``soccer`` key this function used
-    to hardcode is INVALID on The Odds API, so refusing beats spending a credit
-    on a guaranteed miss (OA F13). Callers take the per-competition key from
-    config ``odds.sport_keys`` (config-driven so the OA-0a probe can correct a
-    wrong key without a code change).
+    GATED: raises without an ``api_key`` (Phase-0 decision 1) and then on any
+    non-string or blank ``sport_key`` (:func:`_require_sport_key`) — the
+    generic ``soccer`` key this function used to hardcode is INVALID on The
+    Odds API, and a blank key builds a malformed paid route, so refusing
+    beats spending a credit on a guaranteed miss (OA F13, Codex finding 6).
+    Callers take the per-competition key from config ``odds.sport_keys``
+    (config-driven so the OA-0a probe can correct a wrong key without a code
+    change).
 
     The raw response bytes are sha256-hashed and persisted content-addressed
     under ``raw_dir`` BEFORE the HTTP status gate — a paid non-2xx body is
@@ -456,12 +486,7 @@ def fetch_historical(
         raise RuntimeError(
             "Odds API pull gated: no api_key — see Phase-0 decision 1"
         )
-    if sport_key is None:
-        raise ValueError(
-            "sport_key required: the generic 'soccer' key is invalid on The "
-            "Odds API — pass the per-competition key from config "
-            "odds.sport_keys (OA F13)"
-        )
+    _require_sport_key(sport_key)
     raw_dir = _resolve_raw_dir(raw_dir, transport)
     # Documented historical endpoint:
     #   GET /v4/historical/sports/{sport}/events/{eventId}/odds
@@ -509,31 +534,37 @@ def fetch_historical_events(
     *,
     raw_dir: Path | str | None = _RAW_DIR_UNSET,
     transport: httpx.BaseTransport | None = None,
-) -> list[dict]:
+) -> dict:
     """Discover the events visible at historical time ``ts`` (network, PAID).
 
-    GATED like :func:`fetch_historical`: raises without an ``api_key``, and
-    tests drive it only through an injected ``httpx.MockTransport``. Hits the
-    documented discovery endpoint
-    ``GET /v4/historical/sports/{sport}/events?date=…`` and returns one row per
-    event: ``{event_id, commence_time, home, away, raw_sha256}`` (team names
-    ``None`` where the API has not yet named a knockout pairing;
-    ``raw_sha256`` is the archived response's hash, so a discovery-based claim
-    — "event found y/n" — cites the same provenance a snapshot does). The raw
-    response is persisted content-addressed under ``raw_dir`` BEFORE the
-    status gate, with the same transport-aware default and key-redacting
-    error handling as the snapshot route.
+    GATED like :func:`fetch_historical`: raises without an ``api_key`` and on
+    a non-string/blank ``sport_key`` (:func:`_require_sport_key`, Codex
+    finding 6), and tests drive it only through an injected
+    ``httpx.MockTransport``. Hits the documented discovery endpoint
+    ``GET /v4/historical/sports/{sport}/events?date=…`` and returns a
+    RESPONSE envelope ``{"raw_sha256", "events"}`` — ONE paid response, ONE
+    archived hash, carried at response level (Codex finding 4): hanging the
+    hash on per-event rows lost it on exactly the empty/miss branches a
+    coverage dispute audits ("event found: n" could cite no provenance at
+    all, because there was no row to carry it). ``events`` holds one row per
+    event: ``{event_id, commence_time, home, away}`` (team names ``None``
+    where the API has not yet named a knockout pairing). The raw response is
+    persisted content-addressed under ``raw_dir`` BEFORE the status gate,
+    with the same transport-aware default and key-redacting error handling
+    as the snapshot route.
 
     A dict payload WITHOUT a ``data`` key is REFUSED loudly (ValueError citing
     the archived hash): on a paid discovery call an unexpected/changed
     response shape must not read as a genuine "no events at this timestamp" —
     the probe would bill credits and report zero coverage as truth.
-    ``{"data": []}`` remains the API's real empty answer.
+    ``{"data": []}`` remains the API's real empty answer (``events: []`` with
+    the archived hash still on the envelope).
     """
     if api_key is None:
         raise RuntimeError(
             "Odds API pull gated: no api_key — see Phase-0 decision 1"
         )
+    _require_sport_key(sport_key)
     raw_dir = _resolve_raw_dir(raw_dir, transport)
     url = f"{ODDSAPI_BASE}/historical/sports/{sport_key}/events"
     _silence_httpx_request_logging()
@@ -553,16 +584,18 @@ def fetch_historical_events(
         data = payload["data"]
     else:
         data = payload
-    return [
-        {
-            "event_id": event["id"],
-            "commence_time": event["commence_time"],
-            "home": event.get("home_team"),
-            "away": event.get("away_team"),
-            "raw_sha256": digest,
-        }
-        for event in event_list(data)
-    ]
+    return {
+        "raw_sha256": digest,
+        "events": [
+            {
+                "event_id": event["id"],
+                "commence_time": event["commence_time"],
+                "home": event.get("home_team"),
+                "away": event.get("away_team"),
+            }
+            for event in event_list(data)
+        ],
+    }
 
 
 def load_odds_snapshots(store: BitemporalStore, sample: dict) -> None:
