@@ -216,6 +216,54 @@ def test_a_constant_hfa_column_is_not_estimated(hfa_rows):
     assert neutral == pytest.approx(at_home, abs=1e-3)
 
 
+def test_rejects_a_two_level_hfa_column_that_omits_zero():
+    # The other half of the test above: it pins that n_hfa_minority reads 0
+    # when nothing identified b_hfa, and this pins that it cannot read 0 when
+    # something did. np.count_nonzero is not a level counter, so a {1,2}
+    # coding — two levels, 120 of 400 rows at the minority one — reported
+    # n_hfa_minority=0, i.e. "the column was constant", about a real 120-row
+    # estimate of b_hfa=0.794, while the two levels forecast materially
+    # differently (P(home) 0.389 at hfa=1 vs 0.584 at hfa=2). A false 0 is
+    # worse than no field at all: it reassures in exactly the case that owed a
+    # warning. Refuse the coding rather than count around it.
+    df = _synthetic(n=400, hfa_rows=120)
+    df["hfa"] += 1.0
+    with pytest.raises(ValueError, match=r"hfa value\(s\)"):
+        fit_ordlogit(df)
+
+
+@pytest.mark.parametrize("hfa_rows", [1, 2, 3])
+def test_rejects_an_hfa_column_carried_in_rating_points(hfa_rows):
+    # The prior is the only thing between this arm and a separated host
+    # sub-sample, and its analytic guard |b_hfa| <= sd**2 * sum(hfa) is a
+    # statement about the INDICATOR: the bound grows with sum(hfa) while the
+    # latent shift is b_hfa * hfa, so a column carried in rating points (the
+    # elo_1x2_baseline convention, 60.0/0.0) buys 60x the shift per unit of
+    # bound and the guard stops binding. Measured on the sparse grid above:
+    # worst latent home-advantage shift +6.90, against 0.416 for the indicator
+    # control on the identical seeds — P(home)=0.9985, smallest class 2.1e-4,
+    # i.e. log loss 8.5, exactly the blow-up the prior exists to prevent —
+    # while the nominal bound there is 0.25*180 = 45, non-binding by two orders
+    # of magnitude. Nothing else would catch the mis-pass: 60.0 is an ordinary
+    # finite float in a column of ordinary finite floats.
+    for seed in range(10):
+        df = _synthetic(n=64, seed=seed, hfa_rows=hfa_rows)
+        df["hfa"] *= 60.0
+        with pytest.raises(ValueError, match=r"hfa value\(s\)"):
+            fit_ordlogit(df)
+
+
+@pytest.mark.parametrize("hfa", [60.0, 2.0, 0.5, -1.0, float("nan")])
+def test_predict_rejects_a_non_indicator_hfa(hfa):
+    # Guarding only the fit frame leaves the mis-pass live at the point of use:
+    # predict_1x2 accepted hfa=60 against indicator-fitted params and returned
+    # {"home": 1.0, "draw": 4.7e-37, "away": 9.2e-38} — a point mass on the
+    # home team, no error and no warning, log loss 85 if the away team wins.
+    # Same domain, same guard, both sides of the contract.
+    with pytest.raises(ValueError, match=r"hfa value\(s\)"):
+        predict_1x2(_known(), 1700.0, 1600.0, hfa)
+
+
 def test_reports_the_rows_that_identify_home_advantage(fitted):
     # b_hfa is only ever as good as the smaller hfa level, and a caller cannot
     # otherwise tell an estimate from a prior: the same +0.4 means one thing

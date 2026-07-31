@@ -23,7 +23,10 @@ load-bearing for existing reports.
 
 ``hfa`` is an indicator on the LATENT scale (1.0 when the home team actually
 has home advantage, 0.0 at a neutral venue) — NOT the rating-point constant
-the baseline adds. ``elo_h`` / ``elo_a`` are the pre-match ratings, i.e. the
+the baseline adds. That domain is CHECKED and not merely documented, on both
+sides (see ``_HFA_LEVELS``): both safety mechanisms below read the coding
+rather than the value, so a rating-point column would silently disarm them
+while looking like ordinary finite floats. ``elo_h`` / ``elo_a`` are the
 ``rating_pre`` column of ``wcmodel.data.elo.compute_elo_history``; keeping the
 caller responsible for that join is what keeps this module point-in-time.
 
@@ -51,6 +54,14 @@ _REQUIRED = ("elo_h", "elo_a", "hfa", "outcome")
 # The three columns that must be numbers: isna() is False for +-inf, so the
 # null guard alone would pass an infinite rating into the optimizer.
 _NUMERIC = ("elo_h", "elo_a", "hfa")
+
+# The ONLY admissible hfa values. Checked rather than assumed because both of
+# this module's safety mechanisms are statements about this coding, not about
+# the numbers: ``n_hfa_minority`` counts the smaller LEVEL, and the b_hfa
+# prior's bound tracks the latent shift only while hfa is 0/1 (_HFA_PRIOR_SD).
+# The live mis-pass is a column in rating points — the elo_1x2_baseline
+# convention, a perfectly ordinary finite float that every other guard passes.
+_HFA_LEVELS = (0.0, 1.0)
 
 # The ORDINAL direction of the latent scale (increasing eta favours the home
 # team). Same three labels as the canonical ``calibration._OUTCOMES``, whose
@@ -88,9 +99,13 @@ _BOUNDS = [(None, None), (-30.0, 30.0), (None, None), (None, None)]
 # carry the indicator, which a constant cannot know. Stationarity of the
 # penalised objective gives |b_hfa| <= sd**2 * sum(hfa) — the fit can never
 # buy more home advantage than the rows paying for it, and the cap relaxes as
-# those rows accumulate. Why Gaussian and not a heavy tail: a Cauchy penalty's
-# gradient is bounded, so it stops resisting exactly where separation pushes
-# hardest; a quadratic does not.
+# those rows accumulate. That bound is about the 0/1 CODING, not about b_hfa:
+# what reaches the forecast is b_hfa * hfa, so off the indicator scale the
+# cap stops tracking the thing it constrains (measured on rating points:
+# latent shift +6.90 against a nominal bound of 45). Hence _HFA_LEVELS, which
+# makes the coding a checked precondition of this whole argument. Why Gaussian
+# and not a heavy tail: a Cauchy penalty's gradient is bounded, so it stops
+# resisting exactly where separation pushes hardest; a quadratic does not.
 #
 # Scale: 0.5 latent units is ~133 Elo points at a typical b_elo=1.5, against a
 # real home advantage of 60-100 Elo (0.22-0.37 here) — weakly informative by
@@ -108,8 +123,10 @@ class OrdLogitParams:
     indicator in the fit frame — the sample that identifies ``b_hfa``, and the
     number a caller needs to tell a fitted home advantage from a prior one. 0
     means the column was constant and ``b_hfa`` is the prior's 0, not an
-    estimate. It defaults to 0 so hand-built params (a known truth in a test,
-    a re-parameterisation) stay constructible from the four coefficients.
+    estimate — a two-level column can never report 0, because the ``{0,1}``
+    coding this counts levels of is checked, not assumed (``_HFA_LEVELS``). It
+    defaults to 0 so hand-built params (a known truth in a test, a
+    re-parameterisation) stay constructible from the four coefficients.
     """
     c1: float
     s: float
@@ -120,6 +137,18 @@ class OrdLogitParams:
     @property
     def c2(self) -> float:
         return self.c1 + math.exp(self.s)
+
+
+def _check_hfa(hfa: np.ndarray | float) -> None:
+    """Reject anything outside ``_HFA_LEVELS`` — column or scalar, so the fit
+    frame and a single prediction go through the same domain."""
+    values = np.atleast_1d(np.asarray(hfa, dtype=float))
+    bad = np.unique(values[~np.isin(values, _HFA_LEVELS)])
+    if bad.size:
+        raise ValueError(
+            f"hfa value(s) {bad[:5].tolist()}{' ...' if bad.size > 5 else ''} "
+            "outside {0.0, 1.0}: hfa is the at-home INDICATOR on the latent "
+            "scale, not the rating-point home advantage of elo_1x2_baseline")
 
 
 def _design(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -135,6 +164,8 @@ def _design(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     if not finite.all():
         raise ValueError("non-finite value(s) in the fit frame:\n"
                          f"{frame[~finite.all(axis=1)]}")
+    hfa = frame["hfa"].to_numpy(float)
+    _check_hfa(hfa)
     outcome = frame["outcome"].astype(str)
     unknown = sorted(set(outcome) - set(_LATENT_ORDER))
     if unknown:
@@ -149,7 +180,7 @@ def _design(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
                          "class leaves its threshold unidentified")
     edge = (frame["elo_h"].to_numpy(float)
             - frame["elo_a"].to_numpy(float)) / _ELO_SCALE
-    return edge, frame["hfa"].to_numpy(float), y
+    return edge, hfa, y
 
 
 def _log_probs(theta, edge: np.ndarray, hfa: np.ndarray) -> np.ndarray:
@@ -203,7 +234,9 @@ def fit_ordlogit(df: pd.DataFrame) -> OrdLogitParams:
         raise RuntimeError(f"ordered-logit MLE did not converge: "
                            f"{result.message}")
     c1, s, b_elo, b_hfa = (float(v) for v in result.x)
-    at_home = int(np.count_nonzero(hfa))
+    # A LEVEL count, not count_nonzero: the two must agree for the field to
+    # mean what its docstring says, and only _check_hfa makes them agree.
+    at_home = int(np.count_nonzero(hfa == 1.0))
     return OrdLogitParams(c1=c1, s=s, b_elo=b_elo, b_hfa=b_hfa,
                           n_hfa_minority=min(at_home, hfa.size - at_home))
 
@@ -215,7 +248,12 @@ def predict_1x2(params: OrdLogitParams, elo_h: float, elo_a: float,
     The keys are exactly ``("home","draw","away")``, so the result drops
     straight into ``calibration.rps`` / ``log_loss`` without a second
     probability convention (finding 16).
+
+    ``hfa`` is checked here too, not only at fit time: params fitted on the
+    indicator are meaningless against a rating-point ``hfa``, and unchecked
+    the mis-pass returns a point mass rather than an error.
     """
+    _check_hfa(hfa)
     gap = math.exp(params.s)
     eta = (params.b_elo * (float(elo_h) - float(elo_a)) / _ELO_SCALE
            + params.b_hfa * float(hfa))
