@@ -293,3 +293,16 @@ genuine model. The banner is about the **odds/betting** side, not the model's fo
    as logged bets settle — independent of both clocks above.
 
 Three clocks, three jobs. Read each tab's own timestamp; never infer one from another.
+
+> **RPS scale boundary — 2026-07-28 (OA finding 16).** The Track tab's *"RPS vs
+> baselines"* numbers (`track.rps.{model,market,elo}`) are now the canonical
+> ÷2-normalized RPS in `[0, 1]`. Bundles built before that date hold the old
+> unnormalized `[0, 2]` values, so the **first rebuild after it halves all three
+> displayed numbers** — a unit change, not an accuracy gain. Sign, the
+> model/market/elo ordering and the ratios between them are preserved; the **gaps
+> between them are halved too** (a model-minus-market gap of `−0.004` before the
+> boundary reads `−0.002` after it), so re-derive any absolute threshold you keep on
+> a level *or* on a delta. Do not compare a post-rebuild Track RPS
+> against a screenshot or archived bundle from before the boundary. The schema guard
+> bounds these at `[0, ∞)` and will not flag the shift. The public site's live
+> scorecard figures are on the canonical scale already and are unaffected.

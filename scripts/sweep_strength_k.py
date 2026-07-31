@@ -43,6 +43,8 @@ Usage
 
 Prints a table ``k | model_RPS | elo_baseline_RPS | n_matches`` over the held-out
 set, plus the chosen k (lowest model RPS that beats k=0 AND matches/beats Elo).
+Every RPS printed is the CANONICAL ÷2-normalized value — half the pre-F16 levels
+``config/config.yaml``'s ``k_att`` note quotes; see ``SCALE_BANNER`` below.
 """
 from __future__ import annotations
 
@@ -78,6 +80,18 @@ DEFAULT_CUTOFF = "2024-06-01T00:00:00Z"
 # COARSE grid first (3 fits) per the runtime budget. The picker flags edge/interior
 # so we know whether to refine (interior best -> add a neighbour) or extend (edge).
 DEFAULT_KS = [0.0, 0.2, 0.4]
+
+# Printed with the table. The shipped k=0.6 is justified in config.yaml by absolute
+# RPS LEVELS recorded before the canonical-RPS consolidation, so a re-run prints half
+# of them; unmarked, that reads as a 2x accuracy gain or as the decision failing to
+# reproduce. (The picker itself is unaffected — it compares arms with ±1e-9 float-noise
+# epsilons, never an absolute threshold.)
+SCALE_BANNER = (
+    "  SCALE: canonical /2-normalized RPS in [0, 1] (OA finding 16, 2026-07-28).\n"
+    "  config/config.yaml's k_att note quotes the PRE-F16 [0, 2] levels 0.359 /\n"
+    "  0.340 / 0.333; this table prints their halves (~0.1795 / 0.170 / 0.1665).\n"
+    "  Half is the UNIT, not the accuracy — sign, ordering and the k ranking hold."
+)
 
 
 def _result_outcome(home_score: int, away_score: int) -> str:
@@ -272,6 +286,7 @@ def main(argv=None) -> int:
     # --- The table. ---
     print("\n" + "=" * 78)
     print("k-CALIBRATION TABLE — mean held-out 1X2 RPS (lower = better forecast)")
+    print(SCALE_BANNER)
     print("=" * 78)
     print(f"  {'k':>6} | {'model_RPS':>10} | {'elo_baseline_RPS':>16} | {'n_matches':>9}")
     print(f"  {'-'*6}-+-{'-'*10}-+-{'-'*16}-+-{'-'*9}")

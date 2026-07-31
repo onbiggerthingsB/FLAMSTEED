@@ -17,31 +17,37 @@ RPS is the PRIMARY calibration diagnostic (never the target); it is the same
 ranked-probability score the de-vig selection uses, on the ordered
 ``OUTCOMES`` = (home, draw, away).
 
-RPS DRY note
-------------
-This module's public ``rps`` (dict-keyed) computes the SAME cumulative ranked
-probability score as the private ``devig_select._rps`` (list-indexed) that
-``devig_select.rps_of_devig`` calls during empirical de-vig selection (Task 1).
-The two are numerically identical — same K-1 cumulative-squared-error loop on
-the same ordered ``OUTCOMES``, same [0, 2] range — differing ONLY in input
-container (this one takes a ``{home, draw, away}`` dict, the de-vig one takes a
-positional ``list[float]``).
+RPS DRY note (OA finding 16)
+----------------------------
+There is now ONE canonical RPS codebase-wide: ``wcmodel.model.calibration.rps``,
+the ÷2-normalized convention with range [0, 1]. This module's public ``rps``, the
+private ``devig_select._rps``, and the private ``report._rps`` (the permutation
+null's scorer) are thin container adapters that DELEGATE to it (dict-keyed here
+and in ``report``, positional ``list[float]`` in ``devig_select``) — none carries
+its own loop, so they cannot silently diverge. ``headroom._row_rps`` reaches the
+same convention through this module's ``rps``. ``tests/eval/test_rps_canonical.py``
+pins each adapter to the canonical value.
 
-We KEEP both rather than consolidate. Making ``devig_select`` reuse this public
-``rps`` would create a circular import: ``baselines`` imports ``devig`` from
-``devig_select``, so ``devig_select`` importing ``rps`` from ``baselines`` closes
-the cycle (``baselines -> devig_select -> baselines``) and breaks the package's
-import — and Task 1's de-vig tests with it. A shared third module would be the
-only clean consolidation, but that is more churn than a single 6-line loop
-warrants. Instead the equivalence is LOCKED by a test
-(``test_baselines_rps_equals_devig_select_rps``) that asserts the two agree on
-randomised forecasts, so the public copy can never silently diverge.
+``calibration`` is the shared third module the earlier note called for: routing
+through it avoids the circular import that blocked consolidation before
+(``baselines`` imports ``devig`` from ``devig_select``, so ``devig_select``
+importing from ``baselines`` would close a cycle; ``calibration`` imports neither).
+
+SCALE CHANGE: RPS values reported by this module are HALF their pre-F16 values.
+Sign, ordering and ratios are preserved; every RPS LEVEL and every RPS DIFFERENCE is
+halved (Δ_new = Δ_old / 2). Any absolute threshold on a level OR on a delta must be
+re-derived — a threshold left on the old [0, 2] scale silently demands twice the true
+effect to fire, and any absolute RPS figure read from a pre-2026-07-28 report is on
+that old scale. (Re-derived at the 2026-07-28 boundary: ``scripts/model_market_gap.py``
+G1_SMALL/G1_LARGE, ``scripts/sweep_altitude.py`` TOL/TOO_GOOD,
+``scripts/clv_validation.py`` RED_GAP; pinned by ``tests/eval/test_rps_scale_consumers.py``.)
 """
 from __future__ import annotations
 
 from wcmodel.data.elo import elo_1x2_baseline
 from wcmodel.backtest.devig_select import devig
 from wcmodel.backtest.odds_ingest import OUTCOMES
+from wcmodel.model.calibration import rps as _canonical_rps
 
 
 def model_fair_1x2(posterior, *, home: str, away: str, neutral: bool) -> dict:
@@ -78,15 +84,10 @@ def edge_vector(model: dict, market: dict) -> dict:
 
 
 def rps(probs: dict, outcome: str) -> float:
-    """Ranked Probability Score of a 1X2 forecast vs the realised outcome.
+    """Canonical ÷2-normalized Ranked Probability Score in [0,1], lower better.
 
-    Ordered categories ``OUTCOMES`` = (home, draw, away); RPS in [0, 2], lower is
-    better. ``probs`` is ``{home, draw, away}``; ``outcome`` is one of OUTCOMES.
+    Ordered categories ``OUTCOMES`` = (home, draw, away). ``probs`` is
+    ``{home, draw, away}``; ``outcome`` is one of OUTCOMES. Delegates to
+    ``wcmodel.model.calibration.rps`` — ONE convention codebase-wide (OA F16).
     """
-    obs = [1.0 if o == outcome else 0.0 for o in OUTCOMES]
-    cum_p = cum_o = total = 0.0
-    for k in range(len(OUTCOMES) - 1):
-        cum_p += probs[OUTCOMES[k]]
-        cum_o += obs[k]
-        total += (cum_p - cum_o) ** 2
-    return total
+    return _canonical_rps(probs, outcome)

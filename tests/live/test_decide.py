@@ -1,7 +1,9 @@
 import numpy as np
 import pandas as pd
 
-from wcmodel.backtest.odds_ingest import OUTCOMES, _SYNTHETIC_KEY, synthetic_odds_sample
+from wcmodel.backtest.odds_ingest import (
+    OUTCOMES, _SYNTHETIC_KEY, event_key, synthetic_odds_sample,
+)
 from wcmodel.live.decide import decide_live, LiveDecision
 
 
@@ -362,3 +364,35 @@ def test_decide_live_no_pre_cutoff_price_is_a_non_bet(small_store, cfg):
     assert d.staked == ""           # no side staked
     assert d.stake == 0.0           # counted non-bet, not a future-priced bet
     assert d.non_bet_reason == "no_odds"
+
+
+def _dict_data_snap(ts: str, prices, *, commence="2024-06-30T19:00:00Z") -> dict:
+    """``_snap`` with ``data`` as ONE bare event dict — the recorded shape of the
+    per-event historical route (OA F13), which Plan 2 routes into these samples.
+    ``odds.event_list`` is the one normalizer for both shapes."""
+    snap = _snap(ts, prices, commence=commence)
+    snap["data"] = snap["data"][0]
+    return snap
+
+
+def test_decision_time_entry_accepts_dict_shaped_data():
+    # ``fetch_historical``'s per-event response wraps ONE bare event dict; the
+    # entry selection must normalize via odds.event_list instead of assuming a
+    # list (``["data"][0]`` raised KeyError: 0 on this shape).
+    from wcmodel.live.decide import _decision_time_entry
+    sample = {"mid": _dict_data_snap("2024-06-30T16:00:00Z", (2.30, 3.45, 3.20))}
+    prices, entry_ts = _decision_time_entry(
+        sample, bookmaker="pinnacle", cutoff="2024-06-30T18:00:00Z", close_ts=None)
+    assert prices == {"home": 2.30, "draw": 3.45, "away": 3.20}
+    assert entry_ts == "2024-06-30T16:00:00Z"
+
+
+def test_event_meta_accepts_dict_shaped_data():
+    # Same dual-shape contract for the book-independent event identity: a
+    # dict-shaped sample must still be loggable as a counted non-bet.
+    from wcmodel.live.decide import _event_meta
+    sample = {"mid": _dict_data_snap("2024-06-30T16:00:00Z", (2.30, 3.45, 3.20))}
+    key, commence, is_synth = _event_meta(sample)
+    assert key == event_key(sample["mid"]["data"])
+    assert commence == "2024-06-30T19:00:00Z"
+    assert is_synth is True         # _snap stamps the synthetic marker

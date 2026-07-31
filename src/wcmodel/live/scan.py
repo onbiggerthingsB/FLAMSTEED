@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 
 from wcmodel.config import load_config
 from wcmodel.backtest.walkforward import _sample_is_synthetic
+from wcmodel.data.sources.odds import event_list
 from wcmodel.live.decide import decide_live
 
 _DRY_RUN_BANNER = (
@@ -82,19 +83,20 @@ def _event_id(item: dict):
     """Best-effort event IDENTIFIER for the batch-guard error sidecar — NEVER raises.
 
     A malformed fixture is, by definition, one the parse path chokes on, so this is a
-    defensive scan: it tries the Odds-API ``id`` nested in the first snapshot's
-    ``data[0]``, then a top-level ``event_id``/``id`` on the sample, then the
-    ``(home, away, commence)`` identity triple — and returns ``None`` if nothing is
-    legible. Used ONLY to LOCATE a systemic failure, so a missing id degrades to
-    ``None`` rather than masking the recorded exception.
+    defensive scan: it tries the Odds-API ``id`` nested in the first snapshot's first
+    event (``data`` a LIST of events or ONE bare event dict — the per-event historical
+    route — normalized via ``odds.event_list``), then a top-level ``event_id``/``id``
+    on the sample, then the ``(home, away, commence)`` identity triple — and returns
+    ``None`` if nothing is legible. Used ONLY to LOCATE a systemic failure, so a
+    missing id degrades to ``None`` rather than masking the recorded exception.
     """
     try:
         sample = item.get("sample", item)
         if not isinstance(sample, dict):
             return None
         for v in sample.values():
-            if isinstance(v, dict) and isinstance(v.get("data"), list) and v["data"]:
-                ev = v["data"][0]
+            if isinstance(v, dict) and isinstance(v.get("data"), (dict, list)) and v["data"]:
+                ev = event_list(v["data"])[0]
                 if isinstance(ev, dict):
                     if ev.get("id") is not None:
                         return ev["id"]

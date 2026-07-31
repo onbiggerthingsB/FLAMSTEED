@@ -57,7 +57,7 @@ from wcmodel.backtest.baselines import market_fair_1x2, model_fair_1x2, rps
 from wcmodel.backtest.walkforward import _sample_is_synthetic, walkforward
 from wcmodel.config import load_config
 from wcmodel.data.features import valid_played_results
-from wcmodel.data.sources.odds import ODDSAPI_BASE
+from wcmodel.data.sources.odds import ODDSAPI_BASE, event_list
 from wcmodel.data.sources.results import load_results
 from wcmodel.data.store import BitemporalStore
 import wcmodel.model.cache as _model_cache
@@ -512,13 +512,16 @@ def _snapshot_to_real_shape(raw_snap: dict, ts_label: str) -> dict | None:
     """Lift the historical event-odds response into the {timestamp, data:[event]} snapshot
     shape ``parse_snapshot`` consumes, stamped is_synthetic=False. The historical event-odds
     response is itself {timestamp, data:{...event...}} (data is a single event object, not a
-    list); we normalise ``data`` to a one-element list. Returns None if it has no event."""
+    list); the dict/list normalisation delegates to the adapter's own ``odds.event_list``
+    (ONE normaliser codebase-wide — this script used to keep a private third copy).
+    Returns None if it has no event."""
     if not raw_snap:
         return None
     data = raw_snap.get("data")
     if data is None:
         return None
-    event = data[0] if isinstance(data, list) else data
+    events = event_list(data)
+    event = events[0] if events else None
     if not event or "bookmakers" not in event:
         return None
     snap = {
@@ -896,6 +899,44 @@ def cmd_pilot(args) -> int:
 # STEP 4 — ACCURACY: model RPS vs market RPS vs uniform (the forecast-accuracy job)
 # =========================================================================== #
 UNIFORM_1X2 = {"home": 1.0 / 3, "draw": 1.0 / 3, "away": 1.0 / 3}
+
+# The too-good tripwire's absolute RPS constants, on the canonical ÷2 scale (OA finding
+# 16, 2026-07-28): ``rps`` now delegates to ``calibration.rps`` ([0, 1]), which halves
+# every RPS LEVEL and every RPS DIFFERENCE.
+#   RED_GAP: a DIFFERENCE -> re-derived, else this leakage detector would need twice the
+#            true edge-over-the-ceiling to fire.
+#   NEAR_PERFECT: a LEVEL -> deliberately LEFT at its pre-F16 value, which on the new
+#            scale is 2x MORE sensitive. For a leakage detector that is the safe
+#            direction to err in, so it is kept rather than relaxed to 5e-5.
+RED_GAP = -0.025      # = pre-F16 -0.05
+NEAR_PERFECT = 1e-4   # pre-F16 1e-4 too (now fires at a pre-F16 2e-4)
+
+
+def _adversarial_verdict(agg_model: float, agg_market: float, n: int) -> str:
+    """The too-good tripwire line: the de-vigged close is the accuracy CEILING, so a
+    model RPS materially below it is a SUSPECTED BUG (leakage / de-vig error /
+    result-peek), not a win. Pure so the thresholds are unit-testable
+    (``tests/eval/test_rps_scale_consumers.py``)."""
+    gap = agg_model - agg_market
+    if agg_model < NEAR_PERFECT:
+        return ("  [RED] model RPS ~ 0 — near-perfect forecasts are implausible; "
+                "SUSPECT a result peeking into the model. HUNT before trusting.")
+    if gap < RED_GAP:
+        return (f"  [RED] model beats market by {-gap:.4f} RPS — materially better than the "
+                "accuracy ceiling on a tiny sample. TREAT AS A SUSPECTED BUG (leakage / "
+                "de-vig error / result-peek), not a win, until hand-checked.")
+    if gap < 0 and n <= 8:
+        # ANY beat-the-ceiling on a tiny sample is suspect — the de-vigged close is
+        # the accuracy ceiling, so even a SMALL aggregate edge on n<=8 warrants a
+        # leakage hand-check before it is trusted (a milder AMBER below the RED).
+        return (f"  [AMBER] model beat the de-vigged ceiling by {-gap:.4f} RPS on a tiny "
+                f"sample (n={n}<=8). The de-vigged close is the accuracy ceiling — beating "
+                "it at all here is more likely leakage/de-vig error than skill. HAND-CHECK "
+                "for leakage before trusting; not a powered win.")
+    return (f"  [ok] model RPS {agg_model:.4f} is "
+            f"{'above' if gap > 0 else 'just below'} the market's {agg_market:.4f} "
+            f"(gap {gap:+.4f}); within plausibility — the market is at/near the ceiling, "
+            "as expected. n is tiny, so this is DIRECTIONAL only.")
 
 
 def _result_outcome(home_score: int, away_score: int) -> str:
@@ -1323,27 +1364,7 @@ def cmd_accuracy(args) -> int:
     print("\n" + "=" * 78)
     print("ADVERSARIAL: too-good RPS => SUSPECTED BUG (market is the ceiling)")
     print("=" * 78)
-    gap = agg_model - agg_market
-    if agg_model < 1e-4:
-        print("  [RED] model RPS ~ 0 — near-perfect forecasts are implausible; "
-              "SUSPECT a result peeking into the model. HUNT before trusting.")
-    elif gap < -0.05:
-        print(f"  [RED] model beats market by {-gap:.4f} RPS — materially better than the "
-              "accuracy ceiling on a tiny sample. TREAT AS A SUSPECTED BUG (leakage / "
-              "de-vig error / result-peek), not a win, until hand-checked.")
-    elif gap < 0 and n <= 8:
-        # ANY beat-the-ceiling on a tiny sample is suspect — the de-vigged close is
-        # the accuracy ceiling, so even a SMALL aggregate edge on n<=8 warrants a
-        # leakage hand-check before it is trusted (a milder AMBER below the RED).
-        print(f"  [AMBER] model beat the de-vigged ceiling by {-gap:.4f} RPS on a tiny "
-              f"sample (n={n}<=8). The de-vigged close is the accuracy ceiling — beating "
-              "it at all here is more likely leakage/de-vig error than skill. HAND-CHECK "
-              "for leakage before trusting; not a powered win.")
-    else:
-        print(f"  [ok] model RPS {agg_model:.4f} is "
-              f"{'above' if gap > 0 else 'just below'} the market's {agg_market:.4f} "
-              f"(gap {gap:+.4f}); within plausibility — the market is at/near the ceiling, "
-              "as expected. n is tiny, so this is DIRECTIONAL only.")
+    print(_adversarial_verdict(agg_model, agg_market, n))
 
     print(f"\n[verdict] DIRECTIONAL ACCURACY (n={n}, WIDE CI). The model's mean RPS is "
           f"{agg_model:.4f} vs the market's {agg_market:.4f} "

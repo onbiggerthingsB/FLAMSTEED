@@ -44,15 +44,15 @@ def test_rps_matches_manual_three_way():
     # Perfect forecast -> RPS 0; flat forecast on a home win -> known value.
     assert rps({"home": 1.0, "draw": 0.0, "away": 0.0}, "home") == 0.0
     flat = rps({"home": 1 / 3, "draw": 1 / 3, "away": 1 / 3}, "home")
-    # cumulative: (1/3-1)^2 + (2/3-1)^2 = 4/9 + 1/9 = 5/9
-    assert abs(flat - 5 / 9) < 1e-12
+    # cumulative: (1/3-1)^2 + (2/3-1)^2 = 4/9 + 1/9 = 5/9, then /2  (r-1 = 2)
+    assert abs(flat - 5 / 18) < 1e-12  # ÷2-normalized (OA F16)
 
 
 def test_baselines_rps_equals_devig_select_rps():
     # DRY lock: the public dict-keyed ``rps`` and the private list-indexed
-    # ``devig_select._rps`` are KEPT separate (consolidating would close a
-    # baselines<->devig_select import cycle) but MUST stay numerically identical.
-    # If either drifts, this fails — the public copy can never silently diverge.
+    # ``devig_select._rps`` are container adapters over the ONE canonical
+    # ``calibration.rps`` (OA F16) and MUST stay numerically identical. If either
+    # stops delegating, this fails — neither copy can silently diverge.
     from wcmodel.backtest.devig_select import _rps as devig_rps
 
     rng = np.random.default_rng(0)

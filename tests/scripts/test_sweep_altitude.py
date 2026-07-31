@@ -82,6 +82,12 @@ def test_fixture_covariates_per_arm(mod):
 
 # --------------------------------------------------------------------------- #
 # Verdict logic (pure).                                                         #
+#                                                                               #
+# Canned RPS values (pre-OA-F16 [0, 2] magnitudes), so these pin the ADOPT /     #
+# NO-LIFT BRANCHING only — never the SCALE of `TOL` or `TOO_GOOD`, which is why  #
+# they stayed green through the ÷2 rescale that halved every real delta. The     #
+# thresholds are pinned through `baselines.rps` in                               #
+# `tests/eval/test_rps_scale_consumers.py`; keep both.                           #
 # --------------------------------------------------------------------------- #
 def _arms(off_con, accl_con, off_all=0.330, accl_all=0.330):
     return [

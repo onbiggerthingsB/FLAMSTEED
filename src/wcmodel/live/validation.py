@@ -32,6 +32,7 @@ from wcmodel.backtest.odds_ingest import (
     OUTCOMES, _bookmaker_prices, _parse_ts, _snapshot_has_book, book_aware_close,
 )
 from wcmodel.backtest.validation import check_foresight_red  # REUSED verbatim (§2.5, §3)
+from wcmodel.data.sources.odds import event_list
 from wcmodel.live.decide import _decision_time_entry  # the SAME entry path decide_live logs
 
 
@@ -76,7 +77,9 @@ def _entry_matches_non_close_le_cutoff_snapshot(
             continue
         if not _snapshot_has_book(s, bookmaker):
             continue
-        ev = s["data"][0]
+        # ``data`` may be a LIST of events or ONE bare event dict (the
+        # per-event historical route) — odds.event_list is the one normalizer.
+        ev = event_list(s["data"])[0]
         prices = _bookmaker_prices(s, bookmaker, ev["home_team"], ev["away_team"])
         if all(logged.get(o) == prices[o] for o in OUTCOMES):
             return True
@@ -141,16 +144,17 @@ def assert_entry_logged_at_decision_time(decision, sample: dict, *, bookmaker: s
     caught by IDENTITY even when the prices coincide (the focal equal-price hole).
     """
     # The event's COMMENCE (kickoff) derived book-INDEPENDENTLY from the sample — the SAME
-    # source `decide.py::_event_meta` uses (`data[0]["commence_time"]` of any snapshot),
-    # NOT routed through `_decision_time_entry`. This is the reference the INDEPENDENT
-    # post-kickoff pin (4) uses: the logged entry_ts must be STRICTLY before kickoff.
+    # source `decide.py::_event_meta` uses (the first event of any snapshot's ``data``,
+    # list-shaped or the per-event bare dict, normalized via odds.event_list), NOT routed
+    # through `_decision_time_entry`. This is the reference the INDEPENDENT post-kickoff
+    # pin (4) uses: the logged entry_ts must be STRICTLY before kickoff.
     _snaps = [
         v for v in sample.values()
         if isinstance(v, dict) and "timestamp" in v and "data" in v
     ]
     if not _snaps:
         raise ValueError("assert_entry_logged_at_decision_time: sample has no snapshots")
-    commence = _snaps[0]["data"][0]["commence_time"]
+    commence = event_list(_snaps[0]["data"])[0]["commence_time"]
     # The BOOK-AWARE close (CLV-only) + its timestamp, derived INDEPENDENTLY of the
     # earliest-entry leg (which raises on a missing-earliest-book). This is the close to
     # EXCLUDE from the entry candidates — and the reference the independent pin uses.

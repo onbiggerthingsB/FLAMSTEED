@@ -59,6 +59,11 @@ model:
     enabled: true            # CALIBRATED ON: anchoring beats the old model AND plain Elo on held-out 1X2 RPS
     source: elo              # elo only in v1 (market anchor out of scope)
     k_att: 0.6               # knee of the held-out-RPS curve: k=0 RPS 0.359 (worse than Elo 0.340); k>=0.6 plateau ~0.333 (beats Elo). 0.6 = full gain, least anchoring. See scripts/sweep_strength_k.py
+    # ^ those three levels are PRE-F16 [0, 2]-scale (recorded 2026-06). Since the
+    #   2026-07-28 canonical-RPS consolidation (OA finding 16) the sweep scores through
+    #   wcmodel.model.calibration.rps and a re-run prints their HALVES, ~0.1795 / 0.170 /
+    #   0.1665. That halving is the unit change, NOT an accuracy gain, and it leaves this
+    #   k decision intact: a uniform /2 preserves sign, ordering and ratios.
     k_def: 0.6
   widening:
     mechanism: c                     # a (likelihood down-weight) | c (predictive-variance inflation)  (P4 DOF #3)
@@ -107,6 +112,16 @@ backtest:
   # Reproducibility.
   bootstrap_resamples: 2000        # bootstrap CI resamples for ROI/drawdown/etc.
   bootstrap_seed: 20260611         # seeded so CIs are bit-reproducible
+odds:
+  # Per-competition Odds API sport keys for the HISTORICAL routes (OA F13).
+  # The generic `soccer` key the old adapter hardcoded is INVALID — the API
+  # rejects it. These exact strings are VERIFIED by the OA-0a probe
+  # (scripts/oa_probe.py); config-driven so the probe can correct a wrong key
+  # WITHOUT a code change.
+  sport_keys:
+    wc2022: soccer_fifa_world_cup
+    euro2024: soccer_uefa_european_championship
+    wc2026: soccer_fifa_world_cup
 live:
   # L1 SPEND GATE. dry_run=true => NO network, NO real odds spend, NO real bet:
   # the whole live pipeline runs against the fixture / the clearly-labelled-non-real

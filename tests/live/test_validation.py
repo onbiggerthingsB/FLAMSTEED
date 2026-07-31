@@ -311,6 +311,44 @@ def test_mislog_canary_CATCHES_a_stale_pre_cutoff_entry_multi_snapshot():
         assert_entry_logged_at_decision_time(d, sample, bookmaker="pinnacle")
 
 
+def _dict_data_sample():
+    """``_multi_snapshot_sample`` with every snapshot's ``data`` re-wrapped as ONE
+    bare event dict — the recorded shape of the per-event historical route
+    (OA F13), which Plan 2 routes into these samples. ``odds.event_list`` is the
+    one normalizer for both shapes."""
+    sample, cutoff = _multi_snapshot_sample()
+    for v in sample.values():
+        if isinstance(v, dict) and isinstance(v.get("data"), list):
+            v["data"] = v["data"][0]
+    return sample, cutoff
+
+
+def test_mislog_canary_handles_dict_shaped_data():
+    # The canary's book-independent commence derivation and its independent
+    # value pin read the sample's ``data`` directly; on the per-event dict
+    # shape ``["data"][0]`` raised KeyError: 0 — a correctly-logged decision
+    # could not even be VALIDATED. Both sites must normalize via
+    # odds.event_list.
+    sample, cutoff = _dict_data_sample()
+    pc = entry_close_prices(sample, bookmaker="pinnacle")
+    entry, entry_ts = _decision_time_entry(sample, bookmaker="pinnacle", cutoff=cutoff,
+                                           close_ts=pc["close_ts"])
+    d = SimpleNamespace(cutoff=cutoff, entry_odds=dict(entry), entry_ts=entry_ts,
+                        close_odds=dict(pc["close"]))
+    assert_entry_logged_at_decision_time(d, sample, bookmaker="pinnacle")  # must NOT raise
+
+
+def test_mislog_canary_still_catches_close_as_entry_on_dict_shaped_data():
+    # TEETH preserved on the dict shape: normalizing must not weaken the gate —
+    # a close-as-entry mis-log on a dict-shaped sample still RAISES.
+    sample, cutoff = _dict_data_sample()
+    pc = entry_close_prices(sample, bookmaker="pinnacle")
+    d = SimpleNamespace(cutoff=cutoff, entry_odds=dict(pc["close"]),
+                        entry_ts=pc["close_ts"], close_odds=dict(pc["close"]))
+    with pytest.raises(MisLogError, match="(?i)close|mis-log"):
+        assert_entry_logged_at_decision_time(d, sample, bookmaker="pinnacle")
+
+
 def test_append_only_ledger_refuses_rewrite(tmp_path):
     path = tmp_path / "ledger.jsonl"
     ledger = AppendOnlyLedger(path)

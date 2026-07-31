@@ -5,8 +5,8 @@ import pandas as pd
 import pytest
 
 from wcmodel.backtest.odds_ingest import (
-    OUTCOMES, event_key, entry_close_prices, synthetic_odds_sample,
-    non_bet_snapshot, _SYNTHETIC_KEY,
+    OUTCOMES, book_aware_close, event_key, entry_close_prices,
+    synthetic_odds_sample, non_bet_snapshot, _SYNTHETIC_KEY,
 )
 
 
@@ -78,6 +78,58 @@ def test_entry_close_is_synthetic_contract_true_and_false(odds_fixture_path):
     syn = synthetic_odds_sample(home="X", away="Y", commence="2024-06-20T19:00:00Z",
                                 entry=(2.0, 3.4, 4.0), close=(1.9, 3.5, 4.3))
     assert entry_close_prices(syn["sample"], bookmaker="pinnacle")["is_synthetic"] is True
+
+
+def _historical_snap(ts: str, prices: tuple[float, float, float]) -> dict:
+    """A per-event historical-route snapshot: ``data`` is ONE bare event DICT,
+    not a list (OA F13) — the shape ``odds.fetch_historical`` returns per
+    snapshot on ``/historical/sports/{sport}/events/{id}/odds``."""
+    h, d, a = prices
+    return {
+        "timestamp": ts,
+        "previous_timestamp": ts,
+        "next_timestamp": ts,
+        "data": {
+            "id": "evt_BRA_CRO", "sport_key": "soccer_fifa_world_cup",
+            "commence_time": "2026-06-11T19:00:00Z",
+            "home_team": "Brazil", "away_team": "Croatia",
+            "bookmakers": [{
+                "key": "pinnacle", "last_update": ts,
+                "markets": [{"key": "h2h", "last_update": ts,
+                             "outcomes": [{"name": "Brazil", "price": h},
+                                          {"name": "Draw", "price": d},
+                                          {"name": "Croatia", "price": a}]}],
+            }],
+        },
+    }
+
+
+def test_entry_close_prices_accepts_dict_shaped_single_event_data():
+    # The natural Plan-2 pipeline: fetch_historical (per-event route, ``data``
+    # is ONE bare event dict) -> {"bet_time": ..., "close": ...} -> here. The
+    # event-identity read must go through the SAME dict/list normalizer
+    # parse_snapshot uses (odds.event_list), not assume ``data[0]``.
+    sample = {
+        "bet_time": _historical_snap("2026-06-11T13:00:00Z", (1.62, 4.1, 6.10)),
+        "close": _historical_snap("2026-06-11T18:55:00Z", (1.57, 4.2, 6.50)),
+    }
+    pc = entry_close_prices(sample, bookmaker="pinnacle")
+    assert pc["entry"] == {"home": 1.62, "draw": 4.1, "away": 6.10}
+    assert pc["close"] == {"home": 1.57, "draw": 4.2, "away": 6.50}
+    assert pc["event_key"] == ("Brazil", "Croatia",
+                               pd.Timestamp("2026-06-11").date())
+    assert pc["is_synthetic"] is False
+
+
+def test_book_aware_close_accepts_dict_shaped_single_event_data():
+    # Same dual-shape contract for the live decide path's close-exclusion leg.
+    sample = {
+        "bet_time": _historical_snap("2026-06-11T13:00:00Z", (1.62, 4.1, 6.10)),
+        "close": _historical_snap("2026-06-11T18:55:00Z", (1.57, 4.2, 6.50)),
+    }
+    bac = book_aware_close(sample, bookmaker="pinnacle")
+    assert bac == {"close": {"home": 1.57, "draw": 4.2, "away": 6.50},
+                   "close_ts": "2026-06-11T18:55:00Z"}
 
 
 def test_non_bet_snapshot_flags_sign_flip_wide_spread_and_stale():

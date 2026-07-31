@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from wcmodel.data.sources.odds import parse_snapshot
+from wcmodel.data.sources.odds import event_list, parse_snapshot
 
 #: The fixed 1X2 outcome order shared across de-vig, model probs, and settling.
 OUTCOMES = ("home", "draw", "away")
@@ -131,7 +131,9 @@ def entry_close_prices(sample: dict, bookmaker: str) -> dict:
     if not snaps:
         raise ValueError("entry_close_prices: sample has no snapshots")
     # Identify the single event (the fixture/harness is one event per sample).
-    first_event = snaps[0]["data"][0]
+    # ``data`` may be a LIST of events or ONE bare event dict (the per-event
+    # historical route) — odds.event_list is the one normalizer for both.
+    first_event = event_list(snaps[0]["data"])[0]
     home_team = first_event["home_team"]
     away_team = first_event["away_team"]
     commence = first_event["commence_time"]
@@ -189,7 +191,8 @@ def book_aware_close(sample: dict, bookmaker: str) -> dict | None:
     ]
     if not snaps:
         raise ValueError("book_aware_close: sample has no snapshots")
-    first_event = snaps[0]["data"][0]
+    # Same dual-shape ``data`` contract as entry_close_prices (odds.event_list).
+    first_event = event_list(snaps[0]["data"])[0]
     home_team = first_event["home_team"]
     away_team = first_event["away_team"]
     kickoff = _parse_ts(first_event["commence_time"])
