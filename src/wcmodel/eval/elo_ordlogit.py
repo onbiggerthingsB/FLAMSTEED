@@ -28,13 +28,22 @@ sides (see ``_HFA_LEVELS``): both safety mechanisms below read the coding
 rather than the value, so a rating-point column would silently disarm them
 while looking like ordinary finite floats. ``elo_h`` / ``elo_a`` are the
 ``rating_pre`` column of ``wcmodel.data.elo.compute_elo_history``; keeping the
-caller responsible for that join is what keeps this module point-in-time.
+caller responsible for that join is what keeps this module point-in-time, and
+a frame whose edge is CONSTANT — what a total team-name miss produces, since
+every unmatched team falls back to the same default rating — is refused
+rather than fitted (see ``_design``).
 
-``b_hfa`` alone is fitted under a weakly-informative Gaussian prior rather
-than by pure MLE, because the pools this arm exists to score put home
-advantage on 1-3 of 64 fixtures (only the host plays at home) and that
-sub-sample is routinely separated — see ``_HFA_PRIOR_SD``. The fit reports
-``n_hfa_minority`` so a caller can tell an estimate from a prior.
+Both slopes are fitted under weakly-informative Gaussian priors rather than by
+pure MLE, for one reason in two places: an ordered logit whose outcomes
+separate along a covariate has no finite MLE for that covariate's slope, and
+L-BFGS-B reports SUCCESS at wherever its stopping rule landed. For ``b_hfa``
+the separated sub-sample is routine — the pools this arm exists to score put
+home advantage on 1-3 of 64 fixtures, only the host playing at home
+(``_HFA_PRIOR_SD``); for ``b_elo`` it takes a contrived frame, but what comes
+out is a point-mass forecast that passes every downstream check
+(``_ELO_PRIOR_SD``). The fit reports the identifying sample for each —
+``n_hfa_minority`` and ``elo_edge_sd`` — so a caller can tell an estimate
+from a prior.
 
 Scope: this module fits and predicts. Fitting on real store data and scoring
 any arm on a pool is Plan 2, AFTER the prereg locks.
@@ -113,6 +122,31 @@ _BOUNDS = [(None, None), (-30.0, 30.0), (None, None), (None, None)]
 # term (1.4318 unpenalised -> 1.4193), and pins the constant-column case at 0.
 _HFA_PRIOR_SD = 0.5
 
+# Prior SD on ``b_elo``, in latent units — the same remedy applied to the
+# LOAD-BEARING slope, against the same hazard: outcomes that separate along the
+# Elo edge have no finite MLE either. Measured on a 48-row frame whose outcomes
+# are monotone in the edge, unpenalised: b_elo=30,708 with c1=-5,698 and
+# SUCCESS, and predict_1x2 then emits the EXACT point mass {'home': 1.0,
+# 'draw': 0.0, 'away': 0.0} — which sums to 1 with every value in [0,1], so it
+# passes ledger._check_probs as a legitimate forecast and log_loss scores it at
+# its 1e-15 clip (34.5) instead of as the impossibility it is.
+#
+# Scale: b_elo is latent units per 400 Elo, so the rating system itself pins
+# the magnitude. elo.py:135 takes the expected score as 1/(1+10**(-d/400)),
+# i.e. logit = ln(10) * d/400, so b_elo = ln(10) = 2.30 is exactly the slope
+# at which this head reproduces Elo's own curve (draws flatten the fitted value
+# to ~1.5). One SD is 1.3 of those, so the prior is weakly informative by the
+# convention's own yardstick and only resists several times past anything it
+# can mean. Cost where the data identify the slope: 1.5020 -> 1.5018 at
+# n=8,000 (0.018%), worst 2.96% over 12 seeds of the 64-fixture frames this arm
+# is actually scored on. An SD of 1.0 would cost 20.8% there — a number that
+# would fit the penalty rather than the Elo edge. Same stationarity bound as
+# b_hfa, |b_elo| <= sd**2 * sum|edge|, and the same reason to prefer it to a
+# fixed magnitude bound: the cap must relax as identifying spread accumulates,
+# and a bound would leave the fit sitting ON the constraint reporting success —
+# a rail wearing an estimate's clothes.
+_ELO_PRIOR_SD = 3.0
+
 
 @dataclass(frozen=True)
 class OrdLogitParams:
@@ -127,12 +161,21 @@ class OrdLogitParams:
     coding this counts levels of is checked, not assumed (``_HFA_LEVELS``). It
     defaults to 0 so hand-built params (a known truth in a test, a
     re-parameterisation) stay constructible from the four coefficients.
+
+    ``elo_edge_sd`` is the same statistic for ``b_elo``: the spread of
+    ``elo_h - elo_a`` in the fit frame, in RATING points (numpy's population
+    sd, so pandas' ddof=1 default reproduces it only up to 1/n). A slope is
+    only ever as good as the variation that identified it, and b_elo=1.2 means
+    one thing off 253 points of spread and another off 0.4. A fitted head can
+    never report 0.0 — a constant edge is refused, not fitted — so the 0.0
+    default unambiguously marks hand-built params.
     """
     c1: float
     s: float
     b_elo: float
     b_hfa: float
     n_hfa_minority: int = 0
+    elo_edge_sd: float = 0.0
 
     @property
     def c2(self) -> float:
@@ -180,6 +223,23 @@ def _design(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
                          "class leaves its threshold unidentified")
     edge = (frame["elo_h"].to_numpy(float)
             - frame["elo_a"].to_numpy(float)) / _ELO_SCALE
+    # The b_elo counterpart of the absent-class guard, and the more reachable
+    # of the two: a constant edge (any value — a non-zero one is absorbed by
+    # c1) leaves the objective EXACTLY flat in the arm's load-bearing slope, so
+    # the fit returns _INIT[2] unchanged and reports success. That is not a
+    # neutral fallback like the b_hfa prior's 0 but a plausible-looking 1.0,
+    # and the head then prices real mismatches off a slope nothing estimated.
+    # Reachable through this repo's own lookup idiom rather than by accident:
+    # `ratings.get(team, initial_rating)` — elo.py:130, walkforward.py:397,
+    # calibration.py:199 — puts every unmatched team at the shared default, so
+    # a team-name join that misses entirely leaves every row at the same edge.
+    if edge.min() == edge.max():
+        raise ValueError(
+            f"the Elo edge is constant at {edge[0] * _ELO_SCALE:g} rating "
+            f"point(s) over all {edge.size} rows — nothing identifies b_elo, "
+            "so the fit would report its init rather than an estimate; check "
+            "the rating_pre join, since an all-default frame is what a total "
+            "team-name miss produces")
     return edge, hfa, y
 
 
@@ -202,26 +262,29 @@ def _log_probs(theta, edge: np.ndarray, hfa: np.ndarray) -> np.ndarray:
 
 def _objective(theta, edge: np.ndarray, hfa: np.ndarray,
                y: np.ndarray) -> float:
-    """Mean negative log-likelihood plus the ``b_hfa`` prior.
+    """Mean negative log-likelihood plus the two slope priors.
 
     MEAN, not sum: L-BFGS-B differentiates numerically by default, and the
     forward-difference error scales with |f| while its gradient tolerance does
     not — an n-scaled objective would stop the fit on rounding noise.
 
-    The prior term is divided by ``n`` for the same reason and for a
-    statistical one: on the SUM scale it is then ONE fixed Gaussian, so it
+    The prior terms are divided by ``n`` for the same reason and for a
+    statistical one: on the SUM scale each is then ONE fixed Gaussian, so it
     dominates the 1-3 rows that a tournament pool gives ``b_hfa`` and washes
-    out as real rows accumulate. Left on the mean scale it would instead be an
-    n-strong prior that never stops shrinking (see _HFA_PRIOR_SD).
+    out as real rows accumulate. Left on the mean scale they would instead be
+    n-strong priors that never stop shrinking (see _HFA_PRIOR_SD).
     """
     log_p = _log_probs(theta, edge, hfa)
     nll = -float(log_p[y, np.arange(y.size)].mean())
-    return nll + float(theta[3]) ** 2 / (2.0 * _HFA_PRIOR_SD ** 2 * y.size)
+    penalty = (float(theta[2]) ** 2 / _ELO_PRIOR_SD ** 2
+               + float(theta[3]) ** 2 / _HFA_PRIOR_SD ** 2)
+    return nll + penalty / (2.0 * y.size)
 
 
 def fit_ordlogit(df: pd.DataFrame) -> OrdLogitParams:
     """MLE fit over a frame of ``elo_h, elo_a, hfa, outcome`` rows — penalised
-    on ``b_hfa`` alone (see _HFA_PRIOR_SD), plain MLE in the other three.
+    on both slopes (see _ELO_PRIOR_SD / _HFA_PRIOR_SD), plain MLE on the two
+    thresholds.
 
     Deterministic: fixed init, no RNG anywhere, so the same frame always
     yields bitwise-identical parameters. Raises rather than returning a
@@ -238,7 +301,9 @@ def fit_ordlogit(df: pd.DataFrame) -> OrdLogitParams:
     # mean what its docstring says, and only _check_hfa makes them agree.
     at_home = int(np.count_nonzero(hfa == 1.0))
     return OrdLogitParams(c1=c1, s=s, b_elo=b_elo, b_hfa=b_hfa,
-                          n_hfa_minority=min(at_home, hfa.size - at_home))
+                          n_hfa_minority=min(at_home, hfa.size - at_home),
+                          # Back to rating points: `edge` is already scaled.
+                          elo_edge_sd=float(edge.std()) * _ELO_SCALE)
 
 
 def predict_1x2(params: OrdLogitParams, elo_h: float, elo_a: float,

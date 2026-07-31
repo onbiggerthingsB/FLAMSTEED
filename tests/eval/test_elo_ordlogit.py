@@ -14,7 +14,8 @@ import pandas as pd
 import pytest
 from scipy.special import expit
 
-from wcmodel.eval.elo_ordlogit import OrdLogitParams, fit_ordlogit, predict_1x2
+from wcmodel.eval.elo_ordlogit import (
+    _INIT, OrdLogitParams, fit_ordlogit, predict_1x2)
 from wcmodel.model.calibration import rps
 
 # Truth for the recovery test. The tolerance is RELATIVE (10%), so the truth
@@ -57,6 +58,34 @@ def _synthetic(n: int = 8_000, seed: int = 7, hfa_rows: int | None = None,
                        np.where(u < p_not_home, "draw", "home"))
     return pd.DataFrame({"elo_h": elo_h, "elo_a": elo_a, "hfa": hfa,
                          "outcome": outcome})
+
+
+def _separated_by_edge(n: int = 64, seed: int = 0) -> pd.DataFrame:
+    """The same ratings, but outcomes made perfectly monotone in the Elo edge:
+    the bottom third of the edge ranking loses, the top third wins.
+
+    Complete separation on the load-bearing slope — the b_elo analogue of the
+    separated host sub-sample ``_HFA_PRIOR_SD`` exists for.
+    """
+    df = _synthetic(n=n, seed=seed, hfa_rows=0)
+    order = np.argsort((df["elo_h"] - df["elo_a"]).to_numpy())
+    third = n // 3
+    label = np.empty(n, dtype=object)
+    label[order[:third]] = "away"
+    label[order[third:2 * third]] = "draw"
+    label[order[2 * third:]] = "home"
+    return df.assign(outcome=label)
+
+
+def _flat_edge(n: int = 400, seed: int = 0,
+               jitter: float = 0.5) -> pd.DataFrame:
+    """Every rating within ``jitter`` Elo of the 1500 default — the shape a
+    rating join produces when almost nothing matched (see the constant-edge
+    test below for why that lookup lands there)."""
+    rng = np.random.default_rng(seed)
+    df = _synthetic(n=n, seed=seed)
+    return df.assign(elo_h=1500.0 + rng.uniform(-jitter, jitter, n),
+                     elo_a=1500.0 + rng.uniform(-jitter, jitter, n))
 
 
 def _known() -> OrdLogitParams:
@@ -253,6 +282,86 @@ def test_rejects_an_hfa_column_carried_in_rating_points(hfa_rows):
             fit_ordlogit(df)
 
 
+@pytest.mark.parametrize("elo_h, elo_a", [(1500.0, 1500.0), (1234.5, 1134.5)])
+def test_rejects_a_constant_elo_edge(elo_h, elo_a):
+    # A constant edge leaves the arm's LOAD-BEARING slope unidentified: the
+    # objective is exactly flat in b_elo, so L-BFGS-B stops at the init and
+    # reports success. Measured on this frame before the guard: b_elo came back
+    # bitwise equal to _INIT[2] = 1.0 with result.success True, no exception and
+    # no warning, and the head then priced a +400-Elo mismatch at {'home':
+    # 0.597, 'draw': 0.281, 'away': 0.123} — a plausible-looking distribution
+    # carrying ZERO rating information, which would score as a real arm.
+    #
+    # Reachable through this repo's own rating-lookup idiom, not a hypothetical:
+    # `ratings.get(team, initial_rating)` at elo.py:130-131,
+    # walkforward.py:397-398 and calibration.py:199-200 all fall back to the
+    # shared initial rating for an unseen team, and this module hands the
+    # rating_pre join to the CALLER on purpose (to stay point-in-time). A team-
+    # name join that misses entirely therefore puts every row at the same
+    # default and every edge at 0. The second case pins that the guard is about
+    # VARIATION, not about zero: a constant NON-zero gap is equally unidentified
+    # (it is absorbed by c1) and must not slip past a `(edge == 0).all()` check.
+    df = _synthetic(n=400)
+    df["elo_h"] = elo_h
+    df["elo_a"] = elo_a
+    with pytest.raises(ValueError, match="Elo edge is constant"):
+        fit_ordlogit(df)
+
+
+@pytest.mark.parametrize("n", [24, 48, 64, 129])
+def test_a_separated_elo_edge_cannot_emit_a_point_forecast(n):
+    # The b_elo half of the separation hazard _HFA_PRIOR_SD documents but only
+    # ever applied to b_hfa. On a frame whose outcomes are monotone in the Elo
+    # edge the MLE diverges while L-BFGS-B still reports SUCCESS: measured over
+    # this exact grid, worst |b_elo| = 30,708 with c1 = -5,698 (n=48 seed 2),
+    # where predict_1x2 returned the EXACT point mass {'home': 1.0, 'draw':
+    # 0.0, 'away': 0.0}. That output passes ledger._check_probs (sums to 1, all
+    # in [0,1]) and calibration.log_loss scores it at 34.5 via its 1e-15 clip
+    # — i.e. it enters the Plan-2 contrast as a legitimate forecast, with the
+    # clip hiding how impossible it is. Bounds are the worst over this whole
+    # 40-fit grid with the b_elo prior in place: |b_elo| 13.20, smallest class
+    # 7.5e-6 at the +200 fixture (log loss 11.8 — bad, but a real distribution
+    # scored as itself rather than as the clip).
+    for seed in range(10):
+        fitted = fit_ordlogit(_separated_by_edge(n=n, seed=seed))
+        probs = predict_1x2(fitted, 1800.0, 1600.0, 0.0)
+        why = f"n={n} seed={seed}: b_elo={fitted.b_elo!r} {probs}"
+        assert abs(fitted.b_elo) < 25.0, why
+        assert min(probs.values()) > 1e-6, why
+
+
+@pytest.mark.parametrize("jitter", [0.5, 2.0, 5.0])
+def test_a_near_constant_elo_edge_cannot_emit_a_point_forecast(jitter):
+    # The constant-edge guard above is a cliff, but the defect degrades
+    # CONTINUOUSLY: at a few Elo points of spread the objective is not flat, so
+    # the fit is a real MLE — of noise. Nothing identifies the slope, so it runs
+    # to whatever magnitude the residual wiggle supports, and that magnitude is
+    # then applied to REAL edges at predict time. Measured over this grid
+    # without the prior: worst |b_elo| = 167.6, and predicting an ordinary
+    # +200-Elo fixture off such a fit returned a smallest class of 1.7e-37 (log
+    # loss 84.6, or 34.5 once log_loss clips it). Worst with the prior: |b_elo|
+    # 1.57 and smallest class 0.161. Note the fitted frames are IDENTICAL in
+    # every column but the ratings — only the edge information was destroyed.
+    for seed in range(5):
+        fitted = fit_ordlogit(_flat_edge(seed=seed, jitter=jitter))
+        probs = predict_1x2(fitted, 1800.0, 1600.0, 0.0)
+        why = f"jitter={jitter} seed={seed}: b_elo={fitted.b_elo!r} {probs}"
+        assert abs(fitted.b_elo) < 5.0, why
+        assert min(probs.values()) > 0.05, why
+
+
+def test_the_fitted_slope_survives_its_own_prior(fitted):
+    # The other side of the two tests above: the prior that caps a separated
+    # fit must be invisible where the data identify the slope, or the arm would
+    # measure the penalty instead of the Elo edge. Recovery already pins b_elo
+    # within 10% of 1.5 at n=8,000; this pins the tighter statement that the
+    # penalty is what moved it by almost nothing — 1.5020 unpenalised ->
+    # 1.5018 penalised, 0.018%. On the 64-fixture frames this arm is actually
+    # scored on, the worst shrink over 12 seeds is 2.96% (a prior SD of 1.0
+    # would cost 20.8% there, which is why the scale is 3.0).
+    assert fitted.b_elo == pytest.approx(1.5020455, rel=1e-3)
+
+
 @pytest.mark.parametrize("hfa", [60.0, 2.0, 0.5, -1.0, float("nan")])
 def test_predict_rejects_a_non_indicator_hfa(hfa):
     # Guarding only the fit frame leaves the mis-pass live at the point of use:
@@ -293,6 +402,33 @@ def test_reports_the_rows_that_identify_home_advantage(fitted):
     assert fitted.n_hfa_minority == min(at_home, len(df) - at_home)
     sparse = fit_ordlogit(_synthetic(n=64, seed=0, hfa_rows=3))
     assert sparse.n_hfa_minority == 3
+
+
+def test_reports_the_spread_that_identifies_the_elo_slope(fitted):
+    # The b_elo counterpart of n_hfa_minority, and needed for the same reason:
+    # a slope is only ever as good as the variation that identified it, and
+    # b_elo=1.2 means one thing off 253 Elo points of spread and another off
+    # 0.4. fit_ordlogit refuses a spread of exactly 0 (see the constant-edge
+    # test), so a FITTED head can never report 0.0 here — which is what makes
+    # the hand-built default unambiguous.
+    df = _synthetic()
+    assert fitted.elo_edge_sd == pytest.approx(
+        float((df["elo_h"] - df["elo_a"]).to_numpy().std()))
+    assert fitted.elo_edge_sd == pytest.approx(252.67, abs=0.01)
+    assert _known().elo_edge_sd == 0.0
+
+
+def test_the_preregistered_init_is_the_planned_vector():
+    # The plan names this exact vector as part of the estimator's definition
+    # ("seed-free deterministic init [0.0, 0.0, 1.0, 0.0]", Task 6), and
+    # reproducibility of a PRE-REGISTERED estimator is what the whole program
+    # is buying: an init moved to speed convergence is a different estimator
+    # reporting under the same name. Nothing else pins it — mutating the
+    # literal to [0.0, 0.0, 3.0, 0.0] left every other test in this file green.
+    # It is also the value that leaks out along an unidentified direction (see
+    # the constant-edge test), so moving it silently changes what a degenerate
+    # fit reports.
+    assert tuple(_INIT) == (0.0, 0.0, 1.0, 0.0)
 
 
 def test_fit_is_bitwise_deterministic():
