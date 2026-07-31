@@ -1,6 +1,6 @@
 # OA-0a probe — Odds API coverage + cost (spec finding 13)
 
-**MODE: DRY-RUN.** Every response below came from recorded-shape MOCK payloads served by an in-process transport: ZERO network calls, ZERO credits spent, and the env `ODDS_API_KEY` was never read. Coverage/freshness values prove the pipeline and are NOT measurements — the user-gated live probe overwrites this report with real ones.
+**MODE: LIVE.** Real paid responses from The Odds API.
 
 ## Sport keys under test (config `odds.sport_keys`)
 
@@ -10,7 +10,7 @@
 
 ## Call plan + projected credit cost
 
-15 fixtures x (1 discovery @ 1 credit + 2 snapshots [T-24h, T-1h; h2h x eu = 1 region-market] @ 10 credits): 15 discovery + 30 snapshot calls = **315 credits** projected; modeled spend this run: 315 (dry-run: 0 actually billed).
+15 fixtures x (1 discovery @ 1 credit + 2 snapshots [T-24h, T-1h; h2h x eu = 1 region-market] @ 10 credits): 15 discovery + 30 snapshot calls = **315 credits** projected; modeled spend this run: 295.
 
 | # | fixture | pool | stratum | call | endpoint | at | credits |
 |---|---|---|---|---|---|---|---|
@@ -66,63 +66,109 @@ Sign convention in the results table: drift = requested - snapshot ts, staleness
 
 | fixture | discovered kickoff | requested T-24h | requested T-1h |
 |---|---|---|---|
-| Qatar v Ecuador (2022-11-20) | 2022-11-20T18:00:00Z | 2022-11-19T18:00:00Z | 2022-11-20T17:00:00Z |
-| Argentina v Mexico (2022-11-26) | 2022-11-26T18:00:00Z | 2022-11-25T18:00:00Z | 2022-11-26T17:00:00Z |
-| South Korea v Portugal (2022-12-02) | 2022-12-02T18:00:00Z | 2022-12-01T18:00:00Z | 2022-12-02T17:00:00Z |
-| Netherlands v United States (2022-12-03) | 2022-12-03T18:00:00Z | 2022-12-02T18:00:00Z | 2022-12-03T17:00:00Z |
-| Argentina v France (2022-12-18) | 2022-12-18T18:00:00Z | 2022-12-17T18:00:00Z | 2022-12-18T17:00:00Z |
-| Germany v Scotland (2024-06-14) | 2024-06-14T18:00:00Z | 2024-06-13T18:00:00Z | 2024-06-14T17:00:00Z |
-| Germany v Hungary (2024-06-19) | 2024-06-19T18:00:00Z | 2024-06-18T18:00:00Z | 2024-06-19T17:00:00Z |
-| Georgia v Portugal (2024-06-26) | 2024-06-26T18:00:00Z | 2024-06-25T18:00:00Z | 2024-06-26T17:00:00Z |
-| Spain v Georgia (2024-06-30) | 2024-06-30T18:00:00Z | 2024-06-29T18:00:00Z | 2024-06-30T17:00:00Z |
-| Spain v England (2024-07-14) | 2024-07-14T18:00:00Z | 2024-07-13T18:00:00Z | 2024-07-14T17:00:00Z |
-| Mexico v South Africa (2026-06-11) | 2026-06-11T18:00:00Z | 2026-06-10T18:00:00Z | 2026-06-11T17:00:00Z |
-| Canada v Qatar (2026-06-18) | 2026-06-18T18:00:00Z | 2026-06-17T18:00:00Z | 2026-06-18T17:00:00Z |
-| Colombia v Portugal (2026-06-27) | 2026-06-27T18:00:00Z | 2026-06-26T18:00:00Z | 2026-06-27T17:00:00Z |
-| Brazil v Japan (2026-06-29) | 2026-06-29T18:00:00Z | 2026-06-28T18:00:00Z | 2026-06-29T17:00:00Z |
-| Spain v Argentina (2026-07-19) | 2026-07-19T18:00:00Z | 2026-07-18T18:00:00Z | 2026-07-19T17:00:00Z |
+| Qatar v Ecuador (2022-11-20) | 2022-11-20T16:00:00Z | 2022-11-19T16:00:00Z | 2022-11-20T15:00:00Z |
+| Argentina v Mexico (2022-11-26) | 2022-11-26T19:00:00Z | 2022-11-25T19:00:00Z | 2022-11-26T18:00:00Z |
+| South Korea v Portugal (2022-12-02) | 2022-12-02T15:00:00Z | 2022-12-01T15:00:00Z | 2022-12-02T14:00:00Z |
+| Netherlands v United States (2022-12-03) | - | - | - |
+| Argentina v France (2022-12-18) | 2022-12-18T15:00:00Z | 2022-12-17T15:00:00Z | 2022-12-18T14:00:00Z |
+| Germany v Scotland (2024-06-14) | 2024-06-14T19:00:00Z | 2024-06-13T19:00:00Z | 2024-06-14T18:00:00Z |
+| Germany v Hungary (2024-06-19) | 2024-06-19T16:00:00Z | 2024-06-18T16:00:00Z | 2024-06-19T15:00:00Z |
+| Georgia v Portugal (2024-06-26) | 2024-06-26T19:00:00Z | 2024-06-25T19:00:00Z | 2024-06-26T18:00:00Z |
+| Spain v Georgia (2024-06-30) | 2024-06-30T19:00:00Z | 2024-06-29T19:00:00Z | 2024-06-30T18:00:00Z |
+| Spain v England (2024-07-14) | 2024-07-14T19:00:00Z | 2024-07-13T19:00:00Z | 2024-07-14T18:00:00Z |
+| Mexico v South Africa (2026-06-11) | 2026-06-11T19:00:00Z | 2026-06-10T19:00:00Z | 2026-06-11T18:00:00Z |
+| Canada v Qatar (2026-06-18) | 2026-06-18T22:00:00Z | 2026-06-17T22:00:00Z | 2026-06-18T21:00:00Z |
+| Colombia v Portugal (2026-06-27) | 2026-06-27T23:30:00Z | 2026-06-26T23:30:00Z | 2026-06-27T22:30:00Z |
+| Brazil v Japan (2026-06-29) | 2026-06-29T17:00:00Z | 2026-06-28T17:00:00Z | 2026-06-29T16:00:00Z |
+| Spain v Argentina (2026-07-19) | 2026-07-19T19:00:00Z | 2026-07-18T19:00:00Z | 2026-07-19T18:00:00Z |
 
 ## Per-fixture results
 
 | pool | stratum | fixture | event found | Pinnacle T-24h | Pinnacle T-1h | snapshot drift T-24h (min) | drift T-1h (min) | Pinnacle last_update staleness at T-1h (min) | notes |
 |---|---|---|---|---|---|---|---|---|---|
-| wc2022 | opening_day | Qatar v Ecuador (2022-11-20) | y | y | y | 3.0 | 3.0 | 8.0 | - |
-| wc2022 | mid_group | Argentina v Mexico (2022-11-26) | y | y | y | 3.0 | 3.0 | 8.0 | - |
-| wc2022 | last_group_day | South Korea v Portugal (2022-12-02) | y | y | y | 3.0 | 3.0 | 8.0 | - |
-| wc2022 | knockout | Netherlands v United States (2022-12-03) | y | y | y | 3.0 | 3.0 | 8.0 | - |
-| wc2022 | final | Argentina v France (2022-12-18) | y | y | y | 3.0 | 3.0 | 8.0 | - |
-| euro2024 | opening_day | Germany v Scotland (2024-06-14) | y | y | y | 3.0 | 3.0 | 8.0 | - |
-| euro2024 | mid_group | Germany v Hungary (2024-06-19) | y | y | y | 3.0 | 3.0 | 8.0 | - |
-| euro2024 | last_group_day | Georgia v Portugal (2024-06-26) | y | y | y | 3.0 | 3.0 | 8.0 | - |
-| euro2024 | knockout | Spain v Georgia (2024-06-30) | y | y | y | 3.0 | 3.0 | 8.0 | - |
-| euro2024 | final | Spain v England (2024-07-14) | y | y | y | 3.0 | 3.0 | 8.0 | - |
-| wc2026 | opening_day | Mexico v South Africa (2026-06-11) | y | y | y | 3.0 | 3.0 | 8.0 | - |
-| wc2026 | mid_group | Canada v Qatar (2026-06-18) | y | y | y | 3.0 | 3.0 | 8.0 | - |
-| wc2026 | last_group_day | Colombia v Portugal (2026-06-27) | y | y | y | 3.0 | 3.0 | 8.0 | - |
-| wc2026 | knockout | Brazil v Japan (2026-06-29) | y | y | y | 3.0 | 3.0 | 8.0 | - |
-| wc2026 | final | Spain v Argentina (2026-07-19) | y | y | y | 3.0 | 3.0 | 8.0 | - |
+| wc2022 | opening_day | Qatar v Ecuador (2022-11-20) | y | y | y | 4.4 | 4.4 | 5.9 | - |
+| wc2022 | mid_group | Argentina v Mexico (2022-11-26) | y | y | y | 4.4 | 4.3 | 4.8 | - |
+| wc2022 | last_group_day | South Korea v Portugal (2022-12-02) | y | y | y | 4.4 | 4.4 | 4.8 | - |
+| wc2022 | knockout | Netherlands v United States (2022-12-03) | n | - | - | - | - | - | not among 8 listed events (closest names first, up to 8; the API spells teams its own way — e.g. 'USA'/'Korea Republic' for the store's 'United States'/'South Korea' — so a spelling mismatch here reads exactly like absent coverage; rule that out against these names before concluding the event is missing): Netherlands v USA; England v Senegal; Portugal v Switzerland; France v Poland; Argentina v Australia; Brazil v South Korea; Japan v Croatia; Morocco v Spain |
+| wc2022 | final | Argentina v France (2022-12-18) | y | y | y | 4.3 | 4.3 | 4.8 | - |
+| euro2024 | opening_day | Germany v Scotland (2024-06-14) | y | y | y | 4.4 | 4.4 | 4.5 | - |
+| euro2024 | mid_group | Germany v Hungary (2024-06-19) | y | y | y | 4.4 | 4.4 | 4.6 | - |
+| euro2024 | last_group_day | Georgia v Portugal (2024-06-26) | y | y | y | 4.4 | 4.4 | 4.8 | - |
+| euro2024 | knockout | Spain v Georgia (2024-06-30) | y | y | y | 4.4 | 4.4 | 4.4 | - |
+| euro2024 | final | Spain v England (2024-07-14) | y | y | y | 4.4 | 4.4 | 5.1 | - |
+| wc2026 | opening_day | Mexico v South Africa (2026-06-11) | y | y | y | 4.4 | 4.4 | 4.6 | - |
+| wc2026 | mid_group | Canada v Qatar (2026-06-18) | y | y | y | 4.4 | 4.4 | 4.7 | - |
+| wc2026 | last_group_day | Colombia v Portugal (2026-06-27) | y | y | y | 4.4 | 4.4 | 4.4 | - |
+| wc2026 | knockout | Brazil v Japan (2026-06-29) | y | y | y | 4.4 | 4.4 | 4.8 | - |
+| wc2026 | final | Spain v Argentina (2026-07-19) | y | y | y | 4.4 | 4.4 | 4.5 | - |
 
 Provenance (full sha256 of the archived raw response; dry-run hashes are of MOCK bytes and are not persisted):
 
-- Qatar v Ecuador (2022-11-20): discovery 43c9d370af91265bd41852f4a8fe3ea0659a099c59662cad1580048718a32448, T-24h aef4a5ed70ea40c7f60dd0d4556b4089d1da53779651157e06fd13dbdb8ba198, T-1h 3342c266a86865ae32bf03bc97071e9c6ead257ecd1129de1c615a2d69d85f4e
-- Argentina v Mexico (2022-11-26): discovery 51a401f122f720cd17ec8bfa84320c664acb6f3e867a8763828bd95229d35f21, T-24h a15d892d329020eeeba7b66271d97428cd051c12db8577d2779d4a03063b751d, T-1h 7bd4680d5031373399dbf1c17e5410064f00da295b70384a5faca993e17a652c
-- South Korea v Portugal (2022-12-02): discovery 25718d8420868ec1eea0475ba61f4830bc4740f7c914e8f73f9727587300d3b5, T-24h d0fdefe81d2b3b0cb87ab2c8edf290ef9a2aafe51e6a5ef47e55f0f90bb4a23e, T-1h f2d78cefeec339521f3b67b644327ed586259103abf685ae066f6f4aca4f3ef4
-- Netherlands v United States (2022-12-03): discovery 0dcc405fdc4d8ec51a1a4bb9101c9711f1713bd65802644c9745b113321f61e6, T-24h b71eda71345474a3fc5b3734b9288e6b105e174a2a5be8739f13dc933795e788, T-1h 82abacec7b85d62eec45278e87a83be5e04571abbb3a5b96b9792463aa91e2ab
-- Argentina v France (2022-12-18): discovery 7b440cce816d3cb59c7668f2ca4d8cb194b6a9fcc52b4ff9190979875778b851, T-24h 1984d1c74af9b45f4d9930cfb2d563a3603ffdab41d137c5ebd1c729c690af9e, T-1h 84f46f0122ac3e2e35364f2569f73072fbfda0b5cd50962aa4509fdf94d6192d
-- Germany v Scotland (2024-06-14): discovery d3ac46bc662d4c0a39b8fb711377a9dd5019e292025accd0ec9b9d99a2d85141, T-24h 5dc179b594d1a0fb20edddaa36d4f82af4eb28129b8111aa23e56a902071aa55, T-1h acc138476e751f47d27393e09bca0d2cfe6985a03da3e5a18ef4130e5f04ffe9
-- Germany v Hungary (2024-06-19): discovery 0d36fbbaeae4505be6fddcaecf1b83b42a4d6b6dcec8e28747285ff9eafa096f, T-24h e1bbfed211f3c60e2e37f42f51b48a20dbbf315ef4d02578eaace847ad673dc1, T-1h efbf29c91d10b8540af5b07c852c87553fbdc6aadc3196fb7a32875cd2aacbd1
-- Georgia v Portugal (2024-06-26): discovery 528397ed7d5237a79ea129ffd68cea6fdd84042678941b41f099918b7ff6a598, T-24h 805f0508fe790ebd0bff7504346afffb35f8c0c1a51f86b9b5d67c92162590e5, T-1h 74c825d9447549a3567de259e0267c87ae8c782582ce77c8cd77fc01a4139fc3
-- Spain v Georgia (2024-06-30): discovery e80e0d3887d1ff1194cbb457b2e415cb80afcd2f77a294e3b1aa1ee16f6088a1, T-24h 97864a2e7fdc5c4f716aca429f890480e860e666e86c6cced6419a18b556ceb5, T-1h 6a5dcb3dff683506c69acaf08db38fd72bc523250c1d3817e02f6be55ceb21db
-- Spain v England (2024-07-14): discovery ae6d9e4e832535949545b4b7481f66314d333f74fdeceb6fd17e1145b7f4e392, T-24h 3c423d4d347079d08a40cc6c5edd509d304bda890e58cf50b83cf2e9f1b228b9, T-1h 65330f1ac6c7f6c75f8c94cb316f783842eb49017cd7195b97a24feeac5a6d4f
-- Mexico v South Africa (2026-06-11): discovery 62e5cabf1c2c6e7b73968f42c85b71f64d448d9375834617db6e9d07ee10028b, T-24h 97aeb1ecb7f81483f326137fdb6f77fa860b59be36c9d2340917129eff85a836, T-1h 2426a919647cd51e925c31e7928812d093179a3f9cc387c6cfeb1372af342249
-- Canada v Qatar (2026-06-18): discovery 9dbfeb8c34ea50bc48251a7efae06a19ed6d34a2742e6ad31a9b5c4cab6bebdf, T-24h 57a1611f5d5b07bffc671fc30d77742fd2259de5e438530e1464ec5587a36edc, T-1h d7ee31b602bd891a3a28a1671986a5fb68ada3cebbaa649f10f14e5bb82a2b7f
-- Colombia v Portugal (2026-06-27): discovery 8ccfedc83866f2af2ff1fa94f1f35c4d360e74a259ca09506ab04a488e698745, T-24h 64d7f62e4f42a733006738339c027149889413ac12efabdef2e888706fa1f8ce, T-1h 0e071864a80590f26e21a2bd5dbe738583059de63be5caddb058b37e960ad909
-- Brazil v Japan (2026-06-29): discovery 317da03951eb5b3341643760ed9e0a43a684d26855544381ea67a11668740590, T-24h d4662171890159bcdd84c6a52cdf2ff28f091add245bfcb9dda136bcb782b541, T-1h 95e3664b3616a60dc4770ea81e6313a127e445116a6b2a341fd270379e888fd5
-- Spain v Argentina (2026-07-19): discovery 7fbe48e4421f271a7360088e41e0c5d9dd905b7fa78d9fb9b5d26bb4545ba753, T-24h 45809bdb28ab8f81330bfcff8f12cc94e1977cb9df6318a7a3c2bf130ce51d27, T-1h e4efddb9e291d19d78e9b8358e3b1c19399ec4620adeddca03169184f23ec53f
+- Qatar v Ecuador (2022-11-20): discovery c021f9b0b33c1e491e09120d4b64cbd26b7569715e0f4209add7fe4dcec465b7, T-24h 5465f8d33bae3e6b93f5c9e7b8ffce6bbfffd855259040c39a9ba82765d8e362, T-1h c798a23b572650a22a0348fb26bd465e64aca2083f5a437acf87af1c98014c36
+- Argentina v Mexico (2022-11-26): discovery e850739dbcfed16770df7caff5fed7eadfebf6526a83cb1bdd59ba33cdfaa3cf, T-24h 2466c96cc7eaa87c1c2358815d2fd40f86dcd16c8735459b155fd3bda8382a03, T-1h 78fde5301f26703595ab491f2bcdb198c2ab8cd6f5390d6a2dac8eb73589d241
+- South Korea v Portugal (2022-12-02): discovery b2010466eb5734e9d5a945c2120babc014d1a5ad312ce4dd2d7451a27c67d25c, T-24h 681036270254f0bf3def5a9965e943284649076a9d7907142a9dd1599361683b, T-1h 4ea7c57f322ad517d86a2a6edaab36295a97d25e293a4a21a968717b78ffd0f9
+- Netherlands v United States (2022-12-03): discovery 5f3181ad3544decedea6adbc30127a55a352aecde59b8a4b0be79f381d951cc2
+- Argentina v France (2022-12-18): discovery 320bc0851899a87dede2ff08443fb00a5ef61b7beaa068eaa2e156a0d79ddc20, T-24h 777c3b27c7ab2aca9ce4aaa7bdb742278f7366256d6b033b2760fc9f7fad93c9, T-1h 5258334c76ae60e1f3b39f649928e8a71c433f5c88ab7b09d3c5b3430bdd635c
+- Germany v Scotland (2024-06-14): discovery 3a43c4e815045ac57c889adcee0716911d0f2ad01c6b6b8de9dd35f13a00612f, T-24h fae684f2f189f290fb3c01b13c78fab91ece90af301534f3871d719fbcee5e0d, T-1h dd50c4e487cf7014237edbf50b5ce746cfc08ba96db49f5f83c19e289c0ec726
+- Germany v Hungary (2024-06-19): discovery d878af464dfc46b5a99f8813fa4b91163bf58a9c00b2ce95177e79175aa225f4, T-24h bd3ade1b90498a50f9c6d7a6e311e13cf0c46b93ad6ddb90ab2bff55a3f9e6db, T-1h 783e9dc2136f7a2c334cb3e733b30c72c29e0c0fb210a50e230c6645c39987e0
+- Georgia v Portugal (2024-06-26): discovery 67a1e1bd76e44330a6910d0af1b028418f8ecf754824e448d399cecb8bb49dd7, T-24h d7704613f225f1052fd43e72dacdd9c20dcb31e5ab07a33ad2fdbbccd9f01641, T-1h 7ec3f73c7f9a5e8c7591006456bdb086727fc3048e6e29a0fd5e2d4707d11276
+- Spain v Georgia (2024-06-30): discovery 1b7f8d9a351ab797859b9b3f060ee920a7b58d7d8bd6ee79bf53c6f3d5c34334, T-24h 4644822495a1d509d48c779d76627ee4aa10e4a20a969286be87aa70b6ccdfd1, T-1h 5002ddaca848200253be06123b193980aaa4e129a7f7e1d39fa968c8cd83a3d8
+- Spain v England (2024-07-14): discovery a080c518659202f40f47f6ae67db235ca01ac75373bcbb7e7625678d85f2a17b, T-24h 5bb01e194167c094fa16cd376c71bf231d8a3cb1889a6b71d99d33ec1d26b938, T-1h 7844e6742049efb61869893a537e05001291e339f11c2a140f27d3b5484b279a
+- Mexico v South Africa (2026-06-11): discovery b909ec4f00fb22e8638d0c09d06ceacae70329373166ffd07fc7151412c5f940, T-24h c5a5664660201b31ee9bf3f966272423b9dea7ade2988962f9cbec9e4016f048, T-1h 43c24b5bc72d530ce069069cbc09649a56ce57f28aad08e5df5c73c05b55d59c
+- Canada v Qatar (2026-06-18): discovery a391bcca5188e352b7ff9c94132442607fc03bdc7122ec37f3a5b5a007fe0d7d, T-24h 178e43f7da6ae3145a4cf13ec42c5e1761a34b9c1f0b956dbb09b76a71f5e03e, T-1h c28812929d2354489f146fdb6f70a960656c63be91736bc9ca82d8039dff0da0
+- Colombia v Portugal (2026-06-27): discovery ef5ac24f7bed2c5bc6c01d2807c43646d7281c1710c35de1cba816363c67d623, T-24h c0f63075a45d1ee0c52ca40174f9dfc19d43a7cee70b0e2b764804f52627d34c, T-1h 05c57491eb52141b4050cbcff9138672a5cb478487120ac553a662d940adb0aa
+- Brazil v Japan (2026-06-29): discovery 7e65088ca0a5d604a76c22bd474e5725a7475ff1f989872e2c09a60ff39ff39d, T-24h 55bd440c914d043705089d2afbc8de86fe2c2d9753c19655ae7742695f88ce57, T-1h 005f00c99ec480c382bb5478293fd9d5a48b6ce45d4cc8d982bc344e221f1036
+- Spain v Argentina (2026-07-19): discovery 72aaf29c8930a7cbe49e3eaed7f17ee8fe42c732db32d4c77b9907a2346974a5, T-24h 8c7d4aa924c70bb4b79c0ff33c643682dab0eaef0b9dbf89626b2274ec135f7c, T-1h d3506bf14f3685c5433897e4eb3fa247ff32189a430107cf326b7a70ad0efd77
 
 ## Actual usage (`x-requests-last` / `x-requests-used` / `x-requests-remaining` headers)
 
-Not available: dry-run serves no live responses, so no usage headers exist (and none are fabricated).
+| call | path | x-requests-last | x-requests-used | x-requests-remaining |
+|---|---|---|---|---|
+| 1 | `/v4/historical/sports/soccer_fifa_world_cup/events` | 1 | 1 | 19999 |
+| 2 | `/v4/historical/sports/soccer_fifa_world_cup/events/3fc968505e3de3acbb9baa2876925172/odds` | 10 | 11 | 19989 |
+| 3 | `/v4/historical/sports/soccer_fifa_world_cup/events/3fc968505e3de3acbb9baa2876925172/odds` | 10 | 21 | 19979 |
+| 4 | `/v4/historical/sports/soccer_fifa_world_cup/events` | 1 | 22 | 19978 |
+| 5 | `/v4/historical/sports/soccer_fifa_world_cup/events/9efa2a256d710b0b665146a2736ac2e7/odds` | 10 | 32 | 19968 |
+| 6 | `/v4/historical/sports/soccer_fifa_world_cup/events/9efa2a256d710b0b665146a2736ac2e7/odds` | 10 | 42 | 19958 |
+| 7 | `/v4/historical/sports/soccer_fifa_world_cup/events` | 1 | 43 | 19957 |
+| 8 | `/v4/historical/sports/soccer_fifa_world_cup/events/a93d6beff117e69247386c1ed8f7b29d/odds` | 10 | 53 | 19947 |
+| 9 | `/v4/historical/sports/soccer_fifa_world_cup/events/a93d6beff117e69247386c1ed8f7b29d/odds` | 10 | 63 | 19937 |
+| 10 | `/v4/historical/sports/soccer_fifa_world_cup/events` | 1 | 64 | 19936 |
+| 11 | `/v4/historical/sports/soccer_fifa_world_cup/events` | 1 | 65 | 19935 |
+| 12 | `/v4/historical/sports/soccer_fifa_world_cup/events/95ffdb09924c60f46b75ca6f106b676c/odds` | 10 | 75 | 19925 |
+| 13 | `/v4/historical/sports/soccer_fifa_world_cup/events/95ffdb09924c60f46b75ca6f106b676c/odds` | 10 | 85 | 19915 |
+| 14 | `/v4/historical/sports/soccer_uefa_european_championship/events` | 1 | 86 | 19914 |
+| 15 | `/v4/historical/sports/soccer_uefa_european_championship/events/3e55e803b702a58c5ab64df5fc18ebad/odds` | 10 | 96 | 19904 |
+| 16 | `/v4/historical/sports/soccer_uefa_european_championship/events/3e55e803b702a58c5ab64df5fc18ebad/odds` | 10 | 106 | 19894 |
+| 17 | `/v4/historical/sports/soccer_uefa_european_championship/events` | 1 | 107 | 19893 |
+| 18 | `/v4/historical/sports/soccer_uefa_european_championship/events/90c57e78c3442831cffa36c9e423e560/odds` | 10 | 117 | 19883 |
+| 19 | `/v4/historical/sports/soccer_uefa_european_championship/events/90c57e78c3442831cffa36c9e423e560/odds` | 10 | 127 | 19873 |
+| 20 | `/v4/historical/sports/soccer_uefa_european_championship/events` | 1 | 128 | 19872 |
+| 21 | `/v4/historical/sports/soccer_uefa_european_championship/events/bda40e8c885c8037501f7d95ecdbd99d/odds` | 10 | 138 | 19862 |
+| 22 | `/v4/historical/sports/soccer_uefa_european_championship/events/bda40e8c885c8037501f7d95ecdbd99d/odds` | 10 | 148 | 19852 |
+| 23 | `/v4/historical/sports/soccer_uefa_european_championship/events` | 1 | 149 | 19851 |
+| 24 | `/v4/historical/sports/soccer_uefa_european_championship/events/d6fc55a7ce9c0b895191bae5f91019a6/odds` | 10 | 159 | 19841 |
+| 25 | `/v4/historical/sports/soccer_uefa_european_championship/events/d6fc55a7ce9c0b895191bae5f91019a6/odds` | 10 | 169 | 19831 |
+| 26 | `/v4/historical/sports/soccer_uefa_european_championship/events` | 1 | 170 | 19830 |
+| 27 | `/v4/historical/sports/soccer_uefa_european_championship/events/6815a8f217d293be0d4dd291d6567966/odds` | 10 | 180 | 19820 |
+| 28 | `/v4/historical/sports/soccer_uefa_european_championship/events/6815a8f217d293be0d4dd291d6567966/odds` | 10 | 190 | 19810 |
+| 29 | `/v4/historical/sports/soccer_fifa_world_cup/events` | 1 | 191 | 19809 |
+| 30 | `/v4/historical/sports/soccer_fifa_world_cup/events/80d82d1113934bfbea4ce8daf37a2433/odds` | 10 | 201 | 19799 |
+| 31 | `/v4/historical/sports/soccer_fifa_world_cup/events/80d82d1113934bfbea4ce8daf37a2433/odds` | 10 | 211 | 19789 |
+| 32 | `/v4/historical/sports/soccer_fifa_world_cup/events` | 1 | 212 | 19788 |
+| 33 | `/v4/historical/sports/soccer_fifa_world_cup/events/fa9502285b257b03e62968d50d9229fc/odds` | 10 | 222 | 19778 |
+| 34 | `/v4/historical/sports/soccer_fifa_world_cup/events/fa9502285b257b03e62968d50d9229fc/odds` | 10 | 232 | 19768 |
+| 35 | `/v4/historical/sports/soccer_fifa_world_cup/events` | 1 | 233 | 19767 |
+| 36 | `/v4/historical/sports/soccer_fifa_world_cup/events/67ae5751c401a98409b8566ae4897069/odds` | 10 | 243 | 19757 |
+| 37 | `/v4/historical/sports/soccer_fifa_world_cup/events/67ae5751c401a98409b8566ae4897069/odds` | 10 | 253 | 19747 |
+| 38 | `/v4/historical/sports/soccer_fifa_world_cup/events` | 1 | 254 | 19746 |
+| 39 | `/v4/historical/sports/soccer_fifa_world_cup/events/4f3d72fba877939d36a5315618184093/odds` | 10 | 264 | 19736 |
+| 40 | `/v4/historical/sports/soccer_fifa_world_cup/events/4f3d72fba877939d36a5315618184093/odds` | 10 | 274 | 19726 |
+| 41 | `/v4/historical/sports/soccer_fifa_world_cup/events` | 1 | 275 | 19725 |
+| 42 | `/v4/historical/sports/soccer_fifa_world_cup/events/fb30113e43d113f1ace48b8563ba1ee9/odds` | 10 | 285 | 19715 |
+| 43 | `/v4/historical/sports/soccer_fifa_world_cup/events/fb30113e43d113f1ace48b8563ba1ee9/odds` | 10 | 295 | 19705 |
+
+Actual billed this run: **295 credits** — the LARGER of the summed per-call `x-requests-last` costs and the `x-requests-used` counter delta (the delta alone cannot see the first response's own cost, so where `x-requests-last` is absent the true spend can be up to one call price higher) — vs `--max-credits` 315; modeled spend 295 credits.
 
 ## Extrapolated full-program budget
 
