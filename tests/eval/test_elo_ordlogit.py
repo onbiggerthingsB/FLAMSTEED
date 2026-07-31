@@ -264,6 +264,26 @@ def test_predict_rejects_a_non_indicator_hfa(hfa):
         predict_1x2(_known(), 1700.0, 1600.0, hfa)
 
 
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize("side", ["elo_h", "elo_a"])
+def test_predict_rejects_a_non_finite_rating(side, bad):
+    # The same argument as the hfa guard above, applied to the other two
+    # arguments _design already checks in the fit frame (_NUMERIC). The module
+    # hands the rating_pre join to the CALLER to stay point-in-time, so a
+    # left-merge miss on a team name arrives here as NaN — and NaN is the
+    # quiet one: predict_1x2 returned {"home": nan, "draw": nan, "away": nan},
+    # rps() and log_loss() both returned nan, and Series.mean() skips NaN by
+    # default, so the fixture is DROPPED from that arm's mean RPS instead of
+    # raising. Differential fixture-dropping is what a paired contrast cannot
+    # survive. An infinite rating is worse: it returned {"home": 1.0, "draw":
+    # 0.0, "away": 0.0}, which sums to 1 with every value in [0,1] and so
+    # PASSES ledger._check_probs as a legitimate point mass — log loss 34.5
+    # when the away team wins, and no error anywhere along the way.
+    ratings = {"elo_h": 1700.0, "elo_a": 1600.0, side: bad}
+    with pytest.raises(ValueError, match=r"non-finite rating\(s\)"):
+        predict_1x2(_known(), ratings["elo_h"], ratings["elo_a"], 1.0)
+
+
 def test_reports_the_rows_that_identify_home_advantage(fitted):
     # b_hfa is only ever as good as the smaller hfa level, and a caller cannot
     # otherwise tell an estimate from a prior: the same +0.4 means one thing

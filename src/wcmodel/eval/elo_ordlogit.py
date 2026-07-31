@@ -252,8 +252,21 @@ def predict_1x2(params: OrdLogitParams, elo_h: float, elo_a: float,
     ``hfa`` is checked here too, not only at fit time: params fitted on the
     indicator are meaningless against a rating-point ``hfa``, and unchecked
     the mis-pass returns a point mass rather than an error.
+
+    The ratings get the same treatment, for the same reason ``_design``
+    checks them in the fit frame (``_NUMERIC``): the caller owns the
+    ``rating_pre`` join, so a name that missed it arrives here as NaN. Both
+    non-finite ends are silent downstream — NaN gives nan probabilities that
+    a mean over fixtures SKIPS rather than raises on, and an infinity gives a
+    point mass that passes the ledger's probability check intact.
     """
     _check_hfa(hfa)
+    if not (math.isfinite(float(elo_h)) and math.isfinite(float(elo_a))):
+        raise ValueError(
+            f"non-finite rating(s) elo_h={elo_h!r}, elo_a={elo_a!r}: these "
+            "are the rating_pre column of compute_elo_history, which never "
+            "emits one — the caller's join is what puts a non-finite value "
+            "here")
     gap = math.exp(params.s)
     eta = (params.b_elo * (float(elo_h) - float(elo_a)) / _ELO_SCALE
            + params.b_hfa * float(hfa))
