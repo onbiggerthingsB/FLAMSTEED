@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -10,7 +12,9 @@ import pandas as pd
 import pytest
 
 from wcmodel.data.sources.odds import admissible_quote
-from wcmodel.eval.ledger import LEDGER_DTYPES, LedgerWriter, load_ledger
+from wcmodel.eval import ledger as ledger_mod
+from wcmodel.eval.ledger import (
+    LEDGER_DTYPES, LedgerWriter, load_ledger, lock_path)
 
 UTC = timezone.utc
 
@@ -146,6 +150,123 @@ def test_a_flush_does_not_erase_rows_another_open_writer_flushed(tmp_path):
     assert df.loc["incumbent", "t_issue"] == pd.Timestamp("2026-06-12 09:00", tz="UTC")
 
 
+def _flush_at_the_same_instant(writers, monkeypatch) -> list[str]:
+    """Flush every writer with all of them inside one another's
+    read -> replace window, and return one message per failed flush.
+
+    The injected delay widens that window, it does not create it: re-reading
+    on flush only protects a writer that STARTED after the other finished.
+    Messages, not exception objects — a stored traceback keeps a losing
+    writer (and its stranded buffer) alive in a cycle until an arbitrary
+    later gc pass, surfacing its warning under whatever test ran then.
+    """
+    real_write_atomic = ledger_mod._write_atomic
+
+    def slow_write_atomic(df, dest):
+        time.sleep(0.25)
+        real_write_atomic(df, dest)
+
+    monkeypatch.setattr(ledger_mod, "_write_atomic", slow_write_atomic)
+    errors: list[str] = []
+
+    def _flush(writer):
+        try:
+            writer.flush()
+        except Exception as exc:
+            errors.append(f"{type(exc).__name__}: {exc}")
+
+    threads = [threading.Thread(target=_flush, args=(w,)) for w in writers]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+    assert not any(t.is_alive() for t in threads), "flush deadlocked"
+    return errors
+
+
+def test_simultaneous_flushes_serialize_instead_of_clobbering(tmp_path, monkeypatch):
+    """The same invariant when the flushes OVERLAP rather than follow one
+    another: two writers inside the read->replace window both read the same
+    table, and the later ``os.replace`` deletes the earlier arm's rows."""
+    path = tmp_path / "ledger.parquet"
+    a, b = LedgerWriter(path), LedgerWriter(path)
+    a.append(_row(arm="eprime", p_home=0.45, p_draw=0.3, p_away=0.25))
+    b.append(_row(arm="incumbent"))
+
+    assert _flush_at_the_same_instant((a, b), monkeypatch) == []
+    assert sorted(load_ledger(path)["arm"]) == ["eprime", "incumbent"]
+
+
+# The losing flush strands its buffer, which is the warned-about behaviour
+# pinned by test_unflushed_rows_warn_at_interpreter_exit.
+@pytest.mark.filterwarnings(
+    "ignore::wcmodel.eval.ledger.UnflushedLedgerWarning")
+def test_simultaneous_flushes_of_one_pair_raise_not_overwrite(tmp_path, monkeypatch):
+    """The same-arm half: re-issuing a fixture must stay a loud duplicate even
+    when the two flushes overlap. Exactly one row lands and exactly one caller
+    is told — silently keeping the later forecast would double-count a fixture
+    the analysis believes was issued once."""
+    path = tmp_path / "ledger.parquet"
+    a, b = LedgerWriter(path), LedgerWriter(path)
+    a.append(_row(arm="eprime", p_home=0.45, p_draw=0.3, p_away=0.25))
+    b.append(_row(arm="eprime", p_home=0.1, p_draw=0.1, p_away=0.8))
+
+    errors = _flush_at_the_same_instant((a, b), monkeypatch)
+    assert len(errors) == 1, errors
+    assert "duplicate" in errors[0]
+    # whichever writer won the lock, its row is intact and it is the only one
+    assert load_ledger(path)["p_home"].tolist() in ([0.45], [0.1])
+
+
+_RACE_SCRIPT = """
+import datetime, pathlib, sys, time
+from wcmodel.eval.ledger import LedgerWriter
+
+path, arm = sys.argv[1], sys.argv[2]
+barrier, n = pathlib.Path(sys.argv[3]), int(sys.argv[4])
+stamp = datetime.datetime(2026, 6, 12, 9, 0, tzinfo=datetime.timezone.utc)
+w = LedgerWriter(path)
+for i in range(n):
+    w.append(dict(
+        fixture_id="wc2026-%04d" % i, pool="wc2026", date="2026-06-12",
+        home="Mexico", away="Poland", t_issue=stamp, training_cutoff=stamp,
+        arm=arm, p_home=0.5, p_draw=0.25, p_away=0.25,
+        issued_git="deadbee", odds_snapshot_hash=None))
+(barrier / (arm + ".ready")).touch()
+deadline = time.monotonic() + 60
+while len(list(barrier.glob("*.ready"))) < 2:
+    if time.monotonic() > deadline:
+        raise SystemExit("barrier timeout")
+    time.sleep(0.002)
+w.flush()
+print("flushed ok")
+"""
+
+
+def test_two_processes_flushing_at_once_keep_both_arms(tmp_path):
+    """Plan 2's actual shape: one arm per process, one shared ledger, both
+    matchday jobs firing off the same cron. Neither may exit 0 having quietly
+    dropped the other's slate — an absent (arm, fixture) is indistinguishable
+    from an arm that never issued (OA F9), so a clobbered flush shrinks the
+    paired contrast with nothing to notice."""
+    path = tmp_path / "ledger.parquet"
+    barrier = tmp_path / "barrier"
+    barrier.mkdir()
+    procs = [
+        subprocess.Popen(
+            [sys.executable, "-c", _RACE_SCRIPT, str(path), arm, str(barrier), "60"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            env={**os.environ, "PYTHONPATH": str(SRC)})
+        for arm in ("eprime", "incumbent")]
+    results = [proc.communicate(timeout=180) for proc in procs]
+    for proc, (out, err) in zip(procs, results):
+        assert proc.returncode == 0, err
+        assert "flushed ok" in out, err
+
+    counts = load_ledger(path)["arm"].value_counts().to_dict()
+    assert counts == {"eprime": 60, "incumbent": 60}
+
+
 def test_repeated_flushes_accumulate_rather_than_re_append(tmp_path):
     """An arm flushing per matchday: each flush adds only what was buffered
     since the last one, and a flush with nothing buffered is a no-op."""
@@ -257,6 +378,39 @@ def test_load_ledger_revalidates_a_tampered_file(tmp_path):
         load_ledger(path)
 
 
+@pytest.mark.parametrize("mangle", ["string", "naive"])
+@pytest.mark.parametrize("col", ["t_issue", "training_cutoff"])
+def test_load_ledger_rejects_stamp_columns_that_are_not_tz_aware(tmp_path, col, mangle):
+    """The load-path twin of ``test_naive_timestamps_rejected``. A foreign
+    writer in, say, Europe/Paris emitting naive wall-clock stamps must fail
+    here too: coercing the column to UTC first would READ '09:00:00' as 09:00
+    UTC, landing an instant two hours off its true value that then passes
+    every remaining check, including the exact-09:00 rule (spec F2)."""
+    path = tmp_path / "ledger.parquet"
+    with LedgerWriter(path) as w:
+        w.append(_row())
+    df = load_ledger(path)
+    naive = df[col].dt.tz_localize(None)
+    df[col] = naive.astype(str) if mangle == "string" else naive
+    df.to_parquet(path, engine="pyarrow", index=False)
+
+    with pytest.raises(ValueError, match="tz-aware"):
+        load_ledger(path)
+
+
+def test_load_ledger_accepts_a_stamp_column_in_an_equivalent_offset(tmp_path):
+    """Symmetric with the write path: another OFFSET is the same instant and
+    stays admissible — only an unanchored stamp is rejected."""
+    path = tmp_path / "ledger.parquet"
+    with LedgerWriter(path) as w:
+        w.append(_row())
+    df = load_ledger(path)
+    df["t_issue"] = df["t_issue"].dt.tz_convert("Europe/Paris")
+    df.to_parquet(path, engine="pyarrow", index=False)
+
+    assert load_ledger(path)["t_issue"][0] == pd.Timestamp("2026-06-12 09:00", tz="UTC")
+
+
 def test_load_ledger_rejects_missing_columns(tmp_path):
     path = tmp_path / "ledger.parquet"
     with LedgerWriter(path) as w:
@@ -301,7 +455,11 @@ def test_a_torn_flush_leaves_the_previous_sessions_rows_intact(tmp_path, monkeyp
     monkeypatch.undo()
 
     assert load_ledger(path)["arm"].tolist() == ["incumbent"]
-    assert [p.name for p in tmp_path.iterdir()] == ["ledger.parquet"]
+    # the half-written tmp file is gone; the flush lock's sidecar is the only
+    # other thing a ledger directory ever holds (it outlives the flush by
+    # design — see lock_path)
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        path.name, lock_path(path).name]
 
 
 _EXIT_SCRIPT = """

@@ -19,9 +19,12 @@ parsing cleanly is not evidence that it is admissible.
 """
 from __future__ import annotations
 
+# fcntl is POSIX-only; every arm that writes this ledger runs on macOS/Linux.
+import fcntl
 import os
 import warnings
 import weakref
+from contextlib import contextmanager
 from datetime import date as _date, datetime, timezone
 from pathlib import Path
 
@@ -165,14 +168,50 @@ def _frame(rows: list[dict]) -> pd.DataFrame:
     return df.astype(LEDGER_DTYPES)
 
 
+def lock_path(path: Path | str) -> Path:
+    """The sidecar lock file guarding ``path``. Never deleted: unlinking it
+    would let a waiter hold the lock on an unlinked inode while the next
+    process creates and locks a fresh one — two holders, no error."""
+    path = Path(path)
+    return path.with_name(f"{path.name}.lock")
+
+
+@contextmanager
+def _exclusive_ledger_lock(path: Path):
+    """Serialize a flush's whole read -> merge -> replace window.
+
+    ``os.replace`` makes the final rename atomic; it says nothing about the
+    window before it. Two arms flushing one ledger at the same instant both
+    read the same table and the later replace deletes the earlier one's rows
+    — and an absent (arm, fixture) is indistinguishable from an arm that
+    never issued (OA F9), so the paired contrast just silently shrinks. Every
+    mutation of the shared table therefore happens under this lock; the
+    sibling tmp+rename users (raw-odds archive, feature-panel cache) need no
+    such lock because they are content-addressed — concurrent writers there
+    touch different paths, whereas this is a shared MUTABLE table.
+
+    Readers take nothing: ``os.replace`` guarantees they see one complete
+    version or the other, and a shared lock taken here would self-deadlock
+    the ``load_ledger`` call flush makes while holding this one.
+    """
+    fd = os.open(lock_path(path), os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)  # releases the flock, including on the raising path
+
+
 def _write_atomic(df: pd.DataFrame, path: Path) -> None:
     """Write via a same-directory tmp file + ``os.replace``.
 
     A flush rewrites the WHOLE accumulated table, so an interrupted in-place
     write would destroy every previous session's forecasts, not just this
     one's. Same contract (and same hazard) as the feature-panel cache and the
-    content-addressed raw-odds archive. The pid suffix keeps two processes
-    flushing the same ledger from sharing a tmp path.
+    content-addressed raw-odds archive. Callers hold
+    :func:`_exclusive_ledger_lock`, which is what keeps two flushes from
+    sharing this tmp path (the pid suffix alone would not: two threads, or a
+    recycled pid, collide).
     """
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     try:
@@ -204,10 +243,15 @@ class LedgerWriter:
     Arms issue over many sessions and (in Plan 2) several arms write the SAME
     ledger, so a writer never treats its own view as the whole table:
     construction reads the existing file only to seed duplicate detection, and
-    ``flush`` re-reads it, appends the rows buffered since, and writes the
-    union atomically. A writer therefore cannot erase rows another writer
-    flushed while it was open — a vanished (arm, fixture) would shrink the
-    paired contrast asymmetrically with nothing to notice.
+    ``flush`` — holding an exclusive lock on a sidecar ``.lock`` file for the
+    whole read -> merge -> replace window — re-reads it, appends the rows
+    buffered since, and writes the union atomically. A writer therefore cannot
+    erase rows another writer flushed while it was open, whether that writer
+    finished first or is flushing at the same instant; a vanished
+    (arm, fixture) would shrink the paired contrast asymmetrically with
+    nothing to notice. The lock is load-bearing, not belt-and-braces: without
+    it two simultaneous flushes both read the same table and the later replace
+    wins outright, and both processes report success.
 
     Rows reach disk only on ``flush`` (the context manager flushes on the
     success path); a buffer left unflushed warns instead of vanishing.
@@ -237,17 +281,18 @@ class LedgerWriter:
     def flush(self) -> Path:
         if not self._pending and self.path.exists():
             return self.path
-        rows = (load_ledger(self.path).to_dict("records")
-                if self.path.exists() else [])
-        seen = {(str(r["arm"]), str(r["fixture_id"])) for r in rows}
-        for row in self._pending:
-            # Re-checked against what is on disk NOW: a pair another writer
-            # flushed since construction is a duplicate, not something to
-            # overwrite.
-            validated = _validate(row, seen)
-            seen.add((str(validated["arm"]), str(validated["fixture_id"])))
-            rows.append(validated)
-        _write_atomic(_frame(rows), self.path)
+        with _exclusive_ledger_lock(self.path):
+            rows = (load_ledger(self.path).to_dict("records")
+                    if self.path.exists() else [])
+            seen = {(str(r["arm"]), str(r["fixture_id"])) for r in rows}
+            for row in self._pending:
+                # Re-checked against what is on disk NOW: a pair another
+                # writer flushed since construction is a duplicate, not
+                # something to overwrite.
+                validated = _validate(row, seen)
+                seen.add((str(validated["arm"]), str(validated["fixture_id"])))
+                rows.append(validated)
+            _write_atomic(_frame(rows), self.path)
         self._pending.clear()
         self._seen = seen
         return self.path
@@ -271,6 +316,16 @@ def load_ledger(path: Path | str) -> pd.DataFrame:
     extra = [c for c in df.columns if c not in LEDGER_DTYPES]
     if extra:
         raise ValueError(f"unknown ledger column(s) {extra} in {path}")
+    for field in ("t_issue", "training_cutoff"):
+        # BEFORE the coercion below, which would read a naive or string stamp
+        # AS UTC: a foreign writer's local wall clock would land an instant
+        # off by its offset and then pass every remaining check, including
+        # the exact-09:00 rule. That is the drift _norm_ts exists to prevent
+        # on the write path, so the load path may not restore it (OA F2).
+        if not isinstance(df[field].dtype, pd.DatetimeTZDtype):
+            raise ValueError(
+                f"{field} must be a tz-aware datetime column; got dtype "
+                f"{df[field].dtype} in {path}")
     df = df[list(LEDGER_DTYPES)].astype(LEDGER_DTYPES)
     seen: set[tuple[str, str]] = set()
     rows = []
