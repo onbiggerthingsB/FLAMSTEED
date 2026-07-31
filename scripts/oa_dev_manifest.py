@@ -25,10 +25,12 @@ import yaml
 
 from wcmodel.eval.dev_slate import (
     DEV_WINDOW,
+    SCORED_INVENTORY_PATH,
     SCORED_POOL_WINDOWS,
     THE_RULE,
     eligible_dev_fixtures,
     load_dev_slate_config,
+    scored_fixture_ids,
     truncate_to_n_dev,
 )
 
@@ -63,6 +65,9 @@ def emit_manifest(results, *, competitions, admissible, n_dev: int,
         "rule": THE_RULE,
         "window": {"start": DEV_WINDOW[0].isoformat(),
                    "end": DEV_WINDOW[1].isoformat()},
+        # The exclusion is exact membership in this inventory (2026-08-01
+        # pre-lock correction); the windows below are informational only.
+        "scored_inventory": "config/oa_scored_inventory.yaml",
         "scored_pool_windows": {pool: [start.isoformat(), end.isoformat()]
                                 for pool, start, end in SCORED_POOL_WINDOWS},
         "competitions": list(competitions),
@@ -94,11 +99,16 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     cfg = load_dev_slate_config()
-    print("Frozen development-slate rule (OA Plan 2 v2, V0):")
+    print("Frozen development-slate rule (OA Plan 2 v2, V0; corrected "
+          "2026-08-01, finding 9):")
     print(f"  {THE_RULE}")
     print(f"  window: {DEV_WINDOW[0]} .. {DEV_WINDOW[1]}")
+    print(f"  excluded: the {len(scored_fixture_ids())} fixtures of "
+          f"{SCORED_INVENTORY_PATH.name} (exact membership, never calendar "
+          "windows)")
     for pool, start, end in SCORED_POOL_WINDOWS:
-        print(f"  excluded (scored pool {pool}): {start} .. {end}")
+        print(f"  scored pool {pool} spans {start} .. {end} (informational; "
+              "not an exclusion)")
     print(f"  competitions (config): {cfg.get('competitions') or 'NOT YET SET'}")
     print(f"  n_dev (config): {cfg.get('n_dev') if cfg.get('n_dev') else 'NOT YET SET'}")
 

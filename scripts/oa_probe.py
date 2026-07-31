@@ -41,13 +41,17 @@ Modes (hard gates in code, pinned by tests/eval/test_probe.py):
   plan-end STOP gate.
 
 ``--slate`` swaps the 15-fixture eval panel for the DEV-SLATE mini-probe
-(``SLATE_PROBES``): 12 candidate development competitions, 2022-2025, one
-discovery + one T-1h snapshot each — 132 credits projected against the plan's
+(``SLATE_PROBES``): 13 candidate development competitions, 2022-2025, one
+discovery + one T-1h snapshot each — 143 credits projected against the plan's
 150-credit budget. It answers a different question (does the archive carry
 this competition at all?), so it has its own panel and its own report, but
 runs through the SAME gates: dry-run by default, ``--live`` refused without
 both ``ODDS_API_KEY`` and ``--max-credits``, the SpendGate and the
-billing-header check before every call. Its output is what turns config
+billing-header check before every call. LIVE slate runs route through
+``oa_acquire``'s canonical G-A journal (plan2 batch-1, finding 1): exclusive
+flock, fail-closed orphan check, INTENT/RECEIPT around every paid call, and
+the mini-probe's spend counted into the G-A cumulative cap — the unjournaled
+live path no longer exists. Its output is what turns config
 ``oa_dev_slate.competitions`` from empty into chosen; fixture SELECTION within
 those competitions is the frozen rule in ``src/wcmodel/eval/dev_slate.py`` and
 is untouched by anything measured here.
@@ -163,8 +167,10 @@ PROBE_FIXTURES = (
 # a one-line data edit here, no logic change. Each `date` is a day the martj42
 # store actually holds senior men's internationals of that `tournament`
 # (pinned by tests/eval/test_probe_slate.py), each sits inside the frozen dev
-# window [2022-01-01, 2025-12-31], and none falls in a scored pool's window —
-# a probe there would measure coverage for fixtures the slate can never hold.
+# window [2022-01-01, 2025-12-31], and no probed (tournament, date) names a
+# day holding a SCORED fixture of that competition (exact scored-fixture
+# membership — the 2026-08-01 pre-lock correction, finding 9) — a probe there
+# would measure coverage for fixtures the slate can never hold.
 SLATE_PROBES = (
     {"competition": "UEFA Nations League (2022 group stage)",
      "tournament": "UEFA Nations League",
@@ -175,10 +181,16 @@ SLATE_PROBES = (
     {"competition": "CONCACAF Nations League (2023)",
      "tournament": "CONCACAF Nations League",
      "sport_key": "soccer_concacaf_nations_league", "date": "2023-11-21"},
-    # Copa America 2024 is deliberately ABSENT: it ran 2024-06-20..07-14,
-    # entirely inside the euro2024 scored-pool window (2024-06-14..07-14), so
-    # the frozen rule excludes every one of its fixtures. Probing it would buy
-    # coverage for a competition that can contribute nothing.
+    # Copa America 2024: ADDED by the 2026-08-01 pre-lock rule correction
+    # (Codex batch-1 finding 9, ratified). It ran 2024-06-20..07-14, inside
+    # the euro2024 scored-pool CALENDAR window — which the original
+    # window-based exclusion read as "contributes nothing", killing an entire
+    # eligible development competition that shares not one FIXTURE with the
+    # scored pools. Under exact scored-fixture membership its fixtures are
+    # all eligible, so the panel probes it.
+    {"competition": "Copa América (2024)",
+     "tournament": "Copa América",
+     "sport_key": "soccer_copa_america", "date": "2024-06-22"},
     {"competition": "Africa Cup of Nations qualification (2024)",
      "tournament": "African Cup of Nations qualification",
      "sport_key": "soccer_africa_cup_of_nations_qualification",
@@ -222,7 +234,7 @@ SLATE_SNAPSHOT_DELTA = timedelta(hours=1)
 
 
 def projected_slate_cost() -> int:
-    """12 x (1 discovery + 1 snapshot @ 10) = 132 credits, under the 150 cap.
+    """13 x (1 discovery + 1 snapshot @ 10) = 143 credits, under the 150 cap.
 
     The snapshot leg is the CEILING, not a promise: a competition whose
     listing comes back empty never has a snapshot precalled, so an
@@ -1120,7 +1132,7 @@ def assemble_report(*, mode: str, mocked: bool, sport_keys: dict, plan: list,
 
 # ------------------------------------------------- the dev-slate mini-probe
 def build_slate_call_plan() -> list:
-    """One row per planned call (24 = 12 discovery + 12 snapshots). The
+    """One row per planned call (26 = 13 discovery + 13 snapshots). The
     snapshot's ``at`` is symbolic: it depends on the DISCOVERED kickoff of the
     deterministically chosen event."""
     rows = []
@@ -1204,6 +1216,36 @@ def _pick_slate_event(events: list):
     return min(usable, key=lambda row: (row[0], row[1]))[2]
 
 
+def _slate_snapshot_entry(snap: dict, requested: datetime, *,
+                          commence: datetime) -> dict:
+    """PURE evaluation of one slate snapshot payload -> the report fields.
+    Split from the fetch (finding 1) so the journaled acquisition path can
+    evaluate an ARCHIVE-REUSED payload identically to a fresh wire one."""
+    entry = {"raw_sha256": snap.get("raw_sha256")}
+    rows = parse_snapshot(snap)
+    pin = [r for r in rows if r["bookmaker"] == SHARP_BOOK]
+    snap_dt = _ts(snap["timestamp"])
+    entry.update({
+        "snapshot_ts": snap["timestamp"],
+        "drift_min": round((requested - snap_dt).total_seconds() / 60.0, 1),
+        "pinnacle_present": bool(pin),
+        "n_bookmakers": len({r["bookmaker"] for r in rows}),
+    })
+    stamps = [("snapshot ts", snap_dt)]
+    if pin:
+        lu = strictest_last_update(pin[0], snap["timestamp"])
+        entry["pinnacle_staleness_min"] = round(
+            (requested - lu).total_seconds() / 60.0, 1)
+        stamps.append(("Pinnacle strictest last_update", lu))
+    late = [f"{what} {_iso(dt)}" for what, dt in stamps if dt >= commence]
+    if late:
+        entry["in_play"] = (
+            "IN-PLAY: " + " and ".join(late)
+            + f" at/after kickoff {_iso(commence)} — an in-play price, "
+            "never a pre-kickoff quote (strict <, OA F2)")
+    return entry
+
+
 def _slate_snapshot(event: dict, requested: datetime, *, commence: datetime,
                     sport_key: str, api_key: str, transport, raw_dir) -> dict:
     """One pre-kickoff snapshot on the chosen event: does the sharp book quote
@@ -1217,28 +1259,11 @@ def _slate_snapshot(event: dict, requested: datetime, *, commence: datetime,
             event["event_id"], _iso(requested), api_key, market=MARKET,
             regions=REGIONS, sport_key=sport_key, raw_dir=raw_dir,
             transport=transport)
+        # Provenance FIRST (the eval probe's rule): the archived hash must
+        # survive any parse surprise in the evaluator below.
         entry["raw_sha256"] = snap.get("raw_sha256")
-        rows = parse_snapshot(snap)
-        pin = [r for r in rows if r["bookmaker"] == SHARP_BOOK]
-        snap_dt = _ts(snap["timestamp"])
-        entry.update({
-            "snapshot_ts": snap["timestamp"],
-            "drift_min": round((requested - snap_dt).total_seconds() / 60.0, 1),
-            "pinnacle_present": bool(pin),
-            "n_bookmakers": len({r["bookmaker"] for r in rows}),
-        })
-        stamps = [("snapshot ts", snap_dt)]
-        if pin:
-            lu = strictest_last_update(pin[0], snap["timestamp"])
-            entry["pinnacle_staleness_min"] = round(
-                (requested - lu).total_seconds() / 60.0, 1)
-            stamps.append(("Pinnacle strictest last_update", lu))
-        late = [f"{what} {_iso(dt)}" for what, dt in stamps if dt >= commence]
-        if late:
-            entry["in_play"] = (
-                "IN-PLAY: " + " and ".join(late)
-                + f" at/after kickoff {_iso(commence)} — an in-play price, "
-                "never a pre-kickoff quote (strict <, OA F2)")
+        entry.update(_slate_snapshot_entry(snap, requested,
+                                           commence=commence))
     except CreditCapError:
         raise
     except OSError:
@@ -1485,9 +1510,25 @@ def assemble_slate_report(*, mode: str, mocked: bool, plan: list,
 
 
 # ----------------------------------------------------------------------- CLI
+def _acquire_module():
+    """``oa_acquire``, loaded lazily (``scripts/`` is not a package on
+    ``sys.path``): the LIVE slate path routes through ITS journal machinery
+    (plan2 batch-1, finding 1) — the exclusive flock, the fail-closed orphan
+    check, intent->receipt around every paid call, and the cumulative G-A
+    gate cap. Lazy so importing the probe never imports the runner."""
+    scripts_dir = str(Path(__file__).resolve().parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import oa_acquire
+    return oa_acquire
+
+
 def _run_slate_cli(args, ap) -> int:
     """The ``--slate`` branch: same gates as the eval probe, its own panel,
-    its own report."""
+    its own report. DRY-RUN runs the in-process mini-probe as ever; LIVE
+    routes through the canonical G-A journal (finding 1) — the old
+    unjournaled live path no longer exists: its spend was invisible to the
+    4,800-credit cumulative cap and unprotected by the flock."""
     plan = build_slate_call_plan()
     projected = sum(r["credits"] for r in plan)
     print(f"slate call plan: {len(plan)} calls "
@@ -1508,22 +1549,40 @@ def _run_slate_cli(args, ap) -> int:
                      "projected-cost abort cap) in addition to ODDS_API_KEY")
         mode, transport, cap = "live", _live_transport(), args.max_credits
         raw_dir = _live_raw_dir(transport)
+        if raw_dir is None:
+            # The journal's receipts must cite archived paid evidence, and a
+            # resumed run reads it instead of re-buying: a transport that
+            # cannot produce it must not run the live path at all (the
+            # acquisition runner's rule, adopted with its journal).
+            print("ABORT: --live with a non-network transport cannot produce "
+                  "paid evidence (no raw archive) — refusing to place any "
+                  "call", file=sys.stderr)
+            return 1
+        acq = _acquire_module()
+        journal = Path(acq.JOURNAL_DEFAULT)
         try:
-            _preflight_writable(raw_dir, Path(args.out).parent)
+            _preflight_writable(raw_dir, Path(args.out).parent,
+                                journal.parent)
         except OSError as exc:
             print("ABORT: storage preflight failed — refusing to place any "
                   f"paid call: {exc}", file=sys.stderr)
             return 1
+        try:
+            out = acq.run_slate_acquisition(
+                api_key=api_key, transport=transport, max_credits=cap,
+                raw_dir=raw_dir, journal_path=journal)
+        except (acq.CreditCapError, acq.AcquisitionError) as exc:
+            print(f"ABORT: {exc}", file=sys.stderr)
+            return 1
     else:
         mode, transport, cap = "dry-run", _slate_dry_run_transport(), None
         api_key, raw_dir = _DRY_RUN_KEY, None
-
-    try:
-        out = run_slate_probe(api_key=api_key, transport=transport,
-                              max_credits=cap, raw_dir=raw_dir)
-    except CreditCapError as exc:
-        print(f"ABORT: {exc}", file=sys.stderr)
-        return 1
+        try:
+            out = run_slate_probe(api_key=api_key, transport=transport,
+                                  max_credits=cap, raw_dir=raw_dir)
+        except CreditCapError as exc:
+            print(f"ABORT: {exc}", file=sys.stderr)
+            return 1
 
     md = assemble_slate_report(
         mode=mode, mocked=type(transport) is not httpx.HTTPTransport,

@@ -73,12 +73,18 @@ from wcmodel.data.sources.odds import (
     event_list,
     fetch_historical,
     fetch_historical_events,
+    fsync_dir,
     load_odds_snapshots,
     parse_snapshot,
     strictest_last_update,
 )
 from wcmodel.data.store import BitemporalStore
-from wcmodel.eval.aliases import AmbiguousFixtureMatch, load_aliases, resolve_event
+from wcmodel.eval.aliases import (
+    AmbiguousFixtureMatch,
+    load_aliases,
+    resolve_event,
+    verify_alias_evidence,
+)
 from wcmodel.eval.ledger import T_ISSUE_UTC_TIME, lock_path
 
 # scripts/ is not a package on sys.path -> path-insert then import (house
@@ -91,6 +97,9 @@ from oa_probe import (  # noqa: E402  (script-local import, after sys.path)
     MARKET,
     REGIONS,
     SHARP_BOOK,
+    SLATE_PROBES,
+    SLATE_SNAPSHOT_DELTA,
+    SLATE_SNAPSHOT_TAG,
     SNAPSHOT_CREDITS,
     SNAPSHOTS_PER_FIXTURE,
     CreditCapError,
@@ -98,10 +107,13 @@ from oa_probe import (  # noqa: E402  (script-local import, after sys.path)
     _err_cell,
     _fmt,
     _iso,
+    _pick_slate_event,
     _preflight_writable,
+    _slate_snapshot_entry,
     _table_text,
     _ts,
     _UsageRecorder,
+    projected_slate_cost,
 )
 
 # ------------------------------------------------------------ the frozen plan
@@ -174,6 +186,12 @@ class ConcurrentAcquisitionError(AcquisitionError):
 
 class ArchiveMissingError(AcquisitionError):
     """A receipt cites bytes the content-addressed archive does not hold."""
+
+
+class AliasEvidenceError(AcquisitionError):
+    """An alias record's cited archived evidence is missing or does not
+    contain the claimed spelling — an unevidenced alias silently widens what
+    counts as coverage, so no live call may be placed under it (finding 8)."""
 
 
 # ------------------------------------------------------------ instants (F7)
@@ -377,6 +395,16 @@ def exclusive_journal_lock(path):
     return _lock()
 
 
+def _write_all(fd, data: bytes) -> None:
+    """``os.write`` until every byte lands: a single call may return short,
+    and a short journal write is a torn record ``read_journal`` refuses —
+    which would jam every future resume of a journal that was in fact fine."""
+    view = memoryview(data)
+    while view:
+        written = os.write(fd, view)
+        view = view[written:]
+
+
 def append_record(path, record) -> None:
     """Append ONE journal record durably.
 
@@ -384,24 +412,56 @@ def append_record(path, record) -> None:
     ``fsync`` is what makes the record survive the crash it exists to
     describe: an INTENT still in the page cache when the machine dies is an
     INTENT that never happened, and the resumed run would place a call that
-    may already have billed."""
+    may already have billed. On the append that CREATES the journal the
+    parent DIRECTORY is fsync'd too (finding 3): the new directory entry is
+    metadata, and fsync'ing only the file leaves durable bytes that no name
+    reaches after power loss — the first INTENT would vanish and permit
+    rebilling a call that may have been paid."""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n"
+    existed = target.exists()
     fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
     try:
-        os.write(fd, line.encode())
+        _write_all(fd, line.encode())
         os.fsync(fd)
     finally:
         os.close(fd)
+    if not existed:
+        fsync_dir(target.parent)
+
+
+#: Fields a RECEIPT must carry (finding 6): a receipt missing any of them is
+#: one the writers below could never have produced — spend accounting from it
+#: would silently under-count. ``raw_sha256`` may be None (a transport-level
+#: failure has no response bytes) but the KEY must be present: an absent key
+#: means provenance was never even considered.
+_RECEIPT_REQUIRED = ("kind", "requested_instant", "billed_credits",
+                     "modeled_credits", "raw_sha256")
+#: Fields that must AGREE between a receipt and the intent it settles.
+_PAIRED_FIELDS = ("kind", "requested_instant", "fixture_id", "tag")
+
+
+def _credits_ok(value) -> bool:
+    """A journal credit figure: an int >= 1. A paid call is never free —
+    a zero/negative/absent figure clears an intent while adding nothing to
+    cumulative spend, authorizing real money against it (finding 6)."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
 
 
 def read_journal(path) -> list:
-    """Parse the journal, refusing anything it cannot fully account for."""
+    """Parse the journal, refusing anything it cannot fully account for.
+
+    Hardened per finding 6: pairing is keyed by ``(gate, call_id)`` — a G-B
+    receipt must never clear a G-A orphan that shares its call_id — every
+    RECEIPT requires exactly one preceding still-pending matching INTENT,
+    receipts carry all required fields with credits >= 1, and receipt/intent
+    disagreement on kind/instant/fixture/tag is refused."""
     target = Path(path)
     if not target.exists():
         return []
-    records, receipted = [], set()
+    records = []
+    pending, receipted = {}, set()          # keyed by (gate, call_id)
     for lineno, line in enumerate(target.read_text().splitlines(), 1):
         if not line.strip():
             continue
@@ -418,22 +478,73 @@ def read_journal(path) -> list:
             raise JournalError(
                 f"{target}:{lineno}: journal record must carry type "
                 f"(intent|receipt), gate and call_id; got {record!r}")
-        if record["type"] == RECEIPT:
-            if record["call_id"] in receipted:
+        key = (record["gate"], record["call_id"])
+        if record["type"] == INTENT:
+            if not record.get("kind") or not record.get("requested_instant"):
                 raise JournalError(
-                    f"{target}:{lineno}: duplicate receipt for call_id "
-                    f"{record['call_id']!r} — cumulative spend would "
-                    "double-count a call that was billed once")
-            receipted.add(record["call_id"])
+                    f"{target}:{lineno}: INTENT missing kind/"
+                    f"requested_instant; got {record!r}")
+            if not _credits_ok(record.get("modeled_credits")):
+                raise JournalError(
+                    f"{target}:{lineno}: INTENT modeled_credits must be an "
+                    f"int >= 1 (a paid call is never free); got "
+                    f"{record.get('modeled_credits')!r}")
+            if key in pending:
+                raise JournalError(
+                    f"{target}:{lineno}: duplicate pending INTENT for "
+                    f"{key} — two intents for one call identity make the "
+                    "pending spend unaccountable")
+            if key in receipted:
+                raise JournalError(
+                    f"{target}:{lineno}: INTENT for already-receipted {key} "
+                    "— the runner never re-places a receipted call, so this "
+                    "record was not written by it")
+            pending[key] = record
+        else:
+            missing = [f for f in _RECEIPT_REQUIRED if f not in record]
+            if missing:
+                raise JournalError(
+                    f"{target}:{lineno}: RECEIPT missing required field(s) "
+                    f"{missing}: {record!r}")
+            if not _credits_ok(record["billed_credits"]) \
+                    or not _credits_ok(record["modeled_credits"]):
+                raise JournalError(
+                    f"{target}:{lineno}: RECEIPT billed/modeled credits must "
+                    "be ints >= 1 (a zero-credit receipt clears an intent "
+                    "while adding nothing to cumulative spend); got "
+                    f"billed={record['billed_credits']!r} "
+                    f"modeled={record['modeled_credits']!r}")
+            intent = pending.pop(key, None)
+            if intent is None:
+                if key in receipted:
+                    raise JournalError(
+                        f"{target}:{lineno}: duplicate receipt for {key} — "
+                        "cumulative spend would double-count a call that "
+                        "was billed once")
+                raise JournalError(
+                    f"{target}:{lineno}: RECEIPT with no preceding pending "
+                    f"INTENT for {key} — a receipt the runner never "
+                    "intended cannot be spend evidence")
+            for field in _PAIRED_FIELDS:
+                if record.get(field) != intent.get(field):
+                    raise JournalError(
+                        f"{target}:{lineno}: RECEIPT disagrees with its "
+                        f"INTENT on {field}: "
+                        f"{record.get(field)!r} != {intent.get(field)!r} "
+                        f"for {key}")
+            receipted.add(key)
         records.append(record)
     return records
 
 
 def orphan_intents(records) -> list:
-    """INTENTs with no RECEIPT: calls that may or may not have billed."""
-    receipted = {r["call_id"] for r in records if r["type"] == RECEIPT}
-    return [r for r in records
-            if r["type"] == INTENT and r["call_id"] not in receipted]
+    """INTENTs with no RECEIPT: calls that may or may not have billed.
+    Keyed by ``(gate, call_id)`` — a receipt on the OTHER gate settles
+    nothing here (finding 6)."""
+    receipted = {(r["gate"], r["call_id"])
+                 for r in records if r["type"] == RECEIPT}
+    return [r for r in records if r["type"] == INTENT
+            and (r["gate"], r["call_id"]) not in receipted]
 
 
 def gate_spend(records, gate_id) -> int:
@@ -575,7 +686,21 @@ def run_acquisition(*, gate_id, fixtures, sport_keys, api_key, transport,
     included) — the figure ``--max-credits`` bounds."""
     if gate_id not in GATE_IDS:
         raise ValueError(f"gate_id must be one of {GATE_IDS}; got {gate_id!r}")
-    aliases = load_aliases() if aliases is None else aliases
+    if aliases is None:
+        if mode == "live":
+            # Finding 8: every alias is verified against the CANONICAL paid
+            # archive before any live call — an alias whose cited evidence is
+            # missing or does not contain the claimed spelling widens what
+            # counts as coverage, and no paid call may be placed under it.
+            # Dry-runs load unverified: the archive is a gitignored local
+            # artifact and a dry-run spends nothing through the map.
+            problems = verify_alias_evidence(raw_dir=ODDS_RAW_DIR)
+            if problems:
+                raise AliasEvidenceError(
+                    "alias evidence verification failed against "
+                    f"{ODDS_RAW_DIR} — refusing before any paid call: "
+                    + "; ".join(problems))
+        aliases = load_aliases()
     journal_path = Path(journal_path)
     raw_dir = None if raw_dir is None else Path(raw_dir)
     groups = build_plan(fixtures, sport_keys, gate_id)
@@ -594,6 +719,16 @@ def run_acquisition(*, gate_id, fixtures, sport_keys, api_key, transport,
                 + ", ".join(sorted(r["call_id"] for r in orphans))
                 + ") and settle the journal by hand before re-running")
         prior = gate_spend(records, gate_id)
+        if max_credits is not None and prior > max_credits:
+            # Finding 4: a resumed run whose RESTORED spend already exceeds
+            # the cap has nothing left for the SpendGate to refuse (every
+            # planned call may be receipted) — without this check it would
+            # exit 0 with the cap already breached.
+            raise CreditCapError(
+                f"cumulative journal spend {prior} credits for gate "
+                f"{gate_id} already exceeds --max-credits {max_credits} — "
+                "the gate's budget is spent; refusing to resume under a cap "
+                "the ledger has passed")
         receipts = {r["call_id"]: r for r in records
                     if r["type"] == RECEIPT and r["gate"] == gate_id}
         remaining = sum(r["credits"] for r in rows
@@ -624,21 +759,33 @@ def run_acquisition(*, gate_id, fixtures, sport_keys, api_key, transport,
                 raise
         _pad_unreached(groups, results)
 
+        final_records = read_journal(journal_path)
+        cumulative = gate_spend(final_records, gate_id)
         store_rows = 0
         if store_root is not None:
             store_rows = rebuild_store_from_receipts(
-                read_journal(journal_path), gate_id=gate_id, raw_dir=raw_dir,
-                store_root=store_root)
+                final_records, raw_dir=raw_dir, store_root=store_root)
 
     actual = recorder.actual_spent()
     overrun = None
-    if (aborted is None and max_credits is not None and actual is not None
-            and prior + actual > max_credits):
-        overrun = (
-            f"actual billed usage {prior + actual} credits for gate "
-            f"{gate_id} ({prior} restored from the journal + {actual} this "
-            f"run) exceeds --max-credits {max_credits} and no further call "
-            "remained to refuse — the plan completed, but the cap did not hold")
+    if aborted is None and max_credits is not None:
+        if actual is not None and prior + actual > max_credits:
+            overrun = (
+                f"actual billed usage {prior + actual} credits for gate "
+                f"{gate_id} ({prior} restored from the journal + {actual} "
+                f"this run) exceeds --max-credits {max_credits} and no "
+                "further call remained to refuse — the plan completed, but "
+                "the cap did not hold")
+        elif cumulative > max_credits:
+            # Finding 4: the header-derived figure can under-count (a
+            # response with no billing headers is invisible to it, while its
+            # RECEIPT still bills at least the modeled price) — the ledger
+            # is the spend of record, so it gets the last word.
+            overrun = (
+                f"cumulative journal spend {cumulative} credits for gate "
+                f"{gate_id} exceeds --max-credits {max_credits} (billing "
+                f"headers saw only {_fmt(actual)}) — the plan completed, "
+                "but the cap did not hold")
     return {"gate": gate_id, "mode": mode, "groups": groups, "plan": rows,
             "results": results, "usage": recorder.usage, "spent": gate.spent,
             "prior_spent": prior, "projected": projected,
@@ -701,12 +848,17 @@ def _acquire_discovery(group, *, receipts, gate, recorder, api_key, raw_dir,
     receipt = receipts.get(group["call_id"])
     if receipt is not None:
         digest = receipt.get("raw_sha256")
-        if not digest:
+        if receipt.get("error") or not digest:
+            # A receipted FAILURE is never re-bought; where the adapter
+            # archived the paid error body the receipt names its digest
+            # (finding 7), so the evidence stays locatable.
             return {"error": _table_text(
-                "a paid discovery call for this key has no archived payload "
-                f"({receipt.get('error') or 'no raw_sha256 on the receipt'}) "
-                "— its fixtures cannot be resolved without re-buying the "
-                "listing, which this runner never does")}
+                "a paid discovery call for this key failed "
+                f"({receipt.get('error') or 'no raw_sha256 on the receipt'}"
+                + (f"; paid evidence archived as raw_sha256={digest}"
+                   if digest else "")
+                + ") — its fixtures cannot be resolved without re-buying "
+                "the listing, which this runner never does")}
         payload = _read_archived(raw_dir, digest, group["call_id"])
         return {"raw_sha256": digest, "events": _events_from_payload(payload),
                 "reused": True}
@@ -751,12 +903,17 @@ def _acquire_snapshot(fixture, snap, *, gate_id, event_id, receipts, gate,
     receipt = receipts.get(snap["call_id"])
     if receipt is not None:
         digest = receipt.get("raw_sha256")
-        if not digest:
-            return {"tag": snap["tag"],
-                    "requested_instant": snap["requested_instant"],
-                    "attempted": False, "reused": True,
-                    "error": receipt.get("error")
-                    or "paid, but no archived payload on the receipt"}
+        if receipt.get("error") or not digest:
+            # The receipted failure stands (never re-bought); its archived
+            # error body — where one existed — stays citable (finding 7).
+            entry = {"tag": snap["tag"],
+                     "requested_instant": snap["requested_instant"],
+                     "attempted": False, "reused": True,
+                     "error": receipt.get("error")
+                     or "paid, but no archived payload on the receipt"}
+            if digest:
+                entry["raw_sha256"] = digest
+            return entry
         payload = _read_archived(raw_dir, digest, snap["call_id"])
         entry = _evaluate_snapshot(
             payload, tag=snap["tag"],
@@ -863,25 +1020,347 @@ def _receipt_for_failure(exc, cid, gate_id, kind, requested_instant, recorder,
     cannot prove reached the wire is left as a bare intent — that is the
     ambiguity the resume refuses on.
 
-    ``raw_sha256`` is None here even though the adapter archived the bytes
-    BEFORE raising (a paid non-2xx body is still paid evidence): the digest is
-    the adapter's return value, and there is no return on this path. The bytes
-    are in the content-addressed archive and the billing headers below name
-    the call; the receipt simply cannot cite the hash. A fixture whose
-    snapshot receipt carries no hash is never eligible."""
+    ``raw_sha256`` (finding 7): where the adapter archived the paid response
+    bytes BEFORE raising — a non-2xx body, an undecodable/misshapen 200 —
+    the raised exception carries the archive digest structurally
+    (``exc.raw_sha256``) and the receipt records it, so the paid evidence
+    stays locatable by hash. None ONLY when no response bytes existed (a
+    transport-level failure). A fixture whose snapshot receipt carries an
+    error is never eligible either way."""
     text = _err_cell(exc, api_key)
     _write_receipt(journal_path, cid, gate_id, kind, requested_instant,
-                   recorder, before, modeled, raw_sha256=None,
+                   recorder, before, modeled,
+                   raw_sha256=getattr(exc, "raw_sha256", None),
                    returned_instant=None, fixture_id=fixture_id, tag=tag,
                    error=text)
     return {"error": text}
 
 
+# ------------------------------------------- the journaled slate probe (F1)
+#: Slate calls are DISTINCT journal kinds: they never collide with — and are
+#: never mistaken for — the eval plan's discovery/snapshot identities, while
+#: still billing the SAME gate, so ``gate_spend`` folds them into the one
+#: cumulative G-A figure ``--max-credits`` bounds.
+SLATE_DISCOVERY_KIND = "slate-discovery"
+SLATE_SNAPSHOT_KIND = "slate-snapshot"
+#: The mini-probe's spend is ASKED WITH G-A (the plan's 4,800 cap covers
+#: eval 4,417 + slate 143), so it bills the G-A gate.
+SLATE_GATE = "ga"
+
+
+def _slate_discovery_cid(gate_id, probe) -> str:
+    return call_id(gate_id, SLATE_DISCOVERY_KIND, probe["sport_key"],
+                   f"{probe['date']}T00:00:00Z")
+
+
+def _slate_snapshot_cid(gate_id, probe, requested) -> str:
+    return call_id(gate_id, SLATE_SNAPSHOT_KIND, probe["sport_key"],
+                   _iso(requested), None, SLATE_SNAPSHOT_TAG)
+
+
+def _slate_outstanding(probe, gate_id, receipts, raw_dir) -> int:
+    """The credits THIS run may still place for one probe — resolved against
+    the journal exactly as the loop will resolve them, so the SpendGate's
+    projection is the resumed plan's true remainder, not the full ceiling."""
+    d_receipt = receipts.get(_slate_discovery_cid(gate_id, probe))
+    if d_receipt is None:
+        return DISCOVERY_CREDITS + SNAPSHOT_CREDITS      # snapshot = ceiling
+    if d_receipt.get("error") or not d_receipt.get("raw_sha256"):
+        return 0                     # failed listing: no snapshot is placed
+    payload = _read_archived(raw_dir, d_receipt["raw_sha256"],
+                             "slate discovery (outstanding)")
+    event = _pick_slate_event(_events_from_payload(payload))
+    if event is None:
+        return 0
+    requested = _ts(event["commence_time"]) - SLATE_SNAPSHOT_DELTA
+    if _slate_snapshot_cid(gate_id, probe, requested) in receipts:
+        return 0
+    return SNAPSHOT_CREDITS
+
+
+def run_slate_acquisition(*, api_key, transport, max_credits, raw_dir,
+                          journal_path, gate_id=SLATE_GATE) -> dict:
+    """The dev-slate mini-probe under the CANONICAL journal (finding 1).
+
+    ``run_slate_probe`` measured through an invocation-local SpendGate: no
+    INTENT/RECEIPT, no flock, spend invisible to the G-A cumulative cap. This
+    runner asks the SAME questions through the SAME machinery as the eval
+    acquisition — exclusive flock, fail-closed orphan check, prior spend
+    restored into the gate, INTENT before every call, RECEIPT after every
+    archive, receipted calls reused from the archive instead of re-bought —
+    so the mini-probe's credits are G-A credits in the one ledger the
+    4,800-credit cap is computed from. Return shape matches
+    ``run_slate_probe`` (plus ``prior_spent``) so ``assemble_slate_report``
+    consumes it unchanged."""
+    journal_path = Path(journal_path)
+    raw_dir = None if raw_dir is None else Path(raw_dir)
+    projected = projected_slate_cost()
+
+    with exclusive_journal_lock(journal_path):
+        records = read_journal(journal_path)
+        orphans = orphan_intents(records)
+        if orphans:
+            raise OrphanIntentError(
+                f"{len(orphans)} journal INTENT record(s) have no RECEIPT — a "
+                "call that may or may not have billed. Refusing to resume: "
+                "inspect data/odds_raw for the orphan's archived response "
+                "(call_id(s): "
+                + ", ".join(sorted(r["call_id"] for r in orphans))
+                + ") and settle the journal by hand before re-running")
+        prior = gate_spend(records, gate_id)
+        if max_credits is not None and prior > max_credits:
+            raise CreditCapError(
+                f"cumulative journal spend {prior} credits for gate "
+                f"{gate_id} already exceeds --max-credits {max_credits} — "
+                "refusing to run the slate probe under a cap the ledger has "
+                "passed")
+        receipts = {r["call_id"]: r for r in records
+                    if r["type"] == RECEIPT and r["gate"] == gate_id}
+        remaining = sum(_slate_outstanding(p, gate_id, receipts, raw_dir)
+                        for p in SLATE_PROBES)
+        gate = SpendGate(max_credits, remaining)
+        gate.spent = prior
+        recorder = _UsageRecorder(
+            transport,
+            cap=None if max_credits is None else max_credits - prior)
+
+        results, aborted = [], None
+
+        def _pad_unreached_slate():
+            for probe in SLATE_PROBES[len(results):]:
+                results.append({"competition": probe["competition"],
+                                "sport_key": probe["sport_key"],
+                                "date": probe["date"],
+                                "tournament": probe["tournament"],
+                                "attempted": False, "snapshot": None})
+
+        try:
+            for probe in SLATE_PROBES:
+                _acquire_slate_probe(
+                    probe, results=results, receipts=receipts, gate=gate,
+                    gate_id=gate_id, recorder=recorder, api_key=api_key,
+                    raw_dir=raw_dir, journal_path=journal_path)
+        except CreditCapError as exc:
+            if not recorder.usage:
+                raise
+            aborted = str(exc)
+            _pad_unreached_slate()
+        except OSError as exc:
+            aborted = ("archive/persistence failure — provenance storage is "
+                       "broken, so no further paid call may be placed: "
+                       + _err_cell(exc, api_key))
+            _pad_unreached_slate()
+
+        cumulative = gate_spend(read_journal(journal_path), gate_id)
+
+    actual = recorder.actual_spent()
+    overrun = None
+    if aborted is None and max_credits is not None:
+        if actual is not None and prior + actual > max_credits:
+            overrun = (
+                f"actual billed usage {prior + actual} credits for gate "
+                f"{gate_id} ({prior} restored from the journal + {actual} "
+                f"this run) exceeds --max-credits {max_credits} and no "
+                "further call remained to refuse — the cap did not hold")
+        elif cumulative > max_credits:
+            overrun = (
+                f"cumulative journal spend {cumulative} credits for gate "
+                f"{gate_id} exceeds --max-credits {max_credits} (billing "
+                f"headers saw only {_fmt(actual)}) — the cap did not hold")
+    return {"results": results, "usage": recorder.usage, "spent": gate.spent,
+            "projected": projected, "aborted": aborted, "actual": actual,
+            "overrun": overrun, "prior_spent": prior}
+
+
+def _acquire_slate_probe(probe, *, results, receipts, gate, gate_id, recorder,
+                         api_key, raw_dir, journal_path) -> None:
+    row = {"competition": probe["competition"],
+           "sport_key": probe["sport_key"], "date": probe["date"],
+           "tournament": probe["tournament"],
+           "attempted": False, "snapshot": None}
+    results.append(row)
+    listing = _acquire_slate_discovery(
+        probe, receipts=receipts, gate=gate, gate_id=gate_id,
+        recorder=recorder, api_key=api_key, raw_dir=raw_dir,
+        journal_path=journal_path, row=row)
+    if listing is None:
+        return
+    row["attempted"] = True
+    row["discovery_sha256"] = listing["raw_sha256"]
+    events = listing["events"]
+    row["n_events_listed"] = len(events)
+    event = _pick_slate_event(events)
+    if event is None:
+        # No usable listing -> no snapshot call at all: an uncovered
+        # competition costs one credit (or zero on reuse).
+        return
+    row.update({"event_id": event["event_id"],
+                "commence_time": event["commence_time"],
+                "sample_fixture": f"{event['home']} v {event['away']}"})
+    try:
+        commence = _ts(event["commence_time"])
+    except ValueError as exc:
+        row["error"] = _err_cell(exc, api_key)
+        return
+    requested = commence - SLATE_SNAPSHOT_DELTA
+    _acquire_slate_snapshot(
+        probe, event, requested, commence=commence, row=row,
+        receipts=receipts, gate=gate, gate_id=gate_id, recorder=recorder,
+        api_key=api_key, raw_dir=raw_dir, journal_path=journal_path)
+
+
+def _acquire_slate_discovery(probe, *, receipts, gate, gate_id, recorder,
+                             api_key, raw_dir, journal_path, row):
+    """One slate listing: reused from the archive when receipted, else bought
+    under intent->receipt. Returns ``{"raw_sha256", "events"}`` or None when
+    the row already carries the terminal finding."""
+    cid = _slate_discovery_cid(gate_id, probe)
+    receipt = receipts.get(cid)
+    if receipt is not None:
+        digest = receipt.get("raw_sha256")
+        if receipt.get("error") or not digest:
+            row["attempted"] = True
+            row["error"] = _table_text(
+                "a paid slate discovery for this key failed "
+                f"({receipt.get('error') or 'no raw_sha256 on the receipt'}"
+                + (f"; paid evidence archived as raw_sha256={digest}"
+                   if digest else "") + ") — never re-bought")
+            return None
+        payload = _read_archived(raw_dir, digest, cid)
+        return {"raw_sha256": digest,
+                "events": _events_from_payload(payload)}
+
+    instant = f"{probe['date']}T00:00:00Z"
+    what = f"slate discovery {probe['competition']}"
+    gate.precall(DISCOVERY_CREDITS, what)
+    try:
+        _actual_precheck(recorder, DISCOVERY_CREDITS, what)
+    except CreditCapError:
+        gate.refund(DISCOVERY_CREDITS)
+        raise
+    recorder.next_call_credits = DISCOVERY_CREDITS
+    append_record(journal_path, {
+        "type": INTENT, "gate": gate_id, "call_id": cid,
+        "kind": SLATE_DISCOVERY_KIND, "sport_key": probe["sport_key"],
+        "requested_instant": instant,
+        "modeled_credits": DISCOVERY_CREDITS, "ts": _now()})
+    before = len(recorder.usage)
+    try:
+        discovery = fetch_historical_events(
+            probe["sport_key"], instant, api_key, raw_dir=raw_dir,
+            transport=recorder)
+    except OSError as exc:
+        # Placed and paid, but its bytes could not be archived: mark the row
+        # honestly, leave the bare intent standing, and let the run abort —
+        # the resume fails closed on it.
+        row["attempted"] = True
+        row["error"] = _err_cell(exc, api_key)
+        raise
+    except Exception as exc:
+        failure = _receipt_for_failure(
+            exc, cid, gate_id, SLATE_DISCOVERY_KIND, instant, recorder,
+            before, DISCOVERY_CREDITS, api_key, journal_path)
+        row["attempted"] = True
+        row["error"] = failure["error"]
+        return None
+    _write_receipt(journal_path, cid, gate_id, SLATE_DISCOVERY_KIND, instant,
+                   recorder, before, DISCOVERY_CREDITS,
+                   raw_sha256=discovery["raw_sha256"], returned_instant=None)
+    return {"raw_sha256": discovery["raw_sha256"],
+            "events": discovery["events"]}
+
+
+def _acquire_slate_snapshot(probe, event, requested, *, commence, row,
+                            receipts, gate, gate_id, recorder, api_key,
+                            raw_dir, journal_path) -> dict:
+    cid = _slate_snapshot_cid(gate_id, probe, requested)
+    receipt = receipts.get(cid)
+    # Attached BEFORE any gate with ``attempted: False``: a cap refusal must
+    # render "not attempted" — our gate's refusal, never a measured miss —
+    # and an abort mid-snapshot must leave the entry standing on the row.
+    entry = {"tag": SLATE_SNAPSHOT_TAG, "requested_ts": _iso(requested),
+             "attempted": False}
+    row["snapshot"] = entry
+    if receipt is not None:
+        digest = receipt.get("raw_sha256")
+        entry.update({"attempted": True, "reused": True})
+        if receipt.get("error") or not digest:
+            entry["error"] = (receipt.get("error")
+                              or "paid, but no archived payload on the "
+                                 "receipt")
+            if digest:
+                entry["raw_sha256"] = digest
+            return entry
+        payload = _read_archived(raw_dir, digest, cid)
+        entry["raw_sha256"] = digest
+        try:
+            entry.update(_slate_snapshot_entry(payload, requested,
+                                               commence=commence))
+        except Exception as exc:
+            entry["error"] = _err_cell(exc, api_key)
+        return entry
+
+    what = f"slate snapshot {SLATE_SNAPSHOT_TAG} {probe['competition']}"
+    gate.precall(SNAPSHOT_CREDITS, what)
+    try:
+        _actual_precheck(recorder, SNAPSHOT_CREDITS, what)
+    except CreditCapError:
+        gate.refund(SNAPSHOT_CREDITS)
+        raise
+    recorder.next_call_credits = SNAPSHOT_CREDITS
+    append_record(journal_path, {
+        "type": INTENT, "gate": gate_id, "call_id": cid,
+        "kind": SLATE_SNAPSHOT_KIND, "sport_key": probe["sport_key"],
+        "requested_instant": _iso(requested), "tag": SLATE_SNAPSHOT_TAG,
+        "modeled_credits": SNAPSHOT_CREDITS, "ts": _now()})
+    before = len(recorder.usage)
+    entry["attempted"] = True        # the call is going to the wire now
+    try:
+        snap = fetch_historical(
+            event["event_id"], _iso(requested), api_key, market=MARKET,
+            regions=REGIONS, sport_key=probe["sport_key"], raw_dir=raw_dir,
+            transport=recorder)
+    except OSError as exc:
+        entry["error"] = _err_cell(exc, api_key)
+        raise
+    except Exception as exc:
+        failure = _receipt_for_failure(
+            exc, cid, gate_id, SLATE_SNAPSHOT_KIND, _iso(requested),
+            recorder, before, SNAPSHOT_CREDITS, api_key, journal_path,
+            tag=SLATE_SNAPSHOT_TAG)
+        entry["error"] = failure["error"]
+        return entry
+    digest = snap.get("raw_sha256")
+    entry["raw_sha256"] = digest
+    try:
+        entry.update(_slate_snapshot_entry(snap, requested,
+                                           commence=commence))
+    except Exception as exc:
+        _write_receipt(journal_path, cid, gate_id, SLATE_SNAPSHOT_KIND,
+                       _iso(requested), recorder, before, SNAPSHOT_CREDITS,
+                       raw_sha256=digest, returned_instant=None,
+                       tag=SLATE_SNAPSHOT_TAG, error=_err_cell(exc, api_key))
+        entry["error"] = _err_cell(exc, api_key)
+        return entry
+    _write_receipt(journal_path, cid, gate_id, SLATE_SNAPSHOT_KIND,
+                   _iso(requested), recorder, before, SNAPSHOT_CREDITS,
+                   raw_sha256=digest,
+                   returned_instant=entry.get("snapshot_ts"),
+                   tag=SLATE_SNAPSHOT_TAG)
+    return entry
+
+
 # ------------------------------------------------- ingest (atomic, from receipts)
-def rebuild_store_from_receipts(records, *, gate_id, raw_dir, store_root) -> int:
+def rebuild_store_from_receipts(records, *, raw_dir, store_root) -> int:
     """Rebuild the odds store from the archived snapshot payloads the receipts
     name — a pure function of the journal, so it is idempotent and a crash
     before it costs nothing.
+
+    From EVERY gate's receipts (finding 5): the store is one COMMON artifact,
+    and the rebuild REPLACES the whole parquet — filtered to the running gate
+    it would erase the other gate's rows every time (running G-B wiped G-A's
+    paid odds from the store, and vice versa). Failure receipts contribute
+    nothing: an archived error body is evidence, not a snapshot.
 
     Built in a scratch root and moved into place with ``os.replace``: the
     store is a whole-table artifact, so an interrupted in-place write would
@@ -889,8 +1368,8 @@ def rebuild_store_from_receipts(records, *, gate_id, raw_dir, store_root) -> int
     tmp+rename contract, one directory up because ``BitemporalStore.write``
     APPENDS to whatever it finds)."""
     digests = [r["raw_sha256"] for r in records
-               if r["type"] == RECEIPT and r.get("gate") == gate_id
-               and r.get("kind") == "snapshot" and r.get("raw_sha256")]
+               if r["type"] == RECEIPT and r.get("kind") == "snapshot"
+               and r.get("raw_sha256") and not r.get("error")]
     store_root = Path(store_root)
     store_root.mkdir(parents=True, exist_ok=True)
     if not digests:
@@ -1114,9 +1593,13 @@ def main(argv=None) -> int:
                          "spend plus the outstanding plan is checked against "
                          "it before every call")
     ap.add_argument("--journal", default=None,
-                    help=f"journal path (default {JOURNAL_DEFAULT}; dry-runs "
-                         f"write {JOURNAL_DRY_RUN_DEFAULT} so mock receipts "
-                         "can never enter the paid ledger)")
+                    help="journal path — DRY-RUN ONLY (default "
+                         f"{JOURNAL_DRY_RUN_DEFAULT}; mock receipts must "
+                         "never enter the paid ledger). Live mode always "
+                         f"uses the canonical {JOURNAL_DEFAULT}: the "
+                         "cumulative cap and the flock are properties of ONE "
+                         "resolved journal, and a per-run override defeats "
+                         "both")
     ap.add_argument("--raw-dir", default=None,
                     help="content-addressed raw-response archive; on --live "
                          "this is always the repo's paid-evidence store and "
@@ -1145,6 +1628,15 @@ def main(argv=None) -> int:
                  "belongs in the repo's content-addressed archive, which is "
                  "what the receipts, the resume path and the store rebuild "
                  "all read from")
+    if args.journal and args.live:
+        # Finding 2: two live runners pointed at two --journal paths would
+        # each restore ZERO prior spend and each hold its own flock — the
+        # cumulative gate cap and the concurrency refusal are properties of
+        # ONE canonical journal, and an override defeats both.
+        ap.error("--journal cannot be combined with --live: the cumulative "
+                 f"gate cap is computed from the canonical {JOURNAL_DEFAULT} "
+                 "and the flock guards that one path — a per-run journal "
+                 "would restore zero spend and authorize the whole cap again")
 
     sport_keys = load_config()["odds"]["sport_keys"]
     fixtures = load_fixture_manifest(args.fixtures)

@@ -377,7 +377,8 @@ def test_resume_refuses_when_an_intent_has_no_receipt(mod, tmp_path):
     journal = tmp_path / "j.jsonl"
     journal.write_text(json.dumps({
         "type": "intent", "gate": "ga", "call_id": "ga|discovery|x|y|-|-",
-        "kind": "discovery", "modeled_credits": 1}) + "\n")
+        "kind": "discovery", "requested_instant": "2026-06-20T00:00:00Z",
+        "modeled_credits": 1}) + "\n")
     api = _Api(fixtures)
     with pytest.raises(mod.OrphanIntentError, match="data/odds_raw"):
         _run(mod, fixtures, api=api, journal=journal, raw_dir=tmp_path / "raw")
@@ -398,18 +399,13 @@ def test_a_receipted_intent_does_not_block_resume(mod, tmp_path):
 # --------------------------------------------------------------------------- #
 def test_gate_spend_sums_receipts_and_pending_intents(mod, tmp_path):
     journal = tmp_path / "j.jsonl"
-    journal.write_text("\n".join(json.dumps(r) for r in [
-        {"type": "intent", "gate": "ga", "call_id": "a", "kind": "snapshot",
-         "modeled_credits": 10},
-        {"type": "receipt", "gate": "ga", "call_id": "a", "kind": "snapshot",
-         "billed_credits": 10, "raw_sha256": "0" * 64},
-        {"type": "intent", "gate": "ga", "call_id": "b", "kind": "snapshot",
-         "modeled_credits": 10},
-        {"type": "intent", "gate": "gb", "call_id": "c", "kind": "discovery",
-         "modeled_credits": 1},
-        {"type": "receipt", "gate": "gb", "call_id": "c", "kind": "discovery",
-         "billed_credits": 1, "raw_sha256": "1" * 64},
-    ]) + "\n")
+    _write_journal(journal, [
+        _intent("ga", "a"), _receipt("ga", "a"),
+        _intent("ga", "b"),
+        _intent("gb", "c", kind="discovery", modeled=1),
+        _receipt("gb", "c", kind="discovery", billed=1, modeled=1,
+                 sha="1" * 64),
+    ])
     records = mod.read_journal(journal)
     assert mod.gate_spend(records, "ga") == 20       # 10 billed + 10 pending
     assert mod.gate_spend(records, "gb") == 1
@@ -729,3 +725,416 @@ def test_live_with_a_non_network_transport_refuses_for_want_of_evidence(
     assert "paid evidence" in capsys.readouterr().err
     assert api.requests == []
     assert not (tmp_path / mod.JOURNAL_DEFAULT).exists()
+
+
+# --------------------------------------------------------------------------- #
+# Codex batch-review 1 (plan2). Finding 2: --journal must not defeat the        #
+# canonical cumulative cap in live mode.                                        #
+# --------------------------------------------------------------------------- #
+def test_live_rejects_a_journal_override(mod, tmp_path, monkeypatch, capsys):
+    # Two live runners pointed at two --journal paths would each restore zero
+    # spend and hold independent flocks — both cumulative caps and the
+    # concurrency refusal would hold for neither. Live mode has exactly ONE
+    # journal: the canonical one.
+    manifest = tmp_path / "fx.yaml"
+    manifest.write_text(yaml.safe_dump({"fixtures": _one_fixture()}))
+    monkeypatch.setenv("ODDS_API_KEY", "k")
+    with pytest.raises(SystemExit):
+        mod.main(["--live", "--gate-id", "ga", "--fixtures", str(manifest),
+                  "--max-credits", "21",
+                  "--journal", str(tmp_path / "elsewhere.jsonl")])
+    err = capsys.readouterr().err
+    assert "--journal" in err and "canonical" in err
+    assert not (tmp_path / "elsewhere.jsonl").exists()
+
+
+# --------------------------------------------------------------------------- #
+# Finding 3: fsync ordering — a durable INTENT means a durable directory entry. #
+# --------------------------------------------------------------------------- #
+def test_first_journal_append_fsyncs_the_directory_entry(
+        mod, tmp_path, monkeypatch):
+    # The journal fsyncs record CONTENTS, but on the append that CREATES the
+    # file the new directory entry is metadata: after power loss the fsync'd
+    # bytes can belong to a file no directory names, the INTENT never
+    # happened, and the resumed run re-bills a call that may have been paid.
+    import stat
+
+    events = []
+    real_fsync = os.fsync
+
+    def spy(fd):
+        events.append("dir" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file")
+        return real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", spy)
+    journal = tmp_path / "data" / "j.jsonl"
+    mod.append_record(journal, _intent("ga", "x", kind="discovery"))
+    assert events == ["file", "dir"]      # content, then the new dir entry
+    events.clear()
+    mod.append_record(journal, _receipt("ga", "x", kind="discovery"))
+    assert events == ["file"]             # append changes no directory entry
+
+
+# --------------------------------------------------------------------------- #
+# Finding 4: restored spend above the cap must refuse; the overrun check reads  #
+# the JOURNAL's cumulative billing, not just this run's headers.                #
+# --------------------------------------------------------------------------- #
+def test_resume_refuses_when_prior_spend_already_exceeds_the_cap(
+        mod, tmp_path):
+    fixtures = _one_fixture()
+    journal, raw = tmp_path / "j.jsonl", tmp_path / "raw"
+    _run(mod, fixtures, journal=journal, raw_dir=raw, max_credits=21)
+    # The gate already spent 21; a rerun under a cap of 20 has NOTHING left to
+    # precall (everything is receipted), so without an explicit prior-vs-cap
+    # check it exits 0 with the cap already breached.
+    api = _Api(fixtures)
+    with pytest.raises(mod.CreditCapError, match="21"):
+        _run(mod, fixtures, api=api, journal=journal, raw_dir=raw,
+             max_credits=20)
+    assert api.requests == []
+
+def test_overrun_is_flagged_from_cumulative_journal_billing(mod, tmp_path):
+    # Billing headers can go missing per response, and _billed floors each
+    # RECEIPT at the modeled price — so the journal's cumulative billing can
+    # exceed the cap while the header-derived `actual` stays under it. The
+    # post-run check must read the ledger, not just this run's headers.
+    fixtures = _one_fixture()
+    api = _Api(fixtures)
+    n = {"i": 0}
+    real_respond = api._respond
+
+    def respond(payload, price):
+        n["i"] += 1
+        if n["i"] == 2:                    # T-24h response: NO billing headers
+            return httpx.Response(200, json=payload)
+        if n["i"] == 3:                    # cut response billed at 25, not 10
+            api.used += 25
+            return httpx.Response(200, json=payload, headers={
+                "x-requests-last": "25", "x-requests-used": str(api.used),
+                "x-requests-remaining": str(20000 - api.used)})
+        return real_respond(payload, price)
+
+    api._respond = respond
+    out = _run(mod, fixtures, api=api, journal=tmp_path / "j.jsonl",
+               raw_dir=tmp_path / "raw", max_credits=35)
+    # Headers see 26 (1 + 25; the unheadered call is invisible), the journal
+    # bills 36 (1 + 10 floored + 25): the cap did not hold.
+    assert out["aborted"] is None
+    assert out["overrun"] is not None and "36" in out["overrun"]
+
+
+# --------------------------------------------------------------------------- #
+# Finding 5: the store is COMMON — a rebuild must union every gate's receipts.  #
+# --------------------------------------------------------------------------- #
+def test_store_rebuild_preserves_the_other_gates_rows(mod, tmp_path):
+    import pandas as pd
+
+    a = _fx("a", "wc2026", "2026-06-20", "Brazil", "Japan",
+            "2026-06-20T19:00:00Z")
+    d = _fx("d", "wc2026", "2025-03-25", "Brazil", "Chile",
+            "2025-03-25T19:00:00Z")
+    journal, raw = tmp_path / "j.jsonl", tmp_path / "raw"
+    store = tmp_path / "store"
+    _run(mod, [a], gate_id="ga", journal=journal, raw_dir=raw,
+         store_root=store)
+    # A G-B run replaces the WHOLE parquet: filtered to its own gate it would
+    # erase every G-A row from the common store.
+    _run(mod, [d], gate_id="gb", api=_Api([d]), journal=journal, raw_dir=raw,
+         store_root=store)
+    assert set(pd.read_parquet(store / "odds.parquet")["event_id"]) == \
+        {_ev("a"), _ev("d")}
+    # And the reverse direction: a resumed G-A rebuild keeps the G-B rows.
+    _run(mod, [a], gate_id="ga", api=_Api([a]), journal=journal, raw_dir=raw,
+         store_root=store)
+    assert set(pd.read_parquet(store / "odds.parquet")["event_id"]) == \
+        {_ev("a"), _ev("d")}
+
+
+# --------------------------------------------------------------------------- #
+# Finding 6: journal hardening — receipts need intents, pairing is per-gate,    #
+# and a record the writers could never have produced is refused.                #
+# --------------------------------------------------------------------------- #
+def _intent(gate, cid, *, kind="snapshot", instant="2026-06-20T08:29:00Z",
+            fixture="f", tag="cut", modeled=10):
+    rec = {"type": "intent", "gate": gate, "call_id": cid, "kind": kind,
+           "requested_instant": instant, "modeled_credits": modeled}
+    if kind == "snapshot":
+        rec.update({"fixture_id": fixture, "tag": tag})
+    return rec
+
+
+def _receipt(gate, cid, *, kind="snapshot", instant="2026-06-20T08:29:00Z",
+             fixture="f", tag="cut", billed=10, modeled=10, sha="0" * 64):
+    rec = {"type": "receipt", "gate": gate, "call_id": cid, "kind": kind,
+           "requested_instant": instant, "billed_credits": billed,
+           "modeled_credits": modeled, "raw_sha256": sha}
+    if kind == "snapshot":
+        rec.update({"fixture_id": fixture, "tag": tag})
+    return rec
+
+
+def _write_journal(path, records):
+    path.write_text("\n".join(json.dumps(r) for r in records) + "\n")
+
+
+def test_receipt_without_an_intent_is_refused(mod, tmp_path):
+    journal = tmp_path / "j.jsonl"
+    _write_journal(journal, [_receipt("ga", "x")])
+    with pytest.raises(mod.JournalError, match="INTENT"):
+        mod.read_journal(journal)
+
+
+def test_zero_or_negative_credit_receipts_are_refused(mod, tmp_path):
+    # A paid call is never free: billed 0 clears an intent while adding
+    # nothing to cumulative spend — the cap authorizes money against it.
+    journal = tmp_path / "j.jsonl"
+    for bad in (0, -10):
+        _write_journal(journal, [_intent("ga", "x"),
+                                 _receipt("ga", "x", billed=bad)])
+        with pytest.raises(mod.JournalError, match="billed"):
+            mod.read_journal(journal)
+
+
+def test_receipt_pairing_is_keyed_by_gate_and_call_id(mod, tmp_path):
+    # A G-B receipt must not clear a G-A orphan that shares its call_id: the
+    # G-A call may still have billed, and the resume must still fail closed.
+    journal = tmp_path / "j.jsonl"
+    _write_journal(journal, [_intent("ga", "x"), _intent("gb", "x"),
+                             _receipt("gb", "x")])
+    records = mod.read_journal(journal)
+    orphans = mod.orphan_intents(records)
+    assert [(r["gate"], r["call_id"]) for r in orphans] == [("ga", "x")]
+    assert mod.gate_spend(records, "ga") == 10       # still pending
+    assert mod.gate_spend(records, "gb") == 10       # billed
+
+
+def test_receipt_disagreeing_with_its_intent_is_refused(mod, tmp_path):
+    journal = tmp_path / "j.jsonl"
+    _write_journal(journal, [
+        _intent("ga", "x", instant="2026-06-20T08:29:00Z"),
+        _receipt("ga", "x", instant="2026-06-21T08:29:00Z")])
+    with pytest.raises(mod.JournalError, match="requested_instant"):
+        mod.read_journal(journal)
+
+
+def test_receipt_missing_required_fields_is_refused(mod, tmp_path):
+    journal = tmp_path / "j.jsonl"
+    bare = {"type": "receipt", "gate": "ga", "call_id": "x"}
+    _write_journal(journal, [_intent("ga", "x"), bare])
+    with pytest.raises(mod.JournalError, match="missing"):
+        mod.read_journal(journal)
+
+
+def test_duplicate_pending_intent_is_refused(mod, tmp_path):
+    journal = tmp_path / "j.jsonl"
+    _write_journal(journal, [_intent("ga", "x"), _intent("ga", "x")])
+    with pytest.raises(mod.JournalError, match="duplicate"):
+        mod.read_journal(journal)
+
+
+# --------------------------------------------------------------------------- #
+# Finding 7: a PAID failure's receipt must cite the archived evidence.          #
+# --------------------------------------------------------------------------- #
+def test_paid_failure_receipt_records_the_archive_digest(mod, tmp_path):
+    fixtures = _one_fixture()
+    api = _Api(fixtures)
+    real_handle = api._handle
+
+    def handle(request):
+        if (request.url.path.endswith("/odds")
+                and request.url.params["date"] == "2026-06-20T08:29:00Z"):
+            api.requests.append((request.url.path, request.url.params["date"]))
+            return httpx.Response(429, json={"message": "quota"},
+                                  headers={"x-requests-last": "10"})
+        return real_handle(request)
+
+    journal, raw = tmp_path / "j.jsonl", tmp_path / "raw"
+    out = _run(mod, fixtures, api=api, journal=journal, raw_dir=raw,
+               transport=httpx.MockTransport(handle))
+    assert "error" in out["results"][0]["snapshots"]["cut"]
+    receipt = [r for r in mod.read_journal(journal)
+               if r["type"] == "receipt" and r.get("tag") == "cut"][0]
+    digest = receipt["raw_sha256"]
+    # The adapter archived the 429 body BEFORE raising; the receipt must name
+    # that digest, or the paid evidence is unlocatable forever.
+    assert digest is not None and len(digest) == 64
+    assert json.loads((raw / f"{digest}.json").read_text()) == \
+        {"message": "quota"}
+    # The rerun skips the receipted failure (never re-bought) and still
+    # surfaces both the error and the digest.
+    api2 = _Api(fixtures)
+    out2 = _run(mod, fixtures, api=api2, journal=journal, raw_dir=raw)
+    assert api2.requests == []
+    cut = out2["results"][0]["snapshots"]["cut"]
+    assert cut["raw_sha256"] == digest and "error" in cut
+
+
+# --------------------------------------------------------------------------- #
+# Finding 1: the dev-slate mini-probe runs through the canonical G-A journal.   #
+# --------------------------------------------------------------------------- #
+def _slate_transport(mod):
+    """Recorded-shape mock for the whole SLATE_PROBES panel: one listed event
+    per discovery key, a Pinnacle quote per snapshot, billing headers served
+    so the cumulative cap has real figures to enforce."""
+    requests: list[tuple[str, str]] = []
+    used = {"n": 5000}
+
+    def respond(payload, price):
+        used["n"] += price
+        return httpx.Response(200, json=payload, headers={
+            "x-requests-last": str(price), "x-requests-used": str(used["n"]),
+            "x-requests-remaining": str(20000 - used["n"])})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.url.path, request.url.params["date"]))
+        parts = request.url.path.split("/")
+        date = request.url.params["date"]
+        day = date[:10]
+        if request.url.path.endswith("/events"):
+            return respond({
+                "timestamp": date, "previous_timestamp": date,
+                "next_timestamp": date,
+                "data": [{"id": f"se_{parts[4]}", "sport_key": parts[4],
+                          "commence_time": f"{day}T18:00:00Z",
+                          "home_team": "Alpha", "away_team": "Beta"}]}, 1)
+        stamp = _ts(date) - timedelta(minutes=3)
+        older = _iso(stamp - timedelta(minutes=5))
+        return respond({
+            "timestamp": _iso(stamp), "previous_timestamp": _iso(stamp),
+            "next_timestamp": _iso(stamp),
+            "data": {"id": parts[6], "sport_key": parts[4],
+                     "commence_time": f"{day}T18:00:00Z",
+                     "home_team": "Alpha", "away_team": "Beta",
+                     "bookmakers": [
+                         {"key": "pinnacle", "last_update": older,
+                          "markets": [{"key": "h2h", "last_update": older,
+                                       "outcomes": [
+                                           {"name": "Alpha", "price": 2.1},
+                                           {"name": "Draw", "price": 3.3},
+                                           {"name": "Beta", "price": 3.6}]}]}
+                     ]}}, 10)
+
+    return httpx.MockTransport(handler), requests
+
+
+def _slate_run(mod, tmp_path, *, max_credits=150, transport=None,
+               requests=None):
+    if transport is None:
+        transport, requests = _slate_transport(mod)
+    out = mod.run_slate_acquisition(
+        api_key="k", transport=transport, max_credits=max_credits,
+        raw_dir=tmp_path / "raw", journal_path=tmp_path / "j.jsonl")
+    return out, requests
+
+
+def test_slate_acquisition_journals_every_call_to_the_ga_gate(mod, tmp_path):
+    out, requests = _slate_run(mod, tmp_path)
+    n = len(mod.SLATE_PROBES)
+    assert len(requests) == 2 * n
+    records = mod.read_journal(tmp_path / "j.jsonl")
+    assert {r["gate"] for r in records} == {"ga"}
+    intents = [r for r in records if r["type"] == "intent"]
+    receipts = [r for r in records if r["type"] == "receipt"]
+    assert len(intents) == len(receipts) == 2 * n
+    kinds = {r["kind"] for r in records}
+    assert kinds == {"slate-discovery", "slate-snapshot"}
+    assert all(len(r["raw_sha256"]) == 64 for r in receipts)
+    assert out["spent"] == mod.projected_slate_cost()
+    assert out["prior_spent"] == 0 and out["aborted"] is None
+    assert all(r["snapshot"]["pinnacle_present"] for r in out["results"])
+
+
+def test_slate_spend_counts_against_the_ga_cumulative_cap(mod, tmp_path):
+    # THE point of finding 1: the mini-probe's credits are G-A credits. An
+    # eval acquisition on the same gate must see them as prior spend.
+    out, _ = _slate_run(mod, tmp_path)
+    slate_spent = out["spent"]
+    fixtures = _one_fixture()                        # a 21-credit eval plan
+    api = _Api(fixtures)
+    with pytest.raises(mod.CreditCapError):
+        _run(mod, fixtures, api=api, journal=tmp_path / "j.jsonl",
+             raw_dir=tmp_path / "raw", max_credits=slate_spent + 20)
+    assert api.requests == []
+    out2 = _run(mod, fixtures, api=_Api(fixtures),
+                journal=tmp_path / "j.jsonl", raw_dir=tmp_path / "raw",
+                max_credits=slate_spent + 21)
+    assert out2["prior_spent"] == slate_spent
+    assert out2["spent"] == slate_spent + 21
+
+
+def test_slate_acquisition_resumes_without_rebuying(mod, tmp_path):
+    _slate_run(mod, tmp_path)
+    lines = (tmp_path / "j.jsonl").read_text().splitlines()
+    out, requests = _slate_run(mod, tmp_path)
+    assert requests == []                            # everything reused
+    assert (tmp_path / "j.jsonl").read_text().splitlines() == lines
+    assert out["prior_spent"] == mod.projected_slate_cost()
+    assert out["spent"] == mod.projected_slate_cost()
+    assert all(r["snapshot"]["pinnacle_present"] for r in out["results"])
+
+
+def test_slate_acquisition_fails_closed_on_an_orphan_intent(mod, tmp_path):
+    _write_journal(tmp_path / "j.jsonl", [
+        _intent("ga", "ga|slate-discovery|x|2024-06-22T00:00:00Z|-|-",
+                kind="slate-discovery", modeled=1)])
+    transport, requests = _slate_transport(mod)
+    with pytest.raises(mod.OrphanIntentError):
+        _slate_run(mod, tmp_path, transport=transport, requests=requests)
+    assert requests == []
+
+
+def test_slate_acquisition_cap_below_projection_refuses_before_any_call(
+        mod, tmp_path):
+    transport, requests = _slate_transport(mod)
+    with pytest.raises(mod.CreditCapError):
+        _slate_run(mod, tmp_path, max_credits=100, transport=transport,
+                   requests=requests)
+    assert requests == []
+    assert not (tmp_path / "j.jsonl").exists()       # no intent either
+
+
+def test_slate_acquisition_refuses_a_concurrent_runner(mod, tmp_path):
+    journal = tmp_path / "j.jsonl"
+    lock = mod.journal_lock_path(journal)
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock, os.O_CREAT | os.O_RDWR, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        transport, requests = _slate_transport(mod)
+        with pytest.raises(mod.ConcurrentAcquisitionError):
+            _slate_run(mod, tmp_path, transport=transport, requests=requests)
+        assert requests == []
+    finally:
+        os.close(fd)
+
+
+# --------------------------------------------------------------------------- #
+# Finding 8: aliases are verified against the paid archive before a live call.  #
+# --------------------------------------------------------------------------- #
+def test_live_acquisition_verifies_alias_evidence_before_any_call(
+        mod, tmp_path, isolated_odds_raw_dir):
+    from wcmodel.eval.aliases import load_alias_records
+
+    fixtures = _one_fixture()
+    api = _Api(fixtures)
+
+    def go(aliases):
+        return mod.run_acquisition(
+            gate_id="ga", fixtures=fixtures, sport_keys=_SPORT_KEYS,
+            api_key="k", transport=api.transport(), max_credits=None,
+            raw_dir=tmp_path / "raw", journal_path=tmp_path / "j.jsonl",
+            aliases=aliases, mode="live")
+
+    # The canonical archive holds no evidence for the alias map's citations:
+    # an unevidenced alias widens what counts as coverage, so the live run
+    # refuses BEFORE any paid call.
+    with pytest.raises(mod.AcquisitionError, match="alias"):
+        go(None)
+    assert api.requests == []
+    # Seed the cited evidence and the same run proceeds.
+    isolated_odds_raw_dir.mkdir(parents=True, exist_ok=True)
+    for rec in load_alias_records():
+        (isolated_odds_raw_dir / f"{rec['evidence_sha256']}.json").write_text(
+            json.dumps({"home_team": rec["api_name"]}))
+    out = go(None)
+    assert out["results"][0]["event_found"] is True

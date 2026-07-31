@@ -68,12 +68,26 @@ def test_every_slate_probe_is_in_the_dev_window(mod):
         assert "2022-01-01" <= probe["date"] <= "2025-12-31", probe
 
 
-def test_no_slate_probe_sits_in_a_scored_pool_window(mod):
-    from wcmodel.eval.dev_slate import SCORED_POOL_WINDOWS
+def test_no_slate_probe_date_carries_a_scored_fixture_of_its_competition(mod):
+    # 2026-08-01 pre-lock rule correction (finding 9, ratified): the old check
+    # banned probe DATES from the scored pools' calendar windows — which
+    # banned Copa America 2024 (inside the euro2024 window) while it shares
+    # not one FIXTURE with the scored pools. The exclusion is now exact
+    # scored-fixture membership, so the probe constraint follows suit: no
+    # probed (tournament, date) may name a day that holds a scored fixture
+    # of that competition.
+    from wcmodel.eval.dev_slate import load_scored_inventory
+    scored = {(f["tournament"], f["date"])
+              for f in load_scored_inventory()["fixtures"]}
     for probe in mod.SLATE_PROBES:
-        for pool, start, end in SCORED_POOL_WINDOWS:
-            assert not (start.isoformat() <= probe["date"] <= end.isoformat()), \
-                f"{probe} falls inside the scored pool {pool}"
+        assert (probe["tournament"], probe["date"]) not in scored, probe
+
+
+def test_copa_america_is_in_the_candidate_panel(mod):
+    # The amendment's positive half: Copa America is an eligible development
+    # competition (its 2024 fixtures are NOT scored), so the precommitted
+    # candidate panel must probe it.
+    assert any(p["tournament"] == "Copa América" for p in mod.SLATE_PROBES)
 
 
 def test_slate_probe_dates_are_distinct_per_sport_key(mod):
@@ -180,6 +194,34 @@ def test_slate_cap_below_projection_aborts_before_the_first_call(mod,
     assert mod.main(["--slate", "--live", "--max-credits", "1"]) == 1
     assert calls == []                      # zero requests, zero credits
     assert not (tmp_path / "reports" / "oa_slate_probe.md").exists()
+
+
+def test_slate_live_is_journaled_and_refuses_a_transport_without_evidence(
+        mod, monkeypatch, tmp_path, capsys):
+    # Finding 1 (BLOCKER): the old --slate --live path ran through an
+    # invocation-local SpendGate with NO journal and NO flock — 24+ paid
+    # calls invisible to the G-A cumulative cap. The live slate now routes
+    # through oa_acquire's journal machinery, which (like the eval
+    # acquisition) refuses a transport that cannot produce the paid evidence
+    # the receipts must cite — so a mocked live run places ZERO calls and
+    # journals nothing, instead of spending unjournaled.
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        day = request.url.params["date"][:10]
+        return httpx.Response(
+            200, json={"timestamp": request.url.params["date"], "data": []},
+            headers={"x-requests-last": "1", "x-requests-used": "1",
+                     "x-requests-remaining": "999"})
+
+    monkeypatch.setenv("ODDS_API_KEY", "k")
+    monkeypatch.setattr(mod, "_live_transport",
+                        lambda: httpx.MockTransport(handler))
+    assert mod.main(["--slate", "--live", "--max-credits", "150"]) == 1
+    assert "paid evidence" in capsys.readouterr().err
+    assert calls == []                       # no unjournaled call, ever
+    assert not list(tmp_path.rglob("*.jsonl"))   # and no journal rows either
 
 
 # --------------------------------------------------------------------------- #

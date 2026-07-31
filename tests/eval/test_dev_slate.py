@@ -53,10 +53,17 @@ _COMPS = ("UEFA Nations League",)
 # The rule text and its parameters are FROZEN — pinned literally.               #
 # --------------------------------------------------------------------------- #
 def test_rule_text_is_frozen_verbatim():
+    # 2026-08-01 pre-lock rule correction (plan2 batch-1 finding 9, Codex
+    # RATIFIED): "excluding any fixture in the scored pools' windows" became
+    # exact scored-fixture MEMBERSHIP — the euro2024 calendar window
+    # blanketed Copa America 2024, killing an entire eligible development
+    # competition that shares not one fixture with the scored pools.
     assert THE_RULE == (
         "every completed senior men's international in the probed "
-        "competitions with kickoff in [2022-01-01, 2025-12-31], excluding any "
-        "fixture in the scored pools' windows, ordered chronologically, "
+        "competitions with kickoff in [2022-01-01, 2025-12-31], excluding "
+        "every fixture in the frozen scored inventory (exact scored-fixture "
+        "membership by canonical fixture identity, "
+        "config/oa_scored_inventory.yaml), ordered chronologically, "
         "truncated to the first N_dev with admissible coverage")
 
 
@@ -100,18 +107,54 @@ def test_window_is_inclusive_on_both_ends_and_excludes_outside():
     assert got == ["open", "close"]
 
 
-@pytest.mark.parametrize("day,kept", [
-    ("2022-11-19", True), ("2022-11-20", False), ("2022-12-18", False),
-    ("2022-12-19", True), ("2024-06-13", True), ("2024-06-14", False),
-    ("2024-07-14", False), ("2024-07-15", True),
-])
-def test_scored_pool_windows_are_excluded_inclusively(day, kept):
-    # A dev fixture inside a scored pool's window would train w on the very
-    # period the confirmatory test scores. The boundary days are the pools'
-    # own first and last match days and are OUT.
-    df = _frame([_row("x", day)])
+def test_scored_exclusion_is_exact_membership_not_calendar_windows():
+    # THE RATIFIED AMENDMENT (finding 9): Copa America 2024 ran entirely
+    # inside the euro2024 calendar window yet shares not one fixture with
+    # the scored pools — a date-window exclusion killed the whole
+    # competition. Exact scored-fixture membership keeps it.
+    df = _frame([_row("copa1", "2024-06-22", "Copa América"),
+                 _row("copa2", "2024-07-06", "Copa América")])
+    got = list(eligible_dev_fixtures(
+        df, competitions=("Copa América",))["match_id"])
+    assert got == ["copa1", "copa2"]
+
+
+def test_scored_ids_are_excluded_by_identity():
+    df = _frame([_row("a", "2023-03-23"), _row("b", "2023-03-24")])
+    got = list(eligible_dev_fixtures(df, competitions=_COMPS,
+                                     scored_ids={"a"})["match_id"])
+    assert got == ["b"]
+
+
+def test_default_exclusion_uses_the_committed_inventory():
+    from wcmodel.eval.dev_slate import load_scored_inventory
+
+    scored = load_scored_inventory()["fixtures"][0]["match_id"]
+    # Identity beats every other filter: a scored fixture is excluded even
+    # when its row wears a dev competition's label on a dev-window date.
+    df = _frame([_row(scored, "2023-03-23"), _row("ok", "2023-03-24")])
     got = list(eligible_dev_fixtures(df, competitions=_COMPS)["match_id"])
-    assert got == (["x"] if kept else [])
+    assert got == ["ok"]
+
+
+def test_scored_inventory_artifact_is_frozen_and_complete():
+    # The committed artifact: 217 odds-scored fixtures = the bk harness's
+    # 185-pool (windows/labels verbatim) + the 32 WC-2026 knockouts. Its
+    # identity set is what the dev slate excludes; Copa America appears
+    # NOWHERE in it — the amendment's whole point.
+    doc = yaml.safe_load(
+        (_ROOT / "config" / "oa_scored_inventory.yaml").read_text())
+    fixtures = doc["fixtures"]
+    assert len(fixtures) == 217
+    ids = [f["match_id"] for f in fixtures]
+    assert len(set(ids)) == 217
+    pools = {}
+    for f in fixtures:
+        pools[f["pool"]] = pools.get(f["pool"], 0) + 1
+    assert pools == {"wc2022": 63, "euro2024": 50, "wc2026": 104}
+    assert all("copa" not in f["tournament"].lower() for f in fixtures)
+    assert {f["tournament"] for f in fixtures} == {"FIFA World Cup",
+                                                   "UEFA Euro"}
 
 
 @pytest.mark.parametrize("hs,aw", [(None, 0), (0, None), (-1, 0), (1.5, 0)])
@@ -183,6 +226,18 @@ def test_truncation_refuses_admissible_ids_outside_the_ordered_slate():
     with pytest.raises(DevSlateError) as exc:
         truncate_to_n_dev(ordered, admissible={"a", "ghost"}, n_dev=1)
     assert "ghost" in str(exc.value)
+
+
+def test_truncation_refuses_scored_ids_at_select_time(monkeypatch):
+    # dev_ids ∩ scored_ids = ∅ is asserted at manifest GENERATION and again
+    # at SELECT time (the amendment): a hand-edited manifest smuggling a
+    # scored fixture past the generator must still refuse here.
+    ordered = _frame([_row("a", "2023-03-21"), _row("s", "2023-03-22")])
+    ordered["date"] = pd.to_datetime(ordered["date"]).dt.date
+    with pytest.raises(DevSlateError) as exc:
+        truncate_to_n_dev(ordered, admissible={"a", "s"}, n_dev=1,
+                          scored_ids={"s"})
+    assert "scored" in str(exc.value)
 
 
 # --------------------------------------------------------------------------- #
