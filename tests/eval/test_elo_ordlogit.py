@@ -31,13 +31,24 @@ TRUE = {"c1": -0.9, "c2": 0.9, "b_elo": 1.5, "b_hfa": 1.4}
 EDGES = (-1500.0, -600.0, -150.0, 0.0, 150.0, 600.0, 1500.0)
 
 
-def _synthetic(n: int = 8_000, seed: int = 7, **overrides: float) -> pd.DataFrame:
-    """Draw ``n`` matches from the proportional-odds model itself."""
+def _synthetic(n: int = 8_000, seed: int = 7, hfa_rows: int | None = None,
+               **overrides: float) -> pd.DataFrame:
+    """Draw ``n`` matches from the proportional-odds model itself.
+
+    ``hfa`` defaults to a balanced ~50/50 split — the shape of a CLUB league.
+    ``hfa_rows=k`` puts home advantage on exactly ``k`` rows instead: ``k`` in
+    1-3 out of 64 is the international-pool shape this head will actually be
+    fitted on, and ``k`` of 0 or ``n`` makes the column constant.
+    """
     true = {**TRUE, **overrides}
     rng = np.random.default_rng(seed)
     elo_h = rng.normal(1600.0, 180.0, n)
     elo_a = rng.normal(1600.0, 180.0, n)
-    hfa = rng.integers(0, 2, n).astype(float)
+    if hfa_rows is None:
+        hfa = rng.integers(0, 2, n).astype(float)
+    else:
+        hfa = np.zeros(n)
+        hfa[:hfa_rows] = 1.0
     eta = true["b_elo"] * (elo_h - elo_a) / 400.0 + true["b_hfa"] * hfa
     p_away = 1.0 / (1.0 + np.exp(-(true["c1"] - eta)))
     p_not_home = 1.0 / (1.0 + np.exp(-(true["c2"] - eta)))
@@ -125,7 +136,9 @@ def test_the_fit_optimises_the_distribution_predict_returns(fitted):
     # thing and reports another, and nothing else in this file would notice:
     # recovery and monotonicity would both still pass. Stated without reaching
     # into the private likelihood — the fitted vector must be a local minimum
-    # of the NLL computed from predict_1x2's own output.
+    # of the NLL computed from predict_1x2's own output. The b_hfa prior moves
+    # the optimum by 0.0125 on this frame (4,000 rows identify the term), a
+    # quarter of the step below, so the UNPENALISED NLL still rises both ways.
     df = _synthetic()
     rows = list(zip(df["elo_h"], df["elo_a"], df["hfa"], df["outcome"]))
 
@@ -164,6 +177,56 @@ def test_home_advantage_shifts_probability_toward_the_home_team():
     assert at_home["away"] < neutral["away"]
 
 
+@pytest.mark.parametrize("hfa_rows", [1, 2, 3])
+def test_a_sparse_hfa_column_cannot_emit_a_point_forecast(hfa_rows):
+    # The shape every pool this arm exists to score actually has: 64 fixtures,
+    # home advantage on 1-3 of them because only the host plays at home. That
+    # sub-sample is frequently separated (every host row a home win), where the
+    # UNPENALISED MLE for b_hfa diverges and L-BFGS-B still reports success —
+    # measured on this generator at b_hfa=+15.68 (1 row, seed 0), P(home)=
+    # 0.9999998, i.e. log loss 15.4 if the host then loses, against ~1.1 for a
+    # sane forecast. One such fixture moves a 64-match pool's mean RPS by more
+    # than the prereg's whole gate, so the arm's contrast would measure the
+    # fitter, not the information. Bounds below are the worst over this entire
+    # 30-fit grid with the prior in place: |b_hfa| 0.42, P(home) 0.57,
+    # smallest class 0.104 (log loss 2.26).
+    for seed in range(10):
+        fitted = fit_ordlogit(_synthetic(n=64, seed=seed, hfa_rows=hfa_rows))
+        probs = predict_1x2(fitted, 1700.0, 1600.0, 1.0)
+        why = f"seed {seed}: b_hfa={fitted.b_hfa!r} {probs}"
+        assert abs(fitted.b_hfa) < 1.0, why
+        assert probs["home"] < 0.8, why
+        assert min(probs.values()) > 0.02, why
+
+
+@pytest.mark.parametrize("hfa_rows", [0, 400])
+def test_a_constant_hfa_column_is_not_estimated(hfa_rows):
+    # Neither constant column identifies b_hfa, and refusing them is wrong
+    # both ways: an all-neutral pool legitimately wants b_hfa=0, and an
+    # all-at-home pool identifies only (c1 - b_hfa), so an unpenalised fit
+    # lands on an arbitrary point of that ridge (measured c1=-1.062 with
+    # b_hfa=+1.062) and then invents a materially different distribution for
+    # the neutral venue it never observed. Pin b_hfa at 0, let c1 carry the
+    # shift, and report that nothing identified the term.
+    fitted = fit_ordlogit(_synthetic(n=400, hfa_rows=hfa_rows))
+    assert fitted.b_hfa == pytest.approx(0.0, abs=1e-3)
+    assert fitted.n_hfa_minority == 0
+    neutral = predict_1x2(fitted, 1650.0, 1600.0, 0.0)
+    at_home = predict_1x2(fitted, 1650.0, 1600.0, 1.0)
+    assert neutral == pytest.approx(at_home, abs=1e-3)
+
+
+def test_reports_the_rows_that_identify_home_advantage(fitted):
+    # b_hfa is only ever as good as the smaller hfa level, and a caller cannot
+    # otherwise tell an estimate from a prior: the same +0.4 means one thing
+    # off 4,000 rows and another off 3.
+    df = _synthetic()
+    at_home = int((df["hfa"] == 1.0).sum())
+    assert fitted.n_hfa_minority == min(at_home, len(df) - at_home)
+    sparse = fit_ordlogit(_synthetic(n=64, seed=0, hfa_rows=3))
+    assert sparse.n_hfa_minority == 3
+
+
 def test_fit_is_bitwise_deterministic():
     df = _synthetic()
     first = fit_ordlogit(df)
@@ -177,7 +240,10 @@ def test_fit_is_bitwise_deterministic():
 
 def test_rejects_missing_columns():
     df = _synthetic(n=300).drop(columns=["hfa"])
-    with pytest.raises(ValueError, match="hfa"):
+    # Pin the RENDERED prefix. The message tails with `need [...]`, which lists
+    # every required column, so a bare "hfa" match passes whichever column the
+    # guard actually named — including a guard that names all of them.
+    with pytest.raises(ValueError, match=r"missing column\(s\) \['hfa'\]"):
         fit_ordlogit(df)
 
 
@@ -192,6 +258,19 @@ def test_rejects_nulls():
     df = _synthetic(n=300)
     df.loc[5, "elo_a"] = np.nan
     with pytest.raises(ValueError, match="null"):
+        fit_ordlogit(df)
+
+
+@pytest.mark.parametrize("value", [np.inf, -np.inf])
+@pytest.mark.parametrize("column", ["elo_h", "elo_a", "hfa"])
+def test_rejects_non_finite_values(column, value):
+    # isna() is False for +-inf, so the null guard alone passes an infinite
+    # rating through to a "did not converge" RuntimeError (a misdiagnosis: the
+    # input was inadmissible, the fit was fine) behind a raw RuntimeWarning
+    # out of the numerical differencer.
+    df = _synthetic(n=300)
+    df.loc[5, column] = value
+    with pytest.raises(ValueError, match="non-finite"):
         fit_ordlogit(df)
 
 
