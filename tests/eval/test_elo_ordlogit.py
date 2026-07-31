@@ -285,12 +285,15 @@ def test_rejects_an_hfa_column_carried_in_rating_points(hfa_rows):
 @pytest.mark.parametrize("elo_h, elo_a", [(1500.0, 1500.0), (1234.5, 1134.5)])
 def test_rejects_a_constant_elo_edge(elo_h, elo_a):
     # A constant edge leaves the arm's LOAD-BEARING slope unidentified: the
-    # objective is exactly flat in b_elo, so L-BFGS-B stops at the init and
-    # reports success. Measured on this frame before the guard: b_elo came back
-    # bitwise equal to _INIT[2] = 1.0 with result.success True, no exception and
-    # no warning, and the head then priced a +400-Elo mismatch at {'home':
-    # 0.597, 'draw': 0.281, 'away': 0.123} — a plausible-looking distribution
-    # carrying ZERO rating information, which would score as a real arm.
+    # likelihood is exactly flat in b_elo, so the _ELO_PRIOR term decides and
+    # the fit reports success at the prior's 0. Measured on THIS frame at HEAD
+    # with the guard bypassed: b_elo = 1.4176e-04 (1500/1500) and -1.8571e-04
+    # (1234.5/1134.5), result.success True, no exception and no warning, and
+    # the head then priced a +400-Elo mismatch at {'home': 0.352, 'draw':
+    # 0.372, 'away': 0.276} — well-formed probabilities carrying ZERO rating
+    # information, which would score as a real arm with elo_edge_sd = 0.0 as
+    # the only tell. (Pre-prior, the same defect leaked the init 1.0 instead —
+    # the prior changed the failure's shape, not the need for this guard.)
     #
     # Reachable through this repo's own rating-lookup idiom, not a hypothetical:
     # `ratings.get(team, initial_rating)` at elo.py:130-131,
@@ -424,10 +427,11 @@ def test_the_preregistered_init_is_the_planned_vector():
     # reproducibility of a PRE-REGISTERED estimator is what the whole program
     # is buying: an init moved to speed convergence is a different estimator
     # reporting under the same name. Nothing else pins it — mutating the
-    # literal to [0.0, 0.0, 3.0, 0.0] left every other test in this file green.
-    # It is also the value that leaks out along an unidentified direction (see
-    # the constant-edge test), so moving it silently changes what a degenerate
-    # fit reports.
+    # literal to [0.0, 0.0, 3.0, 0.0] left every other test in this file green
+    # (re-verified at HEAD: 1 failed, 70 passed). Since the b_elo prior landed,
+    # a degenerate fit reports the prior's 0 rather than this init (see the
+    # constant-edge test) — the init still defines the estimator, it just no
+    # longer leaks into degenerate fits.
     assert tuple(_INIT) == (0.0, 0.0, 1.0, 0.0)
 
 

@@ -225,10 +225,16 @@ def _design(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
             - frame["elo_a"].to_numpy(float)) / _ELO_SCALE
     # The b_elo counterpart of the absent-class guard, and the more reachable
     # of the two: a constant edge (any value — a non-zero one is absorbed by
-    # c1) leaves the objective EXACTLY flat in the arm's load-bearing slope, so
-    # the fit returns _INIT[2] unchanged and reports success. That is not a
-    # neutral fallback like the b_hfa prior's 0 but a plausible-looking 1.0,
-    # and the head then prices real mismatches off a slope nothing estimated.
+    # c1) leaves the LIKELIHOOD exactly flat in the arm's load-bearing slope,
+    # so what the fit returns is the _ELO_PRIOR's 0 wearing a fitted head's
+    # clothes (re-measured at HEAD on the guard test's own frames: b_elo =
+    # 1.4176e-04 and -1.8571e-04, pricing a +400-Elo mismatch at {'home':
+    # 0.352, 'draw': 0.372, 'away': 0.276}) — success reported, probabilities
+    # well-formed, ZERO rating information, indistinguishable from an honest
+    # near-zero estimate except through elo_edge_sd. (Before the b_elo prior
+    # landed with this guard in the same commit, the objective was exactly
+    # flat and the leak was the init 1.0 itself; the prior changed the shape
+    # of the failure, not the need for the guard.)
     # Reachable through this repo's own lookup idiom rather than by accident:
     # `ratings.get(team, initial_rating)` — elo.py:130, walkforward.py:397,
     # calibration.py:199 — puts every unmatched team at the shared default, so
