@@ -25,3 +25,13 @@ aliases:
       verbatim — which is why "Korea Republic" is NOT seeded here: it appears
       in no archived response we hold, so under the evidence rule it is not an
       alias, it is a memory.
+  - api_name: Bosnia & Herzegovina
+    store_name: Bosnia and Herzegovina
+    evidence_sha256: 7c68db0f814032b53427868f63ff69f8060ef04b9be32733cb5172c7abd8dcbf
+    note: >-
+      G-A eval acquisition, wc2026 discovery listing requested at
+      2026-06-12T00:00:00Z: the archived payload reads "Canada v Bosnia &
+      Herzegovina" (and the same ampersand spelling on 06-18 and 06-24)
+      where the store reads "Bosnia and Herzegovina" — the only unmatched
+      fixtures of the 217-fixture run (reports/oa_acquire_ga.md, the four
+      event=n rows, all involving this one team).

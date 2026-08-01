@@ -53,10 +53,16 @@ def _record(**over) -> dict:
 # --------------------------------------------------------------------------- #
 # The committed map: exactly one alias, and it is the hash-justified one.       #
 # --------------------------------------------------------------------------- #
-def test_committed_map_seeds_only_usa():
-    # The plan seeds ONE alias. Anything else in this file is an unevidenced
-    # claim about the API's vocabulary until its own archived bytes say so.
-    assert load_aliases() == {"usa": "United States"}
+def test_committed_map_holds_exactly_the_evidenced_aliases():
+    # Every entry must trace to archived paid bytes. Two exist: USA (OA-0a
+    # probe, wc2022 R16 listing) and Bosnia & Herzegovina (G-A acquisition,
+    # wc2026 discovery listing — the four event=n rows of the 217-fixture
+    # run). Anything else is an unevidenced claim about the API's vocabulary
+    # until its own archived bytes say so.
+    assert load_aliases() == {
+        "usa": "United States",
+        "bosnia & herzegovina": "Bosnia and Herzegovina",
+    }
 
 
 def test_korea_republic_is_not_seeded():
