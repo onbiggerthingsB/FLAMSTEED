@@ -89,6 +89,7 @@ from wcmodel.eval.dev_slate import (
     eligible_dev_fixtures,
     load_dev_slate_config,
 )
+from wcmodel.eval.implied import book_overround, is_coherent_book
 from wcmodel.eval.ledger import T_ISSUE_UTC_TIME, lock_path
 
 # scripts/ is not a package on sys.path -> path-insert then import (house
@@ -663,11 +664,27 @@ def _evaluate_snapshot(payload, *, tag, requested_instant, t_issue, event_id,
     entry["n_bookmakers"] = len({r["bookmaker"] for r in rows})
     if tag == CUT_TAG:
         stamp = _ts(snapshot_ts)
-        entry["admissible"] = bool(sharp) and all(
+        timely = bool(sharp) and all(
             admissible_quote(stamp,
                              strictest_last_update(row, snapshot_ts),
                              t_issue, buffer_minutes=CUT_BUFFER_MINUTES)
             for row in sharp)
+        # 2026-08-02: a quote must also be a COHERENT MARKET, not merely a
+        # timely one. A 1X2 book's inverse-price sum is its overround and is
+        # >= 1 by construction; below 1 is an arbitrage no operator posts, so
+        # in archived data it is a corrupt price. De-vigging one would
+        # manufacture a confident forecast from a number nobody quoted, and
+        # because admissibility is what FREEZES the analysed population, the
+        # check belongs here rather than only at pricing time.
+        coherent = timely and is_coherent_book(
+            [r["price"] for r in sharp])
+        entry["admissible"] = coherent
+        if timely and not coherent:
+            entry["incoherent_book"] = (
+                "sharp quote rejected: overround "
+                f"{book_overround([r['price'] for r in sharp]):.3f} < 1 — "
+                "an arbitrage against the book, i.e. a corrupt archived "
+                "price, not a market")
     return entry
 
 
@@ -1626,7 +1643,13 @@ def write_dev_coverage(out, *, path=DEV_COVERAGE_DEFAULT, mocked=False):
             "listed": bool(row.get("event_found")),
             "admissible": bool(cut.get("admissible")),
             "cut_raw_sha256": cut.get("raw_sha256"),
-            "note": row.get("error") or None})
+            # An exclusion the lock cannot explain is worse than no
+            # exclusion: `incoherent_book` names the ONE case where a
+            # timely sharp quote was still refused (overround < 1, a
+            # corrupt archived price), so the artifact says why rather
+            # than leaving a silent 259-vs-260.
+            "note": (row.get("error") or cut.get("incoherent_book")
+                     or None)})
     doc = {
         "derived_by": "scripts/oa_acquire.py --dev (V4 / G-B walk)",
         "mode": "dry-run (MOCK verdicts)" if mocked else "live",

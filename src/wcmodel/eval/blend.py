@@ -497,7 +497,7 @@ def select_w(ledger, *, outcomes: Mapping[str, str],
 
 
 def write_selection_trace(path, selection: BlendSelection, *,
-                          stacking: Mapping) -> Path:
+                          stacking: Mapping, inputs: Mapping | None = None) -> Path:
     """Write the selection-trace JSON the V8 lock hashes.
 
     Carries the deployment choice, the stacking arm's parameters (a
@@ -567,6 +567,12 @@ def write_selection_trace(path, selection: BlendSelection, *,
         "n_fixtures": selection.n_fixtures,
         "n_excluded_no_odds": selection.n_excluded_no_odds,
         "stacking": dict(stacking),
+        # WHICH evidence produced this trace. The V8 lock hashes the trace,
+        # but the dev LEDGER is a gitignored data artifact — without its
+        # digest recorded here, a trace could not be tied back to the
+        # forecasts it summarizes, and "hash-bound" would stop at the
+        # summary. Every input the selection read gets a sha256.
+        "inputs": {str(k): str(v) for k, v in sorted((inputs or {}).items())},
     }
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

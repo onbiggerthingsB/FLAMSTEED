@@ -40,7 +40,12 @@ from wcmodel.eval.blend import (
     blend_arm,
     blend_one_x_two,
 )
-from wcmodel.eval.implied import oa_devig, solve_implied_rates
+from wcmodel.eval.implied import (
+    book_overround,
+    is_coherent_book,
+    oa_devig,
+    solve_implied_rates,
+)
 from wcmodel.eval.elo_ordlogit import predict_1x2 as ordlogit_1x2
 from wcmodel.model.draw_api import FixtureCtx, grid_one_x_two, production_grid
 
@@ -95,8 +100,19 @@ def book_1x2(prices: Mapping[str, float], *, method: str) -> dict:
     between the API and the store — a positional convention here is exactly
     where that flip would silently invert a forecast.
     """
-    devig = oa_devig([float(prices["home"]), float(prices["draw"]),
-                      float(prices["away"])], method=method)
+    triple = [float(prices["home"]), float(prices["draw"]),
+              float(prices["away"])]
+    # Defence in depth: admissibility already rejects an incoherent book
+    # (overround < 1 is an arbitrage no operator posts, i.e. corrupt data),
+    # but pricing must never be the place that silently accepts one — a
+    # de-vig of a corrupt price yields a confident forecast from a number
+    # nobody quoted.
+    if not is_coherent_book(triple):
+        raise OofPricingError(
+            f"book {prices} is not a coherent market (overround "
+            f"{book_overround(triple):.3f} < 1) — a corrupt archived price, "
+            "never de-vigged")
+    devig = oa_devig(triple, method=method)
     return _check_1x2(dict(zip(("home", "draw", "away"), devig)),
                       f"de-vigged book ({method})")
 

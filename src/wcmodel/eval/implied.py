@@ -90,6 +90,47 @@ _AGREEMENT_TOL = 1e-4
 #: basin. Uniqueness is CHECKED (two-start agreement), not assumed.
 _STARTS = ((0.7, 0.7), (2.5, 2.5))
 
+#: A real 1X2 book's inverse-price sum is its overround, and it is >= 1 BY
+#: CONSTRUCTION: the excess over 1 is the vig the book charges. A sum BELOW
+#: 1 is not a tight market, it is an arbitrage against the book — free money
+#: on backing all three outcomes — which no operator posts. In archived data
+#: it means a corrupt price, and de-vigging one produces a confident forecast
+#: from a number nobody quoted.
+#:
+#: The tolerance absorbs rounding in the published decimals only; anything
+#: below it is a data error, not a thin margin. (Found 2026-08-02 by the V5
+#: walk: one archived Copa América cut snapshot carried a Pinnacle DRAW price
+#: of 309.0 against ~4.1 at nine other books, overround 0.797.)
+MIN_OVERROUND = 1.0 - 1e-6
+
+
+def book_overround(prices) -> float:
+    """The book's inverse-price sum. Raises on a non-positive/non-finite
+    price — a decimal odd <= 1 pays less than the stake and is never a real
+    quote either."""
+    total = 0.0
+    for price in prices:
+        p = float(price)
+        if not (p > 1.0) or p != p or p in (float("inf"), float("-inf")):
+            raise ValueError(
+                f"decimal price {price!r} is not a real quote (must be a "
+                "finite number strictly above 1.0)")
+        total += 1.0 / p
+    return total
+
+
+def is_coherent_book(prices) -> bool:
+    """True iff ``prices`` could have been posted by a real book.
+
+    The one structural test that needs no market view: overround >= 1. A
+    corrupt price fails it decisively (0.797 in the case that motivated
+    this), while every genuine quote — even a sharp 1.009 exchange line —
+    passes."""
+    try:
+        return book_overround(prices) >= MIN_OVERROUND
+    except ValueError:
+        return False
+
 
 def oa_devig(odds: list[float], *, method: str) -> list[float]:
     """De-vig ``odds`` (decimal, ordered home/draw/away) with an OA method.

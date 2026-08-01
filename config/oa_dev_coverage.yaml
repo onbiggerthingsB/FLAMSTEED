@@ -8,7 +8,7 @@ derived_by: scripts/oa_acquire.py --dev (V4 / G-B walk)
 mode: live
 gate: gb
 n_walked: 632
-n_admissible: 260
+n_admissible: 259
 n_dev_target: 260
 coverage:
 - match_id: 502429207a1fd012047043d5b14b2f985ff872ab
@@ -3459,9 +3459,10 @@ coverage:
   tournament: Copa América
   sport_key: soccer_conmebol_copa_america
   listed: true
-  admissible: true
+  admissible: false
   cut_raw_sha256: 0680f2f2733b251dc9031a57cdcfc0fc7d8e30d8ddd74aef79cf45e79b85317f
-  note: null
+  note: 'sharp quote rejected: overround 0.797 < 1 — an arbitrage against the book,
+    i.e. a corrupt archived price, not a market'
 - match_id: 56b9c50f4fd02f25cc42138cfc9791cb41e2365f
   date: '2024-07-05'
   home: Venezuela

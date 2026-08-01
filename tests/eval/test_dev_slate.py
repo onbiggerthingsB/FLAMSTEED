@@ -88,7 +88,10 @@ def test_config_block_carries_the_same_rule_and_parameters():
     assert cfg["competitions"] == [
         "Copa América", "African Cup of Nations", "UEFA Nations League",
         "FIFA World Cup qualification"]
-    assert cfg["n_dev"] == 260   # 2026-08-01 amendment: supply limit
+    # 300 -> 260 (2026-08-01, supply limit) -> 259 (2026-08-02: one Copa
+    # América cut snapshot carried a corrupt Pinnacle draw price — overround
+    # 0.797 < 1 — so it fails the market-coherence leg of admissibility).
+    assert cfg["n_dev"] == 259
     # The acquisition scope maps each competition to its PROBED key; the
     # WCQ participants filter bounds SPEND to the CONMEBOL evidence, never
     # selection.

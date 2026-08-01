@@ -307,3 +307,26 @@ def test_manifest_coverage_drift_is_refused(runner, tmp_path):
     (tmp_path / "c.yaml").write_text("coverage: []\n")
     with pytest.raises(runner.DevOofError, match="drifted"):
         runner.load_inputs(tmp_path / "m.yaml", tmp_path / "c.yaml")
+
+
+# ------------------------------------------- market coherence (2026-08-02)
+def test_coherent_book_accepts_real_quotes_and_rejects_arbitrage():
+    from wcmodel.eval.implied import book_overround, is_coherent_book
+    # a normal soft book (~5% vig) and a razor-thin exchange line both pass
+    assert is_coherent_book([1.44, 4.15, 8.75])
+    assert is_coherent_book([1.48, 4.2, 10.5])
+    # THE case that motivated the rule: the archived Pinnacle draw price for
+    # Argentina v Ecuador (2024-07-04) read 309.0 against ~4.1 elsewhere
+    assert book_overround([1.46, 309.0, 9.2]) == pytest.approx(0.797, abs=1e-3)
+    assert not is_coherent_book([1.46, 309.0, 9.2])
+    # a price that pays less than the stake is not a quote either
+    assert not is_coherent_book([1.0, 4.0, 9.0])
+    assert not is_coherent_book([float("nan"), 4.0, 9.0])
+
+
+def test_pricing_refuses_an_incoherent_book(real_posterior, ctx):
+    with pytest.raises(OofPricingError, match="not a coherent market"):
+        price_fixture(
+            posterior=real_posterior, fixture_ctx=ctx, elo_home=1600.0,
+            elo_away=1500.0, hfa=1.0, ordlogit_params=_Ordlogit(),
+            book_prices={"home": 1.46, "draw": 309.0, "away": 9.2})

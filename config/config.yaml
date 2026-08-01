@@ -200,7 +200,7 @@ oa_dev_slate:
   #
   # Realized design: 260 fixtures over 16 months = 14 scoreable monthly
   # folds (227 fixtures) after V6's two-month ledger burn-in.
-  n_dev: 260
+  n_dev: 259
   manifest_path: config/oa_dev_manifest.yaml
   # ACQUISITION-ONLY evidence scope (bounds SPEND, never selection): which
   # Odds-API key each competition's listings are bought on, exactly as the

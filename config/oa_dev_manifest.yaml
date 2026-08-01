@@ -21,7 +21,7 @@ competitions:
 - African Cup of Nations
 - UEFA Nations League
 - FIFA World Cup qualification
-n_dev: 260
+n_dev: 259
 n_candidates_before_truncation: 1507
 fixtures:
 - match_id: 38c46b3cf44bc7dbce6179092026926f3d91e3ed
@@ -693,11 +693,6 @@ fixtures:
   date: '2024-07-02'
   home_team: Brazil
   away_team: Colombia
-  tournament: Copa América
-- match_id: 17fa74f20703926892604dc2333a94555fd46a71
-  date: '2024-07-04'
-  home_team: Argentina
-  away_team: Ecuador
   tournament: Copa América
 - match_id: 56b9c50f4fd02f25cc42138cfc9791cb41e2365f
   date: '2024-07-05'

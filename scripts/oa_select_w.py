@@ -38,6 +38,7 @@ from wcmodel.eval.ledger import load_ledger                  # noqa: E402
 
 LEDGER_DEFAULT = "data/oa_dev_ledger.parquet"
 MANIFEST_DEFAULT = "config/oa_dev_manifest.yaml"
+COVERAGE_DEFAULT = "config/oa_dev_coverage.yaml"
 STORE_DEFAULT = "data/stores/full_final"
 TRACE_DEFAULT = "reports/oa_selection_trace.json"
 OUT_DEFAULT = "reports/oa_select_w.md"
@@ -47,6 +48,12 @@ _OUTCOMES = ("home", "draw", "away")
 
 class SelectionError(RuntimeError):
     """The selection cannot be run as specified."""
+
+
+def _sha256(path) -> str:
+    import hashlib
+
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def outcomes_for(manifest_path, store_path) -> dict:
@@ -164,8 +171,13 @@ def main(argv=None) -> int:
         print(f"ABORT: {exc}", file=sys.stderr)
         return 1
 
-    write_selection_trace(args.trace, selection,
-                          stacking=stacking.trace_payload())
+    write_selection_trace(
+        args.trace, selection, stacking=stacking.trace_payload(),
+        # The ledger is a gitignored data artifact, so its digest is the
+        # ONLY thing tying this trace to the 11,914 forecasts behind it.
+        inputs={"dev_ledger_sha256": _sha256(args.ledger),
+                "dev_manifest_sha256": _sha256(args.manifest),
+                "dev_coverage_sha256": _sha256(COVERAGE_DEFAULT)})
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(assemble_report(
         selection, stacking, ledger_path=args.ledger,

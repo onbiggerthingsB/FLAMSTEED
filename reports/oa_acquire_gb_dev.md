@@ -4,7 +4,7 @@
 
 THE_RULE walks candidates chronologically and buys the CUT snapshot first (admissibility is its property alone); T-24h follows only for admissible fixtures, and the walk stops at n_dev covered — so an uncovered candidate costs 10 credits, an unmatched one nothing beyond its day's shared listing.
 
-- covered: **260 / 260** (walked 632 candidates)
+- covered: **259 / 260** (walked 632 candidates)
 - out-of-acquisition-scope candidates (never listed, by config evidence scope): 875
 - cumulative gate spend: **4514** vs cap 6650
 - aborted: -
@@ -356,7 +356,7 @@ THE_RULE walks candidates chronologically and buys the CUT snapshot first (admis
 | 342 | 2024-07-01 | Bolivia v Panama | Copa América | y | y | y | - |
 | 343 | 2024-07-02 | Costa Rica v Paraguay | Copa América | y | y | y | - |
 | 344 | 2024-07-02 | Brazil v Colombia | Copa América | y | y | y | - |
-| 345 | 2024-07-04 | Argentina v Ecuador | Copa América | y | y | y | - |
+| 345 | 2024-07-04 | Argentina v Ecuador | Copa América | y | n | n | - |
 | 346 | 2024-07-05 | Venezuela v Canada | Copa América | y | y | y | - |
 | 347 | 2024-07-06 | Colombia v Panama | Copa América | y | y | y | - |
 | 348 | 2024-07-06 | Uruguay v Brazil | Copa América | y | y | y | - |
@@ -781,7 +781,6 @@ THE_RULE walks candidates chronologically and buys the CUT snapshot first (admis
 - 3e0469e5cc15f0a8dae15efac413998f3aefe632
 - 8092cbc7f017836e45ea5724bc4a758944efa4a3
 - d015754000c0c727f1481fd04ceefc5ba689945b
-- 17fa74f20703926892604dc2333a94555fd46a71
 - 56b9c50f4fd02f25cc42138cfc9791cb41e2365f
 - 9106be142b70eeb7c4fc33988370cf721957a3a3
 - f4df7cad47816dd8b62719bb2e090de9001b8d9f
