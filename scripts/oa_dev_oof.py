@@ -264,7 +264,7 @@ def enabled_covariates(cfg) -> tuple:
 
 # ------------------------------------------------------------------- walk
 def run_walk(*, fixtures, store_path, cfg, cache_dir, raw_dir, ledger_path,
-             aliases, limit_days=None, progress=True) -> dict:
+             aliases, limit_days=None, shard=None, progress=True) -> dict:
     store = BitemporalStore(store_path)
     ctx_by_id = store_context(store_path)
     enabled = enabled_covariates(cfg)
@@ -277,6 +277,14 @@ def run_walk(*, fixtures, store_path, cfg, cache_dir, raw_dir, ledger_path,
     days = sorted(by_day)
     if limit_days is not None:
         days = days[:limit_days]
+    if shard is not None:
+        index, total = shard
+        # STRIDED, not contiguous: matchdays differ in cost (a fresh Elo
+        # panel dominates, and later cutoffs carry more history), so
+        # slicing by stride keeps the workers balanced. Correctness does
+        # not depend on the split — each matchday is a pure function of its
+        # own cutoff, so any partition yields byte-identical rows.
+        days = [d for i, d in enumerate(days) if i % total == index]
 
     written, fits, errors = 0, [], []
     with LedgerWriter(ledger_path) as writer:
@@ -368,6 +376,37 @@ def assemble_report(out, *, n_fixtures, ledger_path) -> str:
     return "\n".join(lines)
 
 
+def merge_shards(shard_paths, ledger_path) -> int:
+    """Concatenate shard ledgers into one, RE-VALIDATING every row.
+
+    The merge does not trust the shards: rows go back through
+    ``LedgerWriter``, so the one-row-per-(arm, fixture) rule, the
+    probability checks and the t_issue invariants are enforced on the
+    union — which is exactly where a sharding bug (an overlapping split,
+    a dropped matchday) would show up as a duplicate or a gap.
+    """
+    from wcmodel.eval.ledger import load_ledger
+
+    frames = []
+    for path in shard_paths:
+        frame = load_ledger(path)
+        frames.append(frame)
+        print(f"  {path}: {len(frame)} rows, "
+              f"{frame['fixture_id'].nunique()} fixtures")
+    merged = pd.concat(frames, ignore_index=True)
+    out = Path(ledger_path)
+    if out.exists():
+        out.unlink()
+    with LedgerWriter(out) as writer:
+        for row in merged.to_dict("records"):
+            writer.append(row)
+    final = load_ledger(out)
+    print(f"merged {len(shard_paths)} shard(s) -> {out}: {len(final)} rows, "
+          f"{final['fixture_id'].nunique()} fixtures, "
+          f"{final['arm'].nunique()} arms")
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--manifest", default=MANIFEST_DEFAULT)
@@ -379,7 +418,26 @@ def main(argv=None) -> int:
     ap.add_argument("--out", default=OUT_DEFAULT)
     ap.add_argument("--limit-days", type=int, default=None,
                     help="walk only the first N matchdays (smoke test)")
+    ap.add_argument("--shard", default=None, metavar="I/N",
+                    help="walk only matchdays with index %% N == I, writing "
+                         "this shard's own ledger. Each matchday is a pure "
+                         "function of its cutoff, so sharding is a pure "
+                         "work split — the union of shards is byte-identical "
+                         "to a serial walk. Merge with --merge.")
+    ap.add_argument("--merge", nargs="+", default=None, metavar="SHARD",
+                    help="concatenate shard ledgers into --ledger, "
+                         "re-validating every row through LedgerWriter")
     args = ap.parse_args(argv)
+
+    if args.merge:
+        return merge_shards(args.merge, args.ledger)
+
+    shard = None
+    if args.shard:
+        i, n = (int(p) for p in args.shard.split("/"))
+        if not (0 <= i < n):
+            ap.error(f"--shard I/N needs 0 <= I < N; got {args.shard}")
+        shard = (i, n)
 
     cfg = load_config()
     fixtures = load_inputs(args.manifest, args.coverage)
@@ -390,7 +448,7 @@ def main(argv=None) -> int:
             fixtures=fixtures, store_path=args.store, cfg=cfg,
             cache_dir=args.cache_dir, raw_dir=args.raw_dir,
             ledger_path=args.ledger, aliases=load_aliases(),
-            limit_days=args.limit_days)
+            limit_days=args.limit_days, shard=shard)
     except DevOofError as exc:
         print(f"ABORT: {exc}", file=sys.stderr)
         return 1
