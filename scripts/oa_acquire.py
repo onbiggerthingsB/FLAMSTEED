@@ -1053,9 +1053,18 @@ def _slate_discovery_cid(gate_id, probe) -> str:
                    f"{probe['date']}T00:00:00Z")
 
 
-def _slate_snapshot_cid(gate_id, probe, requested) -> str:
+def _slate_snapshot_cid(gate_id, probe, requested, event=None) -> str:
+    """A plain probe's snapshot identity is (sport_key, instant) — the shape
+    every already-receipted slate snapshot carries, so it must not change.
+    A `teams`-filtered probe (2026-08-01 marquee-NL) prices a SPECIFIC
+    fixture that may share its kickoff instant with the plain probe's pick
+    on the SAME key, so its identity carries the event id in the fixture
+    slot — without it, one paid snapshot would silently answer for two
+    different fixtures."""
+    fixture = str(event["event_id"]) if (probe.get("teams") and event) \
+        else None
     return call_id(gate_id, SLATE_SNAPSHOT_KIND, probe["sport_key"],
-                   _iso(requested), None, SLATE_SNAPSHOT_TAG)
+                   _iso(requested), fixture, SLATE_SNAPSHOT_TAG)
 
 
 def _slate_outstanding(probe, gate_id, receipts, raw_dir) -> int:
@@ -1069,11 +1078,12 @@ def _slate_outstanding(probe, gate_id, receipts, raw_dir) -> int:
         return 0                     # failed listing: no snapshot is placed
     payload = _read_archived(raw_dir, d_receipt["raw_sha256"],
                              "slate discovery (outstanding)")
-    event = _pick_slate_event(_events_from_payload(payload))
+    event = _pick_slate_event(_events_from_payload(payload),
+                              teams=probe.get("teams"))
     if event is None:
         return 0
     requested = _ts(event["commence_time"]) - SLATE_SNAPSHOT_DELTA
-    if _slate_snapshot_cid(gate_id, probe, requested) in receipts:
+    if _slate_snapshot_cid(gate_id, probe, requested, event) in receipts:
         return 0
     return SNAPSHOT_CREDITS
 
@@ -1189,7 +1199,7 @@ def _acquire_slate_probe(probe, *, results, receipts, gate, gate_id, recorder,
     row["discovery_sha256"] = listing["raw_sha256"]
     events = listing["events"]
     row["n_events_listed"] = len(events)
-    event = _pick_slate_event(events)
+    event = _pick_slate_event(events, teams=probe.get("teams"))
     if event is None:
         # No usable listing -> no snapshot call at all: an uncovered
         # competition costs one credit (or zero on reuse).
@@ -1260,12 +1270,17 @@ def _acquire_slate_discovery(probe, *, receipts, gate, gate_id, recorder,
         failure = _receipt_for_failure(
             exc, cid, gate_id, SLATE_DISCOVERY_KIND, instant, recorder,
             before, DISCOVERY_CREDITS, api_key, journal_path)
+        # Register in-run: a later probe SHARING this (sport_key, date) —
+        # the marquee-NL entry — must see the receipt, or it would re-place
+        # a receipted call and the journal validator would refuse the file.
+        receipts[cid] = failure
         row["attempted"] = True
         row["error"] = failure["error"]
         return None
     _write_receipt(journal_path, cid, gate_id, SLATE_DISCOVERY_KIND, instant,
                    recorder, before, DISCOVERY_CREDITS,
                    raw_sha256=discovery["raw_sha256"], returned_instant=None)
+    receipts[cid] = {"raw_sha256": discovery["raw_sha256"]}
     return {"raw_sha256": discovery["raw_sha256"],
             "events": discovery["events"]}
 
@@ -1273,7 +1288,7 @@ def _acquire_slate_discovery(probe, *, receipts, gate, gate_id, recorder,
 def _acquire_slate_snapshot(probe, event, requested, *, commence, row,
                             receipts, gate, gate_id, recorder, api_key,
                             raw_dir, journal_path) -> dict:
-    cid = _slate_snapshot_cid(gate_id, probe, requested)
+    cid = _slate_snapshot_cid(gate_id, probe, requested, event)
     receipt = receipts.get(cid)
     # Attached BEFORE any gate with ``attempted: False``: a cap refusal must
     # render "not attempted" — our gate's refusal, never a measured miss —
@@ -1328,6 +1343,7 @@ def _acquire_slate_snapshot(probe, event, requested, *, commence, row,
             exc, cid, gate_id, SLATE_SNAPSHOT_KIND, _iso(requested),
             recorder, before, SNAPSHOT_CREDITS, api_key, journal_path,
             tag=SLATE_SNAPSHOT_TAG)
+        receipts[cid] = failure
         entry["error"] = failure["error"]
         return entry
     digest = snap.get("raw_sha256")
@@ -1340,6 +1356,8 @@ def _acquire_slate_snapshot(probe, event, requested, *, commence, row,
                        _iso(requested), recorder, before, SNAPSHOT_CREDITS,
                        raw_sha256=digest, returned_instant=None,
                        tag=SLATE_SNAPSHOT_TAG, error=_err_cell(exc, api_key))
+        receipts[cid] = {"raw_sha256": digest,
+                         "error": _err_cell(exc, api_key)}
         entry["error"] = _err_cell(exc, api_key)
         return entry
     _write_receipt(journal_path, cid, gate_id, SLATE_SNAPSHOT_KIND,
@@ -1347,6 +1365,7 @@ def _acquire_slate_snapshot(probe, event, requested, *, commence, row,
                    raw_sha256=digest,
                    returned_instant=entry.get("snapshot_ts"),
                    tag=SLATE_SNAPSHOT_TAG)
+    receipts[cid] = {"raw_sha256": digest}
     return entry
 
 

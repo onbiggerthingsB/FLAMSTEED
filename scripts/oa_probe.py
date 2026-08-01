@@ -178,6 +178,16 @@ SLATE_PROBES = (
     {"competition": "UEFA Nations League (2025 quarter-finals)",
      "tournament": "UEFA Nations League",
      "sport_key": "soccer_uefa_nations_league", "date": "2025-03-20"},
+    # 2026-08-01 USER-APPROVED addition (G-B sizing): the deterministic
+    # earliest-kickoff rule above sampled the 17:00 League-C playout
+    # (Armenia v Georgia) and found no Pinnacle — but the G-B question is
+    # whether Pinnacle quotes MARQUEE NL ties. Same (sport_key, date): the
+    # receipted listing is REUSED (0cr), so this entry costs one snapshot.
+    # `teams` precommits the exact fixture — a rule, never wire order.
+    {"competition": "UEFA Nations League (2025 QF, marquee tier)",
+     "tournament": "UEFA Nations League",
+     "sport_key": "soccer_uefa_nations_league", "date": "2025-03-20",
+     "teams": ("Netherlands", "Spain")},
     {"competition": "CONCACAF Nations League (2023)",
      "tournament": "CONCACAF Nations League",
      "sport_key": "soccer_concacaf_nations_league", "date": "2023-11-21"},
@@ -228,7 +238,9 @@ SLATE_PROBES = (
 #: The plan's mini-probe cap, asked alongside G-A. The projection is DERIVED
 #: from the panel, so adding a probe reprices it and trips the pinned budget
 #: test rather than being discovered at the spend gate.
-SLATE_CREDIT_BUDGET = 150
+#: 2026-08-01: 150 -> 165 with the user-approved marquee-NL entry (its
+#: modeled 11cr is a ceiling — the shared listing is reused, so it bills 10).
+SLATE_CREDIT_BUDGET = 165
 SLATE_SNAPSHOT_TAG = "T-1h"
 SLATE_SNAPSHOT_DELTA = timedelta(hours=1)
 
@@ -1156,14 +1168,26 @@ def _slate_dry_run_transport() -> httpx.MockTransport:
     """Recorded-shape mock payloads for the slate panel — same geometry as the
     eval dry-run (3-min snapshot lag, Pinnacle 10 min older), so the report's
     arithmetic is pinned by the same conventions."""
-    by_key = {(p["sport_key"], f"{p['date']}T00:00:00Z"): p
-              for p in SLATE_PROBES}
+    # A (sport_key, instant) can be shared by several probes (the marquee-NL
+    # entry reuses the QF listing), so the mock listing carries EVERY sharing
+    # probe's events — exactly as one real listing serves them all.
+    by_key: dict = {}
+    for p in SLATE_PROBES:
+        by_key.setdefault(
+            (p["sport_key"], f"{p['date']}T00:00:00Z"), []).append(p)
 
     def _mock_event(probe: dict, index: int) -> dict:
-        return {"id": f"mock_slate_{probe['sport_key']}_{index}",
+        # ids carry the date too: two probes on one sport key must never
+        # collide in `by_event`.
+        if probe.get("teams") and index == 0:
+            home, away = probe["teams"]
+        else:
+            home = f"Mock {probe['tournament']} Home {index}"
+            away = f"Mock {probe['tournament']} Away {index}"
+        return {"id": f"mock_slate_{probe['sport_key']}_{probe['date']}"
+                      f"_{'t' if probe.get('teams') else 'p'}_{index}",
                 "commence_time": f"{probe['date']}T{18 + index}:00:00Z",
-                "home_team": f"Mock {probe['tournament']} Home {index}",
-                "away_team": f"Mock {probe['tournament']} Away {index}"}
+                "home_team": home, "away_team": away}
 
     by_event = {_mock_event(p, i)["id"]: (p, i)
                 for p in SLATE_PROBES for i in (0, 1)}
@@ -1172,13 +1196,13 @@ def _slate_dry_run_transport() -> httpx.MockTransport:
         requested = request.url.params["date"]
         parts = request.url.path.split("/")
         if request.url.path.endswith("/events"):
-            probe = by_key[(parts[4], requested)]
+            probes = by_key[(parts[4], requested)]
             # Listed out of chronological order on purpose: the deterministic
             # pick must not inherit the wire's ordering.
+            listed = [_mock_event(p, i) for p in probes for i in (1, 0)]
             return httpx.Response(200, json={
                 "timestamp": requested, "previous_timestamp": requested,
-                "next_timestamp": requested,
-                "data": [_mock_event(probe, 1), _mock_event(probe, 0)]})
+                "next_timestamp": requested, "data": listed})
         probe, index = by_event[parts[6]]
         event = _mock_event(probe, index)
         ts = _ts(requested) - _MOCK_SNAPSHOT_LAG
@@ -1197,16 +1221,25 @@ def _slate_dry_run_transport() -> httpx.MockTransport:
     return httpx.MockTransport(handler)
 
 
-def _pick_slate_event(events: list):
+def _pick_slate_event(events: list, teams=None):
     """The event whose snapshot gets bought — chosen by a RULE, never by wire
     order: earliest kickoff, ties broken by event id. Without this, WHICH
     fixture a paid snapshot priced would depend on how the API happened to
     sort its listing, and the probe would not be reproducible.
     Events with an unparseable/absent kickoff are skipped: the snapshot
-    instant is derived from it, so there is nothing to request."""
+    instant is derived from it, so there is nothing to request.
+
+    ``teams`` (a probe's optional precommitted pair) restricts the pick to
+    events naming exactly that fixture, either orientation — how a panel
+    entry targets a SPECIFIC tie (the 2026-08-01 marquee-NL question)
+    instead of whatever kicks off first."""
+    wanted = {str(t) for t in teams} if teams else None
     usable = []
     for event in events:
         try:
+            if wanted is not None and \
+                    {str(event.get("home")), str(event.get("away"))} != wanted:
+                continue
             usable.append((_ts(event["commence_time"]),
                            str(event["event_id"]), event))
         except (KeyError, TypeError, ValueError):
@@ -1314,7 +1347,7 @@ def run_slate_probe(*, api_key: str, transport: httpx.BaseTransport,
                 row["discovery_sha256"] = discovery["raw_sha256"]
                 events = discovery["events"]
                 row["n_events_listed"] = len(events)
-                event = _pick_slate_event(events)
+                event = _pick_slate_event(events, teams=probe.get("teams"))
                 if event is None:
                     # No listing -> no snapshot precall at all: an uncovered
                     # competition costs ONE credit, and "no coverage" is

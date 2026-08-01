@@ -90,21 +90,59 @@ def test_copa_america_is_in_the_candidate_panel(mod):
     assert any(p["tournament"] == "Copa América" for p in mod.SLATE_PROBES)
 
 
-def test_slate_probe_dates_are_distinct_per_sport_key(mod):
-    # Discovery is keyed by (sport_key, date): two probes sharing both would
-    # buy the same listing twice.
-    keys = [(p["sport_key"], p["date"]) for p in mod.SLATE_PROBES]
+def test_slate_probe_identities_are_distinct(mod):
+    # Discovery is keyed by (sport_key, date), so probes sharing both REUSE
+    # one listing (never buy it twice) — allowed exactly when their `teams`
+    # filters differ, because then they price DIFFERENT fixtures (the
+    # 2026-08-01 marquee-NL entry). Identical (sport_key, date, teams) would
+    # be one snapshot bought under two names.
+    keys = [(p["sport_key"], p["date"], p.get("teams"))
+            for p in mod.SLATE_PROBES]
     assert len(keys) == len(set(keys))
 
 
+def test_marquee_nl_entry_reuses_the_qf_listing(mod):
+    # The user-approved marquee entry must SHARE the receipted QF listing's
+    # (sport_key, date) — a fresh date would buy a new discovery — and must
+    # precommit its exact fixture.
+    marquee = [p for p in mod.SLATE_PROBES if p.get("teams")]
+    assert len(marquee) == 1
+    entry = marquee[0]
+    assert set(entry["teams"]) == {"Netherlands", "Spain"}
+    sharers = [p for p in mod.SLATE_PROBES
+               if (p["sport_key"], p["date"]) == (entry["sport_key"],
+                                                  entry["date"])]
+    assert len(sharers) == 2
+
+
 def test_projected_slate_cost_fits_the_plan_budget(mod):
-    # The plan asks for <=150 credits alongside G-A. The projection is
-    # DERIVED from the panel, so adding a probe reprices it and trips here
-    # rather than at the spend gate.
+    # The plan asked <=150 alongside G-A; 2026-08-01 the user approved the
+    # marquee-NL addition -> 165. The projection is DERIVED from the panel,
+    # so adding a probe reprices it and trips here rather than at the spend
+    # gate. (It is a CEILING: the marquee entry's shared listing is reused,
+    # so its modeled 11 bills 10.)
     projected = mod.projected_slate_cost()
     assert projected == len(mod.SLATE_PROBES) * (
         mod.DISCOVERY_CREDITS + mod.SNAPSHOT_CREDITS)
-    assert projected <= mod.SLATE_CREDIT_BUDGET == 150
+    assert projected <= mod.SLATE_CREDIT_BUDGET == 165
+
+
+def test_pick_slate_event_honors_the_teams_filter(mod):
+    events = [
+        {"event_id": "aaa", "commence_time": "2025-03-20T17:00:00Z",
+         "home": "Armenia", "away": "Georgia"},
+        {"event_id": "bbb", "commence_time": "2025-03-20T19:45:00Z",
+         "home": "Netherlands", "away": "Spain"},
+    ]
+    # unfiltered: the deterministic earliest-kickoff rule
+    assert mod._pick_slate_event(events)["event_id"] == "aaa"
+    # filtered: the precommitted pair, either orientation
+    assert mod._pick_slate_event(
+        events, teams=("Netherlands", "Spain"))["event_id"] == "bbb"
+    assert mod._pick_slate_event(
+        events, teams=("Spain", "Netherlands"))["event_id"] == "bbb"
+    # a pair the listing does not hold -> None, never a fallback fixture
+    assert mod._pick_slate_event(events, teams=("France", "Croatia")) is None
 
 
 @_needs_store

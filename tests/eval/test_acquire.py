@@ -991,12 +991,24 @@ def _slate_transport(mod):
         date = request.url.params["date"]
         day = date[:10]
         if request.url.path.endswith("/events"):
+            # one generic event, plus — for every teams-filtered probe on
+            # this (sport_key, day) — its precommitted fixture at a LATER
+            # kickoff, so the shared listing serves both panel entries
+            # exactly as one real listing would
+            events = [{"id": f"se_{parts[4]}", "sport_key": parts[4],
+                       "commence_time": f"{day}T18:00:00Z",
+                       "home_team": "Alpha", "away_team": "Beta"}]
+            for probe in mod.SLATE_PROBES:
+                if probe.get("teams") and probe["sport_key"] == parts[4] \
+                        and probe["date"] == day:
+                    home, away = probe["teams"]
+                    events.append({
+                        "id": f"se_teams_{parts[4]}", "sport_key": parts[4],
+                        "commence_time": f"{day}T20:00:00Z",
+                        "home_team": home, "away_team": away})
             return respond({
                 "timestamp": date, "previous_timestamp": date,
-                "next_timestamp": date,
-                "data": [{"id": f"se_{parts[4]}", "sport_key": parts[4],
-                          "commence_time": f"{day}T18:00:00Z",
-                          "home_team": "Alpha", "away_team": "Beta"}]}, 1)
+                "next_timestamp": date, "data": events}, 1)
         stamp = _ts(date) - timedelta(minutes=3)
         older = _iso(stamp - timedelta(minutes=5))
         return respond({
@@ -1017,8 +1029,13 @@ def _slate_transport(mod):
     return httpx.MockTransport(handler), requests
 
 
-def _slate_run(mod, tmp_path, *, max_credits=150, transport=None,
+def _slate_run(mod, tmp_path, *, max_credits=None, transport=None,
                requests=None):
+    if max_credits is None:
+        # track the panel-derived ceiling, never a stale literal (the panel
+        # was repriced 2026-08-01 by the user-approved marquee-NL entry)
+        max_credits = len(mod.SLATE_PROBES) * (
+            mod.DISCOVERY_CREDITS + mod.SNAPSHOT_CREDITS)
     if transport is None:
         transport, requests = _slate_transport(mod)
     out = mod.run_slate_acquisition(
@@ -1030,16 +1047,23 @@ def _slate_run(mod, tmp_path, *, max_credits=150, transport=None,
 def test_slate_acquisition_journals_every_call_to_the_ga_gate(mod, tmp_path):
     out, requests = _slate_run(mod, tmp_path)
     n = len(mod.SLATE_PROBES)
-    assert len(requests) == 2 * n
+    # Discovery is keyed by (sport_key, date): probes sharing both — the
+    # 2026-08-01 marquee-NL entry — REUSE one listing, so the wire sees one
+    # discovery per distinct key plus one snapshot per probe.
+    n_disc = len({(p["sport_key"], p["date"]) for p in mod.SLATE_PROBES})
+    assert n_disc < n                    # the panel does hold a sharing pair
+    assert len(requests) == n_disc + n
     records = mod.read_journal(tmp_path / "j.jsonl")
     assert {r["gate"] for r in records} == {"ga"}
     intents = [r for r in records if r["type"] == "intent"]
     receipts = [r for r in records if r["type"] == "receipt"]
-    assert len(intents) == len(receipts) == 2 * n
+    assert len(intents) == len(receipts) == n_disc + n
     kinds = {r["kind"] for r in records}
     assert kinds == {"slate-discovery", "slate-snapshot"}
     assert all(len(r["raw_sha256"]) == 64 for r in receipts)
-    assert out["spent"] == mod.projected_slate_cost()
+    shared = n - n_disc
+    assert out["spent"] == (mod.projected_slate_cost()
+                            - shared * mod.DISCOVERY_CREDITS)
     assert out["prior_spent"] == 0 and out["aborted"] is None
     assert all(r["snapshot"]["pinnacle_present"] for r in out["results"])
 
@@ -1068,8 +1092,14 @@ def test_slate_acquisition_resumes_without_rebuying(mod, tmp_path):
     out, requests = _slate_run(mod, tmp_path)
     assert requests == []                            # everything reused
     assert (tmp_path / "j.jsonl").read_text().splitlines() == lines
-    assert out["prior_spent"] == mod.projected_slate_cost()
-    assert out["spent"] == mod.projected_slate_cost()
+    # actual spend = projection minus the marquee entry's SHARED listing
+    # (the projection is a ceiling; the shared discovery bills once)
+    n = len(mod.SLATE_PROBES)
+    n_disc = len({(p["sport_key"], p["date"]) for p in mod.SLATE_PROBES})
+    actual = (mod.projected_slate_cost()
+              - (n - n_disc) * mod.DISCOVERY_CREDITS)
+    assert out["prior_spent"] == actual
+    assert out["spent"] == actual
     assert all(r["snapshot"]["pinnacle_present"] for r in out["results"])
 
 
