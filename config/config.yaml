@@ -182,9 +182,25 @@ oa_dev_slate:
     - UEFA Nations League
     - FIFA World Cup qualification
   # 2026-08-01 USER RULING: 300, frozen BEFORE any dev snapshot is bought.
-  # The rule truncates to the first 300 with admissible coverage; the G-B
-  # cap is the binding backstop if coverage runs thinner than probed.
-  n_dev: 300
+  #
+  # 2026-08-01 AMENDMENT (USER-RULED, post-G-B, pre-lock): 300 -> 260.
+  # The G-B walk (reports/oa_acquire_gb_dev.md) exhausted ALL 632 eligible
+  # candidates and covered 260; the cap never bound. 300 is not reachable
+  # from the evidence-backed competition set — European WCQ returns zero
+  # events even on a 2025 date (the best-covered era), and no other senior
+  # men's international competition exists in the API's vocabulary.
+  #
+  # This amendment is OUTCOME-BLIND: coverage is a property of the odds
+  # archive alone (was a Pinnacle quote posted before 08:30Z?), computed
+  # without touching a single result. It is the same class of correction as
+  # dropping Gold Cup from `competitions` — evidence about what can be
+  # bought, never about what the fixtures did. THE_RULE itself is unchanged:
+  # "the first N_dev with admissible coverage" simply binds at the supply
+  # limit rather than at the target.
+  #
+  # Realized design: 260 fixtures over 16 months = 14 scoreable monthly
+  # folds (227 fixtures) after V6's two-month ledger burn-in.
+  n_dev: 260
   manifest_path: config/oa_dev_manifest.yaml
   # ACQUISITION-ONLY evidence scope (bounds SPEND, never selection): which
   # Odds-API key each competition's listings are bought on, exactly as the

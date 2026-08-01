@@ -88,7 +88,7 @@ def test_config_block_carries_the_same_rule_and_parameters():
     assert cfg["competitions"] == [
         "Copa América", "African Cup of Nations", "UEFA Nations League",
         "FIFA World Cup qualification"]
-    assert cfg["n_dev"] == 300
+    assert cfg["n_dev"] == 260   # 2026-08-01 amendment: supply limit
     # The acquisition scope maps each competition to its PROBED key; the
     # WCQ participants filter bounds SPEND to the CONMEBOL evidence, never
     # selection.

@@ -4,7 +4,7 @@
 
 THE_RULE walks candidates chronologically and buys the CUT snapshot first (admissibility is its property alone); T-24h follows only for admissible fixtures, and the walk stops at n_dev covered — so an uncovered candidate costs 10 credits, an unmatched one nothing beyond its day's shared listing.
 
-- covered: **260 / 300** (walked 632 candidates)
+- covered: **260 / 260** (walked 632 candidates)
 - out-of-acquisition-scope candidates (never listed, by config evidence scope): 875
 - cumulative gate spend: **4514** vs cap 6650
 - aborted: -

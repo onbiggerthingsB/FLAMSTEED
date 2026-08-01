@@ -21,6 +21,7 @@ import argparse
 import sys
 from pathlib import Path
 
+import pandas as pd
 import yaml
 
 from wcmodel.eval.dev_slate import (
@@ -35,6 +36,10 @@ from wcmodel.eval.dev_slate import (
 )
 
 OUT_DEFAULT = "config/oa_dev_manifest.yaml"
+#: The V4/G-B walk's admissibility verdicts — the evidence input this
+#: generator refused to emit without.
+COVERAGE_DEFAULT = "config/oa_dev_coverage.yaml"
+RESULTS_STORE_DEFAULT = "data/stores/full_final"
 
 
 def _config_matches_constants(cfg: dict) -> list:
@@ -96,6 +101,12 @@ def main(argv=None) -> int:
                          "input is still missing)")
     ap.add_argument("--out", default=OUT_DEFAULT,
                     help=f"manifest path (default {OUT_DEFAULT})")
+    ap.add_argument("--coverage", default=COVERAGE_DEFAULT,
+                    help="per-fixture admissibility from the G-B walk "
+                         f"(default {COVERAGE_DEFAULT})")
+    ap.add_argument("--results-store", default=RESULTS_STORE_DEFAULT,
+                    help=f"results store THE_RULE reads (default "
+                         f"{RESULTS_STORE_DEFAULT})")
     args = ap.parse_args(argv)
 
     cfg = load_dev_slate_config()
@@ -127,16 +138,56 @@ def main(argv=None) -> int:
         missing.append(
             "oa_dev_slate.n_dev (sized against the G-B cap by the same "
             "mini-probe)")
-    missing.append(
-        "per-fixture coverage admissibility (produced by the V4/G-B "
-        "acquisition run; there is no way to know it before the odds exist)")
-    if args.emit:
-        print("ABORT: cannot emit the manifest yet — still missing:\n  - "
-              + "\n  - ".join(missing), file=sys.stderr)
+
+    coverage_path = Path(args.coverage)
+    coverage = None
+    if not coverage_path.exists():
+        missing.append(
+            f"per-fixture coverage admissibility ({coverage_path}) — produced "
+            "by the V4/G-B acquisition run (`oa_acquire.py --gate-id gb "
+            "--dev --live`); there is no way to know it before the odds exist")
+    else:
+        coverage = yaml.safe_load(coverage_path.read_text())
+        if "dry-run" in str(coverage.get("mode", "")):
+            # MOCK verdicts must never freeze a manifest the lock hashes.
+            missing.append(
+                f"{coverage_path} carries DRY-RUN (mock) verdicts — the "
+                "manifest may only be frozen from live paid evidence")
+
+    if missing:
+        if args.emit:
+            print("ABORT: cannot emit the manifest yet — still missing:\n  - "
+                  + "\n  - ".join(missing), file=sys.stderr)
+            return 1
+        print("\nStatus: STUB. Still missing before `--emit` can run:")
+        for item in missing:
+            print(f"  - {item}")
+        return 0
+
+    admissible = {str(r["match_id"]) for r in coverage["coverage"]
+                  if r.get("admissible")}
+    print(f"  coverage evidence: {coverage_path} — {len(admissible)} "
+          f"admissible of {coverage['n_walked']} walked (gate "
+          f"{coverage.get('gate')})")
+    if not args.emit:
+        print("\nStatus: READY. Re-run with --emit to freeze the manifest.")
+        return 0
+
+    results = pd.read_parquet(Path(args.results_store) / "results.parquet")
+    path = emit_manifest(results, competitions=cfg["competitions"],
+                         admissible=admissible, n_dev=cfg["n_dev"],
+                         out_path=args.out)
+    doc = yaml.safe_load(Path(path).read_text())
+    n = len(doc["fixtures"])
+    print(f"\nwrote {path}: {n} fixture(s) "
+          f"(n_dev={cfg['n_dev']}, candidates before truncation="
+          f"{doc['n_candidates_before_truncation']})")
+    if n != cfg["n_dev"]:
+        # The rule binds at the supply limit, not the target — say so loudly
+        # rather than letting a short slate pass silently.
+        print(f"NOTE: {n} < n_dev {cfg['n_dev']} — the slate is supply-bound; "
+              "reconcile config before the V8 lock", file=sys.stderr)
         return 1
-    print("\nStatus: STUB. Still missing before `--emit` can run:")
-    for item in missing:
-        print(f"  - {item}")
     return 0
 
 

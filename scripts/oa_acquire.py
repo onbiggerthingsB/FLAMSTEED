@@ -1597,6 +1597,56 @@ def load_fixture_manifest(path) -> list:
 #: --dev reads THE_RULE's candidates from this results store.
 DEV_RESULTS_STORE = "data/stores/full_final"
 DEV_OUT_DEFAULT = "reports/oa_acquire_gb_dev.md"
+#: The walk's machine-readable verdict: per-candidate admissibility with the
+#: paid evidence digest behind each one. This is the "per-fixture coverage
+#: admissibility" input `oa_dev_manifest.py --emit` has always refused
+#: without — committed, and hash-bound into the V8 lock alongside the
+#: manifest it produces.
+DEV_COVERAGE_DEFAULT = "config/oa_dev_coverage.yaml"
+
+
+def write_dev_coverage(out, *, path=DEV_COVERAGE_DEFAULT, mocked=False):
+    """Emit the walk's admissibility verdicts as YAML.
+
+    One row per WALKED candidate — including the misses, because "we looked
+    and the archive did not carry it" is evidence the lock must record just
+    as much as a success. Candidates the walk never reached (it stopped at
+    n_dev) are absent by construction: nothing was bought for them, so
+    nothing is claimed about them."""
+    import yaml
+
+    rows = []
+    for row in out["results"]:
+        cut = (row.get("snapshots") or {}).get(CUT_TAG) or {}
+        rows.append({
+            "match_id": row["match_id"], "date": row["date"],
+            "home": row["home"], "away": row["away"],
+            "tournament": row["tournament"],
+            "sport_key": row["sport_key"],
+            "listed": bool(row.get("event_found")),
+            "admissible": bool(cut.get("admissible")),
+            "cut_raw_sha256": cut.get("raw_sha256"),
+            "note": row.get("error") or None})
+    doc = {
+        "derived_by": "scripts/oa_acquire.py --dev (V4 / G-B walk)",
+        "mode": "dry-run (MOCK verdicts)" if mocked else "live",
+        "gate": out["gate"],
+        "n_walked": len(rows),
+        "n_admissible": sum(1 for r in rows if r["admissible"]),
+        "n_dev_target": out["n_dev"],
+        "coverage": rows,
+    }
+    header = (
+        "# OA dev-slate COVERAGE — per-candidate admissibility from the G-B\n"
+        "# walk, with the paid-evidence digest behind every verdict.\n"
+        "# DERIVED from the journal + archive; regenerate by re-running the\n"
+        "# walk (receipted calls are reused, so a rerun costs nothing).\n"
+        "# Admissibility is OUTCOME-BLIND: it asks only whether a sharp quote\n"
+        "# was posted before the 08:30Z cut, never what the fixture did.\n")
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    Path(path).write_text(header + yaml.safe_dump(doc, sort_keys=False,
+                                                  allow_unicode=True))
+    return path
 
 
 # ---------------------------------------------------- the dev walk (V4 / G-B)
@@ -2167,6 +2217,13 @@ def main(argv=None) -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(md)
     print(f"wrote {out_path}")
+    if args.dev:
+        # A dry-run's verdicts are MOCK: they must never be mistaken for the
+        # coverage evidence the manifest is frozen from, so they go to a
+        # clearly-separate path.
+        cov = (DEV_COVERAGE_DEFAULT if not mocked
+               else DEV_COVERAGE_DEFAULT.replace(".yaml", ".dry-run.yaml"))
+        print(f"wrote {write_dev_coverage(summary, path=cov, mocked=mocked)}")
     if summary["aborted"]:
         print(f"ABORT: {summary['aborted']}", file=sys.stderr)
         return 1
