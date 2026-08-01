@@ -81,10 +81,23 @@ def test_config_block_carries_the_same_rule_and_parameters():
     # the machine one. They must not drift apart.
     cfg = load_dev_slate_config()
     assert cfg["window"] == {"start": "2022-01-01", "end": "2025-12-31"}
-    assert cfg["competitions"] == [], (
-        "competitions must stay EMPTY until the --slate mini-probe reports "
-        "coverage — pre-seeding them is the researcher DOF finding 9 refused")
-    assert cfg["n_dev"] is None
+    # 2026-08-01 USER RULING at the G-B spend gate: the four competitions
+    # the slate probe verified covered WITH Pinnacle, n_dev 300 — set by
+    # coverage EVIDENCE (reports/oa_slate_probe.md), exactly the flow the
+    # empty-until-probed freeze demanded.
+    assert cfg["competitions"] == [
+        "Copa América", "African Cup of Nations", "UEFA Nations League",
+        "FIFA World Cup qualification"]
+    assert cfg["n_dev"] == 300
+    # The acquisition scope maps each competition to its PROBED key; the
+    # WCQ participants filter bounds SPEND to the CONMEBOL evidence, never
+    # selection.
+    keys = cfg["acquisition"]["sport_keys"]
+    assert set(keys) == set(cfg["competitions"])
+    assert keys["FIFA World Cup qualification"] == \
+        "soccer_fifa_world_cup_qualifiers_south_america"
+    assert len(cfg["acquisition"]["participants"]
+               ["FIFA World Cup qualification"]) == 10
     # The rule is quoted VERBATIM in the config comment. Comment markers and
     # line wrapping are stripped so the check is on the words, not the layout.
     raw = (_ROOT / "config" / "config.yaml").read_text().replace("#", " ")
@@ -258,14 +271,19 @@ def test_generator_import_writes_nothing(tmp_path, monkeypatch):
     assert list(tmp_path.rglob("*")) == []
 
 
-def test_generator_refuses_to_emit_before_competitions_are_chosen(tmp_path,
-                                                                  monkeypatch,
-                                                                  capsys):
+def test_generator_refuses_to_emit_before_admissibility_evidence(tmp_path,
+                                                                 monkeypatch,
+                                                                 capsys):
+    # Competitions and n_dev are now decided (2026-08-01 ruling), so the
+    # remaining --emit blocker is the per-fixture coverage admissibility the
+    # V4/G-B acquisition produces. The generator must still refuse — and for
+    # THAT reason, not the already-satisfied ones.
     monkeypatch.chdir(tmp_path)
     mod = _load_generator()
     assert mod.main(["--emit"]) == 1
     err = capsys.readouterr().err
-    assert "competitions" in err and "n_dev" in err
+    assert "admissibility" in err
+    assert "competitions" not in err and "n_dev" not in err
     assert not (tmp_path / "config" / "oa_dev_manifest.yaml").exists()
 
 

@@ -85,6 +85,10 @@ from wcmodel.eval.aliases import (
     resolve_event,
     verify_alias_evidence,
 )
+from wcmodel.eval.dev_slate import (
+    eligible_dev_fixtures,
+    load_dev_slate_config,
+)
 from wcmodel.eval.ledger import T_ISSUE_UTC_TIME, lock_path
 
 # scripts/ is not a package on sys.path -> path-insert then import (house
@@ -104,6 +108,8 @@ from oa_probe import (  # noqa: E402  (script-local import, after sys.path)
     SNAPSHOTS_PER_FIXTURE,
     CreditCapError,
     SpendGate,
+    _MOCK_BOOK_LAG,
+    _MOCK_SNAPSHOT_LAG,
     _err_cell,
     _fmt,
     _iso,
@@ -1588,6 +1594,389 @@ def load_fixture_manifest(path) -> list:
     return rows
 
 
+#: --dev reads THE_RULE's candidates from this results store.
+DEV_RESULTS_STORE = "data/stores/full_final"
+DEV_OUT_DEFAULT = "reports/oa_acquire_gb_dev.md"
+
+
+# ---------------------------------------------------- the dev walk (V4 / G-B)
+# The eval set was a FIXED plan: 217 known fixtures, kickoffs from a committed
+# manifest, every call projectable upfront. The dev slate is the opposite by
+# construction — THE_RULE truncates to "the first N_dev with admissible
+# coverage", and admissibility is only knowable AFTER the cut snapshot is
+# bought. So the dev acquisition is a chronological WALK, not a plan:
+#
+#   for each candidate in THE_RULE's order:
+#     listing for (sport_key, matchday)   — bought lazily, shared by the day
+#     resolve the candidate in it         — a miss costs nothing
+#     CUT snapshot ONLY                   — see below; 10 credits per walked
+#                                           candidate, nothing more
+#     stop when n_dev are covered (or the cap refuses)
+#
+# CUT-ONLY (2026-08-01, before any dev credit was spent). The eval set buys
+# TWO snapshots per fixture — the T_issue cut and a T-24h reference line. A
+# pre-spend audit found the T-24h line has NO consumer: not in the prereg,
+# not in the analysis spec, not in `blend.py`/`arms.py`, and not in V5's dev
+# ledger schema (one odds vector per row, the cut-aligned de-vigged one that
+# E' blends). Buying it for 300 dev fixtures would be 3,000 credits for data
+# nothing reads. Dev odds are DEVELOPMENT data — outside the confirmatory
+# lockbox and re-buyable at any time — so declining it now is reversible in
+# a way that spending it is not, and the credits it frees are what lets the
+# walk reach n_dev even if coverage runs thinner than the probe suggested.
+# The EVAL set is untouched: its T-24h snapshots are already bought and its
+# 2-per-fixture model is what G-A was approved against.
+#
+# Kickoffs come from the DISCOVERED listing (the API's own commence_time) —
+# there is no committed dev kickoff manifest, and unlike the eval plan the
+# T-24h instant is derived after discovery, exactly as the slate probe does.
+# The SpendGate opens with remaining=0: an adaptive walk has no fixed
+# outstanding total, so the cap binds per call (projected = spent + this
+# call), plus the billing-header precheck — same two fences as everywhere.
+DEV_GATE = "gb"
+
+
+def dev_candidates(results, cfg) -> tuple:
+    """THE_RULE's ordered candidates, split into (walkable, out_of_scope).
+
+    ``eligible_dev_fixtures`` applies the frozen eligibility+ordering. The
+    acquisition-scope filter (config ``oa_dev_slate.acquisition``) then
+    splits off candidates whose competition key cannot carry them — the
+    store label "FIFA World Cup qualification" spans every confederation,
+    but the probed key is CONMEBOL-only. That split bounds SPEND (which
+    listings get bought); it never re-orders or re-selects: out-of-scope
+    candidates are exactly as if their listings never matched — eligible,
+    never admissible."""
+    ordered = eligible_dev_fixtures(results,
+                                    competitions=cfg["competitions"])
+    acq = cfg.get("acquisition") or {}
+    sport_keys = acq.get("sport_keys") or {}
+    participants = acq.get("participants") or {}
+    missing = [c for c in cfg["competitions"] if c not in sport_keys]
+    if missing:
+        raise FixtureManifestError(
+            f"oa_dev_slate.acquisition.sport_keys lacks {missing} — every "
+            "chosen competition needs its probed key before any dev call")
+    walkable, out_of_scope = [], []
+    for row in ordered.itertuples():
+        allowed = participants.get(row.tournament)
+        entry = {"match_id": str(row.match_id),
+                 "date": row.date.isoformat(),
+                 "home": str(row.home_team), "away": str(row.away_team),
+                 "tournament": str(row.tournament),
+                 "sport_key": sport_keys[row.tournament]}
+        if allowed is not None and not ({entry["home"], entry["away"]}
+                                        <= set(allowed)):
+            out_of_scope.append(entry)
+        else:
+            walkable.append(entry)
+    return walkable, out_of_scope
+
+
+def _dev_discovery(candidate, *, receipts, gate, gate_id, recorder, api_key,
+                   raw_dir, journal_path) -> dict:
+    """One dev listing — bought once per (sport_key, matchday), reused by
+    every later candidate on the day (in-run receipt registration, the slate
+    lesson). Returns {"raw_sha256", "events"} or {"error"}."""
+    instant = f"{candidate['date']}T00:00:00Z"
+    cid = call_id(gate_id, "discovery", candidate["sport_key"], instant)
+    receipt = receipts.get(cid)
+    if receipt is not None:
+        digest = receipt.get("raw_sha256")
+        if receipt.get("error") or not digest:
+            return {"error": receipt.get("error")
+                    or "paid, but no archived payload on the receipt",
+                    "raw_sha256": digest}
+        payload = _read_archived(raw_dir, digest, cid)
+        return {"raw_sha256": digest,
+                "events": _events_from_payload(payload)}
+    what = f"dev discovery {candidate['sport_key']} {candidate['date']}"
+    gate.precall(DISCOVERY_CREDITS, what)
+    try:
+        _actual_precheck(recorder, DISCOVERY_CREDITS, what)
+    except CreditCapError:
+        gate.refund(DISCOVERY_CREDITS)
+        raise
+    recorder.next_call_credits = DISCOVERY_CREDITS
+    append_record(journal_path, {
+        "type": INTENT, "gate": gate_id, "call_id": cid, "kind": "discovery",
+        "sport_key": candidate["sport_key"], "requested_instant": instant,
+        "modeled_credits": DISCOVERY_CREDITS, "ts": _now()})
+    before = len(recorder.usage)
+    try:
+        discovery = fetch_historical_events(
+            candidate["sport_key"], instant, api_key, raw_dir=raw_dir,
+            transport=recorder)
+    except OSError:
+        raise                       # bare intent stands; resume fails closed
+    except Exception as exc:
+        failure = _receipt_for_failure(
+            exc, cid, gate_id, "discovery", instant, recorder, before,
+            DISCOVERY_CREDITS, api_key, journal_path)
+        receipts[cid] = failure
+        return {"error": failure["error"],
+                "raw_sha256": failure.get("raw_sha256")}
+    _write_receipt(journal_path, cid, gate_id, "discovery", instant,
+                   recorder, before, DISCOVERY_CREDITS,
+                   raw_sha256=discovery["raw_sha256"], returned_instant=None)
+    receipts[cid] = {"raw_sha256": discovery["raw_sha256"]}
+    return {"raw_sha256": discovery["raw_sha256"],
+            "events": discovery["events"]}
+
+
+def _dev_snap_spec(candidate, tag, requested, gate_id) -> dict:
+    return {"tag": tag, "requested_instant": _iso(requested),
+            "credits": SNAPSHOT_CREDITS,
+            "call_id": call_id(gate_id, "snapshot", candidate["sport_key"],
+                               _iso(requested), candidate["match_id"], tag)}
+
+
+def run_dev_acquisition(*, api_key, transport, max_credits, raw_dir,
+                        journal_path, candidates, n_dev,
+                        gate_id=DEV_GATE, store_root=None,
+                        aliases=None, mode="live") -> dict:
+    """Walk THE_RULE's candidates under the canonical journal until ``n_dev``
+    are covered (admissible cut quote) or the cap refuses.
+
+    Same fences as ``run_acquisition``: exclusive flock, fail-closed orphans,
+    cumulative prior restored, verified aliases before any paid call,
+    INTENT->RECEIPT per call, receipted calls reused from the archive. On
+    resume the walk re-derives every candidate's state (matched? cut bought?
+    admissible? T-24h bought?) from receipts + archive — free — so the
+    covered count picks up exactly where the ledger says it stopped."""
+    if aliases is None:
+        if mode == "live":
+            problems = verify_alias_evidence(raw_dir=ODDS_RAW_DIR)
+            if problems:
+                raise AliasEvidenceError(
+                    "alias evidence verification failed against "
+                    f"{ODDS_RAW_DIR} — refusing before any paid call: "
+                    + "; ".join(problems))
+        aliases = load_aliases()
+    journal_path = Path(journal_path)
+    raw_dir = None if raw_dir is None else Path(raw_dir)
+
+    with exclusive_journal_lock(journal_path):
+        records = read_journal(journal_path)
+        orphans = orphan_intents(records)
+        if orphans:
+            raise OrphanIntentError(
+                f"{len(orphans)} journal INTENT record(s) have no RECEIPT — a "
+                "call that may or may not have billed. Refusing to resume: "
+                "inspect data/odds_raw for the orphan's archived response "
+                "(call_id(s): "
+                + ", ".join(sorted(r["call_id"] for r in orphans))
+                + ") and settle the journal by hand before re-running")
+        prior = gate_spend(records, gate_id)
+        if max_credits is not None and prior > max_credits:
+            raise CreditCapError(
+                f"cumulative journal spend {prior} credits for gate "
+                f"{gate_id} already exceeds --max-credits {max_credits} — "
+                "the gate's budget is spent; refusing to resume under a cap "
+                "the ledger has passed")
+        receipts = {r["call_id"]: r for r in records
+                    if r["type"] == RECEIPT and r["gate"] == gate_id}
+        # remaining=0: the walk has no fixed outstanding plan — the cap
+        # binds per call (precall projects spent + this call) plus the
+        # billing-header precheck.
+        gate = SpendGate(max_credits, 0)
+        gate.spent = prior
+        recorder = _UsageRecorder(
+            transport,
+            cap=None if max_credits is None else max_credits - prior)
+
+        results, aborted = [], None
+        covered = 0
+        try:
+            for candidate in candidates:
+                if covered >= n_dev:
+                    break
+                row = dict(candidate)
+                row.update({"attempted": False, "event_found": None,
+                            "snapshots": {}, "covered": False})
+                results.append(row)
+                listing = _dev_discovery(
+                    candidate, receipts=receipts, gate=gate, gate_id=gate_id,
+                    recorder=recorder, api_key=api_key, raw_dir=raw_dir,
+                    journal_path=journal_path)
+                row["discovery_sha256"] = listing.get("raw_sha256")
+                if "error" in listing:
+                    row["error"] = listing["error"]
+                    continue
+                row["attempted"] = True
+                try:
+                    event, flipped = resolve_event(
+                        listing["events"], candidate["home"],
+                        candidate["away"], aliases)
+                except AmbiguousFixtureMatch as exc:
+                    row["error"] = _err_cell(exc, api_key)
+                    continue
+                row["event_found"] = event is not None
+                if event is None:
+                    row["n_events_listed"] = len(listing["events"])
+                    continue
+                try:
+                    kickoff = _ts(event["commence_time"])
+                except ValueError as exc:
+                    row["error"] = _err_cell(exc, api_key)
+                    continue
+                t_issue = t_issue_for(candidate["date"])
+                row.update({"event_id": event["event_id"],
+                            "commence_time": event["commence_time"],
+                            "orientation_flipped": flipped,
+                            "kickoff_utc": _iso(kickoff),
+                            "t_issue": _iso(t_issue)})
+                if not t_issue < kickoff:
+                    # No pre-issuance quote exists on this matchday: the cut
+                    # would be an in-play price (OA F2). Recorded, unbought.
+                    row["error"] = (
+                        f"t_issue {_iso(t_issue)} is not strictly before "
+                        f"kickoff {_iso(kickoff)} — the cut snapshot would "
+                        "be an in-play price; skipped, nothing bought")
+                    continue
+                fixture = {"fixture_id": candidate["match_id"],
+                           "sport_key": candidate["sport_key"],
+                           "t_issue": t_issue}
+                cut_spec = _dev_snap_spec(
+                    candidate, CUT_TAG,
+                    cut_request_instant(candidate["date"]), gate_id)
+                cut = _acquire_snapshot(
+                    fixture, cut_spec, gate_id=gate_id,
+                    event_id=event["event_id"], receipts=receipts, gate=gate,
+                    recorder=recorder, api_key=api_key, raw_dir=raw_dir,
+                    journal_path=journal_path)
+                row["snapshots"][CUT_TAG] = cut
+                if cut.get("admissible"):
+                    row["covered"] = True
+                    covered += 1
+        except CreditCapError as exc:
+            aborted = str(exc)
+            if not recorder.usage:
+                raise
+
+        final_records = read_journal(journal_path)
+        cumulative = gate_spend(final_records, gate_id)
+        store_rows = 0
+        if store_root is not None:
+            store_rows = rebuild_store_from_receipts(
+                final_records, raw_dir=raw_dir, store_root=store_root)
+
+    actual = recorder.actual_spent()
+    overrun = None
+    if aborted is None and max_credits is not None and \
+            cumulative > max_credits:
+        overrun = (
+            f"cumulative journal spend {cumulative} credits for gate "
+            f"{gate_id} exceeds --max-credits {max_credits} — the walk "
+            "completed, but the cap did not hold")
+    return {"gate": gate_id, "mode": mode, "results": results,
+            "usage": recorder.usage, "spent": gate.spent,
+            "prior_spent": prior, "covered": covered, "n_dev": n_dev,
+            "walked": len(results), "aborted": aborted, "actual": actual,
+            "overrun": overrun, "store_rows": store_rows,
+            "cumulative": cumulative}
+
+
+def load_dev_candidates(store_path, cfg) -> tuple:
+    """Read the results store and apply THE_RULE + the acquisition scope."""
+    import pandas as pd
+
+    results = pd.read_parquet(Path(store_path) / "results.parquet")
+    return dev_candidates(results, cfg)
+
+
+def _dev_dry_run_transport(candidates) -> httpx.MockTransport:
+    """Recorded-shape mocks for the dev walk: every candidate is listed on
+    its own matchday (so resolution succeeds) with a 19:00Z kickoff, and
+    every snapshot carries Pinnacle at the eval dry-run's geometry. A
+    dry-run therefore covers the first n_dev candidates — the SHAPE of a
+    successful walk, never a claim about real coverage."""
+    by_day: dict = {}
+    for c in candidates:
+        by_day.setdefault((c["sport_key"], f"{c['date']}T00:00:00Z"),
+                          []).append(c)
+
+    def _event(c):
+        return {"id": f"dev_{c['match_id'][:16]}", "sport_key": c["sport_key"],
+                "commence_time": f"{c['date']}T19:00:00Z",
+                "home_team": c["home"], "away_team": c["away"]}
+
+    by_event = {_event(c)["id"]: c for c in candidates}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requested = request.url.params["date"]
+        parts = request.url.path.split("/")
+        if request.url.path.endswith("/events"):
+            listed = [_event(c) for c in by_day.get((parts[4], requested), [])]
+            return httpx.Response(200, json={
+                "timestamp": requested, "previous_timestamp": requested,
+                "next_timestamp": requested, "data": listed})
+        candidate = by_event[parts[6]]
+        stamp = _ts(requested) - _MOCK_SNAPSHOT_LAG
+        older = _iso(stamp - _MOCK_BOOK_LAG)
+        event = _event(candidate)
+        return httpx.Response(200, json={
+            "timestamp": _iso(stamp), "previous_timestamp": _iso(stamp),
+            "next_timestamp": _iso(stamp),
+            "data": {**event, "bookmakers": [
+                {"key": SHARP_BOOK, "last_update": older,
+                 "markets": [{"key": MARKET, "last_update": older,
+                              "outcomes": [
+                                  {"name": candidate["home"], "price": 2.10},
+                                  {"name": "Draw", "price": 3.30},
+                                  {"name": candidate["away"],
+                                   "price": 3.60}]}]}]}})
+
+    return httpx.MockTransport(handler)
+
+
+def assemble_dev_report(out, *, out_of_scope, cap, mocked) -> str:
+    """The G-B walk report — per-candidate verdicts plus the admissible
+    match_id list that feeds ``oa_dev_manifest.py --emit``."""
+    lines = ["# OA dev-slate acquisition — the G-B walk (OA Plan 2 v2, V4)",
+             ""]
+    if mocked:
+        lines += ["**MODE: DRY-RUN.** Mocked transport; every figure below "
+                  "is recorded-shape MOCK data, not real coverage.", ""]
+    else:
+        lines += ["**MODE: LIVE.** Real paid responses from The Odds API.",
+                  ""]
+    lines += [
+        "THE_RULE walks candidates chronologically and buys the CUT snapshot "
+        "first (admissibility is its property alone); T-24h follows only for "
+        "admissible fixtures, and the walk stops at n_dev covered — so an "
+        "uncovered candidate costs 10 credits, an unmatched one nothing "
+        "beyond its day's shared listing.",
+        "",
+        f"- covered: **{out['covered']} / {out['n_dev']}** "
+        f"(walked {out['walked']} candidates)",
+        f"- out-of-acquisition-scope candidates (never listed, by config "
+        f"evidence scope): {len(out_of_scope)}",
+        f"- cumulative gate spend: **{out['cumulative']}** vs cap {cap}",
+        f"- aborted: {out['aborted'] or '-'}",
+        f"- overrun: {out['overrun'] or '-'}",
+        "",
+        "| # | matchday | fixture | tournament | listed | cut admissible | "
+        "covered | notes |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for i, row in enumerate(out["results"], 1):
+        cut = row.get("snapshots", {}).get(CUT_TAG) or {}
+        note = row.get("error") or ""
+        lines.append(
+            f"| {i} | {row['date']} | {row['home']} v {row['away']} | "
+            f"{row['tournament']} | "
+            f"{'y' if row.get('event_found') else 'n'} | "
+            f"{'y' if cut.get('admissible') else 'n'} | "
+            f"{'y' if row.get('covered') else 'n'} | "
+            f"{_table_text(note) if note else '-'} |")
+    lines += ["", "## Admissible match ids (the dev-manifest evidence)", ""]
+    for row in out["results"]:
+        if row.get("covered"):
+            lines.append(f"- {row['match_id']}")
+    lines.append("")
+    return "\n".join(lines)
+
+
 # ----------------------------------------------------------------------- CLI
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
@@ -1597,9 +1986,19 @@ def main(argv=None) -> int:
                     help="which approved spend gate this run bills to; the "
                          "journal tags every row with it and --max-credits "
                          "caps the GATE total across resumed runs")
-    ap.add_argument("--fixtures", required=True,
+    ap.add_argument("--fixtures", default=None,
                     help="YAML manifest: fixtures: [{fixture_id, pool, date "
-                         "(venue-LOCAL matchday), home, away, kickoff_utc}]")
+                         "(venue-LOCAL matchday), home, away, kickoff_utc}] "
+                         "— the EVAL plan (required unless --dev)")
+    ap.add_argument("--dev", action="store_true",
+                    help="walk the DEVELOPMENT slate instead of a fixtures "
+                         "manifest: candidates come from THE_RULE applied to "
+                         "the results store, kickoffs from the discovered "
+                         "listings, and the walk stops at "
+                         "oa_dev_slate.n_dev covered (G-B / V4)")
+    ap.add_argument("--results-store", default=str(DEV_RESULTS_STORE),
+                    help=f"--dev only: results store THE_RULE reads "
+                         f"(default {DEV_RESULTS_STORE})")
     ap.add_argument("--dry-run", action="store_true",
                     help="mocked transport, zero network, zero credits (the "
                          "DEFAULT when no mode flag is given)")
@@ -1633,8 +2032,18 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.live and args.dry_run:
         ap.error("--live and --dry-run are mutually exclusive")
+    if args.dev and args.fixtures:
+        ap.error("--dev and --fixtures are mutually exclusive: the dev walk "
+                 "derives its candidates from THE_RULE + the results store, "
+                 "never from a hand-supplied manifest")
+    if not args.dev and not args.fixtures:
+        ap.error("--fixtures is required (or --dev for the development walk)")
+    if args.dev and args.gate_id != DEV_GATE:
+        ap.error(f"--dev bills to gate {DEV_GATE!r} (the development-slate "
+                 f"gate); got --gate-id {args.gate_id!r}")
     if args.out is None:
-        args.out = OUT_DEFAULT.format(gate=args.gate_id)
+        args.out = (DEV_OUT_DEFAULT if args.dev
+                    else OUT_DEFAULT.format(gate=args.gate_id))
 
     if args.store and not args.live:
         # A dry-run's prices are fabricated, and load_odds_snapshots labels
@@ -1657,15 +2066,40 @@ def main(argv=None) -> int:
                  "and the flock guards that one path — a per-run journal "
                  "would restore zero spend and authorize the whole cap again")
 
-    sport_keys = load_config()["odds"]["sport_keys"]
-    fixtures = load_fixture_manifest(args.fixtures)
-    groups = build_plan(fixtures, sport_keys, args.gate_id)
-    rows = plan_rows(groups)
-    projected = project_credits(rows)
-    n_disc = sum(1 for r in rows if r["kind"] == "discovery")
-    print(f"gate {args.gate_id}: {n_disc} discovery call(s) + "
-          f"{len(rows) - n_disc} snapshot call(s), projected {projected} "
-          "credits (whole plan; already-receipted calls are skipped)")
+    if args.dev:
+        dev_cfg = load_dev_slate_config()
+        n_dev = dev_cfg.get("n_dev")
+        if not n_dev:
+            print("ABORT: oa_dev_slate.n_dev is unset — the walk's stopping "
+                  "rule is a PRE-REGISTERED number, never a yield",
+                  file=sys.stderr)
+            return 1
+        candidates, out_of_scope = load_dev_candidates(
+            args.results_store, dev_cfg)
+        days = len({(c["sport_key"], c["date"]) for c in candidates})
+        # The CEILING, printed so the cap is judged against a mechanical
+        # number: every candidate day lists once and every walked candidate
+        # buys ONE cut snapshot (cut-only, see the walk's header). This is
+        # the cost of walking EVERY candidate — the walk stops at n_dev
+        # covered, so real spend is at most this and usually far below.
+        ceiling = (days * DISCOVERY_CREDITS
+                   + len(candidates) * SNAPSHOT_CREDITS)
+        print(f"gate {args.gate_id} DEV WALK: {len(candidates)} candidate(s) "
+              f"across {days} (sport_key, matchday) listing(s), target "
+              f"n_dev={n_dev}; worst-case ceiling {ceiling} credits "
+              f"(walk stops at n_dev covered; {len(out_of_scope)} candidate(s)"
+              " out of acquisition scope, never listed)")
+        fixtures, sport_keys = [], {}
+    else:
+        sport_keys = load_config()["odds"]["sport_keys"]
+        fixtures = load_fixture_manifest(args.fixtures)
+        groups = build_plan(fixtures, sport_keys, args.gate_id)
+        rows = plan_rows(groups)
+        projected = project_credits(rows)
+        n_disc = sum(1 for r in rows if r["kind"] == "discovery")
+        print(f"gate {args.gate_id}: {n_disc} discovery call(s) + "
+              f"{len(rows) - n_disc} snapshot call(s), projected {projected} "
+              "credits (whole plan; already-receipted calls are skipped)")
 
     if args.live:
         api_key = os.environ.get("ODDS_API_KEY")
@@ -1691,7 +2125,8 @@ def main(argv=None) -> int:
         store = Path(args.store or STORE_DEFAULT)
     else:
         mode, cap = "dry-run", None
-        transport = _dry_run_transport(fixtures, sport_keys)
+        transport = (_dev_dry_run_transport(candidates) if args.dev
+                     else _dry_run_transport(fixtures, sport_keys))
         api_key = _DRY_RUN_KEY
         raw_dir = Path(args.raw_dir or RAW_DIR_DRY_RUN_DEFAULT)
         journal = Path(args.journal or JOURNAL_DRY_RUN_DEFAULT)
@@ -1708,17 +2143,26 @@ def main(argv=None) -> int:
         return 1
 
     try:
-        summary = run_acquisition(
-            gate_id=args.gate_id, fixtures=fixtures, sport_keys=sport_keys,
-            api_key=api_key, transport=transport, max_credits=cap,
-            raw_dir=raw_dir, journal_path=journal, store_root=store,
-            mode=mode)
+        if args.dev:
+            summary = run_dev_acquisition(
+                api_key=api_key, transport=transport, max_credits=cap,
+                raw_dir=raw_dir, journal_path=journal, candidates=candidates,
+                n_dev=n_dev, gate_id=args.gate_id, store_root=store,
+                mode=mode)
+        else:
+            summary = run_acquisition(
+                gate_id=args.gate_id, fixtures=fixtures,
+                sport_keys=sport_keys, api_key=api_key, transport=transport,
+                max_credits=cap, raw_dir=raw_dir, journal_path=journal,
+                store_root=store, mode=mode)
     except (CreditCapError, AcquisitionError) as exc:
         print(f"ABORT: {exc}", file=sys.stderr)
         return 1
 
-    md = assemble_report(summary, cap=cap,
-                         mocked=type(transport) is not httpx.HTTPTransport)
+    mocked = type(transport) is not httpx.HTTPTransport
+    md = (assemble_dev_report(summary, out_of_scope=out_of_scope, cap=cap,
+                              mocked=mocked) if args.dev
+          else assemble_report(summary, cap=cap, mocked=mocked))
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(md)

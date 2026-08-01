@@ -169,10 +169,48 @@ oa_dev_slate:
   # from a hunch is exactly the degrees of freedom the freeze exists to
   # remove. Values are martj42 `tournament` labels (the store's vocabulary),
   # not Odds-API sport keys.
-  competitions: []
-  # null until the mini-probe sizes it against the G-B cap (target ~300).
-  n_dev: null
+  #
+  # 2026-08-01 USER RULING at the G-B spend gate (cap 6,650): the four
+  # competitions the slate probe verified covered WITH Pinnacle
+  # (reports/oa_slate_probe.md — Copa América 2024, AFCON 2023/24 finals,
+  # WCQ CONMEBOL 2025, and UEFA NL after the marquee-tier re-probe showed
+  # Pinnacle on Netherlands v Spain T-1h; the Armenia absences were fixture
+  # size, not competition policy).
+  competitions:
+    - Copa América
+    - African Cup of Nations
+    - UEFA Nations League
+    - FIFA World Cup qualification
+  # 2026-08-01 USER RULING: 300, frozen BEFORE any dev snapshot is bought.
+  # The rule truncates to the first 300 with admissible coverage; the G-B
+  # cap is the binding backstop if coverage runs thinner than probed.
+  n_dev: 300
   manifest_path: config/oa_dev_manifest.yaml
+  # ACQUISITION-ONLY evidence scope (bounds SPEND, never selection): which
+  # Odds-API key each competition's listings are bought on, exactly as the
+  # probe verified them. `participants` restricts which candidate matchdays
+  # buy a listing — the store label "FIFA World Cup qualification" spans
+  # every confederation, but the probed key carries ONLY CONMEBOL, so
+  # non-CONMEBOL WCQ candidates are never listed, never match, and fall out
+  # of the slate as not-admissible under the unchanged frozen rule.
+  acquisition:
+    sport_keys:
+      Copa América: soccer_conmebol_copa_america
+      African Cup of Nations: soccer_africa_cup_of_nations
+      UEFA Nations League: soccer_uefa_nations_league
+      FIFA World Cup qualification: soccer_fifa_world_cup_qualifiers_south_america
+    participants:
+      FIFA World Cup qualification:
+        - Argentina
+        - Bolivia
+        - Brazil
+        - Chile
+        - Colombia
+        - Ecuador
+        - Paraguay
+        - Peru
+        - Uruguay
+        - Venezuela
 live:
   # L1 SPEND GATE. dry_run=true => NO network, NO real odds spend, NO real bet:
   # the whole live pipeline runs against the fixture / the clearly-labelled-non-real
