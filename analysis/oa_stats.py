@@ -1,36 +1,37 @@
 #!/usr/bin/env python
 """Two-group block bootstrap for the post-hoc dev-slate tests.
 
-WHY NOT JUST RESAMPLE FIXTURES
-------------------------------
-The first cut resampled individual fixtures. The programme's own tested
-primitive (`wcmodel.eval.power.block_bootstrap_support`, used correctly by
-V10) resamples ``(pool, matchday)`` BLOCKS, because fixtures sharing a
-competition and a matchday are not independent — they share a fitted
-posterior, a market state, and a day. Resampling fixtures pretends to more
-independent information than exists and produces intervals that are too
-narrow in one direction and mis-centred in the other.
+This is the SECOND repair of this file. The first attempt claimed to fix a
+fixture-level bootstrap and did not actually implement the design it claimed;
+a Codex verification pass caught three things, all fixed here.
 
-The per-fixture PAIRING is preserved either way: each fixture is reduced to a
-single paired delta (book minus model) before any resampling happens. What
-the fixture bootstrap broke was between-fixture dependence, not the pairing.
+1. JOINT, NOT INDEPENDENT, BLOCK RESAMPLING.
+   The previous version resampled the two groups independently even when
+   their rows shared a ``(pool, matchday)`` block — 7 such blocks in H1, 21
+   in H2. Fixtures on the same matchday share a fitted posterior, a market
+   state and a day; resampling the groups apart destroys that common shock
+   and the cross-group covariance, so the difference of means no longer has
+   the sampling law the report claims. Blocks are now drawn WHOLE, carrying
+   whichever groups' rows they contain.
 
-WHY IT LIVES HERE AND NOT IN src/
----------------------------------
-``CODE_PATHS = ("src", "scripts")`` is what the OA lock attests to. This is
-post-hoc analysis machinery that must never price a forecast, so putting it
-in ``src/`` would both invalidate the lock and imply the attested pipeline
-had changed. It is tested (``tests/analysis/test_oa_stats.py``) — the point
-of the earlier failure was untested ad-hoc code, not its directory.
+2. STRATIFIED WITHIN POOL.
+   ``_blocks`` keyed on ``(pool, date)`` and then threw the keys away,
+   pooling every block into one urn. The repository's own primitive
+   (``wcmodel.eval.power.block_bootstrap_support``) resamples within pool
+   strata. Now so does this.
 
-ONE DECISION RULE, NOT TWO
---------------------------
-The first cut reported ``mean(boot >= 0)`` as a "one-sided p" while
-certifying on the 97.5th percentile — a 5% bar and a 2.5% bar in the same
-report. Here the rule is stated once, in ``ALPHA``, and both the interval and
-the test are derived from it. The p-value is NULL-CENTRED: the bootstrap
-distribution is recentred on zero before the tail is read, because
-``P(uncentred estimate >= 0)`` is bootstrap sign support, not a p-value.
+3. REAL DUALITY BETWEEN THE INTERVAL AND THE TEST.
+   The previous version reported a two-sided 95% interval (2.5% per tail)
+   beside a one-sided 5% test and called that "one alpha". They are different
+   bars, which is how H2 came to be described as excluding zero when a
+   higher-precision run put the bound on the other side. The interval is now
+   two-sided at ``1 - 2*alpha`` — 90% for alpha=0.05 — which is exactly dual
+   to the one-sided test, so "p <= alpha" and "the interval excludes zero"
+   cannot disagree.
+
+``alternative`` is explicit. Exploratory questions with no pre-committed
+direction must pass ``two_sided``; reading a one-sided tail off whichever way
+the estimate happens to point is not a test.
 """
 from __future__ import annotations
 
@@ -39,92 +40,152 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-#: The single, explicit significance level. Everything below derives from it.
+#: The single significance level. The interval derives from it, not beside it.
 ALPHA = 0.05
+REQUIRED = ("pool", "date", "delta")
 
 
 @dataclass(frozen=True)
 class GroupGap:
-    """Difference in mean delta between two groups, with block inference."""
     gap: float
     ci_low: float
     ci_high: float
-    p_one_sided: float
+    p: float
+    alternative: str
     n_a: int
     n_b: int
-    blocks_a: int
-    blocks_b: int
+    n_blocks: int
+    n_shared_blocks: int
     alpha: float
 
     @property
     def significant(self) -> bool:
-        """One-sided at ``alpha`` in the DIRECTION THE GAP POINTS.
+        return self.p <= self.alpha
 
-        A single rule, applied to the null-centred tail. The interval is
-        reported alongside for magnitude, never as a second, stricter gate.
-        """
-        return self.p_one_sided <= self.alpha
-
-
-def _blocks(frame: pd.DataFrame) -> dict:
-    """Map (pool, date) -> the delta values in that block."""
-    out: dict = {}
-    for key, grp in frame.groupby(["pool", "date"], observed=True):
-        out[key] = grp["delta"].to_numpy()
-    return out
+    @property
+    def ci_excludes_zero(self) -> bool:
+        return self.ci_low > 0 or self.ci_high < 0
 
 
-def _resample(blocks: list, rng) -> float:
-    """Mean of one block-bootstrap replicate: draw whole blocks with
-    replacement, then pool their fixtures."""
-    picked = rng.integers(0, len(blocks), size=len(blocks))
-    drawn = np.concatenate([blocks[i] for i in picked])
-    return float(drawn.mean())
+def _check(frame: pd.DataFrame, name: str) -> None:
+    missing = [c for c in REQUIRED if c not in frame.columns]
+    if missing:
+        raise ValueError(f"{name} lacks {missing} — the block bootstrap needs "
+                         "pool and date, and a frame that dropped them cannot "
+                         "be blocked")
+    if frame.empty:
+        raise ValueError(f"{name} is empty")
 
 
-def two_group_gap(frame_a: pd.DataFrame, frame_b: pd.DataFrame, *,
-                  n_boot: int = 10000, seed: int = 20260611,
-                  alpha: float = ALPHA) -> GroupGap:
-    """Block-bootstrap the difference ``mean(a) - mean(b)``.
+def _joint_blocks(frame_a, frame_b):
+    """(pool -> list of blocks), each block = (a_values, b_values).
 
-    Both frames need ``pool``, ``date`` and ``delta``. Blocks are resampled
-    independently within each group, which is the correct null for "these two
-    groups have the same mean delta".
+    A block is one (pool, matchday). It carries BOTH groups' rows for that
+    matchday, so drawing it keeps them together and preserves the shared
+    shock in the difference.
     """
-    for name, frame in (("a", frame_a), ("b", frame_b)):
-        missing = {"pool", "date", "delta"} - set(frame.columns)
-        if missing:
-            raise ValueError(f"frame_{name} lacks {sorted(missing)} — the "
-                             "block bootstrap needs pool and date, and a "
-                             "frame that dropped them cannot be blocked")
-        if frame.empty:
-            raise ValueError(f"frame_{name} is empty")
+    a = frame_a.assign(_g="a")
+    b = frame_b.assign(_g="b")
+    both = pd.concat([a, b], ignore_index=True)
+    strata: dict = {}
+    shared = 0
+    for (pool, date), grp in both.groupby(["pool", "date"], observed=True):
+        av = grp.loc[grp["_g"] == "a", "delta"].to_numpy()
+        bv = grp.loc[grp["_g"] == "b", "delta"].to_numpy()
+        if len(av) and len(bv):
+            shared += 1
+        strata.setdefault(pool, []).append((av, bv))
+    return strata, shared
 
-    blocks_a = list(_blocks(frame_a).values())
-    blocks_b = list(_blocks(frame_b).values())
+
+def _replicate(strata, rng) -> float:
+    """One joint block-bootstrap draw of mean(a) - mean(b).
+
+    Blocks are drawn with replacement WITHIN each pool, matching the
+    repository's stratified primitive. Returns NaN when a draw happens to
+    contain no rows for one group — those replicates carry no information
+    about a difference and are dropped rather than silently treated as zero.
+    """
+    a_parts, b_parts = [], []
+    for blocks in strata.values():
+        idx = rng.integers(0, len(blocks), size=len(blocks))
+        for i in idx:
+            av, bv = blocks[i]
+            if len(av):
+                a_parts.append(av)
+            if len(bv):
+                b_parts.append(bv)
+    if not a_parts or not b_parts:
+        return float("nan")
+    return float(np.concatenate(a_parts).mean()
+                 - np.concatenate(b_parts).mean())
+
+
+def two_group_gap(frame_a, frame_b, *, n_boot: int = 10000,
+                  seed: int = 20260611, alpha: float = ALPHA,
+                  alternative: str = "less") -> GroupGap:
+    """Block-bootstrap ``mean(a) - mean(b)`` with joint, pool-stratified blocks.
+
+    ``alternative``: ``less`` / ``greater`` for a pre-committed direction,
+    ``two_sided`` for exploratory comparisons where the direction was not
+    fixed in advance.
+    """
+    if alternative not in ("less", "greater", "two_sided"):
+        raise ValueError(f"alternative must be less/greater/two_sided, "
+                         f"got {alternative!r}")
+    _check(frame_a, "frame_a")
+    _check(frame_b, "frame_b")
+
+    strata, shared = _joint_blocks(frame_a, frame_b)
     rng = np.random.default_rng(seed)
-    reps = np.array([_resample(blocks_a, rng) - _resample(blocks_b, rng)
-                     for _ in range(n_boot)])
+    reps = np.array([_replicate(strata, rng) for _ in range(n_boot)])
+    reps = reps[~np.isnan(reps)]
+    if reps.size < n_boot // 2:
+        raise ValueError("more than half the bootstrap replicates were "
+                         "uninformative — the groups share too few blocks "
+                         "for this design")
 
     gap = float(frame_a["delta"].mean() - frame_b["delta"].mean())
-    lo, hi = np.percentile(reps, [100 * alpha / 2, 100 * (1 - alpha / 2)])
-    # NULL-CENTRED tail: recentre the replicate distribution on zero, then ask
-    # how often it reaches at least as far as the observed gap, in the
-    # direction the gap points. This is a p-value; P(uncentred >= 0) is not.
     centred = reps - reps.mean()
-    p = (float((centred <= gap).mean()) if gap < 0
-         else float((centred >= gap).mean()))
-    return GroupGap(gap=gap, ci_low=float(lo), ci_high=float(hi),
-                    p_one_sided=p, n_a=len(frame_a), n_b=len(frame_b),
-                    blocks_a=len(blocks_a), blocks_b=len(blocks_b),
-                    alpha=alpha)
+
+    # PIVOTAL (basic) interval, not percentile. A percentile interval and a
+    # null-centred p are only APPROXIMATELY dual — they agree when the
+    # bootstrap distribution is symmetric and drift apart when it is not,
+    # which is how a "significant" result can carry an interval containing
+    # zero. The pivotal form gap - q(centred) makes the duality exact:
+    # for `less`, p <= alpha  <=>  gap <= q_alpha(centred)  <=>  ci_high < 0.
+    tail = 100 * (alpha if alternative != "two_sided" else alpha / 2)
+    c_lo, c_hi = np.percentile(centred, [tail, 100 - tail])
+    lo, hi = gap - c_hi, gap - c_lo
+
+    if alternative == "less":
+        p = float((centred <= gap).mean())
+    elif alternative == "greater":
+        p = float((centred >= gap).mean())
+    else:
+        p = float((np.abs(centred) >= abs(gap)).mean())
+
+    return GroupGap(gap=gap, ci_low=float(lo), ci_high=float(hi), p=p,
+                    alternative=alternative, n_a=len(frame_a),
+                    n_b=len(frame_b),
+                    n_blocks=sum(len(v) for v in strata.values()),
+                    n_shared_blocks=shared, alpha=alpha)
 
 
-def block_ci(frame: pd.DataFrame, *, n_boot: int = 10000,
-             seed: int = 20260611, alpha: float = ALPHA) -> tuple:
-    """(mean, lo, hi) for one group's mean delta, blocked the same way."""
-    blocks = list(_blocks(frame).values())
+def block_ci(frame, *, n_boot: int = 10000, seed: int = 20260611,
+             alpha: float = ALPHA) -> tuple:
+    """(mean, lo, hi) for one group, pool-stratified block resampling."""
+    _check(frame, "frame")
+    strata: dict = {}
+    for (pool, date), grp in frame.groupby(["pool", "date"], observed=True):
+        strata.setdefault(pool, []).append(grp["delta"].to_numpy())
     rng = np.random.default_rng(seed)
-    reps = np.array([_resample(blocks, rng) for _ in range(n_boot)])
-    lo, hi = np.percentile(reps, [100 * alpha / 2, 100 * (1 - alpha / 2)])
+    reps = []
+    for _ in range(n_boot):
+        parts = []
+        for blocks in strata.values():
+            idx = rng.integers(0, len(blocks), size=len(blocks))
+            parts.extend(blocks[i] for i in idx)
+        reps.append(np.concatenate(parts).mean())
+    lo, hi = np.percentile(reps, [100 * alpha, 100 * (1 - alpha)])
     return float(frame["delta"].mean()), float(lo), float(hi)

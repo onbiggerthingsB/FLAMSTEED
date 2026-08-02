@@ -11,42 +11,40 @@ H2 predicts a NEGATIVE gap: the deficit widens with disagreement. delta = RPS(bo
 
 ### Population
 
-- dev-slate fixtures **259**, knockout excluded **54**, admitted **205**
+- dev-slate fixtures **259**, knockout excluded **40**, admitted **219**
 
 ### Result
 
-- gap (|disagreement| ≥ 10% minus < 4%): **-0.02556**
-- 95% block-bootstrap CI: [-0.05185, -0.00032]
-- one-sided null-centred p (α=0.05): **0.0286**
-- blocks: 39 extreme, 45 agree
+- gap (|disagreement| ≥ 10% minus < 4%): **-0.02533**
+- 90% block-bootstrap CI (dual to the one-sided α=0.05 test): [-0.04523, -0.00430]
+- one-sided null-centred p: **0.0244**
+- blocks: 67 pool × matchday, of which 21 contain BOTH groups and are drawn whole
 
-One α governs both the interval and the test. The earlier version reported a 5% tail beside a 97.5th-percentile gate — two different bars in one report.
+The interval is two-sided at 1−2α, which is the interval DUAL to a one-sided α test, so significance and interval-exclusion cannot disagree. The previous version paired a 5% tail with a 97.5th-percentile gate and reported an exclusion that a higher-precision run put on the other side of zero.
 
 | disagreement band | n | mean delta | CI | model wins |
 |---|---|---|---|---|
-| model much lower | 23 | -0.01787 | [-0.06594, +0.03012] | 43% |
-| model lower | 36 | +0.00181 | [-0.01687, +0.02042] | 42% |
-| agree (±4%) | 64 | +0.00229 | [-0.00233, +0.00705] | 52% |
-| model higher | 56 | -0.00326 | [-0.01350, +0.00600] | 57% |
-| model much higher | 26 | -0.02805 | [-0.07902, +0.01703] | 50% |
+| model much lower | 23 | -0.01787 | [-0.05515, +0.02095] | 43% |
+| model lower | 38 | +0.00355 | [-0.01020, +0.01652] | 45% |
+| agree (±4%) | 71 | +0.00205 | [-0.00146, +0.00566] | 51% |
+| model higher | 61 | -0.00455 | [-0.01237, +0.00298] | 54% |
+| model much higher | 26 | -0.02805 | [-0.06721, +0.00991] | 50% |
 
 ### Noise or bias?
 
 - model much LOWER than market (n=23): -0.01787
 - model much HIGHER than market (n=26): -0.02805
-- difference between tails: -0.01018 [-0.07927, +0.05763], p 0.3835
+- difference between tails: -0.01018 [-0.08918, +0.07504], p 0.8137 (two-sided)
 
 **No asymmetry detected.** This is NOT evidence of symmetry: the interval is far too wide to exclude a meaningful bias, and bias and variance can coexist. It means the data cannot separate them.
 
-### What would it take to see this? (design curve)
+### What would it take to see this? (sensitivity grid)
 
-Detection probability at the CURRENT sample for effects declared in advance — not the observed estimate plugged into a power formula, which is what the withdrawn ~811-fixture figure did.
+Detection rate at the CURRENT sample and block structure for each effect size. This grid is POST-HOC — chosen while writing the repair, with the estimate already known — so read it as design guidance, not as evidence about which effect is real. It is still preferable to the withdrawn ~811-fixture figure, which plugged the observed noisy estimate into an iid power formula and then treated the answer as evidence the effect was real.
 
-| true effect | detected |
+| effect | detected |
 |---|---|
-| -0.010 | 0% |
-| -0.020 | 0% |
-| -0.030 | 25% |
-| -0.050 | 98% |
-
-Read it as design guidance, not as evidence about which effect is real.
+| -0.010 | 8% |
+| -0.020 | 23% |
+| -0.030 | 55% |
+| -0.050 | 95% |

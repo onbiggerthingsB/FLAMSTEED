@@ -14,7 +14,9 @@ _ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT / "analysis"))
 sys.path.insert(0, str(_ROOT / "src"))
 
-from oa_devslate import build, is_knockout                    # noqa: E402
+from oa_devslate import (                                    # noqa: E402
+    build, extra_time_possible, is_knockout,
+)
 
 
 # ------------------------------------------------- stage classification
@@ -49,8 +51,12 @@ def test_classification_never_consults_the_result():
     score: the answer cannot move, because the signature has nowhere to put
     one."""
     import inspect
-    params = set(inspect.signature(is_knockout).parameters)
-    assert params == {"tournament", "date"}
+    assert set(inspect.signature(is_knockout).parameters) == {
+        "tournament", "date"}
+    # extra_time_possible may see identities but never a score, an override,
+    # or anything else produced by playing the match.
+    assert set(inspect.signature(extra_time_possible).parameters) == {
+        "tournament", "date", "home", "away"}
 
 
 # --------------------------------------------------------- the population
@@ -59,13 +65,63 @@ def built():
     return build()
 
 
-def test_no_knockout_fixture_survives(built):
-    """The whole point: every admitted fixture had extra time structurally
-    unavailable, so its full-time score IS its 90-minute score."""
+def test_no_extra_time_possible_fixture_survives(built):
+    """The invariant: every admitted fixture had extra time structurally
+    unavailable, so its full-time score IS its 90-minute score. Note this is
+    NOT "no knockout fixture" — rounds that go straight from 90' to penalties
+    are safe, and excluding them cost 14 valid fixtures in the first repair."""
     frame, _ = built
-    leaked = [(r.tournament, r.date) for r in frame.itertuples(index=False)
-              if is_knockout(r.tournament, r.date)]
-    assert not leaked, f"knockout fixtures leaked into the population: {leaked}"
+    leaked = [(r.tournament, r.date, r.home, r.away)
+              for r in frame.itertuples(index=False)
+              if extra_time_possible(r.tournament, r.date, r.home, r.away)]
+    assert not leaked, f"extra-time-capable fixtures leaked: {leaked}"
+
+
+@pytest.mark.parametrize("home,away,date,present,why", [
+    # Same competition, adjacent rounds, opposite answers. These pin the
+    # REGULATION, not the classifier: reading them off one oracle is what
+    # made the previous version of this test tautological.
+    ("Argentina", "Colombia", "2024-07-14", False, "Copa final HAS extra time"),
+    ("Canada", "Uruguay", "2024-07-13", True, "Copa 3rd place: 90'->pens"),
+    ("Argentina", "Canada", "2024-07-09", True, "Copa SF: 90'->pens"),
+    # Same DATE, opposite answers — proof that date alone is insufficient.
+    ("Netherlands", "Italy", "2023-06-18", True, "NL 3rd place: no ET"),
+    ("Croatia", "Spain", "2023-06-18", False, "NL final HAS extra time"),
+    ("Germany", "France", "2025-06-08", True, "NL 3rd place: no ET"),
+    ("Portugal", "Spain", "2025-06-08", False, "NL final HAS extra time"),
+    # Two-legged tie: first leg cannot reach ET, second leg can.
+    ("Netherlands", "Spain", "2025-03-20", True, "NL QF first leg: no ET"),
+    ("Spain", "Netherlands", "2025-03-23", False, "NL QF second leg: ET"),
+    # AFCON third place goes straight to penalties; the final does not.
+    ("Cameroon", "Burkina Faso", "2022-02-05", True, "AFCON 3rd: 90'->pens"),
+    ("Senegal", "Egypt", "2022-02-06", False, "AFCON final HAS extra time"),
+])
+def test_round_level_regulation_is_pinned(built, home, away, date, present,
+                                          why):
+    """Each case is a published-regulation fact, checked against the built
+    population rather than against the classifier that produced it."""
+    frame, _ = built
+    hit = frame[(frame.home == home) & (frame.away == away)
+                & (frame.date == date)]
+    assert (not hit.empty) is present, f"{home} v {away} {date}: {why}"
+
+
+def test_the_fourteen_safe_knockout_fixtures_are_admitted(built):
+    """The first repair excluded ALL knockouts and lost 14 valid fixtures.
+    They must be back, and they must be knockout — otherwise this passes
+    vacuously by the exclusion being wrong in the other direction."""
+    frame, _ = built
+    safe_ko = [r for r in frame.itertuples(index=False)
+               if is_knockout(r.tournament, r.date)]
+    assert len(safe_ko) == 14
+
+
+def test_an_unclassified_edition_fails_closed(built):
+    """Fail-open was the original bug's shape. An edition we have not
+    classified must raise, never be assumed regulation-only."""
+    from oa_devslate import DevSlateError
+    with pytest.raises(DevSlateError, match="unclassified edition"):
+        is_knockout("UEFA Nations League", "2027-06-10")
 
 
 @pytest.mark.parametrize("home,away,date", [
@@ -77,8 +133,8 @@ def test_no_knockout_fixture_survives(built):
 def test_the_four_mis_scored_extra_time_fixtures_are_gone(built, home, away,
                                                           date):
     """Golden cases. Each was previously scored on its ET-inclusive final,
-    turning a 90-minute DRAW into a home or away win. All four are knockout
-    ties and must now be excluded by stage."""
+    turning a 90-minute DRAW into a home or away win. All four are
+    extra-time-capable knockout ties and must be excluded."""
     frame, _ = built
     hit = frame[(frame.home == home) & (frame.away == away)
                 & (frame.date == date)]
@@ -89,10 +145,10 @@ def test_population_is_reported_not_silently_shrunk(built):
     """A shrinking sample must be visible. The counts have to add up."""
     frame, counts = built
     assert counts["admitted"] == len(frame)
-    assert counts["total"] == (counts["admitted"] + counts["knockout_excluded"]
+    assert counts["total"] == (counts["admitted"] + counts["extra_time_excluded"]
                                + counts["no_store_row"]
                                + counts["no_odds_comparator"])
-    assert counts["knockout_excluded"] > 0, "the exclusion must be non-vacuous"
+    assert counts["extra_time_excluded"] > 0, "the exclusion must be non-vacuous"
 
 
 def test_delta_sign_convention(built):

@@ -67,12 +67,56 @@ KNOCKOUT_FROM = {
     ("Copa América", 2024): "2024-07-04",             # QF after 07-02 groups
 }
 
-#: Editions that are knockout IN THEIR ENTIRETY. The Nations League finals
-#: (2023) and the 2025 quarter-finals + finals are single-elimination, so
-#: every fixture in those windows could reach extra time.
+#: Editions that are knockout IN THEIR ENTIRETY: the Nations League 2023
+#: finals and the 2025 quarter-finals + finals are single-elimination.
 ALL_KNOCKOUT_EDITIONS = {
     ("UEFA Nations League", 2023),
     ("UEFA Nations League", 2025),
+}
+
+#: Every edition this module claims to classify. An edition outside this set
+#: is REFUSED rather than assumed to be regulation-only: silently admitting
+#: an unrecognised knockout round is the original bug's failure mode.
+KNOWN_EDITIONS = {
+    ("African Cup of Nations", 2022), ("African Cup of Nations", 2024),
+    ("African Cup of Nations", 2025), ("Copa América", 2024),
+    ("FIFA World Cup qualification", 2025),
+    ("UEFA Nations League", 2022), ("UEFA Nations League", 2023),
+    ("UEFA Nations League", 2024), ("UEFA Nations League", 2025),
+}
+
+#: Knockout fixtures where extra time was STRUCTURALLY IMPOSSIBLE, so full
+#: time IS the 90-minute score and they are safe to score.
+#:
+#: "Knockout" and "extra time possible" are not the same thing — assuming so
+#: over-excluded 14 valid fixtures. Per competition regulation:
+#:   AFCON        third-place match goes 90' -> penalties, no extra time.
+#:   Copa América 2024 QF, SF and third place go 90' -> penalties; ONLY the
+#:                final has extra time.
+#:   UEFA NL      two-legged QF first legs cannot reach extra time (it is
+#:                available only after the second leg on aggregate); the
+#:                third-place match has none.
+#: Keyed per fixture because date alone cannot separate a final from the
+#: third-place match played the same day.
+NO_EXTRA_TIME_FIXTURES = {
+    # AFCON third-place matches
+    ("2022-02-05", "Cameroon", "Burkina Faso"),
+    ("2024-02-10", "South Africa", "DR Congo"),
+    # Copa América 2024 quarter-finals, semi-finals, third place (NOT final)
+    ("2024-07-05", "Venezuela", "Canada"),
+    ("2024-07-06", "Colombia", "Panama"),
+    ("2024-07-06", "Uruguay", "Brazil"),
+    ("2024-07-09", "Argentina", "Canada"),
+    ("2024-07-10", "Uruguay", "Colombia"),
+    ("2024-07-13", "Canada", "Uruguay"),
+    # Nations League 2025 quarter-final FIRST legs
+    ("2025-03-20", "Netherlands", "Spain"),
+    ("2025-03-20", "Italy", "Germany"),
+    ("2025-03-20", "Denmark", "Portugal"),
+    ("2025-03-20", "Croatia", "France"),
+    # Nations League third-place matches
+    ("2023-06-18", "Netherlands", "Italy"),
+    ("2025-06-08", "Germany", "France"),
 }
 
 
@@ -81,17 +125,36 @@ class DevSlateError(RuntimeError):
 
 
 def is_knockout(tournament: str, date: str) -> bool:
-    """True if this fixture could have gone past 90 minutes.
+    """True if the fixture is in a knockout ROUND (not the same as ET-possible).
 
-    Determined by competition and calendar position only — never by score,
-    by ``winner_override``, or by anything else the match produced.
+    Competition and calendar position only — never the score, the
+    ``winner_override``, or anything else the match produced.
     """
     year = int(str(date)[:4])
     key = (str(tournament), year)
+    if key not in KNOWN_EDITIONS:
+        raise DevSlateError(
+            f"unclassified edition {key} — refusing to guess whether it has "
+            "a knockout phase. Add it to KNOWN_EDITIONS with its format, or "
+            "an unrecognised knockout round would be admitted and scored on "
+            "an extra-time-inclusive result")
     if key in ALL_KNOCKOUT_EDITIONS:
         return True
     cut = KNOCKOUT_FROM.get(key)
     return bool(cut and str(date) >= cut)
+
+
+def extra_time_possible(tournament: str, date: str, home: str,
+                        away: str) -> bool:
+    """True if this fixture could have gone past 90 minutes.
+
+    A knockout fixture whose round has no extra time by regulation is SAFE:
+    its full-time score is its 90-minute score. Still decided entirely by
+    competition, round and calendar — never by the result.
+    """
+    if not is_knockout(tournament, date):
+        return False
+    return (str(date), str(home), str(away)) not in NO_EXTRA_TIME_FIXTURES
 
 
 def build(*, dev_ledger=DEV_LEDGER, store=STORE) -> tuple[pd.DataFrame, dict]:
@@ -113,7 +176,7 @@ def build(*, dev_ledger=DEV_LEDGER, store=STORE) -> tuple[pd.DataFrame, dict]:
               for r in results.itertuples(index=False)}
 
     rows = []
-    counts = {"total": 0, "knockout_excluded": 0, "no_store_row": 0,
+    counts = {"total": 0, "extra_time_excluded": 0, "no_store_row": 0,
               "no_odds_comparator": 0}
     for (fid, pool, date, home, away) in wide.index:
         counts["total"] += 1
@@ -122,8 +185,8 @@ def build(*, dev_ledger=DEV_LEDGER, store=STORE) -> tuple[pd.DataFrame, dict]:
             counts["no_store_row"] += 1
             continue
         home_goals, away_goals, tournament = got
-        if is_knockout(tournament, date):
-            counts["knockout_excluded"] += 1
+        if extra_time_possible(tournament, date, home, away):
+            counts["extra_time_excluded"] += 1
             continue
         try:
             model = {k: float(wide.loc[(fid, pool, date, home, away),

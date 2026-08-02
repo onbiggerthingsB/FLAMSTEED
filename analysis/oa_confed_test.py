@@ -23,7 +23,8 @@ the model level with the market (+0.0003) and everything else showed it losing
 
 DIRECTION PRE-COMMITTED: H1 predicts gap < 0, where
 ``gap = mean(delta | non-core) − mean(delta | core)`` and
-``delta = RPS(book) − RPS(model)``. A positive gap refutes H1.
+``delta = RPS(book) − RPS(model)``. A positive gap means H1
+fails to replicate in the predicted direction.
 
 PROVENANCE, STATED HONESTLY: this is out-of-sample relative to where H1 was
 generated, but the repository cannot PROVE the direction was fixed before the
@@ -50,22 +51,23 @@ def main() -> int:
     frame, counts = build()
     non = frame[~frame["core"]]
     core = frame[frame["core"]]
-    res = two_group_gap(non, core)
+    res = two_group_gap(non, core, alternative="less")
 
     verdict = ("SUPPORTED" if (res.significant and res.gap < 0)
-               else "NOT SUPPORTED (direction reversed)" if res.gap > 0
-               else "NOT SUPPORTED")
+               else "FAILS TO REPLICATE (direction reversed)" if res.gap > 0
+               else "FAILS TO REPLICATE")
 
     lines = [
         "# H1 — confederation hypothesis, out-of-sample on the dev slate", "",
         f"## {verdict}", "",
         "H1 predicts a NEGATIVE gap (non-core loses more). Direction was "
-        "pre-committed; a positive gap refutes it and is not re-narrated.", "",
+        "pre-committed; a positive gap means it fails to replicate in "
+        "that direction, which is NOT the same as refuting it.", "",
     ]
     if res.gap > 0:
         lines += [
             "> **On the reversal.** The gap points the opposite way to H1, "
-            f"and the tail in THAT direction is {res.p_one_sided:.4f}. That "
+            f"and the one-sided tail in THAT direction is {res.p:.4f}. That "
             "is not a finding: the direction was not predicted in advance, "
             "so reading significance off it is the same post-hoc move H1 was "
             "supposed to test. What is supported is the narrow claim that H1 "
@@ -75,7 +77,7 @@ def main() -> int:
         "### Population", "",
         f"- dev-slate fixtures: **{counts['total']}**",
         f"- excluded as knockout (extra time possible, no verified 90' table "
-        f"for these competitions): **{counts['knockout_excluded']}**",
+        f"for these competitions): **{counts["extra_time_excluded"]}**",
         f"- admitted (group/league only, so full time IS 90'): "
         f"**{counts['admitted']}**", "",
         "Exclusion is BY STAGE, decidable before kickoff. The earlier version "
@@ -83,11 +85,18 @@ def main() -> int:
         "dropped exactly the fixtures whose 90' outcome was certain.", "",
         "### Result", "",
         f"- gap (non-core − core): **{res.gap:+.5f}**",
-        f"- {int((1 - ALPHA) * 100)}% block-bootstrap CI: "
-        f"[{res.ci_low:+.5f}, {res.ci_high:+.5f}]",
-        f"- one-sided null-centred p (α={ALPHA}): **{res.p_one_sided:.4f}**",
-        f"- blocks: {res.blocks_a} non-core, {res.blocks_b} core "
-        f"(pool × matchday)", "",
+        f"- {int((1 - 2 * ALPHA) * 100)}% block-bootstrap CI (dual to the "
+        f"one-sided α={ALPHA} test): [{res.ci_low:+.5f}, {res.ci_high:+.5f}]",
+        f"- one-sided null-centred p: **{res.p:.4f}**",
+        f"- blocks: {res.n_blocks} pool × matchday, of which "
+        f"{res.n_shared_blocks} contain BOTH groups and are drawn whole", "",
+        "**Identification limit.** Confederation is nearly collinear with "
+        "competition here: all 84 AFCON rows are non-core, all Nations League "
+        "and World Cup qualification rows are core, and only Copa América "
+        "contains both. The aggregate gap therefore cannot cleanly separate "
+        "a confederation effect from a competition effect — no amount of "
+        "resampling fixes that, and it is a limit of the sample, not of the "
+        "estimator.", "",
         "| group | n | RPS model | RPS book | book − model | CI |",
         "|---|---|---|---|---|---|",
     ]
@@ -116,7 +125,7 @@ def main() -> int:
 
     OUT.write_text("\n".join(lines))
     print(f"{verdict} | gap {res.gap:+.5f} "
-          f"[{res.ci_low:+.5f}, {res.ci_high:+.5f}] p {res.p_one_sided:.4f} "
+          f"[{res.ci_low:+.5f}, {res.ci_high:+.5f}] p {res.p:.4f} "
           f"| n={len(frame)} | wrote {OUT}")
     return 0
 

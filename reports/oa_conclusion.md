@@ -77,17 +77,23 @@ modestly behind most of the time and catastrophically behind occasionally.
 ## Two explanations, both tested, both honestly reported
 
 The diagnostic produced two candidate stories. Both were re-tested on the
-development slate, restricted to the **205 group/league fixtures where extra
-time was structurally impossible** (54 knockout fixtures excluded by stage —
-we hold no verified 90' table for AFCON, Copa América or the Nations League
-finals).
+development slate, restricted to the **219 fixtures where extra time was
+structurally impossible** — group and league matches, plus the knockout
+rounds that go straight from 90 minutes to penalties (AFCON third place,
+Copa América quarter-finals through third place, Nations League first legs
+and third-place matches). 40 extra-time-capable fixtures are excluded; we
+hold no verified 90' table for them.
 
 *A note on provenance, since it cuts against me.* An earlier run of these
 tests excluded shootouts — selection on the outcome, and they were the
 fixtures whose 90' result was certain — and scored knockout ties on
 extra-time-inclusive finals, mislabelling four matches. It also resampled
-individual fixtures rather than (pool, matchday) blocks. Those numbers are
-withdrawn. And while the predicted directions were written down before
+individual fixtures rather than (pool, matchday) blocks. A second review
+then found that the first repair still mis-specified the design: it excluded
+ALL knockouts (losing 14 fixtures whose rounds have no extra time by
+regulation), resampled the two groups independently even when they shared a
+matchday, and paired a one-sided test with a two-sided interval. Both sets of
+numbers are withdrawn; what follows is the third and current computation. And while the predicted directions were written down before
 computing, the repository cannot PROVE it: hypothesis code and results landed
 in single commits. Treat both as replication attempts, not auditable
 preregistrations.
@@ -95,8 +101,8 @@ preregistrations.
 **Confederation — DOES NOT REPLICATE.** The eval pool suggested the model
 was level with the market between UEFA/CONMEBOL teams (+0.0003) and lost
 everywhere else (−0.0182), which reads as thin rating history. On the
-corrected dev slate the pattern **inverted**: gap **+0.0136**, block CI
-[−0.0018, +0.0288]. H1 predicted a negative gap and got a positive one.
+corrected dev slate the pattern **inverted**: gap **+0.0131**, block CI
+[+0.0015, +0.0246], one-sided p **0.97** against the predicted direction. H1 predicted a negative gap and got a positive one.
 
 "Refuted" was too strong and is withdrawn — refuting a hypothesis needs an
 equivalence or reverse-rejection rule, and none was set. What is supported is
@@ -112,8 +118,8 @@ would have been built on a lead that does not exist.
 **Disagreement — REPLICATED, STILL NOT CERTIFIED.** When the model departs
 sharply from the market in *either* direction, it loses. On the corrected
 population the U-shape holds: much-lower −0.0179, agree +0.0023, much-higher
-−0.0281. The gap is **−0.0256**, block CI [−0.0519, −0.0003], one-sided
-p 0.029.
+−0.0281. The gap is **−0.0253**, block CI [−0.0452, −0.0043], one-sided
+p **0.024**.
 
 That clears a 5% bar — and it is still **not a certification**, for a reason
 worth stating plainly. The first run used an internally inconsistent rule (a
@@ -121,16 +127,19 @@ worth stating plainly. The first run used an internally inconsistent rule (a
 missed. Correcting to a single one-sided α is the right construction and
 would have been right from the start, but it was adopted *after* the
 near-miss was visible. A rule that turns a miss into a pass once the data are
-seen cannot certify anything. The interval also only barely excludes zero.
+seen cannot certify anything. An independent reviewer, asked to argue both
+sides, reached the same ruling.
 
 The earlier claim that H2 "misses on power, not signal" is **withdrawn**:
 plugging an observed effect into a power formula cannot establish that the
 effect is real, and the ~811-fixture figure derived from it is withdrawn with
-it. `oa_disagreement_test.md` now carries a design curve over effect sizes
-declared in advance instead.
+it. `oa_disagreement_test.md` now carries a sensitivity grid instead —
+block-resampled, and labelled post-hoc, because those effect sizes were also
+chosen with the estimate already known.
 
-Both tails lose, and no asymmetry is detected (difference −0.0102, CI
-[−0.0793, +0.0576]). That is **not** evidence of symmetry — the interval is
+Both tails lose, and no asymmetry is detected on a two-sided test — the
+question had no pre-committed direction, so a one-sided tail read off
+whichever way the estimate pointed would not have been a test at all. That is **not** evidence of symmetry — the interval is
 far too wide to exclude a meaningful bias, and bias and variance can coexist.
 The honest statement is that this data cannot separate them, so "variance,
 not bias, therefore shrinkage" is withdrawn as a conclusion.
@@ -138,9 +147,17 @@ not bias, therefore shrinkage" is withdrawn as a conclusion.
 ## What this leaves
 
 We do not currently have a validated direction for improving the model. That
-is the honest state. The two leads this programme generated are one refuted
-and one uncertified, and further slicing of the same 217 + 205 fixtures is
+is the honest state. The two leads this programme generated are one that
+fails to replicate and one uncertified, and further slicing of the same 217 + 219 fixtures is
 fishing, not analysis.
+
+**H1 could not have answered its question with this sample**, whatever the
+statistics. Confederation is nearly collinear with competition here: all 84
+AFCON rows are non-core, every Nations League and World Cup qualification row
+is core, and only Copa América contains both. No resampling separates a
+confederation effect from a competition effect under that design. That is a
+limit of the data, not of the estimator, and it should have been checked
+before the test was run.
 
 One untested idea is on the record precisely so it is not mistaken for a
 finding: the deficit concentrates where the model disagrees with the market,
@@ -153,8 +170,15 @@ w=0.95. It was generated post-hoc from the same data that would test it.
 
 9,009 API credits (G-A eval 4,495; G-B development 4,514) against a ~20,000
 monthly allowance. Two hypotheses tested — not resolved; one fails to
-replicate and one remains uncertified — for the price of a few scripts and no
-additional credits.
+replicate and one remains uncertified — for the price of a few scripts, two
+adversarial reviews and no additional credits.
+
+The reviews were the best-value part. They found a settlement bug that turned
+90-minute draws into wins, a bootstrap that ignored the dependence it claimed
+to model, a decision rule that contradicted itself, and an over-exclusion that
+discarded 14 valid fixtures. Every one of those was in hand-written analysis
+code that bypassed tested primitives the locked pipeline already used
+correctly. The headline result never moved.
 
 ## Why the negative result was worth buying
 
