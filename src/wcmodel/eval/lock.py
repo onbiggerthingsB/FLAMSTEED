@@ -79,9 +79,15 @@ def _git(*args) -> str:
 
 
 def working_tree_clean() -> bool:
-    """A lock taken over a dirty tree names a commit that does not contain
-    the bytes it hashed — the code_commit would be a lie."""
-    return _git("status", "--porcelain") == ""
+    """No TRACKED file differs from HEAD.
+
+    A lock taken over modified tracked files names a commit that does not
+    contain the bytes it hashed — ``code_commit`` would be a lie. Untracked
+    files are deliberately ignored: they are not part of the tree the
+    commit describes, so scratch work beside the repo cannot block a lock
+    (nor can it change what the lock attests).
+    """
+    return _git("status", "--porcelain", "--untracked-files=no") == ""
 
 
 def lock_versions(lock_dir=LOCK_DIR) -> list:
