@@ -71,6 +71,12 @@ LOCKED_DOCUMENTS = {
 }
 
 
+#: The paths whose bytes DETERMINE a forecast. A lock attests to these;
+#: reports and lock bundles themselves may move afterwards without
+#: invalidating it (they are outputs, not inputs to the computation).
+CODE_PATHS = ("src", "scripts")
+
+
 class LockError(RuntimeError):
     """The lock cannot be written, or does not verify."""
 
@@ -336,16 +342,24 @@ def require_lock(lock_dir=LOCK_DIR, *, enforce_commit: bool = True) -> dict:
     """
     head = verify_chain(lock_dir)
     if enforce_commit:
-        current = _git("rev-parse", "HEAD")
-        if current != head["code_commit"]:
+        # The claim to enforce is "the CODE that computes forecasts is the
+        # code the lock names" — not "HEAD is literally code_commit", which
+        # is unsatisfiable: committing the lock bundle necessarily advances
+        # HEAD past the commit the bundle records. So compare the code
+        # trees. Documents are covered separately by their own hashes.
+        changed = [p for p in _git("diff", "--name-only",
+                                   head["code_commit"], "HEAD",
+                                   "--", *CODE_PATHS).splitlines() if p]
+        if changed:
             raise LockError(
-                f"executing commit {current[:12]} is not the locked "
-                f"{head['code_commit'][:12]} — the lock attests to code that "
-                "is not what is running. Take the next lock version (which "
-                "records this commit) rather than issuing under a lock the "
-                "running code postdates")
+                f"code has changed since the locked commit "
+                f"{head['code_commit'][:12]}: "
+                f"{', '.join(changed[:5])}"
+                f"{' …' if len(changed) > 5 else ''} — the code computing "
+                "forecasts is not the code the lock attests to. Take the "
+                "next lock version rather than issuing under a stale one")
         if not working_tree_clean():
             raise LockError(
-                "tracked files differ from the locked commit — the code "
-                "computing forecasts is not the code the lock names")
+                "tracked files differ from HEAD — uncommitted code cannot "
+                "be what the lock attests to")
     return head
