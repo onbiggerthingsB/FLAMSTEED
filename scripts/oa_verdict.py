@@ -29,7 +29,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -46,10 +45,15 @@ from wcmodel.eval.power import (                              # noqa: E402
     sign_flip_veto,
     within_block_correlation,
 )
-from wcmodel.model.calibration import rps                     # noqa: E402
+from wcmodel.eval.regulation import (                         # noqa: E402
+    load_regulation_table,
+    regulation_outcome,
+)
+from wcmodel.model.calibration import outcome_1x2, rps        # noqa: E402
 
 LEDGER_DEFAULT = "data/oa_scored_ledger.parquet"
 RESULTS_DEFAULT = "config/regulation_time_results.yaml"
+STORE_DEFAULT = "data/stores/full_final"
 OUT_DEFAULT = "reports/oa_verdict.md"
 N_BOOT = 10000
 SEED = 20260611
@@ -75,17 +79,66 @@ def p_from_support(support: float, *, n_boot: int) -> float:
     return (1 + n_ge) / (n_boot + 1)
 
 
-def load_outcomes(path) -> dict:
-    doc = yaml.safe_load(Path(path).read_text()) or {}
-    rows = doc.get("results") or doc.get("fixtures") or []
+def load_outcomes(frame, *, results_path=None, store_path=STORE_DEFAULT) -> dict:
+    """``fixture_id`` -> the 1X2 label AT 90 MINUTES.
+
+    Two sources, in strict precedence order:
+
+    ``regulation table``
+        the curated, validated 90' score for every KNOCKOUT fixture.
+    ``store``
+        the final score — which for a GROUP match IS the 90' score, because
+        no extra time is possible there.
+
+    A knockout fixture must never fall through to the store: its final score
+    may include extra time, and scoring that against a 1X2 price the book
+    settled at 90' is precisely the error the regulation table exists to
+    prevent. The shootout guard below makes that fall-through impossible
+    rather than merely unlikely — a store row carrying a ``winner_override``
+    was decided past 90', so its absence from the table is an ERROR.
+
+    Settlement gaps ERROR rather than drop: eligibility was frozen WITHOUT
+    outcomes, so what can be settled must not reshape the population after
+    the fact.
+    """
+    reg = (load_regulation_table() if results_path is None
+           else load_regulation_table(Path(results_path)))
+    by_reg = {(str(r.pool), str(r.date), str(r.home), str(r.away)):
+              regulation_outcome(int(r.h90), int(r.a90))
+              for r in reg.itertuples(index=False)}
+
+    store = pd.read_parquet(Path(store_path) / "results.parquet")
+    store["date"] = pd.to_datetime(store["date"]).dt.date.astype(str)
+    final = {(str(r.date), str(r.home_team), str(r.away_team)):
+             (r.home_score, r.away_score, r.winner_override)
+             for r in store.itertuples(index=False)}
+
+    ident = frame[["fixture_id", "pool", "date", "home",
+                   "away"]].drop_duplicates()
     out = {}
-    for row in rows:
-        fid = str(row.get("match_id") or row.get("fixture_id") or "")
-        h, a = row.get("home_score"), row.get("away_score")
-        if not fid or h is None or a is None:
+    for r in ident.itertuples(index=False):
+        fid = str(r.fixture_id)
+        key = (str(r.pool), str(r.date), str(r.home), str(r.away))
+        if key in by_reg:
+            out[fid] = by_reg[key]
             continue
-        h, a = float(h), float(a)
-        out[fid] = "home" if h > a else ("away" if a > h else "draw")
+        row = final.get((str(r.date), str(r.home), str(r.away)))
+        if row is None:
+            raise VerdictError(
+                f"locked fixture {fid} ({r.home} v {r.away} on {r.date}) has "
+                "no verified outcome in either the 90' regulation table or "
+                "the results store — eligibility was frozen WITHOUT outcomes, "
+                "so a settlement gap must ERROR rather than reshape the "
+                "population")
+        home_goals, away_goals, override = row
+        if override is not None and not pd.isna(override):
+            raise VerdictError(
+                f"locked fixture {fid} ({r.home} v {r.away} on {r.date}) was "
+                f"decided past 90' (winner_override={override!r}) but is "
+                "ABSENT from the 90' regulation table. Its store score may "
+                "include extra time, and 1X2 settles at 90' — refusing to "
+                "score it rather than silently mark the wrong outcome")
+        out[fid] = outcome_1x2(int(home_goals), int(away_goals))
     return out
 
 
@@ -107,6 +160,15 @@ def paired_diffs(frame: pd.DataFrame, arm: str, outcomes) -> tuple:
             raise VerdictError(
                 f"fixture {fid} lacks the {arm}/{INCUMBENT} pair — the "
                 "contrast is paired per match, so a gap is an error")
+        # A pivot MISS is NaN, not KeyError: the arm exists as a column (some
+        # other fixture has it) but not for THIS fixture. Left unchecked that
+        # NaN propagates into the mean and quietly voids the whole contrast,
+        # which is the opposite of the loud refusal intended here.
+        for label, probs in ((arm, arm_p), (INCUMBENT, inc_p)):
+            if any(np.isnan(v) for v in probs.values()):
+                raise VerdictError(
+                    f"fixture {fid} has no {label} row — the contrast is "
+                    "paired per match, so a gap is an error")
         outcome = outcomes.get(str(fid))
         if outcome is None:
             raise VerdictError(
@@ -164,13 +226,15 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--ledger", default=LEDGER_DEFAULT)
     ap.add_argument("--results", default=RESULTS_DEFAULT)
+    ap.add_argument("--store", default=STORE_DEFAULT)
     ap.add_argument("--out", default=OUT_DEFAULT)
     args = ap.parse_args(argv)
 
     head = require_lock()
     print(f"lock v{head['version']} verified")
     frame = load_ledger(args.ledger)
-    outcomes = load_outcomes(args.results)
+    outcomes = load_outcomes(frame, results_path=args.results,
+                             store_path=args.store)
 
     covered = set(frame.loc[frame["odds_snapshot_hash"].notna(),
                             "fixture_id"].astype(str))
