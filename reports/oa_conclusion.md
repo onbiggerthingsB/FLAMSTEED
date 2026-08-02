@@ -22,15 +22,26 @@ development data was **w = 0.95** — ninety-five percent bookmaker, five
 percent us. And w=0.95 beat pure market (w=1.00) by 0.00002, which is noise.
 So the honest reading of the verdict is not "our model improved". It is:
 
-> **The market forecasts these matches better than our model, by about 0.010
-> RPS, and the procedure's preferred way to close that gap is to stop using
-> our model.**
+> **On these 217 fixtures, market-priced forecasts scored about 0.010 RPS
+> better than our model.**
 
-The arm gradient says the same thing independently. Arms move in proportion
-to how much bookmaker they carry: E′ −0.01018 and E′-other-devig −0.01013
-(both book-dominated) together, stacking −0.00584 less, and the two Elo arms
-at −0.00021 and −0.00061, essentially zero. A scoring bug would not have
-spared the Elo arms.
+What it does NOT say is that zero model is optimal. ADOPT compared a
+95%-market blend against the incumbent; it never compared the blend against
+pure market. That contrast, run separately, gives pure market ahead of E′ by
+only 0.00018 with an interval straddling zero — i.e. *no detectable
+difference between 95% and 100% market*, which is a much weaker statement
+than "stop using the model".
+
+The arm gradient is consistent with this: arms move in proportion to how
+much bookmaker they carry — E′ −0.01018 and E′-other-devig −0.01013 together,
+stacking −0.00584 less, the two Elo arms at −0.00021 and −0.00061. That is
+the pattern the mechanism predicts.
+
+It is NOT, as an earlier draft claimed, a proof that no scoring bug exists.
+The arms are nested and correlated, not independent negative controls, and a
+defect specific to outcomes or odds could move the market-heavy contrasts
+while leaving the Elo arms near zero. Near-zero Elo arms are reassuring, not
+a scoring-integrity test.
 
 ## What we did NOT conclude
 
@@ -49,53 +60,86 @@ unchanged.
 The aggregate number says a gap exists, not where. Cutting the same fixtures
 (`oa_gap_diagnostic.md`) found the shape:
 
-- The model is **not broadly miscalibrated**. Band by band it states nearly
-  the same probabilities as the market and those probabilities happen nearly
-  as often. It also **wins 42% of individual fixtures**.
-- It loses the aggregate through a **fat tail of catastrophic misses** —
-  Cameroon v Brazil, Ghana v Panama, Qatar v Senegal.
+- It **wins 42% of individual fixtures** and loses the aggregate through a
+  **fat tail of catastrophic misses** — Cameroon v Brazil, Ghana v Panama,
+  Qatar v Senegal. The ten worst fixtures account for roughly 88% of the net
+  deficit.
+- Reliability looks broadly similar to the market's, but that comparison is
+  **not load-bearing**: the table's shared `n` column was the model's count
+  applied to both sides, the bands pool all three outcome classes, and it
+  carries no intervals. It cannot separate calibration from sharpness, so
+  "not broadly miscalibrated" is withdrawn as a claim.
 
-So the model is not quietly worse. It is normal, then occasionally very
-wrong.
+"Normal, then occasionally very wrong" also flatters it. The median
+`book − model` is −0.00882 and the model loses 58% of fixtures. It is
+modestly behind most of the time and catastrophically behind occasionally.
 
 ## Two explanations, both tested, both honestly reported
 
-The diagnostic produced two candidate stories. Both were tested
-out-of-sample on the 259-fixture development slate, with the predicted
-direction committed in writing before computing.
+The diagnostic produced two candidate stories. Both were re-tested on the
+development slate, restricted to the **205 group/league fixtures where extra
+time was structurally impossible** (54 knockout fixtures excluded by stage —
+we hold no verified 90' table for AFCON, Copa América or the Nations League
+finals).
 
-**Confederation — REFUTED.** The eval pool suggested the model was level
-with the market between UEFA/CONMEBOL teams (+0.0003) and lost everywhere
-else (−0.0182), which reads as thin rating history. Out of sample the
-pattern **inverted**: gap +0.0119, p 0.914 against prediction. Copa América
-(+0.0200, the model *beats* the market) and CONMEBOL World Cup qualification
-(−0.0380, its worst loss) are the same confederation pointing opposite ways.
-The eval-pool split was small-cell noise plus favourite-strength
-confounding.
+*A note on provenance, since it cuts against me.* An earlier run of these
+tests excluded shootouts — selection on the outcome, and they were the
+fixtures whose 90' result was certain — and scored knockout ties on
+extra-time-inclusive finals, mislabelling four matches. It also resampled
+individual fixtures rather than (pool, matchday) blocks. Those numbers are
+withdrawn. And while the predicted directions were written down before
+computing, the repository cannot PROVE it: hypothesis code and results landed
+in single commits. Treat both as replication attempts, not auditable
+preregistrations.
+
+**Confederation — DOES NOT REPLICATE.** The eval pool suggested the model
+was level with the market between UEFA/CONMEBOL teams (+0.0003) and lost
+everywhere else (−0.0182), which reads as thin rating history. On the
+corrected dev slate the pattern **inverted**: gap **+0.0136**, block CI
+[−0.0018, +0.0288]. H1 predicted a negative gap and got a positive one.
+
+"Refuted" was too strong and is withdrawn — refuting a hypothesis needs an
+equivalence or reverse-rejection rule, and none was set. What is supported is
+the narrow claim that H1 does not replicate. The reverse effect is *not*
+claimed either: its direction was not predicted in advance, so reading
+significance off it would be the same post-hoc move H1 existed to test. Nor
+can non-replication identify a cause, so "small-cell noise plus confounding"
+is likewise withdrawn as an explanation.
 
 *This mattered.* The modelling change it pointed at — P2c tier weights —
 would have been built on a lead that does not exist.
 
-**Disagreement — REPLICATED, UNCERTIFIED.** When the model departs sharply
-from the market in *either* direction, it loses badly. Band by band, dev
-against eval: much-lower −0.0168/−0.0205, agree +0.0025/−0.0036, much-higher
-−0.0257/−0.0297. The shape held in independent data. It still does not clear
-the pre-set bar (gap −0.0236, CI [−0.0577, +0.0103], p 0.082) and has not
-been upgraded.
+**Disagreement — REPLICATED, STILL NOT CERTIFIED.** When the model departs
+sharply from the market in *either* direction, it loses. On the corrected
+population the U-shape holds: much-lower −0.0179, agree +0.0023, much-higher
+−0.0281. The gap is **−0.0256**, block CI [−0.0519, −0.0003], one-sided
+p 0.029.
 
-It misses on **power, not signal**: per-fixture SD is 0.127 in the extreme
-bands against 0.019 when the two agree, ~7×. At that spread the effect needs
-roughly 811 fixtures; we have 244.
+That clears a 5% bar — and it is still **not a certification**, for a reason
+worth stating plainly. The first run used an internally inconsistent rule (a
+5% tail reported beside a 97.5th-percentile gate) under which H2 narrowly
+missed. Correcting to a single one-sided α is the right construction and
+would have been right from the start, but it was adopted *after* the
+near-miss was visible. A rule that turns a miss into a pass once the data are
+seen cannot certify anything. The interval also only barely excludes zero.
 
-Both tails lose about equally, with no detectable asymmetry. That is the
-signature of **variance, not bias** — there is no directional error to
-correct, so the indicated remedy is shrinkage.
+The earlier claim that H2 "misses on power, not signal" is **withdrawn**:
+plugging an observed effect into a power formula cannot establish that the
+effect is real, and the ~811-fixture figure derived from it is withdrawn with
+it. `oa_disagreement_test.md` now carries a design curve over effect sizes
+declared in advance instead.
+
+Both tails lose, and no asymmetry is detected (difference −0.0102, CI
+[−0.0793, +0.0576]). That is **not** evidence of symmetry — the interval is
+far too wide to exclude a meaningful bias, and bias and variance can coexist.
+The honest statement is that this data cannot separate them, so "variance,
+not bias, therefore shrinkage" is withdrawn as a conclusion.
 
 ## What this leaves
 
 We do not currently have a validated direction for improving the model. That
 is the honest state. The two leads this programme generated are one refuted
-and one underpowered, and further slicing of the same 217 + 244 fixtures is
+and one uncertified, and further slicing of the same 217 + 205 fixtures is
 fishing, not analysis.
 
 One untested idea is on the record precisely so it is not mistaken for a
@@ -108,16 +152,24 @@ w=0.95. It was generated post-hoc from the same data that would test it.
 ## Cost
 
 9,009 API credits (G-A eval 4,495; G-B development 4,514) against a ~20,000
-monthly allowance. Two hypotheses tested and resolved for the price of two
-scripts and no additional credits.
+monthly allowance. Two hypotheses tested — not resolved; one fails to
+replicate and one remains uncertified — for the price of a few scripts and no
+additional credits.
 
 ## Why the negative result was worth buying
 
 It closes a question that would otherwise have been answered by assertion:
 whether the model has independent forecasting value against a liquid market.
-The measured answer is that it currently does not, at least on tournament
-1X2, and that the gap runs through erratic disagreement rather than
-systematic bias. Any future accuracy claim now has a number to beat and a
-documented method for beating it.
+The measured answer is a retrospective deficit against the market on
+tournament 1X2, concentrated where the two disagree. It does NOT establish
+that the model carries no incremental information: blend-versus-pure-market
+was never a powered primary comparison, and none of this is confirmatory.
+Any future accuracy claim now has a number to beat and a documented method
+for beating it.
+
+A future venue should preregister three contrasts, not one: blend vs
+incumbent, pure market vs incumbent, and **blend vs pure market**. Only the
+last one asks whether the model adds anything once the market is present,
+and it is the question this programme could not answer.
 
 A null is a real answer, which the prereg said in advance.
