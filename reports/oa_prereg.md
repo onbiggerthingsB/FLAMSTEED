@@ -331,3 +331,49 @@ construction. The pre-committed threshold is unchanged: `r_dev > 0.05`
 `power.generation_for_correlation`. The realized scored-pool `r` is
 reported by V10 as an explicitly **post-hoc sensitivity only** — it never
 changes the gate, the verdict, or the locked pre-committed reading.
+
+**2026-08-02 — the confirmatory venue is a RANKED RULE, not a single named
+tournament (USER RULING at the pre-lock gate).** Sections above name the
+**AFC Asian Cup 2027** as THE confirmatory lockbox. The V0 dev-slate probe
+then established that `soccer_afc_asian_cup` is not in The Odds API's
+vocabulary at all (HTTP 404, not an empty listing), so the historical
+route has never carried that competition and there is no evidence it will
+be quotable live. Naming an unverifiable venue in a frozen prereg risks a
+programme whose confirmatory test simply cannot be run — and any venue
+chosen *after* that failure would be a post-hoc substitution.
+
+Adopted, before the V8 lock and before any scored-pool issuance, the
+confirmatory venue is decided by this RULE rather than by a later choice:
+
+1. **Ranked candidate list, in order:** (a) AFC Asian Cup 2027 (first
+   matchday 2027-01-07, `config/tournament_ac2027.yaml`); (b) Africa Cup of
+   Nations 2027; (c) the 2027 FIFA World Cup qualification windows.
+2. **Coverage probe, at T−30 days** before each candidate's first
+   matchday, taken in rank order: buy the discovery listing for that
+   competition's first TWO matchdays and one T_issue-cut snapshot per
+   listed fixture, through the journaled acquisition runner under a
+   user-approved cap, exactly as G-A/G-B were.
+3. **Pre-committed pass bar:** a candidate is CONFIRMED as the venue iff
+   (i) at least 4 fixtures are listed across those two matchdays, AND
+   (ii) at least **60%** of listed fixtures carry an admissible sharp
+   quote at the cut instant under the unchanged `admissible_quote` rule
+   and the market-coherence rule (overround ≥ 1).
+4. **First pass wins.** The first candidate that clears the bar IS the
+   lockbox; later candidates are never probed, so the choice cannot drift
+   toward whichever venue looks better after the fact.
+5. **If no candidate clears the bar,** the confirmatory test is reported
+   as **UNRUNNABLE — no covered venue**, and the programme's development
+   result stands as exploratory only. No substitute venue is invented at
+   that point.
+
+The 60% bar is calibrated on evidence the G-B walk already produced, and
+was chosen to separate the competitions the archive genuinely carries from
+the ones it does not: AFCON 82% (115/140), Copa América 97% (31/32) versus
+UEFA Nations League 25% (88/350) and WCQ-CONMEBOL 23% (25/110). It is
+fixed here, before any 2027 probe is bought.
+
+This rule is OUTCOME-BLIND in the same sense as the earlier pre-lock
+rulings: it asks only whether a sharp book posted a price before kickoff,
+which is knowable — and knowable to be knowable — without reference to any
+result. It changes no arm, no information set, no gate, and no verdict
+language.
