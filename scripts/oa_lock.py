@@ -36,6 +36,40 @@ JOURNAL_DEFAULT = "data/oa_acquisition_journal.jsonl"
 EVAL_MANIFEST_DEFAULT = "config/oa_eval_manifest.yaml"
 
 
+#: Measured 2026-08-02 on the V5 dev ledger and the 217-fixture eval design
+#: (see the lock-v2 commit). Recorded so the lock fixes what a null result
+#: can be said to exclude, rather than leaving it to be argued afterwards.
+POWER_BLOCK = {
+    "r_dev": -0.1168,
+    "generation": "iid",
+    "noise_sd": 0.06324,
+    "n_dev": 259,
+    "n_primary_design": 217,
+    "mde_at_80pct_power": 0.008,
+    "observed_dev_effect": -0.00504,
+    "note": ("the observed development effect (0.005) is SMALLER than the "
+             "MDE (0.008): power at that effect size is roughly 0.6, so a "
+             "non-adoption on this design is weak evidence of no effect"),
+}
+
+
+def _power_block() -> dict:
+    return dict(POWER_BLOCK)
+
+
+def _evidence() -> dict:
+    """Digests of gitignored data artifacts no document hash covers."""
+    out = {}
+    for key, path in (("dev_ledger", "data/oa_dev_ledger.parquet"),
+                      ("acquisition_journal",
+                       "data/oa_acquisition_journal.jsonl")):
+        p = Path(path)
+        if p.exists():
+            import hashlib
+            out[f"{key}_sha256"] = hashlib.sha256(p.read_bytes()).hexdigest()
+    return out
+
+
 def _report(head) -> str:
     inv = head["scored_inventory"]
     lines = [
@@ -83,7 +117,8 @@ def main(argv=None) -> int:
         inventory = eval_inventory_from_journal(
             args.journal, args.eval_manifest)
         bundle = build_lock(version=version, prior_lock_sha256=prior,
-                            inventory=inventory)
+                            inventory=inventory,
+                            power=_power_block(), evidence=_evidence())
         path = write_lock(bundle, args.lock_dir)
     except LockError as exc:
         print(f"ABORT: {exc}", file=sys.stderr)
