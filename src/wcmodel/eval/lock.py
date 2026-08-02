@@ -170,8 +170,19 @@ def eval_inventory_from_journal(journal_path, manifest_path, *,
 
 def build_lock(*, version: int, prior_lock_sha256, inventory,
                documents=LOCKED_DOCUMENTS, code_commit=None,
-               issued_at=None) -> dict:
-    """Assemble (do not write) one lock bundle."""
+               issued_at=None, power=None, evidence=None) -> dict:
+    """Assemble (do not write) one lock bundle.
+
+    ``power`` (B8) records the conditioning the analysis spec requires the
+    lock to fix BEFORE any verdict: ``r_dev``, the panel generation it
+    selects, and the restated MDE. Omitting them left post-hoc freedom to
+    describe what a null result excludes — the difference between an MDE of
+    0.003 and 0.008 is the difference between "we would have seen it" and
+    "we might well not have".
+
+    ``evidence`` records digests of gitignored data artifacts (the dev and
+    scored ledgers) that no document hash otherwise covers.
+    """
     if version < 1:
         raise LockError("lock versions start at 1")
     if version == 1 and prior_lock_sha256 is not None:
@@ -196,6 +207,8 @@ def build_lock(*, version: int, prior_lock_sha256, inventory,
             "n_eligible": n_eligible,
             "fixtures": inventory,
         },
+        "power": dict(power or {}),
+        "evidence": {str(k): str(v) for k, v in sorted((evidence or {}).items())},
     }
 
 
