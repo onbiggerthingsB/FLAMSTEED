@@ -290,17 +290,29 @@ def main(argv=None) -> int:
               "|---|---|---|---|---|---|"]
     for member in HOLM_FAMILY:
         s = secondaries[member]
+        # holm_adjust returns {"p_raw", "p_adjusted", "reject"} per member.
+        # Read its `reject` rather than re-deriving p~ <= alpha here: the
+        # comparison is INCLUSIVE at the constant, and a second copy of that
+        # rule is a second place for it to drift.
         adj = adjusted[member]
         lines.append(f"| {member} | {s['n']} | {s['mean']:+.5f} | "
-                     f"{s['p']:.5f} | {adj:.5f} | "
-                     f"{'yes' if adj <= HOLM_ALPHA else 'no'} |")
-    lines += [
-        "", "## ITT sensitivity (primary contrast only)", "",
-        f"Whole locked inventory, n={itt['n']}, mean "
-        f"{itt['mean']:+.5f}, support {itt['support']:.3f}. Uncovered rows "
-        "carry the incumbent bitwise so their ΔRPS is exactly 0, which "
-        "dilutes toward the null by construction. It can never produce an "
-        "adoption the primary did not.", "",
+                     f"{s['p']:.5f} | {adj['p_adjusted']:.5f} | "
+                     f"{'yes' if adj['reject'] else 'no'} |")
+    n_uncovered = frame["fixture_id"].nunique() - len(covered)
+    itt_note = (
+        f"Whole locked inventory, n={itt['n']}, mean {itt['mean']:+.5f}, "
+        f"support {itt['support']:.3f}. Uncovered rows carry the incumbent "
+        "bitwise so their ΔRPS is exactly 0, which dilutes toward the null by "
+        "construction. It can never produce an adoption the primary did not."
+        if n_uncovered else
+        f"VACUOUS on this inventory: all {len(covered)} locked fixtures are "
+        "odds-covered, so there are no uncovered rows to dilute with and the "
+        "ITT population IS the primary population — the figures above are the "
+        "same computation, not an independent sensitivity. Reported for "
+        "completeness because the spec requires the contrast; it carries no "
+        "corroborating weight here.")
+    lines += ["", "## ITT sensitivity (primary contrast only)", "", itt_note,
+              "",
         f"Lock v{head['version']}, commit {head['code_commit'][:12]}.", "",
     ]
     Path(args.out).write_text("\n".join(lines))
