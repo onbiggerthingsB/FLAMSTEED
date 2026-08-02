@@ -1,6 +1,10 @@
-# PREREG (DRAFT) — OA development verdict: odds-anchored arms vs incumbent (spec OA-5)
+# PREREG — OA development verdict: odds-anchored arms vs incumbent (spec OA-5)
 
-**STATUS: DRAFT — locks only after OA-0a coverage is known; every post-lock change requires a dated amendment entry.**
+**STATUS: LOCKED. Sealed at lock-v1 (2026-08-02); the lock-time blanks below
+were filled at lock-v6 from values already bound BEFORE the scored-pool run
+(citations per item). Every post-lock change is a dated amendment entry and a
+new chained lock — v1..v5 remain readable and still carry the DRAFT text, so
+this completion cannot be mistaken for what was preregistered all along.**
 
 Drafted 2026-07-31 (OA Foundations Plan 1, Task 7), BEFORE any scored-pool run.
 Relocated 2026-08-01 from the gitignored
@@ -246,28 +250,50 @@ kickoff. Until that pass, red lines stand: no odds in any public output
 (denylist + scans), and the September AFCON releases are odds-absent incumbent
 either way.
 
-## Lock-time blanks (filled from the OA-0a probe report before LOCK)
+## Lock-time blanks — FILLED at lock-v6 (2026-08-02)
 
-- [ ] Scored set: which of the (185 + 32 KO =) 217 development fixtures have
-      admissible coverage at `T_issue` − 30 min (per-pool counts; Pinnacle
-      completeness per the probe). WC-2022 coverage may predate provider
-      completeness → that pool drops out, CIs widen, stated plainly.
-- [ ] Sport keys as VERIFIED live (config `odds.sport_keys`; the probe
-      corrects config, no code change).
-- [ ] Pre-kickoff invariant verified per slate: every scored fixture's
-      kickoff (UTC) strictly after 09:00 UTC on its venue-local matchday.
-      WC-2026: verified at draft time from `config/tournament_2026.yaml`
-      (104 fixtures, 36 UTC-rollovers, min margin 7 h). AC2027: verify from
-      the published schedule before lock — venue offset UTC+3, so any
-      kickoff at or before 12:00 local would fail and be excluded per the
-      Information-set rule.
-- [ ] Development-slate size N_dev (an OA-0b sizing decision; budget
-      4340 + 20 × N_dev credits per `reports/oa_probe.md`).
-- [ ] De-vig method (Shin vs basic) chosen on the development slate, inner
-      validation only.
-- [ ] Re-state the MDE if the locked scored-set size or the realized noise
-      model materially differs from n=185 / sd=0.01334 (the conditioning
-      section above says how it moves).
+Every value below was bound BEFORE the scored-pool run and is already
+recorded in an earlier lock or in the selection trace; the citation on each
+line says where. This section is transcription, not choice. It was left
+unfilled through v1..v5 by oversight, and the earlier versions still carry
+the empty boxes, so the omission is visible rather than papered over.
+
+- [x] **Scored set: 217 of 217 admissible.** No pool dropped: WC-2022
+      coverage did NOT predate provider completeness, contrary to the risk
+      flagged at draft time. Per-pool: wc2026 104, wc2022 63, euro2024 50.
+      *Bound in* `lock-v1.scored_inventory` (2026-08-02, before issuance);
+      re-attested identically at v2..v5.
+- [x] **Sport keys VERIFIED live.** Five keys 404'd on first use; the free
+      `/v4/sports?all=true` listing corrected three keys and two dates.
+      Config-only, no code change, exactly as the draft required.
+      *Bound in* `config/config.yaml` `oa_dev_slate.acquisition.sport_keys`
+      and the G-A/G-B acquisition journal.
+- [x] **Pre-kickoff invariant verified, all 217.** Every scored fixture's
+      kickoff is strictly after its 09:00 UTC `t_issue` on the venue-local
+      matchday; 36 UTC rollovers confirmed. Enforced twice — at manifest
+      build (hard refusal) and again per row by `LedgerWriter._validate`,
+      which rejects `t_issue >= kickoff_utc`.
+      *Bound in* `config/oa_eval_manifest.yaml` (hashed by every lock).
+- [x] **N_dev = 259.** Sized at 300, amended to 260 on the supply limit,
+      then to 259 when market coherence (overround ≥ 1) was ruled part of
+      ADMISSIBILITY after the walk caught a corrupt archived Pinnacle draw
+      price (309.0, overround 0.797) on Argentina v Ecuador. All three
+      rulings are dated and outcome-blind.
+      *Bound in* `config/oa_dev_manifest.yaml` + the amendment log below.
+- [x] **De-vig: multiplicative.** Chosen on the development slate under
+      inner validation only, never on the scored pool. (The draft framed
+      this as "Shin vs basic"; 'basic' resolves to multiplicative as the
+      reporting label — see `wcmodel.eval.arms`.)
+      *Bound in* `reports/oa_selection_trace.json` (pre-issuance).
+- [x] **MDE re-stated: 0.008 at 80% power.** The locked set (217) and the
+      realized noise model both differ from the draft's n=185 / sd=0.01334,
+      so this is restated as the conditioning section requires: r_dev
+      −0.1168, iid generation, noise sd 0.06324. The observed development
+      effect (0.00504) is SMALLER than the MDE, so power at that effect is
+      roughly 0.6 — a non-adoption on this design would have been weak
+      evidence of no effect, and that limitation is recorded rather than
+      argued afterwards.
+      *Bound in* `lock-v2.power` (before issuance), unchanged since.
 
 ## Execution discipline (B/K template, carried over)
 
@@ -377,3 +403,32 @@ rulings: it asks only whether a sharp book posted a price before kickoff,
 which is knowable — and knowable to be knowable — without reference to any
 result. It changes no arm, no information set, no gate, and no verdict
 language.
+
+---
+
+## Amendment — 2026-08-02 (lock-v6): lock-time blanks filled, STATUS sealed
+
+The six "Lock-time blanks" above were left unchecked through lock-v1..v5,
+including at the moment the V10 verdict was taken. That is an omission worth
+naming: a preregistration whose blanks are never filled has not, in the end,
+registered those choices.
+
+They are now filled, and every value is transcribed from a record that
+predates the scored-pool run (per-line citations above). Nothing was chosen
+here. The distinction is checkable rather than asserted: locks v1..v5 remain
+readable and still contain the empty boxes and the DRAFT status line, so
+anyone can diff this version against them and see exactly what changed and
+when.
+
+Also recorded at v6, closing the last open Codex finding against the lock
+machinery: the posterior cache (`data/cache/oa_dev`, the fitted model states
+every forecast is priced from) is now attested by a single digest over its
+sorted contents. It is gitignored and covered by no document hash, so before
+this the lock spoke for the code and the inputs but not for the model states
+that produced the numbers. `verify_chain` does NOT re-check it — the cache
+legitimately grows as later work adds fits — so this is attestation, not
+enforcement: a posterior swapped after the fact is provable by re-hashing
+against the lock that preceded it.
+
+Neither change touches the analysis spec, the gate, the Holm family, or the
+verdict. `reports/oa_verdict.md` stands as issued under lock-v5.

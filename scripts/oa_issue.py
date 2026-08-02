@@ -336,12 +336,24 @@ def main(argv=None) -> int:
         f"- incumbent-fallback (odds absent/uninvertible): "
         f"{out['fallbacks']}",
         f"- errors: {len(out['errors'])}", "",
-        "No outcome is read in this step; V10 joins them at scoring time.",
+        "No outcome is used to FORECAST here: the store is read for the "
+        "neutral-venue flag and the as-of-cutoff panel, both of which are "
+        "cutoff-gated, and no result after t_issue reaches a price. The 1X2 "
+        "outcome itself is joined by V10 at scoring time.",
         "",
     ] + ([f"| {f} | {w} |" for f, w in out["errors"]] if out["errors"]
          else [])))
     print(f"wrote {args.out}: {out['rows']} rows, "
           f"{out['fallbacks']} fallback, {len(out['errors'])} error(s)")
+    if out["errors"]:
+        # A partial issuance must NOT look like a clean one to a caller. The
+        # shard runner and any future automation branch on the exit status,
+        # and a ledger silently missing fixtures is exactly the failure the
+        # scored inventory exists to make impossible.
+        print(f"INCOMPLETE: {len(out['errors'])} fixture(s) did not price — "
+              "the ledger is missing rows and must not be merged as final",
+              file=sys.stderr)
+        return 1
     return 0
 
 

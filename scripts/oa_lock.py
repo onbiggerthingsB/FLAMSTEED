@@ -57,6 +57,43 @@ def _power_block() -> dict:
     return dict(POWER_BLOCK)
 
 
+#: The fitted posteriors every forecast is priced from. Gitignored, far too
+#: large to track, and covered by no document hash — so before this block the
+#: lock attested to the code and the inputs but not to the model states that
+#: actually produced the numbers (Codex MAJOR 6).
+CACHE_DIR = Path("data/cache/oa_dev")
+
+
+def _cache_attestation(cache_dir: Path = CACHE_DIR) -> dict:
+    """One digest over the whole posterior cache: sorted name + content hash.
+
+    LIMITS, stated rather than implied. ``verify_chain`` does NOT re-check
+    this: the cache legitimately GROWS as later work adds fits, so enforcing
+    it would make every subsequent lock unverifiable. What it gives you is a
+    fixed record of the cache as it stood when this version was taken — so a
+    posterior swapped AFTER the fact is provable by re-hashing and comparing
+    against the lock that preceded it. That is attestation, not enforcement,
+    and the difference matters.
+    """
+    if not cache_dir.exists():
+        return {}
+    import hashlib
+    files = sorted(p for p in cache_dir.iterdir() if p.is_file())
+    digest, total = hashlib.sha256(), 0
+    for path in files:
+        raw = path.read_bytes()
+        total += len(raw)
+        digest.update(path.name.encode())
+        digest.update(hashlib.sha256(raw).digest())
+    return {"posterior_cache_sha256": digest.hexdigest(),
+            "posterior_cache_files": len(files),
+            "posterior_cache_bytes": total,
+            "posterior_cache_dir": str(cache_dir),
+            "posterior_cache_note": ("attested at lock time, NOT re-verified "
+                                     "by verify_chain — the cache grows with "
+                                     "later fits")}
+
+
 def _evidence() -> dict:
     """Digests of gitignored data artifacts no document hash covers.
 
@@ -75,6 +112,7 @@ def _evidence() -> dict:
         if p.exists():
             import hashlib
             out[f"{key}_sha256"] = hashlib.sha256(p.read_bytes()).hexdigest()
+    out.update(_cache_attestation())
     return out
 
 
