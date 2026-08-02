@@ -58,9 +58,17 @@ def _power_block() -> dict:
 
 
 def _evidence() -> dict:
-    """Digests of gitignored data artifacts no document hash covers."""
+    """Digests of gitignored data artifacts no document hash covers.
+
+    ``scored_ledger`` is the V9 issuance the verdict is computed FROM. Without
+    its digest here, a published verdict names no particular ledger bytes:
+    re-running the issuance and re-reading the verdict would be
+    indistinguishable from reading the original. Recording it makes the
+    verdict attributable to one issuance rather than to a filename.
+    """
     out = {}
     for key, path in (("dev_ledger", "data/oa_dev_ledger.parquet"),
+                      ("scored_ledger", "data/oa_scored_ledger.parquet"),
                       ("acquisition_journal",
                        "data/oa_acquisition_journal.jsonl")):
         p = Path(path)
