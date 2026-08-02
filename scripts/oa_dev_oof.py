@@ -163,7 +163,18 @@ def book_prices_from_archive(digest, *, home, away, aliases, raw_dir) -> dict:
         raise DevOofError(
             f"archived cut snapshot {digest} is absent from {raw_dir} — the "
             "paid evidence the coverage artifact names is gone")
-    rows = [r for r in parse_snapshot(json.loads(blob.read_text()))
+    raw = blob.read_bytes()
+    # B2: the archive is content-ADDRESSED, so verify it. Trusting the
+    # filename let anyone swap coherent odds into <digest>.json and change
+    # every forecast while the ledger still recorded the locked digest.
+    import hashlib
+    actual = hashlib.sha256(raw).hexdigest()
+    if actual != digest:
+        raise DevOofError(
+            f"archived snapshot {blob} hashes to {actual[:16]}… but is "
+            f"named for {digest[:16]}… — the paid evidence has been "
+            "altered; refusing to price from it")
+    rows = [r for r in parse_snapshot(json.loads(raw))
             if r["bookmaker"] == SHARP_BOOK]
     if not rows:
         raise DevOofError(

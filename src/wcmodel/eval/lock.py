@@ -1,10 +1,23 @@
 """V8 — the pre-registration lock (OA Plan 2 v2).
 
-A lock bundle is the single artifact that says: *these exact documents, this
-exact evidence, and this exact code produced the deployment choice, and
-nothing was chosen after outcomes were seen.* Everything the analysis
-depends on is named by sha256, so a later reader can verify the claim
-rather than trust it.
+A lock bundle says: *these exact documents, this exact evidence and this
+exact code produced the deployment choice.* Everything the analysis depends
+on is named by sha256, so a later reader can verify that rather than trust
+it.
+
+WHAT A LOCK DOES **NOT** PROVE (2026-08-02, external review finding B1).
+It does not establish OUTCOME BLINDNESS on a retrospective pool. WC-2022,
+Euro-2024 and WC-2026 had all finished before lock-v1 was taken, so anyone
+could in principle have inspected the results, chosen artifacts to suit,
+and then frozen them; every hash would still verify. A lock proves "these
+bytes were frozen at time T" and "this code, on these inputs, reproduces
+this output" — both worth having, neither the same as blindness.
+
+Outcome blindness is only establishable by ISSUING BEFORE THE OUTCOME
+EXISTS. That is what the confirmatory venue rule in the prereg is for, and
+it is why the retrospective V9/V10 pass is a DEVELOPMENT diagnostic rather
+than the programme's evidence. Do not describe a retrospective locked run
+as pre-registered confirmatory analysis.
 
 WHY A CHAIN AND NOT A FILE. Preregistrations get amended — the venue rule,
 n_dev, the coherence ruling all landed as dated amendments. An amendment
@@ -262,8 +275,24 @@ def verify_chain(lock_dir=LOCK_DIR, *, check_documents: bool = True) -> dict:
         head = bundle
 
     if check_documents:
+        # B4: the verifier must require EXACTLY the declared input set.
+        # Iterating whatever map the bundle supplies made an EMPTY document
+        # set verify — the docstring claimed a guarantee the code did not
+        # provide, which is the worst kind of defect in an integrity check.
+        got, want = set(head["documents"]), set(LOCKED_DOCUMENTS)
+        if got != want:
+            raise LockError(
+                f"lock v{head['version']} declares document set {sorted(got)}"
+                f" but this code locks {sorted(want)} (missing "
+                f"{sorted(want - got)}, extra {sorted(got - want)}) — a "
+                "bundle may not choose which inputs it binds")
         drifted = []
         for key, entry in sorted(head["documents"].items()):
+            if entry.get("path") != LOCKED_DOCUMENTS[key]:
+                raise LockError(
+                    f"lock v{head['version']}: {key} claims path "
+                    f"{entry.get('path')!r}, this code locks "
+                    f"{LOCKED_DOCUMENTS[key]!r}")
             try:
                 now = sha256_file(entry["path"])
             except LockError:
@@ -283,6 +312,27 @@ def verify_chain(lock_dir=LOCK_DIR, *, check_documents: bool = True) -> dict:
     return head
 
 
-def require_lock(lock_dir=LOCK_DIR) -> dict:
-    """The gate every issuance/scoring entry point calls first."""
-    return verify_chain(lock_dir)
+def require_lock(lock_dir=LOCK_DIR, *, enforce_commit: bool = True) -> dict:
+    """The gate every issuance/scoring entry point calls first.
+
+    ``enforce_commit`` (B3) additionally requires the EXECUTING tree to be
+    the locked commit, with no tracked modifications. Without it the
+    ``code_commit`` field was decoration: post-lock code could determine
+    every probability while the CLI still printed LOCK VALID — which is
+    exactly what happened when the V9 runner was written after lock-v1.
+    """
+    head = verify_chain(lock_dir)
+    if enforce_commit:
+        current = _git("rev-parse", "HEAD")
+        if current != head["code_commit"]:
+            raise LockError(
+                f"executing commit {current[:12]} is not the locked "
+                f"{head['code_commit'][:12]} — the lock attests to code that "
+                "is not what is running. Take the next lock version (which "
+                "records this commit) rather than issuing under a lock the "
+                "running code postdates")
+        if not working_tree_clean():
+            raise LockError(
+                "tracked files differ from the locked commit — the code "
+                "computing forecasts is not the code the lock names")
+    return head

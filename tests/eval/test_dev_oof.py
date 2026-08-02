@@ -245,6 +245,12 @@ def test_neutral_fixture_gets_hfa_zero(runner):
 # --------------------------------------------------------- odds provenance
 def _snapshot_blob(tmp_path, digest, *, home, away, home_price, draw_price,
                    away_price, home_label=None, away_label=None):
+    """Write an archived snapshot under its TRUE sha256 and return it.
+
+    The archive is content-addressed and the reader now verifies that (B2),
+    so a fixture cannot be filed under an arbitrary name any more — which
+    is the point: a mismatched name is exactly the tampering signal.
+    """
     blob = {"timestamp": "2024-09-05T08:25:00Z",
             "previous_timestamp": "2024-09-05T08:25:00Z",
             "next_timestamp": "2024-09-05T08:25:00Z",
@@ -263,15 +269,19 @@ def _snapshot_blob(tmp_path, digest, *, home, away, home_price, draw_price,
                                             "price": draw_price},
                                            {"name": away_label or away,
                                             "price": away_price}]}]}]}}
-    (tmp_path / f"{digest}.json").write_text(json.dumps(blob))
+    import hashlib
+    raw = json.dumps(blob).encode()
+    true_digest = hashlib.sha256(raw).hexdigest()
+    (tmp_path / f"{true_digest}.json").write_bytes(raw)
+    return true_digest
 
 
 def test_book_prices_map_by_team_name_through_aliases(runner, tmp_path):
-    _snapshot_blob(tmp_path, "d1", home="United States", away="Wales",
-                   home_price=2.0, draw_price=3.5, away_price=4.0,
-                   home_label="USA")
+    d = _snapshot_blob(tmp_path, "d1", home="United States", away="Wales",
+                       home_price=2.0, draw_price=3.5, away_price=4.0,
+                       home_label="USA")
     got = runner.book_prices_from_archive(
-        "d1", home="United States", away="Wales",
+        d, home="United States", away="Wales",
         aliases={"usa": "United States"}, raw_dir=tmp_path)
     assert got == {"home": 2.0, "draw": 3.5, "away": 4.0}
 
@@ -279,18 +289,18 @@ def test_book_prices_map_by_team_name_through_aliases(runner, tmp_path):
 def test_book_prices_survive_a_home_away_flip(runner, tmp_path):
     # the wire lists the fixture the other way round; mapping is by NAME,
     # so the store's home team keeps the store's home price
-    _snapshot_blob(tmp_path, "d2", home="B", away="A", home_price=5.0,
-                   draw_price=3.5, away_price=1.7)
-    got = runner.book_prices_from_archive("d2", home="A", away="B",
+    d = _snapshot_blob(tmp_path, "d2", home="B", away="A", home_price=5.0,
+                       draw_price=3.5, away_price=1.7)
+    got = runner.book_prices_from_archive(d, home="A", away="B",
                                           aliases={}, raw_dir=tmp_path)
     assert got == {"home": 1.7, "draw": 3.5, "away": 5.0}
 
 
 def test_unmappable_outcomes_are_refused(runner, tmp_path):
-    _snapshot_blob(tmp_path, "d3", home="X", away="Y", home_price=2.0,
-                   draw_price=3.5, away_price=4.0)
+    d = _snapshot_blob(tmp_path, "d3", home="X", away="Y", home_price=2.0,
+                       draw_price=3.5, away_price=4.0)
     with pytest.raises(runner.DevOofError, match="could not map"):
-        runner.book_prices_from_archive("d3", home="A", away="B",
+        runner.book_prices_from_archive(d, home="A", away="B",
                                         aliases={}, raw_dir=tmp_path)
 
 
@@ -330,3 +340,18 @@ def test_pricing_refuses_an_incoherent_book(real_posterior, ctx):
             posterior=real_posterior, fixture_ctx=ctx, elo_home=1600.0,
             elo_away=1500.0, hfa=1.0, ordlogit_params=_Ordlogit(),
             book_prices={"home": 1.46, "draw": 309.0, "away": 9.2})
+
+
+def test_tampered_archive_bytes_are_refused(runner, tmp_path):
+    """B2: the archive is content-ADDRESSED, so a file whose bytes no longer
+    hash to its name is tampered evidence and must not price a forecast."""
+    d = _snapshot_blob(tmp_path, "x", home="A", away="B", home_price=2.0,
+                       draw_price=3.5, away_price=4.0)
+    blob = tmp_path / f"{d}.json"
+    doc = json.loads(blob.read_text())
+    # swap in different (still coherent) odds, keeping the filename
+    doc["data"]["bookmakers"][0]["markets"][0]["outcomes"][0]["price"] = 1.2
+    blob.write_text(json.dumps(doc))
+    with pytest.raises(runner.DevOofError, match="has been\n?\\s*altered|altered"):
+        runner.book_prices_from_archive(d, home="A", away="B",
+                                        aliases={}, raw_dir=tmp_path)

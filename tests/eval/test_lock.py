@@ -27,15 +27,21 @@ from wcmodel.eval.lock import (
 
 
 @pytest.fixture
-def docs(tmp_path):
-    """Three stand-in locked documents."""
+def docs(tmp_path, monkeypatch):
+    """Stand-in files for EVERY locked key.
+
+    The verifier now requires exactly ``LOCKED_DOCUMENTS`` (B4), so the
+    tests patch that constant to this stand-in mapping rather than
+    exercising a subset — which is the very shape the fix rejects.
+    """
+    import wcmodel.eval.lock as lock_mod
+
     mapping = {}
-    for name, body in (("prereg", "the prereg\n"),
-                       ("analysis_spec", "the spec\n"),
-                       ("selection_trace", '{"w": 0.95}\n')):
+    for name in lock_mod.LOCKED_DOCUMENTS:
         p = tmp_path / f"{name}.txt"
-        p.write_text(body)
+        p.write_text(f"contents of {name}\n")
         mapping[name] = str(p)
+    monkeypatch.setattr(lock_mod, "LOCKED_DOCUMENTS", mapping)
     return mapping
 
 
@@ -154,6 +160,21 @@ def test_a_missing_locked_input_refuses_at_build(tmp_path, docs):
     with pytest.raises(LockError, match="does not exist"):
         build_lock(version=1, prior_lock_sha256=None,
                    inventory=_inventory(), documents=docs)
+
+
+def test_a_bundle_may_not_choose_which_inputs_it_binds(tmp_path, docs):
+    """B4: the verifier requires EXACTLY the declared set — a bundle that
+    drops inputs (in the limit, all of them) must not verify."""
+    bundle = build_lock(version=1, prior_lock_sha256=None,
+                        inventory=_inventory(), documents=docs,
+                        code_commit="abc123",
+                        issued_at="2026-08-02T00:00:00Z")
+    bundle["documents"] = {}                       # bind nothing at all
+    path = tmp_path / "lock"
+    path.mkdir()
+    (path / "lock-v1.json").write_text(serialize(bundle))
+    with pytest.raises(LockError, match="may not choose which inputs"):
+        verify_chain(path)
 
 
 # ------------------------------------------------------------- amendments

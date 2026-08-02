@@ -285,16 +285,42 @@ def main(argv=None) -> int:
     print(f"locked: w={choices['w']:.2f} {choices['devig_method']}; "
           f"other {choices['other_devig']} w*={choices['other_w']:.2f}")
 
+    # B2: issue from the LOCK's own inventory, never from a CLI manifest.
+    # Verifying the lock and then re-reading fixtures from --manifest let a
+    # different manifest (other pools, a subset) pass the gate untouched.
+    # The lock IS the population; the manifest is only consulted for the
+    # kickoff instants it carries, and only for locked fixture ids.
+    locked = {r["fixture_id"]: r for r in head["scored_inventory"]["fixtures"]}
     manifest = yaml.safe_load(Path(args.manifest).read_text())
-    fixtures = sorted(manifest["fixtures"],
-                      key=lambda f: (str(f["date"]), str(f["fixture_id"])))
+    by_id = {str(f["fixture_id"]): f for f in manifest["fixtures"]}
+    missing = sorted(set(locked) - set(by_id))
+    if missing:
+        print(f"ABORT: {len(missing)} locked fixture(s) absent from "
+              f"{args.manifest} (e.g. {missing[:3]}) — the manifest does not "
+              "cover the locked population", file=sys.stderr)
+        return 1
+    fixtures = []
+    for fid, row in locked.items():
+        src = by_id[fid]
+        # every identity field comes from the LOCK; only kickoff (which the
+        # lock does not carry) comes from the manifest
+        fixtures.append({"fixture_id": fid, "pool": row["pool"],
+                         "date": row["date"], "home": row["home"],
+                         "away": row["away"],
+                         "kickoff_utc": src["kickoff_utc"]})
+    fixtures.sort(key=lambda f: (str(f["date"]), str(f["fixture_id"])))
+    # digests come from the LOCK too, not the mutable journal
+    locked_digests = {fid: row.get("cut_raw_sha256") for fid, row in
+                      locked.items() if row.get("eligible")}
+    print(f"issuing the LOCKED population: {len(fixtures)} fixtures, "
+          f"{len(locked_digests)} eligible")
     shard = None
     if args.shard:
         i, n = (int(p) for p in args.shard.split("/"))
         shard = (i, n)
 
     out = run_issue(
-        fixtures=fixtures, digests=cut_digests(args.journal),
+        fixtures=fixtures, digests=locked_digests,
         choices=choices, store_path=args.store, cfg=load_config(),
         cache_dir=args.cache_dir, raw_dir=args.raw_dir,
         ledger_path=args.ledger, aliases=load_aliases(), shard=shard)
