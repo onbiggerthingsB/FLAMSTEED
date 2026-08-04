@@ -9,25 +9,30 @@ likelihood is a ``pm.Potential``, so there is NO observed RV to
 posterior ``att``/``def``/``mu``/``home_adv`` (+ ``rho`` for Dixon-Coles or
 ``log_lambda3`` for bivariate-Poisson).
 
-Two correctness contracts from the cross-model review live here:
-
-* Dixon-Coles is a QUASI-likelihood (the tau correction does not integrate to a
-  proper joint pmf), so the per-draw grid MUST be renormalized; a ``tau<0`` cell
-  (extreme posterior ``rho`` against unbounded rates) is CLIPPED to 0 first so no
-  negative probability survives.
-* bivariate-Poisson uses the PROPER joint pmf ``exp(bp_loglik_np)`` -- its joint
-  inherently carries the correct marginal means ``l1+l3, l2+l3``, so the grid is
-  just exponentiated + renormalized (the finite-grid truncation is the only
-  reason the sum differs from 1 before renorm).
+The grid construction itself — per-draw rates -> per-draw dependence
+correction -> per-draw renorm -> mean over draws -> widening — lives in
+``wcmodel.model.draw_api`` (OA Plan 2 V2 / Codex finding 3): ``predict_*``
+DELEGATE to ``production_grid``/``grid_one_x_two`` so the OA arms (implied
+solver, E' blend, scored issuance) and the production forecast path share ONE
+implementation, with bitwise parity pinned on a real fitted Posterior. The
+DC-quasi-likelihood renorm and bivariate-Poisson proper-joint contracts moved
+to ``draw_api`` with the loop they govern; what stays here is what needs the
+instance — the posterior reads, the covariate offsets, and construction-time
+validation.
 """
 from __future__ import annotations
 
 import arviz as az
 import numpy as np
-from scipy.stats import poisson
 
 from wcmodel.config import load_config
-from wcmodel.model.likelihoods import bp_loglik_np, dc_tau_np
+from wcmodel.model.draw_api import (
+    PRODUCTION_MAX_GOALS,
+    FixtureCtx,
+    _renorm_draw as _renorm_draw_impl,
+    grid_one_x_two,
+    production_grid,
+)
 # Side-wiring taxonomy: which side(s) a covariate modifies. Imported from panel
 # (numpy/pandas-only, no import cycle) so predict reuses the SAME classification
 # the fit-time _cov_offset uses — a per-team covariate reads the home value on the
@@ -35,7 +40,6 @@ from wcmodel.model.likelihoods import bp_loglik_np, dc_tau_np
 # single value to BOTH rates. (scoreline.py keeps its own copy of these for the
 # build path; importing from scoreline here would cycle via Posterior.)
 from wcmodel.model.panel import _PER_MATCH_COVS, _PER_TEAM_COVS
-from wcmodel.model.widening import inflate_predictive
 
 
 class Posterior:
@@ -158,109 +162,41 @@ class Posterior:
 
     @staticmethod
     def _renorm_draw(g: np.ndarray) -> np.ndarray:
-        """Renormalize ONE per-draw scoreline grid, failing LOUD on a degenerate one.
+        """Renormalize ONE per-draw scoreline grid, failing LOUD on a degenerate
+        one. Delegates to ``draw_api._renorm_draw`` — the fail-safe now lives
+        with the per-draw loop it protects; this method survives because
+        consumers (and the byte-identity test) pin it here."""
+        return _renorm_draw_impl(g)
 
-        FAIL-SAFE (defense-in-depth). A diverged/under-converged fit can push a
-        covariate offset (e.g. a large ``beta_rest_days`` on a clamped ``z``) so
-        far that ``lambda = exp(...)`` OVERFLOWS to ``inf`` -> the truncated
-        ``poisson.pmf(0..max_goals, lambda)`` underflows to all-zeros (or carries a
-        NaN), so ``g.sum()`` is ``0`` or non-finite and ``g / g.sum()`` is the
-        ``0/0 = NaN`` grid behind the original crash (the ``:196`` divide warning).
-        Such a draw's forecast is UNUSABLE: detect it and raise the SAME typed error
-        ``inflate_predictive`` raises, so the per-draw instability surfaces HONESTLY
-        at its source instead of (a) silently averaging a NaN into the mean grid and
-        crashing later in ``brentq``, or (b) being papered over by clamping lambda to
-        fabricate an all-(max,max) "forecast" that hides the divergence. The caller
-        (the ablation gate) catches the ValueError and REJECTs the unstable candidate.
-        """
-        total = g.sum()
-        if not np.isfinite(total) or total <= 0.0 or not np.all(np.isfinite(g)):
-            raise ValueError("non-finite predictive grid")
-        return g / total
-
-    def predict_scoreline(self, home, away, neutral=False, max_goals=10, covariates=None,
+    def predict_scoreline(self, home, away, neutral=False,
+                          max_goals=PRODUCTION_MAX_GOALS, covariates=None,
                           host_factor=None):
-        hi, ai = self._idx[home], self._idx[away]      # KeyError if unknown team
-        att = self._post("att")
-        defe = self._post("def")
-        mu = self._post("mu")
-        home_adv = self._post("home_adv")
-        S = mu.shape[-1]
-        n = max_goals + 1
-        xs = np.arange(n)
-        # Per-fixture covariate offsets via the PERSISTED transform + idata betas.
-        # (0.0, 0.0) when covariates is None/empty -> exponents byte-identical to
-        # the baseline (no covariate shift), so the default path is unchanged.
-        home_off, away_off = self._covariate_offsets(covariates)
-        # Venue environment -> per-side home terms (home_term, away_term).
-        #   * host_factor set (T5): the 2026 hosts actually play a HOME game. A
-        #     PREDICTION-time scalar `host_factor` (= k from config) on the ALREADY-
-        #     FITTED home_adv — adds NO fitted parameter, never touches the
-        #     likelihood/identifiability. Home carries host_factor*home_adv; the
-        #     opponent stays at the away rate (away_term=0). UNCHANGED.
-        #   * neutral (CALIBRATION FIX): a truly-neutral game has NO host, so it
-        #     should score at the AVERAGE environment, not the away rate. Add
-        #     k_neutral*home_adv to BOTH sides (split the home edge evenly). This
-        #     raises E[total] to ~2*exp(mu + k*home_adv) and fixes the −0.34 g/game
-        #     neutral under-prediction; the boost is symmetric so 1X2 ~unchanged.
-        #     k_neutral = self._cfg["neutral_home_adv_fraction"] (self._cfg IS the
-        #     `model` block — see __init__ and the widening read below — so the key
-        #     is read WITHOUT a leading "model").
-        #   * ordinary home/away: home carries the full fitted home_adv; the away
-        #     side has no home term. UNCHANGED.
-        # A fixture is EITHER host-home OR neutral OR ordinary, so there is no
-        # conflict; the fix applies ONLY to the neutral branch (host_factor=None and
-        # neutral=True). host_factor=None + neutral=False stays byte-identical.
-        if host_factor is not None:
-            home_term, away_term = host_factor * home_adv, 0.0
-        elif neutral:
-            k_neutral = self._cfg["neutral_home_adv_fraction"]
-            home_term = away_term = k_neutral * home_adv
-        else:
-            home_term, away_term = home_adv, 0.0
-        # log lambda_home = mu + home_term + att[home] - def[away] + home_off
-        # log lambda_away = mu + away_term + att[away] - def[home] + away_off
-        lh = np.exp(mu + home_term + att[hi] - defe[ai] + home_off)  # (S,)
-        la = np.exp(mu + away_term + att[ai] - defe[hi] + away_off)  # (S,)
-        grids = np.empty((S, n, n))
-        if self.likelihood == "dixon_coles":
-            rho = self._post("rho")
-            for s in range(S):
-                g = poisson.pmf(xs, lh[s])[:, None] * poisson.pmf(xs, la[s])[None, :]
-                for (x, y) in ((0, 0), (0, 1), (1, 0), (1, 1)):
-                    g[x, y] *= dc_tau_np(x, y, float(lh[s]), float(la[s]), float(rho[s]))
-                g = np.clip(g, 0.0, None)            # tau<0 guard: no negative prob
-                grids[s] = self._renorm_draw(g)      # DC quasi-likelihood -> renorm
-        else:  # bivariate_poisson
-            l3 = np.exp(self._post("log_lambda3"))
-            for s in range(S):
-                g = np.array(
-                    [
-                        [
-                            np.exp(bp_loglik_np(x, y, float(lh[s]), float(la[s]), float(l3[s])))
-                            for y in range(n)
-                        ]
-                        for x in range(n)
-                    ]
-                )
-                grids[s] = self._renorm_draw(g)      # proper joint pmf -> renorm tail only
-        grid = grids.mean(0)                         # average across draws (param uncertainty)
-        prov = (home in self.provisional_teams) or (away in self.provisional_teams)
-        if self._cfg["widening"]["mechanism"] == "c" and prov:
-            grid = inflate_predictive(
-                grid, is_provisional=True, strength=self._cfg["widening"]["strength"]
-            )
-        return grid / grid.sum()
+        """The production per-fixture scoreline grid.
 
-    def predict_1x2(self, home, away, neutral=False, max_goals=10, covariates=None,
+        DELEGATES to ``draw_api.production_grid`` — ONE implementation of the
+        per-draw-rates -> per-draw-correction -> mean -> widening path, shared
+        with the OA map (finding 3); bitwise parity is pinned on a real fitted
+        Posterior (tests/model/test_draw_api.py). The branch semantics
+        (host_factor wins over neutral; neutral scores at the average
+        environment; DC per-draw tau + renorm; mechanism-'c' widening for a
+        provisional fixture) are documented on the draw_api legs. ``max_goals``
+        stays overridable HERE — diagnostic harnesses price shallower grids —
+        while the OA surface is pinned to the frozen production default by the
+        caller-pinning test.
+        """
+        return production_grid(
+            self,
+            FixtureCtx(home=home, away=away, neutral=neutral,
+                       covariates=covariates, host_factor=host_factor),
+            max_goals=max_goals,
+        )
+
+    def predict_1x2(self, home, away, neutral=False,
+                    max_goals=PRODUCTION_MAX_GOALS, covariates=None,
                     host_factor=None):
         g = self.predict_scoreline(home, away, neutral, max_goals, covariates,
                                    host_factor)                                  # g[h, a]
-        return {
-            "home": float(np.tril(g, -1).sum()),   # home goals > away goals (lower triangle)
-            "draw": float(np.trace(g)),            # home goals == away goals (diagonal)
-            "away": float(np.triu(g, 1).sum()),    # away goals > home goals (upper triangle)
-        }
+        return grid_one_x_two(g)
 
     def diagnostics(self):
         s = az.summary(self.idata, var_names=["mu", "home_adv"])

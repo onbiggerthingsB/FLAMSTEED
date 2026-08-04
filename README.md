@@ -134,6 +134,8 @@ see `.env.example`. The forecast pipeline spends zero API credits.
 | Friendly tier down-weighting | NO-LIFT | flat RPS across the weight grid |
 | Scoreline tails in mismatches | **OPEN FINDING** | model over-predicts blowout tails (top-decile ratios 0.73–0.87); correction spec'd, not shipped — `reports/tails_2026-06-10.md` |
 | Model vs sharp market | TIE | `reports/headroom_2026-06-10.md` |
+| Odds-anchored blend (E′, w=0.95) | **NEGATIVE — market beats model, nothing adopted** | preregistered gate passed (mean ΔRPS −0.010, n=217), but the winning arm is 95% bookmaker and indistinguishable from pure market — so the finding is the market outforecasting the model, not the model improving. Retrospective, hence a development diagnostic; confirmatory live test waits for a 2027 venue. Hash-chained prereg `lock-v1..v6`; plain-language account with full correction history in `reports/oa_conclusion.md` |
+| Model deficit concentrated where it disagrees with the market | **OPEN FINDING** | direction replicated out of sample (gap −0.025, p 0.024) but deliberately uncertified — the decision rule was corrected after a near-miss was visible; needs an independent sample under a rule fixed in advance — `reports/oa_disagreement_test.md` |
 
 ## Layout
 

@@ -346,20 +346,50 @@ def extract_closing_prices(sample: dict, bookmaker: str) -> dict:
     }
 
 
+def _write_all(fd: int, data: bytes) -> None:
+    """``os.write`` until every byte lands: a single call may return short
+    (signals, pipes-adjacent filesystems), and a short archive write is a
+    torn file with a content-addressed name."""
+    view = memoryview(data)
+    while view:
+        written = os.write(fd, view)
+        view = view[written:]
+
+
+def fsync_dir(directory: Path | str) -> None:
+    """fsync a DIRECTORY: after a rename or file creation the new directory
+    entry is metadata, and fsync'ing the file alone leaves an entry that can
+    vanish on power loss — durable bytes nobody can find by name. Loud on
+    failure (OSError propagates): callers treat broken provenance storage as
+    fatal, never as a note."""
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def _persist_raw(content: bytes, raw_dir: Path | str | None) -> str:
-    """sha256 the raw response bytes; persist them content-addressed.
+    """sha256 the raw response bytes; persist them content-addressed, DURABLY.
 
     Written as ``<raw_dir>/<sha256>.json``, so a paid response is never lost
     and the hash the ledger cites always resolves to the exact bytes it was
     computed from. That invariant is VERIFIED, not assumed: existence alone
-    is no proof — ``write_bytes`` is not atomic, so an interrupted earlier
-    write can leave a file NAMED ``<sha256>.json`` holding other bytes, and
-    a skip-on-existence dedupe would trust the torn file forever. A file
-    already holding the same bytes is left alone; anything else is
-    (re)written via a same-directory tmp file + ``os.replace``, so the
-    content-addressed name only ever holds complete content (pid-suffixed
-    tmp so concurrent processes archiving the same response cannot
-    interleave). ``raw_dir=None`` disables persistence (hash still returned).
+    is no proof — an interrupted earlier write can leave a file NAMED
+    ``<sha256>.json`` holding other bytes, and a skip-on-existence dedupe
+    would trust the torn file forever. A file already holding the same bytes
+    is left alone; anything else is (re)written via a same-directory tmp file
+    + ``os.replace``, so the content-addressed name only ever holds complete
+    content (pid-suffixed tmp so concurrent processes archiving the same
+    response cannot interleave).
+
+    Durability ordering (plan2 batch-1, finding 3): the tmp file is fsync'd
+    BEFORE the rename — renaming unfsync'd bytes can survive power loss as a
+    correct name holding a torn file, which a durable RECEIPT then cites
+    forever — and the directory is fsync'd AFTER, so the rename itself cannot
+    vanish out from under that receipt. Short writes are completed, never
+    truncated (:func:`_write_all`). ``raw_dir=None`` disables persistence
+    (hash still returned).
     """
     digest = hashlib.sha256(content).hexdigest()
     if raw_dir is not None:
@@ -369,8 +399,15 @@ def _persist_raw(content: bytes, raw_dir: Path | str | None) -> str:
         if not (path.exists() and path.read_bytes() == content):
             tmp = directory / f"{digest}.json.{os.getpid()}.tmp"
             try:
-                tmp.write_bytes(content)
+                fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                             0o644)
+                try:
+                    _write_all(fd, content)
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
                 os.replace(tmp, path)
+                fsync_dir(directory)
             finally:
                 tmp.unlink(missing_ok=True)
     return digest
@@ -388,7 +425,8 @@ def _resolve_raw_dir(raw_dir, transport: httpx.BaseTransport | None):
     return raw_dir
 
 
-def _raise_for_status_redacted(resp: httpx.Response, api_key: str) -> None:
+def _raise_for_status_redacted(resp: httpx.Response, api_key: str,
+                               raw_sha256: str | None = None) -> None:
     """``raise_for_status`` that cannot leak the key. httpx's HTTPStatusError
     message embeds the full request URL, and this API carries
     ``apiKey=<secret>`` in the query string — error strings from here get
@@ -400,8 +438,15 @@ def _raise_for_status_redacted(resp: httpx.Response, api_key: str) -> None:
     scrubbed from the final message, and the raise chains ``from None`` so no
     context exception carries the live URL into a rendered traceback.
 
+    ``raw_sha256`` is the digest of the ALREADY-ARCHIVED paid error body,
+    attached to the raised exception as an attribute (plan2 batch-1, finding
+    7): a failure receipt records WHERE the paid evidence lives from it —
+    a digest embedded only in the message is provenance a machine cannot
+    cite.
+
     RESPONSE path only: a failure BELOW the HTTP layer never reaches here —
-    :func:`_get_redacted` scrubs that leg."""
+    :func:`_get_redacted` scrubs that leg (and carries no digest: no response
+    bytes ever existed)."""
     if resp.is_success:
         return
     resp.request = httpx.Request(
@@ -414,9 +459,30 @@ def _raise_for_status_redacted(resp: httpx.Response, api_key: str) -> None:
         # str.replace("", "***") would mangle the message char-by-char and
         # the None-gate upstream does not exclude an empty key.
         message = str(exc).replace(api_key, "***") if api_key else str(exc)
-        raise httpx.HTTPStatusError(
-            message, request=exc.request, response=resp
-        ) from None
+        redacted = httpx.HTTPStatusError(
+            message, request=exc.request, response=resp)
+        redacted.raw_sha256 = raw_sha256
+        raise redacted from None
+
+
+def _payload_error(message: str, raw_sha256: str | None) -> ValueError:
+    """A malformed-200 refusal that carries its archive digest structurally
+    (plan2 batch-1, finding 7) — the message already names the hash for the
+    human; the attribute names it for the failure receipt."""
+    err = ValueError(message)
+    err.raw_sha256 = raw_sha256
+    return err
+
+
+def _decode_json(resp: httpx.Response, digest: str | None):
+    """``resp.json()`` whose failure is a response-backed finding: a PAID 200
+    with an undecodable body must still cite the archived bytes."""
+    try:
+        return resp.json()
+    except ValueError:
+        raise _payload_error(
+            "unparseable JSON body on a PAID response — archived as "
+            f"raw_sha256={digest} for audit", digest) from None
 
 
 def _get_redacted(
@@ -507,8 +573,8 @@ def fetch_historical(
             api_key,
         )
     digest = _persist_raw(resp.content, raw_dir)
-    _raise_for_status_redacted(resp, api_key)
-    payload = resp.json()
+    _raise_for_status_redacted(resp, api_key, raw_sha256=digest)
+    payload = _decode_json(resp, digest)
     # Mirror of the discovery guard below: a 200 whose shape is not the
     # documented {timestamp, previous_timestamp?, next_timestamp?, data}
     # wrapper must not pass as a snapshot — on a PAID call it would either
@@ -518,11 +584,11 @@ def fetch_historical(
             or "data" not in payload:
         keys = sorted(payload) if isinstance(payload, dict) \
             else type(payload).__name__
-        raise ValueError(
+        raise _payload_error(
             "unrecognized snapshot payload: expected a dict with 'timestamp' "
             f"and 'data', got {keys} — a changed shape on a PAID call must "
-            f"not read as a snapshot; archived as raw_sha256={digest} for audit"
-        )
+            f"not read as a snapshot; archived as raw_sha256={digest} for "
+            "audit", digest)
     payload["raw_sha256"] = digest
     return payload
 
@@ -571,16 +637,15 @@ def fetch_historical_events(
     with httpx.Client(transport=transport, timeout=30.0) as client:
         resp = _get_redacted(client, url, {"apiKey": api_key, "date": ts}, api_key)
     digest = _persist_raw(resp.content, raw_dir)
-    _raise_for_status_redacted(resp, api_key)
-    payload = resp.json()
+    _raise_for_status_redacted(resp, api_key, raw_sha256=digest)
+    payload = _decode_json(resp, digest)
     if isinstance(payload, dict):
         if "data" not in payload:
-            raise ValueError(
+            raise _payload_error(
                 "unrecognized discovery payload: a dict without a 'data' key "
                 f"(keys={sorted(payload)}) cannot be read as 'no events at "
                 "this timestamp' on a PAID call — archived as "
-                f"raw_sha256={digest} for audit"
-            )
+                f"raw_sha256={digest} for audit", digest)
         data = payload["data"]
     else:
         data = payload

@@ -1,0 +1,1321 @@
+rule: every completed senior men's international in the probed competitions with kickoff
+  in [2022-01-01, 2025-12-31], excluding every fixture in the frozen scored inventory
+  (exact scored-fixture membership by canonical fixture identity, config/oa_scored_inventory.yaml),
+  ordered chronologically, truncated to the first N_dev with admissible coverage
+window:
+  start: '2022-01-01'
+  end: '2025-12-31'
+scored_inventory: config/oa_scored_inventory.yaml
+scored_pool_windows:
+  wc2022:
+  - '2022-11-20'
+  - '2022-12-18'
+  euro2024:
+  - '2024-06-14'
+  - '2024-07-14'
+  wc2026:
+  - '2026-06-11'
+  - '2026-07-19'
+competitions:
+- Copa América
+- African Cup of Nations
+- UEFA Nations League
+- FIFA World Cup qualification
+n_dev: 259
+n_candidates_before_truncation: 1507
+fixtures:
+- match_id: 38c46b3cf44bc7dbce6179092026926f3d91e3ed
+  date: '2022-01-15'
+  home_team: Guinea-Bissau
+  away_team: Egypt
+  tournament: African Cup of Nations
+- match_id: 7bf9f2a5ca9d4fd4376f317b6fbe7060bf1a9bc0
+  date: '2022-01-15'
+  home_team: Nigeria
+  away_team: Sudan
+  tournament: African Cup of Nations
+- match_id: 7ca3db05771628e6e0a0b9588a208668ddc20e2a
+  date: '2022-01-16'
+  home_team: Gambia
+  away_team: Mali
+  tournament: African Cup of Nations
+- match_id: 98e7229bdeca4b9c576f700a8db13108cd2458bf
+  date: '2022-01-16'
+  home_team: Algeria
+  away_team: Equatorial Guinea
+  tournament: African Cup of Nations
+- match_id: bbe6cfc91a8a2a6313e296758ceafa59d118a655
+  date: '2022-01-16'
+  home_team: Tunisia
+  away_team: Mauritania
+  tournament: African Cup of Nations
+- match_id: c3a78aa888b81222eb92c9754fa99b45c5530435
+  date: '2022-01-16'
+  home_team: Ivory Coast
+  away_team: Sierra Leone
+  tournament: African Cup of Nations
+- match_id: 11c1529ec370751a1255556041764b701684f5f6
+  date: '2022-01-17'
+  home_team: Burkina Faso
+  away_team: Ethiopia
+  tournament: African Cup of Nations
+- match_id: dea2dca4331e018e81676c3aca7f14cbf54effc6
+  date: '2022-01-17'
+  home_team: Cameroon
+  away_team: Cape Verde
+  tournament: African Cup of Nations
+- match_id: 43bde7790f9804d40ec59ae40104a982be385f15
+  date: '2022-01-18'
+  home_team: Zimbabwe
+  away_team: Guinea
+  tournament: African Cup of Nations
+- match_id: 86750e5ce50d69110f3bfd8e84248619ef4f7e99
+  date: '2022-01-18'
+  home_team: Malawi
+  away_team: Senegal
+  tournament: African Cup of Nations
+- match_id: c4b404442f88f225d9395caa6ae722c4fc1aafc8
+  date: '2022-01-18'
+  home_team: Gabon
+  away_team: Morocco
+  tournament: African Cup of Nations
+- match_id: d4b93e33a096e97eceb7f1411b41d322165c0cf4
+  date: '2022-01-18'
+  home_team: Ghana
+  away_team: Comoros
+  tournament: African Cup of Nations
+- match_id: 1d82481bd0d8016bff80330dafa616891f913799
+  date: '2022-01-19'
+  home_team: Guinea-Bissau
+  away_team: Nigeria
+  tournament: African Cup of Nations
+- match_id: 622e8654ca1538a963e1a146cc44c0110e1f2d97
+  date: '2022-01-19'
+  home_team: Egypt
+  away_team: Sudan
+  tournament: African Cup of Nations
+- match_id: 316365ac989d5df60fe6fdca30be69235deaa25f
+  date: '2022-01-20'
+  home_team: Sierra Leone
+  away_team: Equatorial Guinea
+  tournament: African Cup of Nations
+- match_id: 3369792f61bd223dc7851da0a8ff72d240c9fbdf
+  date: '2022-01-20'
+  home_team: Ivory Coast
+  away_team: Algeria
+  tournament: African Cup of Nations
+- match_id: 5e3cc2cedc4016b8c7f315cb12356101e8b2b246
+  date: '2022-01-20'
+  home_team: Mali
+  away_team: Mauritania
+  tournament: African Cup of Nations
+- match_id: 90543f7c97d2a065c4317bb7284fee53fd2743f6
+  date: '2022-01-20'
+  home_team: Gambia
+  away_team: Tunisia
+  tournament: African Cup of Nations
+- match_id: 61bf630e78d008965b65131989e8ddcb265ad821
+  date: '2022-01-23'
+  home_team: Burkina Faso
+  away_team: Gabon
+  tournament: African Cup of Nations
+- match_id: 95803fcfb7773397f5d6e81064407a26b7e2288f
+  date: '2022-01-23'
+  home_team: Nigeria
+  away_team: Tunisia
+  tournament: African Cup of Nations
+- match_id: c0b2903154e7b0fdba586c6dae90f106f6efc757
+  date: '2022-01-24'
+  home_team: Guinea
+  away_team: Gambia
+  tournament: African Cup of Nations
+- match_id: 2fb2cfd3243ccfc2efbbc6765272aae3af2f5f77
+  date: '2022-01-25'
+  home_team: Morocco
+  away_team: Malawi
+  tournament: African Cup of Nations
+- match_id: 650509c631bdc26fd32d04e73d3ed8b896586243
+  date: '2022-01-25'
+  home_team: Senegal
+  away_team: Cape Verde
+  tournament: African Cup of Nations
+- match_id: 6f164a08355d225473ddfd25024ded8e4f6161da
+  date: '2022-01-26'
+  home_team: Ivory Coast
+  away_team: Egypt
+  tournament: African Cup of Nations
+- match_id: 71803f327dc90866f7788c0178560a9c42872d70
+  date: '2022-01-26'
+  home_team: Mali
+  away_team: Equatorial Guinea
+  tournament: African Cup of Nations
+- match_id: 1a77310838034152c322b135d031e49c7cf96694
+  date: '2022-01-29'
+  home_team: Burkina Faso
+  away_team: Tunisia
+  tournament: African Cup of Nations
+- match_id: d8ffe67a37af74cd539305642f98f2c4252658d4
+  date: '2022-01-29'
+  home_team: Cameroon
+  away_team: Gambia
+  tournament: African Cup of Nations
+- match_id: 6dec973c36166b6903ac8b30cad2829ec3ca96d9
+  date: '2022-01-30'
+  home_team: Senegal
+  away_team: Equatorial Guinea
+  tournament: African Cup of Nations
+- match_id: beedb67a9eb11f6f145739bd55d3b8b4f305959c
+  date: '2022-01-30'
+  home_team: Egypt
+  away_team: Morocco
+  tournament: African Cup of Nations
+- match_id: e3a84a84cb8757c8487b1f702ef189914a75b43c
+  date: '2022-02-02'
+  home_team: Burkina Faso
+  away_team: Senegal
+  tournament: African Cup of Nations
+- match_id: 2b0fc4007288ede8f86275097691a36deaa06de0
+  date: '2022-02-03'
+  home_team: Cameroon
+  away_team: Egypt
+  tournament: African Cup of Nations
+- match_id: ac456a6e6b9ff4b1962f6a9b89ded39f814d37a3
+  date: '2022-02-05'
+  home_team: Cameroon
+  away_team: Burkina Faso
+  tournament: African Cup of Nations
+- match_id: 9bf75cdef28f35f7cb0c00c0a73431da053174c7
+  date: '2022-02-06'
+  home_team: Senegal
+  away_team: Egypt
+  tournament: African Cup of Nations
+- match_id: 24b42cf5049d47cdf5285568b9691b0db98b5af0
+  date: '2022-06-12'
+  home_team: Spain
+  away_team: Czech Republic
+  tournament: UEFA Nations League
+- match_id: df23ce6636acd1d6e5adf6e2f197277fa4d02a25
+  date: '2022-06-12'
+  home_team: Switzerland
+  away_team: Portugal
+  tournament: UEFA Nations League
+- match_id: 83d2335945b33c7c9090c5205ef8465cbed66e6d
+  date: '2022-06-13'
+  home_team: Denmark
+  away_team: Austria
+  tournament: UEFA Nations League
+- match_id: dbd6106839dd6235f07254c668549bae3c0a7eec
+  date: '2022-06-13'
+  home_team: France
+  away_team: Croatia
+  tournament: UEFA Nations League
+- match_id: 1abbd9d280fa2ae6b29f1692a6586ca0ca297404
+  date: '2022-06-14'
+  home_team: Poland
+  away_team: Belgium
+  tournament: UEFA Nations League
+- match_id: 226b802d9684b89eed606d4f3341ebe31274e2f3
+  date: '2022-06-14'
+  home_team: Netherlands
+  away_team: Wales
+  tournament: UEFA Nations League
+- match_id: 754f9486c20cd1d31f2c1bde45053ea3bcfd404d
+  date: '2022-06-14'
+  home_team: Germany
+  away_team: Italy
+  tournament: UEFA Nations League
+- match_id: a0a8881052789140d1ba536361079b6dc87159f1
+  date: '2022-06-14'
+  home_team: England
+  away_team: Hungary
+  tournament: UEFA Nations League
+- match_id: 036a374fb30f7980aae9ae426797ac07cf16e5fe
+  date: '2022-09-22'
+  home_team: Croatia
+  away_team: Denmark
+  tournament: UEFA Nations League
+- match_id: 24ac34f8a0dc05f8740911a2018257b85ff1e17b
+  date: '2022-09-22'
+  home_team: France
+  away_team: Austria
+  tournament: UEFA Nations League
+- match_id: 6f8afbb92ba73bc154dad11341eaed8e18e355a1
+  date: '2022-09-22'
+  home_team: Belgium
+  away_team: Wales
+  tournament: UEFA Nations League
+- match_id: ba13a4a2566057f0c3f6ed5baa107e355400cb2b
+  date: '2022-09-22'
+  home_team: Poland
+  away_team: Netherlands
+  tournament: UEFA Nations League
+- match_id: 21c9a4b4f568ac5d051e0857b1ca11891fed89a4
+  date: '2022-09-23'
+  home_team: Germany
+  away_team: Hungary
+  tournament: UEFA Nations League
+- match_id: 87dbe93b92d36e5e3dc0164947adb7a44e9c4047
+  date: '2022-09-23'
+  home_team: Italy
+  away_team: England
+  tournament: UEFA Nations League
+- match_id: 508903542f5b491acfdf053054235773292dc9c5
+  date: '2022-09-24'
+  home_team: Czech Republic
+  away_team: Portugal
+  tournament: UEFA Nations League
+- match_id: 8c71b6111eb4caeba6b14d0944a48e9b35335ef0
+  date: '2022-09-24'
+  home_team: Spain
+  away_team: Switzerland
+  tournament: UEFA Nations League
+- match_id: 058ab23938ff5c2b5c572ae20e6ecb62d917bbc0
+  date: '2022-09-25'
+  home_team: Austria
+  away_team: Croatia
+  tournament: UEFA Nations League
+- match_id: 1d78aea0d8cd9998b3987aabbdaeaa1f7b14eca2
+  date: '2022-09-25'
+  home_team: Netherlands
+  away_team: Belgium
+  tournament: UEFA Nations League
+- match_id: 6109913cebb01fe77a9d368f1cd81ba17d389a7f
+  date: '2022-09-25'
+  home_team: Denmark
+  away_team: France
+  tournament: UEFA Nations League
+- match_id: b5804b1a61d3c59f517311d8b2056dbd0a3e93c6
+  date: '2022-09-25'
+  home_team: Wales
+  away_team: Poland
+  tournament: UEFA Nations League
+- match_id: 322302072b3414401ae8fa31b7237525597abd4d
+  date: '2022-09-26'
+  home_team: England
+  away_team: Germany
+  tournament: UEFA Nations League
+- match_id: d22a41b8aade09451de76468549102d09ba66621
+  date: '2022-09-26'
+  home_team: Hungary
+  away_team: Italy
+  tournament: UEFA Nations League
+- match_id: 59e521cc315bb3f8c9a022bf36c3ad4a9e3284b9
+  date: '2022-09-27'
+  home_team: Portugal
+  away_team: Spain
+  tournament: UEFA Nations League
+- match_id: e70d5ebfab438e0fa400d78b9ed7f4bfeb63043f
+  date: '2022-09-27'
+  home_team: Switzerland
+  away_team: Czech Republic
+  tournament: UEFA Nations League
+- match_id: c386fb082088a7fd6944da81369ee9b3ac98e5fa
+  date: '2023-06-14'
+  home_team: Netherlands
+  away_team: Croatia
+  tournament: UEFA Nations League
+- match_id: 58c2d5e63ec2c03b7e42e9affb0e2fa0fd0b303c
+  date: '2023-06-15'
+  home_team: Spain
+  away_team: Italy
+  tournament: UEFA Nations League
+- match_id: 0053a38972974c3b03b91471021ad9bb020adcb2
+  date: '2023-06-18'
+  home_team: Croatia
+  away_team: Spain
+  tournament: UEFA Nations League
+- match_id: d0830c35c4c7ba886a26cc8a301a7e046d3b506c
+  date: '2023-06-18'
+  home_team: Netherlands
+  away_team: Italy
+  tournament: UEFA Nations League
+- match_id: 162d01a513dbf9b43112f4fc8615947bbaac116e
+  date: '2024-01-13'
+  home_team: Ivory Coast
+  away_team: Guinea-Bissau
+  tournament: African Cup of Nations
+- match_id: 07a702f8c2ffc153d879bb75a1d6422ed52747ac
+  date: '2024-01-14'
+  home_team: Egypt
+  away_team: Mozambique
+  tournament: African Cup of Nations
+- match_id: c54258a7f022113d84e05bdb84919688b7eee318
+  date: '2024-01-14'
+  home_team: Ghana
+  away_team: Cape Verde
+  tournament: African Cup of Nations
+- match_id: c9f2d29ef367ebf2c16681e7574e82dda32e12f4
+  date: '2024-01-14'
+  home_team: Nigeria
+  away_team: Equatorial Guinea
+  tournament: African Cup of Nations
+- match_id: 7e68dd5dc775a9e52c16be3cb9a744a77ec4bea6
+  date: '2024-01-15'
+  home_team: Algeria
+  away_team: Angola
+  tournament: African Cup of Nations
+- match_id: bea0ee3c72306369c670e94949bb8aea69729c8b
+  date: '2024-01-15'
+  home_team: Cameroon
+  away_team: Guinea
+  tournament: African Cup of Nations
+- match_id: dfa61a817f3e2968ef6d79cf98cbe4e47c951990
+  date: '2024-01-15'
+  home_team: Senegal
+  away_team: Gambia
+  tournament: African Cup of Nations
+- match_id: 1dca5ed51ec87d1d1b8320df1910d72ca84401f8
+  date: '2024-01-16'
+  home_team: Burkina Faso
+  away_team: Mauritania
+  tournament: African Cup of Nations
+- match_id: 3cab73a51fe6c786c31a5a5076141005d68eed10
+  date: '2024-01-16'
+  home_team: Mali
+  away_team: South Africa
+  tournament: African Cup of Nations
+- match_id: 45f951c35a553d6a084d80c5d48d419890e7c985
+  date: '2024-01-16'
+  home_team: Tunisia
+  away_team: Namibia
+  tournament: African Cup of Nations
+- match_id: a6eb778805855ee6969cbe82f5211dd72603a6cf
+  date: '2024-01-17'
+  home_team: Morocco
+  away_team: Tanzania
+  tournament: African Cup of Nations
+- match_id: 092c571deacb8623eb5b7246274de3ca81ca3743
+  date: '2024-01-18'
+  home_team: Equatorial Guinea
+  away_team: Guinea-Bissau
+  tournament: African Cup of Nations
+- match_id: c03a6016c2f130b39d60a10a8b44f9f7cef14df6
+  date: '2024-01-18'
+  home_team: Ivory Coast
+  away_team: Nigeria
+  tournament: African Cup of Nations
+- match_id: e83d55b11eef474e4206e1bd90dad28d25063412
+  date: '2024-01-18'
+  home_team: Egypt
+  away_team: Ghana
+  tournament: African Cup of Nations
+- match_id: b07e09ba58b20e2145ce88192ed4cda1040c76ab
+  date: '2024-01-19'
+  home_team: Guinea
+  away_team: Gambia
+  tournament: African Cup of Nations
+- match_id: b3b966adc89b4c2dda0e1c3f4c95b13b3d038217
+  date: '2024-01-19'
+  home_team: Cape Verde
+  away_team: Mozambique
+  tournament: African Cup of Nations
+- match_id: f0cfec4f315d4788672fcd1eb63546f54351a644
+  date: '2024-01-19'
+  home_team: Senegal
+  away_team: Cameroon
+  tournament: African Cup of Nations
+- match_id: a235cbcbd0f9419f4226f24371611234a1adceba
+  date: '2024-01-20'
+  home_team: Tunisia
+  away_team: Mali
+  tournament: African Cup of Nations
+- match_id: f31e5fda0021cf4402cb9c85aa610d716dc291ca
+  date: '2024-01-20'
+  home_team: Mauritania
+  away_team: Angola
+  tournament: African Cup of Nations
+- match_id: f7e7578859cfbf08c30dc5c3fb55c6bff8b126c3
+  date: '2024-01-20'
+  home_team: Algeria
+  away_team: Burkina Faso
+  tournament: African Cup of Nations
+- match_id: 767d8aef8a5c52648b3eaab9c59ad6dffb87b69b
+  date: '2024-01-21'
+  home_team: Morocco
+  away_team: DR Congo
+  tournament: African Cup of Nations
+- match_id: cbfbbeed2e2ada48ceabe48813048379b06a8b72
+  date: '2024-01-21'
+  home_team: South Africa
+  away_team: Namibia
+  tournament: African Cup of Nations
+- match_id: 58b66a690a410653cd447362404da5c6f6e9457f
+  date: '2024-01-22'
+  home_team: Cape Verde
+  away_team: Egypt
+  tournament: African Cup of Nations
+- match_id: a76df78bbe06558d5bf4d055507d0d7f24a9badb
+  date: '2024-01-22'
+  home_team: Guinea-Bissau
+  away_team: Nigeria
+  tournament: African Cup of Nations
+- match_id: ae1ca51d26b23ec5fc1ccba6f79d8a05dbd7dec3
+  date: '2024-01-22'
+  home_team: Mozambique
+  away_team: Ghana
+  tournament: African Cup of Nations
+- match_id: b89c2e8d86b4b0f328b415fc10b81b20ccb8d687
+  date: '2024-01-22'
+  home_team: Ivory Coast
+  away_team: Equatorial Guinea
+  tournament: African Cup of Nations
+- match_id: 52bd6de642d5ade2df40b1b292538999bec4e39b
+  date: '2024-01-23'
+  home_team: Guinea
+  away_team: Senegal
+  tournament: African Cup of Nations
+- match_id: 5ee08bf9241784811425b7a70608b31f433046ed
+  date: '2024-01-23'
+  home_team: Gambia
+  away_team: Cameroon
+  tournament: African Cup of Nations
+- match_id: 7296ca9be7631d9b50b5d71bb0a217ea135eb09e
+  date: '2024-01-23'
+  home_team: Mauritania
+  away_team: Algeria
+  tournament: African Cup of Nations
+- match_id: 90198893e02ced412afd386a2a18cb2413b8bb0c
+  date: '2024-01-23'
+  home_team: Angola
+  away_team: Burkina Faso
+  tournament: African Cup of Nations
+- match_id: 68dacf618295ae3d7d9d3ad005d9284b4d4aad98
+  date: '2024-01-24'
+  home_team: Tanzania
+  away_team: DR Congo
+  tournament: African Cup of Nations
+- match_id: ce331e4414d1e0db353079a45777135ab574d435
+  date: '2024-01-24'
+  home_team: South Africa
+  away_team: Tunisia
+  tournament: African Cup of Nations
+- match_id: fe7a93046d3111de29f5b0bd05eb66bd8aac74ff
+  date: '2024-01-24'
+  home_team: Namibia
+  away_team: Mali
+  tournament: African Cup of Nations
+- match_id: 2cf447349df29eaea66cc47fd5554799177b1179
+  date: '2024-01-27'
+  home_team: Angola
+  away_team: Namibia
+  tournament: African Cup of Nations
+- match_id: 4a63ed139019d34f459aea911f3bdbf057a3197c
+  date: '2024-01-27'
+  home_team: Nigeria
+  away_team: Cameroon
+  tournament: African Cup of Nations
+- match_id: 3a564d9f9cd22f5f1b7b22f3b95671fd674617ce
+  date: '2024-01-28'
+  home_team: Egypt
+  away_team: DR Congo
+  tournament: African Cup of Nations
+- match_id: 5fbcbb489aa19798f770477308bdcdadb008ae3f
+  date: '2024-01-28'
+  home_team: Equatorial Guinea
+  away_team: Guinea
+  tournament: African Cup of Nations
+- match_id: 88d2ab8c7270c8f2a72a80de4d652fe93ccd61e9
+  date: '2024-01-29'
+  home_team: Ivory Coast
+  away_team: Senegal
+  tournament: African Cup of Nations
+- match_id: e269f9deb5f9113b68d564371df799e6a189e47a
+  date: '2024-01-29'
+  home_team: Cape Verde
+  away_team: Mauritania
+  tournament: African Cup of Nations
+- match_id: 0dbb9a31ac1986d5a127a975d8e398bd7d5d0b3b
+  date: '2024-01-30'
+  home_team: Morocco
+  away_team: South Africa
+  tournament: African Cup of Nations
+- match_id: a5ba45d5be863e83b64efaf9b0a61819895a314a
+  date: '2024-01-30'
+  home_team: Mali
+  away_team: Burkina Faso
+  tournament: African Cup of Nations
+- match_id: 4b2d40ec353d883c305f8dd4d8a3b8ced9893940
+  date: '2024-02-02'
+  home_team: DR Congo
+  away_team: Guinea
+  tournament: African Cup of Nations
+- match_id: f6fcad07a627500eeb26e665373b4a4495a89fb8
+  date: '2024-02-02'
+  home_team: Nigeria
+  away_team: Angola
+  tournament: African Cup of Nations
+- match_id: 317135c1d848de493ac95ae3a115269af7832711
+  date: '2024-02-03'
+  home_team: Cape Verde
+  away_team: South Africa
+  tournament: African Cup of Nations
+- match_id: cc8acedb228665c654130ae9e752e3f2ad3ddffc
+  date: '2024-02-03'
+  home_team: Ivory Coast
+  away_team: Mali
+  tournament: African Cup of Nations
+- match_id: 1c4980866a38346724768c417eeea257a8c5555a
+  date: '2024-02-07'
+  home_team: Ivory Coast
+  away_team: DR Congo
+  tournament: African Cup of Nations
+- match_id: 260c7673fb8886c348f022799fef199f889b4f69
+  date: '2024-02-07'
+  home_team: Nigeria
+  away_team: South Africa
+  tournament: African Cup of Nations
+- match_id: 2409ad17f11e69cfaaaae36a6198c7f61c9d133f
+  date: '2024-02-10'
+  home_team: South Africa
+  away_team: DR Congo
+  tournament: African Cup of Nations
+- match_id: c2ba26fd54aacca1f66cae5bbded1872c9b8f459
+  date: '2024-02-11'
+  home_team: Ivory Coast
+  away_team: Nigeria
+  tournament: African Cup of Nations
+- match_id: 7fdfa9a23989ef5a302a8d5bb66d93c91413e331
+  date: '2024-06-20'
+  home_team: Argentina
+  away_team: Canada
+  tournament: Copa América
+- match_id: b33d5f523576889d1e027f16139baa4e84809044
+  date: '2024-06-21'
+  home_team: Peru
+  away_team: Chile
+  tournament: Copa América
+- match_id: 05477a2e4c92eb8adf2a29e5e9d8c38411365f59
+  date: '2024-06-22'
+  home_team: Mexico
+  away_team: Jamaica
+  tournament: Copa América
+- match_id: ffb066e0fdc96fdb29bdb2af264cafb7f1dd3849
+  date: '2024-06-22'
+  home_team: Ecuador
+  away_team: Venezuela
+  tournament: Copa América
+- match_id: 3571a5b0b3736e7cdd703081cc2a790fda2e5163
+  date: '2024-06-23'
+  home_team: Uruguay
+  away_team: Panama
+  tournament: Copa América
+- match_id: 53f7ce13e3511f7100165e9effea41fddd27ce17
+  date: '2024-06-23'
+  home_team: United States
+  away_team: Bolivia
+  tournament: Copa América
+- match_id: 700036f56c635d829786d2ffbaff5458312664a9
+  date: '2024-06-24'
+  home_team: Colombia
+  away_team: Paraguay
+  tournament: Copa América
+- match_id: 72b91cbdeb48ed30aaf00a18c9e834d178dced4e
+  date: '2024-06-24'
+  home_team: Brazil
+  away_team: Costa Rica
+  tournament: Copa América
+- match_id: b9ae187c60b99af9a233805fd82a625d1f3f0b3a
+  date: '2024-06-25'
+  home_team: Peru
+  away_team: Canada
+  tournament: Copa América
+- match_id: d986c458423f7740550b1f3e316402ab6f950577
+  date: '2024-06-25'
+  home_team: Chile
+  away_team: Argentina
+  tournament: Copa América
+- match_id: cb531244fd97e791ceb20bf55ec36ea202978738
+  date: '2024-06-26'
+  home_team: Venezuela
+  away_team: Mexico
+  tournament: Copa América
+- match_id: fe695d7554922449a708d75cdc595cceaab167e3
+  date: '2024-06-26'
+  home_team: Ecuador
+  away_team: Jamaica
+  tournament: Copa América
+- match_id: 062fd0d79e630e32ea7af984bf0deaa82bfdcff3
+  date: '2024-06-27'
+  home_team: Uruguay
+  away_team: Bolivia
+  tournament: Copa América
+- match_id: 9d746d24489bd03eaf7655c8761aede3194dcda3
+  date: '2024-06-27'
+  home_team: United States
+  away_team: Panama
+  tournament: Copa América
+- match_id: 80d455472427cfeb2a1c935b5ed31e7044f6d8fd
+  date: '2024-06-28'
+  home_team: Colombia
+  away_team: Costa Rica
+  tournament: Copa América
+- match_id: ae0eb799ccd3ec6976257a857ad1cce175187c59
+  date: '2024-06-28'
+  home_team: Paraguay
+  away_team: Brazil
+  tournament: Copa América
+- match_id: 3bf48032cc1b1f92908d76afaca5f68cfb90def9
+  date: '2024-06-29'
+  home_team: Argentina
+  away_team: Peru
+  tournament: Copa América
+- match_id: e334d938fff358b169052e8c069c49bc24f2d76c
+  date: '2024-06-29'
+  home_team: Canada
+  away_team: Chile
+  tournament: Copa América
+- match_id: 5fd3114862629822b10dcb6d5e759ce6968e3957
+  date: '2024-06-30'
+  home_team: Jamaica
+  away_team: Venezuela
+  tournament: Copa América
+- match_id: c712d49a81dd549ee80961a83b27a1d14c346edd
+  date: '2024-06-30'
+  home_team: Mexico
+  away_team: Ecuador
+  tournament: Copa América
+- match_id: 19af49f9cbeea2d06f6e90e84f470592177931ce
+  date: '2024-07-01'
+  home_team: United States
+  away_team: Uruguay
+  tournament: Copa América
+- match_id: 3e0469e5cc15f0a8dae15efac413998f3aefe632
+  date: '2024-07-01'
+  home_team: Bolivia
+  away_team: Panama
+  tournament: Copa América
+- match_id: 8092cbc7f017836e45ea5724bc4a758944efa4a3
+  date: '2024-07-02'
+  home_team: Costa Rica
+  away_team: Paraguay
+  tournament: Copa América
+- match_id: d015754000c0c727f1481fd04ceefc5ba689945b
+  date: '2024-07-02'
+  home_team: Brazil
+  away_team: Colombia
+  tournament: Copa América
+- match_id: 56b9c50f4fd02f25cc42138cfc9791cb41e2365f
+  date: '2024-07-05'
+  home_team: Venezuela
+  away_team: Canada
+  tournament: Copa América
+- match_id: 9106be142b70eeb7c4fc33988370cf721957a3a3
+  date: '2024-07-06'
+  home_team: Colombia
+  away_team: Panama
+  tournament: Copa América
+- match_id: f4df7cad47816dd8b62719bb2e090de9001b8d9f
+  date: '2024-07-06'
+  home_team: Uruguay
+  away_team: Brazil
+  tournament: Copa América
+- match_id: 0c1ac7dd3b34cfd887ac91e0b85bea6c53ef822c
+  date: '2024-07-09'
+  home_team: Argentina
+  away_team: Canada
+  tournament: Copa América
+- match_id: 336649b0adf437d6faab3aa13983dd0e72d94370
+  date: '2024-07-10'
+  home_team: Uruguay
+  away_team: Colombia
+  tournament: Copa América
+- match_id: d7049c8accb1ea8754e3e64089b9de0970e8d696
+  date: '2024-07-13'
+  home_team: Canada
+  away_team: Uruguay
+  tournament: Copa América
+- match_id: 1079529133be89a11a504848901bff324d7a375f
+  date: '2024-07-14'
+  home_team: Argentina
+  away_team: Colombia
+  tournament: Copa América
+- match_id: 248a553c5e32bd4a7135779165718e7cdea95c29
+  date: '2024-09-05'
+  home_team: Portugal
+  away_team: Croatia
+  tournament: UEFA Nations League
+- match_id: 374c03e447571d409e726d2ea23b9b49829c1f5b
+  date: '2024-09-05'
+  home_team: Scotland
+  away_team: Poland
+  tournament: UEFA Nations League
+- match_id: c20ffe8fc6ec97d433b091ea59ec72307226ef1d
+  date: '2024-09-05'
+  home_team: Denmark
+  away_team: Switzerland
+  tournament: UEFA Nations League
+- match_id: dba301f4eaac7bed931b8add0096b648202c3a71
+  date: '2024-09-05'
+  home_team: Serbia
+  away_team: Spain
+  tournament: UEFA Nations League
+- match_id: 2366c5c7b9c5b9212d3d68808582643cb1b9b099
+  date: '2024-09-06'
+  home_team: Belgium
+  away_team: Israel
+  tournament: UEFA Nations League
+- match_id: f69fb326c4ef98821c77c206d074b90152633e77
+  date: '2024-09-06'
+  home_team: France
+  away_team: Italy
+  tournament: UEFA Nations League
+- match_id: 0e1a593384708ac4291274b57e2665002c3e86b6
+  date: '2024-09-07'
+  home_team: Germany
+  away_team: Hungary
+  tournament: UEFA Nations League
+- match_id: adf11c0d555f27894ecee2f71ff71aed9ee1f62c
+  date: '2024-09-07'
+  home_team: Netherlands
+  away_team: Bosnia and Herzegovina
+  tournament: UEFA Nations League
+- match_id: 138cc3f85058d4e262186bda8b20382aa78e1042
+  date: '2024-09-08'
+  home_team: Portugal
+  away_team: Scotland
+  tournament: UEFA Nations League
+- match_id: 3bee7aa579e36d0a05c56bdfa2f9b4581e810d72
+  date: '2024-09-08'
+  home_team: Switzerland
+  away_team: Spain
+  tournament: UEFA Nations League
+- match_id: 6aeeb6def127420d93ec4f2c21d96cdcdf6f70b0
+  date: '2024-09-08'
+  home_team: Croatia
+  away_team: Poland
+  tournament: UEFA Nations League
+- match_id: ebcd9fe241213b049995211d371a42f22378be3c
+  date: '2024-09-08'
+  home_team: Denmark
+  away_team: Serbia
+  tournament: UEFA Nations League
+- match_id: 3d776b1803b3ea25e54a47ed4a9c394bed8b0e2f
+  date: '2024-09-09'
+  home_team: France
+  away_team: Belgium
+  tournament: UEFA Nations League
+- match_id: f8220a1a7523491ff94504ea1401dce5bdd5df15
+  date: '2024-09-09'
+  home_team: Israel
+  away_team: Italy
+  tournament: UEFA Nations League
+- match_id: 147238622f850babbeb61acdd9a2dfd6303d45a2
+  date: '2024-09-10'
+  home_team: Netherlands
+  away_team: Germany
+  tournament: UEFA Nations League
+- match_id: 3861d8dafddf43433c53e301796fb7de8ba8a92c
+  date: '2024-09-10'
+  home_team: Hungary
+  away_team: Bosnia and Herzegovina
+  tournament: UEFA Nations League
+- match_id: 0ed6629ef1384872eb0f835aae56d3416fa87699
+  date: '2024-10-10'
+  home_team: Israel
+  away_team: France
+  tournament: UEFA Nations League
+- match_id: 4e5b3318cb5530cd9043fccf3affb6e7ab646392
+  date: '2024-10-10'
+  home_team: Italy
+  away_team: Belgium
+  tournament: UEFA Nations League
+- match_id: 1902501eced85618af6f2a86cecf83ca0de83ac4
+  date: '2024-10-11'
+  home_team: Bosnia and Herzegovina
+  away_team: Germany
+  tournament: UEFA Nations League
+- match_id: 52c1a639be62f88a5f5df59fbde0ba13bf3a44b4
+  date: '2024-10-11'
+  home_team: Hungary
+  away_team: Netherlands
+  tournament: UEFA Nations League
+- match_id: 201d36c0eb1e1a2bb81a6e18d6d6aa48d22179cb
+  date: '2024-10-12'
+  home_team: Spain
+  away_team: Denmark
+  tournament: UEFA Nations League
+- match_id: 327745f36ac90655945688d2332a5df3dcfc1cd4
+  date: '2024-10-12'
+  home_team: Croatia
+  away_team: Scotland
+  tournament: UEFA Nations League
+- match_id: c2bc2d50e9d041ac614862fbe568f213a5f8a674
+  date: '2024-10-12'
+  home_team: Poland
+  away_team: Portugal
+  tournament: UEFA Nations League
+- match_id: f94e91379a208719bcaad8c1a1160f43190ca175
+  date: '2024-10-12'
+  home_team: Serbia
+  away_team: Switzerland
+  tournament: UEFA Nations League
+- match_id: 2ad8f2083844c1bb5299600bd96ec34ebd78be2c
+  date: '2024-10-14'
+  home_team: Belgium
+  away_team: France
+  tournament: UEFA Nations League
+- match_id: 60fd5cbe273c725bd2e582436c47efa0681992aa
+  date: '2024-10-14'
+  home_team: Germany
+  away_team: Netherlands
+  tournament: UEFA Nations League
+- match_id: b36084c4b9bea9d66b9fb6444941a015633947d0
+  date: '2024-10-14'
+  home_team: Bosnia and Herzegovina
+  away_team: Hungary
+  tournament: UEFA Nations League
+- match_id: ea39a6357d8827ed09326ea5b48b42ea14e2d276
+  date: '2024-10-14'
+  home_team: Italy
+  away_team: Israel
+  tournament: UEFA Nations League
+- match_id: 1571624cafb65d2424c3f238929841b7219c1389
+  date: '2024-10-15'
+  home_team: Poland
+  away_team: Croatia
+  tournament: UEFA Nations League
+- match_id: 20c264f7138a41da53663e79f4f481a239cb3aae
+  date: '2024-10-15'
+  home_team: Spain
+  away_team: Serbia
+  tournament: UEFA Nations League
+- match_id: 21e4031aa6f3735e9d1326aff0987fd75af518ac
+  date: '2024-10-15'
+  home_team: Switzerland
+  away_team: Denmark
+  tournament: UEFA Nations League
+- match_id: 8aeb1e7ee75dd9a3a56359378d03f362c5347e51
+  date: '2024-10-15'
+  home_team: Scotland
+  away_team: Portugal
+  tournament: UEFA Nations League
+- match_id: 1fc658ffad241c3aa1fa3e2ad82caef711329218
+  date: '2024-11-14'
+  home_team: Belgium
+  away_team: Italy
+  tournament: UEFA Nations League
+- match_id: 80b5bac9a27c07269dd36e515bd9b8092ff07b2a
+  date: '2024-11-14'
+  home_team: France
+  away_team: Israel
+  tournament: UEFA Nations League
+- match_id: 218dc3c56244967e873682b3cfa1cad200952728
+  date: '2024-11-15'
+  home_team: Scotland
+  away_team: Croatia
+  tournament: UEFA Nations League
+- match_id: 772615d28dbf50319d0970d1954e89e6a9071195
+  date: '2024-11-15'
+  home_team: Portugal
+  away_team: Poland
+  tournament: UEFA Nations League
+- match_id: aaf846fd62165d8822464599f4def57b2e3615e3
+  date: '2024-11-15'
+  home_team: Switzerland
+  away_team: Serbia
+  tournament: UEFA Nations League
+- match_id: d792950e48fee288879bb0d6007f4574fda871ea
+  date: '2024-11-15'
+  home_team: Denmark
+  away_team: Spain
+  tournament: UEFA Nations League
+- match_id: 811db29690bc19ba5687679fc840fae0fe6c1133
+  date: '2024-11-16'
+  home_team: Netherlands
+  away_team: Hungary
+  tournament: UEFA Nations League
+- match_id: bfa2cf108cb32cceb33faf3a9aa6ef175f40e512
+  date: '2024-11-16'
+  home_team: Germany
+  away_team: Bosnia and Herzegovina
+  tournament: UEFA Nations League
+- match_id: 558255c2f8546dfb0be04f307b78bcf8a6472c21
+  date: '2024-11-17'
+  home_team: Israel
+  away_team: Belgium
+  tournament: UEFA Nations League
+- match_id: 9561601693c8e32bc8e7896e5052b695b5a31d9c
+  date: '2024-11-17'
+  home_team: Italy
+  away_team: France
+  tournament: UEFA Nations League
+- match_id: 22e6bf179e4efc9de6d82e0301be6fd99abf6db1
+  date: '2024-11-18'
+  home_team: Spain
+  away_team: Switzerland
+  tournament: UEFA Nations League
+- match_id: 542911a4bfbcb72cc2c0391cb75859360b795ab9
+  date: '2024-11-18'
+  home_team: Serbia
+  away_team: Denmark
+  tournament: UEFA Nations League
+- match_id: 94e7ad7281fb209a3840b577d7cf68ca744d439b
+  date: '2024-11-18'
+  home_team: Croatia
+  away_team: Portugal
+  tournament: UEFA Nations League
+- match_id: f28f771913a782f7ffcea5779764333488217e1f
+  date: '2024-11-18'
+  home_team: Poland
+  away_team: Scotland
+  tournament: UEFA Nations League
+- match_id: 465b9cf567545a9faea6eedcb493203c03e1f96a
+  date: '2024-11-19'
+  home_team: Hungary
+  away_team: Germany
+  tournament: UEFA Nations League
+- match_id: 75b4437b9786b4425ffb4261b95a576f8bbce280
+  date: '2024-11-19'
+  home_team: Bosnia and Herzegovina
+  away_team: Netherlands
+  tournament: UEFA Nations League
+- match_id: 53d28d0410d3a36f4edf372f7049ccf2dee95a5a
+  date: '2025-03-20'
+  home_team: Netherlands
+  away_team: Spain
+  tournament: UEFA Nations League
+- match_id: a2d7402de13c5724c4ec70df42fa2c194e37871d
+  date: '2025-03-20'
+  home_team: Italy
+  away_team: Germany
+  tournament: UEFA Nations League
+- match_id: ba8b2a21be70f41b7acbbe5f633c95754c008627
+  date: '2025-03-20'
+  home_team: Denmark
+  away_team: Portugal
+  tournament: UEFA Nations League
+- match_id: e79eea06c191e82ecb9a3c39eb83297defc2ef4c
+  date: '2025-03-20'
+  home_team: Croatia
+  away_team: France
+  tournament: UEFA Nations League
+- match_id: 5d416cda664bdc583f6303a6481bdf7ae8b4967a
+  date: '2025-03-23'
+  home_team: Germany
+  away_team: Italy
+  tournament: UEFA Nations League
+- match_id: 8239d62b74f0186b1503aa5ff82f44f91944f89f
+  date: '2025-03-23'
+  home_team: Spain
+  away_team: Netherlands
+  tournament: UEFA Nations League
+- match_id: 9da6fad58045a205821f3248d334d87c04f89eb8
+  date: '2025-03-23'
+  home_team: Portugal
+  away_team: Denmark
+  tournament: UEFA Nations League
+- match_id: b47bb46741debef5c91764235120d3cd8a1cf356
+  date: '2025-03-23'
+  home_team: France
+  away_team: Croatia
+  tournament: UEFA Nations League
+- match_id: 38ee34d50a72488ef9254bd57bf931b16ced2873
+  date: '2025-03-25'
+  home_team: Venezuela
+  away_team: Peru
+  tournament: FIFA World Cup qualification
+- match_id: 533bf9fb7c0f02c859b215e9988b2d4d2b24bed8
+  date: '2025-03-25'
+  home_team: Colombia
+  away_team: Paraguay
+  tournament: FIFA World Cup qualification
+- match_id: b7da94d509eda34a129c1d9c177a1330b8264154
+  date: '2025-03-25'
+  home_team: Argentina
+  away_team: Brazil
+  tournament: FIFA World Cup qualification
+- match_id: bf6e0cdc654407e44c52d566b9686043ef3e0e9c
+  date: '2025-03-25'
+  home_team: Chile
+  away_team: Ecuador
+  tournament: FIFA World Cup qualification
+- match_id: f8ee82c591bd0f3b35a0db8fa2292a3895b6c699
+  date: '2025-03-25'
+  home_team: Bolivia
+  away_team: Uruguay
+  tournament: FIFA World Cup qualification
+- match_id: 3aaf29712e734c61a85e0202ac3f29b1c49240d0
+  date: '2025-06-04'
+  home_team: Germany
+  away_team: Portugal
+  tournament: UEFA Nations League
+- match_id: 05cd7d6bda7e1730b693f2b3a48d2b9f135629fa
+  date: '2025-06-05'
+  home_team: Ecuador
+  away_team: Brazil
+  tournament: FIFA World Cup qualification
+- match_id: 42b7ceea21b5b27b5412f7ce551d5be23c3040dc
+  date: '2025-06-05'
+  home_team: Spain
+  away_team: France
+  tournament: UEFA Nations League
+- match_id: 4d3d56d804e4e3cffc501dceb483268a86aa4c9b
+  date: '2025-06-05'
+  home_team: Chile
+  away_team: Argentina
+  tournament: FIFA World Cup qualification
+- match_id: 7849515e467f4d6429d5d9d6751549516dec8db9
+  date: '2025-06-05'
+  home_team: Paraguay
+  away_team: Uruguay
+  tournament: FIFA World Cup qualification
+- match_id: 3976fc9a3478ebd5980794fdeebb2cf83cc17f66
+  date: '2025-06-06'
+  home_team: Colombia
+  away_team: Peru
+  tournament: FIFA World Cup qualification
+- match_id: 9cd848e7f770e59ad741fff183f049a8b90796e7
+  date: '2025-06-06'
+  home_team: Venezuela
+  away_team: Bolivia
+  tournament: FIFA World Cup qualification
+- match_id: 0ef3181a3a27e4e19c17bca6e7a9ada3c0441d86
+  date: '2025-06-08'
+  home_team: Portugal
+  away_team: Spain
+  tournament: UEFA Nations League
+- match_id: c2434239fb6a7b037faf40ec7b8071d9c905add7
+  date: '2025-06-08'
+  home_team: Germany
+  away_team: France
+  tournament: UEFA Nations League
+- match_id: 0ab304482da4374dbc40ff7c1aec4cb7e84c9d49
+  date: '2025-06-10'
+  home_team: Peru
+  away_team: Ecuador
+  tournament: FIFA World Cup qualification
+- match_id: 813af89b0ff93e0f964204e984281cb3cd2785b9
+  date: '2025-06-10'
+  home_team: Brazil
+  away_team: Paraguay
+  tournament: FIFA World Cup qualification
+- match_id: b0442a72c522074579aa17834f635ae433d4a210
+  date: '2025-06-10'
+  home_team: Argentina
+  away_team: Colombia
+  tournament: FIFA World Cup qualification
+- match_id: c5e21a9dea9b180416989c37a0352ed0a8b5d0c7
+  date: '2025-06-10'
+  home_team: Uruguay
+  away_team: Venezuela
+  tournament: FIFA World Cup qualification
+- match_id: f9421991538f53abb3027d3b8a279bf875ef8bfb
+  date: '2025-06-10'
+  home_team: Bolivia
+  away_team: Chile
+  tournament: FIFA World Cup qualification
+- match_id: 69c9e300253bb46d50085b5ec1675a51099dfdd6
+  date: '2025-09-04'
+  home_team: Uruguay
+  away_team: Peru
+  tournament: FIFA World Cup qualification
+- match_id: 6f77c137531a2bf4ef64af75a6cf9999f5ea815e
+  date: '2025-09-04'
+  home_team: Paraguay
+  away_team: Ecuador
+  tournament: FIFA World Cup qualification
+- match_id: 751d272bb56e5c29e9d7eb7df4646b2eabd7b24b
+  date: '2025-09-04'
+  home_team: Colombia
+  away_team: Bolivia
+  tournament: FIFA World Cup qualification
+- match_id: 7d183c105900361381828c9c8b704713155aecf0
+  date: '2025-09-04'
+  home_team: Argentina
+  away_team: Venezuela
+  tournament: FIFA World Cup qualification
+- match_id: ae636a06a588bfd0fed5d6d04844019a0eb1c74b
+  date: '2025-09-04'
+  home_team: Brazil
+  away_team: Chile
+  tournament: FIFA World Cup qualification
+- match_id: 7ca9b4252172ed3b4a16b5f41d9b3e6842224e68
+  date: '2025-09-09'
+  home_team: Chile
+  away_team: Uruguay
+  tournament: FIFA World Cup qualification
+- match_id: 80cbd5ba1f7456a905428cdd904a78ef4670b98a
+  date: '2025-09-09'
+  home_team: Ecuador
+  away_team: Argentina
+  tournament: FIFA World Cup qualification
+- match_id: 9086f453e2a56b9a9c6d22bee494d61a53549332
+  date: '2025-09-09'
+  home_team: Venezuela
+  away_team: Colombia
+  tournament: FIFA World Cup qualification
+- match_id: a41ea54c4b47aa8a30a10226bbd3cd530ac6516b
+  date: '2025-09-09'
+  home_team: Peru
+  away_team: Paraguay
+  tournament: FIFA World Cup qualification
+- match_id: ec10014e789ed3436c763f99abe46ee21de98afc
+  date: '2025-09-09'
+  home_team: Bolivia
+  away_team: Brazil
+  tournament: FIFA World Cup qualification
+- match_id: ff10e3ea7a6547a0ac5204bc50e2c230324ca5f6
+  date: '2025-12-21'
+  home_team: Morocco
+  away_team: Comoros
+  tournament: African Cup of Nations
+- match_id: 5fb415cdbb5b3c02f7faceedded504ee92d1529b
+  date: '2025-12-22'
+  home_team: Egypt
+  away_team: Zimbabwe
+  tournament: African Cup of Nations
+- match_id: e72d54e9ad3813619db9a7da11653bc73ec23169
+  date: '2025-12-22'
+  home_team: South Africa
+  away_team: Angola
+  tournament: African Cup of Nations
+- match_id: 30fc78c3fad40d699ae4e0286684035a5f312171
+  date: '2025-12-23'
+  home_team: DR Congo
+  away_team: Benin
+  tournament: African Cup of Nations
+- match_id: 33c02bd4107eecce48e18f2a0509e0f972b3d32b
+  date: '2025-12-23'
+  home_team: Senegal
+  away_team: Botswana
+  tournament: African Cup of Nations
+- match_id: dd5c2a58a8d8471e72ba74d80c616d7609695e43
+  date: '2025-12-23'
+  home_team: Tunisia
+  away_team: Uganda
+  tournament: African Cup of Nations
+- match_id: ff13bb8b0e22a419c7c4e9097c8a4508d03705ee
+  date: '2025-12-23'
+  home_team: Nigeria
+  away_team: Tanzania
+  tournament: African Cup of Nations
+- match_id: 4127cfc25d8ab636d6bf9e3b0e33bb41a3418c13
+  date: '2025-12-24'
+  home_team: Ivory Coast
+  away_team: Mozambique
+  tournament: African Cup of Nations
+- match_id: 6e66f94440f13f3fa3844ca0d8bc939f172c4a69
+  date: '2025-12-24'
+  home_team: Burkina Faso
+  away_team: Equatorial Guinea
+  tournament: African Cup of Nations
+- match_id: df1592d791ea85ba2b23f36906660bf5659a932a
+  date: '2025-12-24'
+  home_team: Cameroon
+  away_team: Gabon
+  tournament: African Cup of Nations
+- match_id: f632f251a2fa2aaff8e05ef6f174085e393e7df0
+  date: '2025-12-24'
+  home_team: Algeria
+  away_team: Sudan
+  tournament: African Cup of Nations
+- match_id: 184545876890d1b1c781127e65ebae4714079be4
+  date: '2025-12-26'
+  home_team: Egypt
+  away_team: South Africa
+  tournament: African Cup of Nations
+- match_id: 34daa3506346c158f3855d19cac59946864235c7
+  date: '2025-12-26'
+  home_team: Angola
+  away_team: Zimbabwe
+  tournament: African Cup of Nations
+- match_id: 7918c31bd237f17142abd1258c3b98c93cacd5e0
+  date: '2025-12-26'
+  home_team: Morocco
+  away_team: Mali
+  tournament: African Cup of Nations
+- match_id: 3837d047a8606d14914a3c47d63e98aea1563fbe
+  date: '2025-12-27'
+  home_team: Nigeria
+  away_team: Tunisia
+  tournament: African Cup of Nations
+- match_id: 97e6968f67f698c03775eda62112876a6350e724
+  date: '2025-12-27'
+  home_team: Uganda
+  away_team: Tanzania
+  tournament: African Cup of Nations
+- match_id: ee0f775530df20a77f873eeeaaccf91bcaf7eb59
+  date: '2025-12-27'
+  home_team: Senegal
+  away_team: DR Congo
+  tournament: African Cup of Nations
+- match_id: fe112257368c893d5f4cf0445752dbf580a6397a
+  date: '2025-12-27'
+  home_team: Benin
+  away_team: Botswana
+  tournament: African Cup of Nations
+- match_id: 1a864074bd3c8013219cace886e259e82db032ee
+  date: '2025-12-28'
+  home_team: Equatorial Guinea
+  away_team: Sudan
+  tournament: African Cup of Nations
+- match_id: 5b32a70df83d6451a4deff91d56cf9ad4c7cc4e5
+  date: '2025-12-28'
+  home_team: Algeria
+  away_team: Burkina Faso
+  tournament: African Cup of Nations
+- match_id: 827ad7ae398df7e1c73faad46a627d92761bcbe2
+  date: '2025-12-28'
+  home_team: Gabon
+  away_team: Mozambique
+  tournament: African Cup of Nations
+- match_id: d7e3bf775d3f0df0b3f66f3f412bd5ca15eb0f23
+  date: '2025-12-28'
+  home_team: Ivory Coast
+  away_team: Cameroon
+  tournament: African Cup of Nations
+- match_id: 5a3ce215159fee20a74c5fac20b42f1369ae304a
+  date: '2025-12-29'
+  home_team: Comoros
+  away_team: Mali
+  tournament: African Cup of Nations
+- match_id: a6823257c24ad049f85a639bc2acdbe0ed504821
+  date: '2025-12-29'
+  home_team: Angola
+  away_team: Egypt
+  tournament: African Cup of Nations
+- match_id: a8d3745e2adb19b2fe25d37522779364a7b5a0d6
+  date: '2025-12-29'
+  home_team: Zimbabwe
+  away_team: South Africa
+  tournament: African Cup of Nations
+- match_id: 90734068b93d66ad4f5391c49af2697993a27d21
+  date: '2025-12-30'
+  home_team: Benin
+  away_team: Senegal
+  tournament: African Cup of Nations
+- match_id: 962408aa14edfbc018c7d13e323bee528b209b14
+  date: '2025-12-30'
+  home_team: Uganda
+  away_team: Nigeria
+  tournament: African Cup of Nations
+- match_id: be3d8cc6f6c0f525ad38670c99d86edde7eee195
+  date: '2025-12-30'
+  home_team: Tanzania
+  away_team: Tunisia
+  tournament: African Cup of Nations
+- match_id: d189d0375fc88c989d8582b58325742fe644d92a
+  date: '2025-12-30'
+  home_team: Botswana
+  away_team: DR Congo
+  tournament: African Cup of Nations
+- match_id: 41549cb2ed3ac064f005571b803eb7df46dbe134
+  date: '2025-12-31'
+  home_team: Equatorial Guinea
+  away_team: Algeria
+  tournament: African Cup of Nations
+- match_id: 6152b7fbdd7da60ee9dccd7231a9cb20bf3374b7
+  date: '2025-12-31'
+  home_team: Mozambique
+  away_team: Cameroon
+  tournament: African Cup of Nations
+- match_id: 78fee152f34c5ccb5319398067002534267bdae3
+  date: '2025-12-31'
+  home_team: Gabon
+  away_team: Ivory Coast
+  tournament: African Cup of Nations
+- match_id: 8fa032ed8827026a24f7849a5e2cb4bc642c22c8
+  date: '2025-12-31'
+  home_team: Sudan
+  away_team: Burkina Faso
+  tournament: African Cup of Nations

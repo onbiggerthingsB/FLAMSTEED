@@ -1,0 +1,592 @@
+{
+  "burn_in_months": 2,
+  "devig_methods": [
+    "shin",
+    "multiplicative"
+  ],
+  "fold_spec": "monthly chronological folds over the dev ledger, which archives EVERY feasible dev-slate month (V5 must not pre-trim: the ledger burn-in here is the programme's ONE burn-in); burn-in = first 2 ledger months (training-only); fold t is scored with the (w, de-vig) pair chosen by mean canonical RPS on folds < t; rows without admissible odds are excluded from selection; grid w in {0.00, 0.05, ..., 1.00}; ties break to the smaller w, then the lexicographically smaller de-vig method; the final (w, de-vig) is the argmin over ALL dev months",
+  "folds": [
+    {
+      "devig_method": "multiplicative",
+      "fold_rps": 0.27800062649935103,
+      "month": "2022-06",
+      "n_fold_fixtures": 8,
+      "n_train_fixtures": 33,
+      "w": 1.0
+    },
+    {
+      "devig_method": "multiplicative",
+      "fold_rps": 0.2544412192626181,
+      "month": "2022-09",
+      "n_fold_fixtures": 16,
+      "n_train_fixtures": 41,
+      "w": 1.0
+    },
+    {
+      "devig_method": "multiplicative",
+      "fold_rps": 0.2738011122751299,
+      "month": "2023-06",
+      "n_fold_fixtures": 4,
+      "n_train_fixtures": 57,
+      "w": 0.9
+    },
+    {
+      "devig_method": "multiplicative",
+      "fold_rps": 0.21828539773287547,
+      "month": "2024-01",
+      "n_fold_fixtures": 41,
+      "n_train_fixtures": 61,
+      "w": 1.0
+    },
+    {
+      "devig_method": "multiplicative",
+      "fold_rps": 0.1802707711895572,
+      "month": "2024-02",
+      "n_fold_fixtures": 8,
+      "n_train_fixtures": 102,
+      "w": 1.0
+    },
+    {
+      "devig_method": "multiplicative",
+      "fold_rps": 0.1562431058787826,
+      "month": "2024-06",
+      "n_fold_fixtures": 20,
+      "n_train_fixtures": 110,
+      "w": 1.0
+    },
+    {
+      "devig_method": "multiplicative",
+      "fold_rps": 0.17306976481527572,
+      "month": "2024-07",
+      "n_fold_fixtures": 11,
+      "n_train_fixtures": 130,
+      "w": 0.8
+    },
+    {
+      "devig_method": "multiplicative",
+      "fold_rps": 0.1517209231788173,
+      "month": "2024-09",
+      "n_fold_fixtures": 16,
+      "n_train_fixtures": 141,
+      "w": 0.5
+    },
+    {
+      "devig_method": "multiplicative",
+      "fold_rps": 0.12079570049204963,
+      "month": "2024-10",
+      "n_fold_fixtures": 16,
+      "n_train_fixtures": 157,
+      "w": 0.65
+    },
+    {
+      "devig_method": "multiplicative",
+      "fold_rps": 0.22677386906557506,
+      "month": "2024-11",
+      "n_fold_fixtures": 16,
+      "n_train_fixtures": 173,
+      "w": 0.55
+    },
+    {
+      "devig_method": "multiplicative",
+      "fold_rps": 0.19227134808209245,
+      "month": "2025-03",
+      "n_fold_fixtures": 13,
+      "n_train_fixtures": 189,
+      "w": 0.85
+    },
+    {
+      "devig_method": "multiplicative",
+      "fold_rps": 0.17277101667363218,
+      "month": "2025-06",
+      "n_fold_fixtures": 14,
+      "n_train_fixtures": 202,
+      "w": 0.95
+    },
+    {
+      "devig_method": "multiplicative",
+      "fold_rps": 0.165907519952824,
+      "month": "2025-09",
+      "n_fold_fixtures": 10,
+      "n_train_fixtures": 216,
+      "w": 1.0
+    },
+    {
+      "devig_method": "multiplicative",
+      "fold_rps": 0.13370480997025144,
+      "month": "2025-12",
+      "n_fold_fixtures": 33,
+      "n_train_fixtures": 226,
+      "w": 1.0
+    }
+  ],
+  "grid_mean_rps": [
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.19372011590412014,
+      "w": 0.0
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.1932533632767839,
+      "w": 0.05
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.19280499197967718,
+      "w": 0.1
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.19237548238842353,
+      "w": 0.15
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.19196536077464904,
+      "w": 0.2
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.19157520220901972,
+      "w": 0.25
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.1912056337011331,
+      "w": 0.3
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.19085733755860312,
+      "w": 0.35
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.19053105494341757,
+      "w": 0.4
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.19022758959877029,
+      "w": 0.45
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.18994781171415726,
+      "w": 0.5
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.1896926618908362,
+      "w": 0.55
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.18946315516361206,
+      "w": 0.6
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.18926038502885054,
+      "w": 0.65
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.1890855274225651,
+      "w": 0.7
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.1889398445869288,
+      "w": 0.75
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.18882468875886116,
+      "w": 0.8
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.1887415056114307,
+      "w": 0.85
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.18869183737796416,
+      "w": 0.9
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.18867732559166728,
+      "w": 0.95
+    },
+    {
+      "devig_method": "multiplicative",
+      "mean_rps": 0.18869971338088035,
+      "w": 1.0
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.19372011590412014,
+      "w": 0.0
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.1932580550937096,
+      "w": 0.05
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.19281589455239342,
+      "w": 0.1
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.1923939756539201,
+      "w": 0.15
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.19199267918093935,
+      "w": 0.2
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.19161242775741738,
+      "w": 0.25
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.19125368850197708,
+      "w": 0.3
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.19091697588843498,
+      "w": 0.35
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.19060285479614722,
+      "w": 0.4
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.19031194372891458,
+      "w": 0.45
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.19004491817705385,
+      "w": 0.5
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.1898025140929841,
+      "w": 0.55
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.1895855314465311,
+      "w": 0.6
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.1893948378223371,
+      "w": 0.65
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.1892313720186107,
+      "w": 0.7
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.18909614760433052,
+      "w": 0.75
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.18899025639155345,
+      "w": 0.8
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.1889148717813827,
+      "w": 0.85
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.1888712519474352,
+      "w": 0.9
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.18886074283054627,
+      "w": 0.95
+    },
+    {
+      "devig_method": "shin",
+      "mean_rps": 0.18888478093447836,
+      "w": 1.0
+    }
+  ],
+  "inputs": {
+    "dev_coverage_sha256": "23e7fb0e76cd7160ff43c7736c43ac02bce60124df8b323df65124ec70486e76",
+    "dev_ledger_sha256": "2e64df36f0a3f8993cab4a81a209f903cfb985f2044d737781e9b009b0537a00",
+    "dev_manifest_sha256": "de606fbd166a2c231e3305bf52e394ed6e59966fd2895f1f7d03e029d70a2be4"
+  },
+  "months": [
+    "2022-01",
+    "2022-02",
+    "2022-06",
+    "2022-09",
+    "2023-06",
+    "2024-01",
+    "2024-02",
+    "2024-06",
+    "2024-07",
+    "2024-09",
+    "2024-10",
+    "2024-11",
+    "2025-03",
+    "2025-06",
+    "2025-09",
+    "2025-12"
+  ],
+  "n_excluded_no_odds": 0,
+  "n_fixtures": 259,
+  "objective": "mean canonical RPS (wcmodel.model.calibration.rps)",
+  "schema": "oa-selection-trace-v1",
+  "selected": {
+    "devig_method": "multiplicative",
+    "w": 0.95
+  },
+  "stacking": {
+    "arm": "stacking",
+    "devig_method": "multiplicative",
+    "feature_order": [
+      "dc",
+      "odds",
+      "elo_ordlogit"
+    ],
+    "folds": [
+      {
+        "month": "2022-06",
+        "n_fold_fixtures": 8,
+        "n_train_fixtures": 33,
+        "params": {
+          "b_dc": 0.891504285904736,
+          "b_elo": -0.22826563460697993,
+          "b_odds": -0.3268745712313242,
+          "c1": -1.207453020971609,
+          "s": 0.5132084094265246
+        },
+        "rps": 0.2771406056637192
+      },
+      {
+        "month": "2022-09",
+        "n_fold_fixtures": 16,
+        "n_train_fixtures": 41,
+        "params": {
+          "b_dc": 0.4187004798361538,
+          "b_elo": 0.24395035279490784,
+          "b_odds": -0.4201768255404722,
+          "c1": -0.9996608706683701,
+          "s": 0.26584983699304043
+        },
+        "rps": 0.26716413567237196
+      },
+      {
+        "month": "2023-06",
+        "n_fold_fixtures": 4,
+        "n_train_fixtures": 57,
+        "params": {
+          "b_dc": 0.21939007747772996,
+          "b_elo": 0.36354819967973107,
+          "b_odds": -0.276055930353026,
+          "c1": -0.5948475241356933,
+          "s": -0.017866859283584446
+        },
+        "rps": 0.2789297918804772
+      },
+      {
+        "month": "2024-01",
+        "n_fold_fixtures": 41,
+        "n_train_fixtures": 61,
+        "params": {
+          "b_dc": 0.6939019553881628,
+          "b_elo": -0.29825722867971893,
+          "b_odds": -0.04791665859917673,
+          "c1": -0.6130172368954184,
+          "s": -0.022800831845315745
+        },
+        "rps": 0.21112875595963293
+      },
+      {
+        "month": "2024-02",
+        "n_fold_fixtures": 8,
+        "n_train_fixtures": 102,
+        "params": {
+          "b_dc": 1.2320838259185258,
+          "b_elo": -1.290572267342681,
+          "b_odds": 0.49987858625488585,
+          "c1": -0.8664032220991519,
+          "s": 0.21576215912105864
+        },
+        "rps": 0.19724132234457215
+      },
+      {
+        "month": "2024-06",
+        "n_fold_fixtures": 20,
+        "n_train_fixtures": 110,
+        "params": {
+          "b_dc": 1.0386909649004024,
+          "b_elo": -1.1052846691396445,
+          "b_odds": 0.5021618981220883,
+          "c1": -0.9533490416021358,
+          "s": 0.24566470796177847
+        },
+        "rps": 0.1787932487659992
+      },
+      {
+        "month": "2024-07",
+        "n_fold_fixtures": 11,
+        "n_train_fixtures": 130,
+        "params": {
+          "b_dc": 1.2628485547691608,
+          "b_elo": -1.0775282239908763,
+          "b_odds": 0.3725071800884735,
+          "c1": -0.897266054882684,
+          "s": 0.23300592332045217
+        },
+        "rps": 0.17703857594059297
+      },
+      {
+        "month": "2024-09",
+        "n_fold_fixtures": 16,
+        "n_train_fixtures": 141,
+        "params": {
+          "b_dc": 1.3655845637533468,
+          "b_elo": -1.0408486309416085,
+          "b_odds": 0.26861227070382365,
+          "c1": -0.9069411818223317,
+          "s": 0.26763371626832455
+        },
+        "rps": 0.1632477839064323
+      },
+      {
+        "month": "2024-10",
+        "n_fold_fixtures": 16,
+        "n_train_fixtures": 157,
+        "params": {
+          "b_dc": 1.4130231363644912,
+          "b_elo": -1.125877955455273,
+          "b_odds": 0.38375836829499044,
+          "c1": -0.9320972026911403,
+          "s": 0.2598281911286462
+        },
+        "rps": 0.1348314485240971
+      },
+      {
+        "month": "2024-11",
+        "n_fold_fixtures": 16,
+        "n_train_fixtures": 173,
+        "params": {
+          "b_dc": 1.5020465361044284,
+          "b_elo": -1.0734465759196,
+          "b_odds": 0.32662489497640623,
+          "c1": -0.9667943148301943,
+          "s": 0.3046753224243263
+        },
+        "rps": 0.22740470757911918
+      },
+      {
+        "month": "2025-03",
+        "n_fold_fixtures": 13,
+        "n_train_fixtures": 189,
+        "params": {
+          "b_dc": 0.9318509681773688,
+          "b_elo": -0.755356283490265,
+          "b_odds": 0.5286729357452602,
+          "c1": -0.9385316706293617,
+          "s": 0.31864421966026096
+        },
+        "rps": 0.18640941110723536
+      },
+      {
+        "month": "2025-06",
+        "n_fold_fixtures": 14,
+        "n_train_fixtures": 202,
+        "params": {
+          "b_dc": 0.8158825964785018,
+          "b_elo": -0.666163152694827,
+          "b_odds": 0.5602242736745466,
+          "c1": -0.9898623681350984,
+          "s": 0.3574597739923254
+        },
+        "rps": 0.18444459685992248
+      },
+      {
+        "month": "2025-09",
+        "n_fold_fixtures": 10,
+        "n_train_fixtures": 216,
+        "params": {
+          "b_dc": 0.6217348010128262,
+          "b_elo": -0.5362200736618056,
+          "b_odds": 0.6565409151044669,
+          "c1": -0.9726827774485767,
+          "s": 0.3741321092588658
+        },
+        "rps": 0.1722515667405024
+      },
+      {
+        "month": "2025-12",
+        "n_fold_fixtures": 33,
+        "n_train_fixtures": 226,
+        "params": {
+          "b_dc": 0.5516337389378975,
+          "b_elo": -0.5434869723991601,
+          "b_odds": 0.7601513219473227,
+          "c1": -0.9720264403751703,
+          "s": 0.36715464654722874
+        },
+        "rps": 0.14052838114507316
+      }
+    ],
+    "n_excluded_no_odds": 0,
+    "n_fixtures": 259,
+    "oof_rps": 0.19087704005813028,
+    "params": {
+      "b_dc": 0.864098555137302,
+      "b_elo": -0.8182948615697055,
+      "b_odds": 0.8403363520705014,
+      "c1": -1.000084258868187,
+      "s": 0.3861365169537683
+    },
+    "prior_sd": 3.0
+  },
+  "w_grid": [
+    0.0,
+    0.05,
+    0.1,
+    0.15,
+    0.2,
+    0.25,
+    0.3,
+    0.35,
+    0.4,
+    0.45,
+    0.5,
+    0.55,
+    0.6,
+    0.65,
+    0.7,
+    0.75,
+    0.8,
+    0.85,
+    0.9,
+    0.95,
+    1.0
+  ]
+}

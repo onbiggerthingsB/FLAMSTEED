@@ -11,6 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from wcmodel.model.draw_api import PRODUCTION_MAX_GOALS
+
 _TOTAL_LINES = (1.5, 2.5, 3.5)
 
 
@@ -21,7 +23,8 @@ def known_team_set(post) -> set[str]:
     return set(idx)
 
 
-def price_fixtures(post, fixtures: pd.DataFrame, max_goals: int = 10) -> list[dict]:
+def price_fixtures(post, fixtures: pd.DataFrame,
+                   max_goals: int = PRODUCTION_MAX_GOALS) -> list[dict]:
     out = []
     for _, r in fixtures.iterrows():
         g = np.asarray(post.predict_scoreline(

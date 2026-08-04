@@ -291,20 +291,22 @@ def test_fit_config_is_authoritative_for_widening_and_priors(tmp_path):
     assert post_a._cfg["widening"]["mechanism"] == "a"
 
     # Under mechanism "a", predict_scoreline must NOT call inflate_predictive
-    # (widening already happened in the likelihood). Spy on it.
-    import wcmodel.model.posterior as posterior_mod
+    # (widening already happened in the likelihood). Spy on it — at its
+    # post-V2 home: predict delegates to draw_api, which owns the widening
+    # call (finalize_grid), so the spy must live on THAT module's binding.
+    import wcmodel.model.draw_api as draw_api_mod
     calls = {"n": 0}
-    orig = posterior_mod.inflate_predictive
+    orig = draw_api_mod.inflate_predictive
 
     def _spy(*a, **k):
         calls["n"] += 1
         return orig(*a, **k)
 
-    posterior_mod.inflate_predictive = _spy
+    draw_api_mod.inflate_predictive = _spy
     try:
         post_a.predict_scoreline("Prov", "Foil", neutral=True, max_goals=6)
     finally:
-        posterior_mod.inflate_predictive = orig
+        draw_api_mod.inflate_predictive = orig
     assert calls["n"] == 0, "mechanism 'a' must not widen at predict time"
 
     # Contrast: default "c" DOES call inflate_predictive for a provisional team.
@@ -316,11 +318,11 @@ def test_fit_config_is_authoritative_for_widening_and_priors(tmp_path):
         calls_c["n"] += 1
         return orig(*a, **k)
 
-    posterior_mod.inflate_predictive = _spy_c
+    draw_api_mod.inflate_predictive = _spy_c
     try:
         post_c.predict_scoreline("Prov", "Foil", neutral=True, max_goals=6)
     finally:
-        posterior_mod.inflate_predictive = orig
+        draw_api_mod.inflate_predictive = orig
     assert calls_c["n"] == 1, "mechanism 'c' must widen a provisional team at predict time"
 
     # The custom prior reached _priors: the built model's att_raw prior sigma

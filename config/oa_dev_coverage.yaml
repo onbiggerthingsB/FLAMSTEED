@@ -1,0 +1,6335 @@
+# OA dev-slate COVERAGE — per-candidate admissibility from the G-B
+# walk, with the paid-evidence digest behind every verdict.
+# DERIVED from the journal + archive; regenerate by re-running the
+# walk (receipted calls are reused, so a rerun costs nothing).
+# Admissibility is OUTCOME-BLIND: it asks only whether a sharp quote
+# was posted before the 08:30Z cut, never what the fixture did.
+derived_by: scripts/oa_acquire.py --dev (V4 / G-B walk)
+mode: live
+gate: gb
+n_walked: 632
+n_admissible: 259
+n_dev_target: 260
+coverage:
+- match_id: 502429207a1fd012047043d5b14b2f985ff872ab
+  date: '2022-01-09'
+  home: Ethiopia
+  away: Cape Verde
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: ca654363ee9b810a0fa11eefcbcdbb48b6b00506
+  date: '2022-01-09'
+  home: Cameroon
+  away: Burkina Faso
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 0006d0e0e830f3f1b045f27a758598539e017402
+  date: '2022-01-10'
+  home: Senegal
+  away: Zimbabwe
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 3deaacdbfd61b2ae3917c6bc9f22884347a5fbe6
+  date: '2022-01-10'
+  home: Guinea
+  away: Malawi
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 47e778d16bb2a529ce9ccb08aff6fc65afca5776
+  date: '2022-01-10'
+  home: Morocco
+  away: Ghana
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: f2ec8286531a8dc78255fc0b7a17e95522fe14b5
+  date: '2022-01-10'
+  home: Comoros
+  away: Gabon
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 9e3bae246336a0d56861b497aa50e085bf0314e0
+  date: '2022-01-11'
+  home: Nigeria
+  away: Egypt
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: ca1e2fb0b68ab0bcecd169f3a264477dd28070f5
+  date: '2022-01-11'
+  home: Algeria
+  away: Sierra Leone
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: d27587cbde3ac5064c87f8cb0de118991e2dbb5c
+  date: '2022-01-11'
+  home: Sudan
+  away: Guinea-Bissau
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 2671881146d54eb8959f8dc05f2ce25a2cdf6412
+  date: '2022-01-12'
+  home: Mauritania
+  away: Gambia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 38c8fcf86afc9c5a28d990a2843603c9c479ff69
+  date: '2022-01-12'
+  home: Tunisia
+  away: Mali
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 73ac5b26f8e8dbd445b58fc9b21b894177e67516
+  date: '2022-01-12'
+  home: Equatorial Guinea
+  away: Ivory Coast
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 0099abb5c14c71a129e69082bd45f8194c234743
+  date: '2022-01-13'
+  home: Cape Verde
+  away: Burkina Faso
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 7711ddde940c6f8c73bfe8f9f4fd50e59df92181
+  date: '2022-01-13'
+  home: Cameroon
+  away: Ethiopia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 0203ca4d7631b4ac8f1fee21f134d8c881ffe6b1
+  date: '2022-01-14'
+  home: Gabon
+  away: Ghana
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 4df524a422e42293ad58537e16e4aa00c0bae572
+  date: '2022-01-14'
+  home: Malawi
+  away: Zimbabwe
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: b2e23ecdfc860ef3ed2f72de5bcb08e8a9166040
+  date: '2022-01-14'
+  home: Morocco
+  away: Comoros
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: f8a9506df4e3b445f637b03c259b1ed97c07a8da
+  date: '2022-01-14'
+  home: Senegal
+  away: Guinea
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 38c46b3cf44bc7dbce6179092026926f3d91e3ed
+  date: '2022-01-15'
+  home: Guinea-Bissau
+  away: Egypt
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: fcc510f07e6f5d47c2cdf6dd243240ae171534867e75c93801ed83a9dec8c103
+  note: null
+- match_id: 7bf9f2a5ca9d4fd4376f317b6fbe7060bf1a9bc0
+  date: '2022-01-15'
+  home: Nigeria
+  away: Sudan
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: dbd61a41a03f349936e83c46a00f6eea44d739fd50c80d7b28217eeefc925682
+  note: null
+- match_id: 7ca3db05771628e6e0a0b9588a208668ddc20e2a
+  date: '2022-01-16'
+  home: Gambia
+  away: Mali
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 543869c9591e62755726ca43193877350ac865b259993cf03ae64693fc5accac
+  note: null
+- match_id: 98e7229bdeca4b9c576f700a8db13108cd2458bf
+  date: '2022-01-16'
+  home: Algeria
+  away: Equatorial Guinea
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: c5d6f0b85418f4e8f7095191238fcd0dd56e9a4a1f349b32d9fca4c729e01a9c
+  note: null
+- match_id: bbe6cfc91a8a2a6313e296758ceafa59d118a655
+  date: '2022-01-16'
+  home: Tunisia
+  away: Mauritania
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 334d91e2deee3730614f5bf300428dcfaf586afeef4f7b6b5c738dc0e810605f
+  note: null
+- match_id: c3a78aa888b81222eb92c9754fa99b45c5530435
+  date: '2022-01-16'
+  home: Ivory Coast
+  away: Sierra Leone
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 4241811bc245e0e19c4d99f6b7223f8c0ede3bdfc99b599daca0a1173c528cdc
+  note: null
+- match_id: 11c1529ec370751a1255556041764b701684f5f6
+  date: '2022-01-17'
+  home: Burkina Faso
+  away: Ethiopia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 18b79f25a200a9db3dce1beaf5e61c122c5e4fc54888dd0c530df52f785a8e69
+  note: null
+- match_id: dea2dca4331e018e81676c3aca7f14cbf54effc6
+  date: '2022-01-17'
+  home: Cameroon
+  away: Cape Verde
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 893f2bef914d9fb2590ea57e54f085be4cd4eeefa682a089b291083efa428a9e
+  note: null
+- match_id: 43bde7790f9804d40ec59ae40104a982be385f15
+  date: '2022-01-18'
+  home: Zimbabwe
+  away: Guinea
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 161a4160a8edd46a10351a6e11cfaacac3f430aec1820f1b4930e7de9308638a
+  note: null
+- match_id: 86750e5ce50d69110f3bfd8e84248619ef4f7e99
+  date: '2022-01-18'
+  home: Malawi
+  away: Senegal
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 5fff85a397f721c5d5944411c49845133004953d766a75b27539c3a3fe6b06eb
+  note: null
+- match_id: c4b404442f88f225d9395caa6ae722c4fc1aafc8
+  date: '2022-01-18'
+  home: Gabon
+  away: Morocco
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 3d9aff02332094c81c1fc194a618d068fead3f008aa25cb768f148c1774a3393
+  note: null
+- match_id: d4b93e33a096e97eceb7f1411b41d322165c0cf4
+  date: '2022-01-18'
+  home: Ghana
+  away: Comoros
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 29648c0a1b30c39fb7c192760ad1a3d688875b38c015f2ecf80876cad2cdef4a
+  note: null
+- match_id: 1d82481bd0d8016bff80330dafa616891f913799
+  date: '2022-01-19'
+  home: Guinea-Bissau
+  away: Nigeria
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: abab7ad8de2e6633b84b54d38e319e918b598ffe14168eb3164698a3e7ab4d32
+  note: null
+- match_id: 622e8654ca1538a963e1a146cc44c0110e1f2d97
+  date: '2022-01-19'
+  home: Egypt
+  away: Sudan
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 7aeda59b5e809815a18be126fecc6dce8a5c034b50ab564a6c80d71977e73124
+  note: null
+- match_id: 316365ac989d5df60fe6fdca30be69235deaa25f
+  date: '2022-01-20'
+  home: Sierra Leone
+  away: Equatorial Guinea
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 7809c04e182dc7c7306d868455ed0423fbdc9dd409d8cebf680868155668799e
+  note: null
+- match_id: 3369792f61bd223dc7851da0a8ff72d240c9fbdf
+  date: '2022-01-20'
+  home: Ivory Coast
+  away: Algeria
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 8b54aca60e3ff6406149423191da9f9ed4bacf695a9d8be30c1cb63bd901536f
+  note: null
+- match_id: 5e3cc2cedc4016b8c7f315cb12356101e8b2b246
+  date: '2022-01-20'
+  home: Mali
+  away: Mauritania
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 24a465fd8f93a99d230ec87fe6d92112afaa176a8735c041985dd83de614124f
+  note: null
+- match_id: 90543f7c97d2a065c4317bb7284fee53fd2743f6
+  date: '2022-01-20'
+  home: Gambia
+  away: Tunisia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: b5598f4cb7e7d4222335d5055f4700d1123da8d2ab9111f6fcb3e0c34fd1407c
+  note: null
+- match_id: 61bf630e78d008965b65131989e8ddcb265ad821
+  date: '2022-01-23'
+  home: Burkina Faso
+  away: Gabon
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 6a6c48ad8cc2cb64158558ab6f9a88ad94f73b7f7218a0db50179c905bbb45ab
+  note: null
+- match_id: 95803fcfb7773397f5d6e81064407a26b7e2288f
+  date: '2022-01-23'
+  home: Nigeria
+  away: Tunisia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 8261d009dc7d54553d0474a554b2f840bdab53da873d1ae275ab93299379b04b
+  note: null
+- match_id: 7c39cb16239845e59c7d7ef54269d48e525df81f
+  date: '2022-01-24'
+  home: Cameroon
+  away: Comoros
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: false
+  cut_raw_sha256: 71bf512d68a81ded8f6b70951548efd2ac774cc74d86cf1092ae37525e234801
+  note: null
+- match_id: c0b2903154e7b0fdba586c6dae90f106f6efc757
+  date: '2022-01-24'
+  home: Guinea
+  away: Gambia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 1792375eef5aaee5e14b514120f14b1de9ba7203b55ef687c63f342f3ba61bed
+  note: null
+- match_id: 2fb2cfd3243ccfc2efbbc6765272aae3af2f5f77
+  date: '2022-01-25'
+  home: Morocco
+  away: Malawi
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 24281847574d3f05eb6537cf6237d36a2e7a4d84fbdf31d8d57e3e8411006d61
+  note: null
+- match_id: 650509c631bdc26fd32d04e73d3ed8b896586243
+  date: '2022-01-25'
+  home: Senegal
+  away: Cape Verde
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: a926edb5ed619800fc90a813e865ce63afe670c96071493bf4d6b0ad1b2e3e80
+  note: null
+- match_id: 6f164a08355d225473ddfd25024ded8e4f6161da
+  date: '2022-01-26'
+  home: Ivory Coast
+  away: Egypt
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: e0943e00191fb482e56ca273775b449467fb0d326f124fe176c457f5c5f0e806
+  note: null
+- match_id: 71803f327dc90866f7788c0178560a9c42872d70
+  date: '2022-01-26'
+  home: Mali
+  away: Equatorial Guinea
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: e123f599a8a86d3c675da4e4d84326917e8ccc149332e149b0515f9f9cf575c6
+  note: null
+- match_id: 3f99887352c6d740653710bf95027269b56286e5
+  date: '2022-01-27'
+  home: Chile
+  away: Argentina
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 4ba6c902610e737ddbce69fef9cd8e46fabe93b3
+  date: '2022-01-27'
+  home: Ecuador
+  away: Brazil
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 5898b9f948ccee74e6f5d89504d173d3f0e4ac8a
+  date: '2022-01-27'
+  home: Paraguay
+  away: Uruguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 2142f3a203e336b784046201feea43e5385f0509
+  date: '2022-01-28'
+  home: Venezuela
+  away: Bolivia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: ab1f5a511d2a22c0c80e610b298033f16a382b10
+  date: '2022-01-28'
+  home: Colombia
+  away: Peru
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 1a77310838034152c322b135d031e49c7cf96694
+  date: '2022-01-29'
+  home: Burkina Faso
+  away: Tunisia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 989cd8f2d4c87188b741c80f13bffd180537f4b912be9b2b04089c0491e8765f
+  note: null
+- match_id: d8ffe67a37af74cd539305642f98f2c4252658d4
+  date: '2022-01-29'
+  home: Cameroon
+  away: Gambia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: b66c84fe227a1fd60276c578585e0ca296dafe8b05a007aa058f250ba5f90c4b
+  note: null
+- match_id: 6dec973c36166b6903ac8b30cad2829ec3ca96d9
+  date: '2022-01-30'
+  home: Senegal
+  away: Equatorial Guinea
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 1d70f086dee8e069852b5a4fb6def1debd917d230018d1bcd27e81d03abb1e81
+  note: null
+- match_id: beedb67a9eb11f6f145739bd55d3b8b4f305959c
+  date: '2022-01-30'
+  home: Egypt
+  away: Morocco
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 187810446e925cfaa788ac909b3aac9c338299f645a00a13cd1ceb4ebea9b11e
+  note: null
+- match_id: 279743ea5189196837f6ed55628bf6a07a3440c4
+  date: '2022-02-01'
+  home: Uruguay
+  away: Venezuela
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 2b68e2970a332337589cf54f717ba260f1762b44
+  date: '2022-02-01'
+  home: Argentina
+  away: Colombia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 486b1640935f7e2a0797e2f0f2bfdb09b6c6bbf7
+  date: '2022-02-01'
+  home: Brazil
+  away: Paraguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 4e493dfdf798fb944e31d44800a24d6070c4bd95
+  date: '2022-02-01'
+  home: Bolivia
+  away: Chile
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: c555b02d5a4755ec2a25fd3eb066420a17f10871
+  date: '2022-02-01'
+  home: Peru
+  away: Ecuador
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: e3a84a84cb8757c8487b1f702ef189914a75b43c
+  date: '2022-02-02'
+  home: Burkina Faso
+  away: Senegal
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: e28d1b5545812c2fdd016180a05633ee7c31bf4d35594115ea9eea586152d996
+  note: null
+- match_id: 2b0fc4007288ede8f86275097691a36deaa06de0
+  date: '2022-02-03'
+  home: Cameroon
+  away: Egypt
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: bc520ad8476f2d954ed0f3e9508ad5acc5adbf71a3f9105a32701ff7baa23bee
+  note: null
+- match_id: ac456a6e6b9ff4b1962f6a9b89ded39f814d37a3
+  date: '2022-02-05'
+  home: Cameroon
+  away: Burkina Faso
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 0eab3d141642ff19f9b38e2955a4fc3bffe2e6929277a7c4fad55361ca3065d2
+  note: null
+- match_id: 9bf75cdef28f35f7cb0c00c0a73431da053174c7
+  date: '2022-02-06'
+  home: Senegal
+  away: Egypt
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 07ea170372161b341cdda4819029f6a1cb9bdcf4378ce5a21101106014b0a289
+  note: null
+- match_id: 2549362f08d9d1fd8d5758bf200f69e271fc95ec
+  date: '2022-03-24'
+  home: Estonia
+  away: Cyprus
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 433668a9bd577c839af4079d3fbc4a38ff984435
+  date: '2022-03-24'
+  home: Uruguay
+  away: Peru
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 52f64938c5be7addc701a2108dc0f70e52ea36b1
+  date: '2022-03-24'
+  home: Brazil
+  away: Chile
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 702ebfb18f90602cad2220ddd3b0351916a375f9
+  date: '2022-03-24'
+  home: Moldova
+  away: Kazakhstan
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 7f3c4037ce00a8bc70ca5eecf5a51dcde5f56d11
+  date: '2022-03-24'
+  home: Paraguay
+  away: Ecuador
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: da4afe9e73e725da12432ccbcfe05926fd5e80f4
+  date: '2022-03-24'
+  home: Colombia
+  away: Bolivia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 59ede6fe7e6119861586c0234af6f4a33867e076
+  date: '2022-03-25'
+  home: Argentina
+  away: Venezuela
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 344acb656e758f07606773ff68a0be49de299f31
+  date: '2022-03-29'
+  home: Ecuador
+  away: Argentina
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 52602d1c7411fbdec5e1d9ca21c6454133f1a01c
+  date: '2022-03-29'
+  home: Peru
+  away: Paraguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 8c252b25b040833a070eedfd9c7a0f9660a5c13f
+  date: '2022-03-29'
+  home: Venezuela
+  away: Colombia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: cc9aa97f8d22a1d86f4ec3a1c5b6fe2834757b60
+  date: '2022-03-29'
+  home: Cyprus
+  away: Estonia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: dbc602b35d1b25a7456c31dd2b7d074ce4af6523
+  date: '2022-03-29'
+  home: Kazakhstan
+  away: Moldova
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: e74503a5b6a5c8c959bc3ec827db18d5fecde587
+  date: '2022-03-29'
+  home: Chile
+  away: Uruguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: f475f0743e64d019a9b0393b81568bcd346d4732
+  date: '2022-03-29'
+  home: Bolivia
+  away: Brazil
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: e9f847c508a4ddc78ae29fa7db0212fc26a36984
+  date: '2022-06-01'
+  home: Poland
+  away: Wales
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 1716cae54e16f4131e9d11eb9f557d8cbd864928
+  date: '2022-06-02'
+  home: Cyprus
+  away: Kosovo
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 256cafdedc040baa11c1c67dca679959ca6e2e97
+  date: '2022-06-02'
+  home: Serbia
+  away: Norway
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 3b73af250dc13d36128a4bb837d4f3d53f3907b1
+  date: '2022-06-02'
+  home: Slovenia
+  away: Sweden
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 60cb847bcf8a3d0ad26ac69e2d6ba2cd8317c7f5
+  date: '2022-06-02'
+  home: Czech Republic
+  away: Switzerland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 780c3ffffb4ec0599e9464b546a3492fcf96829a
+  date: '2022-06-02'
+  home: Estonia
+  away: San Marino
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 7be67e9b2980dd976ddbc92fda1c15e8547de7a8
+  date: '2022-06-02'
+  home: Bulgaria
+  away: North Macedonia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 8445f2c3ee24d67dde99ec4100d4e5ee03803646
+  date: '2022-06-02'
+  home: Northern Ireland
+  away: Greece
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 8fbd70a3a423d7da95644ce2dff03adeb6ea58d6
+  date: '2022-06-02'
+  home: Spain
+  away: Portugal
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 9da570a3e3e3ef9c46f235f787b30a00d9fea2b5
+  date: '2022-06-02'
+  home: Israel
+  away: Iceland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: fd6a25cc6f1e9a15c0962553716fffb17f5e21ad
+  date: '2022-06-02'
+  home: Georgia
+  away: Gibraltar
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 100fe0f51bcd49e150e74b28cb9c7ffb4ca93d83
+  date: '2022-06-03'
+  home: France
+  away: Denmark
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 293fc94b7639fe1f21fa5b70ecdbb09dd1944736
+  date: '2022-06-03'
+  home: Liechtenstein
+  away: Moldova
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 4358dbaf02ea1a08a00c62cca92314406e74d53e
+  date: '2022-06-03'
+  home: Belarus
+  away: Slovakia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: bb45ff62e522095a69e1f76f7d2facb47abc75bc
+  date: '2022-06-03'
+  home: Croatia
+  away: Austria
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: bd513e76393ff215e822bbea6cd3d6bfba434dcd
+  date: '2022-06-03'
+  home: Latvia
+  away: Andorra
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: c1ef97b1b9c4550bf435a611c486ab221b80a2d8
+  date: '2022-06-03'
+  home: Kazakhstan
+  away: Azerbaijan
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: f79553d26f604814d4b2a98738cc5a8d75082289
+  date: '2022-06-03'
+  home: Belgium
+  away: Netherlands
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 03b00c7ad9b750530cd5e58f86dad84d50bf27fb
+  date: '2022-06-04'
+  home: Finland
+  away: Bosnia and Herzegovina
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 05b816a6b60a2367e1eaff86a4717fde50e24571
+  date: '2022-06-04'
+  home: Italy
+  away: Germany
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 084206d5b3faf85369ea84f318bb94c1a1bc6b43
+  date: '2022-06-04'
+  home: Lithuania
+  away: Luxembourg
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 0e215fbe88a6f15ca7bceb91eb4b0104067bd452
+  date: '2022-06-04'
+  home: Armenia
+  away: Republic of Ireland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 1997ff261a0eac5b587c2e08fa6a446cd9f57283
+  date: '2022-06-04'
+  home: Montenegro
+  away: Romania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 7ff160e73d7098d307b1004bd7dc0063670a09e7
+  date: '2022-06-04'
+  home: Hungary
+  away: England
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: df38405432d41ed592bae79e189e633bea18fd4f
+  date: '2022-06-04'
+  home: Turkey
+  away: Faroe Islands
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 132e7530c05c156224c1db4550355eee2cc3bda9
+  date: '2022-06-05'
+  home: Kosovo
+  away: Greece
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 22cd8fc4eef1acef7b580053e635925f5af7677d
+  date: '2022-06-05'
+  home: Bulgaria
+  away: Georgia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 23a30bb8efd8bad4d8457d93618496385bee09ee
+  date: '2022-06-05'
+  home: Gibraltar
+  away: North Macedonia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 585e6902b8b382b360ba8bba7d7de5dcc5a94595
+  date: '2022-06-05'
+  home: Sweden
+  away: Norway
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 9f6ba4b63a55db35cdc79dcf70596e589ea93b43
+  date: '2022-06-05'
+  home: Czech Republic
+  away: Spain
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: ac0ffcce8127d329d1f5c440bda6babd449d4d96
+  date: '2022-06-05'
+  home: Cyprus
+  away: Northern Ireland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: b852c9b580dba2afab0a34a193c50a0c755c91e5
+  date: '2022-06-05'
+  home: Portugal
+  away: Switzerland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: da2075d450295fa8654b3b3fe121a64b6df38eec
+  date: '2022-06-05'
+  home: San Marino
+  away: Malta
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: dd8fbe6e7b4bcc6a4830125fb2b0d45a919c8fdd
+  date: '2022-06-05'
+  home: Serbia
+  away: Slovenia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 2268062e39fde061efe2cb9df3e4fdfc7d29b196
+  date: '2022-06-06'
+  home: Slovakia
+  away: Kazakhstan
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 386349154b0825b112b932cf21edbf4af0e61e65
+  date: '2022-06-06'
+  home: Andorra
+  away: Moldova
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 6811e8cf14f9ce74ce98bc9c96b2aa119c33016f
+  date: '2022-06-06'
+  home: Croatia
+  away: France
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 7135722a7be771335e6dc1941d1615222defde3d
+  date: '2022-06-06'
+  home: Iceland
+  away: Albania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 8e457610e7a6fddc16883248c37a2d0dadb0b96b
+  date: '2022-06-06'
+  home: Latvia
+  away: Liechtenstein
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 9e92753e50ec604f6afba6a123d0d901382fb568
+  date: '2022-06-06'
+  home: Austria
+  away: Denmark
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: cd2332159dd948a73e1cc5cacaea68792d7a08c4
+  date: '2022-06-06'
+  home: Belarus
+  away: Azerbaijan
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 7c6d48c9e630e365794febc864f6668d4d0769ea
+  date: '2022-06-07'
+  home: Italy
+  away: Hungary
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 8fea6344baa34c7e60252214048ecab81e8ccf4b
+  date: '2022-06-07'
+  home: Faroe Islands
+  away: Luxembourg
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: ac1e51f29b3689244fbc7dd74ce00af70093c277
+  date: '2022-06-07'
+  home: Finland
+  away: Montenegro
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: b592dde1a881f42032249364f0853c558922909a
+  date: '2022-06-07'
+  home: Bosnia and Herzegovina
+  away: Romania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: c1671b0eb041ce089b13c9973208971607112b1e
+  date: '2022-06-07'
+  home: Germany
+  away: England
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: edb3ee6bbd2a0c2b87e8b14c94eb5e68fc86d7b4
+  date: '2022-06-07'
+  home: Lithuania
+  away: Turkey
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 121af670ca6fa0add222d8d03f2cde96876ac18c
+  date: '2022-06-08'
+  home: Belgium
+  away: Poland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 46a70dd1e27782bb8ac9e0516fac50d32f438b2c
+  date: '2022-06-08'
+  home: Scotland
+  away: Armenia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 5374d55e8e24669ab6b2aceb3acb0c85c854b04b
+  date: '2022-06-08'
+  home: Republic of Ireland
+  away: Ukraine
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: eb7c08e99e47dd610670bf0b778ec6e319e31ea5
+  date: '2022-06-08'
+  home: Wales
+  away: Netherlands
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 002b69eec1246e53c820d5e23c0aa0bdbccef3e0
+  date: '2022-06-09'
+  home: Norway
+  away: Slovenia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 05e751e603a7e4b7a4a111f0790e7dd934ea9550
+  date: '2022-06-09'
+  home: Gibraltar
+  away: Bulgaria
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 0d234d41d07062a0f66f8e1ff8bba511d875f9bb
+  date: '2022-06-09'
+  home: Portugal
+  away: Czech Republic
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 27ee44019c8d2925d4ec7badbef8d05514ad5fa4
+  date: '2022-06-09'
+  home: Switzerland
+  away: Spain
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 46907694ca78ccbcab322b3762f6e6bdb7def366
+  date: '2022-06-09'
+  home: Kosovo
+  away: Northern Ireland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 4fef980d1098d31d075dc33db1f11effd0d758c8
+  date: '2022-06-09'
+  home: Malta
+  away: Estonia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 64082771a2b8264ba6cf4884ec5c026bd97f7b58
+  date: '2022-06-09'
+  home: North Macedonia
+  away: Georgia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 83015b1374103566cb6bb75519f58ddf6ee0b08b
+  date: '2022-06-09'
+  home: Sweden
+  away: Serbia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: ded4a470199846b21c542ff2843793ef7e0fa6b6
+  date: '2022-06-09'
+  home: Greece
+  away: Cyprus
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 796d6a58a62c495fe27d7b62c453ff58826c751d
+  date: '2022-06-10'
+  home: Albania
+  away: Israel
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: ab598e2109fd3e1799e8f485334ca2256a76754a
+  date: '2022-06-10'
+  home: Andorra
+  away: Liechtenstein
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: ae5c013daa56d3aa4f4c031fe2da27e6b8fb9198
+  date: '2022-06-10'
+  home: Azerbaijan
+  away: Slovakia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: af138db01470e08635d84297c529347b650d47b5
+  date: '2022-06-10'
+  home: Belarus
+  away: Kazakhstan
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: bf703d8c0eb102e44498a14bf7a0a27f70f30369
+  date: '2022-06-10'
+  home: Austria
+  away: France
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: c9c6cf6f84418a43ba47a19a916b06078c28365f
+  date: '2022-06-10'
+  home: Denmark
+  away: Croatia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: ce489b9fee9a91b5d98d28ff3bf8dab904eb0a1e
+  date: '2022-06-10'
+  home: Moldova
+  away: Latvia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 28893c0ca928c18ece5b24e973840f4990f8d1e4
+  date: '2022-06-11'
+  home: England
+  away: Italy
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 2c69655cf63b9e0193dc4b2ebb83b9489abdb9ac
+  date: '2022-06-11'
+  home: Hungary
+  away: Germany
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 42587f5c6c32d27574b1e5d213f12ca0448171ad
+  date: '2022-06-11'
+  home: Wales
+  away: Belgium
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 8232f90ee1132f53c4426d9e049a5d1d2112f432
+  date: '2022-06-11'
+  home: Faroe Islands
+  away: Lithuania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 89f23b2918281d984b3a2cd1c70f8732ee8c88f9
+  date: '2022-06-11'
+  home: Luxembourg
+  away: Turkey
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 926fff3995b761a40cfe356f6affd049f65a8247
+  date: '2022-06-11'
+  home: Republic of Ireland
+  away: Scotland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 9ab684f5889951018e80bce1434c0cf39292fe62
+  date: '2022-06-11'
+  home: Montenegro
+  away: Bosnia and Herzegovina
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: b3b6356c4d2853369611b34a75d50877b55fb8d1
+  date: '2022-06-11'
+  home: Netherlands
+  away: Poland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: eabed911363d436bbecf3966a2829b5ed0b4e5c1
+  date: '2022-06-11'
+  home: Ukraine
+  away: Armenia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: fd303c7ec910b86564ea22013d14bccbcb536144
+  date: '2022-06-11'
+  home: Romania
+  away: Finland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 0bd7ea01007b457d65e4ab8f491db198ca6e3d6c
+  date: '2022-06-12'
+  home: Norway
+  away: Sweden
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 216d7e4c73d31521bb1d5eb7a373500f0198da8b619b608af3085ca0eadece60
+  note: null
+- match_id: 24b42cf5049d47cdf5285568b9691b0db98b5af0
+  date: '2022-06-12'
+  home: Spain
+  away: Czech Republic
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 0cc4af9ef99295a9d6c2af6f4cfad6d0c8599009b88c5ce8e326183808be4163
+  note: null
+- match_id: 48c315da8c80a5387d125c9e4e6455084bb2f813
+  date: '2022-06-12'
+  home: Northern Ireland
+  away: Cyprus
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 192c68740f54268ca85a17379ba4fa3dfbe17df1fd8b105cc8e15f1ee707e851
+  note: null
+- match_id: 4f69265d5ff85bc143041dd373efc38a7ec5c864
+  date: '2022-06-12'
+  home: North Macedonia
+  away: Gibraltar
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: a487eb418e7322e635b5304fb30da42d31955229ff63b9a8374fca1c4293166f
+  note: null
+- match_id: 668af70c6ce1a44be606368ddc649ebd271ea76e
+  date: '2022-06-12'
+  home: Slovenia
+  away: Serbia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 047f83ddba2a9568e11887e4ae5bd4912cfba433686aaf77f50cae2508849624
+  note: null
+- match_id: b6dbf7136d667e43cbcadac6ceda33be2d90cd4a
+  date: '2022-06-12'
+  home: Malta
+  away: San Marino
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 30d2dcbaa49a770b20e0af18530ce967c25b6281f2ebad887fd9bbc2e2a9c5cc
+  note: null
+- match_id: d321c916d7cc956fe08a34523d7bbbd158faf594
+  date: '2022-06-12'
+  home: Greece
+  away: Kosovo
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 51ecc1b3a24c26ad1b88ef6f71b0e9e380d45a9797cc8598a626f1c7f5174047
+  note: null
+- match_id: df23ce6636acd1d6e5adf6e2f197277fa4d02a25
+  date: '2022-06-12'
+  home: Switzerland
+  away: Portugal
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 00ec6fac12f8ffc9dfac91e30945d0ea466f5a868471bd9f042fdfff80d5f2ec
+  note: null
+- match_id: e539e87bc73a703348dee8f562f08e07603516c1
+  date: '2022-06-12'
+  home: Georgia
+  away: Bulgaria
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 14cf8a847bdbea1d3f23c26e9d0118ba25425f6b406ba868a6df4894e45667d0
+  note: null
+- match_id: 3304eac36872daf6c22859347f08ad3cc7009063
+  date: '2022-06-13'
+  home: Azerbaijan
+  away: Belarus
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 3c4b7f547e592651774d5b59b44e2a11d4c4f27c
+  date: '2022-06-13'
+  home: Kazakhstan
+  away: Slovakia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 560b3e046c6aec59fec6ba2c23270ad88aa25ef5535672e6c6f55beeca65f705
+  note: null
+- match_id: 63a5d40cb6ca16e16eba7c8d275e73f20d2d57ed
+  date: '2022-06-13'
+  home: Iceland
+  away: Israel
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 7908404531c4cd8bee1764ca3ca5f7ce92da1a14af033d487e44ccb8d6e401a2
+  note: null
+- match_id: 83d2335945b33c7c9090c5205ef8465cbed66e6d
+  date: '2022-06-13'
+  home: Denmark
+  away: Austria
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: ed6eaea5732aa7f969e4109853cf178d0dccd68527f6194a98b72f8f10cdc837
+  note: null
+- match_id: dbd6106839dd6235f07254c668549bae3c0a7eec
+  date: '2022-06-13'
+  home: France
+  away: Croatia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: a87cfe28f009ab0a738d42b11e3604683e98f158b83e73504b7d19f2bc52b16a
+  note: null
+- match_id: 1abbd9d280fa2ae6b29f1692a6586ca0ca297404
+  date: '2022-06-14'
+  home: Poland
+  away: Belgium
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 9036921c3cdbae893040c83332d28e8dfd99a395ce8f1092f39f9e25df3f8375
+  note: null
+- match_id: 226b802d9684b89eed606d4f3341ebe31274e2f3
+  date: '2022-06-14'
+  home: Netherlands
+  away: Wales
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 1d1bd88e31ceb046bf32801c3ffa91f27bbc2edeb97449be8e613ae961ec5b84
+  note: null
+- match_id: 312a1da5c022977a2dcbaf645a403d6cc5975370
+  date: '2022-06-14'
+  home: Armenia
+  away: Scotland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 7c16cd9ed5b17a2539659a8eb5eda345967d237495d98a9f80efd3442175c3e2
+  note: null
+- match_id: 3c906918ee7da421b9a357f0c2cfee9c3f687aef
+  date: '2022-06-14'
+  home: Moldova
+  away: Andorra
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: e608345ee8ceaa6d1eeccdf7bb905c3845a1bfc87bc2fd52ef8b2f220c77a53e
+  note: null
+- match_id: 3e73c32d7223a351d63eaa1a82477209755b6c74
+  date: '2022-06-14'
+  home: Ukraine
+  away: Republic of Ireland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: a442128dc83221fa4f351bebb3518a592078bbff816b238af6e2362cca1cff4e
+  note: null
+- match_id: 3e8784009a8f3c9c223df551b4e1cbaeb0d1c5b2
+  date: '2022-06-14'
+  home: Bosnia and Herzegovina
+  away: Finland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 0150d49beebf7d2df3017595df7401dc8e79e1ee89e5738ee15bae283bdd0d62
+  note: null
+- match_id: 4af68ef53cbe523d14e122037945d68b675b9eea
+  date: '2022-06-14'
+  home: Turkey
+  away: Lithuania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 715f2650f77b38eb349972d71609409831d37a7799a7b6afb9473e8834312e52
+  note: null
+- match_id: 5bd74ba871a5a223a110e3faa5a3642109448331
+  date: '2022-06-14'
+  home: Liechtenstein
+  away: Latvia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 6a1e5d6aefab379add6485c93c5e7cd6713a3da86949143e906cc76998fa362e
+  note: null
+- match_id: 754f9486c20cd1d31f2c1bde45053ea3bcfd404d
+  date: '2022-06-14'
+  home: Germany
+  away: Italy
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 7f0671ef1ff56c4702c11253cde91f8fcff6b1d1f3415a965c620e5f26d63b16
+  note: null
+- match_id: a0a8881052789140d1ba536361079b6dc87159f1
+  date: '2022-06-14'
+  home: England
+  away: Hungary
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 127fa694b9a32a0cb8b62f4f3170115fb66c957f080230d7e6263cd20148ca9e
+  note: null
+- match_id: a4cc442fa2b2dbe75ceff209c7178553f44c3f48
+  date: '2022-06-14'
+  home: Romania
+  away: Montenegro
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 6df1937c7d9fa5aa8e3c9947c71a57050141d9a79a5a7cc9e6ddf621b9d4364b
+  note: null
+- match_id: d5360dbf95ccd15e209be8ca70886efb63196989
+  date: '2022-06-14'
+  home: Luxembourg
+  away: Faroe Islands
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 60c759a538923e2245896633de725c68e5fd7ff508afcf7eb6518bf688d50f4d
+  note: null
+- match_id: b62d82c1682be83851d272910d4629a6f8f02bf2
+  date: '2022-09-21'
+  home: Scotland
+  away: Ukraine
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 257ff8a9f73550b8ff8862da4698f4f96aa4a4aaba997ed2bdaa4a5abc23f2aa
+  note: null
+- match_id: 036a374fb30f7980aae9ae426797ac07cf16e5fe
+  date: '2022-09-22'
+  home: Croatia
+  away: Denmark
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 763fa3749a04ebb80063538a02f6e0d368416f0544298aa79efcfa643c7410ed
+  note: null
+- match_id: 24ac34f8a0dc05f8740911a2018257b85ff1e17b
+  date: '2022-09-22'
+  home: France
+  away: Austria
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 69281aab408c459be842e9451df3d3e9a1f4580ebf429c91c7522dff97befd43
+  note: null
+- match_id: 2a0c57b07a7f8bd7baa6761e351c6d8fc56b1518
+  date: '2022-09-22'
+  home: Turkey
+  away: Luxembourg
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: ab9f061dfa4ce558b5dfcca58684dd32ae12106bd05681b2164060ac9fa2efe2
+  note: null
+- match_id: 698a88d0c29929073dc77b4982e4e91d172452c7
+  date: '2022-09-22'
+  home: Lithuania
+  away: Faroe Islands
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 2beb201eebcfc93643e604810d14c545a11749373eb85ed8ead9a63b23e23910
+  note: null
+- match_id: 6f8afbb92ba73bc154dad11341eaed8e18e355a1
+  date: '2022-09-22'
+  home: Belgium
+  away: Wales
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: fcf44ada4544f7a3135914a63b6f70ef7fc9657121329359d4dfaba4477bd7c0
+  note: null
+- match_id: 8ca1532976e55787600e928c111c3d4e2f008353
+  date: '2022-09-22'
+  home: Liechtenstein
+  away: Andorra
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: c726a8f8844487de985d7899b7f443a85bfe5acf628948092b0517cb0ee9901d
+  note: null
+- match_id: b754df628168653d6560410df89d24f7739101c4
+  date: '2022-09-22'
+  home: Slovakia
+  away: Azerbaijan
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 943f2c5237065b166ab7b33d33ad3e0621ce3c7033c46bc203248cd86125e8a1
+  note: null
+- match_id: ba13a4a2566057f0c3f6ed5baa107e355400cb2b
+  date: '2022-09-22'
+  home: Poland
+  away: Netherlands
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 569a1800d74c4f0e8d7277e82ef2aefde46ba72b49c7ba3ac045ee1cf6366b3a
+  note: null
+- match_id: c8372962f6a99af2c44418cbd84bbd0352a3ccee
+  date: '2022-09-22'
+  home: Kazakhstan
+  away: Belarus
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: cf16c970049bacd8d41fcbb1ba46f373189cca4d
+  date: '2022-09-22'
+  home: Latvia
+  away: Moldova
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 51588de55aedc5a3935fbc2b37fb7d1d8cb008ecd2e3e16435cf55d7c6b957f8
+  note: null
+- match_id: 21c9a4b4f568ac5d051e0857b1ca11891fed89a4
+  date: '2022-09-23'
+  home: Germany
+  away: Hungary
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 138d61e6f473f65030ae88cb1d1fe5337b615454c62da579c474bb2e31313574
+  note: null
+- match_id: 222e58bd8f7afd0cd8071785155f0f6e8b41be38
+  date: '2022-09-23'
+  home: Georgia
+  away: North Macedonia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: dfbc8f4cc4b1bd624b8a020e55efc25a32482e4d8806d535d3fb7896fb5a1537
+  note: null
+- match_id: 2a2605a43736cc057ef03c01370c4f55f8fe5135
+  date: '2022-09-23'
+  home: Bosnia and Herzegovina
+  away: Montenegro
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 9d555dd2e69e4bed23747e6ebdd0fcb9e321d95626c8ee0b2e355a15dadf8abf
+  note: null
+- match_id: 548d7cc376160c6640d091aa800fe6f685eff8a9
+  date: '2022-09-23'
+  home: Estonia
+  away: Malta
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: bd5199414c018f1a873dddd3dc13c4d6efed09688fe76bab2d58b7e4321e94c1
+  note: null
+- match_id: 87dbe93b92d36e5e3dc0164947adb7a44e9c4047
+  date: '2022-09-23'
+  home: Italy
+  away: England
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 205bfcc1cfafd8c12d91438b9aef58191f4b82f9c380b937d4304bed552aeda7
+  note: null
+- match_id: e5205d2ff3cd5d277fdfe5172411d3a0ec5402c6
+  date: '2022-09-23'
+  home: Bulgaria
+  away: Gibraltar
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 69ac9f77341db171ddcbbdedafc083b337273dd1e39fdcbe7d2094cb8f28cd03
+  note: null
+- match_id: e73919f13dac5b292e5a7a9d560b1618c42c8569
+  date: '2022-09-23'
+  home: Finland
+  away: Romania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 69aaa759a10e72b0cc07906a7bb514ce35f0487e923306ed30b8de610f9563f1
+  note: null
+- match_id: 4f561fa06ad3e74594769347e9aff79aa5f7eb59
+  date: '2022-09-24'
+  home: Cyprus
+  away: Greece
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 52e23cd973245aeb3785f9cdd20bd54140f9c4459fc3af2b550e4fc218e03ba4
+  note: null
+- match_id: 508903542f5b491acfdf053054235773292dc9c5
+  date: '2022-09-24'
+  home: Czech Republic
+  away: Portugal
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 55b4f18ec7d958afb3f6e83dcfee024311fba6538f88b91e26d77d21f4b72fc9
+  note: null
+- match_id: 72501ef60be09cffba659fcc57a7fc44c9d5109e
+  date: '2022-09-24'
+  home: Armenia
+  away: Ukraine
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 608e9ebbe1e06a84665944b52685f2705ba5d28efff0e52dd138d4656c94dc13
+  note: null
+- match_id: 774173563aa7f4c10cc9b188d5e6ecf9307dc8c3
+  date: '2022-09-24'
+  home: Serbia
+  away: Sweden
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 51d1c236a15b041935db910004c8fdbcea191ddfeb81db740eef72c7336e18c7
+  note: null
+- match_id: 8c71b6111eb4caeba6b14d0944a48e9b35335ef0
+  date: '2022-09-24'
+  home: Spain
+  away: Switzerland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 116a4e736a088c2fd3b3b12f2f8f85cee4203c2af04e4edf63787b458675b4bf
+  note: null
+- match_id: 953fdb7558bc30652d51fdd7435a906800d8e0f8
+  date: '2022-09-24'
+  home: Slovenia
+  away: Norway
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 5a300bb13e88b11aced7a243e1614bae9edc6f4f8991a05f023f2db4b00f9918
+  note: null
+- match_id: b241fb161e398ce7aaaafb2d660337e2f0ce0215
+  date: '2022-09-24'
+  home: Scotland
+  away: Republic of Ireland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: a9bd10140d47696acbc2007f944fc682b378b97c09b1fdbfa7ab0304ded8ba7e
+  note: null
+- match_id: dbafccbd650020011bb013d019c664a1988890da
+  date: '2022-09-24'
+  home: Northern Ireland
+  away: Kosovo
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 95162ddd1628f0005b6d432eaf3e30175216fe357dfcacb1f543a3a2ae0853e2
+  note: null
+- match_id: f5688987cd9e6325dcd2e346159a9051be1df715
+  date: '2022-09-24'
+  home: Israel
+  away: Albania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 4d88887bb08da9a8bca6c4ce1bfe92165aedc7067e254944b29e074f39c1f988
+  note: null
+- match_id: 058ab23938ff5c2b5c572ae20e6ecb62d917bbc0
+  date: '2022-09-25'
+  home: Austria
+  away: Croatia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: ac90c7ba50c8c7432e15c70b22fe387bdcd21b594dedd9c9884eb30a0df65f83
+  note: null
+- match_id: 17d5c8ba386eaff04a25c54fd3fe5f1ca41cf1e6
+  date: '2022-09-25'
+  home: Moldova
+  away: Liechtenstein
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 2905460ef0aacb6ae4061221d1b2b960304a77f4c90afecdfb38caa8e0271613
+  note: null
+- match_id: 1d78aea0d8cd9998b3987aabbdaeaa1f7b14eca2
+  date: '2022-09-25'
+  home: Netherlands
+  away: Belgium
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 20d38c4e4787f00c5f47c9cdc325fe35f983e279b03d06fc99d558ce67f40541
+  note: null
+- match_id: 283ecadde72d4efa31d73938f642eef90824dc21
+  date: '2022-09-25'
+  home: Faroe Islands
+  away: Turkey
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 9d5e13c20f8acbf05045a5f03042aab43d2593ea2b65c0b3071f6fc8c147600f
+  note: null
+- match_id: 5e1dad3e8e9d1c24a529f721d817e02587491d8b
+  date: '2022-09-25'
+  home: Andorra
+  away: Latvia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 61bf27ae46ed828596d53b5fbd2416cb71310118295b4c0a7b3ac1100a29b292
+  note: null
+- match_id: 6109913cebb01fe77a9d368f1cd81ba17d389a7f
+  date: '2022-09-25'
+  home: Denmark
+  away: France
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 0bf150a67e005842e905849aa9b27145bd10a850d1e7c46a42b8446be0f2be35
+  note: null
+- match_id: 676f28ef1dd976dbb8feb1d77a96b88e9ba361a8
+  date: '2022-09-25'
+  home: Azerbaijan
+  away: Kazakhstan
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: b4906d2256c8b4fa2c0a5ceda1193f4497a492b300b737726f36c86463895639
+  note: null
+- match_id: 8eeb777e7bacae5f88dd486cf1c72c956e11efcb
+  date: '2022-09-25'
+  home: Slovakia
+  away: Belarus
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: b5804b1a61d3c59f517311d8b2056dbd0a3e93c6
+  date: '2022-09-25'
+  home: Wales
+  away: Poland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 998acb9465e701d19066a65fb5f3b53801aa1acbc9435fb806f897e0a610f068
+  note: null
+- match_id: c767059b99bd71fc59f1808ecdb6b49cf77b0f12
+  date: '2022-09-25'
+  home: Luxembourg
+  away: Lithuania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 7acad442a86d3341b77b39124c47714df58a41e33e09d1b79ecfdd7fb1fc085c
+  note: null
+- match_id: 322302072b3414401ae8fa31b7237525597abd4d
+  date: '2022-09-26'
+  home: England
+  away: Germany
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 23a878ec33045abc82dfd38388fd572bb2916580d77192fc371ff53bd241f09a
+  note: null
+- match_id: 3ddc9609fbee265f94d4902b31ce9e2de5480f1a
+  date: '2022-09-26'
+  home: Romania
+  away: Bosnia and Herzegovina
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 16f5234a7ebe38777a39db3fa2c1c2fc3e928c32c5376d74f1843a645314f820
+  note: null
+- match_id: 6617c7c7fdea727ed015e125e391f40ce3f24153
+  date: '2022-09-26'
+  home: North Macedonia
+  away: Bulgaria
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 442ee134e7d5e17e22c90b2a10267749ec372489e1c5b4e70127ba55291d0aa5
+  note: null
+- match_id: c557c25c0b52f262d5e374ed2b418d2923ea78b1
+  date: '2022-09-26'
+  home: San Marino
+  away: Estonia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: aeafd6bc5d39000b351fc4e82cccfb056736eef03cd76f76dc15ad54bdc586c6
+  note: null
+- match_id: d22a41b8aade09451de76468549102d09ba66621
+  date: '2022-09-26'
+  home: Hungary
+  away: Italy
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: ba2ef059cd5dd7a073eaae4e1ccc1fd0ec0542dd9c47313c0fc21f8464effc3b
+  note: null
+- match_id: df13dc254ba663ce3afef998f09a9a165dbf8468
+  date: '2022-09-26'
+  home: Gibraltar
+  away: Georgia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 8e2289e0575297b98004cb567f3cebc22dd29581db735fc54df794c210091361
+  note: null
+- match_id: e644dbb17f812ecc4817040f1b075138f91edb31
+  date: '2022-09-26'
+  home: Montenegro
+  away: Finland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 64bd0a6b64bbc4a70b7bf733dc4f5dec471bd3f63d71023a2f0e01db3aea1c4d
+  note: null
+- match_id: 019a3ab2e85a096bacab8866416296e325452c8c
+  date: '2022-09-27'
+  home: Ukraine
+  away: Scotland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 259bd65bc72b5176a2177664129bb0720819482de6f8d8b1bab3166fde59722b
+  note: null
+- match_id: 0939bbd130033d107a3319e31efabab4ae6ff78e
+  date: '2022-09-27'
+  home: Republic of Ireland
+  away: Armenia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: dc0217180b9affd00b3ad63a7562ab7787472eb6dc4bb182327cfbcc117e0355
+  note: null
+- match_id: 2b94647ac0b7a5b560f7acaea68f66bb8eb27b6c
+  date: '2022-09-27'
+  home: Sweden
+  away: Slovenia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 24289d57ab355be855f977893f0897a0d3c5729ab6bb48772000cccc7fe713b5
+  note: null
+- match_id: 2f1a33444a385a35fb3c66d8af05b4e4e655c82b
+  date: '2022-09-27'
+  home: Kosovo
+  away: Cyprus
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 52ef41291000a4395c1b03798a2f0d0d7991d04aed4669bf47f8633510b2d1af
+  note: null
+- match_id: 46440cec465504a6571259465cc4f3888a40df2b
+  date: '2022-09-27'
+  home: Greece
+  away: Northern Ireland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 806dff3a27bde93ff9e255fe2e652b479feeae296132081fce0e4186fa09c19e
+  note: null
+- match_id: 46823af5fcb9c5f18375d3963315f48c8e7c8f43
+  date: '2022-09-27'
+  home: Albania
+  away: Iceland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 17603af5a7af5ac41a672e6ac38ddac34826bc6d4cfa45506612793a8b3d1571
+  note: null
+- match_id: 59e521cc315bb3f8c9a022bf36c3ad4a9e3284b9
+  date: '2022-09-27'
+  home: Portugal
+  away: Spain
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: c3ef19f0db61b214350494ac92be634c40ad868a8ad0e56f52f4264225e39a56
+  note: null
+- match_id: 5eec8534170c1ab63688ff00d686ef085e247809
+  date: '2022-09-27'
+  home: Norway
+  away: Serbia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 60ea274f3b24480fba41255434fe72d3be0cc0dd64bddd53c2d1e3b754d8f2a4
+  note: null
+- match_id: e70d5ebfab438e0fa400d78b9ed7f4bfeb63043f
+  date: '2022-09-27'
+  home: Switzerland
+  away: Czech Republic
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 574e26cdb900600b69d8b1b8084bb2f32f11e28f2eec0494498453eca490b475
+  note: null
+- match_id: c386fb082088a7fd6944da81369ee9b3ac98e5fa
+  date: '2023-06-14'
+  home: Netherlands
+  away: Croatia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 0c9a10cf126ca360c9bd5c5592a1a16bd805532a91d50bd4d5baab65b05ae859
+  note: null
+- match_id: 58c2d5e63ec2c03b7e42e9affb0e2fa0fd0b303c
+  date: '2023-06-15'
+  home: Spain
+  away: Italy
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 2334d401665b358c1ae28508cd3ea8441c5619cea965ee48334fbade0539d481
+  note: null
+- match_id: 0053a38972974c3b03b91471021ad9bb020adcb2
+  date: '2023-06-18'
+  home: Croatia
+  away: Spain
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 0e9c63ed9f771ea271ecbf7a50c72d1f6c381baa5e2ce8dd80a28b8cf7eaea8b
+  note: null
+- match_id: d0830c35c4c7ba886a26cc8a301a7e046d3b506c
+  date: '2023-06-18'
+  home: Netherlands
+  away: Italy
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 298e191cdf8095643a36ace49192a9cc452a339e1ebf8de845196e67c599def7
+  note: null
+- match_id: 1256a7fca802183eac7e0a1eaf38bf48342aa147
+  date: '2023-09-07'
+  home: Argentina
+  away: Ecuador
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 4f379b35eb887116ece7f8edbabae8c79ecf3ca0
+  date: '2023-09-07'
+  home: Colombia
+  away: Venezuela
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: ea57e2d3820ea01261d13e310623ce9c743c5e0b
+  date: '2023-09-07'
+  home: Paraguay
+  away: Peru
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 8f9a581605d7091357c312099aa865d2f2a1a8f7
+  date: '2023-09-08'
+  home: Uruguay
+  away: Chile
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: c77943901d7698468336e7550f040ae2da0b2823
+  date: '2023-09-08'
+  home: Brazil
+  away: Bolivia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 085ecca093dfb2f373dde9d0a470ca1c65e58133
+  date: '2023-09-12'
+  home: Bolivia
+  away: Argentina
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 0f388295328ea4f2208234e83abde3f86f8c9dab
+  date: '2023-09-12'
+  home: Peru
+  away: Brazil
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 945c519baa906be232fa9ebc9327cc4d03549fa1
+  date: '2023-09-12'
+  home: Ecuador
+  away: Uruguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: a425e2c2d287581fca32efa3f918c150b8bdc677
+  date: '2023-09-12'
+  home: Venezuela
+  away: Paraguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: f13bc14b3a6c262e10e10da13af988704802740b
+  date: '2023-09-12'
+  home: Chile
+  away: Colombia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 2743fd9bc59f9fce78dc1d1a3784725f595c1c95
+  date: '2023-10-12'
+  home: Colombia
+  away: Uruguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 8f85ff422a757044e8c5f539c2111c653a1c8b4c
+  date: '2023-10-12'
+  home: Brazil
+  away: Venezuela
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 92d816acb0eb228b4e1031533504d2c037a88e7c
+  date: '2023-10-12'
+  home: Argentina
+  away: Paraguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: d6379234784565fdcc0be1c6404ceb7f8174a24d
+  date: '2023-10-12'
+  home: Bolivia
+  away: Ecuador
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: f02442710c2003243aa63a8448f60b9ea1fbf21b
+  date: '2023-10-12'
+  home: Chile
+  away: Peru
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 0fb0a9d9f2c32ca4b63ffc255fce911de9645db2
+  date: '2023-10-17'
+  home: Venezuela
+  away: Chile
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 44bc6a9acf96d8c38ce536727978a691865f3ae4
+  date: '2023-10-17'
+  home: Uruguay
+  away: Brazil
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 5b19291e32091cbd755570e86d8cca97f9a6c390
+  date: '2023-10-17'
+  home: Paraguay
+  away: Bolivia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 6d478400e5c03313538b8b582a220511564895c9
+  date: '2023-10-17'
+  home: Ecuador
+  away: Colombia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: d20d5d96f10d4b30fd3867c2702630a6161f2789
+  date: '2023-10-17'
+  home: Peru
+  away: Argentina
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 0a73edc9ce1eb7550b27049f0a736c358de2c5c5
+  date: '2023-11-16'
+  home: Bolivia
+  away: Peru
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 3b7bf6858755a16ab5b81e09212b1c0d080242da
+  date: '2023-11-16'
+  home: Chile
+  away: Paraguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 58704a64e07a296fde50134b6937754326329a28
+  date: '2023-11-16'
+  home: Venezuela
+  away: Ecuador
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 66b73d97d84b4f496dd427e6e7c7b3f996332f07
+  date: '2023-11-16'
+  home: Colombia
+  away: Brazil
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: f6002345c5ce73364f37e828c4287a5ec9fb8296
+  date: '2023-11-16'
+  home: Argentina
+  away: Uruguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 084e56d7f893c1fd6727a45d1c8b056d2a783502
+  date: '2023-11-21'
+  home: Uruguay
+  away: Bolivia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 5bdf5c4a17fb0022f6bb2ed50ef4a3ebba971587
+  date: '2023-11-21'
+  home: Brazil
+  away: Argentina
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: afba86d8883fa3733dfb7d593e813d44b419df39
+  date: '2023-11-21'
+  home: Paraguay
+  away: Colombia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: c71b565750dc73b08a612cd8ba28cbb87405ceea
+  date: '2023-11-21'
+  home: Ecuador
+  away: Chile
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: ccca8fc91b3e8e034f7e2e8b093c84bf6a3fac69
+  date: '2023-11-21'
+  home: Peru
+  away: Venezuela
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 162d01a513dbf9b43112f4fc8615947bbaac116e
+  date: '2024-01-13'
+  home: Ivory Coast
+  away: Guinea-Bissau
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 72729abda6e3160cd886a3d74ec43772a375c7b2aef295eee4612d15f4ac03e6
+  note: null
+- match_id: 07a702f8c2ffc153d879bb75a1d6422ed52747ac
+  date: '2024-01-14'
+  home: Egypt
+  away: Mozambique
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: f4263ef223a9964873192c86fa8e18cdb557d36fab0472a9098b6369745cad03
+  note: null
+- match_id: c54258a7f022113d84e05bdb84919688b7eee318
+  date: '2024-01-14'
+  home: Ghana
+  away: Cape Verde
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 61897a27ecf724e8912804c4299b42b3bf32039a8e1f923299541bca1b6cb91e
+  note: null
+- match_id: c9f2d29ef367ebf2c16681e7574e82dda32e12f4
+  date: '2024-01-14'
+  home: Nigeria
+  away: Equatorial Guinea
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: f0056d6dd597805d6055ee61945243ce67268d2ff7c30b7c00b218c58d9d87d4
+  note: null
+- match_id: 7e68dd5dc775a9e52c16be3cb9a744a77ec4bea6
+  date: '2024-01-15'
+  home: Algeria
+  away: Angola
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 1f96328674a5475e46cef1d6b7f6dd309eefa10abc23a7a1f6cd39b0262cb1b0
+  note: null
+- match_id: bea0ee3c72306369c670e94949bb8aea69729c8b
+  date: '2024-01-15'
+  home: Cameroon
+  away: Guinea
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 5cfb8bb00ec3ced89128772382e47a44bef0afa01e47ed1fa4dffeb3ad4902ff
+  note: null
+- match_id: dfa61a817f3e2968ef6d79cf98cbe4e47c951990
+  date: '2024-01-15'
+  home: Senegal
+  away: Gambia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 76f23d46b215b5acff0f5292818ca74e875ae9136e2fca3a4f1f10f13f437630
+  note: null
+- match_id: 1dca5ed51ec87d1d1b8320df1910d72ca84401f8
+  date: '2024-01-16'
+  home: Burkina Faso
+  away: Mauritania
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: f5c56df3ba1dfc20ffb5ed797917ce095376a746966fc7ff5a022529160b6cc0
+  note: null
+- match_id: 3cab73a51fe6c786c31a5a5076141005d68eed10
+  date: '2024-01-16'
+  home: Mali
+  away: South Africa
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 1b31707f60a3b0fe5c96560af86f2a5577e6514d55b97495c481c5a2523b4158
+  note: null
+- match_id: 45f951c35a553d6a084d80c5d48d419890e7c985
+  date: '2024-01-16'
+  home: Tunisia
+  away: Namibia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 59569972e44f36b8da98d55253388f0f99f5683a96198908e5dc8afeed011034
+  note: null
+- match_id: 1acae31f3857b9eac5dcb4dafb101cf8099e31c5
+  date: '2024-01-17'
+  home: DR Congo
+  away: Zambia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: a6eb778805855ee6969cbe82f5211dd72603a6cf
+  date: '2024-01-17'
+  home: Morocco
+  away: Tanzania
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: f88682f5767d770f7b4abb6363095f4e24acfa1e13f1b59c772858eac302398a
+  note: null
+- match_id: 092c571deacb8623eb5b7246274de3ca81ca3743
+  date: '2024-01-18'
+  home: Equatorial Guinea
+  away: Guinea-Bissau
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 5da7b52a9c7703d9fecd0804e8fc9e0704992df9b78095bd28d807320cff9120
+  note: null
+- match_id: c03a6016c2f130b39d60a10a8b44f9f7cef14df6
+  date: '2024-01-18'
+  home: Ivory Coast
+  away: Nigeria
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: a6db7c752c167b30cd8cede924f0c6191b9be6db18fce1150339444d61f913b0
+  note: null
+- match_id: e83d55b11eef474e4206e1bd90dad28d25063412
+  date: '2024-01-18'
+  home: Egypt
+  away: Ghana
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: fb1ebc7342cd6d3d27f231b3c9aadcd180d3962984512fd4b8c258cc0d4a24aa
+  note: null
+- match_id: b07e09ba58b20e2145ce88192ed4cda1040c76ab
+  date: '2024-01-19'
+  home: Guinea
+  away: Gambia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: de5c1dc1db93c468c25852e3c31268f7df14ce3a9ea7b8189f1d9b8085039c77
+  note: null
+- match_id: b3b966adc89b4c2dda0e1c3f4c95b13b3d038217
+  date: '2024-01-19'
+  home: Cape Verde
+  away: Mozambique
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: f2d713858f1f009baa9be0d815d915206bd2a133a23362dbefc48fb4694be07b
+  note: null
+- match_id: f0cfec4f315d4788672fcd1eb63546f54351a644
+  date: '2024-01-19'
+  home: Senegal
+  away: Cameroon
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 3f1f12481b0f9e63e146ec6d3f6468e86ab134e50ecaa3cbbc365c80510119aa
+  note: null
+- match_id: a235cbcbd0f9419f4226f24371611234a1adceba
+  date: '2024-01-20'
+  home: Tunisia
+  away: Mali
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 770be4035252fef48fd9a88cfd3e5818f40cbac9788adbee8398883f986ac606
+  note: null
+- match_id: f31e5fda0021cf4402cb9c85aa610d716dc291ca
+  date: '2024-01-20'
+  home: Mauritania
+  away: Angola
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: b4b5d028d23431131a1fcfdbe4703cf26ce1b5b6a256035927687c292875b404
+  note: null
+- match_id: f7e7578859cfbf08c30dc5c3fb55c6bff8b126c3
+  date: '2024-01-20'
+  home: Algeria
+  away: Burkina Faso
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 24d1bed8596f895584d328818f4d53fc8e48751020013f5b4645459647899488
+  note: null
+- match_id: 17ba9fe9406ac115703c1401746ef7743895ce5f
+  date: '2024-01-21'
+  home: Zambia
+  away: Tanzania
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 767d8aef8a5c52648b3eaab9c59ad6dffb87b69b
+  date: '2024-01-21'
+  home: Morocco
+  away: DR Congo
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 6d9dd045aea5d296b80f3428e05a3870848c84afc75d9d1229d4374c6fc6a376
+  note: null
+- match_id: cbfbbeed2e2ada48ceabe48813048379b06a8b72
+  date: '2024-01-21'
+  home: South Africa
+  away: Namibia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: c9c068d38b3f22c16bc7f0e30106d711b3f5b4861604d09c48c6cfc178454a9e
+  note: null
+- match_id: 58b66a690a410653cd447362404da5c6f6e9457f
+  date: '2024-01-22'
+  home: Cape Verde
+  away: Egypt
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 7970bb4f972ea00a4e31717f4577bfece2b89352873defbd0d8dd8f22cbac7de
+  note: null
+- match_id: a76df78bbe06558d5bf4d055507d0d7f24a9badb
+  date: '2024-01-22'
+  home: Guinea-Bissau
+  away: Nigeria
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 01cb3eea36f48030d0b49e93c9c1bbfd2c263e766bb9d730c2d5599707372d60
+  note: null
+- match_id: ae1ca51d26b23ec5fc1ccba6f79d8a05dbd7dec3
+  date: '2024-01-22'
+  home: Mozambique
+  away: Ghana
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: ab0c7264ef332df88849d7ae9ca764280f1b7de013739275d41dfdef7863120f
+  note: null
+- match_id: b89c2e8d86b4b0f328b415fc10b81b20ccb8d687
+  date: '2024-01-22'
+  home: Ivory Coast
+  away: Equatorial Guinea
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 3968d95d7fef33a68439af1347e622a52eed223a00e91fae5aa28388ef32d11b
+  note: null
+- match_id: 52bd6de642d5ade2df40b1b292538999bec4e39b
+  date: '2024-01-23'
+  home: Guinea
+  away: Senegal
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 685c5b52c18f9a493b5b7a71fce5a041ed9bb975327f9ce3b4709c9da0b2a331
+  note: null
+- match_id: 5ee08bf9241784811425b7a70608b31f433046ed
+  date: '2024-01-23'
+  home: Gambia
+  away: Cameroon
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 5eb250da48ee13fb6116ede69a8d804b31527d0a3d38ae86dcfb69057fdd0288
+  note: null
+- match_id: 7296ca9be7631d9b50b5d71bb0a217ea135eb09e
+  date: '2024-01-23'
+  home: Mauritania
+  away: Algeria
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 8bdd3d7f0f02a7503d0e5dac68a5fd1461623b318266eeaa5120452d451b906f
+  note: null
+- match_id: 90198893e02ced412afd386a2a18cb2413b8bb0c
+  date: '2024-01-23'
+  home: Angola
+  away: Burkina Faso
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 6a0255ee62338888aaed14deb8a36a7013613614629150ff505403c8c9373f96
+  note: null
+- match_id: 6547988f4c0f1491efe833f6ba2b56cb6b10784c
+  date: '2024-01-24'
+  home: Zambia
+  away: Morocco
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 68dacf618295ae3d7d9d3ad005d9284b4d4aad98
+  date: '2024-01-24'
+  home: Tanzania
+  away: DR Congo
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 4f6b2828bd2caacee8cece8e5f04247c9e62cdb63bb522b29a7059197db71dd6
+  note: null
+- match_id: ce331e4414d1e0db353079a45777135ab574d435
+  date: '2024-01-24'
+  home: South Africa
+  away: Tunisia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: bee06a63b955bededa9d45736eb4de57a8ee1db64f7b5fd7ffd3e005b27476d3
+  note: null
+- match_id: fe7a93046d3111de29f5b0bd05eb66bd8aac74ff
+  date: '2024-01-24'
+  home: Namibia
+  away: Mali
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 50950e0b382ae700aa910de57f8c479e1da4209f14743cfbfb3420116fd0611f
+  note: null
+- match_id: 2cf447349df29eaea66cc47fd5554799177b1179
+  date: '2024-01-27'
+  home: Angola
+  away: Namibia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 770fb10678736c8b7a105d2ebfa6b3117377029917718b0771a652fce1187e2f
+  note: null
+- match_id: 4a63ed139019d34f459aea911f3bdbf057a3197c
+  date: '2024-01-27'
+  home: Nigeria
+  away: Cameroon
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 9e49832de0ff7125cc5d09cbcb7dad83601a2e834941bd9a2066f28bd2c23d44
+  note: null
+- match_id: 3a564d9f9cd22f5f1b7b22f3b95671fd674617ce
+  date: '2024-01-28'
+  home: Egypt
+  away: DR Congo
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 62411c9149559492798aeefd98d5ab5f1a05bb966aedb98bd2cfe2999d1143eb
+  note: null
+- match_id: 5fbcbb489aa19798f770477308bdcdadb008ae3f
+  date: '2024-01-28'
+  home: Equatorial Guinea
+  away: Guinea
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: f1ff70eb8d967c21f4f30c3552d76c2850d927f4ee629c430543005898cea8e7
+  note: null
+- match_id: 88d2ab8c7270c8f2a72a80de4d652fe93ccd61e9
+  date: '2024-01-29'
+  home: Ivory Coast
+  away: Senegal
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 941a4e40160a41c5096898170e0a38de921838924f3cc7828b33d38ebb59182e
+  note: null
+- match_id: e269f9deb5f9113b68d564371df799e6a189e47a
+  date: '2024-01-29'
+  home: Cape Verde
+  away: Mauritania
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 510f1445d3a3a952d96e15784177e9f355a8eb26476b8eb2bdb26ce982b37079
+  note: null
+- match_id: 0dbb9a31ac1986d5a127a975d8e398bd7d5d0b3b
+  date: '2024-01-30'
+  home: Morocco
+  away: South Africa
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: b1f6a2597488a994d0de6ad30a51828acbdc39c768993b50f00471db1606903b
+  note: null
+- match_id: a5ba45d5be863e83b64efaf9b0a61819895a314a
+  date: '2024-01-30'
+  home: Mali
+  away: Burkina Faso
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: f36449676b05a4142885f473cd8ec889fcfaf0445486741ba2a8e37708af4b3c
+  note: null
+- match_id: 4b2d40ec353d883c305f8dd4d8a3b8ced9893940
+  date: '2024-02-02'
+  home: DR Congo
+  away: Guinea
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: d2aa7a5591b5711c38c467cf9bb533f258b023979c007bcdebca639f7eca3937
+  note: null
+- match_id: f6fcad07a627500eeb26e665373b4a4495a89fb8
+  date: '2024-02-02'
+  home: Nigeria
+  away: Angola
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: b93ab317bbac1e83fa7c9154e38d1f273b34990dcc234e5b634e7a9373e0732c
+  note: null
+- match_id: 317135c1d848de493ac95ae3a115269af7832711
+  date: '2024-02-03'
+  home: Cape Verde
+  away: South Africa
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 0678c77b857caaaf8e2bfef5d1547ab66becb95e9c10f502cf2fa47fbbe2f07a
+  note: null
+- match_id: cc8acedb228665c654130ae9e752e3f2ad3ddffc
+  date: '2024-02-03'
+  home: Ivory Coast
+  away: Mali
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: eac9f1408c8202192d7f50df441e618caa2e08639fe2d26b2c17bfda7d2bdb5f
+  note: null
+- match_id: 1c4980866a38346724768c417eeea257a8c5555a
+  date: '2024-02-07'
+  home: Ivory Coast
+  away: DR Congo
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 7567c9a28c6429a47513b2c72dfb66de7ec3c1960ff746d18aaf3d2d2c8c3249
+  note: null
+- match_id: 260c7673fb8886c348f022799fef199f889b4f69
+  date: '2024-02-07'
+  home: Nigeria
+  away: South Africa
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 008eb03334bd2beff8b109a3311f7435f71409bf557aad8adc0a2866318c432d
+  note: null
+- match_id: 2409ad17f11e69cfaaaae36a6198c7f61c9d133f
+  date: '2024-02-10'
+  home: South Africa
+  away: DR Congo
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 6079c4d5a8645f3e106d8818c12a4f314a5c9fefbf3fda179725e207a9d898d7
+  note: null
+- match_id: c2ba26fd54aacca1f66cae5bbded1872c9b8f459
+  date: '2024-02-11'
+  home: Ivory Coast
+  away: Nigeria
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 2d6d1e3879c5206f8b5f9414c7cee32fb1e5fa70e37640a168f1c1c99acd8f57
+  note: null
+- match_id: c94f92d8da1d8a64b36e2c625b13e219c7355145
+  date: '2024-03-21'
+  home: Gibraltar
+  away: Lithuania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 62aaf7eb041d2755a02e92a80c65c726e72ffe2d
+  date: '2024-03-26'
+  home: Lithuania
+  away: Gibraltar
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: null
+  note: t_issue 2024-03-26T09:00:00Z is not strictly before kickoff 2024-03-21T19:45:30Z
+    — the cut snapshot would be an in-play price; skipped, nothing bought
+- match_id: 7fdfa9a23989ef5a302a8d5bb66d93c91413e331
+  date: '2024-06-20'
+  home: Argentina
+  away: Canada
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: c1bb1ba173268e858d49d1b7a2b9a9e430eab1357898ace59876dab477c3e6d3
+  note: null
+- match_id: b33d5f523576889d1e027f16139baa4e84809044
+  date: '2024-06-21'
+  home: Peru
+  away: Chile
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 5d00feaf18908acb37e8794921a4bd54aa60f35f14ab224daa1cbfe1aee9c144
+  note: null
+- match_id: 05477a2e4c92eb8adf2a29e5e9d8c38411365f59
+  date: '2024-06-22'
+  home: Mexico
+  away: Jamaica
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 3e07afaac6061fbc5bea36f41dc7d488dc6aa98f8efed37cd63c86bd9bb2e11e
+  note: null
+- match_id: ffb066e0fdc96fdb29bdb2af264cafb7f1dd3849
+  date: '2024-06-22'
+  home: Ecuador
+  away: Venezuela
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 84c92b9f34141a41b96f11c2277e5d92737fe2ba5e23734532e4f9118b57b4dd
+  note: null
+- match_id: 3571a5b0b3736e7cdd703081cc2a790fda2e5163
+  date: '2024-06-23'
+  home: Uruguay
+  away: Panama
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 528f77618c76c2c12772cf9453f233e9eb4753f337d32a8f37d7f5831f0a840c
+  note: null
+- match_id: 53f7ce13e3511f7100165e9effea41fddd27ce17
+  date: '2024-06-23'
+  home: United States
+  away: Bolivia
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 0312ed30742ee6d85871a032ebee92a127aa9cb6c515bf13ca78efc9289dbc20
+  note: null
+- match_id: 700036f56c635d829786d2ffbaff5458312664a9
+  date: '2024-06-24'
+  home: Colombia
+  away: Paraguay
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 8ca5c11259679a5fbdf14be395c1f2a3bd2e2befdda55f07a05a2144e506b7f3
+  note: null
+- match_id: 72b91cbdeb48ed30aaf00a18c9e834d178dced4e
+  date: '2024-06-24'
+  home: Brazil
+  away: Costa Rica
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 0c4c81a4c63ea95607c972c0530f26a6f6c1727deb9b42bd855eb2867453b52d
+  note: null
+- match_id: b9ae187c60b99af9a233805fd82a625d1f3f0b3a
+  date: '2024-06-25'
+  home: Peru
+  away: Canada
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 8f735e6b908d28db4794b5a748a51fccbf7683af8ec8b0c63e0e92bb8f35ff32
+  note: null
+- match_id: d986c458423f7740550b1f3e316402ab6f950577
+  date: '2024-06-25'
+  home: Chile
+  away: Argentina
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: dce8c85f0d26a329012b7237602341003857ca8cdf1e9c44b06bd128f3551fb5
+  note: null
+- match_id: cb531244fd97e791ceb20bf55ec36ea202978738
+  date: '2024-06-26'
+  home: Venezuela
+  away: Mexico
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: bcb012cea6aeab33fce25b2c8b2be198b67f97371c096fc8226b8baaae04a5d4
+  note: null
+- match_id: fe695d7554922449a708d75cdc595cceaab167e3
+  date: '2024-06-26'
+  home: Ecuador
+  away: Jamaica
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 65de50fff69ca5ee0f39ad00c86ec738d10c2db3842870aad4f3df4765495ab1
+  note: null
+- match_id: 062fd0d79e630e32ea7af984bf0deaa82bfdcff3
+  date: '2024-06-27'
+  home: Uruguay
+  away: Bolivia
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: dd49290302942c6d2044d47076f7524d403634aa1d8c55d94ca74acb7f7ac6aa
+  note: null
+- match_id: 9d746d24489bd03eaf7655c8761aede3194dcda3
+  date: '2024-06-27'
+  home: United States
+  away: Panama
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 3b3b4f3f65b82700e6376a31016edf65d9e0c809a0b41b6c0cb3a49787e530b7
+  note: null
+- match_id: 80d455472427cfeb2a1c935b5ed31e7044f6d8fd
+  date: '2024-06-28'
+  home: Colombia
+  away: Costa Rica
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 2b6ad2ddc9a1d2d0f7784845c8ec6cc5ae01430bc8348b93160a03fce192b03a
+  note: null
+- match_id: ae0eb799ccd3ec6976257a857ad1cce175187c59
+  date: '2024-06-28'
+  home: Paraguay
+  away: Brazil
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: faf45ee4d26b80ec44279a5bd3ed750bf498738b5aa6e0218d081701e40d5273
+  note: null
+- match_id: 3bf48032cc1b1f92908d76afaca5f68cfb90def9
+  date: '2024-06-29'
+  home: Argentina
+  away: Peru
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 50e2ffdd4aa382cc5b7ee986d08695ed206b0354b985c50f98eebbe622c57b33
+  note: null
+- match_id: e334d938fff358b169052e8c069c49bc24f2d76c
+  date: '2024-06-29'
+  home: Canada
+  away: Chile
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 7b65ba31d2131caf25632b0f7e08c10e1a64e3c7e11c369f9e14b8b0c5c97f01
+  note: null
+- match_id: 5fd3114862629822b10dcb6d5e759ce6968e3957
+  date: '2024-06-30'
+  home: Jamaica
+  away: Venezuela
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 70ef4139c21ea6f81fd117797957b9cb55a7e15e14c8f5e624fc9340feb5070a
+  note: null
+- match_id: c712d49a81dd549ee80961a83b27a1d14c346edd
+  date: '2024-06-30'
+  home: Mexico
+  away: Ecuador
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 518d7e331feb7524545211ab6297259b0c52ff97d813b6cbe0a02ad8ca1e87d7
+  note: null
+- match_id: 19af49f9cbeea2d06f6e90e84f470592177931ce
+  date: '2024-07-01'
+  home: United States
+  away: Uruguay
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 1a20ece7cd2bdbb135b0147a7d3fd9acd34b298b322f198cde66595dbf45be42
+  note: null
+- match_id: 3e0469e5cc15f0a8dae15efac413998f3aefe632
+  date: '2024-07-01'
+  home: Bolivia
+  away: Panama
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: e3d820a24f5fb541ec3f1ecfd65dd8c4c8952a6a4f233ece19164c69f121ba27
+  note: null
+- match_id: 8092cbc7f017836e45ea5724bc4a758944efa4a3
+  date: '2024-07-02'
+  home: Costa Rica
+  away: Paraguay
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 7eb5ed50174402c2e610cf717f4e8f3aea248d50288d61c3b2a9042566f61ac9
+  note: null
+- match_id: d015754000c0c727f1481fd04ceefc5ba689945b
+  date: '2024-07-02'
+  home: Brazil
+  away: Colombia
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 263379c2e90bf46b6450037ec159bd98253228aa0803c876d5309e55ca6f4d5d
+  note: null
+- match_id: 17fa74f20703926892604dc2333a94555fd46a71
+  date: '2024-07-04'
+  home: Argentina
+  away: Ecuador
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: false
+  cut_raw_sha256: 0680f2f2733b251dc9031a57cdcfc0fc7d8e30d8ddd74aef79cf45e79b85317f
+  note: 'sharp quote rejected: overround 0.797 < 1 — an arbitrage against the book,
+    i.e. a corrupt archived price, not a market'
+- match_id: 56b9c50f4fd02f25cc42138cfc9791cb41e2365f
+  date: '2024-07-05'
+  home: Venezuela
+  away: Canada
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: f38155526c3b6ec0031f2bdbfd1dd1259c5dd78fe63022d2f81596a2a0674743
+  note: null
+- match_id: 9106be142b70eeb7c4fc33988370cf721957a3a3
+  date: '2024-07-06'
+  home: Colombia
+  away: Panama
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: bc19a710c7edee8a83d9b8f0f233d802e3bbf008afa4af911ad556427657bf38
+  note: null
+- match_id: f4df7cad47816dd8b62719bb2e090de9001b8d9f
+  date: '2024-07-06'
+  home: Uruguay
+  away: Brazil
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 62890bfdd4fabef6aa20e008d717055478f8d43fe27773b12c065c9b2a15d7af
+  note: null
+- match_id: 0c1ac7dd3b34cfd887ac91e0b85bea6c53ef822c
+  date: '2024-07-09'
+  home: Argentina
+  away: Canada
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: df70950ff21c744a2d5fa35711002e7ad1c29b5ad84849bde220559a7ea8f69d
+  note: null
+- match_id: 336649b0adf437d6faab3aa13983dd0e72d94370
+  date: '2024-07-10'
+  home: Uruguay
+  away: Colombia
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: d8b136e76b8fa90cac492a53284031fdcd09ec236e297b6a39d32638d75c6c58
+  note: null
+- match_id: d7049c8accb1ea8754e3e64089b9de0970e8d696
+  date: '2024-07-13'
+  home: Canada
+  away: Uruguay
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 17aaffa9c3680c2326f56c5675cb79df270f3977964fc8529e5a70afb2a852bf
+  note: null
+- match_id: 1079529133be89a11a504848901bff324d7a375f
+  date: '2024-07-14'
+  home: Argentina
+  away: Colombia
+  tournament: Copa América
+  sport_key: soccer_conmebol_copa_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: eb168882e74070fe3ce6d273c5f1312a25ea1ea3779e7175c6410dd85dc6ac4d
+  note: null
+- match_id: 13915d565386ef59a9badd7d0e48e1cffbdf8da9
+  date: '2024-09-05'
+  home: Estonia
+  away: Slovakia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: eea12942ab4bd392d08899919aea953ae24a9be20e6b0d061f447655a67ca778
+  note: null
+- match_id: 248a553c5e32bd4a7135779165718e7cdea95c29
+  date: '2024-09-05'
+  home: Portugal
+  away: Croatia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: a94faa5e6bc4e5eebeaa61ed934058e9a952825af2744e21e09c5e686ba04716
+  note: null
+- match_id: 374c03e447571d409e726d2ea23b9b49829c1f5b
+  date: '2024-09-05'
+  home: Scotland
+  away: Poland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 5888797359362c1a3a7765fd328f7d2f938331856092ba612c5225ce215ff398
+  note: null
+- match_id: 4ced7d2a069e5ee7b3005310342442004a7010f8
+  date: '2024-09-05'
+  home: Azerbaijan
+  away: Sweden
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 0a1798cbe52aea809d30cf1b65a68bd3dee8a4e2f033b18e0d5d4c27bdd3e352
+  note: null
+- match_id: 88509cb86eca77a55edb149923806d5ba99f54c4
+  date: '2024-09-05'
+  home: San Marino
+  away: Liechtenstein
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 6861caf802cb273bf1368a23fbcd3e0556e0662f305e8cf8f4e543998a47f922
+  note: null
+- match_id: 997378be678cc339f2283eb0d5570a96cd8003d6
+  date: '2024-09-05'
+  home: Northern Ireland
+  away: Luxembourg
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: bc0c947060152bbdb2160be8e4baceaf45767cfd41578f2a4d609a8ad009dbf2
+  note: null
+- match_id: b339260fe848a9f96dc6d41c2136e3652bfe4f66
+  date: '2024-09-05'
+  home: Argentina
+  away: Chile
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: bf93d084be16f24b957bb9c047ab769ef8e63e78
+  date: '2024-09-05'
+  home: Belarus
+  away: Bulgaria
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 5f79464331e27f2883d7b72f31b8d431f7a52755df2c85c1a6baebb18d8dd7ee
+  note: null
+- match_id: c20ffe8fc6ec97d433b091ea59ec72307226ef1d
+  date: '2024-09-05'
+  home: Denmark
+  away: Switzerland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 00dcad55190e694b0016f95ca3feb1149ca9cf3e98a70f07eaf41bb20dd676e2
+  note: null
+- match_id: dba301f4eaac7bed931b8add0096b648202c3a71
+  date: '2024-09-05'
+  home: Serbia
+  away: Spain
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: eeff46cc6351d7b5debe2c50eb5d2fc0997a4ed90c7df32a3e8cecca9d1b3361
+  note: null
+- match_id: fc6bcf624912e602f901f7334710c2105613dfd3
+  date: '2024-09-05'
+  home: Bolivia
+  away: Venezuela
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 2366c5c7b9c5b9212d3d68808582643cb1b9b099
+  date: '2024-09-06'
+  home: Belgium
+  away: Israel
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 9504e583bf000a0614b73c163359ebffdea5c2bde704dfc9dea340db45743f4d
+  note: null
+- match_id: 2e3961b000084280f8e40e4bb438b0f3c4ecd6f3
+  date: '2024-09-06'
+  home: Lithuania
+  away: Cyprus
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 0420da2c58f8aad243476ddeb9341e98eb4e9d0f10faeb7a1247e1f1d93a799a
+  note: null
+- match_id: 2e417da937c553b80adf054ae3d5f5a82f606600
+  date: '2024-09-06'
+  home: Iceland
+  away: Montenegro
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 2077a48e050bbf6006fe58f91fc36bf84965ae901da530942a785a47f96da8af
+  note: null
+- match_id: 43e9e82211161d4e3bdef59f8974d67bd2018c4b
+  date: '2024-09-06'
+  home: Wales
+  away: Turkey
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 11968f5d95ce5808fd469fef9da7492f63a699fb6944fc00546cb851e45abdf0
+  note: null
+- match_id: 461ed45a28c2566cb9bf544343b4aa4066123314
+  date: '2024-09-06'
+  home: Kazakhstan
+  away: Norway
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 8877aacb7d9e08dfe185575875754e47d3ac08b270a43cb269bdaebd22461a2d
+  note: null
+- match_id: 5abd61d24474727abc0fafde487776256c31c6c8
+  date: '2024-09-06'
+  home: Kosovo
+  away: Romania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 8d55e7894f1b8a49037886612696e165a33cc2d33eed12d4aa39b3a426b6b7d0
+  note: null
+- match_id: 7387ada664f050ba0f64e58a2009b114668a0b91
+  date: '2024-09-06'
+  home: Peru
+  away: Colombia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 7fae3eec3f4298b52c800524f929146c36dbf558
+  date: '2024-09-06'
+  home: Uruguay
+  away: Paraguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: df72bf83158cd20cd4aa5897a46ad16f075d2c7d
+  date: '2024-09-06'
+  home: Brazil
+  away: Ecuador
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: ead5f35b8e724fb0689c99d7efb4db9af0b5528b
+  date: '2024-09-06'
+  home: Slovenia
+  away: Austria
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 5604fd1682b0e888453fb902276ff852051ece7de8f90286db516ad6d1377907
+  note: null
+- match_id: f69fb326c4ef98821c77c206d074b90152633e77
+  date: '2024-09-06'
+  home: France
+  away: Italy
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: ccf31e31493d69981e71472203a59118e00ab4dc0dcac4fab21d8bfe49fe33ef
+  note: null
+- match_id: 04e83737a1be50a4645f788b11679b71a4c0c62c
+  date: '2024-09-07'
+  home: Republic of Ireland
+  away: England
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 9bc96063c06a305fec5dee6a656d2c847f4b321b9d3b1eff281e7a93cdca501a
+  note: null
+- match_id: 0e1a593384708ac4291274b57e2665002c3e86b6
+  date: '2024-09-07'
+  home: Germany
+  away: Hungary
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: a232531c96d427ebf54c9c7ed13c068f4adb9ddb759d3796a81c478db6e725eb
+  note: null
+- match_id: 6745120cdc946fdf244b81280c3f7a5206b384c4
+  date: '2024-09-07'
+  home: Ukraine
+  away: Albania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 508204cf7423aac76129f5c173ad349df886f1a3ad4057d9b7d9ffe5690eaca7
+  note: null
+- match_id: 76d0b9db4737d6828b7d25dcfd0d78113bc3ec1c
+  date: '2024-09-07'
+  home: Greece
+  away: Finland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: e1c82109266877304106e0b3b5ec29c6a6ce7f8d87e00c1707584fb35cc1f7e3
+  note: null
+- match_id: adf11c0d555f27894ecee2f71ff71aed9ee1f62c
+  date: '2024-09-07'
+  home: Netherlands
+  away: Bosnia and Herzegovina
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: ef0d44d5a987a181fdf563ad9f482e269f89f368d7f2add1d2c5fb3f18d023c9
+  note: null
+- match_id: c46ccee1f424cf708abc58a16187050b70486943
+  date: '2024-09-07'
+  home: Georgia
+  away: Czech Republic
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 5a3281202357a67e5f92fa2c55b40db6a39f064f9083709e974229d1f9c4bcb9
+  note: null
+- match_id: ea78c7ce1581038dd707c191fd3130de726899b0
+  date: '2024-09-07'
+  home: Armenia
+  away: Latvia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: b9cb7607cb0e2ff793459b47bc2b8b0638ee11e8371c9d2a9e3ceb3854bf0cd8
+  note: null
+- match_id: f74d962d8336936c132563485d0bcb7e8bbdece0
+  date: '2024-09-07'
+  home: Faroe Islands
+  away: North Macedonia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 301099203afb9220b1575fce71271993d7e4dc1880b51216cd80547419b6ef47
+  note: null
+- match_id: f7fd2569d29041fbeb73712ef4e1f5c782197cef
+  date: '2024-09-07'
+  home: Moldova
+  away: Malta
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 0c47608e768628e0485c7eb22f540a3c774f5ecc02dee5481ab18906b0224da4
+  note: null
+- match_id: 060c49bd2b001a6ae9578b0af4b188e2642ec983
+  date: '2024-09-08'
+  home: Slovakia
+  away: Azerbaijan
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 7f0732800c24e2d902f905802525fd7096f50b57c83a12a855452e14f91acb24
+  note: null
+- match_id: 138cc3f85058d4e262186bda8b20382aa78e1042
+  date: '2024-09-08'
+  home: Portugal
+  away: Scotland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: c9b6470e1151e76492ebfaedeca8f8d52b83ed2924d3f77ee4d7417923a3bbd2
+  note: null
+- match_id: 3bee7aa579e36d0a05c56bdfa2f9b4581e810d72
+  date: '2024-09-08'
+  home: Switzerland
+  away: Spain
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: a97929d3e69f598a51aa4692ab5e0acfd61c6ecd6d3551297d45cd32e2028d1c
+  note: null
+- match_id: 48142bcea16fc9b49ade5f67fe39649d847a4aae
+  date: '2024-09-08'
+  home: Bulgaria
+  away: Northern Ireland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 489d4f9d4738f3eb2fae233c5936160ac5a0b70aa608acb79cccae5735284b84
+  note: null
+- match_id: 4d39c1e53eab99b01c84c547609f17716d4eae0b
+  date: '2024-09-08'
+  home: Sweden
+  away: Estonia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: c56aa5225392224b4c4fe9d8de5b3e6567197982fda739644e4ad49afec179e2
+  note: null
+- match_id: 695e19ed6d7e21a60a1b6090aa454c6bdc9a3c17
+  date: '2024-09-08'
+  home: Luxembourg
+  away: Belarus
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 6aeeb6def127420d93ec4f2c21d96cdcdf6f70b0
+  date: '2024-09-08'
+  home: Croatia
+  away: Poland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 6f60378c3b6e0b4acf50d61a251799a6923db6ab3cd458e4d4d5f278a65a77e7
+  note: null
+- match_id: e9abf22a90a0b43dbb1290d483552636c4174388
+  date: '2024-09-08'
+  home: Gibraltar
+  away: Liechtenstein
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 5b656ead75994a7ac61a7e151af6206917e11995fefd4ed6d9e8f66e42836088
+  note: null
+- match_id: ebcd9fe241213b049995211d371a42f22378be3c
+  date: '2024-09-08'
+  home: Denmark
+  away: Serbia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 261fd3664e3536fe13b2c6f8940d24ac79d5ed7497b773935191c60f6398cac1
+  note: null
+- match_id: 1e1d85aa9cfe59e04c945cacba97e7bcce264590
+  date: '2024-09-09'
+  home: Romania
+  away: Lithuania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: bbad0bfabab0ac392c8f7a9668e109bd4e1260e2b1e9cd62050933135cc90495
+  note: null
+- match_id: 2abd5a93edd5a0ed5dc10472e78b75dd2298b777
+  date: '2024-09-09'
+  home: Montenegro
+  away: Wales
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 69c6300a9691f0b38978831e73f707dde4fd535405bafb4f67afe3292cf44c08
+  note: null
+- match_id: 3d776b1803b3ea25e54a47ed4a9c394bed8b0e2f
+  date: '2024-09-09'
+  home: France
+  away: Belgium
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 9ecd90871536bf292ea1bca6427fa3ae587874e098d57ed61967b87f5f8b8d8d
+  note: null
+- match_id: 435a5d8ed4517cc157d394bbc53c3da96f0d1192
+  date: '2024-09-09'
+  home: Slovenia
+  away: Kazakhstan
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 1c1eafd05d746fc1159d7f4073295e33a2cd23c25618987e56373afea1753a4c
+  note: null
+- match_id: 8a323c662d17d80f8dcdf8b4c9cc0ca8c99e9314
+  date: '2024-09-09'
+  home: Norway
+  away: Austria
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: ab86b35243c9e5367d9c925cebae32b73742fa481f4ed3db172c262e82887424
+  note: null
+- match_id: c24a3a16bb98b955c9c9de89de967aac6a6cba90
+  date: '2024-09-09'
+  home: Cyprus
+  away: Kosovo
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 5fcf0df1e2b0ca60f0f1da054b24549421d7368520e85aa1a5bc81763ea8656f
+  note: null
+- match_id: f77e28bfcfbb21dac805507f8824a761e19a0c97
+  date: '2024-09-09'
+  home: Turkey
+  away: Iceland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 433d725f9fb4cb3a14d7596ee0af00e3117f56aef761057f87ef0d5ec8c82a85
+  note: null
+- match_id: f8220a1a7523491ff94504ea1401dce5bdd5df15
+  date: '2024-09-09'
+  home: Israel
+  away: Italy
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 68c61aca70d5e8e0c2798c5c77039c6e5bfb566b020741a16d1d60cdc652e908
+  note: null
+- match_id: 000b0af3fa3d5abd0bb471224372e8ffc4a7b7ef
+  date: '2024-09-10'
+  home: North Macedonia
+  away: Armenia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 5d0a2afff249a1a6c9250dbe01cb20d94ee8504c5b50a098490df0deddbb0acd
+  note: null
+- match_id: 147238622f850babbeb61acdd9a2dfd6303d45a2
+  date: '2024-09-10'
+  home: Netherlands
+  away: Germany
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 7e55333aff9fe1080045230791d6b702bb712f39855dcd6811259c720783741d
+  note: null
+- match_id: 251fd5fa61776b8c5d02f4d692b4317382660b21
+  date: '2024-09-10'
+  home: Latvia
+  away: Faroe Islands
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 75f4def68d368e0d1960f66ed27b6933b256597b0d8338f6bfac9d7a9d10424d
+  note: null
+- match_id: 3861d8dafddf43433c53e301796fb7de8ba8a92c
+  date: '2024-09-10'
+  home: Hungary
+  away: Bosnia and Herzegovina
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 2ba7dfc154bd72788a10cf232fc714e7f24c1dea76865059c39ae266b6600083
+  note: null
+- match_id: 69705a032efafb0b0afd0bbb33b216252ae6569e
+  date: '2024-09-10'
+  home: Chile
+  away: Bolivia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 6ddc7ff460109680373166288c433da3db7470e4
+  date: '2024-09-10'
+  home: Albania
+  away: Georgia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 644a34cc0a7aa1769d3253edef322217cda69cfa454d235ce4ddf545a17ee76d
+  note: null
+- match_id: 80f02a2cfd5f2a08759d0b31499cf8efd43c452f
+  date: '2024-09-10'
+  home: Czech Republic
+  away: Ukraine
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: bfd78cdd62315ff8f8e00bfbdcbae124fb6a6b62b948bd859b72dfebd3b700ab
+  note: null
+- match_id: 8388f5f5f9d2318c73d649230aedeba35f093271
+  date: '2024-09-10'
+  home: England
+  away: Finland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 2dbe623d692fc1125ddbfb2ec1e568278001036d64481fbb33bbad2c5ead73c0
+  note: null
+- match_id: 9bbced3d37f825299c9abd6219c61faa324b5d97
+  date: '2024-09-10'
+  home: Ecuador
+  away: Peru
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: b7f51a3aacb3223135bfa0fe4dae5c3a7e742e8d
+  date: '2024-09-10'
+  home: Colombia
+  away: Argentina
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: b80e7f5b51987e353f8237ee4c8d2788e277cf63
+  date: '2024-09-10'
+  home: Paraguay
+  away: Brazil
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: d6556e1fefe3d6079f5bef0b4ba9211b62eb0169
+  date: '2024-09-10'
+  home: Republic of Ireland
+  away: Greece
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: ca6180fbf1b1f78b20cc65cf257c2e70f2b2ae0a22784a700df9ecf3011b2919
+  note: null
+- match_id: db3ca61da160f81c86320d72948ca0de67d27a21
+  date: '2024-09-10'
+  home: Andorra
+  away: Malta
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: bdd114fd034861ed981e0d84ab7bc91ce9c6d47ce31a058f55c45f053f3129f7
+  note: null
+- match_id: f5bde1d1788d35a50fded67413960b9361ea54bf
+  date: '2024-09-10'
+  home: Venezuela
+  away: Uruguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 0ed6629ef1384872eb0f835aae56d3416fa87699
+  date: '2024-10-10'
+  home: Israel
+  away: France
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: a57ac85264ce5934b20159d380499e9947bfbf6dda377e838f5cc6fa856c9221
+  note: null
+- match_id: 13b08970f5ad8e3ed5cfed6d57690a9449222162
+  date: '2024-10-10'
+  home: Venezuela
+  away: Argentina
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 1727f6bd9698346794aa08c8b2818478ffcb2bb9
+  date: '2024-10-10'
+  home: Latvia
+  away: North Macedonia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 3a98323d089da29355be788a8d036204b38b60b678df32ad0173dde360f34759
+  note: null
+- match_id: 3cc3065d8f9a153601dd4a2a429218ae03b803ff
+  date: '2024-10-10'
+  home: Norway
+  away: Slovenia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 3bdcde3347d03924f02e0a4a0f2cee7b08589dd36e86d785cbda09a0a41f4804
+  note: null
+- match_id: 4e5b3318cb5530cd9043fccf3affb6e7ab646392
+  date: '2024-10-10'
+  home: Italy
+  away: Belgium
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 7e2ced2237b7ba5804df3adf99ca2fbb785768edbea413c49b769447ea7ad01b
+  note: null
+- match_id: 56372b44661607c36a24a82fda8e97353eb58189
+  date: '2024-10-10'
+  home: Bolivia
+  away: Colombia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 761e711e4d301a07d98c73112b35b59874ab38a3
+  date: '2024-10-10'
+  home: England
+  away: Greece
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 5a271514f88a18236a2fac105fa696ae1fd74cc7e25bdba7f4bd31a86c7b7ed1
+  note: null
+- match_id: 93c11d647c66ba0ed3d7db6a27d652ef737a80cf
+  date: '2024-10-10'
+  home: Chile
+  away: Brazil
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 9b2945f29af696b7f8e4121ba7eaf02c7204635b
+  date: '2024-10-10'
+  home: Austria
+  away: Kazakhstan
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 6a3849b841fd8b63702d5181e1e35b5b9f40e1c1e0d9b357d370b6698d0c4b19
+  note: null
+- match_id: 9c4cc3cffad69da54973035f0991bd12c2dd11b3
+  date: '2024-10-10'
+  home: Gibraltar
+  away: San Marino
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 02e2e0cad66b9e1340186131b2ebdc751a011af39e9954829ecd2ba7b80fa214
+  note: null
+- match_id: a1b1e845c1d47614e5bb888fa85c20cd56212d90
+  date: '2024-10-10'
+  home: Ecuador
+  away: Paraguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: ac2b1d981c8b34b9aba5858d9168ae381d1d2aa2
+  date: '2024-10-10'
+  home: Finland
+  away: Republic of Ireland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 95a198e4ff855c6629ad93a4f06b117011544a5214f4d98a7b7a0b34c6cc2faa
+  note: null
+- match_id: ee645aea34d1298c5bb622dae20f0c47042aee59
+  date: '2024-10-10'
+  home: Moldova
+  away: Andorra
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: a777deadaf752c8b8e98f20e709a9fcc44216c464961777efb0a5396522cafff
+  note: null
+- match_id: f3a331f49523dfe113f9bdd3b73e428c7241b08a
+  date: '2024-10-10'
+  home: Faroe Islands
+  away: Armenia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 57bf6190e116e9e4ca1b98497f3b45c5a83d08c07183b10c3f84efc250faa648
+  note: null
+- match_id: 1902501eced85618af6f2a86cecf83ca0de83ac4
+  date: '2024-10-11'
+  home: Bosnia and Herzegovina
+  away: Germany
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: db4563de8fbc04179f7956b9581c34f33e43a0bb97c665b4dba51a91fdcc15be
+  note: null
+- match_id: 252df0f5281ea29623a14843c89dfbf80fe573f8
+  date: '2024-10-11'
+  home: Slovakia
+  away: Sweden
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 4c7a4556e5a31e228333c844e17cc613e9743838c55be86573f248dafe013357
+  note: null
+- match_id: 28f5f6b5a8430d91a3879ca0620b362db641dbc5
+  date: '2024-10-11'
+  home: Ukraine
+  away: Georgia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 568ad3ec843cd38fcec2c27765094373ef5c1af4e917a4fdb6a31af8d5ded175
+  note: null
+- match_id: 41ec9329f81cce1455826384013ba8f37c6d2a7c
+  date: '2024-10-11'
+  home: Iceland
+  away: Wales
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 7bf0686693f4de2ecf1e1d0b4e630f468b21fe7f22339cceee48b8fa47ca496c
+  note: null
+- match_id: 52c1a639be62f88a5f5df59fbde0ba13bf3a44b4
+  date: '2024-10-11'
+  home: Hungary
+  away: Netherlands
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 30669e12bb8b0b3240f3dcf5d9d9ffbaf33a4e75f4e30884ed1c4b39748a4bd1
+  note: null
+- match_id: 65abad1358aa319ef0d94310c405b1b561c10a3d
+  date: '2024-10-11'
+  home: Peru
+  away: Uruguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: c2b91cacfba5363c210a3a1ab63bd3b09abca58d
+  date: '2024-10-11'
+  home: Turkey
+  away: Montenegro
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 25fd2fc1845b8116acee5b35de6abfe4f4fafc6080e86b07378c87e47d57b336
+  note: null
+- match_id: d4617a2e238759f9eac1d411fd53935be594df0f
+  date: '2024-10-11'
+  home: Estonia
+  away: Azerbaijan
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 8815f637b79088c9bc3c740bfa70ebac1776a22351729c98e0d0f7ecef0c7512
+  note: null
+- match_id: e910af5412ff27f906c0eaae34c45791088ceaa4
+  date: '2024-10-11'
+  home: Czech Republic
+  away: Albania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 20126ffd606ed8819360b27cf388076bd439947a1d1677ffc543f32c6d304ae7
+  note: null
+- match_id: 201d36c0eb1e1a2bb81a6e18d6d6aa48d22179cb
+  date: '2024-10-12'
+  home: Spain
+  away: Denmark
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 58a1fc09cfcdaf12af0f7a13f6793b4d39400ba51a99d48b86f092ac6bbcd6df
+  note: null
+- match_id: 327745f36ac90655945688d2332a5df3dcfc1cd4
+  date: '2024-10-12'
+  home: Croatia
+  away: Scotland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: a251d0b9d7aa72022059050e3e523ecab420803539abbf250a019d13a8e7fda1
+  note: null
+- match_id: 5f0505c1cfd56aa0b63721c0d52e52dbdfda49cf
+  date: '2024-10-12'
+  home: Lithuania
+  away: Kosovo
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 176d445d459b8179a8f991399347b9b0d1e1902cf69a19855bd08de4f25ca31e
+  note: null
+- match_id: 6a167dfc14778df62f181eb3d73691a82809c391
+  date: '2024-10-12'
+  home: Cyprus
+  away: Romania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 787b69b6fc9ee4b66dbf26ca3fb8c43766ddbfef13143a028c1db7802bf41358
+  note: null
+- match_id: 7288d2e0131db09f9ca19413a3c9306f89c5e476
+  date: '2024-10-12'
+  home: Belarus
+  away: Northern Ireland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 0f023a499948091134fde810b5c5647ab4e1452d4ad91199f2059f60775a28f4
+  note: null
+- match_id: c2bc2d50e9d041ac614862fbe568f213a5f8a674
+  date: '2024-10-12'
+  home: Poland
+  away: Portugal
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 779532896505f4aa4cb36e23edffa76cf564af0cf6b9cd27364812f1c763f604
+  note: null
+- match_id: f94e91379a208719bcaad8c1a1160f43190ca175
+  date: '2024-10-12'
+  home: Serbia
+  away: Switzerland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 044e6c75c3eee918791a839713f611b3e43f0f17fc9ee60d4ab2ba3f7e9dcbd2
+  note: null
+- match_id: fd5742ce4183c9f37ccdf5f2d71ee913fcea601a
+  date: '2024-10-12'
+  home: Bulgaria
+  away: Luxembourg
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 152ff687c593966e2582b81726b1bf76a12e1e06844d451600123b1111b699b2
+  note: null
+- match_id: 49e213430300b8b4bdf174039e823138e5c6e710
+  date: '2024-10-13'
+  home: Finland
+  away: England
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 99d2fd19e96eac196e527ad20d54b91a89bcdcecec32be776afb70d1c04fefcb
+  note: null
+- match_id: 4b4013dd7a6a8fafc534663ef1b655b1442927b7
+  date: '2024-10-13'
+  home: Austria
+  away: Norway
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 2ea671956b62db51bb71bc29efa25d35357512ee7e9c3b38cf7915cc8c2f0a0d
+  note: null
+- match_id: 51b24f0c2f4c45615afd297dcc2d6855faa9412b
+  date: '2024-10-13'
+  home: Faroe Islands
+  away: Latvia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 27a5df1765e2cf9454044d5646e3de5d6a9749be522c758a0d5dc7855c3e7d74
+  note: null
+- match_id: 9aa5aa7b21407cec5f75d09995bab8f498acff7f
+  date: '2024-10-13'
+  home: Greece
+  away: Republic of Ireland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 779003efa2d992ef50c399d3bf3933da51dd6c3935a57b494c20b2ae97844160
+  note: null
+- match_id: d62390334269c1ca7836ed656d880a54379f958b
+  date: '2024-10-13'
+  home: Armenia
+  away: North Macedonia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 15e54b69f30fde9985d6dbbce928c3a7f986d2dae650211e2eda46ce85894079
+  note: null
+- match_id: efd055a148b544787f00aa556ba16e1b12deb311
+  date: '2024-10-13'
+  home: Kazakhstan
+  away: Slovenia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 87b7aff2a809b0198fa9ae834cc2a01cf8b93b06e1564609df700f8ec2c38e36
+  note: null
+- match_id: f5168869619c944b484cc343d766116766a4ef90
+  date: '2024-10-13'
+  home: Malta
+  away: Moldova
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: c7c853615606463a7f64c733b476879d8056ce1b31d6909344b0e2639dc347d3
+  note: null
+- match_id: fe5cc0e78880f4f8abf44c52548629855f5f9bf9
+  date: '2024-10-13'
+  home: Liechtenstein
+  away: Gibraltar
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 2620878011b4d637ddbf38751e8b68c0acc4e0f727b2bae9edcb169bcf442f8c
+  note: null
+- match_id: 28e3044ac99bab364d163d4b140ea2e4220cbf4e
+  date: '2024-10-14'
+  home: Georgia
+  away: Albania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 065cfa8d3242ddcb1ebde3166431211cf76c69983306f10742ea99845d277d41
+  note: null
+- match_id: 2ad8f2083844c1bb5299600bd96ec34ebd78be2c
+  date: '2024-10-14'
+  home: Belgium
+  away: France
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 4262226fe0e083d238bff32291d49a956496296b9fb8db0b7c1ba9842710bdc6
+  note: null
+- match_id: 5933a2a70409439eac0ba6cf8132db7029177666
+  date: '2024-10-14'
+  home: Ukraine
+  away: Czech Republic
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 14d8865463bf89eac3ae6b9730a2c8b60b2ea008fbee4bf7bc6c5a97e657ce2c
+  note: null
+- match_id: 60fd5cbe273c725bd2e582436c47efa0681992aa
+  date: '2024-10-14'
+  home: Germany
+  away: Netherlands
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 153624de4e263c6d0c7233f456bb49afe8b5d8ade13b86d730231e3ca0acd090
+  note: null
+- match_id: 8a9943c58e17feb8f2f4d2e19ac46f2a6ff1d885
+  date: '2024-10-14'
+  home: Azerbaijan
+  away: Slovakia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: da66265640ac430151ce481370d43d506dfdbeb333059d71d344209c92779075
+  note: null
+- match_id: abbe7da2d2a49b5a13dfbc12dcdfdcfcf59451f9
+  date: '2024-10-14'
+  home: Wales
+  away: Montenegro
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: cd33a0514b39659f9c0caf1223b7b71d01c0d012aee3335f5597a50dda7d8e47
+  note: null
+- match_id: b36084c4b9bea9d66b9fb6444941a015633947d0
+  date: '2024-10-14'
+  home: Bosnia and Herzegovina
+  away: Hungary
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 93c974f50dea4d4ce5b50508358074b91b42f2f6f8a7669524599d7a96bbf760
+  note: null
+- match_id: c600cc244c598e5609f26e9265d6a043b963a6da
+  date: '2024-10-14'
+  home: Estonia
+  away: Sweden
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 25da147c0a1f19aafbdbaabbd08dbca90b98ff9266858d4321503b46460c615f
+  note: null
+- match_id: dc59de964d653c23fa5489a3b5e223b7d3a37f6f
+  date: '2024-10-14'
+  home: Iceland
+  away: Turkey
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: b247afba3a2a2c7c79490d359caabe5c8e4731c049857369838779f54ce37ad4
+  note: null
+- match_id: ea39a6357d8827ed09326ea5b48b42ea14e2d276
+  date: '2024-10-14'
+  home: Italy
+  away: Israel
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 545ca2cb45e193de9e723cd691806f3fe2d95f0d04b1b9066a8e575ddbbb7bbe
+  note: null
+- match_id: 046091393176c4edad738d90e1f8ac21b8e36720
+  date: '2024-10-15'
+  home: Argentina
+  away: Bolivia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 1571624cafb65d2424c3f238929841b7219c1389
+  date: '2024-10-15'
+  home: Poland
+  away: Croatia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 464ddd85e83c8d5a275952fb74616fcf2615226ba44b958d659475d90491b930
+  note: null
+- match_id: 20c264f7138a41da53663e79f4f481a239cb3aae
+  date: '2024-10-15'
+  home: Spain
+  away: Serbia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: b83358c1f30792b6f07ddb6d15619c1b47a011a4bacf39498d1e314f47936c41
+  note: null
+- match_id: 21e4031aa6f3735e9d1326aff0987fd75af518ac
+  date: '2024-10-15'
+  home: Switzerland
+  away: Denmark
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: b28e482f5a3b2abe2bac4cf727dab6e9c83e706138310910ff102bfde5ee287d
+  note: null
+- match_id: 381c548cd28bcefaaaf46119e83a60469d15f446
+  date: '2024-10-15'
+  home: Uruguay
+  away: Ecuador
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 3903dbf69d1d845d3d6d5df6d81f7fcc93dc0831
+  date: '2024-10-15'
+  home: Kosovo
+  away: Cyprus
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: d469e401bf8acada7b291391fcf9974b642632605108f46ec032d590c478b3d9
+  note: null
+- match_id: 3b0d699d6b34ef2e605fa6df5ae83538ab5c2e13
+  date: '2024-10-15'
+  home: Lithuania
+  away: Romania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 0ce9d0ae6ba01fb05ff635d113d321cb9bbf46d45fd2c4a1badc8f2ffc3c3192
+  note: null
+- match_id: 5d5210151243abe506ce68139c3f7bf5d45e2175
+  date: '2024-10-15'
+  home: Northern Ireland
+  away: Bulgaria
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: d59990eb5eae41a50da250f582f60dd2a3fc75801a2149f50c5185e438633dc5
+  note: null
+- match_id: 8aeb1e7ee75dd9a3a56359378d03f362c5347e51
+  date: '2024-10-15'
+  home: Scotland
+  away: Portugal
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: c4eeb9c72e3cddd0ff415b1fde70009f4b393e9c183e5837b3aa3ff7097e010c
+  note: null
+- match_id: 9524480acc5cbf918d98ab03f479231352a3bd15
+  date: '2024-10-15'
+  home: Brazil
+  away: Peru
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: ab1ff7a43da1643c3ebc135487756359bb3712b5
+  date: '2024-10-15'
+  home: Paraguay
+  away: Venezuela
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: ad99951adef7b99dc5773bbfcfe61cc70676136d
+  date: '2024-10-15'
+  home: Belarus
+  away: Luxembourg
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: bf65c7a272845fae02b9604b26eb46d7ba3b7463470d8741b2de74113a09eea6
+  note: null
+- match_id: b94b10993814fdb03bddf97858ab7ffad723c556
+  date: '2024-10-15'
+  home: Colombia
+  away: Chile
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 1fc658ffad241c3aa1fa3e2ad82caef711329218
+  date: '2024-11-14'
+  home: Belgium
+  away: Italy
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 567dbc5f16d00e861cab64c16b190ae5aaa20b62adbb0c460a0b1ff1dacaf3c7
+  note: null
+- match_id: 369766e419244f1da8dd07eac87570e5404e4570
+  date: '2024-11-14'
+  home: Slovenia
+  away: Norway
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 710e31c938f053eac7144169c8b47de0e7a854d925951bd20d64bb90423114df
+  note: null
+- match_id: 7e59fa8d401c096e9504540df16a1386aaaf24bf
+  date: '2024-11-14'
+  home: Greece
+  away: England
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 721d477c6adf1661964156a616a9d2419132f2851832ea7fd4893dcbd0d0fb0a
+  note: null
+- match_id: 80b5bac9a27c07269dd36e515bd9b8092ff07b2a
+  date: '2024-11-14'
+  home: France
+  away: Israel
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 22a9a9c6b241f54df1d21a2b0fbaba2e12cea2792977d72af1d79ec8deb99cf2
+  note: null
+- match_id: 9fc7e8fd3682ace89e9e7cc961ce22bcc6be58ed
+  date: '2024-11-14'
+  home: Kazakhstan
+  away: Austria
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 57c302eb9d0a930ec73b101ad87b7dfe958c0312541bb15a824619ef62b8fe8f
+  note: null
+- match_id: aeb1fdb5ff1a5e7fa6fcc0f2003725344389f354
+  date: '2024-11-14'
+  home: North Macedonia
+  away: Latvia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: a8e3f24e88ac96f6159e1efc37b5a8ce38e337dd4cc70d9089ca72e7446cfc2f
+  note: null
+- match_id: c5b39b63aa5bb34f4b9f8363867989b0ceb0e783
+  date: '2024-11-14'
+  home: Republic of Ireland
+  away: Finland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 2ac9d520f88d08a8652dc874fb06b7877b135587f85749829fadf27d96de136f
+  note: null
+- match_id: d5a26d645dc6374259b9637775e30df3b0999c81
+  date: '2024-11-14'
+  home: Venezuela
+  away: Brazil
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: d94f3b7721ebff0658812a63c11676252a79dd35
+  date: '2024-11-14'
+  home: Ecuador
+  away: Bolivia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: e09f6123fc83bcc2bddb277bfdfa62e819233a19
+  date: '2024-11-14'
+  home: Armenia
+  away: Faroe Islands
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 35455a398b6b2b5fb0edc58dafed7bf3cfe662e620461d6a65764c4cfc5fde44
+  note: null
+- match_id: e54de1f61a5ed6d59f3c0040676a8ff22d7e23b1
+  date: '2024-11-14'
+  home: Paraguay
+  away: Argentina
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 0ef0f9965977b1af4f7c5bce9cb595b14c506c41
+  date: '2024-11-15'
+  home: Peru
+  away: Chile
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 218dc3c56244967e873682b3cfa1cad200952728
+  date: '2024-11-15'
+  home: Scotland
+  away: Croatia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 8f49ebae18a6309c8dfbefc27bec4a32cc14659bd278d7a58c9ee077be955dfd
+  note: null
+- match_id: 48dac671871111ca941fc42ed7f17ee9497d7f58
+  date: '2024-11-15'
+  home: San Marino
+  away: Gibraltar
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: c778e1b05bfd429d4104b63518b2a2a63bf9fc0261f7bbee89627263db9e3ae9
+  note: null
+- match_id: 5a8318ee0e39212704ac7e86585e5deabd021997
+  date: '2024-11-15'
+  home: Uruguay
+  away: Colombia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 772615d28dbf50319d0970d1954e89e6a9071195
+  date: '2024-11-15'
+  home: Portugal
+  away: Poland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 619a7a2f22bcfb718a91ce9f1b06710be29488920adf458b994c96fff31850cf
+  note: null
+- match_id: 9b0894bf19b388ee03aedbc725513208a4e57cf6
+  date: '2024-11-15'
+  home: Northern Ireland
+  away: Belarus
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: c9dfcdacac41259ae9ca8036488dfd420fba1499090e575fd26c0b1ab5924f0c
+  note: null
+- match_id: aaf846fd62165d8822464599f4def57b2e3615e3
+  date: '2024-11-15'
+  home: Switzerland
+  away: Serbia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 8eac57b5052f621e82b11b8042b2ec694c06bed604cf16f862e4641aaf14ab1b
+  note: null
+- match_id: af82f885b5d4d5473ba42ea2fd45623aea9038ea
+  date: '2024-11-15'
+  home: Luxembourg
+  away: Bulgaria
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 26c5bdf4978a38db2392ce8159495871779140ea17f078f0ac8d34e5d6cb5ad1
+  note: null
+- match_id: b804711aab88b0e1194976d18c0f8f58ffcf2211
+  date: '2024-11-15'
+  home: Cyprus
+  away: Lithuania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 868e92f6f20e4d2fc6bb219536104708f095fa0edd133d5946c2d550783f494a
+  note: null
+- match_id: c70946cd056019b003288700f417037f6f893d06
+  date: '2024-11-15'
+  home: Romania
+  away: Kosovo
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: fbc9ca83c6347a942f821416b1123193b9c74604b0436125f368aa94bec29aee
+  note: null
+- match_id: d792950e48fee288879bb0d6007f4574fda871ea
+  date: '2024-11-15'
+  home: Denmark
+  away: Spain
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 41f1f7cbdcf35c09d15789aab8ff4c6b2da69826882cfd74642214876eae4e8b
+  note: null
+- match_id: 48535f7eb1509944d43d8bfe14e8cdb049f2c2b5
+  date: '2024-11-16'
+  home: Azerbaijan
+  away: Estonia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: de68d37ab6ae17d118c3aa92d2c4bd33d07b5f7bd678dc92283f9e231af3a3f5
+  note: null
+- match_id: 4c58102846c910ffb35dc644dbb3f104c8c85da8
+  date: '2024-11-16'
+  home: Georgia
+  away: Ukraine
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: b0b3cabd89b271d0632893a7b4dd378eaf836180caf31c358795b4d00173488b
+  note: null
+- match_id: 4d221a59c333a3e2deebcd6bb2fe9239942348a9
+  date: '2024-11-16'
+  home: Andorra
+  away: Moldova
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: a7c834ad399e9216b9a6bc318dbd1e38297c0e494eb9de77859f8526a86eac4f
+  note: null
+- match_id: 7651109b30f015b51a97e8809b5affdc6284cb7c
+  date: '2024-11-16'
+  home: Sweden
+  away: Slovakia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: eb58df16d094d7902d568afaa0d9a6975a596c7536734f8443ba9755b92f50ad
+  note: null
+- match_id: 811db29690bc19ba5687679fc840fae0fe6c1133
+  date: '2024-11-16'
+  home: Netherlands
+  away: Hungary
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 8923eaf71dbd6a72a6ba3c25ea39c2fea7693fade888b87d0286433fbe1e3138
+  note: null
+- match_id: bcf32c10bfdaeec0fd3db3bb7250a6ecc5fe976c
+  date: '2024-11-16'
+  home: Montenegro
+  away: Iceland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: b7774ba224785979727b3414c64cfe87fe3d533839aaf8de6c547be3a744b73d
+  note: null
+- match_id: bfa2cf108cb32cceb33faf3a9aa6ef175f40e512
+  date: '2024-11-16'
+  home: Germany
+  away: Bosnia and Herzegovina
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 3ee24f187ff1129cc67e828b8b2061c60a7e7e9fead9242bd6d77e4f9c23fe71
+  note: null
+- match_id: e233404ff794e2266c237b7d9c1f89274830410f
+  date: '2024-11-16'
+  home: Albania
+  away: Czech Republic
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 41e63b359214276623dbe493b7df0c6c85afe93e3ca45f902a364184bda7f9eb
+  note: null
+- match_id: f5763ed6fd959a5634dcaa3c9f29f3de4a271556
+  date: '2024-11-16'
+  home: Turkey
+  away: Wales
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: aefcbe57a651ba35d400dcd8dd9a12f61201791dac6ffa2f6a8ff67dffe73525
+  note: null
+- match_id: 036bc44fdd39b567ff53ea5ef7ded0e02f6bc7b9
+  date: '2024-11-17'
+  home: Latvia
+  away: Armenia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 98d6ae79aeaf378571d7243fc7d1485a7ae0586f6931dd89af23cbb0fc14b49f
+  note: null
+- match_id: 13d5a4efa565802888bcb66cb63e8821ba097dfb
+  date: '2024-11-17'
+  home: Norway
+  away: Kazakhstan
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: ff94eff2640cbeec56792330933837ec4f861eac31107954e760206e21763639
+  note: null
+- match_id: 1590cd3a35cac110ebc801e1fbb295e2381b5e35
+  date: '2024-11-17'
+  home: England
+  away: Republic of Ireland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: c4ab806b3a117a8969a8b67d5f29d3bd3e86a522bc0d030f2cfdf0731c823260
+  note: null
+- match_id: 4209245f6fdfb1e72a4f97328a67eddc3d837e16
+  date: '2024-11-17'
+  home: Austria
+  away: Slovenia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 31c9ffab5ba624dfe343e9e3dd8e06e7f28a0e87e57947cb5c0b1e8de944ec03
+  note: null
+- match_id: 558255c2f8546dfb0be04f307b78bcf8a6472c21
+  date: '2024-11-17'
+  home: Israel
+  away: Belgium
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 800c777dd3c25b79b0190063ae3619f1fc9f84f88d24e200cf2915f6fb94a794
+  note: null
+- match_id: 79bb39b964c02f978ee52133be9094f8aab9f50e
+  date: '2024-11-17'
+  home: Finland
+  away: Greece
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: c66b48292a668c39d8910eb706b221a4bb0c8f716c6c0a3e590093badd5b1cf2
+  note: null
+- match_id: 9561601693c8e32bc8e7896e5052b695b5a31d9c
+  date: '2024-11-17'
+  home: Italy
+  away: France
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 25c3939453deb20d09b3f39d847dce1f7b976205f026bd02551df8287625254b
+  note: null
+- match_id: c2c8ea8fa234b39a0c0c536ae943200b8fd01916
+  date: '2024-11-17'
+  home: North Macedonia
+  away: Faroe Islands
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: d97764ce9723d326864e93374f11273cf1abe2a2d57f40a08b95f1beb34399c0
+  note: null
+- match_id: 22d94836835b1661f1e82fd1b6a8181e67f477fa
+  date: '2024-11-18'
+  home: Kosovo
+  away: Lithuania
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: e53560770094304435f87a8c783ff15367d43be4eab9a5dcd2aa77cd70ba71b5
+  note: null
+- match_id: 22e6bf179e4efc9de6d82e0301be6fd99abf6db1
+  date: '2024-11-18'
+  home: Spain
+  away: Switzerland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: e7def01ca5f8808fabb58e8dfe7a7ab862cb584e6f131cd9caf02ca94886d110
+  note: null
+- match_id: 542911a4bfbcb72cc2c0391cb75859360b795ab9
+  date: '2024-11-18'
+  home: Serbia
+  away: Denmark
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 94061bb9bfa1a0605c6e279c83bb487bd757780c97bb6fa4b4c583794dd6bdfa
+  note: null
+- match_id: 94e7ad7281fb209a3840b577d7cf68ca744d439b
+  date: '2024-11-18'
+  home: Croatia
+  away: Portugal
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 4712697d548afd359c24ed380670e3a0d5861a62457b44431edacc4db0b1d5bd
+  note: null
+- match_id: d75e05da58839481586fa11158274fc44487ebe2
+  date: '2024-11-18'
+  home: Liechtenstein
+  away: San Marino
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 5f6e027b96b96eac6c20a886fbea773e91215251d30c077641f8c0b74b3b9ac2
+  note: null
+- match_id: df98fbc59a7e4bca383f37a385640edf849bc7c4
+  date: '2024-11-18'
+  home: Bulgaria
+  away: Belarus
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 915547dc9b2fad79f61f5485f99b43153c1a88448ea12e08418ab71619bd33c5
+  note: null
+- match_id: f28f771913a782f7ffcea5779764333488217e1f
+  date: '2024-11-18'
+  home: Poland
+  away: Scotland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 0f5024e9fb0821f2c8b51cadbb3633a02d03a7d2abdb347b333295f175198825
+  note: null
+- match_id: f85709bc2b49f5774fd0924fe8bd97a4d0b7b654
+  date: '2024-11-18'
+  home: Luxembourg
+  away: Northern Ireland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 05dd8a33d671ff3965c0013ec124f6e9acb9c89f5b14a6461e5f74f34aca3772
+  note: null
+- match_id: fe775e7f4d4d66ec4b8f127e5ecc299e4f7d8a0c
+  date: '2024-11-18'
+  home: Romania
+  away: Cyprus
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: cc556c9823fd37410a405893bd042cc8d73b9fbe34455695867a691138789327
+  note: null
+- match_id: 0c85c83386ba11a11e46abc8c2b079ffc711a05c
+  date: '2024-11-19'
+  home: Montenegro
+  away: Turkey
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: af0537f693bbb5f21577632ef3da9d9db568be8c48c73c97277f6b46db82be86
+  note: null
+- match_id: 0d0818cde7581492b8401ccb5adf4411a79594ff
+  date: '2024-11-19'
+  home: Chile
+  away: Venezuela
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 1af5ce721be8d3c8507cf7a1a0eb82ea95fbd2ad
+  date: '2024-11-19'
+  home: Wales
+  away: Iceland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: a34af848948aa391e66243e44717dea487c633c4984e7720569d254b007467bf
+  note: null
+- match_id: 1f19cadea0809340638a487101c4e86a7b5ffcec
+  date: '2024-11-19'
+  home: Albania
+  away: Ukraine
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 2cc7da056641c89b747a73d2119345c056b373911e3042a00da33374f2e482e2
+  note: null
+- match_id: 35782345229577be88a765e638895d3ba266f2aa
+  date: '2024-11-19'
+  home: Slovakia
+  away: Estonia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 150435360348ccc640fbc520a9ca16fd7b2937a4d4b91100145d8f809234495f
+  note: null
+- match_id: 41fdd99da1add9f252c0a09c88ac77fc5e4d7434
+  date: '2024-11-19'
+  home: Malta
+  away: Andorra
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 06fc9b288e7789f5608e24bb6df02027be83efb5a62929f6395b40e2f823f87a
+  note: null
+- match_id: 465b9cf567545a9faea6eedcb493203c03e1f96a
+  date: '2024-11-19'
+  home: Hungary
+  away: Germany
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: bcb03c8a799d07a96c895f3505a4dc69dfb90d991b9cc15e35966ce45c8d2f23
+  note: null
+- match_id: 467001e464f5cdc296db9faf03cbe938833a14b9
+  date: '2024-11-19'
+  home: Colombia
+  away: Ecuador
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 75b4437b9786b4425ffb4261b95a576f8bbce280
+  date: '2024-11-19'
+  home: Bosnia and Herzegovina
+  away: Netherlands
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 6b642c8b4ae5c4dba067800bf0e06b99547a9b38e4cfa53cc7af0239a769408a
+  note: null
+- match_id: 87fe353e0e3c9eaa493ad8b5eb9846c53c5e0b6b
+  date: '2024-11-19'
+  home: Sweden
+  away: Azerbaijan
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: a5ea46cc2e32fddea29680d05ea6a0e2b921e7b0e933310c0f35e578ecff2dd6
+  note: null
+- match_id: a68939cf497236d8db1baff95b636bf9578f90c1
+  date: '2024-11-19'
+  home: Brazil
+  away: Uruguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: c7444a90e130eaeb3536db3a6182132a5bc8f429
+  date: '2024-11-19'
+  home: Czech Republic
+  away: Georgia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 2ca47c97bb7c13113e02963db178cac96a73cbbd0fa314f30662141f4b0eb829
+  note: null
+- match_id: d56a6c2672f2300bd975aae005edf6376a484449
+  date: '2024-11-19'
+  home: Bolivia
+  away: Paraguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: dbfd82cf4224cae6b62e7e8966c2f5a30f10bf49
+  date: '2024-11-19'
+  home: Argentina
+  away: Peru
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 1a10bcec8aa2945f9a97a0bf94dc49252df6d0c4
+  date: '2025-03-20'
+  home: Slovakia
+  away: Slovenia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: afb64a17c6f0fa06d60b7cfabd08259c2edcaf1854eb27434cd6d465a6da6342
+  note: null
+- match_id: 34b2ca38c05a01dba40552e59dc37250ec1d19a7
+  date: '2025-03-20'
+  home: Turkey
+  away: Hungary
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 37bb76ba7807d9bac9ff411133b14a0c9f7400aceeb98e71b37cf30d1048ffed
+  note: null
+- match_id: 3cc84137a14eaf1a8a02e16bbd09b048d9f006fc
+  date: '2025-03-20'
+  home: Greece
+  away: Scotland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 2b565d20180154b2ad55643feb7d6fe40030fde9da99b4c2af463120dca8f81d
+  note: null
+- match_id: 4ea561a15bd6dfb87bf7bf9102f79339dee40eca
+  date: '2025-03-20'
+  home: Armenia
+  away: Georgia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 4ed7dbac77be228b60fbe563ce2d5a6103e46606284386c70780eaa31b35b4d5
+  note: null
+- match_id: 526bc44d136f0dbb10c653b28524944c5fa8a7f9
+  date: '2025-03-20'
+  home: Paraguay
+  away: Chile
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 53d28d0410d3a36f4edf372f7049ccf2dee95a5a
+  date: '2025-03-20'
+  home: Netherlands
+  away: Spain
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 312f77bae02004f9308424417823585bd4b0d08b670e8ed9c8fc1f5c67d318f0
+  note: null
+- match_id: 5f98ba449f43b7ca258379373b1726821c18d6f0
+  date: '2025-03-20'
+  home: Kosovo
+  away: Iceland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 3be5ee64ad5a26bf107e4d081f32186f807b88c4137f671e631da0e21bb79692
+  note: null
+- match_id: 678d52d459f2dbfec54cfa0a87f4e7eaf9000632
+  date: '2025-03-20'
+  home: Brazil
+  away: Colombia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 687c771797a6a3355f465732ed79003732abc5d0
+  date: '2025-03-20'
+  home: Austria
+  away: Serbia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 7196d5d8b1d270b4a47893deaaf7403ed046c4fb52a9ead0df5f310099885faf
+  note: null
+- match_id: 6d5126446369ecc25730acd1086e14cfc9b450c3
+  date: '2025-03-20'
+  home: Ukraine
+  away: Belgium
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: da65c838132132716221a09576879d6e4f071a7ba5418f9d0f75d8f58910848e
+  note: null
+- match_id: a2d7402de13c5724c4ec70df42fa2c194e37871d
+  date: '2025-03-20'
+  home: Italy
+  away: Germany
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 4dac6cc1ffed78bb898487f3a3e079486c51b58e2d896cebc02d75f2b0b1993f
+  note: null
+- match_id: ba8b2a21be70f41b7acbbe5f633c95754c008627
+  date: '2025-03-20'
+  home: Denmark
+  away: Portugal
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 597aaf584d055998a7139ee732f830f05bef6761e1fd17d099778029edd0b78d
+  note: null
+- match_id: cc2cfeb90e8f3306c44a4eb552cf70c39c72089d
+  date: '2025-03-20'
+  home: Peru
+  away: Bolivia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: e79eea06c191e82ecb9a3c39eb83297defc2ef4c
+  date: '2025-03-20'
+  home: Croatia
+  away: France
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 6c7df0ddda7a49c5722f1832b5b6d3ab3a905596bf506f9eb764c93d58cd25e3
+  note: null
+- match_id: f54fbbf3130c019ce3dfe0f807dbed1ce7b2246e
+  date: '2025-03-20'
+  home: Bulgaria
+  away: Republic of Ireland
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 412ea31d5fd661e81a9a2a113cd5bdd263b994cb6c82aa5bce8266735b9d3a10
+  note: null
+- match_id: b8a396a17b62e7eed250f3b87ae8319ebf3a624b
+  date: '2025-03-21'
+  home: Ecuador
+  away: Venezuela
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: e58021848990e4b23f24299422f35ff68cd75ead
+  date: '2025-03-21'
+  home: Uruguay
+  away: Argentina
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 11ed9a8dfb8756abd79d70603e1b66cf8f41f243
+  date: '2025-03-23'
+  home: Slovenia
+  away: Slovakia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 73a6279af196fd6a3a520a1f09874196fa97a1713b38088445dd5b5448033e56
+  note: null
+- match_id: 336fcf5e97cbe3fdfe06bf53812d9690c27e5a12
+  date: '2025-03-23'
+  home: Georgia
+  away: Armenia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 5d4fa8caf55e036f56b193ec437645be6fb7be26e77bfdf47bfba77055a7f002
+  note: null
+- match_id: 4619221c9fd29a37a4801aa50b8504c86935f5ce
+  date: '2025-03-23'
+  home: Iceland
+  away: Kosovo
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: c22d9f7cfd187a24134ae56224ba544d890aa560a36b18b7c1a6498a7fb093b2
+  note: null
+- match_id: 4fa8913d76e90ea39ffbd0372c2d4455230c5de3
+  date: '2025-03-23'
+  home: Hungary
+  away: Turkey
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 35991275f51c760c25ea855d809d31c81f363393db83334a7e170690156db5ba
+  note: null
+- match_id: 51189c507399c5fc91b0d9f3dba8657d1c756e65
+  date: '2025-03-23'
+  home: Republic of Ireland
+  away: Bulgaria
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: ab923687c101ca3ed5a8c24997a715c471c07ff6cd713905b6482c0267ec1a37
+  note: null
+- match_id: 5d416cda664bdc583f6303a6481bdf7ae8b4967a
+  date: '2025-03-23'
+  home: Germany
+  away: Italy
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 1b39c01f486b9dfbe43ee9c0389ca494ac7321d99ed7ebe06f7616ee3003e959
+  note: null
+- match_id: 8239d62b74f0186b1503aa5ff82f44f91944f89f
+  date: '2025-03-23'
+  home: Spain
+  away: Netherlands
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: d7b3de17879fd20da070578bf790f0d7824f21fa9c7b5022a08b403e1c53bb27
+  note: null
+- match_id: 9da6fad58045a205821f3248d334d87c04f89eb8
+  date: '2025-03-23'
+  home: Portugal
+  away: Denmark
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 7841474319086660f7374216379ce7d65c4209ebeb3f52e75a36e58cc622a095
+  note: null
+- match_id: a3d919124fa94daac3e2589c82b4c86887a6dc0f
+  date: '2025-03-23'
+  home: Belgium
+  away: Ukraine
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 1cd4e6c364440205a2ec0f6319be3b14c2999d47f295c226aa85c71586a68897
+  note: null
+- match_id: ac04f80fa745e9f0fd94ffd4d8bbe368efe19aff
+  date: '2025-03-23'
+  home: Scotland
+  away: Greece
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 64d64c2ebc53f9e9d14701911cf6d38715ecf698e413be20bab543dc66ae3eaf
+  note: null
+- match_id: b47bb46741debef5c91764235120d3cd8a1cf356
+  date: '2025-03-23'
+  home: France
+  away: Croatia
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 73e8058f574b1c32b9cea24de8af81732dd459f20b9a8f0f5f43d5ac1fb8a932
+  note: null
+- match_id: fca1ed78c0741ad8d94980ec34a7bee9432395f9
+  date: '2025-03-23'
+  home: Serbia
+  away: Austria
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: false
+  cut_raw_sha256: 9d09cc6f5c3282a1682aa78f7c03a45ab902683d276755e5a1f6103988be5796
+  note: null
+- match_id: 38ee34d50a72488ef9254bd57bf931b16ced2873
+  date: '2025-03-25'
+  home: Venezuela
+  away: Peru
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: b13b6c83ec344f6e7ede17edfaa7ed424b042dea78d31ed478e4dd561c4f3955
+  note: null
+- match_id: 533bf9fb7c0f02c859b215e9988b2d4d2b24bed8
+  date: '2025-03-25'
+  home: Colombia
+  away: Paraguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 867ec77dab73bf6dd5754cf3d886603f5504d07654e34252bec00e20174a8bd2
+  note: null
+- match_id: b7da94d509eda34a129c1d9c177a1330b8264154
+  date: '2025-03-25'
+  home: Argentina
+  away: Brazil
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 6c3009f34282bf5c4237d5e7aaa8c95228ac632c7cf32fb92c56241faa767308
+  note: null
+- match_id: bf6e0cdc654407e44c52d566b9686043ef3e0e9c
+  date: '2025-03-25'
+  home: Chile
+  away: Ecuador
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: e1a37d8fab12eea70a8757d66ae813e7353875a46ddf31f378346c1d7235c646
+  note: null
+- match_id: f8ee82c591bd0f3b35a0db8fa2292a3895b6c699
+  date: '2025-03-25'
+  home: Bolivia
+  away: Uruguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 5332e81455d6844c365614ff832bba089d9240a2079cdd3ddf02e66b0fe8ee6a
+  note: null
+- match_id: 3aaf29712e734c61a85e0202ac3f29b1c49240d0
+  date: '2025-06-04'
+  home: Germany
+  away: Portugal
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 07b805cfb71a8a42c01885edf08c7392b0a3f476a5b255abca6ae7f2b436da72
+  note: null
+- match_id: 05cd7d6bda7e1730b693f2b3a48d2b9f135629fa
+  date: '2025-06-05'
+  home: Ecuador
+  away: Brazil
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: d79b90c33bfe5e0ebd9edea3bfc3c9141f1a6da59fc4f179d69e4490b36d241c
+  note: null
+- match_id: 42b7ceea21b5b27b5412f7ce551d5be23c3040dc
+  date: '2025-06-05'
+  home: Spain
+  away: France
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 5e1868fdfb88136aae8d45c8464b2af7f0fc72f493243202c6d33df65c99252b
+  note: null
+- match_id: 4d3d56d804e4e3cffc501dceb483268a86aa4c9b
+  date: '2025-06-05'
+  home: Chile
+  away: Argentina
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: e632f54c217f477000c4a9381987b9cc4c1cdd53e04c28cf91dbb799b04dfe66
+  note: null
+- match_id: 7849515e467f4d6429d5d9d6751549516dec8db9
+  date: '2025-06-05'
+  home: Paraguay
+  away: Uruguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 6972d788d922a30f7c801bd7ef77022194fbbb388b6a5ddf7111e3402f0f8137
+  note: null
+- match_id: 3976fc9a3478ebd5980794fdeebb2cf83cc17f66
+  date: '2025-06-06'
+  home: Colombia
+  away: Peru
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: d3262105e8a1a5802803b80ff7c62b5e38fd415a3ce29cb3633f477abed9d34e
+  note: null
+- match_id: 9cd848e7f770e59ad741fff183f049a8b90796e7
+  date: '2025-06-06'
+  home: Venezuela
+  away: Bolivia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 31b7a47b1aa7cb1f1740403bd06c9deda9fee7149801ec59417876a7ba85ab3a
+  note: null
+- match_id: 0ef3181a3a27e4e19c17bca6e7a9ada3c0441d86
+  date: '2025-06-08'
+  home: Portugal
+  away: Spain
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 302bceb58c78b5c0f19ab9ebb870f5551b17a34c411c19ce415f64139ab96e0d
+  note: null
+- match_id: c2434239fb6a7b037faf40ec7b8071d9c905add7
+  date: '2025-06-08'
+  home: Germany
+  away: France
+  tournament: UEFA Nations League
+  sport_key: soccer_uefa_nations_league
+  listed: true
+  admissible: true
+  cut_raw_sha256: 347fed0f93727f77e3b797f4726f52eb6f6840fd9838904c7c8075474a4f5e89
+  note: null
+- match_id: 0ab304482da4374dbc40ff7c1aec4cb7e84c9d49
+  date: '2025-06-10'
+  home: Peru
+  away: Ecuador
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 438b5581f7a048108eb551ef8f649a09857c8fdd09da51a397b3982e4f0449c5
+  note: null
+- match_id: 813af89b0ff93e0f964204e984281cb3cd2785b9
+  date: '2025-06-10'
+  home: Brazil
+  away: Paraguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 9d8ba64d53fc86f91e374e81b0590c0abcadb147c5b2317b4c45468447718972
+  note: null
+- match_id: b0442a72c522074579aa17834f635ae433d4a210
+  date: '2025-06-10'
+  home: Argentina
+  away: Colombia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 9f9fe5a87844eecf24a4c1241481db7478d9e8b0da8cbfa32dae95e0f24a52ce
+  note: null
+- match_id: c5e21a9dea9b180416989c37a0352ed0a8b5d0c7
+  date: '2025-06-10'
+  home: Uruguay
+  away: Venezuela
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: a32be9b9242f054af7969f2b234f5aca952fe2d54ca62b6030f178a56996234d
+  note: null
+- match_id: f9421991538f53abb3027d3b8a279bf875ef8bfb
+  date: '2025-06-10'
+  home: Bolivia
+  away: Chile
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 32c016a9f271ceeb59e714d9b4e43972711a96c9607468c3b2e33ba3e007be7c
+  note: null
+- match_id: 69c9e300253bb46d50085b5ec1675a51099dfdd6
+  date: '2025-09-04'
+  home: Uruguay
+  away: Peru
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: d9356f3db9e9d0182b86d9c927269f638d956e2033d259cadf7873dfb7d158b5
+  note: null
+- match_id: 6f77c137531a2bf4ef64af75a6cf9999f5ea815e
+  date: '2025-09-04'
+  home: Paraguay
+  away: Ecuador
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 716951ee2d932fcb171c751cb9aefdc2134ecbe5793aa77fad012c3ae79ef72f
+  note: null
+- match_id: 751d272bb56e5c29e9d7eb7df4646b2eabd7b24b
+  date: '2025-09-04'
+  home: Colombia
+  away: Bolivia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: fdd41ef0a0b7a22e2bb57fd95944851b1cb8d1f3dc7b2f6b44f828c1b73ba2ce
+  note: null
+- match_id: 7d183c105900361381828c9c8b704713155aecf0
+  date: '2025-09-04'
+  home: Argentina
+  away: Venezuela
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: ee99b0a4bdca7895bc654a886e543a61c8c4df7ddb0071606ff63c3e9be10922
+  note: null
+- match_id: ae636a06a588bfd0fed5d6d04844019a0eb1c74b
+  date: '2025-09-04'
+  home: Brazil
+  away: Chile
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: e7b5944215a36125a9e3f1cf923f7b2d321339c47a6c78a77a03f22bc62bb950
+  note: null
+- match_id: 7ca9b4252172ed3b4a16b5f41d9b3e6842224e68
+  date: '2025-09-09'
+  home: Chile
+  away: Uruguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 82943e38482f6f18d59ecd9139d72d5bd22988b5d281cb51e0f019841c5acab8
+  note: null
+- match_id: 80cbd5ba1f7456a905428cdd904a78ef4670b98a
+  date: '2025-09-09'
+  home: Ecuador
+  away: Argentina
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 77ca2a1b7cc3e5be5035040e036676af59f23167c1e3cae82f540ee3dec241d8
+  note: null
+- match_id: 9086f453e2a56b9a9c6d22bee494d61a53549332
+  date: '2025-09-09'
+  home: Venezuela
+  away: Colombia
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: f787dea7e61c9153f89f24063c3bb269a76193764894a0a9978c2f62ec2c30a9
+  note: null
+- match_id: a41ea54c4b47aa8a30a10226bbd3cd530ac6516b
+  date: '2025-09-09'
+  home: Peru
+  away: Paraguay
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 30e30ee86a552acf1aba374387f4b93406acc3753557e980388290fe8c993eb6
+  note: null
+- match_id: ec10014e789ed3436c763f99abe46ee21de98afc
+  date: '2025-09-09'
+  home: Bolivia
+  away: Brazil
+  tournament: FIFA World Cup qualification
+  sport_key: soccer_fifa_world_cup_qualifiers_south_america
+  listed: true
+  admissible: true
+  cut_raw_sha256: 312699a4923cd31f43c4aed8bf43753c4789ba963bc8df92e00a46e4c6cabf1d
+  note: null
+- match_id: ff10e3ea7a6547a0ac5204bc50e2c230324ca5f6
+  date: '2025-12-21'
+  home: Morocco
+  away: Comoros
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: ea622185f4e68ef8417729a184b35a9756056b8ab39d017b2908681b24959b7b
+  note: null
+- match_id: 5a527e369c584ccc33fb71e7a41859712b29a844
+  date: '2025-12-22'
+  home: Mali
+  away: Zambia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 5fb415cdbb5b3c02f7faceedded504ee92d1529b
+  date: '2025-12-22'
+  home: Egypt
+  away: Zimbabwe
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: fc4daffbfe056c890ca7f6656a8a9e9d4c36c2c7642093f767ec85e41381b5ed
+  note: null
+- match_id: e72d54e9ad3813619db9a7da11653bc73ec23169
+  date: '2025-12-22'
+  home: South Africa
+  away: Angola
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: a5b1ef6b917de69e1d89fde11792c5e2d02345190f39ddc945703b1eddff8534
+  note: null
+- match_id: 30fc78c3fad40d699ae4e0286684035a5f312171
+  date: '2025-12-23'
+  home: DR Congo
+  away: Benin
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 270b675641b6f6773354dcd07570cf5fc28f231ba443e15d9990ee2e08aaa153
+  note: null
+- match_id: 33c02bd4107eecce48e18f2a0509e0f972b3d32b
+  date: '2025-12-23'
+  home: Senegal
+  away: Botswana
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 502f3ae00aeb9a20b3afca30cb7faafe9df1715c3fb9a55befba7d9d9b1b4f35
+  note: null
+- match_id: dd5c2a58a8d8471e72ba74d80c616d7609695e43
+  date: '2025-12-23'
+  home: Tunisia
+  away: Uganda
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: b83fad08e6fcdc3756ae998fbce966d13059cdb66ef82e285c4ef6f533147ed8
+  note: null
+- match_id: ff13bb8b0e22a419c7c4e9097c8a4508d03705ee
+  date: '2025-12-23'
+  home: Nigeria
+  away: Tanzania
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: df0f49388eaaf26980d2eca5846043f2537a63e1cb0fe0395d6528405aa2041f
+  note: null
+- match_id: 4127cfc25d8ab636d6bf9e3b0e33bb41a3418c13
+  date: '2025-12-24'
+  home: Ivory Coast
+  away: Mozambique
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: a219a70082eb8d17909149a28d6226ad7a531e93be82a719797c504aab550d11
+  note: null
+- match_id: 6e66f94440f13f3fa3844ca0d8bc939f172c4a69
+  date: '2025-12-24'
+  home: Burkina Faso
+  away: Equatorial Guinea
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: ee63535d8c042ff3ffc1f77b4b240d69bc2cb0df137da6f09e3fd9e132f31b92
+  note: null
+- match_id: df1592d791ea85ba2b23f36906660bf5659a932a
+  date: '2025-12-24'
+  home: Cameroon
+  away: Gabon
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 4f727ea88e346207a3fb6527ff3f16afadcbec83e2c27ad1c15e63e24eaa7657
+  note: null
+- match_id: f632f251a2fa2aaff8e05ef6f174085e393e7df0
+  date: '2025-12-24'
+  home: Algeria
+  away: Sudan
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 63c3f2256bcf924da57308ea434a1c151469f4f6bdb95b7391e99f885b786507
+  note: null
+- match_id: 184545876890d1b1c781127e65ebae4714079be4
+  date: '2025-12-26'
+  home: Egypt
+  away: South Africa
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 34ed174f63e38140d8e44cf6985ad111d2de5e11b401fc38267b6b09f7b9e187
+  note: null
+- match_id: 34daa3506346c158f3855d19cac59946864235c7
+  date: '2025-12-26'
+  home: Angola
+  away: Zimbabwe
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 086b472eb71849abef571842fe1dcecf31acf647d3549ac1ba610220f1b6461e
+  note: null
+- match_id: 45b2691e464c38ecc98e0d8aa5d24c5fb25b7959
+  date: '2025-12-26'
+  home: Zambia
+  away: Comoros
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 7918c31bd237f17142abd1258c3b98c93cacd5e0
+  date: '2025-12-26'
+  home: Morocco
+  away: Mali
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 3118eabcfb4feaf8cff9d447d0cf245c74bb772fc087459aae6bc8bc4e1d4f49
+  note: null
+- match_id: 3837d047a8606d14914a3c47d63e98aea1563fbe
+  date: '2025-12-27'
+  home: Nigeria
+  away: Tunisia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 4d71c9ccc81f1a4cdd01313a8108dc5e90c55b37453e36dfa8847ba301c4d0b0
+  note: null
+- match_id: 97e6968f67f698c03775eda62112876a6350e724
+  date: '2025-12-27'
+  home: Uganda
+  away: Tanzania
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 836402c746a4695bd5be193ce6fe7376cbee7e95ec37d5b9a4c4b15b1365cca6
+  note: null
+- match_id: ee0f775530df20a77f873eeeaaccf91bcaf7eb59
+  date: '2025-12-27'
+  home: Senegal
+  away: DR Congo
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 99e87b5fc5d791ab94379227dfb7893d208de978959de0e4bab1166fec7016d2
+  note: null
+- match_id: fe112257368c893d5f4cf0445752dbf580a6397a
+  date: '2025-12-27'
+  home: Benin
+  away: Botswana
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 4bdf4c953459390549ef2f96f20b2dcc43a11dce590e8b397a249e35414538f7
+  note: null
+- match_id: 1a864074bd3c8013219cace886e259e82db032ee
+  date: '2025-12-28'
+  home: Equatorial Guinea
+  away: Sudan
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 911949a7d5071e487026aff59b5a9898b52891264c709843910545390e9ac021
+  note: null
+- match_id: 5b32a70df83d6451a4deff91d56cf9ad4c7cc4e5
+  date: '2025-12-28'
+  home: Algeria
+  away: Burkina Faso
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 9cc3ce5857c11e08d8bea2b9b366ac92e6f4cc16fe5a722bfe40db14c59aee1c
+  note: null
+- match_id: 827ad7ae398df7e1c73faad46a627d92761bcbe2
+  date: '2025-12-28'
+  home: Gabon
+  away: Mozambique
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 4205ffe0ea0935f2cfadca7aba26644acca682161596873c4ed0515d0a7e9998
+  note: null
+- match_id: d7e3bf775d3f0df0b3f66f3f412bd5ca15eb0f23
+  date: '2025-12-28'
+  home: Ivory Coast
+  away: Cameroon
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 5922017fe69f28803fdd254276bf29d56c6f2ae7340c88c4b48618c3d791aba7
+  note: null
+- match_id: 5a3ce215159fee20a74c5fac20b42f1369ae304a
+  date: '2025-12-29'
+  home: Comoros
+  away: Mali
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: e19a0654b379ca2da2fad59c842f38a8bfb8b041d1970974afb90a668f67e90e
+  note: null
+- match_id: a6823257c24ad049f85a639bc2acdbe0ed504821
+  date: '2025-12-29'
+  home: Angola
+  away: Egypt
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: dfb3f9164f5f5c6c91239bd964c60d1ff17399eb179982f2b33c0db0d9a0bc00
+  note: null
+- match_id: a8d3745e2adb19b2fe25d37522779364a7b5a0d6
+  date: '2025-12-29'
+  home: Zimbabwe
+  away: South Africa
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: a1e034daf949a0fda44a22a2ebf0916e9088bc53cca361a0696f1948984926ad
+  note: null
+- match_id: b0d856cdae9ee638c84361a68e70c123d9edde09
+  date: '2025-12-29'
+  home: Morocco
+  away: Zambia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: false
+  admissible: false
+  cut_raw_sha256: null
+  note: null
+- match_id: 90734068b93d66ad4f5391c49af2697993a27d21
+  date: '2025-12-30'
+  home: Benin
+  away: Senegal
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 3224c4555dd1f2e41ad721930b026c073ed76593456129cce5328eac15076859
+  note: null
+- match_id: 962408aa14edfbc018c7d13e323bee528b209b14
+  date: '2025-12-30'
+  home: Uganda
+  away: Nigeria
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 2c9a59f8c7ebe8bc843d3fee1e1457fe2435ed415ecda5eca85ca7a38e6dad7f
+  note: null
+- match_id: be3d8cc6f6c0f525ad38670c99d86edde7eee195
+  date: '2025-12-30'
+  home: Tanzania
+  away: Tunisia
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: f17f15368d8c20f8733b3d6d8f5cb259bfd52a3bffc5eb11c960e5d220b7d476
+  note: null
+- match_id: d189d0375fc88c989d8582b58325742fe644d92a
+  date: '2025-12-30'
+  home: Botswana
+  away: DR Congo
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 9c47ed7ea1ee98e78eaf84eb10bd0c125694e13272a5b96004d7a716726c2180
+  note: null
+- match_id: 41549cb2ed3ac064f005571b803eb7df46dbe134
+  date: '2025-12-31'
+  home: Equatorial Guinea
+  away: Algeria
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 694a26bd1d8f48f540d283d872d1e182a3e7dea2e6c309e1fc1bf00aab6ccfd3
+  note: null
+- match_id: 6152b7fbdd7da60ee9dccd7231a9cb20bf3374b7
+  date: '2025-12-31'
+  home: Mozambique
+  away: Cameroon
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: ccae87f9a2e90ddb56f0728c44b1bc9bd18c1ffddf58ee4817a4a3b5fc43dc53
+  note: null
+- match_id: 78fee152f34c5ccb5319398067002534267bdae3
+  date: '2025-12-31'
+  home: Gabon
+  away: Ivory Coast
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 79ac9c2c84c44f6913bc4d4042b418d7cc2c48e6e1871ce3bbdb4b15ca272487
+  note: null
+- match_id: 8fa032ed8827026a24f7849a5e2cb4bc642c22c8
+  date: '2025-12-31'
+  home: Sudan
+  away: Burkina Faso
+  tournament: African Cup of Nations
+  sport_key: soccer_africa_cup_of_nations
+  listed: true
+  admissible: true
+  cut_raw_sha256: 297fdc335f8a4bf6e61d3b24371dbe7f4152040c3b3a0e00cc713d8e8986a279
+  note: null

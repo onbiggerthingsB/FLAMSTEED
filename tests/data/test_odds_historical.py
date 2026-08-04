@@ -11,6 +11,8 @@ collection-time ImportError.
 """
 import hashlib
 import json
+import os
+import stat
 import traceback
 from datetime import datetime, timedelta, timezone
 
@@ -581,6 +583,125 @@ def test_persist_raw_crash_before_rename_never_taints_the_final_name(
         m._persist_raw(content, tmp_path)
     assert not (tmp_path / f"{digest}.json").exists()
     assert list(tmp_path.iterdir()) == []            # tmp cleaned up best-effort
+
+
+# --------- (plan2 batch-1, finding 3) archive durability: fsync before rename,
+# directory entry after — os.replace alone survives a crash, not power loss.
+
+
+def test_persist_raw_fsyncs_tmp_before_rename_and_the_dir_after(
+        tmp_path, monkeypatch):
+    # A rename of an unfsync'd tmp file can survive power loss as a
+    # content-addressed NAME holding empty/torn bytes — which a durable
+    # RECEIPT then cites forever; and without a directory fsync the rename
+    # itself can vanish while the receipt stands. Order is the contract:
+    # file contents first, then the rename, then the directory entry.
+    import wcmodel.data.sources.odds as m
+
+    events = []
+    real_fsync, real_replace = os.fsync, os.replace
+
+    def spy_fsync(fd):
+        events.append(
+            ("fsync", "dir" if stat.S_ISDIR(os.fstat(fd).st_mode) else "file"))
+        return real_fsync(fd)
+
+    def spy_replace(src, dst):
+        events.append(("replace", None))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(m.os, "fsync", spy_fsync)
+    monkeypatch.setattr(m.os, "replace", spy_replace)
+    content = b'{"paid": "evidence"}'
+    digest = m._persist_raw(content, tmp_path)
+    assert (tmp_path / f"{digest}.json").read_bytes() == content
+    assert events == [("fsync", "file"), ("replace", None), ("fsync", "dir")]
+
+
+def test_persist_raw_fsync_failure_is_loud_and_leaves_no_final_name(
+        tmp_path, monkeypatch):
+    # Fault injection at the durability boundary: if the tmp file cannot be
+    # fsync'd the bytes are NOT durable, so the content-addressed name must
+    # never appear — a receipt citing it would reference evidence that can
+    # evaporate on power loss.
+    import wcmodel.data.sources.odds as m
+
+    def die(fd):
+        raise OSError(5, "I/O error (simulated at the fsync boundary)")
+
+    monkeypatch.setattr(m.os, "fsync", die)
+    content = b'{"paid": "evidence"}'
+    digest = hashlib.sha256(content).hexdigest()
+    with pytest.raises(OSError):
+        m._persist_raw(content, tmp_path)
+    assert not (tmp_path / f"{digest}.json").exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+# --------- (plan2 batch-1, finding 7) failures carry their archive digest
+# STRUCTURALLY — the receipt needs the hash, not a sentence that contains it.
+
+
+def test_fetch_historical_http_error_carries_the_archive_digest(tmp_path):
+    # The 429/401 body is paid evidence and is archived before the raise; the
+    # exception must carry the digest as an attribute so a failure RECEIPT can
+    # record WHERE the paid bytes live (None provenance made them unlocatable).
+    with pytest.raises(httpx.HTTPStatusError) as err:
+        fetch_historical(
+            "evt_NED_USA", "2022-11-30T18:00:00Z", "SECRET-abc123",
+            sport_key="soccer_fifa_world_cup", raw_dir=tmp_path,
+            transport=_error_transport(429))
+    (raw,) = tmp_path.glob("*.json")
+    assert getattr(err.value, "raw_sha256", None) == raw.stem
+    assert hashlib.sha256(raw.read_bytes()).hexdigest() == raw.stem
+
+
+def test_fetch_historical_events_http_error_carries_the_archive_digest(
+        tmp_path):
+    from wcmodel.data.sources.odds import fetch_historical_events
+    with pytest.raises(httpx.HTTPStatusError) as err:
+        fetch_historical_events(
+            "soccer_fifa_world_cup", "2022-11-30T18:00:00Z", "SECRET-abc123",
+            raw_dir=tmp_path, transport=_error_transport())
+    (raw,) = tmp_path.glob("*.json")
+    assert getattr(err.value, "raw_sha256", None) == raw.stem
+
+
+def test_fetch_historical_shape_refusal_carries_the_archive_digest(tmp_path):
+    # The malformed-200 refusals already NAME the digest in their message;
+    # the attribute makes it machine-readable for the failure receipt.
+    transport, _ = _capture(["not", "a", "snapshot"])
+    with pytest.raises(ValueError) as err:
+        fetch_historical(
+            "evt_NED_USA", "2022-11-30T18:00:00Z", "test-key",
+            sport_key="soccer_fifa_world_cup", raw_dir=tmp_path,
+            transport=transport)
+    (raw,) = tmp_path.glob("*.json")
+    assert getattr(err.value, "raw_sha256", None) == raw.stem
+
+
+def test_fetch_historical_events_shape_refusal_carries_the_archive_digest(
+        tmp_path):
+    from wcmodel.data.sources.odds import fetch_historical_events
+    transport, _ = _capture({"no_data_key": True})
+    with pytest.raises(ValueError) as err:
+        fetch_historical_events(
+            "soccer_fifa_world_cup", "2022-11-30T18:00:00Z", "test-key",
+            raw_dir=tmp_path, transport=transport)
+    (raw,) = tmp_path.glob("*.json")
+    assert getattr(err.value, "raw_sha256", None) == raw.stem
+
+
+def test_transport_error_carries_no_digest(tmp_path):
+    # No response bytes existed, so None is the HONEST value — the one case a
+    # failure receipt may record no provenance.
+    with pytest.raises(httpx.ReadTimeout) as err:
+        fetch_historical(
+            "evt_NED_USA", "2022-11-30T18:00:00Z", "SECRET-abc123",
+            sport_key="soccer_fifa_world_cup", raw_dir=tmp_path,
+            transport=_transport_failure(httpx.ReadTimeout("read timed out")))
+    assert getattr(err.value, "raw_sha256", None) is None
+    assert list(tmp_path.iterdir()) == []
 
 
 # --------------- (review round 3, fix 2) empty data payload is zero events
