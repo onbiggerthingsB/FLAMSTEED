@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 """H2 — are the model's disagreements with the market signal or noise?
 
-CORRECTED RERUN, same three upstream fixes as H1 (stage-based population,
-block bootstrap, one alpha), plus one specific to this file: the previous
+TWICE-CORRECTED RERUN, same upstream fixes as H1 (round-level settlement
+population; joint pool-stratified block bootstrap; a pivotal interval exactly
+dual to the one-sided test — see oa_confed_test.py's header for the full
+two-round correction history), plus one specific to this file: the previous
 version's "power, not signal" conclusion and its ~811-fixture figure are
 WITHDRAWN. Both rested on plugging the observed effect into a power formula,
 which cannot establish that a real effect exists — a large observed-effect

@@ -1,16 +1,22 @@
 #!/usr/bin/env python
 """H1 — is the model's deficit concentrated outside UEFA/CONMEBOL?
 
-CORRECTED RERUN. The first version of this test was wrong in two ways that a
-Codex review caught, and both are fixed upstream in ``oa_devslate.py`` and
-``oa_stats.py``:
+TWICE-CORRECTED RERUN. The first version was wrong in two ways a Codex
+review caught; the first repair was then itself found wrong in four ways by
+a second (verification) review. Current fixes live upstream in
+``oa_devslate.py`` and ``oa_stats.py``:
 
-- it excluded shootouts (selection ON the outcome, and they were the fixtures
-  whose 90' result was certain), and scored knockout ties on extra-time-
-  inclusive finals. Now the population is restricted BY STAGE to fixtures
-  where extra time was structurally impossible.
-- it resampled individual fixtures. Now whole (pool, matchday) blocks are
-  resampled, matching the programme's tested primitive.
+- it excluded shootouts (selection ON the outcome, and they were the
+  fixtures whose 90' result was certain) and scored knockout ties on
+  extra-time-inclusive finals; the first repair then over-corrected by
+  excluding ALL knockouts, discarding 14 fixtures whose rounds go straight
+  from 90' to penalties. The population is now restricted to fixtures where
+  extra time was structurally impossible — by stage AND by round regulation.
+- it resampled individual fixtures; the first repair resampled blocks but
+  drew the two groups independently even when they shared a matchday, and
+  paired a one-sided test with a two-sided interval. Blocks are now drawn
+  whole (both groups together), stratified within pool, with a pivotal
+  interval exactly dual to the one-sided test.
 
 THE HYPOTHESIS (unchanged, still pre-committed)
 -----------------------------------------------
