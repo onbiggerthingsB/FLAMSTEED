@@ -7,8 +7,10 @@ version's "power, not signal" conclusion and its ~811-fixture figure are
 WITHDRAWN. Both rested on plugging the observed effect into a power formula,
 which cannot establish that a real effect exists — a large observed-effect
 power number is guaranteed whenever the estimate is noisy. Replaced with a
-DESIGN CURVE over pre-declared effect sizes, which answers the same practical
-question ("what would it take to see this?") without the circularity.
+POST-HOC sensitivity grid over a fixed span of effect sizes (chosen while
+writing the repair, with the estimate already known — see the note on
+``SENSITIVITY_EFFECTS``). It answers "what would this design detect?", which
+is design guidance, not evidence about which effect is real.
 
 THE HYPOTHESIS (unchanged, still pre-committed)
 -----------------------------------------------

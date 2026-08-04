@@ -33,6 +33,7 @@ import pandas as pd
 _ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "src"))
 sys.path.insert(0, str(_ROOT / "scripts"))
+sys.path.insert(0, str(_ROOT / "analysis"))
 
 from wcmodel.data.tiers import confederation             # noqa: E402
 from wcmodel.eval.aliases import load_aliases            # noqa: E402
@@ -150,19 +151,26 @@ def _calibration(frame) -> list[str]:
     cal = pd.DataFrame(recs)
     cal["bin"] = pd.cut(cal["p"], edges, right=False)
     out = ["### Calibration (all three outcomes pooled)", "",
-           "| predicted band | n | model: stated → actual | "
-           "book: stated → actual |", "|---|---|---|---|"]
+           "NOT LOAD-BEARING. Model and book are binned separately, so the "
+           "two columns rest on DIFFERENT observations (both counts shown — "
+           "an earlier version printed only the model's count for both, "
+           "which was factually wrong). The bands also pool all three "
+           "outcome classes and carry no intervals, so this table cannot "
+           "separate calibration from sharpness and supports no claim "
+           "either way about miscalibration.", "",
+           "| predicted band | model n | model: stated → actual | "
+           "book n | book: stated → actual |", "|---|---|---|---|---|"]
     for b, grp in cal.groupby("bin", observed=True):
         m, bk = grp[grp["src"] == "model"], grp[grp["src"] == "book"]
-        if not len(m):
+        if not len(m) or not len(bk):
             continue
         out.append(
             f"| {b} | {len(m)} | {m['p'].mean():.3f} → {m['hit'].mean():.3f} | "
-            f"{bk['p'].mean():.3f} → {bk['hit'].mean():.3f} |")
+            f"{len(bk)} | {bk['p'].mean():.3f} → {bk['hit'].mean():.3f} |")
     return out + [""]
 
 
-def _scrutinise_core_split(frame, *, n_boot=10000, seed=20260611) -> list[str]:
+def _scrutinise_core_split(frame) -> list[str]:
     """Attack the confederation split before anyone quotes it.
 
     It is the most quotable cut in this file — "the model is level with the
@@ -170,18 +178,31 @@ def _scrutinise_core_split(frame, *, n_boot=10000, seed=20260611) -> list[str]:
     artifact: the cells could be too small to separate, and confederation
     could be favourite-strength wearing a disguise (lopsided fixtures are
     more common outside the core, and lopsided fixtures score differently).
+
+    Uses the tested block machinery from ``oa_stats`` — an earlier version
+    resampled individual fixtures here, the same defect that was later
+    repaired in the H1/H2 tests, and its narrower intervals are withdrawn.
+    The exploratory difference test is TWO-SIDED: no direction was committed
+    when this file was written (that happened later, for the out-of-sample
+    test, whose result supersedes this section — see oa_confed_test.md).
     """
-    rng = np.random.default_rng(seed)
+    from oa_stats import block_ci, two_group_gap
+
+    core = frame[frame["core_only"]]
+    non = frame[~frame["core_only"]]
     out = ["### Does the confederation split survive scrutiny?", "",
-           "| group | n | mean | 95% CI (fixture bootstrap) |", "|---|---|---|---|"]
-    for label, sub in (("both UEFA/CONMEBOL", frame[frame["core_only"]]),
-                       ("at least one outside", frame[~frame["core_only"]])):
-        d = sub["delta"].to_numpy()
-        boot = np.array([rng.choice(d, len(d), replace=True).mean()
-                         for _ in range(n_boot)])
-        out.append(f"| {label} | {len(d)} | {d.mean():+.5f} | "
-                   f"[{np.percentile(boot, 2.5):+.5f}, "
-                   f"{np.percentile(boot, 97.5):+.5f}] |")
+           "Superseded for inference by the out-of-sample test in "
+           "`oa_confed_test.md` (verdict there: fails to replicate). Kept "
+           "here as the exploratory cut that generated the hypothesis.", "",
+           "| group | n | mean | 90% block CI |", "|---|---|---|---|"]
+    for label, sub in (("both UEFA/CONMEBOL", core),
+                       ("at least one outside", non)):
+        mean, lo, hi = block_ci(sub)
+        out.append(f"| {label} | {len(sub)} | {mean:+.5f} | "
+                   f"[{lo:+.5f}, {hi:+.5f}] |")
+    diff = two_group_gap(non, core, alternative="two_sided")
+    out += ["", f"Difference (non-core − core): {diff.gap:+.5f}, two-sided "
+            f"p {diff.p:.3f} over {diff.n_blocks} pool × matchday blocks."]
 
     out += ["", "Same split held at fixed favourite strength — if the effect "
             "were real and not a proxy for lopsidedness, the core column "

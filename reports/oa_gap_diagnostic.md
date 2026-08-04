@@ -60,22 +60,28 @@ That win rate is the first thing worth noticing: the model is not uniformly wors
 
 ### Calibration (all three outcomes pooled)
 
-| predicted band | n | model: stated → actual | book: stated → actual |
-|---|---|---|---|
-| [0.0, 0.1) | 50 | 0.066 → 0.120 | 0.067 → 0.041 |
-| [0.1, 0.2) | 112 | 0.157 → 0.170 | 0.152 → 0.172 |
-| [0.2, 0.3) | 213 | 0.254 → 0.239 | 0.250 → 0.240 |
-| [0.3, 0.4) | 92 | 0.341 → 0.380 | 0.339 → 0.351 |
-| [0.4, 0.5) | 53 | 0.457 → 0.509 | 0.449 → 0.523 |
-| [0.5, 0.65) | 66 | 0.571 → 0.515 | 0.576 → 0.602 |
-| [0.65, 1.01) | 65 | 0.749 → 0.692 | 0.752 → 0.667 |
+NOT LOAD-BEARING. Model and book are binned separately, so the two columns rest on DIFFERENT observations (both counts shown — an earlier version printed only the model's count for both, which was factually wrong). The bands also pool all three outcome classes and carry no intervals, so this table cannot separate calibration from sharpness and supports no claim either way about miscalibration.
+
+| predicted band | model n | model: stated → actual | book n | book: stated → actual |
+|---|---|---|---|---|
+| [0.0, 0.1) | 50 | 0.066 → 0.120 | 49 | 0.067 → 0.041 |
+| [0.1, 0.2) | 112 | 0.157 → 0.170 | 128 | 0.152 → 0.172 |
+| [0.2, 0.3) | 213 | 0.254 → 0.239 | 204 | 0.250 → 0.240 |
+| [0.3, 0.4) | 92 | 0.341 → 0.380 | 77 | 0.339 → 0.351 |
+| [0.4, 0.5) | 53 | 0.457 → 0.509 | 44 | 0.449 → 0.523 |
+| [0.5, 0.65) | 66 | 0.571 → 0.515 | 83 | 0.576 → 0.602 |
+| [0.65, 1.01) | 65 | 0.749 → 0.692 | 66 | 0.752 → 0.667 |
 
 ### Does the confederation split survive scrutiny?
 
-| group | n | mean | 95% CI (fixture bootstrap) |
+Superseded for inference by the out-of-sample test in `oa_confed_test.md` (verdict there: fails to replicate). Kept here as the exploratory cut that generated the hypothesis.
+
+| group | n | mean | 90% block CI |
 |---|---|---|---|
-| both UEFA/CONMEBOL | 92 | +0.00031 | [-0.01022, +0.01126] |
-| at least one outside | 125 | -0.01820 | [-0.03256, -0.00400] |
+| both UEFA/CONMEBOL | 92 | +0.00031 | [-0.00837, +0.00930] |
+| at least one outside | 125 | -0.01820 | [-0.02849, -0.00800] |
+
+Difference (non-core − core): -0.01852, two-sided p 0.028 over 77 pool × matchday blocks.
 
 Same split held at fixed favourite strength — if the effect were real and not a proxy for lopsidedness, the core column should beat the non-core column in EVERY band:
 
