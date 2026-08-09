@@ -432,3 +432,42 @@ against the lock that preceded it.
 
 Neither change touches the analysis spec, the gate, the Holm family, or the
 verdict. `reports/oa_verdict.md` stands as issued under lock-v5.
+
+---
+
+## Amendment — 2026-08-09 (lock-v7): additive product code in the attested tree
+
+`src/wcmodel/model/markets.py` was added to the codebase. It projects the
+scoreline grid the model already produces into the ordinary football markets
+— over/under, both-teams-to-score, double chance, clean sheet, correct score
+— for the product surface. It fits nothing, learns nothing, and reads no
+outcome; every function is a sum over cells of a grid that already exists.
+
+The programme's code tree is `src` and `scripts`, so this file falls inside
+what the lock attests to, and `require_lock` correctly refused to run the
+verdict under lock-v6 once it was committed. That refusal is the machinery
+working: the alternative — filing production code somewhere outside
+`CODE_PATHS` to avoid advancing the chain — would make the attested tree mean
+"the code that computes forecasts, except the parts we chose not to re-lock",
+and the lock would stop meaning anything.
+
+**This amendment changes nothing about the analysis.** Not the gate, not the
+sample, not the Holm family, not the statistical plan, not the verdict.
+`reports/oa_verdict.md` stands as issued under lock-v5.
+
+The claim of additivity is checkable rather than asserted. The V10 verdict was
+re-run against the tree containing this module and returned mean ΔRPS
+−0.01018 with bootstrap support 0.995 — identical to the numbers issued under
+lock-v5, to every published digit, with only the lock-version footer differing.
+An amendment that altered a forecast could not produce that output.
+
+The 1X2 projection in the new module delegates to the production
+`grid_one_x_two` rather than re-deriving it, so no second home/away convention
+enters the codebase; its output on a shipped fixture bundle is byte-identical
+to the 1X2 numbers already published for that fixture.
+
+One constraint is recorded here because it governs how these outputs may be
+described in public: **broader market coverage is not higher accuracy.** An
+"over 1.5 goals" forecast is correct more often than a 1X2 forecast because
+the event is more likely, not because the model improved. Each market carries
+its own record and none may be pooled into a single headline hit rate.
