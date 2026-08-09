@@ -471,3 +471,23 @@ described in public: **broader market coverage is not higher accuracy.** An
 "over 1.5 goals" forecast is correct more often than a 1X2 forecast because
 the event is more likely, not because the model improved. Each market carries
 its own record and none may be pooled into a single headline hit rate.
+
+---
+
+## Amendment — 2026-08-09 (lock-v8): the delivery half of the same change
+
+`src/wcmodel/dashboard/fixtures.py` and `.../schema.py` now emit and gate the
+market projections described at v7. Same feature, same reasoning, same
+non-effect on the analysis; only the delivery side.
+
+It is a separate lock version for a process reason worth naming rather than
+hiding: v7 was taken as soon as the module existed, before the code that
+consumes it was written. Batching every `src`/`scripts` change of one feature
+and taking a single version would have left a shorter chain saying the same
+thing. The lesson is about sequencing, not about the gate — and the record is
+more useful with the misstep in it than with two versions silently merged
+into one.
+
+Nothing here reaches the OA forecast path. The verdict stands as issued under
+lock-v5; the gate, sample, Holm family and statistical plan are untouched, and
+every document digest except this file's is unchanged from v7.
