@@ -135,6 +135,50 @@ export interface Forecast {
   one_x_two: OneXTwo;
   // The ±1.5 cover pair Derived from this fixture's grid (optional for bundle back-compat).
   cover?: CoverPair;
+  // Every market as a projection of THIS fixture's grid (optional for bundle back-compat).
+  markets?: Markets;
+}
+// The ordinary football markets, all DERIVED from the same scoreline grid (spec §10 Derived
+// — no model, no odds, nothing fitted). Like one_x_two and cover, each is its own
+// distribution rather than an estimate with a ±, so it renders inside a
+// data-uncertainty="distribution" region and never as a naked number.
+//
+// Two shapes with DIFFERENT arithmetic, and the difference is load-bearing for anything that
+// validates or renders them: one_x_two, over_under and both_teams_to_score PARTITION the
+// space and sum to 1; double_chance and clean_sheet DO NOT — each double-chance pair
+// double-counts a leg, and both sides keep a clean sheet in a 0-0.
+//
+// More markets is NOT more accuracy. An "over 1.5" number is right more often than a 1X2
+// number because the event is more likely, not because the forecast improved — so each
+// market carries its own record and none may be pooled into a headline hit rate.
+export interface OverUnder {
+  over: number;
+  under: number;
+  push: number; // 0 on a half line; a real push only on an integer line
+}
+export interface DoubleChance {
+  home_or_draw: number;
+  home_or_away: number;
+  draw_or_away: number;
+}
+export interface CleanSheet {
+  home: number; // home keeps one when AWAY fails to score
+  away: number;
+}
+export interface CorrectScore {
+  home: number;
+  away: number;
+  prob: number;
+}
+export interface Markets {
+  one_x_two: OneXTwo;
+  double_chance: DoubleChance;
+  // Keyed by goal line as a string ("0.5", "1.5", …). A line beyond the grid's truncation is
+  // ABSENT rather than zero — a market the grid cannot answer is missing, not certain.
+  over_under: Record<string, OverUnder>;
+  both_teams_to_score: { yes: number; no: number };
+  clean_sheet: CleanSheet;
+  correct_score: CorrectScore[];
 }
 export interface Strength {
   attack: ValueCi;
