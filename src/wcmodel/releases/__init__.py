@@ -4,7 +4,8 @@ Provenance-stamped, CC-licensed forecast artifacts. NO betting content of any
 kind — enforced by BETTING_FIELD_DENYLIST at build (releases) and projection
 (archive) time, with scan tests over real output.
 """
-MODEL_NAME = "Antecast"           # decided 2026-07-28; tests ban tournament marks
+MODEL_NAME = "Flamsteed"          # first Astronomer Royal; decided 2026-08-10
+                                  # (replaces Antecast); tests ban tournament marks
 LICENSE_STAMP = "CC BY 4.0 — free to republish with attribution and link"
 METHODOLOGY_URL = "https://github.com/onbiggerthingsB/worldcup#how-it-works"
 ARCHIVE_URL = "https://github.com/onbiggerthingsB/worldcup/tree/main/reports"

@@ -8,6 +8,7 @@ import pandas as pd
 
 from wcmodel.dashboard.spread import cover_line
 from wcmodel.model.draw_api import PRODUCTION_MAX_GOALS
+from wcmodel.model.markets import project_all
 
 
 def scoreline_shortlist(grid: np.ndarray, *, top: int = 6) -> list[dict]:
@@ -45,6 +46,15 @@ def fixture_forecast(posterior, *, home: str, away: str, neutral: bool,
         # complement (half line, no push). cover_line reads the identical orientation
         # predict_1x2 uses, so home-cover ⊂ home-win by construction.
         "cover": cover_line(grid),
+        # The ordinary football markets (spec §10: DERIVED from THIS grid — no model, no
+        # odds, nothing fitted). Projected from ``grid`` itself rather than recomputed, so
+        # the block cannot describe a different fixture than the one published above; the
+        # 1X2 it carries is pinned equal to ``one_x_two`` by test.
+        #
+        # These are additional VIEWS of the same forecast, not additional accuracy. An
+        # "over 1.5" number is right more often than a 1X2 number because the event is
+        # more likely — each market is scored on its own record and never pooled.
+        "markets": project_all(grid),
     }
 
 

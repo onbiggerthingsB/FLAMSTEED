@@ -90,6 +90,73 @@ def _check_cover_pair(cov: dict, *, where: str, tol: float = 0.05) -> None:
         raise ValueError(f"{where}: cover pair must sum to ~1 (±1.5 is a half line, no push); got {sum(vals)!r}")
 
 
+def _check_markets(m: dict, *, where: str, tol: float = 0.05) -> None:
+    """SHARED: the market projections of the scoreline grid.
+
+    Two different disciplines apply and conflating them would make the gate
+    wrong in both directions:
+
+    * **Partitions** — 1X2, over/under (with its push), BTTS — carve the space
+      into exclusive outcomes, so they must sum to ~1. A partition that does
+      not sum to 1 states a probability that cannot be true.
+    * **Non-partitions** — double chance and clean sheet — legitimately do NOT
+      sum to 1. Each double-chance pair double-counts a leg, and BOTH sides
+      keep a clean sheet in a 0-0. Sum-checking these would reject correct
+      output; so they are value-checked instead, which is a real check and not
+      a waived one.
+
+    Correct score is a ranked shortlist, checked the same way the scoreline
+    shortlist is: every entry carries a finite probability, no score naked.
+    """
+    if not isinstance(m, dict):
+        raise ValueError(f"{where}: markets must be a mapping of market name to projection")
+
+    def _values(node, name):
+        if not isinstance(node, dict):
+            raise ValueError(f"{where}: markets.{name} must be a mapping")
+        vals = list(node.values())
+        if not all(_prob_in_unit(v) for v in vals):
+            raise ValueError(
+                f"{where}: every markets.{name} value must be a probability in [0, 1] "
+                f"(got {vals!r})")
+        return vals
+
+    # Partitions — must sum to ~1.
+    if "one_x_two" in m:
+        _check_1x2_distribution(m["one_x_two"], where=f"{where} markets", tol=tol)
+    for name in ("both_teams_to_score",):
+        if name in m:
+            vals = _values(m[name], name)
+            if abs(sum(vals) - 1.0) > tol:
+                raise ValueError(
+                    f"{where}: markets.{name} outcomes must sum to ~1; got {sum(vals)!r}")
+    if "over_under" in m:
+        ou = m["over_under"]
+        if not isinstance(ou, dict):
+            raise ValueError(f"{where}: markets.over_under must be a mapping of line to outcomes")
+        for line, node in ou.items():
+            vals = _values(node, f"over_under[{line}]")
+            if abs(sum(vals) - 1.0) > tol:
+                raise ValueError(
+                    f"{where}: markets.over_under[{line}] must sum to ~1 "
+                    f"(over + under + push partitions the space); got {sum(vals)!r}")
+
+    # Non-partitions — value-checked only, deliberately not sum-checked.
+    for name in ("double_chance", "clean_sheet"):
+        if name in m:
+            _values(m[name], name)
+
+    if "correct_score" in m:
+        cs = m["correct_score"]
+        if not isinstance(cs, (list, tuple)):
+            raise ValueError(f"{where}: markets.correct score must be a ranked list")
+        for entry in cs:
+            if not isinstance(entry, dict) or not _prob_in_unit(entry.get("prob")):
+                raise ValueError(
+                    f"{where}: every markets.correct score entry must carry a finite "
+                    f"probability in [0, 1] — a score never appears naked (got {entry!r})")
+
+
 def assert_uncertainty_companion(node: dict) -> None:
     """Every emitted probability must carry a REAL uncertainty companion — a finite ``se``
     (an MC SE; 0.0 is valid for a certain p in {0,1}) or a ``ci`` of two finite bounds.
@@ -160,6 +227,11 @@ def gate_fixture_forecast(f: dict, *, tol: float = 0.05) -> None:
     cover = f.get("cover")
     if cover is not None:
         _check_cover_pair(cover, where="fixture forecast", tol=tol)
+    # The market projections of the grid — when present, partitions sum to ~1 and every
+    # value is a real probability. Optional, so a forecast built before this feature (no
+    # markets key) still gates clean, exactly as with the cover pair.
+    if f.get("markets") is not None:
+        _check_markets(f["markets"], where="fixture forecast", tol=tol)
 
 
 def _is_gap(node) -> bool:
