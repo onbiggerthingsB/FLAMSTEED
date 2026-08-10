@@ -42,3 +42,9 @@ docs/reviews/codex-simlayer*/
 docs/reviews/
 dashboard-ui/dist-embed/
 deliverables/
+
+# Manual daily-result CSVs and one-off analysis scratch from the WC-2026 live
+# run. Kept on disk (they are the hand-entered record of what martj42 lagged on)
+# but never committed: they are inputs to a run, not artifacts of it.
+day*.csv
+scratch_*.py
