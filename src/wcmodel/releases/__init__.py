@@ -7,8 +7,8 @@ kind — enforced by BETTING_FIELD_DENYLIST at build (releases) and projection
 MODEL_NAME = "Flamsteed"          # first Astronomer Royal; decided 2026-08-10
                                   # (replaces Antecast); tests ban tournament marks
 LICENSE_STAMP = "CC BY 4.0 — free to republish with attribution and link"
-METHODOLOGY_URL = "https://github.com/onbiggerthingsB/worldcup#how-it-works"
-ARCHIVE_URL = "https://github.com/onbiggerthingsB/worldcup/tree/main/reports"
+METHODOLOGY_URL = "https://github.com/onbiggerthingsB/flamsteed#how-it-works"
+ARCHIVE_URL = "https://github.com/onbiggerthingsB/flamsteed/tree/main/reports"
 DATA_SOURCE_NAME = "martj42/international_results (community dataset)"
 # Canonical citable copy of the WC-2026 forecast archive (Zenodo, CC BY 4.0,
 # published 2026-07-28). Scoped by tournament on purpose: a future tournament's

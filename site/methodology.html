@@ -556,7 +556,7 @@ blockquote cite {
       </div>
       <div class="prose">
         <p>The forecast begins with a <strong>Bayesian scoreline model in the Dixon–Coles family</strong>, fitted with ADVI variational inference on 49k+ international results. Team attack and defence priors are anchored to point-in-time Elo strength, and host advantage is represented explicitly.</p>
-        <p>Additions are configuration-gated and must prove that switching them off restores the previous behavior byte for byte. Adoption is decided from pre-registered, held-out evidence. A negative result is published as a result, not hidden as a failed experiment. The full record is in the repository’s <a href="https://github.com/onbiggerthingsB/worldcup#decision-log-empirical-record">empirical decision log</a>.</p>
+        <p>Additions are configuration-gated and must prove that switching them off restores the previous behavior byte for byte. Adoption is decided from pre-registered, held-out evidence. A negative result is published as a result, not hidden as a failed experiment. The full record is in the repository’s <a href="https://github.com/onbiggerthingsB/flamsteed#decision-log-empirical-record">empirical decision log</a>.</p>
       </div>
 
       <div class="table-wrap" tabindex="0" role="region" aria-label="Empirical model decision log">
@@ -583,7 +583,7 @@ blockquote cite {
             <tr>
               <th scope="row">Altitude covariate</th>
               <td><span class="verdict no-lift">No lift</span></td>
-              <td><a href="https://github.com/onbiggerthingsB/worldcup/blob/main/reports/altitude_2026-06-10.md">Committed altitude report</a>.</td>
+              <td><a href="https://github.com/onbiggerthingsB/flamsteed/blob/main/reports/altitude_2026-06-10.md">Committed altitude report</a>.</td>
             </tr>
             <tr>
               <th scope="row">Club-Elo squad anchor (k_squad)</th>
@@ -598,7 +598,7 @@ blockquote cite {
             <tr>
               <th scope="row">Scoreline tails in mismatches</th>
               <td><span class="verdict">Open finding</span></td>
-              <td>Top-decile ratios 0.73–0.87; correction specified, not shipped. <a href="https://github.com/onbiggerthingsB/worldcup/blob/main/reports/tails_2026-06-10.md">Committed tails report</a>.</td>
+              <td>Top-decile ratios 0.73–0.87; correction specified, not shipped. <a href="https://github.com/onbiggerthingsB/flamsteed/blob/main/reports/tails_2026-06-10.md">Committed tails report</a>.</td>
             </tr>
           </tbody>
         </table>
@@ -646,7 +646,7 @@ blockquote cite {
       </div>
       <div class="prose">
         <p>Each published tournament forecast aggregates <strong>20,000 seeded Monte Carlo draws</strong>. Every draw samples match scorelines, ranks the groups, assigns the qualifying third-placed teams, and resolves the real 48-team bracket through the final. Results already known at the cutoff are fixed; only the future is simulated.</p>
-        <p>The simulator is format-aware. The frozen WC-2026 path uses the FIFA tiebreak order and bracket assignment; the AC-2027 format supplies its own AFC tiebreak order, advancement shape, hosts, and assignment table. The rules are encoded from the official regulations described in the <a href="https://github.com/onbiggerthingsB/worldcup/blob/main/docs/tournament-formats.md">committed tournament-format document</a>.</p>
+        <p>The simulator is format-aware. The frozen WC-2026 path uses the FIFA tiebreak order and bracket assignment; the AC-2027 format supplies its own AFC tiebreak order, advancement shape, hosts, and assignment table. The rules are encoded from the official regulations described in the <a href="https://github.com/onbiggerthingsB/flamsteed/blob/main/docs/tournament-formats.md">committed tournament-format document</a>.</p>
         <p>The same document records the deliberate approximations: seeded stand-ins are used for criteria such as cards, drawing of lots, and the applicable penalty tail when the source data cannot model them directly. Those limits are part of the method, not implementation details left out of the claim.</p>
       </div>
     </section>
@@ -674,7 +674,7 @@ blockquote cite {
           <p class="score-detail">modal hits · mean RPS 0.153</p>
         </article>
       </div>
-      <p class="report-row"><a class="source-link" href="https://github.com/onbiggerthingsB/worldcup/blob/main/reports/live_scorecard_final.md">Read the full committed scorecard</a></p>
+      <p class="report-row"><a class="source-link" href="https://github.com/onbiggerthingsB/flamsteed/blob/main/reports/live_scorecard_final.md">Read the full committed scorecard</a></p>
     </section>
 
     <div class="honest-wrap" id="limits">
@@ -686,7 +686,7 @@ blockquote cite {
         <div class="honest-copy">
           <p>Over the full 104-match replay, the model and a plain Elo baseline are <strong>statistically tied</strong>—0.1561 against 0.1557. It was ahead through the group stage as played live—0.157 against 0.163—and the two converged across the knockouts. Both numbers are published because a forecaster that only reports its good window is not a forecaster.</p>
           <p>It has <strong>no demonstrated edge against sharp betting markets</strong>. The project’s own audit records a tie there too. Nothing here is betting advice, and nothing on this site is sold as one.</p>
-          <a class="source-link" href="https://github.com/onbiggerthingsB/worldcup/blob/main/reports/headroom_2026-06-10.md">Read the committed headroom audit</a>
+          <a class="source-link" href="https://github.com/onbiggerthingsB/flamsteed/blob/main/reports/headroom_2026-06-10.md">Read the committed headroom audit</a>
         </div>
       </section>
     </div>
@@ -717,13 +717,13 @@ blockquote cite {
       </div>
 
       <ul class="source-list" aria-label="Primary source documents">
-        <li><a href="https://github.com/onbiggerthingsB/worldcup">Source repository</a></li>
-        <li><a href="https://github.com/onbiggerthingsB/worldcup/blob/main/README.md">README and decision log</a></li>
-        <li><a href="https://github.com/onbiggerthingsB/worldcup/blob/main/reports/live_scorecard_final.md">Final live scorecard</a></li>
-        <li><a href="https://github.com/onbiggerthingsB/worldcup/blob/main/docs/tournament-formats.md">Tournament formats</a></li>
-        <li><a href="https://github.com/onbiggerthingsB/worldcup/blob/main/docs/SYSTEM.md">Complete system document</a></li>
-        <li><a href="https://github.com/onbiggerthingsB/worldcup/blob/main/tests/sim/test_wc_golden.py">Golden-hash test</a></li>
-        <li><a href="https://github.com/onbiggerthingsB/worldcup/blob/main/tests/golden/wc2026_sim_golden.json">Committed golden hashes</a></li>
+        <li><a href="https://github.com/onbiggerthingsB/flamsteed">Source repository</a></li>
+        <li><a href="https://github.com/onbiggerthingsB/flamsteed/blob/main/README.md">README and decision log</a></li>
+        <li><a href="https://github.com/onbiggerthingsB/flamsteed/blob/main/reports/live_scorecard_final.md">Final live scorecard</a></li>
+        <li><a href="https://github.com/onbiggerthingsB/flamsteed/blob/main/docs/tournament-formats.md">Tournament formats</a></li>
+        <li><a href="https://github.com/onbiggerthingsB/flamsteed/blob/main/docs/SYSTEM.md">Complete system document</a></li>
+        <li><a href="https://github.com/onbiggerthingsB/flamsteed/blob/main/tests/sim/test_wc_golden.py">Golden-hash test</a></li>
+        <li><a href="https://github.com/onbiggerthingsB/flamsteed/blob/main/tests/golden/wc2026_sim_golden.json">Committed golden hashes</a></li>
       </ul>
     </section>
   </main>
