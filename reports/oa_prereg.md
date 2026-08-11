@@ -491,3 +491,45 @@ into one.
 Nothing here reaches the OA forecast path. The verdict stands as issued under
 lock-v5; the gate, sample, Holm family and statistical plan are untouched, and
 every document digest except this file's is unchanged from v7.
+
+---
+
+## Amendment — 2026-08-11 (lock-v9): the product got a name and a domain
+
+Three commits between lock-v8 and this one changed `src/wcmodel/releases/`:
+the model's public name became **Flamsteed** (7d8d383, replacing Antecast),
+and the repository moved to `onbiggerthingsB/FLAMSTEED` (60ff444, e1b7489).
+This amendment adds one more: `METHODOLOGY_URL` now points at
+`https://flamsteed.io/methodology.html` rather than a GitHub README anchor,
+because the site went live on 2026-08-11 and is verified serving.
+
+`ARCHIVE_URL` deliberately does **not** move. `reports/` is not published to
+the site, and the canonical citable copy of the forecast archive is already
+the Zenodo DOI recorded alongside it. A citation URL that points at a page
+which does not exist is worse than one that points at GitHub.
+
+**Recorded because it is the more useful part of this entry:** the chain has
+been in a refusing state since 7d8d383, and nobody noticed until a verdict
+was next attempted, today. Nothing was issued in the interim, so nothing is
+retrospectively in doubt — but the gap between "the lock started refusing"
+and "we found out" was two days and three commits, and that is a property of
+this process worth writing down rather than quietly closing. The refusal
+worked exactly as designed; the monitoring around it did not exist. A lock
+that is only consulted when someone happens to run the verdict is a lock that
+tells you late.
+
+**This amendment changes nothing about the analysis.** Not the gate, not the
+sample, not the Holm family, not the sign-flip veto, not the statistical plan,
+not the verdict. Every changed line is a string constant consumed by the
+publisher; none is read by any code on the forecast path.
+
+As at v7, the claim is checkable rather than asserted. The V10 verdict was
+re-run against this tree and returned mean ΔRPS −0.01018 with bootstrap
+support 0.995 on the same 217 covered fixtures — identical to the numbers
+issued under lock-v5 and re-confirmed under v7 and v8, to every published
+digit. `reports/oa_verdict.md` stands as issued under lock-v5.
+
+Unchanged and restated because it governs how the domain may be used: the
+site carries no prices, no betting advice, and no market-grade accuracy
+claim. A domain is a nicer place to publish a forecast record. It is not
+evidence about the forecast.
