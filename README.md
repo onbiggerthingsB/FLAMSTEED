@@ -1,4 +1,8 @@
-# worldcup — a forecast-first model of the 2026 FIFA World Cup
+# Flamsteed — point-in-time football forecasting
+
+*Formerly `worldcup`, renamed 2026-08-10. Named for John Flamsteed, first
+Astronomer Royal, who refused to publish figures he had not finished checking.
+The first archive is the 2026 FIFA World Cup; old links redirect.*
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21641225.svg)](https://doi.org/10.5281/zenodo.21641225)
 Forecast archive (24 point-in-time snapshots, CC BY 4.0): [doi:10.5281/zenodo.21641225](https://doi.org/10.5281/zenodo.21641225)
