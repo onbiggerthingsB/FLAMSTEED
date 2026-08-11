@@ -1,0 +1,69 @@
+name: Deploy site to GitHub Pages
+
+# Publishes site/ (three self-contained HTML files, zero external requests,
+# zero build step) to flamsteed.io. Only site/ is published — the repo also
+# holds the model, the sealed lock chain and the forecast archive, none of
+# which belong on the public web server.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:        # lets you deploy by hand without a site/ change
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; let an in-flight one finish rather than
+# cancelling it, so a half-published site is not a state we can reach.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The pages must be self-contained: the whole design promise is that a
+      # reader loads a forecast page without any third party learning they did.
+      # Fail the deploy rather than publish a page that phones out.
+      - name: Refuse external requests in the published HTML
+        run: |
+          set -euo pipefail
+          if grep -nE '<(script|link|img|iframe)[^>]+(src|href)="https?://' site/*.html; then
+            echo "::error::site/ references an external host — the pages must be self-contained"
+            exit 1
+          fi
+          echo "OK: no external script/link/img/iframe sources"
+
+      # Anchor hrefs to github.com and doi.org are expected and fine; a bare
+      # placeholder domain is not, and would ship a dead link.
+      - name: Refuse unresolved placeholder URLs
+        run: |
+          set -euo pipefail
+          if grep -nEi 'href="https?://(example|localhost|TODO)' site/*.html; then
+            echo "::error::placeholder URL in site/"
+            exit 1
+          fi
+          echo "OK: no placeholder URLs"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
