@@ -43,15 +43,39 @@ jobs:
           echo "OK: no external script/link/img/iframe sources"
 
       # Anchor hrefs to github.com and doi.org are expected and fine; a bare
-      # placeholder domain is not, and would ship a dead link.
+      # placeholder is not, and would ship a dead link.
+      #
+      # This guard used to require `https?://` and therefore could not see
+      # `href="mailto:TODO-address@example.com"`, which is exactly how a
+      # placeholder contact address reached the live site on 2026-08-11. Match
+      # the placeholder TOKEN anywhere in an href, whatever the scheme.
       - name: Refuse unresolved placeholder URLs
         run: |
           set -euo pipefail
-          if grep -nEi 'href="https?://(example|localhost|TODO)' site/*.html; then
-            echo "::error::placeholder URL in site/"
+          if grep -nEi 'href="[^"]*(example\.(com|org|net)|localhost|TODO|FIXME|XXX|your-|changeme|placeholder)' site/*.html; then
+            echo "::error::placeholder URL or address in site/ — replace it before publishing"
             exit 1
           fi
-          echo "OK: no placeholder URLs"
+          echo "OK: no placeholder URLs or addresses"
+
+      # A page that cites evidence must cite evidence that exists. Every link
+      # into this repo's own tree is checked against the working tree, because
+      # a 404 under a "Committed report" label is worse than no citation at
+      # all — that is how methodology.html shipped a dead tails-report link.
+      - name: Refuse in-repo citation links that do not resolve
+        run: |
+          set -euo pipefail
+          missing=0
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            if [ ! -e "$path" ]; then
+              echo "::error::site/ cites $path, which does not exist on this ref"
+              missing=1
+            fi
+          done < <(grep -ohE 'https://github\.com/onbiggerthingsB/FLAMSTEED/(blob|tree)/main/[^"#]+' site/*.html \
+                   | sed -E 's#.*/(blob|tree)/main/##' | sort -u)
+          [ "$missing" -eq 0 ] || exit 1
+          echo "OK: every in-repo citation resolves"
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

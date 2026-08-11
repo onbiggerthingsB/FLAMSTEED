@@ -666,7 +666,7 @@ blockquote cite {
           <p>You choose the sample after seeing results, tune the method until it works, and report the version that survived. We built the test to make each of those moves either impossible or visible:</p>
         </div>
         <ul class="protocol-list">
-          <li><b>Preregistration, sealed by hash.</b> The analysis plan &mdash; the exact accuracy gate, the sample, the statistical family, even the tie-breaking rules &mdash; was frozen and bound into a chained sequence of cryptographic locks before the scoring run. Any later change to any locked document breaks the chain in public. There are six locks; each amendment is dated and explains itself.</li>
+          <li><b>Preregistration, sealed by hash.</b> The analysis plan &mdash; the exact accuracy gate, the sample, the statistical family, even the tie-breaking rules &mdash; was frozen and bound into a chained sequence of cryptographic locks before the scoring run. Any later change to any locked document breaks the chain in public. Six locks cover this test. The chain has since advanced to nine: three later versions record changes to the attested code tree that altered no result here, and each amendment is dated and explains itself.</li>
           <li><b>Point-in-time market data, paid for.</b> Every bookmaker snapshot was archived under its own content hash at a fixed cut-off &mdash; 08:30 UTC, at least 30 minutes before any kickoff &mdash; so no price seen by the test could postdate the information it was compared against.</li>
           <li><b>Ninety-minute settlement.</b> Bookmaker match odds settle at ninety minutes. A knockout match that finished level and was decided in extra time or on penalties is a <em>draw</em> for scoring purposes, and our pipeline refuses to score any fixture whose ninety-minute result it cannot verify.</li>
           <li><b>A decision rule fixed in advance.</b> The gate was written down before the data arrived: a mean improvement of at least 0.002 RPS with bootstrap support of at least 80%, both required, with the decision belonging to the gate and not to anyone&rsquo;s judgment after the fact.</li>
@@ -725,7 +725,7 @@ blockquote cite {
             <li><a class="source-link" href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/reports/oa_conclusion.md">Plain-language findings, with everything withdrawn and why</a></li>
             <li><a class="source-link" href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/reports/oa_prereg.md">The preregistration, as sealed</a></li>
             <li><a class="source-link" href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/reports/oa_verdict.md">The preregistered verdict</a></li>
-            <li><a class="source-link" href="https://github.com/onbiggerthingsB/FLAMSTEED/tree/main/reports/oa_lock">The lock chain, v1&ndash;v6</a></li>
+            <li><a class="source-link" href="https://github.com/onbiggerthingsB/FLAMSTEED/tree/main/reports/oa_lock">The lock chain, v1&ndash;v9 (v1&ndash;v6 seal this test)</a></li>
             <li><a class="source-link" href="https://github.com/onbiggerthingsB/FLAMSTEED#decision-log-empirical-record">The decision log</a></li>
           </ul>
         </div>

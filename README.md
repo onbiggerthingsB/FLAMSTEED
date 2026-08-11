@@ -13,9 +13,11 @@ simulator over the real 48-team bracket, and a dashboard that refuses to show a
 number without its uncertainty and provenance.
 
 **The honest headline first:** this system is built to *forecast well*, not to
-beat the market. Its own audited diagnostic (`reports/headroom_2026-06-10.md`)
-found a statistical tie against sharp closing odds — so every edge-looking
-number it produces ships behind a NOT-REAL banner, and the mission brief
+beat the market — and it does not beat the market. An early audited diagnostic
+(`reports/headroom_2026-06-10.md`) found a statistical tie against sharp closing
+odds; the later preregistered test put the market **ahead** of the model by
+~0.010 mean RPS on 217 fixtures (`reports/oa_conclusion.md`). So every
+edge-looking number it produces ships behind a NOT-REAL banner, and the mission brief
 (`docs/missions/2026-06-accuracy-upgrade.md`) explicitly forbids confusing
 "interesting disagreement with a market" with "validated edge".
 
@@ -136,9 +138,9 @@ see `.env.example`. The forecast pipeline spends zero API credits.
 | Altitude covariate | NO-LIFT | `reports/altitude_2026-06-10.md` |
 | Club-Elo squad anchor (`k_squad`) | NO-LIFT | pooled support 0.0% on 113 held-out tournament matches |
 | Friendly tier down-weighting | NO-LIFT | flat RPS across the weight grid |
-| Scoreline tails in mismatches | **OPEN FINDING** | model over-predicts blowout tails (top-decile ratios 0.73–0.87); correction spec'd, not shipped — `reports/tails_2026-06-10.md` |
+| Scoreline tails in mismatches | **OPEN FINDING** | model over-predicts blowout tails (top-decile ratios 0.73–0.87). No correction has been specified in the thinning direction; the one perturbation trialled was mis-signed and its verdict is withdrawn in the report's own controller's note — `reports/tails_2026-06-10.md` |
 | Model vs sharp market | TIE | `reports/headroom_2026-06-10.md` |
-| Odds-anchored blend (E′, w=0.95) | **NEGATIVE — market beats model, nothing adopted** | preregistered gate passed (mean ΔRPS −0.010, n=217), but the winning arm is 95% bookmaker and indistinguishable from pure market — so the finding is the market outforecasting the model, not the model improving. Retrospective, hence a development diagnostic; confirmatory live test waits for a 2027 venue. Hash-chained prereg `lock-v1..v6`; plain-language account with full correction history in `reports/oa_conclusion.md` |
+| Odds-anchored blend (E′, w=0.95) | **NEGATIVE — market beats model, nothing adopted** | preregistered gate passed (mean ΔRPS −0.010, n=217), but the winning arm is 95% bookmaker and indistinguishable from pure market — so the finding is the market outforecasting the model, not the model improving. Retrospective, hence a development diagnostic; confirmatory live test waits for a 2027 venue. Hash-chained prereg `lock-v1..v6` (the chain now stands at v9; v7–v9 record product-code changes that altered no result here); plain-language account with full correction history in `reports/oa_conclusion.md` |
 | Model deficit concentrated where it disagrees with the market | **OPEN FINDING** | direction replicated out of sample (gap −0.025, p 0.024) but deliberately uncertified — the decision rule was corrected after a near-miss was visible; needs an independent sample under a rule fixed in advance — `reports/oa_disagreement_test.md` |
 
 ## Layout
