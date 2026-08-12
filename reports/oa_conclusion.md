@@ -197,3 +197,23 @@ last one asks whether the model adds anything once the market is present,
 and it is the question this programme could not answer.
 
 A null is a real answer, which the prereg said in advance.
+
+---
+
+## Closure note — 2026-08-12
+
+The confirmatory programme this document pointed forward to will not run.
+The design work was completed first and published
+(`reports/oa_confirmatory_design.md`): no confirmatory decision rule was ever
+sealed; the sealed sign-flip veto makes an accumulating design self-defeating
+(the probability of confirming a true effect *falls* as pools are added,
+0.461 at K=3 to 0.263 at K=10); the calibrated repair needs roughly 400
+covered fixtures across 8–12 pools over years during which the incumbent
+could not honestly stay frozen; and the sealed venue supplied 36 fixtures at
+0.284 power. The owner ruled closure on 2026-08-12; the ruling and its exact
+form are sealed in the lock-v10 amendment of `reports/oa_prereg.md`.
+
+Everything above this note stands as written. The development verdict is
+unchanged — the market beat the model by ~0.010 mean RPS on the 217-fixture
+eval, and that number remains the one any future accuracy claim has to beat,
+under a preregistration written from scratch.
