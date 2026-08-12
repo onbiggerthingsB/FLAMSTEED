@@ -533,3 +533,57 @@ Unchanged and restated because it governs how the domain may be used: the
 site carries no prices, no betting advice, and no market-grade accuracy
 claim. A domain is a nicer place to publish a forecast record. It is not
 evidence about the forecast.
+
+---
+
+## Amendment — 2026-08-12 (lock-v10): the programme is closed without a confirmatory run
+
+**The ruling.** On 2026-08-12 the owner closed the odds-anchored accuracy
+programme. The recommendation put to the owner, in writing, was: *"stop the
+programme and publish the null honestly"*, offered against the alternatives
+"continue" and "narrow". The owner's ruling was given as *"do everything that
+you recommend"*. It is recorded in that exact form because this chain exists
+to keep the decision, and the words it was made in, beyond hindsight.
+
+**The grounds** are `reports/oa_confirmatory_design.md` (committed at
+ac70ae9, every figure regenerated from a clean checkout on 2026-08-11, the
+generating scripts in `analysis/`):
+
+1. The sealed corpus contains **no confirmatory decision rule**. The
+   −0.002/0.80 gate is titled *entry into* the confirmatory test, and the
+   analysis spec states α does not apply to it.
+2. The sealed sign-flip veto is an uncontrolled family of K per-pool tests,
+   so an accumulating design is self-defeating: from K=3 to K=10 pools the
+   probability of confirming a true effect *falls*, 0.461 → 0.263.
+3. The repair that survives review — a calibrated omnibus heterogeneity
+   test — restores rising power but sets the requirement at roughly
+   **400 covered fixtures across 8–12 pools**, spanning years during which
+   the incumbent model could not honestly stay frozen.
+4. The sealed venue, the AC2027 group stage, supplies 36 fixtures: **0.284
+   power** at the calibrated bar against the very effect the test exists to
+   confirm, before the veto takes its cut.
+
+**What is retired, unexecuted.** The ranked confirmatory-venue rule
+(AC2027 → AFCON 2027 → 2027 WCQ windows) including its T-30 paid probe. No
+probe will run and no further Odds-API spend is authorised under this
+programme.
+
+**What stands, unchanged.** The development verdict as issued under lock-v5
+and re-confirmed under v7, v8, and v9: ADOPT at mean ΔRPS −0.01018,
+support 0.995, n=217 — which is the **market beating the model**, not the
+model improving. H1 (the confederation lead) failed to replicate. H2 (the
+disagreement concentration) remains deliberately uncertified, and closure
+does not certify it.
+
+**What closure does not do.** It does not lift the red lines — no betting
+advice, no prices, no market-grade accuracy claim on any public surface.
+Those constraints are unconditional; they were never contingent on any test
+passing or failing, and any prior wording that could be read otherwise is
+resolved here in the stricter direction. Closure retracts nothing published,
+and it does not preclude a future confirmatory programme — but a future
+programme starts with its own preregistration from scratch, and may not
+reuse this chain's entry gate as a confirmatory criterion.
+
+**The claim to check**, as at every non-analytical amendment: the V10
+verdict re-runs identically under lock-v10 — mean ΔRPS −0.01018, support
+0.995, 217/217 covered — with only the lock-version footer differing.
