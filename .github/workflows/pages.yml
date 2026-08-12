@@ -11,6 +11,11 @@ on:
     paths:
       - 'site/**'
       - '.github/workflows/pages.yml'
+  pull_request:
+    paths:
+      - 'site/**'
+      - 'tools/site_check.sh'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:        # lets you deploy by hand without a site/ change
 
 permissions:
@@ -83,6 +88,7 @@ jobs:
           path: site
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:
