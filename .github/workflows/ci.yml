@@ -58,7 +58,9 @@ jobs:
   tests:
     name: Test suite
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90   # local full suite ~36 min; GitHub runners + cold pip need headroom.
+                          # 45 min was a self-inflicted wound: three runs died at exactly 45:00
+                          # reported as 'cancelled', which reads as flakiness and is not.
     steps:
       - uses: actions/checkout@v4
 
