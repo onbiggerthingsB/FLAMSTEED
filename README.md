@@ -136,8 +136,8 @@ see `.env.example`. The forecast pipeline spends zero API credits.
 | Elo-anchored strength prior (k=0.6) | **ADOPTED** | held-out RPS, n=2,111 |
 | Host advantage `host_k=1.4` | **ADOPTED** | MLE on n=873 finals-tier host games, 95% CI [1.18, 1.64] |
 | Altitude covariate | NO-LIFT | `reports/altitude_2026-06-10.md` |
-| Club-Elo squad anchor (`k_squad`) | NO-LIFT | pooled support 0.0% on 113 held-out tournament matches |
-| Friendly tier down-weighting | NO-LIFT | flat RPS across the weight grid |
+| Club-Elo squad anchor (`k_squad`) | NO-LIFT | pooled support 0.0% on 113 held-out tournament matches (`reports/p3sweep/sweep_20260611T012358Z.log`); re-evaluated post-group-stage on 185 and closed (`reports/p3sweep/addendum3_20260701T222121Z.md`) |
+| Friendly tier down-weighting | NO-LIFT | flat RPS across the weight grid — `reports/tier_weights_2026-06-10.md` |
 | Scoreline tails in mismatches | **OPEN FINDING** | model over-predicts blowout tails (top-decile ratios 0.73–0.87). No correction has been specified in the thinning direction; the one perturbation trialled was mis-signed and its verdict is withdrawn in the report's own controller's note — `reports/tails_2026-06-10.md` |
 | Model vs sharp market | TIE | `reports/headroom_2026-06-10.md` |
 | Odds-anchored blend (E′, w=0.95) | **NEGATIVE — market beats model, nothing adopted** | preregistered gate passed (mean ΔRPS −0.010, n=217), but the winning arm is 95% bookmaker and indistinguishable from pure market — so the finding is the market outforecasting the model, not the model improving. Retrospective, hence a development diagnostic; confirmatory live test waits for a 2027 venue. Hash-chained prereg `lock-v1..v6` (the chain now stands at v9; v7–v9 record product-code changes that altered no result here); plain-language account with full correction history in `reports/oa_conclusion.md` |

@@ -1,0 +1,96 @@
+# PREREG ADDENDUM 3 — post-group-stage k_squad re-evaluation
+
+## TIMING-DEVIATION NOTE (read first)
+PREREG ADDENDUM 3 — the single post-group-stage k_squad re-evaluation.
+
+TIMING-DEVIATION NOTE (leads every output of this run). Addendum 3 registered
+ONE look "after the FINAL group-stage match and before the Round of 32". This
+run executes 2026-07-01, with the R32 7 games in — a documented deviation from
+the registered TIMING, ruled on by the user (2026-07-01: run now, document).
+The ANALYSIS is untainted by construction: every arm refits at the frozen
+cutoff 2026-06-11T00:00:00Z (no 2026 result trains any arm) and the evaluation
+pool is WC-2022 + Euro-2024 + the 72 GROUP-STAGE matches only (R32 results are
+excluded by the eval window). Adoption, if gated in, applies from the R16.
+
+[2026] host-home fixtures priced with host_factor: [('Canada', 'Bosnia and Herzegovina'), ('Canada', 'Qatar'), ('Mexico', 'South Africa'), ('Mexico', 'South Korea'), ('United States', 'Australia'), ('United States', 'Paraguay')]
+
+[wc2022] cutoff 2022-11-20 -> 63 held-out matches
+Finished [100%]: Average Loss = 3,937.3
+  [k=0.00] fit RPS=0.43994 n=63 max_fav=0.917 (train max 2022-11-19 < 2022-11-20)
+Finished [100%]: Average Loss = 3,953.4
+  [k=0.20] fit RPS=0.44546 n=63 max_fav=0.950 (train max 2022-11-19 < 2022-11-20)
+Finished [100%]: Average Loss = 3,985.9
+  [k=0.40] fit RPS=0.45504 n=63 max_fav=0.968 (train max 2022-11-19 < 2022-11-20)
+Finished [100%]: Average Loss = 4,029
+  [k=0.60] fit RPS=0.46343 n=63 max_fav=0.976 (train max 2022-11-19 < 2022-11-20)
+Finished [100%]: Average Loss = 4,252.6
+
+  [wc2022] per-k held-out 1X2 RPS
+  k_squad | overall_RPS |    n | slice(has_sq=0)_RPS | n_sl | max_fav
+  --------+-------------+------+---------------------+------+--------
+     0.00 |     0.43994 |   63 |             0.50027 |   24 |   0.917
+     0.20 |     0.44546 |   63 |             0.50962 |   24 |   0.950
+     0.40 |     0.45504 |   63 |             0.52055 |   24 |   0.968
+     0.60 |     0.46343 |   63 |             0.52934 |   24 |   0.976
+
+[euro2024] cutoff 2024-06-14 -> 50 held-out matches
+Finished [100%]: Average Loss = 4,432.8
+  [k=0.00] fit RPS=0.39544 n=50 max_fav=0.820 (train max 2024-06-12 < 2024-06-14)
+Finished [100%]: Average Loss = 4,452.8
+  [k=0.20] fit RPS=0.40504 n=50 max_fav=0.897 (train max 2024-06-12 < 2024-06-14)
+Finished [100%]: Average Loss = 4,490.1
+  [k=0.40] fit RPS=0.41572 n=50 max_fav=0.936 (train max 2024-06-12 < 2024-06-14)
+Finished [100%]: Average Loss = 4,537.8
+  [k=0.60] fit RPS=0.42301 n=50 max_fav=0.953 (train max 2024-06-12 < 2024-06-14)
+Finished [100%]: Average Loss = 4,761.9
+
+  [euro2024] per-k held-out 1X2 RPS
+  k_squad | overall_RPS |    n | slice(has_sq=0)_RPS | n_sl | max_fav
+  --------+-------------+------+---------------------+------+--------
+     0.00 |     0.39544 |   50 |                 nan |    0 |   0.820
+     0.20 |     0.40504 |   50 |                 nan |    0 |   0.897
+     0.40 |     0.41572 |   50 |                 nan |    0 |   0.936
+     0.60 |     0.42301 |   50 |                 nan |    0 |   0.953
+
+[wc2026] cutoff 2026-06-11 -> 72 held-out matches
+Finished [100%]: Average Loss = 4,290.6
+  [k=0.00] fit RPS=0.31709 n=72 max_fav=0.917 (train max 2026-06-10 < 2026-06-11)
+Finished [100%]: Average Loss = 4,313.1
+  [k=0.20] fit RPS=0.31197 n=72 max_fav=0.956 (train max 2026-06-10 < 2026-06-11)
+Finished [100%]: Average Loss = 4,356.7
+  [k=0.40] fit RPS=0.31018 n=72 max_fav=0.982 (train max 2026-06-10 < 2026-06-11)
+Finished [100%]: Average Loss = 4,411.2
+  [k=0.60] fit RPS=0.30876 n=72 max_fav=0.990 (train max 2026-06-10 < 2026-06-11)
+Finished [100%]: Average Loss = 4,603.9
+
+  [wc2026] per-k held-out 1X2 RPS
+  k_squad | overall_RPS |    n | slice(has_sq=0)_RPS | n_sl | max_fav
+  --------+-------------+------+---------------------+------+--------
+     0.00 |     0.31709 |   72 |             0.34043 |   41 |   0.917
+     0.20 |     0.31197 |   72 |             0.34432 |   41 |   0.956
+     0.40 |     0.31018 |   72 |             0.34675 |   41 |   0.982
+     0.60 |     0.30876 |   72 |             0.34628 |   41 |   0.990
+
+[POOLED] wc2022+euro2024+wc2026 -> 185 held-out matches (prereg expectation ~185).
+
+  [POOLED] per-k held-out 1X2 RPS
+  k_squad | overall_RPS |    n | slice(has_sq=0)_RPS | n_sl | max_fav
+  --------+-------------+------+---------------------+------+--------
+     0.00 |     0.38010 |  185 |             0.39945 |   65 |   0.917
+     0.20 |     0.38258 |  185 |             0.40536 |   65 |   0.956
+     0.40 |     0.38804 |  185 |             0.41092 |   65 |   0.982
+     0.60 |     0.39231 |  185 |             0.41387 |   65 |   0.990
+
+[POOLED] knee k_squad=0.00  SUPPORT=0.0%
+  paired dRPS vs k=0 = +0.00000 CI95(+0.00000,+0.00000)
+  G2 slice non-regression = PASS [slice d=+0.00000 CI(+0.00000,+0.00000)]
+  sanity(no >0.95 favourite) = PASS [max_fav=0.917]
+  sign[wc2022]: d=+0.00000 support=0.0% -> k=0
+  sign[euro2024]: d=+0.00000 support=0.0% -> k=0
+  sign[wc2026]: d=+0.00000 support=0.0% -> k=0
+  YARDSTICK k_elo 0->0.6: d=-0.00652 support=71.4% n=185 (context only)
+
+==============================================================================
+P3SWEEP VERDICT: NO-LIFT — CLOSED this World Cup (support=0.0% < 60%)
+==============================================================================
+[report] reports/p3sweep/addendum3_20260701T222121Z.md
