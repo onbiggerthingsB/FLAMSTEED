@@ -11,6 +11,11 @@ on:
     paths:
       - 'site/**'
       - '.github/workflows/pages.yml'
+  pull_request:
+    paths:
+      - 'site/**'
+      - 'tools/site_check.sh'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:        # lets you deploy by hand without a site/ change
 
 permissions:
@@ -30,52 +35,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The pages must be self-contained: the whole design promise is that a
-      # reader loads a forecast page without any third party learning they did.
-      # Fail the deploy rather than publish a page that phones out.
-      - name: Refuse external requests in the published HTML
-        run: |
-          set -euo pipefail
-          if grep -nE '<(script|link|img|iframe)[^>]+(src|href)="https?://' site/*.html; then
-            echo "::error::site/ references an external host — the pages must be self-contained"
-            exit 1
-          fi
-          echo "OK: no external script/link/img/iframe sources"
-
-      # Anchor hrefs to github.com and doi.org are expected and fine; a bare
-      # placeholder is not, and would ship a dead link.
-      #
-      # This guard used to require `https?://` and therefore could not see
-      # `href="mailto:TODO-address@example.com"`, which is exactly how a
-      # placeholder contact address reached the live site on 2026-08-11. Match
-      # the placeholder TOKEN anywhere in an href, whatever the scheme.
-      - name: Refuse unresolved placeholder URLs
-        run: |
-          set -euo pipefail
-          if grep -nEi 'href="[^"]*(example\.(com|org|net)|localhost|TODO|FIXME|XXX|your-|changeme|placeholder)' site/*.html; then
-            echo "::error::placeholder URL or address in site/ — replace it before publishing"
-            exit 1
-          fi
-          echo "OK: no placeholder URLs or addresses"
-
-      # A page that cites evidence must cite evidence that exists. Every link
-      # into this repo's own tree is checked against the working tree, because
-      # a 404 under a "Committed report" label is worse than no citation at
-      # all — that is how methodology.html shipped a dead tails-report link.
-      - name: Refuse in-repo citation links that do not resolve
-        run: |
-          set -euo pipefail
-          missing=0
-          while IFS= read -r path; do
-            [ -z "$path" ] && continue
-            if [ ! -e "$path" ]; then
-              echo "::error::site/ cites $path, which does not exist on this ref"
-              missing=1
-            fi
-          done < <(grep -ohE 'https://github\.com/onbiggerthingsB/FLAMSTEED/(blob|tree)/main/[^"#]+' site/*.html \
-                   | sed -E 's#.*/(blob|tree)/main/##' | sort -u)
-          [ "$missing" -eq 0 ] || exit 1
-          echo "OK: every in-repo citation resolves"
+      # One script now carries every promise this job used to make inline, so
+      # the same gate runs here and on a laptop before the PR is opened:
+      #   G1 the pages are self-contained — a reader loads a forecast without
+      #      any third party learning they did;
+      #   G2 no placeholder URL survives (a `mailto:TODO-…@example.com` reached
+      #      the live site on 2026-08-11 because the old guard required http);
+      #   G3 every in-repo citation resolves on this ref (a dead link under a
+      #      "Committed report" label is worse than no citation at all);
+      #   G4 the whole-file external scan the tag-level grep was blind to;
+      #   plus do-not-ship strings, folio typography, display weight, CNAME,
+      #   uptime sentinels, the ≤120 KB page budget, and SEALED lock versions.
+      - name: Site gate (guards, claims, weight, marks)
+        run: tools/site_check.sh site
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
@@ -83,6 +55,7 @@ jobs:
           path: site
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:

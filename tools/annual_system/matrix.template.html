@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Annual — design system hand test</title>
+<!-- HAND TEST for tools/annual_system/. Not a published page, not in site/.
+     Every quantity below is SPECIMEN — invented to exercise the drawing
+     grammar. No number here may be copied into site/*.html; the pages take
+     their figures from committed reports only. This page exists to prove
+     three states: (1) with script, (2) with the scripts removed, (3) at
+     390px. Build it with tools/annual_system/build_matrix.sh. -->
+<script>@@JS_HEAD@@</script>
+<style>
+@@BM_CSS@@
+@@SYSTEM_CSS@@
+/* --- hand-test only: a loud banner so this page can never be mistaken
+       for a published one, and a couple of specimen helpers. --- */
+.testbar{grid-column:1/-1;margin:14px 0 0;border:1px solid var(--oxblood);
+padding:8px 12px;font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;
+text-transform:uppercase;color:var(--oxblood)}
+.specimen-grid{font-family:var(--mono);font-size:10px;fill:var(--ink-dim)}
+</style>
+</head>
+<body class="sheet">
+
+<a class="skip" href="#main">Skip to the record</a>
+
+<header class="mast">
+  <a class="wordmark" href="#">Flamsteed</a>
+  <span class="issue">A statistical annual · No.&#8202;1 · World Cup MMXXVI</span>
+</header>
+
+<nav class="contents" aria-label="Contents">
+  <span class="here">I. The record</span>
+  <a href="#">II. Methods &amp; evidence</a>
+  <a href="#">III. The market test</a>
+</nav>
+
+<p class="testbar">Hand test · design-system matrix · every figure below is specimen, not a claim</p>
+
+<!-- ── hero: rail carries the cover figures and the folio ───────────────
+     DOM ORDER: rail item first, then the body item, or grid auto-placement
+     puts the rail on the next row. -->
+<div class="rail">
+  <span class="folio">№&#8202;1</span>
+  <div class="cover-fig lead"><span class="n">104</span><span class="k">specimen marks</span></div>
+  <div class="cover-fig"><span class="n">26/32</span><span class="k">specimen ratio</span></div>
+  <div class="cover-fig ours"><span class="n">−0.010</span><span class="k">specimen figure</span></div>
+</div>
+
+<main class="body" id="main">
+  <h1 class="watch">
+    <span class="line"><span>The specimen line</span></span>
+    <span class="line"><span>rises from its <em>mask.</em></span></span>
+  </h1>
+  <p class="dek">Three lines of dek at the annual's measure, to check that the body
+  face sits comfortably beside a didone display at this size, that oldstyle figures
+  such as 1729 and 104 sit on the baseline as they should, and that the paper grain
+  reads as tooth rather than as noise.<sup class="fn-ref"><a href="#fn1">1</a></sup></p>
+  <span class="rule-x watch" role="presentation"></span>
+</main>
+
+<!-- ── PLATE α — the draw test: every stroke carries pathLength="1" ── -->
+<div class="rail"></div>
+<figure class="plate opens-page" style="--fig-w:1040" aria-labelledby="paT paD">
+  <span class="tick tl" aria-hidden="true"></span><span class="tick tr" aria-hidden="true"></span>
+  <span class="tick bl" aria-hidden="true"></span><span class="tick br" aria-hidden="true"></span>
+  <span class="plate-no">I.</span>
+  <span class="plate-title">The draw test — hairline ruling, graded nodes</span>
+  <span class="plate-status">SEALED · LOCK-V10 · 2026-08-12</span>
+  <div class="plate-head"></div>
+  <div class="plate-body">
+    <div class="plate-figure">
+      <svg role="img" aria-labelledby="paT paD" viewBox="0 0 1040 340">
+        <title id="paT">Plate α — specimen curve drawn in the engraved grammar</title>
+        <desc id="paD">A specimen figure with no data behind it: a hairline grid at
+        one quarter, one half and three quarters, a single ruled curve, and node
+        markers graded by size the way a star chart grades magnitudes. Filled nodes
+        are specimen hits; the hollow hatched node is a specimen miss.</desc>
+        <defs>
+          <pattern id="hatchA" width="5" height="5" patternTransform="rotate(45)"
+                   patternUnits="userSpaceOnUse">
+            <line x1="0" y1="0" x2="0" y2="5" stroke="var(--oxblood)" stroke-width=".7"/>
+          </pattern>
+        </defs>
+        <g class="specimen-grid">
+          <line x1="46" y1="245" x2="1022" y2="245" stroke="var(--frame)" stroke-width=".4" opacity=".45"/>
+          <text x="38" y="248" text-anchor="end" font-size="10">.25</text>
+          <line x1="46" y1="170" x2="1022" y2="170" stroke="var(--frame)" stroke-width=".4" opacity=".45"/>
+          <text x="38" y="173" text-anchor="end" font-size="10">.50</text>
+          <line x1="46" y1="95" x2="1022" y2="95" stroke="var(--frame)" stroke-width=".4" opacity=".45"/>
+          <text x="38" y="98" text-anchor="end" font-size="10">.75</text>
+        </g>
+        <line x1="360" y1="26" x2="360" y2="320" stroke="var(--frame)" stroke-width=".5" stroke-dasharray="1 4"/>
+        <line x1="700" y1="26" x2="700" y2="320" stroke="var(--frame)" stroke-width=".5" stroke-dasharray="1 4"/>
+        <path pathLength="1" fill="none" stroke="var(--ink)" stroke-width="1.3"
+              d="M46 268 C 180 250, 250 205, 360 198 S 560 150, 700 128 S 900 88, 1022 74"/>
+        <g>
+          <circle cx="46" cy="268" r="2" fill="var(--ink)"/>
+          <circle cx="360" cy="198" r="3" fill="var(--ink)"/>
+          <circle cx="700" cy="128" r="4.5" fill="var(--ink)"/>
+          <circle cx="1022" cy="74" r="3" fill="var(--ink)"/>
+          <circle cx="530" cy="176" r="4.5" fill="url(#hatchA)" stroke="var(--oxblood)" stroke-width="1.2"/>
+        </g>
+        <line pathLength="1" x1="46" y1="320" x2="1022" y2="320" stroke="var(--ink)" stroke-width="1"/>
+      </svg>
+    </div>
+    <div class="plate-legend">
+      <span class="h">Key</span>
+      <span class="k"><svg width="10" height="10" aria-hidden="true"><circle cx="5" cy="5" r="3" fill="var(--ink)"/></svg>specimen hit, graded by size</span>
+      <span class="k"><svg width="10" height="10" aria-hidden="true"><circle cx="5" cy="5" r="3.4" fill="none" stroke="var(--oxblood)" stroke-width="1.2"/></svg>specimen miss, hollow and hatched</span>
+      <span class="k"><svg width="10" height="10" aria-hidden="true"><line x1="0" y1="5" x2="10" y2="5" stroke="var(--frame)" stroke-width=".8" stroke-dasharray="1 3"/></svg>stage separator</span>
+    </div>
+  </div>
+  <svg class="plate-mark" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+    <circle cx="6" cy="6" r="4" fill="none" stroke="var(--frame)" stroke-width=".7"/>
+    <path d="M6 0v12M0 6h12" stroke="var(--frame)" stroke-width=".7"/>
+  </svg>
+  <figcaption><b>Specimen.</b> Nothing on this plate is a measurement. It exists to
+  check that a stroke carrying <span class="mono">pathLength="1"</span> draws itself
+  once on approach, that the grid hairlines hold at 0.4px, and that the hatched miss
+  reads as a different <em>form</em> rather than a different hue.</figcaption>
+</figure>
+
+<!-- ── PLATE β — the overprint test ──────────────────────────────── -->
+<div class="rail"></div>
+<figure class="plate has-overprint" style="--fig-w:1040" aria-labelledby="pbT pbD">
+  <span class="tick tl" aria-hidden="true"></span><span class="tick tr" aria-hidden="true"></span>
+  <span class="tick bl" aria-hidden="true"></span><span class="tick br" aria-hidden="true"></span>
+  <span class="plate-no">II.</span>
+  <span class="plate-title">The overprint test — what we said, what happened</span>
+  <span class="plate-status">Specimen · not a published figure</span>
+  <div class="plate-head">
+    <span class="op-delta">Δ specimen +0.17 against the issued line</span>
+    <button class="op-btn" type="button" aria-pressed="false">Overprint: what happened</button>
+  </div>
+  <div class="plate-body">
+    <div class="plate-figure">
+      <svg role="img" aria-labelledby="pbT pbD" viewBox="0 0 1040 300">
+        <title id="pbT">Plate β — a specimen issued line with its realized overprint</title>
+        <desc id="pbD">Two specimen layers. The ink layer is the line as issued. The
+        verdigris layer, printed over it when the reader asks, is what a realized
+        series would look like. Both layers are present in the document; only the
+        script hides the second one until it is called for.</desc>
+        <g class="specimen-grid">
+          <line x1="46" y1="220" x2="1022" y2="220" stroke="var(--frame)" stroke-width=".4" opacity=".45"/>
+          <text x="38" y="223" text-anchor="end" font-size="10">.25</text>
+          <line x1="46" y1="140" x2="1022" y2="140" stroke="var(--frame)" stroke-width=".4" opacity=".45"/>
+          <text x="38" y="143" text-anchor="end" font-size="10">.50</text>
+          <line x1="46" y1="60" x2="1022" y2="60" stroke="var(--frame)" stroke-width=".4" opacity=".45"/>
+          <text x="38" y="63" text-anchor="end" font-size="10">.75</text>
+        </g>
+        <!-- as issued -->
+        <path pathLength="1" fill="none" stroke="var(--ink)" stroke-width="1.3"
+              d="M46 232 L 290 206 L 534 168 L 778 132 L 1022 96"/>
+        <g>
+          <circle cx="46" cy="232" r="3" fill="var(--ink)"/><circle cx="290" cy="206" r="3" fill="var(--ink)"/>
+          <circle cx="534" cy="168" r="3" fill="var(--ink)"/><circle cx="778" cy="132" r="3" fill="var(--ink)"/>
+          <circle cx="1022" cy="96" r="3" fill="var(--ink)"/>
+        </g>
+        <!-- what happened: ships drawn, hidden only under .js until asked -->
+        <g class="overprint-layer">
+          <path pathLength="1" fill="none" stroke="var(--verdigris)" stroke-width="1.3"
+                stroke-dasharray="6 3" d="M46 236 L 290 190 L 534 178 L 778 104 L 1022 62"/>
+          <g fill="none" stroke="var(--verdigris)" stroke-width="1.2">
+            <rect x="42.5" y="232.5" width="7" height="7"/><rect x="286.5" y="186.5" width="7" height="7"/>
+            <rect x="530.5" y="174.5" width="7" height="7"/><rect x="774.5" y="100.5" width="7" height="7"/>
+            <rect x="1018.5" y="58.5" width="7" height="7"/>
+          </g>
+        </g>
+        <line pathLength="1" x1="46" y1="280" x2="1022" y2="280" stroke="var(--ink)" stroke-width="1"/>
+      </svg>
+    </div>
+    <div class="plate-legend">
+      <span class="h">Key</span>
+      <!-- The label takes the colour of its own swatch. The issued line is drawn
+           in ink (the reference series); --oxblood is reserved for our numbers,
+           verdicts and the loss, so it is not spent on a legend word. -->
+      <span class="k"><svg width="14" height="10" aria-hidden="true"><line x1="0" y1="5" x2="14" y2="5" stroke="var(--ink)" stroke-width="1.3"/></svg>as issued</span>
+      <span class="k"><svg width="14" height="10" aria-hidden="true"><line x1="0" y1="5" x2="14" y2="5" stroke="var(--verdigris)" stroke-width="1.3" stroke-dasharray="4 2"/></svg><span class="realized">what happened</span></span>
+      <span class="k">Both layers are in the document. Remove the scripts and you see both.</span>
+    </div>
+  </div>
+  <svg class="plate-mark" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+    <circle cx="6" cy="6" r="4" fill="none" stroke="var(--frame)" stroke-width=".7"/>
+    <path d="M6 0v12M0 6h12" stroke="var(--frame)" stroke-width=".7"/>
+  </svg>
+  <figcaption><b>Specimen.</b> The correction pass of a bound edition: our line is
+  printed, and the realized layer is printed over it on request, with the delta set
+  as a marginal note in the rail.</figcaption>
+</figure>
+
+<!-- ── the engraved table + a marginal aside ─────────────────────── -->
+<div class="rail"><span class="sec-no">§ 1</span><span class="rail-note">Column rules only.
+No row fills, no hover, no zebra. Lining tabular figures.</span></div>
+<section class="body">
+  <table class="ledger">
+    <caption>Specimen table — structure only, no measurements</caption>
+    <thead>
+      <tr><th scope="col">Stage</th><th scope="col">Marks</th><th scope="col">Specimen A</th><th scope="col">Specimen B</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>First</td><td>72</td><td>0.153</td><td>0.116</td></tr>
+      <tr><td>Second</td><td>16</td><td>0.157</td><td>0.271</td></tr>
+      <tr><td>Third</td><td>16</td><td>0.333</td><td>0.271</td></tr>
+    </tbody>
+    <tfoot>
+      <tr class="total"><td>Specimen total</td><td>104</td><td>0.190</td><td>0.219</td></tr>
+    </tfoot>
+  </table>
+  <svg class="dotplot" width="270" height="12" role="img" aria-label="Specimen dot plot: six filled of eight">
+    <circle cx="6" cy="6" r="3.5" fill="var(--ink)"/><circle cx="26" cy="6" r="3.5" fill="var(--ink)"/>
+    <circle cx="46" cy="6" r="3.5" fill="var(--ink)"/><circle cx="66" cy="6" r="3.5" fill="var(--ink)"/>
+    <circle cx="86" cy="6" r="3.5" fill="var(--ink)"/><circle cx="106" cy="6" r="3.5" fill="var(--ink)"/>
+    <circle cx="126" cy="6" r="3.5" fill="none" stroke="var(--oxblood)" stroke-width="1.2"/>
+    <circle cx="146" cy="6" r="3.5" fill="none" stroke="var(--oxblood)" stroke-width="1.2"/>
+  </svg>
+</section>
+<aside class="aside">A marginal figure lives in the third column on a wide screen and
+folds under the measure below 880px.</aside>
+
+<!-- ── footnote strip ───────────────────────────────────────────── -->
+<ul class="footnotes watch">
+  <li id="fn1"><span class="fn-no">1.</span>The footnote strip sets in two columns on a
+  wide screen and one column below 880px, and fades in once — the only motion it has.</li>
+  <li><span class="fn-no">2.</span>Superscript references are set in the mono face so they
+  never disturb the serif's colour.</li>
+  <li><span class="fn-no">3.</span>Specimen footnote, carrying no claim.</li>
+</ul>
+
+<section class="body imprint">
+  <span class="rubric">Enquiries</span>
+  <p>The imprint block appears at the foot of every page of a bound volume.
+  <a href="mailto:kekeli0924@gmail.com?subject=Tournament%20window%20enquiry">Write to the editor</a>.</p>
+</section>
+
+<footer class="colophon">
+  <span>Hand test</span><span>tools/annual_system</span><span>Not betting advice</span>
+  <span>Not a published page</span>
+  <span class="epigraph">He refused to publish figures he had not finished checking.</span>
+</footer>
+
+<script>@@JS_BODY@@</script>
+</body>
+</html>

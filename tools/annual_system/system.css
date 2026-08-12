@@ -1,0 +1,349 @@
+/* ============================================================
+   THE ANNUAL — shared design system for flamsteed.io
+   Canonical source: tools/annual_system/system.css
+   Spec: docs/superpowers/specs/2026-08-12-site-redesign-annual-design.md
+
+   Each page inlines this block VERBATIM inside its own <style>,
+   immediately after the Bodoni Moda @font-face block
+   (/tmp/fonts/bm.css, built by tools/build_fonts.sh). Pages stay
+   self-contained: zero external requests.
+
+   Four rules here are load-bearing, not preference:
+     1. Two inks and a paper. --oxblood is what WE said (our
+        numbers, verdicts, the loss). --verdigris is what HAPPENED
+        (the market, the realized, the baseline). Nothing else may
+        take either ink — that is what lets a figure be read
+        without a legend.
+     2. A plate is not a card: fill identical to the page ground,
+        ruled frame, no shadow, no elevation, no hover state.
+     3. The unstyled document is the finished document. Every
+        animated style lives under `.js`, which system.js adds only
+        when motion is welcome. no-JS = reduced-motion =
+        old-browser = the complete page.
+     4. The display face is only ever weight 400. Emphasis is
+        italic, ink, or size — never synthetic bold.
+
+   DOM ORDER MATTERS in .sheet: write the rail item BEFORE its body
+   item. Grid auto-placement is sparse and does not backtrack, so a
+   .body followed by a .rail puts the rail on the next row.
+   ============================================================ */
+
+:root{
+  /* --- ink and paper (spec §2) --- */
+  --cream:#f6f1e5;--cream-deep:#efe8d6;--ink:#221e16;--ink-dim:#6d6553;
+  --oxblood:#7c2818;--verdigris:#1d5040;--frame:#2b261c;
+  /* --- type --- */
+  --display:"Bodoni Moda Disp",Didot,"Bodoni 72",Georgia,serif;
+  --body:"Iowan Old Style",Palatino,Georgia,serif;
+  --mono:ui-monospace,"SFMono-Regular",Menlo,monospace;
+  /* --- measure --- */
+  --rail:140px;--gutter:34px;--sheet:1120px;
+  /* --- one easing family, four durations (spec §4 budget) ---
+     above the fold: 700ms rise + 180ms max stagger = 880ms <= 1100ms
+     below the fold: 600ms max
+     nothing anywhere exceeds 700ms, so nothing exceeds 1.2s. */
+  --ease:cubic-bezier(.2,.6,.3,1);
+  --t-rise:700ms;--t-draw:600ms;--t-rule:520ms;--t-fade:420ms;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+
+/* Paper grain: ~330-byte feTurbulence tile at 4% alpha, tiled and
+   SCROLLING with the page (never position:fixed — a fixed grain
+   swims under the type). Suppressed inside plates, which paint
+   their own opaque cream. No -webkit-font-smoothing: it is a
+   dark-ground fix and thins these serifs on light. */
+body{background:var(--cream) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='4'/%3E%3CfeColorMatrix values='0 0 0 0 .13 0 0 0 0 .12 0 0 0 0 .09 0 0 0 .04 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)'/%3E%3C/svg%3E");
+color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.6;
+font-variant-numeric:oldstyle-nums;text-rendering:optimizeLegibility}
+
+/* Prose gets oldstyle figures; anything that must line up in a
+   column gets lining tabular. The loudest "a person set this". */
+table,.mono,.data,.ledger,.plate-status,.folio,.cover-fig .n{
+font-variant-numeric:lining-nums tabular-nums}
+
+h1,h2,.display,.plate-no,.sec-no,.folio,.cover-fig .n,.wordmark{
+font-family:var(--display);font-weight:400}
+h1{font-size:clamp(46px,7.2vw,92px);line-height:.96;letter-spacing:-.012em}
+/* Mask slack (spec §2): descenders and italic overhangs must not
+   shear at line-height .96. */
+h1 .line{display:block;overflow:hidden;padding-bottom:.14em;margin-bottom:-.14em}
+h1 .line>span{display:block}
+h1 em,h2 em{font-style:italic}
+h2{font-size:clamp(26px,3.2vw,38px);line-height:1.08;margin:46px 0 14px}
+/* small-caps run-in heads (methodology) */
+h3{font-family:var(--body);font-size:17px;font-weight:400;font-variant-caps:small-caps;
+letter-spacing:.05em;color:var(--ink);margin:26px 0 4px}
+p+p{margin-top:1.05em}
+.dek{font-size:20px;line-height:1.5;max-width:58ch;margin-top:20px}
+.lede{font-size:18px}
+
+a{color:inherit;text-decoration:underline;text-decoration-thickness:.5px;
+text-underline-offset:.16em;text-decoration-color:var(--ink-dim)}
+a:hover{text-decoration-color:var(--ink)}
+:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+::selection{background:var(--ink);color:var(--cream)}
+.skip{position:absolute;left:-9999px;top:0}
+.skip:focus{position:fixed;left:10px;top:10px;z-index:9;background:var(--cream);
+border:1px solid var(--frame);padding:8px 12px;font-family:var(--mono);font-size:11px}
+
+/* the two inks — semantic, never decorative */
+.ours,.verdict,strong.ours{color:var(--oxblood)}
+.realized,.market{color:var(--verdigris)}
+
+/* ---------- the sheet: rail + measure + margin (spec §2) ---------- */
+.sheet{display:grid;grid-template-columns:var(--rail) minmax(0,62ch) 1fr;
+column-gap:var(--gutter);max-width:var(--sheet);margin-inline:auto;padding-inline:24px}
+.rail{grid-column:1;align-self:start;font-family:var(--mono);font-size:11px;
+color:var(--ink-dim);letter-spacing:.14em;text-transform:uppercase;line-height:1.45}
+.rail>*{display:block}
+.rail>*+*{margin-top:18px}
+.body{grid-column:2}
+.aside{grid-column:3;align-self:start;max-width:262px;font-size:14px;color:var(--ink-dim)}
+.full{grid-column:1/-1}
+
+/* rail furniture */
+.folio{font-size:22px;color:var(--ink);letter-spacing:0;text-transform:none}
+.sec-no{font-size:30px;color:var(--ink-dim);letter-spacing:0;line-height:1}
+.cover-fig{margin-top:22px}
+/* Cover figures must fit the 140px rail, so the default is sized for a
+   six-glyph figure (minus 0.010, or 26/32). .lead is for a short one (104):
+   it is
+   the only place a cover figure may run to 64px without fouling the
+   headline beside it. */
+.cover-fig .n{display:block;font-size:42px;line-height:.9;color:var(--ink);
+letter-spacing:-.01em;text-transform:none;white-space:nowrap}
+.cover-fig.lead .n{font-size:64px;line-height:.86}
+.cover-fig.ours .n{color:var(--oxblood)}
+.cover-fig .k{display:block;margin-top:6px;font-size:10.5px;letter-spacing:.13em}
+.rail-note{text-transform:none;letter-spacing:.02em;font-size:11.5px;line-height:1.5}
+
+/* ---------- masthead, contents, folio strip (spec §2, §5.0) ---------- */
+.mast{grid-column:1/-1;border-bottom:3px double var(--ink);padding:24px 0 14px;
+display:flex;justify-content:space-between;align-items:baseline;gap:20px;flex-wrap:wrap}
+/* True smcp is not in the display subset (only kern,liga,onum,tnum),
+   so the wordmark is set in caps with optical tracking rather than
+   letting the browser synthesize small caps. */
+.wordmark{font-size:34px;letter-spacing:.22em;text-transform:uppercase;
+text-decoration:none;line-height:1}
+.issue{font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;
+text-transform:uppercase;color:var(--ink-dim)}
+.contents{grid-column:1/-1;display:flex;gap:26px;flex-wrap:wrap;padding:10px 0;
+border-bottom:1px solid var(--frame);font-family:var(--mono);font-size:11px;
+letter-spacing:.18em;text-transform:uppercase}
+.contents a{color:var(--ink-dim);text-decoration:none}
+.contents a:hover{color:var(--ink)}
+.contents .here{color:var(--ink);border-bottom:2px solid var(--oxblood);padding-bottom:6px}
+
+/* ---------- plates (spec §3) ---------- */
+/* Double rule = 1px border + 0.5px outline across a 3px gap.
+   Fill is the page ground: depth comes from rules, never elevation. */
+.plate{position:relative;border:1px solid var(--frame);outline:.5px solid var(--frame);
+outline-offset:3px;background:var(--cream);padding:30px 34px 26px;margin:26px 0}
+.sheet>.plate{grid-column:2/-1}
+.plate .tick{position:absolute;width:7px;height:7px;border:1px solid var(--frame)}
+.plate .tick.tl{top:-4px;left:-4px;border-right:0;border-bottom:0}
+.plate .tick.tr{top:-4px;right:-4px;border-left:0;border-bottom:0}
+.plate .tick.bl{bottom:-4px;left:-4px;border-right:0;border-top:0}
+.plate .tick.br{bottom:-4px;right:-4px;border-left:0;border-top:0}
+/* the plate number hangs in the margin rail, OUTSIDE the frame */
+.plate-no{position:absolute;top:-4px;right:calc(100% + 22px);width:122px;
+text-align:right;font-size:40px;line-height:1;color:var(--ink)}
+/* the title sits ON the top rule; its cream ground breaks the rule */
+.plate-title{position:absolute;top:-.66em;left:26px;background:var(--cream);
+padding:0 .6em;font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;
+text-transform:uppercase;color:var(--ink-dim);line-height:1.2}
+/* The status mark is set uppercase, but WRITE IT UPPERCASE IN THE MARKUP
+   too: tools/site_check.sh greps the file for the literal seal token and
+   its lock-version string, and text-transform does not change the bytes
+   it reads. (Those tokens are deliberately not spelled out anywhere in
+   this stylesheet: every page inlines this block, and a page that names
+   the token in a comment would be asked for a lock version it may have
+   no business claiming.) */
+.plate-status{position:absolute;top:-.66em;right:26px;background:var(--cream);
+padding:0 .6em;font-family:var(--mono);font-size:10px;letter-spacing:.18em;
+text-transform:uppercase;color:var(--ink-dim);line-height:1.2}
+.plate-head{display:flex;justify-content:flex-end;align-items:baseline;gap:12px;
+flex-wrap:wrap;min-height:0}
+/* figure + legend, and the deliberate void: the legend occupies the
+   first row of the second column only. The row beneath it is never
+   filled — that unworked corner is the composition's rest, and the
+   plate mark sits in it. */
+.plate-body{display:grid;grid-template-columns:minmax(0,1fr) 172px;
+grid-template-rows:auto 1fr;column-gap:30px}
+.plate-figure{grid-column:1;grid-row:1/-1;min-width:0}
+.plate-figure>svg{display:block;width:100%;height:auto}
+.plate-legend{grid-column:2;grid-row:1;font-family:var(--mono);font-size:10.5px;
+letter-spacing:.1em;color:var(--ink-dim);line-height:1.5}
+.plate-legend .k{display:flex;gap:9px;align-items:baseline;margin-bottom:9px}
+.plate-legend .k svg{flex:none;margin-top:1px}
+.plate-legend .h{display:block;letter-spacing:.2em;text-transform:uppercase;
+color:var(--ink);margin-bottom:10px}
+.plate-mark{position:absolute;right:10px;bottom:8px;opacity:.55}
+figcaption{font-size:13px;line-height:1.5;color:var(--ink-dim);margin-top:14px;max-width:56ch}
+figcaption b{font-weight:inherit;color:var(--ink)}
+
+/* ---------- the errata overprint (spec §4) ---------- */
+/* Both layers ship in the DOM, drawn. Only .js hides the overprint
+   until it is asked for, so no-JS and reduced-motion see both. */
+.overprint-layer{transition:opacity var(--t-fade) var(--ease)}
+.js .plate.has-overprint:not(.printed) .overprint-layer{opacity:0}
+.plate.printed .overprint-layer{opacity:1}
+.op-btn{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+border:1px solid var(--frame);background:var(--cream);color:var(--ink);
+padding:5px 10px;cursor:pointer;line-height:1.2}
+.op-btn:hover{border-color:var(--ink)}
+.op-btn[aria-pressed="true"]{color:var(--verdigris);border-color:var(--verdigris)}
+/* the delta prints as a marginal note in the rail, beside the plate */
+.op-delta{position:absolute;top:58px;right:calc(100% + 22px);width:122px;text-align:right;
+font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;color:var(--verdigris);
+line-height:1.45;transition:opacity var(--t-fade) var(--ease)}
+.js .plate.has-overprint:not(.printed) .op-delta{opacity:0}
+
+/* ---------- the engraved table (index record, methodology log) ---------- */
+/* Hairline COLUMN rules only. No row fills, no hover, no zebra. */
+.ledger{width:100%;border-collapse:collapse;font-size:15px}
+.ledger caption{caption-side:top;text-align:left;font-family:var(--mono);font-size:10.5px;
+letter-spacing:.18em;text-transform:uppercase;color:var(--ink-dim);padding-bottom:12px}
+.ledger th,.ledger td{padding:7px 14px;text-align:right;vertical-align:baseline;
+border-left:.5px solid var(--frame)}
+.ledger th:first-child,.ledger td:first-child{text-align:left;padding-left:0;border-left:0}
+.ledger thead th{background:var(--cream-deep);font-family:var(--mono);font-weight:400;
+font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-dim);
+border-bottom:1px solid var(--frame)}
+.ledger tfoot td,.ledger tr.total td{border-top:2px solid var(--ink);padding-top:9px}
+.dotplot{display:block;margin-top:6px}
+
+/* ---------- footnote strip + apparatus ---------- */
+sup.fn-ref{font-family:var(--mono);font-size:10px;line-height:0;vertical-align:super}
+sup.fn-ref a{text-decoration:none}
+.footnotes{grid-column:1/-1;border-top:1px solid var(--frame);margin-top:46px;padding-top:14px;
+columns:2;column-gap:var(--gutter);font-size:13px;line-height:1.5;color:var(--ink-dim)}
+.footnotes li{list-style:none;break-inside:avoid;margin-bottom:9px}
+.footnotes .fn-no{font-family:var(--mono);font-size:10px;letter-spacing:.1em;
+color:var(--ink);margin-right:.5em}
+
+/* ---------- imprint + colophon (foot of all three pages) ---------- */
+.imprint{border-top:1px solid var(--frame);border-bottom:1px solid var(--frame);
+padding:18px 0;margin:28px 0;font-size:16px}
+.imprint .rubric{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;
+text-transform:uppercase;color:var(--ink-dim);margin-bottom:8px}
+.colophon{grid-column:1/-1;border-top:3px double var(--ink);margin-top:54px;
+padding:16px 0 64px;display:flex;flex-wrap:wrap;gap:9px 26px;
+font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:var(--ink-dim)}
+.colophon .epigraph{font-family:var(--body);font-style:italic;letter-spacing:0;
+font-size:14px;flex-basis:100%;max-width:58ch}
+.rule-x{display:block;height:1px;background:var(--frame);border:0;margin:22px 0}
+
+/* ============================================================
+   MOTION — everything below is under .js, and .js is only added
+   when motion is welcome. Delete the two script blocks and what is
+   left is the finished page; that is the proof, not a claim.
+   pathLength is matched case-sensitively on SVG elements, so the
+   markup must write pathLength="1" exactly (never a magic dash).
+   ============================================================ */
+.js h1 .line>span{transform:translateY(105%);transition:transform var(--t-rise) var(--ease)}
+.js h1.in .line>span{transform:none}
+.js h1 .line:nth-child(2)>span{transition-delay:90ms}
+.js h1 .line:nth-child(3)>span{transition-delay:180ms}
+.js .plate [pathLength]{stroke-dasharray:1;stroke-dashoffset:1;
+transition:stroke-dashoffset var(--t-draw) var(--ease)}
+.js .plate.in [pathLength]{stroke-dashoffset:0}
+.js .rule-x{transform:scaleX(0);transform-origin:0 50%;
+transition:transform var(--t-rule) var(--ease)}
+.js .in .rule-x,.js .rule-x.in{transform:scaleX(1)}
+.js .footnotes{opacity:0;transition:opacity var(--t-fade) var(--ease)}
+.js .footnotes.in{opacity:1}
+
+/* .js is decided once, at load. A reader who turns reduced motion
+   on afterwards still gets the end state — that is what this block
+   is for, and it zeroes transition-delay as well as duration. */
+@media (prefers-reduced-motion:reduce){
+ *,*::before,*::after{transition-duration:.01ms!important;transition-delay:0s!important;
+ animation-duration:.01ms!important;animation-delay:0s!important}
+ .js h1 .line>span{transform:none}
+ .js .plate [pathLength]{stroke-dasharray:none;stroke-dashoffset:0}
+ .js .rule-x{transform:none}
+ .js .footnotes{opacity:1}
+ .js .plate.has-overprint:not(.printed) .overprint-layer,
+ .js .plate.has-overprint:not(.printed) .op-delta{opacity:1}
+}
+
+/* ---------- responsive (spec §8) ---------- */
+@media (max-width:880px){
+ .sheet{grid-template-columns:minmax(0,1fr);padding-inline:18px}
+ .rail,.body,.aside,.full{grid-column:1}
+ .sheet>.plate{grid-column:1}
+ .aside{max-width:none;border-top:1px solid var(--frame);padding-top:14px;margin-top:26px}
+ .mast{padding-top:18px}
+ .wordmark{font-size:27px}
+ /* the folio becomes a rule-bounded strip under the dek */
+ .folio{display:flex;justify-content:space-between;align-items:baseline;
+ border-top:1px solid var(--frame);border-bottom:1px solid var(--frame);
+ padding:8px 0;font-size:19px}
+ .rail>*+*{margin-top:14px}
+ .cover-fig{display:flex;align-items:baseline;gap:12px;margin-top:12px}
+ .cover-fig .n{font-size:38px}
+ .cover-fig .k{margin-top:0}
+ /* The rail collapses into an inline plate header. It is a block, not a
+    flex row: the number and title run together as a heading, and the
+    status mark, the control and the delta each take their own line as
+    shrink-to-fit boxes. A long title otherwise runs straight into the
+    status mark and the two read as one sentence. */
+ .plate{padding:20px 16px}
+ .plate-no,.plate-title,.plate-status,.op-delta{position:static;background:none;
+ padding:0;width:auto;text-align:left}
+ .plate-head{display:block;padding-bottom:9px;margin-bottom:16px;
+ border-bottom:1px solid var(--frame)}
+ .plate-no{display:inline-block;font-size:26px;line-height:1;margin-right:8px}
+ .plate-title,.plate-status,.op-btn,.plate-legend{font-size:11px}
+ .plate-title{display:inline}
+ /* the mark becomes a stamp, which is what it is */
+ .plate-status{display:block;width:max-content;max-width:100%;margin-top:12px;
+ border:1px solid var(--frame);padding:3px 7px}
+ .op-btn{display:block;width:max-content;max-width:100%;margin-top:12px}
+ .op-delta{display:block;font-size:11px;margin-top:12px}
+ /* stack figure over legend */
+ .plate-body{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto;row-gap:16px}
+ .plate-figure{grid-column:1;grid-row:1}
+ .plate-legend{grid-column:1;grid-row:2}
+ /* Spec §8 floor: never scale a plate label down. The figure is laid
+    out at 1.12x its authored user-space width inside a scroll box, so
+    a 10px authored label lands at 11.2 CSS px at 390px. Set --fig-w
+    to the SVG's viewBox width. */
+ .plate-figure{overflow-x:auto}
+ .plate-figure>svg{width:calc(var(--fig-w,1040) * 1.12px);max-width:none}
+ .footnotes{columns:1}
+ .ledger{font-size:14px}
+ .ledger th,.ledger td{padding:6px 9px}
+}
+
+/* ---------- print (spec §6): an annual that prints badly is a costume ---------- */
+@media print{
+ @page{margin:16mm}
+ :root{--ink:#000;--ink-dim:#333;--frame:#000;--cream:#fff;--cream-deep:#fff}
+ body{background:#fff;font-size:11pt;line-height:1.45}
+ /* whatever the .js path was mid-way through, the paper gets the end state */
+ *,*::before,*::after{transition:none!important;animation:none!important}
+ .js h1 .line>span{transform:none}
+ .js .plate [pathLength]{stroke-dasharray:none;stroke-dashoffset:0}
+ .js .rule-x{transform:none}
+ .js .footnotes{opacity:1}
+ .js .plate.has-overprint .overprint-layer,.js .plate.has-overprint .op-delta{opacity:1}
+ .skip,.op-btn{display:none}
+ .plate{outline:none;border:.5px solid #000;break-inside:avoid;break-before:page;
+ padding:18px 20px}
+ .plate.opens-page{break-before:auto}
+ .plate-figure{overflow:visible}
+ .plate-figure>svg{width:100%}
+ .contents{border-bottom:.5px solid #000}
+ a{text-decoration:none}
+ /* Only http(s) URLs are printed after their anchor. A mailto: href would
+    print its whole query string, so the imprint must carry the address as
+    visible text instead of hiding it behind "write to the editor". */
+ a[href^="http"]::after{content:" (" attr(href) ")";font-size:.78em;color:#333;
+ word-break:break-all}
+ .contents a[href]::after,.wordmark[href]::after{content:none}
+ .footnotes{columns:2;break-inside:avoid}
+ .colophon{padding-bottom:0}
+}
