@@ -27,8 +27,17 @@ else say "G4 whole-file externals: ok"; fi
 # do-not-ship strings
 grep -nEi 'provenance hash|ZERO LEAKAGE VIOLATIONS' "$D"/*.html && bad "do-not-ship string present" || say "do-not-ship: ok"
 
-# folio typography: never N№ / Nº
+# folio typography: never N№ / Nº, and every № is followed by a hair space
+# (U+200A) — the Global Constraints glyph, so masthead and folio agree on
+# every page. Byte escapes (not \u) so macOS bash 3.2 reads them too.
 grep -n 'N№\|Nº' "$D"/*.html && bad "bad folio numero" || say "folio: ok"
+NUMERO=$'\xe2\x84\x96' HAIRSP=$'\xe2\x80\x8a'
+for f in "$D"/*.html; do
+  total=$(LC_ALL=C grep -o "$NUMERO" "$f" | wc -l || true)
+  haired=$(LC_ALL=C grep -o "${NUMERO}${HAIRSP}" "$f" | wc -l || true)
+  [ "$total" -eq "$haired" ] || bad "$f: № without hair space (U+200A) after it"
+done
+say "folio hair space: checked"
 
 # no synthetic bold on the display face
 grep -nE 'font-family:[^;}]*display[^;}]*;[^}]*font-weight:\s*[5-9]00' "$D"/*.html && bad "display face given weight >400" || say "display weight: ok"
