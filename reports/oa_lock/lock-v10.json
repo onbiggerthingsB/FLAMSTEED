@@ -1,0 +1,2020 @@
+{
+  "code_commit": "6670bedc5908c453636d8237ecf3ed52c4fc6ada",
+  "documents": {
+    "aliases": {
+      "path": "config/oa_aliases.yaml",
+      "sha256": "dd4227c0aa6dd2888f5dd2cf420ad89edcd9e2cbef592c609f215773925c625d"
+    },
+    "analysis_spec": {
+      "path": "reports/oa_analysis_spec.md",
+      "sha256": "a0d0be43f2764c4c2ebac799257181617e7eb62f50a049b42ce02bdaa762f791"
+    },
+    "dev_coverage": {
+      "path": "config/oa_dev_coverage.yaml",
+      "sha256": "23e7fb0e76cd7160ff43c7736c43ac02bce60124df8b323df65124ec70486e76"
+    },
+    "dev_manifest": {
+      "path": "config/oa_dev_manifest.yaml",
+      "sha256": "de606fbd166a2c231e3305bf52e394ed6e59966fd2895f1f7d03e029d70a2be4"
+    },
+    "eval_manifest": {
+      "path": "config/oa_eval_manifest.yaml",
+      "sha256": "3ee80945763a77330aa31748c6c97c257f563e87b11299b6c3909b3ffc50e516"
+    },
+    "prereg": {
+      "path": "reports/oa_prereg.md",
+      "sha256": "3812973367c01b224f3adb260f96bf0eb1f8847a76cafa7c1643af3b04fee8f5"
+    },
+    "scored_inventory": {
+      "path": "config/oa_scored_inventory.yaml",
+      "sha256": "94b528e3b2426bbbc593fa578cba0b32f4066f5bd80c4f0cdfbe4e066b33218d"
+    },
+    "selection_trace": {
+      "path": "reports/oa_selection_trace.json",
+      "sha256": "1ba6d160e0751e2301b6afa52caea9283112f7edbbcd7bf0adb94b019cec713e"
+    }
+  },
+  "evidence": {
+    "acquisition_journal_sha256": "828ea9d5562598b4646dc00c6599f36ac789861b72defc8a2e59183170aa828e",
+    "dev_ledger_sha256": "2e64df36f0a3f8993cab4a81a209f903cfb985f2044d737781e9b009b0537a00",
+    "posterior_cache_bytes": "3875599615",
+    "posterior_cache_dir": "data/cache/oa_dev",
+    "posterior_cache_files": "769",
+    "posterior_cache_note": "attested at lock time, NOT re-verified by verify_chain \u2014 the cache grows with later fits",
+    "posterior_cache_sha256": "b6b1c7f70f68b47137619edf9fae75f33c006976052041d04acab1f614ff1494",
+    "scored_ledger_sha256": "f5756f99ac79092ade7f3255e65a47506e63a520306d5d29d7ce297f1216d46a"
+  },
+  "issued_at": "2026-08-12T03:28:29Z",
+  "power": {
+    "generation": "iid",
+    "mde_at_80pct_power": 0.008,
+    "n_dev": 259,
+    "n_primary_design": 217,
+    "noise_sd": 0.06324,
+    "note": "the observed development effect (0.005) is SMALLER than the MDE (0.008): power at that effect size is roughly 0.6, so a non-adoption on this design is weak evidence of no effect",
+    "observed_dev_effect": -0.00504,
+    "r_dev": -0.1168
+  },
+  "prior_lock_sha256": "d12c00d4672d63c175ae46bdb2537d9a8603892ab655ff237a8b0c06e0ef7a9f",
+  "schema": "oa-lock-v1",
+  "scored_inventory": {
+    "fixtures": [
+      {
+        "away": "Serbia",
+        "cut_raw_sha256": "ae6989e1bdcb2ca8e775cc6878860edfa15b0ff8c9691ce8c62ce80a8569854f",
+        "date": "2024-06-25",
+        "eligible": true,
+        "fixture_id": "003fb0bc9df59903463cd53adfafb8cdefc8c975",
+        "home": "Denmark",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Croatia",
+        "cut_raw_sha256": "daae7adca304dcc5331e643d36d5106e1b10df9aa8c3f5cf082a6b1bf271a56b",
+        "date": "2022-12-13",
+        "eligible": true,
+        "fixture_id": "008cf4bd2d440e5954c606579070f59ff944d729",
+        "home": "Argentina",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Portugal",
+        "cut_raw_sha256": "b2889c599d0d1a5f9fb792d323923bf5acb4a3b687fa5063f701828ddd0c956d",
+        "date": "2022-12-10",
+        "eligible": true,
+        "fixture_id": "01d09baddc5ac5e7138a13bf15743eec60061a62",
+        "home": "Morocco",
+        "pool": "wc2022"
+      },
+      {
+        "away": "South Korea",
+        "cut_raw_sha256": "89f7633bb00503fee917a7f0c87c99ba289726b86249e0961e7b810a0a14afd9",
+        "date": "2026-06-24",
+        "eligible": true,
+        "fixture_id": "02730a4b55eef8c87d258b4c7e99e57938f593ec",
+        "home": "South Africa",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Ecuador",
+        "cut_raw_sha256": "2eb7035c47cb7e6571e6464ff8d249259b353390f0a4443dac1eb95acda8c2e0",
+        "date": "2026-06-30",
+        "eligible": true,
+        "fixture_id": "043606e4dda35aa9f3baebf4c7be2b065c863870",
+        "home": "Mexico",
+        "pool": "wc2026"
+      },
+      {
+        "away": "England",
+        "cut_raw_sha256": "e27a6202cb1748b6813099d098ca9cecc625fd34485b05ca29005a2e2244f6e1",
+        "date": "2022-11-29",
+        "eligible": true,
+        "fixture_id": "04f673bef56bbabe4ff1ca7d454e8f0dfed74431",
+        "home": "Wales",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Cape Verde",
+        "cut_raw_sha256": "55589eb516b0da57d006bb6d1ea705923e2ce7a8d2ad337a1ea8ad4891fb26f7",
+        "date": "2026-07-03",
+        "eligible": true,
+        "fixture_id": "07b2cd3eb58af6fb214f7cbe7c5e8c7514a6ec18",
+        "home": "Argentina",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Sweden",
+        "cut_raw_sha256": "e660800fbe8e8b7217bde4b0e1e9929a46421db0c674896e8e97d1a20ee3de3a",
+        "date": "2026-06-25",
+        "eligible": true,
+        "fixture_id": "07e754a7cf28afd0f9b9dc34c5f6fd084b96f93d",
+        "home": "Japan",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Spain",
+        "cut_raw_sha256": "9dc0b6eb3fda5e9a13a16b99c14c43b21225dd223558e4b47067e70cecd9d334",
+        "date": "2024-07-05",
+        "eligible": true,
+        "fixture_id": "096b8e5a232755e93143e987081de9b0675bebd3",
+        "home": "Germany",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Egypt",
+        "cut_raw_sha256": "0e000e25ec6abda1dde6246fad106310b2ebbe3bc35e57ba55f9d80765629c5d",
+        "date": "2026-07-03",
+        "eligible": true,
+        "fixture_id": "09b4b1a55b515bfda7331f04464115247876523b",
+        "home": "Australia",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Mexico",
+        "cut_raw_sha256": "f850f97701b81e144ceec2b5b2085dc978f2804fb08c46c1e84b4d7d1fe55b14",
+        "date": "2022-11-26",
+        "eligible": true,
+        "fixture_id": "0c49025d02e04d4063b84c6931ff27f38bfb9f44",
+        "home": "Argentina",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Switzerland",
+        "cut_raw_sha256": "27779179d3383ec209d4d7935088db1ed8bba42e0bb6a97cf2141417012939b6",
+        "date": "2024-06-23",
+        "eligible": true,
+        "fixture_id": "0cb73ea6d8ea5de29533060a0f1568b30fb17d39",
+        "home": "Germany",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Uzbekistan",
+        "cut_raw_sha256": "effb48c4ed7737c7ac4090f2df8d427c7b6e1526f858f923adf930a45577ec1c",
+        "date": "2026-06-23",
+        "eligible": true,
+        "fixture_id": "0fb2adb3893ec393c582c3c9e4f7551e3df4a6fd",
+        "home": "Portugal",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Croatia",
+        "cut_raw_sha256": "73c4d34d03fb5fa10a2f7418f5c166126e04efec3d983d25d889c1039337ee23",
+        "date": "2024-06-15",
+        "eligible": true,
+        "fixture_id": "10f027b6018b083cbf5e1df3c2563194b12c11ae",
+        "home": "Spain",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Iran",
+        "cut_raw_sha256": "ff38a8f226bd1a4498220ac5121eb561a2f731c597d7dd483473ab6375d96655",
+        "date": "2022-11-25",
+        "eligible": true,
+        "fixture_id": "12bcc95c4bf210e0e479a6f974f6e73eb450c385",
+        "home": "Wales",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Austria",
+        "cut_raw_sha256": "d197767718c66b61db4ef02d5b39549f7d052b31c106736315fff70e75483c87",
+        "date": "2026-06-27",
+        "eligible": true,
+        "fixture_id": "12f1ff8ad7c417c50bb9aeede0372dc7e755e939",
+        "home": "Algeria",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Switzerland",
+        "cut_raw_sha256": "18f12efa4b12c54e67aed4156e146cb49ff3644a5b44bf94237f227be1ed6c2c",
+        "date": "2026-06-13",
+        "eligible": true,
+        "fixture_id": "14ee9254ce94efc1f1c3808602b4089aa5f2f921",
+        "home": "Qatar",
+        "pool": "wc2026"
+      },
+      {
+        "away": "France",
+        "cut_raw_sha256": "264bb306372d5d5119494e7f5c1b271be03d10d86bd5a757f871467aeb07ce2f",
+        "date": "2026-07-04",
+        "eligible": true,
+        "fixture_id": "1577e767b43571e7f384566f2efcb4736b373d0a",
+        "home": "Paraguay",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Switzerland",
+        "cut_raw_sha256": "1b0e11116958a7586e816469af028028024929afce2e453bbb4724b801751ea5",
+        "date": "2024-06-15",
+        "eligible": true,
+        "fixture_id": "16a6ddcf0a0b5bc975aaaa756a866317869bfc4e",
+        "home": "Hungary",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Sweden",
+        "cut_raw_sha256": "c77fd6786334d4c3f8d18b6ccc64673f85725210e2a9e8d70b679d0f7b8fbaf5",
+        "date": "2026-06-20",
+        "eligible": true,
+        "fixture_id": "16f65c4191de4b97cbd3833b7276f5d36704371a",
+        "home": "Netherlands",
+        "pool": "wc2026"
+      },
+      {
+        "away": "DR Congo",
+        "cut_raw_sha256": "5d4029e3055ecfb2a9698e6e77fefe2088223925dbb5b10f1f85dfb20c7b79bd",
+        "date": "2026-07-01",
+        "eligible": true,
+        "fixture_id": "17e24b8b61dfb57a36eff5107bc8a5f154d3412e",
+        "home": "England",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Belgium",
+        "cut_raw_sha256": "eb31da442ca61ed6ec245530a324bf42f2b4d2e3cae8944f9081c97028e7ef7c",
+        "date": "2026-07-06",
+        "eligible": true,
+        "fixture_id": "19339dd6f111049457bbfe7762252f2b11c92762",
+        "home": "United States",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Saudi Arabia",
+        "cut_raw_sha256": "a7d3fc93ae3f734ed976509bdd6f8670aeccf7da569fa0da109ef6de10bfa365",
+        "date": "2026-06-26",
+        "eligible": true,
+        "fixture_id": "19be1f978eb386a07ad2011c728272d34a7e040f",
+        "home": "Cape Verde",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Japan",
+        "cut_raw_sha256": "013eb8649d924cb16fdcf32cf93b2d63f395256dd2f795719c25799965405bd0",
+        "date": "2022-11-23",
+        "eligible": true,
+        "fixture_id": "1acba342a09c0f3d7d88233b98eaead73cde9244",
+        "home": "Germany",
+        "pool": "wc2022"
+      },
+      {
+        "away": "France",
+        "cut_raw_sha256": "42c2a97c314f3a30cd0c5db68486c3488564b6c34a2c15fbaf4f88929ac0fda1",
+        "date": "2022-12-10",
+        "eligible": true,
+        "fixture_id": "1d84c51c953e05f422a49cfa9ab9dc603c4c537b",
+        "home": "England",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Slovenia",
+        "cut_raw_sha256": "24f473dd69834e58d4163bf700f8798fe809ca042ac7638aa4f19bd92eee535a",
+        "date": "2024-07-01",
+        "eligible": true,
+        "fixture_id": "1d8e567ee94309c870d2f57a40f4cd14b3056ff4",
+        "home": "Portugal",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Paraguay",
+        "cut_raw_sha256": "49d694924c7a58b406a962cc88508e12f8a89afac3d945a6d8c631a81bdf29d3",
+        "date": "2026-06-12",
+        "eligible": true,
+        "fixture_id": "1dcf1eb3f3506fcbf80b1b1575af99afb7c8a659",
+        "home": "United States",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Ivory Coast",
+        "cut_raw_sha256": "9911ce01f805cf0a3b5b80398d7669d501106b24a0dc422abfd32bf3885e8159",
+        "date": "2026-06-20",
+        "eligible": true,
+        "fixture_id": "21b46efa403787487d77f49426f833c6d2b13e85",
+        "home": "Germany",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Ghana",
+        "cut_raw_sha256": "b8a464887690e118e0c2cb94f7679d0819e438eda7c20508f3f76554dbf536e5",
+        "date": "2026-07-03",
+        "eligible": true,
+        "fixture_id": "2314e25c013df838735e9c8837afd0ff8f96f8ba",
+        "home": "Colombia",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Slovakia",
+        "cut_raw_sha256": "e3be4098e5e7aa641bbd4089e595087b345776841e5c0b0edbb07ddb03fe2189",
+        "date": "2024-06-17",
+        "eligible": true,
+        "fixture_id": "235ebc6419484d76971a129475a8de6b51a3f629",
+        "home": "Belgium",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Cura\u00e7ao",
+        "cut_raw_sha256": "bfcd04bcab24767ee941d0ebeb61c75fee4ae1a2088095e971de3dc21b2a6bc9",
+        "date": "2026-06-14",
+        "eligible": true,
+        "fixture_id": "243f5b8324ff283df64537f7d559b72bfcd85b95",
+        "home": "Germany",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Czech Republic",
+        "cut_raw_sha256": "17b688c67716188d47a86986de40d6a646c0b6c76d892b07eb6070d0e4efb353",
+        "date": "2026-06-24",
+        "eligible": true,
+        "fixture_id": "2442b6f1d32dca00f2f22b2ac4c1837c621035c5",
+        "home": "Mexico",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Albania",
+        "cut_raw_sha256": "586e8499156f9357b10c4b7fcf9a5b8c269dfc2a5d171bcd46bcb36ab32894e3",
+        "date": "2024-06-15",
+        "eligible": true,
+        "fixture_id": "247bbe44296829cc888b7fc64e1ae14f3d514bc6",
+        "home": "Italy",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Costa Rica",
+        "cut_raw_sha256": "b0973a2f1a4795dd1528ab623d9ee1a28ce0f4c1559c86895c4af9bffeb927d5",
+        "date": "2022-11-27",
+        "eligible": true,
+        "fixture_id": "26ad295b18b7061f7ede77e7313a55e43b8d45b9",
+        "home": "Japan",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Belgium",
+        "cut_raw_sha256": "90255d36b62a4600327fbc922984d088a3b7bed2b4d21a197c32c844a18aa3b8",
+        "date": "2022-12-01",
+        "eligible": true,
+        "fixture_id": "279ef1734a0021bb0f934f163b0044de0293cc61",
+        "home": "Croatia",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Egypt",
+        "cut_raw_sha256": "f00ef87fde26031e31c5faa8c358da673a4d31e61db6856a11dae69786fa32a7",
+        "date": "2026-06-21",
+        "eligible": true,
+        "fixture_id": "27a4e4e4dfdd07fddb9bab56a0e8b0ec183a8513",
+        "home": "New Zealand",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Egypt",
+        "cut_raw_sha256": "feeec2cf32b9e5ddd3132f7e6a55cc3e2066f39fcc684ad4da8fcf7d9a14e765",
+        "date": "2026-07-07",
+        "eligible": true,
+        "fixture_id": "28e8a95eb5f9958939394587f1898b0cddbf5af2",
+        "home": "Argentina",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Turkey",
+        "cut_raw_sha256": "2af93c765137446023a08677702764485302630a10349796d4d405e365799999",
+        "date": "2024-07-06",
+        "eligible": true,
+        "fixture_id": "2b26fc979d5c804bd5d4f88fc5e0db1cebaae219",
+        "home": "Netherlands",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Ecuador",
+        "cut_raw_sha256": "3a583e03155b6d8efad7586085f1d0f8b1c78321873a7d4bef50273a1dd862e1",
+        "date": "2022-11-25",
+        "eligible": true,
+        "fixture_id": "2b4d088e789caac6f14c0c15cc08476c38861c71",
+        "home": "Netherlands",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Serbia",
+        "cut_raw_sha256": "612340c1413d3b2dfd4a06af0a61ee2d9648579f551296ff31fd175d01ea4ed4",
+        "date": "2022-11-24",
+        "eligible": true,
+        "fixture_id": "2c5f6f30c7fd8932175ff2161861592146a1d3c5",
+        "home": "Brazil",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Hungary",
+        "cut_raw_sha256": "be1006cec21962f46f0871f04e9698e3fe91a951ac93857b75cb5e3e0ecb161b",
+        "date": "2024-06-19",
+        "eligible": true,
+        "fixture_id": "2d5ee459298e21ead2d11cd777c60e3e3ae63058",
+        "home": "Germany",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Croatia",
+        "cut_raw_sha256": "b82467c5c8310bb229ed4608f18fd7a9385845d5ffe4f8efb6fc099eab4d9c7b",
+        "date": "2022-12-05",
+        "eligible": true,
+        "fixture_id": "2dbb129a42e5fa9980f8cc9d803d29a3c4aa0243",
+        "home": "Japan",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Austria",
+        "cut_raw_sha256": "5812ea0b79b88fe856b9072258134e291ff1ed968592b6e494eb81a68f3e45de",
+        "date": "2024-06-25",
+        "eligible": true,
+        "fixture_id": "2e73d8254ae0f5c5982807c7097645f7696b197a",
+        "home": "Netherlands",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Belgium",
+        "cut_raw_sha256": "bb733a7fbf904bae5343b999467e5dc358c33b8d037128ed3cd24c7f9965d020",
+        "date": "2026-07-10",
+        "eligible": true,
+        "fixture_id": "2f8db8bff87a32fda664261970f571fcd24aba04",
+        "home": "Spain",
+        "pool": "wc2026"
+      },
+      {
+        "away": "England",
+        "cut_raw_sha256": "d2140831a7320cc7dd85f8ca1e8f73628674df11f2cf6727d8c65a46de3ef49d",
+        "date": "2026-07-18",
+        "eligible": true,
+        "fixture_id": "2fcaa8d209c2f3131e95300773a4da37d7654595",
+        "home": "France",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Croatia",
+        "cut_raw_sha256": "034685298d98c09bd2522d323472f3480b0dd1ceb85060c768eb26f1787ec269",
+        "date": "2026-06-17",
+        "eligible": true,
+        "fixture_id": "30f35f556e2c7d03adaaae3dc03b6f596f0ad800",
+        "home": "England",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Brazil",
+        "cut_raw_sha256": "df22b0e0352aafb60eff3e3484518d60eba0065084defba34e376b30d4a69814",
+        "date": "2022-12-02",
+        "eligible": true,
+        "fixture_id": "30fa767366019d7d175b420c8b6bd906c66d0152",
+        "home": "Cameroon",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Morocco",
+        "cut_raw_sha256": "c6245b6ec73bd82455e174682f71edf3dbd703ba3c4a99063317c9552cb8bf61",
+        "date": "2022-12-14",
+        "eligible": true,
+        "fixture_id": "316d0179f1b890b70065170f698ff8c3ed13e4a5",
+        "home": "France",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Czech Republic",
+        "cut_raw_sha256": "7d3210233cad49b316d937b09da69d0b6d5cc601bedc8be8ad15a03370d2de6b",
+        "date": "2024-06-18",
+        "eligible": true,
+        "fixture_id": "31981f0f9cf388be5b37d76f46ebcc201684e777",
+        "home": "Portugal",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Morocco",
+        "cut_raw_sha256": "777f553b07289cd283dbce7106aa71370e41032135b5642354caaa089aba2661",
+        "date": "2022-11-27",
+        "eligible": true,
+        "fixture_id": "31cfc3caa9f989561d373b9670dc156a1b102599",
+        "home": "Belgium",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Georgia",
+        "cut_raw_sha256": "1d954fffcc754cdf555e5243236a220be4685ea08330271933924cd5bb21472d",
+        "date": "2024-06-30",
+        "eligible": true,
+        "fixture_id": "363ebf8128a2df8fa4a280dd90f48c7849c88d17",
+        "home": "Spain",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Saudi Arabia",
+        "cut_raw_sha256": "79bb2b7e6b271a86e8538abdc9b28fe575a0c07c4ef64f94672c92e0651ffe45",
+        "date": "2026-06-21",
+        "eligible": true,
+        "fixture_id": "38b78c2073f7910ef0b8dceef35e2f464caa5e6f",
+        "home": "Spain",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Australia",
+        "cut_raw_sha256": "58ae3249ce24492714b93db0f3cdb6639f8d7288b516ae15d2919c726433d624",
+        "date": "2022-11-22",
+        "eligible": true,
+        "fixture_id": "3b77892e774d2d668797dae732970c6849641f73",
+        "home": "France",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Morocco",
+        "cut_raw_sha256": "ec34bfb35c9761d49cfe49825abb3122d174c7fe23bebe21530cbf1d0da074d8",
+        "date": "2026-06-29",
+        "eligible": true,
+        "fixture_id": "3c58831a4d03ae480d1e8936b15c444383852826",
+        "home": "Netherlands",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Algeria",
+        "cut_raw_sha256": "f538c62fbc3e3422b53956b5f981c8b4bf70bba806d1ff1cc6acaa897977248d",
+        "date": "2026-06-22",
+        "eligible": true,
+        "fixture_id": "3d118aa564102ae41569900bfb551eeb7014f08c",
+        "home": "Jordan",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Italy",
+        "cut_raw_sha256": "73967c12e1c2027cadd2dea2965d98b411a0fbfd1fc1eb8316fe3a676f3bc832",
+        "date": "2024-06-24",
+        "eligible": true,
+        "fixture_id": "3dbd05bde385537c8312f6cdfc87627e43493b6d",
+        "home": "Croatia",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Ghana",
+        "cut_raw_sha256": "95d336e7c8dc92154323e38052ff88a9271e41ec9b3cc5defd81e612422e4610",
+        "date": "2026-06-27",
+        "eligible": true,
+        "fixture_id": "3e84bc7c6f06f9295042a873ae97d63e18c2ec86",
+        "home": "Croatia",
+        "pool": "wc2026"
+      },
+      {
+        "away": "United States",
+        "cut_raw_sha256": "87820270c9296486cfa5cd413a6000022d0d22913629b35b25c639868fed09a9",
+        "date": "2022-11-29",
+        "eligible": true,
+        "fixture_id": "407b06fb408913d54d183064aa7e68e04744092d",
+        "home": "Iran",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Albania",
+        "cut_raw_sha256": "6987333071bc252490798d10663b920f24c3fec1f066ee475b54e28833937cc4",
+        "date": "2024-06-19",
+        "eligible": true,
+        "fixture_id": "43da5d417823809ccdf6705b7f878273cf468724",
+        "home": "Croatia",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Senegal",
+        "cut_raw_sha256": "3ba57b81aea4d104f1ed5c4f1d76b0fd09a441380235881faa9f559a0cd882ab",
+        "date": "2022-11-25",
+        "eligible": true,
+        "fixture_id": "4479ea84262f09600e022c4bcd157334aa7b91e9",
+        "home": "Qatar",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Belgium",
+        "cut_raw_sha256": "e9d62b9bd7fc91b84225c946e23ebd22df056a7c771dadfcb3472d5e24595e45",
+        "date": "2024-07-01",
+        "eligible": true,
+        "fixture_id": "4499ff0633b3dc23dac87133f4a5bef832524828",
+        "home": "France",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Argentina",
+        "cut_raw_sha256": "83cfe40ce45caccb65d364b3b57f6977d5f32660cd08c0c1bde3938582b12d22",
+        "date": "2022-12-09",
+        "eligible": true,
+        "fixture_id": "46052d6799f2801f0fc5a40e66edb32a02a6cb6e",
+        "home": "Netherlands",
+        "pool": "wc2022"
+      },
+      {
+        "away": "South Africa",
+        "cut_raw_sha256": "d28fe4ee43e935f384fd26988e22c2343a25a20649c5e71d88023a200a91e450",
+        "date": "2026-06-11",
+        "eligible": true,
+        "fixture_id": "4665c4f6561b9bb6f387ba8b2df5d3246878fe81",
+        "home": "Mexico",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Norway",
+        "cut_raw_sha256": "25e831ff1bc1ce44c998bd88ea9573818c0a2f0d755255ba1886b2b2ac6cb734",
+        "date": "2026-06-30",
+        "eligible": true,
+        "fixture_id": "46c1bed403e3310a7fb80ee345a8705d79693555",
+        "home": "Ivory Coast",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Bosnia and Herzegovina",
+        "cut_raw_sha256": "37b002045c2b398dd5efb385dd042f74becfc059c53797116fa8e8de07bd4bd7",
+        "date": "2026-06-18",
+        "eligible": true,
+        "fixture_id": "4771355b225110b8efbc3afe209af0de2898ef9e",
+        "home": "Switzerland",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Turkey",
+        "cut_raw_sha256": "0efce97a3c456779ce825b18155ae51ae13f286b1d9082f7c3a3fef64239355a",
+        "date": "2026-06-25",
+        "eligible": true,
+        "fixture_id": "487c4e8007e26297a0c4c5aec16da5c6a092eede",
+        "home": "United States",
+        "pool": "wc2026"
+      },
+      {
+        "away": "United States",
+        "cut_raw_sha256": "4878029492e436d0764ef5c68eedc9fd5326f019a5d4c4cb2d0e26eef4b80b4b",
+        "date": "2022-11-25",
+        "eligible": true,
+        "fixture_id": "489fae03ad3deef682ae4fe59525cf9c2024fb1c",
+        "home": "England",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Switzerland",
+        "cut_raw_sha256": "4e1ad3106949477c363432891068d94c547ca85be84c072cec6acd886a2138bc",
+        "date": "2022-12-02",
+        "eligible": true,
+        "fixture_id": "48d21e5bc31e83cc51fa0bab06384671a663d6ad",
+        "home": "Serbia",
+        "pool": "wc2022"
+      },
+      {
+        "away": "England",
+        "cut_raw_sha256": "0ec23764ccbea45acefa7a2c40b9b601fec22495dd0aa5a397d99cb5516eca88",
+        "date": "2026-07-05",
+        "eligible": true,
+        "fixture_id": "48f7fb4be7524ed77967d65c96d62bcde68484d7",
+        "home": "Mexico",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Spain",
+        "cut_raw_sha256": "d734ec257673b51f9cb6e653167bb59f2cd5e756b95825ff5da935ca4e85919a",
+        "date": "2026-06-26",
+        "eligible": true,
+        "fixture_id": "490b0b2971661a3525043d702a5e6898389cf6ef",
+        "home": "Uruguay",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Switzerland",
+        "cut_raw_sha256": "4faabd4e1bc123701c91e961fd16e3bf57336a0f24eebcc0b1a001602bf4f0f3",
+        "date": "2024-06-19",
+        "eligible": true,
+        "fixture_id": "4b9975d792f2e3865b0391677fd04b8dcdfc34e1",
+        "home": "Scotland",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Norway",
+        "cut_raw_sha256": "d14c912a4657d7325a1f89b9b96e20a87aac5aa3873af91cb43e6be8ace881c5",
+        "date": "2026-06-16",
+        "eligible": true,
+        "fixture_id": "4c1d85ac8cfcd8e883b231b191f671367c6a2c35",
+        "home": "Iraq",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Romania",
+        "cut_raw_sha256": "e3fe8c12d3cb7a6bfe256c43e2f6e0967accc3bfe5d5fe0a55b1e4a76d6c92fd",
+        "date": "2024-06-26",
+        "eligible": true,
+        "fixture_id": "505a81990ccb7a0ba3f5411d8d5f8af2d414c90b",
+        "home": "Slovakia",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Iran",
+        "cut_raw_sha256": "2689b1f3309b30d0a9480df070bdad1f157bec29ad3419dbfb8b1a6695248357",
+        "date": "2026-06-21",
+        "eligible": true,
+        "fixture_id": "50a595ecf9024e7624b4a6c8ea315f03f447359f",
+        "home": "Belgium",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Morocco",
+        "cut_raw_sha256": "85314050757a4ac2a3ae57b75d2c76d17a6216a5d9fe271fff8f2f08ea709a70",
+        "date": "2026-06-19",
+        "eligible": true,
+        "fixture_id": "5365e9c57caa2df1c2fcbf8fa33b9a30fcdf5e38",
+        "home": "Scotland",
+        "pool": "wc2026"
+      },
+      {
+        "away": "England",
+        "cut_raw_sha256": "881ba02c00f4593ae7b361119aefac806380d8b08c210cdcdbac600e87563947",
+        "date": "2024-06-20",
+        "eligible": true,
+        "fixture_id": "537d77ba1e0dbc812d44c73dae97ef1ae35ca8e0",
+        "home": "Denmark",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Argentina",
+        "cut_raw_sha256": "679ee2026eb290ccf32ac37df062e42ec96732fce1b7d699002e8786f884f88a",
+        "date": "2026-07-15",
+        "eligible": true,
+        "fixture_id": "5421361b86387ae39b7efbb065b535cd5c22f13f",
+        "home": "England",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Spain",
+        "cut_raw_sha256": "6028866d3b15383ca140464c1c2eed4f2541a3bd3e4689669b8c3cf404f41306",
+        "date": "2022-12-06",
+        "eligible": true,
+        "fixture_id": "54cb7fd2c9d5fa5fc605702e544b3d6745f1a892",
+        "home": "Morocco",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Morocco",
+        "cut_raw_sha256": "fea4c10ca7f2afa8a55469af6aff0196215aec78c57b089500c9891d4a8e8f5e",
+        "date": "2026-07-09",
+        "eligible": true,
+        "fixture_id": "5582b144a137dd2bbb456e551c71ee4f3d8eeef8",
+        "home": "France",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Belgium",
+        "cut_raw_sha256": "5dd4ba8742e1a393117317c5107f1258beed22bc48e9bd82d066eed1ef4e2094",
+        "date": "2024-06-26",
+        "eligible": true,
+        "fixture_id": "573a91bb3e65d8bc1576a531618ecfa0fe87da86",
+        "home": "Ukraine",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Japan",
+        "cut_raw_sha256": "f87d9c33186f08b8f3af72a14dd04549f67a3bc47f0cf18a461c353f78045e32",
+        "date": "2026-06-14",
+        "eligible": true,
+        "fixture_id": "588cf875eb38a6ac836ffcddac459fceaccf8c31",
+        "home": "Netherlands",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Denmark",
+        "cut_raw_sha256": "c01655ceadeaa4ffbfb9dd6667b7586cda5ced7b49960c0106a458e61900d322",
+        "date": "2022-11-26",
+        "eligible": true,
+        "fixture_id": "5994a5c2f53d721f4685829d4790cf2b6d5a9b34",
+        "home": "France",
+        "pool": "wc2022"
+      },
+      {
+        "away": "France",
+        "cut_raw_sha256": "9a1596236398975f49cb5b052ebe718e0abf0775a5acc42766a42a9611ecad68",
+        "date": "2024-07-05",
+        "eligible": true,
+        "fixture_id": "5d3a11a88e8cd9c0cb6141251c3d838153fdc388",
+        "home": "Portugal",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Croatia",
+        "cut_raw_sha256": "6da23cedbfbcc386a0364b06d638c28e5c0e94eca0283dbff261812338943a3e",
+        "date": "2026-06-23",
+        "eligible": true,
+        "fixture_id": "5d50c50cc1d9f834fe7bfd0b0f1e482ef65635dc",
+        "home": "Panama",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Cape Verde",
+        "cut_raw_sha256": "f59f4fd6e54f167a59e18e47d56165ee00bb0a0fcb69d58ddeeb6baeb0d6bb28",
+        "date": "2026-06-15",
+        "eligible": true,
+        "fixture_id": "5e526c2cc95ed001d3f6d99f53b63a0d08dbced5",
+        "home": "Spain",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Italy",
+        "cut_raw_sha256": "f6f0a4bd212494ae47ef747a158db56ffc65595552fa2f9387e9fb317d12839b",
+        "date": "2024-06-29",
+        "eligible": true,
+        "fixture_id": "5f90fdd5c676639cd679b4db2c5be9bf150de105",
+        "home": "Switzerland",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Spain",
+        "cut_raw_sha256": "a96b9cf87a3b4bcb9bd7a38ca859805b0dcc9fff067a03a081b16c3b8daa3ec0",
+        "date": "2024-06-24",
+        "eligible": true,
+        "fixture_id": "5fa05540308d97c2a34328df1e9b92deb05593e4",
+        "home": "Albania",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Georgia",
+        "cut_raw_sha256": "515edf7285b79d9969781c0c340a0ed84b032e6d1f97cb9e66ab7d973a521aa4",
+        "date": "2024-06-18",
+        "eligible": true,
+        "fixture_id": "5fe0d3392322abc41e6464a75d1c7511b63d286e",
+        "home": "Turkey",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Senegal",
+        "cut_raw_sha256": "dcb5e239a308a398adea52a3286cb6d76c0439b5002816823af8bf893be16bdf",
+        "date": "2022-12-04",
+        "eligible": true,
+        "fixture_id": "61261f8407e4be43bf26520eb2a7df43135e8585",
+        "home": "England",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Netherlands",
+        "cut_raw_sha256": "ae1b7c534f009dfdb0ea4156c0cb82aef20ca953834cfdd6dd4d29b16e0f4e4e",
+        "date": "2024-07-02",
+        "eligible": true,
+        "fixture_id": "6241bc8e4fa8fbe15bb3855dd8db2901f054efb8",
+        "home": "Romania",
+        "pool": "euro2024"
+      },
+      {
+        "away": "South Korea",
+        "cut_raw_sha256": "dbe6a72ec71eef5ec8438677a73ebe32dd106d90ad36e5275e8083ea92738fe1",
+        "date": "2022-12-05",
+        "eligible": true,
+        "fixture_id": "6281d2ea14ea40e69c119868b6ccdb8f7c31b412",
+        "home": "Brazil",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Qatar",
+        "cut_raw_sha256": "67f232e9667bcfabe9e8d1028f484488a65ccabe6109cf6a4aa152c4b1102830",
+        "date": "2026-06-24",
+        "eligible": true,
+        "fixture_id": "637d1f7a688e208c91c2f240d7103ca8b48aea1d",
+        "home": "Bosnia and Herzegovina",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Ghana",
+        "cut_raw_sha256": "4026e744bd56beeb433112d9418c4f10d52ded3282038f2b3abf6040e240e7e5",
+        "date": "2026-06-23",
+        "eligible": true,
+        "fixture_id": "638780222010ece684245babe0fd1855fa31ff38",
+        "home": "England",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Colombia",
+        "cut_raw_sha256": "54d6bf401cdd5360d8db2e782486a2b5bac9e3685d7dbd2dc0fa63ad1751a2be",
+        "date": "2026-07-07",
+        "eligible": true,
+        "fixture_id": "656dbd30177680b8e3355c4331811a00183167d5",
+        "home": "Switzerland",
+        "pool": "wc2026"
+      },
+      {
+        "away": "England",
+        "cut_raw_sha256": "ed5561960f802f0dd384b6195819e1df92696b538d977a938517d19490cccabb",
+        "date": "2026-07-11",
+        "eligible": true,
+        "fixture_id": "65d4802b2d55c386aa9ed94f9a5448077b8b9b9e",
+        "home": "Norway",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Uzbekistan",
+        "cut_raw_sha256": "024085c4ad1b48e831cd83f847028f611a1da781de84b5342acac3996d888605",
+        "date": "2026-06-27",
+        "eligible": true,
+        "fixture_id": "670ef54a7b6ef9f2c49ead26e0cfb19852f47f09",
+        "home": "DR Congo",
+        "pool": "wc2026"
+      },
+      {
+        "away": "France",
+        "cut_raw_sha256": "2b2bf8b28bcd08e4d02de3cc94263fac340d2125d99c17573c1742ffc8f7af12",
+        "date": "2024-06-21",
+        "eligible": true,
+        "fixture_id": "671ddacdfb72347daf1770be52c5c65391e6032e",
+        "home": "Netherlands",
+        "pool": "euro2024"
+      },
+      {
+        "away": "DR Congo",
+        "cut_raw_sha256": "04eebebc8b799af6cd0c3f4e756046f7dca586b862a084221108ffcadcb8e433",
+        "date": "2026-06-17",
+        "eligible": true,
+        "fixture_id": "69f35b88b479ed7e041cd9e56978e9ec8520dcf9",
+        "home": "Portugal",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Portugal",
+        "cut_raw_sha256": "12a6266be243a45fb1f6fdde1c977e4e21d899b8f0fd736869738c2f82a5e060",
+        "date": "2022-12-02",
+        "eligible": true,
+        "fixture_id": "6a8291a98b0c783d5dab3e555c9190001fa490a1",
+        "home": "South Korea",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Saudi Arabia",
+        "cut_raw_sha256": "1a753859b8d7607a4b74c526f96643a38eed1730dcb2ce0115760253a329b7b3",
+        "date": "2022-11-26",
+        "eligible": true,
+        "fixture_id": "6d0eee65e441412d7e198ebfe35c2f965fb6eb9a",
+        "home": "Poland",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Algeria",
+        "cut_raw_sha256": "da2fbdb43dd43558cd8d35c851e88435d7747c510f289acb97884441ef9a3b9b",
+        "date": "2026-07-02",
+        "eligible": true,
+        "fixture_id": "6deae45a7c9723f5f778df18d732387c83ef2da5",
+        "home": "Switzerland",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Spain",
+        "cut_raw_sha256": "42844387b8d7c9e64f21ddf91671fcf07396b6c8b94203a4987bd363b35942a6",
+        "date": "2026-07-14",
+        "eligible": true,
+        "fixture_id": "6e1db0d5c7ec7f91e6ac18b9747f61c8baa91a08",
+        "home": "France",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Poland",
+        "cut_raw_sha256": "e5e582a4402ad2fe14d733316eb8bc23f58f2cd7e18cc965aa333ca4e9492061",
+        "date": "2024-06-25",
+        "eligible": true,
+        "fixture_id": "6f3f5c5652f429b973b11fd97c06af0fa9864943",
+        "home": "France",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Tunisia",
+        "cut_raw_sha256": "bf9bf11df4ff3b723dd772a4e0e735a324b2aedb7365016e780bb07876bb83a5",
+        "date": "2026-06-14",
+        "eligible": true,
+        "fixture_id": "7072f1450b95a8b5cbab43ea361a97f326f609ba",
+        "home": "Sweden",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Serbia",
+        "cut_raw_sha256": "44aa3f1462a1bb57744cda246bcafc3165895d95f217169ae4a0c7f2201c3e45",
+        "date": "2024-06-20",
+        "eligible": true,
+        "fixture_id": "725f96b1bc51729c9963f14cde849a2756517aa2",
+        "home": "Slovenia",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Japan",
+        "cut_raw_sha256": "6781773dfa45eca00e4dd2a28cdbdd5cccac2573ed005114cfc41159a32d6e0e",
+        "date": "2026-06-20",
+        "eligible": true,
+        "fixture_id": "7565fe38446f5ef7d203e24bd45c281e80f33bd7",
+        "home": "Tunisia",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Czech Republic",
+        "cut_raw_sha256": "3e289c82aa137e5753c54bc3416c24295d390327746295a70ece49e735b63bd5",
+        "date": "2024-06-22",
+        "eligible": true,
+        "fixture_id": "7665678b0d016066a30d6fd1f521f3b18e0eb3b8",
+        "home": "Georgia",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Germany",
+        "cut_raw_sha256": "24fe7498e6c568304fd1d4bac0d17474aa2409a62600b697640b201d0e1cbdaa",
+        "date": "2022-11-27",
+        "eligible": true,
+        "fixture_id": "770f45f6b01451cd9ac43c348ec4613fa6217574",
+        "home": "Spain",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Switzerland",
+        "cut_raw_sha256": "b60a8b6b914edb7c2ba426f5abe90e7670f333b90f137569291c257b405d8f67",
+        "date": "2022-11-28",
+        "eligible": true,
+        "fixture_id": "7755b47e16289434c1989550389c8ffdedcdcf65",
+        "home": "Brazil",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Canada",
+        "cut_raw_sha256": "6a410e554bdb038d6d3cdb2e0c1274c0449e8777dbbd319c21b53c8e54cc651f",
+        "date": "2022-11-23",
+        "eligible": true,
+        "fixture_id": "790b7b0ed504bc5caef0e4e80f980b70d259a031",
+        "home": "Belgium",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Belgium",
+        "cut_raw_sha256": "743d8d6b833f49b82d2b4d1490d64bf4cc764e2cbedb89a41e1af8de2761630d",
+        "date": "2026-06-26",
+        "eligible": true,
+        "fixture_id": "7933afdaeb97b731ed44adbe221ac616623acedf",
+        "home": "New Zealand",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Wales",
+        "cut_raw_sha256": "7622078762989efc77f715f51b05098d99584d38b847c63c2c4a8b27b0992768",
+        "date": "2022-11-21",
+        "eligible": true,
+        "fixture_id": "7beaba47d99370d78420a173c394f44cf135f18e",
+        "home": "United States",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Egypt",
+        "cut_raw_sha256": "4f60f66be0fa0420c24556eff1d5a51c32eaade4659337576103906ed308ac60",
+        "date": "2026-06-15",
+        "eligible": true,
+        "fixture_id": "7ca4b198971b9a9f47e847a485a03f441619fc9a",
+        "home": "Belgium",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Portugal",
+        "cut_raw_sha256": "74ddb3a10c13e533b055f509985af6bb672f8896ae68bd066db073a076491cdc",
+        "date": "2024-06-22",
+        "eligible": true,
+        "fixture_id": "7d129084695a5bcd19a0cbdbc9b06949c470e06b",
+        "home": "Turkey",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Jordan",
+        "cut_raw_sha256": "92ffa6870e1a15166f44b986f41adc652e9b7c08fef69cd4485292566332e8c3",
+        "date": "2026-06-16",
+        "eligible": true,
+        "fixture_id": "7ee7ab79d158565b34545289e15c16801724bc90",
+        "home": "Austria",
+        "pool": "wc2026"
+      },
+      {
+        "away": "France",
+        "cut_raw_sha256": "003a60e35b576f48bb6c74a189c626e26156b425d7f6b84e721ea402a87f8e71",
+        "date": "2026-06-26",
+        "eligible": true,
+        "fixture_id": "80a1132c63e6025875eea4bada2f1fb523f3e538",
+        "home": "Norway",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Iraq",
+        "cut_raw_sha256": "36065f4b113230d86b9f8a3e20ef0a25e20bf35f723f2425f5ebe5717906d3b6",
+        "date": "2026-06-22",
+        "eligible": true,
+        "fixture_id": "820d159625eb1de05a5b635ddff3b69f84dde55e",
+        "home": "France",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Portugal",
+        "cut_raw_sha256": "b030a5e5547f7d0082ac4f2f207c7630c8be9ecbd6ea93871e8373fb36277839",
+        "date": "2024-06-26",
+        "eligible": true,
+        "fixture_id": "8427fe99e7ba57c3b9eb5b18bff4d42f12eb4124",
+        "home": "Georgia",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Bosnia and Herzegovina",
+        "cut_raw_sha256": "d04d36a0652a422e428a6eb24a5058f0e791526a84d659c842dbb76e72bcd6e3",
+        "date": "2026-06-12",
+        "eligible": true,
+        "fixture_id": "8545da30b9b30223258edc1a9f7835b5b126750a",
+        "home": "Canada",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Netherlands",
+        "cut_raw_sha256": "2caa077ccf2063bbefdfe587fc267b987ae63a473f061bab86ce8151c52f20f3",
+        "date": "2022-11-21",
+        "eligible": true,
+        "fixture_id": "8593af66fd3744540638509ffae695aff3087c9b",
+        "home": "Senegal",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Mexico",
+        "cut_raw_sha256": "a09eda93be7bfef70f96d1f522e2bd0d8b67397d083f9b94b34ffb153ff92e4d",
+        "date": "2022-11-30",
+        "eligible": true,
+        "fixture_id": "860b5dc43722ecabfdfae64a294a60a01bfd590e",
+        "home": "Saudi Arabia",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Panama",
+        "cut_raw_sha256": "707821d7d048a60a44b4741b85a3eaed5c2bd44b034aa84a12936d34b529ba9a",
+        "date": "2026-06-17",
+        "eligible": true,
+        "fixture_id": "872b8963859d7ed357666a8b602ab76196992da7",
+        "home": "Ghana",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Switzerland",
+        "cut_raw_sha256": "1ceedbb0bb2c81dd25b7ab64360c721660d1165a2d4b3ebcf798c4835b1c479e",
+        "date": "2024-07-06",
+        "eligible": true,
+        "fixture_id": "878c3b301b56c2d579811219552f0770f2265cd7",
+        "home": "England",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Norway",
+        "cut_raw_sha256": "118251e47cc18706efec70ff9f08a1d7ad902ea9dcaf7881937fb208572b86c8",
+        "date": "2026-07-05",
+        "eligible": true,
+        "fixture_id": "87a5636549fea2fcdfb8eb0794937dcddcfe34a8",
+        "home": "Brazil",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Poland",
+        "cut_raw_sha256": "06f5c14e5cf4e89872489466ecd6abe05980a2bb45e6ec9a875d4ed18ea17f2c",
+        "date": "2022-12-04",
+        "eligible": true,
+        "fixture_id": "89d55053a976ee87464fe8b2e841e4f0da4794a0",
+        "home": "France",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Canada",
+        "cut_raw_sha256": "250427885476f00c53e926950c54d86c0e39da6823e97a82adfd8602c5619860",
+        "date": "2026-06-28",
+        "eligible": true,
+        "fixture_id": "8af992f27f664fa66df38c6f20b990630458de21",
+        "home": "South Africa",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Ecuador",
+        "cut_raw_sha256": "891762c29b3c83838b8efa6dec6d311304c6195ad558f7c2eceaa260b6e22efd",
+        "date": "2026-06-14",
+        "eligible": true,
+        "fixture_id": "8b0448e0fa46f999db4b565c9d669ff51d9a12a4",
+        "home": "Ivory Coast",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Paraguay",
+        "cut_raw_sha256": "fcd5a928214ef038e379e269c46a0acf0770303ccbe71d61de5fcdc2008db5de",
+        "date": "2026-06-19",
+        "eligible": true,
+        "fixture_id": "8df629496044e0d784262e0a0c02bbc1508ca77d",
+        "home": "Turkey",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Tunisia",
+        "cut_raw_sha256": "32d717c2e024bb86100955842673dcfebeb0bbce66f4576796dcd47ad8fbf91d",
+        "date": "2022-11-22",
+        "eligible": true,
+        "fixture_id": "91b6a0b6d93dc63895985a5b1c3d0f3e4bfa979c",
+        "home": "Denmark",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Australia",
+        "cut_raw_sha256": "daec85dac621920ecbe84e00e90e885f8c9f2a42d3e46ef1ebd12f151eb9938c",
+        "date": "2026-06-19",
+        "eligible": true,
+        "fixture_id": "92899fe6efbe5884a25ac27fd0a7ac7fb4794f7c",
+        "home": "United States",
+        "pool": "wc2026"
+      },
+      {
+        "away": "South Africa",
+        "cut_raw_sha256": "9bf93c903722d127888b13e44e9d0daf9c3491fe63723afd131f57477b102fe1",
+        "date": "2026-06-18",
+        "eligible": true,
+        "fixture_id": "92ba0f99f7e6a499ab5d2ebaec1f557a85c570d5",
+        "home": "Czech Republic",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Senegal",
+        "cut_raw_sha256": "11e84878572831c700e45bf4160cbdbfc219150c36a2e0b0a975246773a19f85",
+        "date": "2022-11-29",
+        "eligible": true,
+        "fixture_id": "92bffb03c9063850b5817a7be21697bd601c9d6d",
+        "home": "Ecuador",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Cura\u00e7ao",
+        "cut_raw_sha256": "ac497c76cba1528bb1d25bc5df1167bb7289c32c8e956eb9a6d1c6c2e37c483e",
+        "date": "2026-06-20",
+        "eligible": true,
+        "fixture_id": "9442c30263ec96be060aff45e085a8e7d1b96088",
+        "home": "Ecuador",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Cameroon",
+        "cut_raw_sha256": "c894b12570cf6d2c1524c93b380268ecf1e71b96ec0980527ff19be22c0ea3e6",
+        "date": "2022-11-24",
+        "eligible": true,
+        "fixture_id": "94cf24a88cbe4fc470d8514f732c242866908a40",
+        "home": "Switzerland",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Switzerland",
+        "cut_raw_sha256": "f98efa66bd669ea34b0f1f521d47c73a1eef94062c9738de349e2ad4b3a8651b",
+        "date": "2026-06-24",
+        "eligible": true,
+        "fixture_id": "95c6c59f6de6e1fe4d0f8409e65b485b5205668d",
+        "home": "Canada",
+        "pool": "wc2026"
+      },
+      {
+        "away": "South Korea",
+        "cut_raw_sha256": "7b05d45c1a164fcda66d9281d09bfc9f82936a10e9426f93e8d7f36065d9fc72",
+        "date": "2022-11-24",
+        "eligible": true,
+        "fixture_id": "9680a2964ac3a4e6896ee7977e93e18b0bad10ce",
+        "home": "Uruguay",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Bosnia and Herzegovina",
+        "cut_raw_sha256": "f557f69abb7fe26e91ee843458031d05bcb71c8c33ff06ad4ea9072fc304e764",
+        "date": "2026-07-01",
+        "eligible": true,
+        "fixture_id": "974d18c1ea8951b4f40ee66a952926451a36539f",
+        "home": "United States",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Saudi Arabia",
+        "cut_raw_sha256": "46c2a8883007d264ddac281a67ee061fbaf056ddf17dd1393225c78f8929d692",
+        "date": "2022-11-22",
+        "eligible": true,
+        "fixture_id": "99a5ed7ee0ca59bb4feafcd1fdcaf7cbfacab4d0",
+        "home": "Argentina",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Uruguay",
+        "cut_raw_sha256": "9b683c236075963f9ce7e5f3aa4490554b9f721b5ced900b4cf32672f8cf71d1",
+        "date": "2022-11-28",
+        "eligible": true,
+        "fixture_id": "9a04a18679612035226957fb6094ab140db25f49",
+        "home": "Portugal",
+        "pool": "wc2022"
+      },
+      {
+        "away": "France",
+        "cut_raw_sha256": "a0a13e9f738b9e1da10bbfb0c0493220a47bcfc036f4dd582cbd15ae7b007f00",
+        "date": "2024-06-17",
+        "eligible": true,
+        "fixture_id": "9ac5de066dc46c5e3119b92da4bfd2c19fa48341",
+        "home": "Austria",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Morocco",
+        "cut_raw_sha256": "fcab1e55e7b39d10f07c55070db7fe2e9675b96b1a65f8a8632f80b9156029a2",
+        "date": "2022-12-17",
+        "eligible": true,
+        "fixture_id": "9b2ff42a36b22ff8ba53ff3751de4c8854207b81",
+        "home": "Croatia",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Ghana",
+        "cut_raw_sha256": "93e1aa0472f5817000c65bbb12fa16736c4ec2c0ecda64d733885b95e3ca92d4",
+        "date": "2022-11-28",
+        "eligible": true,
+        "fixture_id": "9b579d02acb54f98b92e4ce9f0d645e37e310d22",
+        "home": "South Korea",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Turkey",
+        "cut_raw_sha256": "3382ee24efe715336666f762643f4e0371d29cbef90df0ba5d55b30905687031",
+        "date": "2024-06-26",
+        "eligible": true,
+        "fixture_id": "9c49f928758ed1a302d96d5de24732477cb2b899",
+        "home": "Czech Republic",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Costa Rica",
+        "cut_raw_sha256": "3c874ca3db038cea2cc0d525f956bc0313e3f5840c40873c8586c1155dc5728f",
+        "date": "2022-11-23",
+        "eligible": true,
+        "fixture_id": "9c5abaf39dbc8559a91e986d657ceeea661df799",
+        "home": "Spain",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Netherlands",
+        "cut_raw_sha256": "384d3ec84fa6c3f70bacba8947e60ed9bac1c8f8814ade64a42047d9f4d11cab",
+        "date": "2022-11-29",
+        "eligible": true,
+        "fixture_id": "9d062d19b6c11978d6a2c3c9fb0a6fed80e44ac4",
+        "home": "Qatar",
+        "pool": "wc2022"
+      },
+      {
+        "away": "France",
+        "cut_raw_sha256": "cc682765a053a0040d296a65843ee03ecabc293948bfa5fcf1852e62b7ed5653",
+        "date": "2022-12-18",
+        "eligible": true,
+        "fixture_id": "9d928364e19ec4ba59b0c4d8e061c277aff28f5e",
+        "home": "Argentina",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Switzerland",
+        "cut_raw_sha256": "d7c0db3aa941d4f2c41fb482e248368976314408fe81a0cbaf072b8ac8dc8b42",
+        "date": "2022-12-06",
+        "eligible": true,
+        "fixture_id": "9e6f5c7e6368b17d186d32fbd0d5bfc5bc983d24",
+        "home": "Portugal",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Austria",
+        "cut_raw_sha256": "721e12d1c9a5dc9e5b52df554a67ba8e1bfa35f50f04b79ec32577d34c2c209d",
+        "date": "2026-07-02",
+        "eligible": true,
+        "fixture_id": "9e8e8aa9f3cf3c2aa0df79bd1c98f4da6690c3d2",
+        "home": "Spain",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Netherlands",
+        "cut_raw_sha256": "56f0de721fd33c047b33e1ff2b5e850fae357bb8fa5f3be4c07130f4b0b89261",
+        "date": "2024-06-16",
+        "eligible": true,
+        "fixture_id": "9eb09fab21f56d2508b33c6ee17e4a3767bab8a4",
+        "home": "Poland",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Senegal",
+        "cut_raw_sha256": "e37f474952560d502bf0e6767641f46f99d2dddd2fcb0eaa21b81a8929c0b941",
+        "date": "2026-06-22",
+        "eligible": true,
+        "fixture_id": "9f394806dd80d188b09b5222980569d799d075de",
+        "home": "Norway",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Canada",
+        "cut_raw_sha256": "612fd379c2f75846eec178afc71fc07ded833cd20ac9f5ef48e8f2ba0400de87",
+        "date": "2022-11-27",
+        "eligible": true,
+        "fixture_id": "a09bd4e47e354334bddfae50346eea097fdbf8cc",
+        "home": "Croatia",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Ivory Coast",
+        "cut_raw_sha256": "1dd2b218cb9bfd546ae82d137ea78ca6636eb940e1af86349a0aa8f4865023ad",
+        "date": "2026-06-25",
+        "eligible": true,
+        "fixture_id": "a280adc3d9dee0ea11933ceccfe1eedfde9cacfc",
+        "home": "Cura\u00e7ao",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Spain",
+        "cut_raw_sha256": "3068f0a6a25ba5d3ae2b866653bb6fbd82d9562253331c34ecf1ccf262d5f362",
+        "date": "2022-12-01",
+        "eligible": true,
+        "fixture_id": "a2ca39d8fb18020a82d5fcf94f0ed3f6f12dfc58",
+        "home": "Japan",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Japan",
+        "cut_raw_sha256": "290f609e67af1d198eee15e8d3040cc16aba43e348bd12ae4d8292c8f8cacbc9",
+        "date": "2026-06-29",
+        "eligible": true,
+        "fixture_id": "a567d17d493ad018b9cf86632c05eb416ae250bd",
+        "home": "Brazil",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Cape Verde",
+        "cut_raw_sha256": "1c783dc781d2547ef58c00f2ccaf21210e1021b8276fc42ba747ee81d8f279be",
+        "date": "2026-06-21",
+        "eligible": true,
+        "fixture_id": "a8b7a79bd2a2ee40ecbb5f06e4bf9d2f4c2dc3b9",
+        "home": "Uruguay",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Uruguay",
+        "cut_raw_sha256": "acac23c9b7365a39b788ad6de9f4004b6e313a0d70f87c997355c085f00c3591",
+        "date": "2026-06-15",
+        "eligible": true,
+        "fixture_id": "aa399f0d6081042b4c6410549ef3b6d563f7c959",
+        "home": "Saudi Arabia",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Netherlands",
+        "cut_raw_sha256": "f786e62cfec773426c3cc69ea1433dad47468343641494858e3c418323b302c2",
+        "date": "2026-06-25",
+        "eligible": true,
+        "fixture_id": "aab2ad0a1ec8c82df334119c12a7b754ae37dd90",
+        "home": "Tunisia",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Colombia",
+        "cut_raw_sha256": "32bdbfb235cdac28c743d3b9cd80106eacee0c16cbe29fd884aa92bbf5f29862",
+        "date": "2026-06-17",
+        "eligible": true,
+        "fixture_id": "afdae26c692dce8d23ae250767d4ed39d780f74f",
+        "home": "Uzbekistan",
+        "pool": "wc2026"
+      },
+      {
+        "away": "France",
+        "cut_raw_sha256": "0b2c1289898f908798f01326db7063b785697e1b0bb398b99bd5ca029470105d",
+        "date": "2024-07-09",
+        "eligible": true,
+        "fixture_id": "b0d16b11d42f505eef130ec5a3f561d4cc7afecc",
+        "home": "Spain",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Sweden",
+        "cut_raw_sha256": "79ad5eb25c8e87b1f2674b3a0cf47bdb08d47a6363fc1c7bab375c5bd73fddaa",
+        "date": "2026-06-30",
+        "eligible": true,
+        "fixture_id": "b130ef4912adee6567e0cf42ed9855f618653129",
+        "home": "France",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Brazil",
+        "cut_raw_sha256": "e24f016f7b693fca457402292b342dfcf2c2c235cab13f4a371943090a8668b8",
+        "date": "2022-12-09",
+        "eligible": true,
+        "fixture_id": "b17b434fc9a62b4000f9baeb2ba1b9243b37a89e",
+        "home": "Croatia",
+        "pool": "wc2022"
+      },
+      {
+        "away": "South Korea",
+        "cut_raw_sha256": "da51714108e61081424b58a28ac12bff9041d0c6b89fb88800cc7b7a8b4562bc",
+        "date": "2026-06-18",
+        "eligible": true,
+        "fixture_id": "b273c3664e788b102ebf20a449eea642805093af",
+        "home": "Mexico",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Morocco",
+        "cut_raw_sha256": "dd36bb1e46d9e023d2202e0f5e88f83ef5f76412e822270956e62e77a9763c68",
+        "date": "2022-12-01",
+        "eligible": true,
+        "fixture_id": "b29d8a71ba0f2594419c0db4680e5d492cb3d071",
+        "home": "Canada",
+        "pool": "wc2022"
+      },
+      {
+        "away": "England",
+        "cut_raw_sha256": "87c039f7e87e8a053911dabc6cb23fa6085a8773014645dd53469d8277b83657",
+        "date": "2024-06-16",
+        "eligible": true,
+        "fixture_id": "b303822468d079eddf9ec17d2dae9b4c6b0e9f3d",
+        "home": "Serbia",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Switzerland",
+        "cut_raw_sha256": "a0d5a7e6eae908b90808ea809b864a4d910b306a8eca96f60f6720d8b3e497f6",
+        "date": "2026-07-11",
+        "eligible": true,
+        "fixture_id": "b5af38d56ee8f62cab7395369eccc46959e21463",
+        "home": "Argentina",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Romania",
+        "cut_raw_sha256": "40e056b1f2835c6ee25cf58a390468a07dd2d613e7c0f74b6f5766b349be6051",
+        "date": "2024-06-22",
+        "eligible": true,
+        "fixture_id": "b803f4c56d91898211cd6760465a8d54ca6dd3d1",
+        "home": "Belgium",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Argentina",
+        "cut_raw_sha256": "14f1a7b19681f8b102dabe0a65c60e7588bb0edb63a36f0f30dad096d4d97ddd",
+        "date": "2022-11-30",
+        "eligible": true,
+        "fixture_id": "bc40c826d611929dc62b6aaeb51aa5eb5ce7f80b",
+        "home": "Poland",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Poland",
+        "cut_raw_sha256": "a245f60ee8a81ba6bc85db06871e5d2d3a745dfdcd7a3924c2104db5efb9367a",
+        "date": "2022-11-22",
+        "eligible": true,
+        "fixture_id": "c130a0869a654243f4532a45fd707b5671b5d207",
+        "home": "Mexico",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Paraguay",
+        "cut_raw_sha256": "db98be0bc36d91d3a533b5d8999e8abf8d4e3310aa64d64867e115a0bdbbdd3f",
+        "date": "2026-06-29",
+        "eligible": true,
+        "fixture_id": "c46fbc39ac9ca605281d5631fa223e650d9b20e7",
+        "home": "Germany",
+        "pool": "wc2026"
+      },
+      {
+        "away": "DR Congo",
+        "cut_raw_sha256": "44a6c8bdbc9bf55ae93ed125a5af3f98d64ae7665ecfb1ace00670b9c0e02887",
+        "date": "2026-06-23",
+        "eligible": true,
+        "fixture_id": "c4ad340ce7bebed61a5edba5fe5274785744187d",
+        "home": "Colombia",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Senegal",
+        "cut_raw_sha256": "fc3606e21040f1e4d31ee33cf94096946d0fad2da04f61d02547006ff96b4a7d",
+        "date": "2026-06-16",
+        "eligible": true,
+        "fixture_id": "c761f1f2277d860f922ecc60e63898806fe81cf4",
+        "home": "France",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Algeria",
+        "cut_raw_sha256": "58d365444c6c629cd875c92e8a8f117acd00fae48be152c3410a194fdb587e9f",
+        "date": "2026-06-16",
+        "eligible": true,
+        "fixture_id": "c76388393d828cb99f56dbacd81721f2b13b0b4d",
+        "home": "Argentina",
+        "pool": "wc2026"
+      },
+      {
+        "away": "England",
+        "cut_raw_sha256": "2f83ae5bb224b2eccb9362c8def60005e38e76619fcf877307908a54bead793a",
+        "date": "2024-07-10",
+        "eligible": true,
+        "fixture_id": "c7da8aaec7ff3a2ad59161d8a8a271d2b4b49c57",
+        "home": "Netherlands",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Morocco",
+        "cut_raw_sha256": "01070b0a289b7462623f673c073f4cc2130277dfbfcdc0d075e9f702f75fcbc2",
+        "date": "2026-07-04",
+        "eligible": true,
+        "fixture_id": "c89dd75dab2ed2584decb2905b328483749c871b",
+        "home": "Canada",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Hungary",
+        "cut_raw_sha256": "2be510380bf49806a51e5f851030643aa6e84c4cf6287b960730e75c95bbbb65",
+        "date": "2024-06-23",
+        "eligible": true,
+        "fixture_id": "c90af508f989723e3e62d6c358d691a7fc0360db",
+        "home": "Scotland",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Ghana",
+        "cut_raw_sha256": "a0a6d1b749c8ac27623747f63ab3a71df6ffe3aa02bb0f00b4f80be9afa1706d",
+        "date": "2022-11-24",
+        "eligible": true,
+        "fixture_id": "c91fd31608fc95f899e5b8d7d7d269c75d5dbce7",
+        "home": "Portugal",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Ukraine",
+        "cut_raw_sha256": "c8933bfd2f539301f31377683c38254462c67faabeb290c1e4c00e9b39a3ac9c",
+        "date": "2024-06-17",
+        "eligible": true,
+        "fixture_id": "c98935063f4cddc173db29fc06c354ebeb8b089f",
+        "home": "Romania",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Brazil",
+        "cut_raw_sha256": "e7044c57b040f681969dbe55511665588f7e716d6efb2634d4d2df9c55fe40fa",
+        "date": "2026-06-24",
+        "eligible": true,
+        "fixture_id": "cc81d365a25ff7cd94682e56cbd5d54d9e223cc4",
+        "home": "Scotland",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Haiti",
+        "cut_raw_sha256": "5eb96578634a00447286fc510969fdc4072da59a4aa4ac69ef64805a846cccca",
+        "date": "2026-06-24",
+        "eligible": true,
+        "fixture_id": "cce9e1e464c4c4f4a10f3c2b64fbd69e10d3d113",
+        "home": "Morocco",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Australia",
+        "cut_raw_sha256": "b16002610cd388873cf80584061bc5c3f1c2f86bb236522e9738aba80b769391",
+        "date": "2026-06-25",
+        "eligible": true,
+        "fixture_id": "cd0861a19924260e151d186c64ae89daf04774cd",
+        "home": "Paraguay",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Denmark",
+        "cut_raw_sha256": "eb616ab132f1b54f927d6dd0e9bae86202a337a4b7b25f39bf0f4f7a80cf68a9",
+        "date": "2024-06-29",
+        "eligible": true,
+        "fixture_id": "cf38d00e867ea0f934c34f515a129a52b83a4429",
+        "home": "Germany",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Croatia",
+        "cut_raw_sha256": "113d6c3960433b0cc04249b95101f308bcd3f8f8e071a420887e43b121ad0ef1",
+        "date": "2022-11-23",
+        "eligible": true,
+        "fixture_id": "d42a0b75f5d8595d2be72ddc0e65ba1319b0d8e4",
+        "home": "Morocco",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Australia",
+        "cut_raw_sha256": "01023b52a8db33b56c400535c25586c6713d98e52b5f11c804eff2775af2a128",
+        "date": "2022-11-26",
+        "eligible": true,
+        "fixture_id": "d47495762f41ca196fda377ce302af0455537d3e",
+        "home": "Tunisia",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Morocco",
+        "cut_raw_sha256": "2192c7a87f9ea4ee2de50384a99da297e01586eab3fa276f7579a758e201302a",
+        "date": "2026-06-13",
+        "eligible": true,
+        "fixture_id": "d476ae60b7f2a6deae135ae716a7da09ece07fa8",
+        "home": "Brazil",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Serbia",
+        "cut_raw_sha256": "10be089628ec32130ad2111aaef09143d13dc1746e3ae195ba5cf6552d6df452",
+        "date": "2022-11-28",
+        "eligible": true,
+        "fixture_id": "d718e0cc74d22c47705fc0b855530a28f3b00e55",
+        "home": "Cameroon",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Scotland",
+        "cut_raw_sha256": "c5554099c37b6c92c31b7a6069035ee9b7d1d4225cd721b4cb38a74c47fa03ac",
+        "date": "2026-06-13",
+        "eligible": true,
+        "fixture_id": "d755f75ec84901127a779218fe5f2d186b89f2bd",
+        "home": "Haiti",
+        "pool": "wc2026"
+      },
+      {
+        "away": "United States",
+        "cut_raw_sha256": "2e814e9d6685c72f1ed21449dda802c59177f2281f1b48c615c47e049809b331",
+        "date": "2022-12-03",
+        "eligible": true,
+        "fixture_id": "d7e0d1358fa624004fd2eedb8d3f575139a94765",
+        "home": "Netherlands",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Germany",
+        "cut_raw_sha256": "59b77871c27d936a2883cdba5fa81a9938a5f882b5e0ba775d4fd53887acf75d",
+        "date": "2022-12-01",
+        "eligible": true,
+        "fixture_id": "d7f5e5823924d3c7034d67e6654284e88f359953",
+        "home": "Costa Rica",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Portugal",
+        "cut_raw_sha256": "ae207a3e6f74fd5d83a4a6b05a4e963b9d1979bcd37b361e3c47882b25d17706",
+        "date": "2026-06-27",
+        "eligible": true,
+        "fixture_id": "d9a3072856341fab19c57eb1077b8cf129dd30cd",
+        "home": "Colombia",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Uruguay",
+        "cut_raw_sha256": "33816d52d149b3b8db58a3cb1cca814b5411f10fbab15c2971f644321a9409ed",
+        "date": "2022-12-02",
+        "eligible": true,
+        "fixture_id": "db0894cf08e2d46506ef18930d52e3ab7593142c",
+        "home": "Ghana",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Australia",
+        "cut_raw_sha256": "b9a5db7d57a1eab5b6d0206270864d49d40596be7ebea1cb585a6a17dc0904fc",
+        "date": "2022-12-03",
+        "eligible": true,
+        "fixture_id": "dbf0bb73ca86ff10b4b5aa130f7b87d30c34a037",
+        "home": "Argentina",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Argentina",
+        "cut_raw_sha256": "0a233a4cf5ff21890a090cb9568ea7fdcf7d76754e6fc0422e39cb2e7168471c",
+        "date": "2026-07-19",
+        "eligible": true,
+        "fixture_id": "dbfe50ab1e90800d787062477c9f094b010ab1b7",
+        "home": "Spain",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Haiti",
+        "cut_raw_sha256": "2270368a613c1198ff2699a5d217a99a4f44530f5e6392051fd9ffc7a6f635ea",
+        "date": "2026-06-19",
+        "eligible": true,
+        "fixture_id": "dcbddacad70b5b7513afd143a2dbc0c5b813651d",
+        "home": "Brazil",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Qatar",
+        "cut_raw_sha256": "ca1c511834f48089458b96ca1cfa940f0ced9a43dbc501f526d61515d1886656",
+        "date": "2026-06-18",
+        "eligible": true,
+        "fixture_id": "de47949dc234512639f8386f3a952f454ea1a4ba",
+        "home": "Canada",
+        "pool": "wc2026"
+      },
+      {
+        "away": "England",
+        "cut_raw_sha256": "c7caf401f11f68199e64ef42d42758199f2c1cfed48d98d9fc6700409c9dec27",
+        "date": "2026-06-27",
+        "eligible": true,
+        "fixture_id": "de7542a3691273634d9ad12d43e67e7cc665f257",
+        "home": "Panama",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Argentina",
+        "cut_raw_sha256": "4446e836a84997041b1c17f6db15ec7d9e69920865465a3019d5a3b4427b5b2f",
+        "date": "2026-06-27",
+        "eligible": true,
+        "fixture_id": "dec324b195b0c21a6c49771a198fca878ed0f2e5",
+        "home": "Jordan",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Spain",
+        "cut_raw_sha256": "c6679ea147007b255ab82936e75b0d7e96617b1bd3c2845191110acf0ac3cfc8",
+        "date": "2026-07-06",
+        "eligible": true,
+        "fixture_id": "dfc9bdd463fa4468c8dd4ca0ce933498e10972b5",
+        "home": "Portugal",
+        "pool": "wc2026"
+      },
+      {
+        "away": "England",
+        "cut_raw_sha256": "9ed7a3fad34129c0d1254facb6b15560a42c920f8914099de424477ce6f65673",
+        "date": "2024-07-14",
+        "eligible": true,
+        "fixture_id": "e0e064266b116a0d4d63b48fc81591da151f638d",
+        "home": "Spain",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Iraq",
+        "cut_raw_sha256": "c11805825a3575f46f514493facb720f507a203d9d1ace1517046d65265ee1ff",
+        "date": "2026-06-26",
+        "eligible": true,
+        "fixture_id": "e489c6066f03837e961655afa7bd37dc1a81275c",
+        "home": "Senegal",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Austria",
+        "cut_raw_sha256": "7104529b5c40fbb22244940579eadb44c9f5a6213a5189e25375180a3119787e",
+        "date": "2026-06-22",
+        "eligible": true,
+        "fixture_id": "e4c6aa97ec621afcf067968d7e4efed49d80895b",
+        "home": "Argentina",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Denmark",
+        "cut_raw_sha256": "bd36f345328d42efec6645b119e44e90a3b444ed553f963923d2077bf19d872c",
+        "date": "2022-11-30",
+        "eligible": true,
+        "fixture_id": "e4d250d22b17997a31a55499072a0c1c6530bb90",
+        "home": "Australia",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Denmark",
+        "cut_raw_sha256": "a1631ca268fae2d1d5bb731d19371607eeb00c706e58794d3acd938045011e5b",
+        "date": "2024-06-16",
+        "eligible": true,
+        "fixture_id": "e59a9794cc5fbd094606aca6c5186fe5fbbf51c0",
+        "home": "Slovenia",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Germany",
+        "cut_raw_sha256": "c0ec1fe193a5002f65f6a24ef2b1bcf9ea6063cdcc1fa35c45af074cdebc8c16",
+        "date": "2026-06-25",
+        "eligible": true,
+        "fixture_id": "e9bcbd747345346d31bc7fade84b45947f852c68",
+        "home": "Ecuador",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Slovenia",
+        "cut_raw_sha256": "e7416ab9089a7693149f33ab9ec95d0d6fda53134535819aba27900bcbc53a6c",
+        "date": "2024-06-25",
+        "eligible": true,
+        "fixture_id": "f30ad85ed231d345a58d98da35817c57ac3ec78d",
+        "home": "England",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Slovakia",
+        "cut_raw_sha256": "17f6b4bfb951a98011d8aa0c3a1cc69b74b0bfcd8436a7dbbe977ed3d91bb9e9",
+        "date": "2024-06-30",
+        "eligible": true,
+        "fixture_id": "f35b51ac0d37da79fea2d654ed11138a9e28f2a2",
+        "home": "England",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Iran",
+        "cut_raw_sha256": "e86fe79083527824376ea343d97f48fe8a08625ec699215beb769ace9c8b5cf9",
+        "date": "2026-06-26",
+        "eligible": true,
+        "fixture_id": "f360a381791923cd80583f9a0ae78b464765a30a",
+        "home": "Egypt",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Austria",
+        "cut_raw_sha256": "c78ec22763393fafbb639cbd3246453bd71d90fe89ab9856bc467c3980527e07",
+        "date": "2024-06-21",
+        "eligible": true,
+        "fixture_id": "f3b3551ac420566fc35b840e5570cef1a5721dbb",
+        "home": "Poland",
+        "pool": "euro2024"
+      },
+      {
+        "away": "New Zealand",
+        "cut_raw_sha256": "8b14c512954c62d16f519eb9f8d5014f259a621051a9d2a579d99f01fdfd787b",
+        "date": "2026-06-15",
+        "eligible": true,
+        "fixture_id": "f3e6813676b4d683ffdbc1914a61cf9b124c31a5",
+        "home": "Iran",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Italy",
+        "cut_raw_sha256": "baa0f83410cf9b226934b275cb932693715c4cb77ad6d82bc61e8d2ac8b68db0",
+        "date": "2024-06-20",
+        "eligible": true,
+        "fixture_id": "f6c6bfd08129cff9f57d98d7d06b9cc18b5539c5",
+        "home": "Spain",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Iran",
+        "cut_raw_sha256": "edda65cea244815e24060093745f68821535d02c2b62a395b703f62e53489cbc",
+        "date": "2022-11-21",
+        "eligible": true,
+        "fixture_id": "f7c2a18571c3216a41d60bd8d7bc374aaf219262",
+        "home": "England",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Czech Republic",
+        "cut_raw_sha256": "6f1158db1271170542b2db766c69530d4bdc137bee032f465d41c26d139073f5",
+        "date": "2026-06-11",
+        "eligible": true,
+        "fixture_id": "f8579bfd674caddc6f10d425c03287fb0dc01773",
+        "home": "South Korea",
+        "pool": "wc2026"
+      },
+      {
+        "away": "France",
+        "cut_raw_sha256": "5c8e179798998d591107a7bb4c95439172e98e2d083eb7fd7ebd8a737864ce3c",
+        "date": "2022-11-30",
+        "eligible": true,
+        "fixture_id": "f8fec350e7c19cdd16957d4699d5f01171793a57",
+        "home": "Tunisia",
+        "pool": "wc2022"
+      },
+      {
+        "away": "Turkey",
+        "cut_raw_sha256": "9e19017f04cc873b7491ba3eeec2c41c40d57f8db7e18350d89f69282bfc94ac",
+        "date": "2026-06-13",
+        "eligible": true,
+        "fixture_id": "f9f72b02c7f1a906e17bd5e3e09f3d2b55e4f941",
+        "home": "Australia",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Turkey",
+        "cut_raw_sha256": "528056f9ce7b09591d96885ee34f2a63bca401c7fb8a4fc6414b3db1a510c35a",
+        "date": "2024-07-02",
+        "eligible": true,
+        "fixture_id": "fb84dd9c32c6943b68bc59b8836869364dfb5721",
+        "home": "Austria",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Ukraine",
+        "cut_raw_sha256": "7edddbe84f9b87ab8564503b0cf55caa3e9630257fb762953ee812f8c5b3b8d0",
+        "date": "2024-06-21",
+        "eligible": true,
+        "fixture_id": "fe672c9c8ac1f2e30d7625c5470e18b6a5b6e22d",
+        "home": "Slovakia",
+        "pool": "euro2024"
+      },
+      {
+        "away": "Croatia",
+        "cut_raw_sha256": "c3f0e637bccd14a5130d91f934bcd26fca0aa2e34b4849e34c39243ca5cb82fa",
+        "date": "2026-07-02",
+        "eligible": true,
+        "fixture_id": "ff807b7bdda744a6104115779311f321552231e2",
+        "home": "Portugal",
+        "pool": "wc2026"
+      },
+      {
+        "away": "Senegal",
+        "cut_raw_sha256": "25f08da633e1d053a16627bce9a18daca9c301556d65fc14dd7543ee3ccb32fa",
+        "date": "2026-07-01",
+        "eligible": true,
+        "fixture_id": "ffbb0cfc6b89221ad5a3d233514bae52e025676d",
+        "home": "Belgium",
+        "pool": "wc2026"
+      }
+    ],
+    "n_eligible": 217,
+    "n_fixtures": 217
+  },
+  "version": 10
+}
