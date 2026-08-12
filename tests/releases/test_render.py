@@ -95,8 +95,34 @@ def test_pct_clamps_display_extremes(p, expected):
     assert _pct(p) == expected
 
 
-def test_no_betting_vocabulary_in_either_output():
-    from wcmodel.releases import BETTING_FIELD_DENYLIST
-    for text in (render_html(REL).lower(), render_csv(REL).lower()):
-        for word in BETTING_FIELD_DENYLIST:
-            assert f" {word}" not in text and f'"{word}"' not in text, word
+# The betting-vocabulary canary. Its previous form was a canary that could
+# not fail twice over: it iterated only the FIELD denylist (so prose words
+# like "bet", "betting", "wager" — vocab, not field names — were never
+# checked at all), and it matched only space- or quote-prefixed substrings
+# (so a leak rendered as ``<td>odds</td>`` sailed through on its ``>``
+# prefix). Word-boundary regex over the UNION of both lists, applied to both
+# outputs, with a positive control below proving the scanner actually bites.
+def _betting_leaks(text):
+    import re
+    from wcmodel.releases import BETTING_FIELD_DENYLIST, BETTING_VOCAB
+    words = sorted(BETTING_VOCAB | BETTING_FIELD_DENYLIST)
+    rx = re.compile(r"\b(" + "|".join(map(re.escape, words)) + r")\b", re.I)
+    return sorted({m.group(1).lower() for m in rx.finditer(text)})
+
+
+@pytest.mark.parametrize("render", [render_html, render_csv],
+                         ids=["html", "csv"])
+def test_no_betting_vocabulary_in_either_output(render):
+    leaks = _betting_leaks(render(REL))
+    assert not leaks, f"betting vocabulary reached rendered output: {leaks}"
+
+
+def test_betting_scanner_positive_control():
+    # A canary that cannot fail is a bug (house rule). Prove the scanner
+    # catches exactly the leak shapes the old assertion missed, and that the
+    # word boundary keeps legitimate text valid.
+    assert _betting_leaks("<td>odds</td>") == ["odds"]          # old miss: '>' prefix
+    assert "betting" in _betting_leaks("responsible betting")   # old miss: vocab-only word
+    assert "wager" in _betting_leaks("Wager now!")              # case-insensitive
+    assert _betting_leaks("Real Betis beat Detroit") == []      # boundaries hold
+    assert _betting_leaks("hedge ledges knowledge") == []       # 'edge' inside words
