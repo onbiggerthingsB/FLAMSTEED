@@ -1,0 +1,120 @@
+name: CI
+
+# The gap this closes, stated plainly: nothing ran the test suite or checked the
+# preregistration lock automatically. On 2026-08-09 a branding commit put the
+# lock chain into a refusing state and nobody found out for two days and three
+# commits, because the chain is only consulted when someone runs a verdict.
+# See the lock-v9 amendment in reports/oa_prereg.md.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Seconds, zero dependencies: src/wcmodel/eval/lock.py is pure stdlib.
+  # Kept separate from the test job on purpose — it must report fast and it
+  # must not be able to fail for an unrelated reason.
+  lock:
+    name: Preregistration lock
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # require_lock diffs the code tree between the lock's code_commit and
+          # HEAD. A shallow clone does not contain code_commit, so the check
+          # would error rather than answer. Full history is required.
+          fetch-depth: 0
+
+      - name: Verify the chain AND that the attested code has not drifted
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, "src")
+          from wcmodel.eval.lock import require_lock, LockError
+
+          # NOT `scripts/oa_lock.py` on its own. That runs verify_chain, which
+          # checks document hashes and the chain but NOT code drift — it prints
+          # LOCK VALID and exits 0 on precisely the tree that was refusing for
+          # two days. require_lock(enforce_commit=True) is the real gate.
+          try:
+              head = require_lock()
+          except LockError as e:
+              print(f"::error::LOCK REFUSED — {e}")
+              sys.exit(1)
+          print(f"LOCK VALID  v{head['version']}  "
+                f"code_commit {head['code_commit'][:12]}")
+          PY
+
+  tests:
+    name: Test suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+
+      # data/ is gitignored (5.9GB of paid odds captures and posterior caches),
+      # so three test modules cannot run here. They are named, with the exact
+      # artifact each one needs, rather than being quietly dropped: a suite that
+      # silently covers less than it appears to is the failure mode this
+      # project treats as a bug.
+      #
+      # This list is deliberately fail-closed. Any NEW test that reaches for
+      # data/ is not in it, so CI goes red until someone decides on purpose
+      # whether it belongs here.
+      - name: Run the suite (data-dependent modules named and excluded)
+        env:
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          echo "Excluded — require gitignored artifacts under data/:"
+          echo "  tests/analysis/test_oa_devslate.py  -> data/oa_dev_ledger.parquet"
+          echo "  tests/eval/test_verdict.py          -> data/stores/full_final/results.parquet"
+          echo "  tests/eval/test_eval_manifest.py    -> data/clv_odds_cache.json"
+          echo "Everything else, including all six leakage canaries, runs."
+          echo
+          pytest -q \
+            --ignore=tests/analysis/test_oa_devslate.py \
+            --ignore=tests/eval/test_verdict.py \
+            --ignore=tests/eval/test_eval_manifest.py
+
+      # The leakage canaries are the project's load-bearing invariant. They run
+      # in the sweep above, but a green suite is easy to skim past, so state the
+      # count explicitly. A canary that silently stopped collecting would look
+      # exactly like a canary that passed.
+      - name: Leakage canaries — report the count, do not just pass
+        env:
+          OMP_NUM_THREADS: '1'
+          OPENBLAS_NUM_THREADS: '1'
+          MKL_NUM_THREADS: '1'
+        run: |
+          set -euo pipefail
+          n=$(pytest tests -k leakage --co -q 2>/dev/null | tail -1 | grep -oE '^[0-9]+' || echo 0)
+          echo "leakage tests collected: ${n}"
+          if [ "${n}" -lt 40 ]; then
+            echo "::error::only ${n} leakage tests collected (expected 40+) — canaries may have stopped running"
+            exit 1
+          fi
+          pytest tests -k leakage -q

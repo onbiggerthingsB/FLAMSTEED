@@ -17,6 +17,7 @@ format-generic surface added for AC-2027:
 import itertools
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -184,7 +185,7 @@ def test_verifier_passes_both_real_tables():
     for table, n_groups, best_n in [(f"config/{_WC_TABLE}", "12", "8"),
                                     (f"config/{_AC_TABLE}", "6", "4")]:
         proc = subprocess.run(
-            [".venv/bin/python", _VERIFIER, table, n_groups, best_n],
+            [sys.executable, _VERIFIER, table, n_groups, best_n],
             env={"PYTHONPATH": "src"}, capture_output=True, text=True)
         assert proc.returncode == 0, f"{table}: {proc.stdout}{proc.stderr}"
 
@@ -196,7 +197,7 @@ def test_verifier_rejects_wrong_match_set(tmp_path):
                      for k, v in raw["table"].items()}}
     p = tmp_path / "bad.json"
     p.write_text(json.dumps(bad))
-    rc = subprocess.run([".venv/bin/python", "scripts/verify_thirds_table.py",
+    rc = subprocess.run([sys.executable, "scripts/verify_thirds_table.py",
                          str(p), "6", "4"], env={"PYTHONPATH": "src"},
                         capture_output=True).returncode
     assert rc != 0
