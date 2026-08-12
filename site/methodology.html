@@ -6,722 +6,926 @@
 <!-- BRAND: Flamsteed — decided 2026-08-10, replacing Antecast ("ante" is a betting term; "anti-cast" when heard). For John Flamsteed, first Astronomer Royal, who refused to publish figures he had not finished checking. Domain: flamsteed.io REGISTERED 2026-08-10 (Porkbun, expires 2027-08-10); .com held dark by a third party since 2007 (renewed annually, so it will not drop); .org/.org.uk/.info belong to the Flamsteed Astronomy Society at the Royal Observatory. Citation URLs below stay on GitHub until the site is actually served from flamsteed.io — a released artifact must never cite a domain that does not resolve. -->
 <title>Flamsteed — Methodology</title>
 <meta name="description" content="How the point-in-time football forecast is fitted, simulated, scored, tested, and reproduced.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='14'%20fill='%23101319'/%3E%3Ctext%20x='32'%20y='45'%20font-family='Georgia,serif'%20font-size='38'%20text-anchor='middle'%20fill='%23d08b3c'%3EF%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='14'%20fill='%23f6f1e5'/%3E%3Ctext%20x='32'%20y='45'%20font-family='Georgia,serif'%20font-size='38'%20text-anchor='middle'%20fill='%237c2818'%3EF%3C/text%3E%3C/svg%3E">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://flamsteed.io/methodology.html">
 <meta property="og:title" content="Flamsteed — Methodology">
 <meta property="og:description" content="How the point-in-time football forecast is fitted, simulated, scored, tested, and reproduced.">
+<script>/* The two-path rule: motion is switched on only where it is welcome and
+   observable. Source: tools/annual_system/system.js, block A. */
+(function () {
+  try {
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches &&
+        'IntersectionObserver' in window) {
+      document.documentElement.classList.add('js');
+    }
+  } catch (e) {}
+})();</script>
 <style>
+/* Bodoni Moda (OFL) — display subset, opsz=96 wght=400; see site/fonts/OFL.txt */
+@font-face{font-family:"Bodoni Moda Disp";font-style:normal;font-weight:400;font-display:block;src:url(data:font/woff2;base64,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) format("woff2")}
+@font-face{font-family:"Bodoni Moda Disp";font-style:italic;font-weight:400;font-display:block;src:url(data:font/woff2;base64,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) format("woff2")}
 /* ============================================================
-   THE LEDGER — reference-document edition.
-   Design system: dark editorial ground; one warm accent;
-   serif display vs mono data; FIG-numbered plates. No external
-   requests, and no motion beyond the section rules.
+   THE ANNUAL — shared design system for flamsteed.io
+   Canonical source: tools/annual_system/system.css
+   Spec: docs/superpowers/specs/2026-08-12-site-redesign-annual-design.md
+
+   Each page inlines this block VERBATIM inside its own <style>,
+   immediately after the Bodoni Moda @font-face block
+   (/tmp/fonts/bm.css, built by tools/build_fonts.sh). Pages stay
+   self-contained: zero external requests.
+
+   Four rules here are load-bearing, not preference:
+     1. Two inks and a paper. --oxblood is what WE said (our
+        numbers, verdicts, the loss). --verdigris is what HAPPENED
+        (the market, the realized, the baseline). Nothing else may
+        take either ink — that is what lets a figure be read
+        without a legend.
+     2. A plate is not a card: fill identical to the page ground,
+        ruled frame, no shadow, no elevation, no hover state.
+     3. The unstyled document is the finished document. Every
+        animated style lives under `.js`, which system.js adds only
+        when motion is welcome. no-JS = reduced-motion =
+        old-browser = the complete page.
+     4. The display face is only ever weight 400. Emphasis is
+        italic, ink, or size — never synthetic bold.
+
+   DOM ORDER MATTERS in .sheet: write the rail item BEFORE its body
+   item. Grid auto-placement is sparse and does not backtrack, so a
+   .body followed by a .rail puts the rail on the next row.
    ============================================================ */
-:root {
-  --ground: #101319;
-  --ground-deep: #0b0e13;
-  --plate: #161a22;
-  --ink: #ece7dc;
-  --ink-dim: #a49e90;
-  --hairline: #2b3140;
-  --hairline-soft: #232837;
-  --accent: #d08b3c;
-  --accent-dim: #8a5f2e;
-  --serif: "Iowan Old Style", "Palatino Nova", Palatino, Charter, "Times New Roman", Georgia, serif;
-  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
-  --shell: min(1120px, calc(100vw - clamp(40px, 8vw, 128px)));
-  --ease-out: cubic-bezier(.16, 1, .3, 1);
+
+:root{
+  /* --- ink and paper (spec §2) --- */
+  --cream:#f6f1e5;--cream-deep:#efe8d6;--ink:#221e16;--ink-dim:#6d6553;
+  --oxblood:#7c2818;--verdigris:#1d5040;--frame:#2b261c;
+  /* --- type --- */
+  --display:"Bodoni Moda Disp",Didot,"Bodoni 72",Georgia,serif;
+  --body:"Iowan Old Style",Palatino,Georgia,serif;
+  --mono:ui-monospace,"SFMono-Regular",Menlo,monospace;
+  /* --- measure --- */
+  --rail:140px;--gutter:34px;--sheet:1120px;
+  /* --- one easing family, four durations (spec §4 budget) ---
+     above the fold: 700ms rise + 180ms max stagger = 880ms <= 1100ms
+     below the fold: 600ms max
+     nothing anywhere exceeds 700ms, so nothing exceeds 1.2s. */
+  --ease:cubic-bezier(.2,.6,.3,1);
+  --t-rise:700ms;--t-draw:600ms;--t-rule:520ms;--t-fade:420ms;
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+*{box-sizing:border-box;margin:0;padding:0}
 
-html { scroll-behavior: smooth; }
+/* Paper grain: ~330-byte feTurbulence tile at 4% alpha, tiled and
+   SCROLLING with the page (never position:fixed — a fixed grain
+   swims under the type). Suppressed inside plates, which paint
+   their own opaque cream. No -webkit-font-smoothing: it is a
+   dark-ground fix and thins these serifs on light. */
+body{background:var(--cream) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='4'/%3E%3CfeColorMatrix values='0 0 0 0 .13 0 0 0 0 .12 0 0 0 0 .09 0 0 0 .04 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23g)'/%3E%3C/svg%3E");
+color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.6;
+font-variant-numeric:oldstyle-nums;text-rendering:optimizeLegibility}
 
-body {
-  background: var(--ground);
-  color: var(--ink);
-  font-family: var(--serif);
-  font-size: 17px;
-  line-height: 1.55;
-  -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
-}
+/* Prose gets oldstyle figures; anything that must line up in a
+   column gets lining tabular. The loudest "a person set this". */
+table,.mono,.data,.ledger,.plate-status,.folio,.cover-fig .n{
+font-variant-numeric:lining-nums tabular-nums}
 
-::selection { background: var(--accent); color: var(--ground-deep); }
+h1,h2,.display,.plate-no,.sec-no,.folio,.cover-fig .n,.wordmark{
+font-family:var(--display);font-weight:400}
+h1{font-size:clamp(46px,7.2vw,92px);line-height:.96;letter-spacing:-.012em}
+/* Mask slack (spec §2): descenders and italic overhangs must not
+   shear at line-height .96. */
+h1 .line{display:block;overflow:hidden;padding-bottom:.14em;margin-bottom:-.14em}
+h1 .line>span{display:block}
+h1 em,h2 em{font-style:italic}
+h2{font-size:clamp(26px,3.2vw,38px);line-height:1.08;margin:46px 0 14px}
+/* small-caps run-in heads (methodology) */
+h3{font-family:var(--body);font-size:17px;font-weight:400;font-variant-caps:small-caps;
+letter-spacing:.05em;color:var(--ink);margin:26px 0 4px}
+p+p{margin-top:1.05em}
+.dek{font-size:20px;line-height:1.5;max-width:58ch;margin-top:20px}
+.lede{font-size:18px}
 
-a { color: inherit; }
+a{color:inherit;text-decoration:underline;text-decoration-thickness:.5px;
+text-underline-offset:.16em;text-decoration-color:var(--ink-dim)}
+a:hover{text-decoration-color:var(--ink)}
+:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+::selection{background:var(--ink);color:var(--cream)}
+.skip{position:absolute;left:-9999px;top:0}
+.skip:focus{position:fixed;left:10px;top:10px;z-index:9;background:var(--cream);
+border:1px solid var(--frame);padding:8px 12px;font-family:var(--mono);font-size:11px}
 
-.shell { width: var(--shell); margin-inline: auto; }
+/* the two inks — semantic, never decorative */
+.ours,.verdict,strong.ours{color:var(--oxblood)}
+.realized,.market{color:var(--verdigris)}
 
-.mono {
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
-}
+/* ---------- the sheet: rail + measure + margin (spec §2) ---------- */
+.sheet{display:grid;grid-template-columns:var(--rail) minmax(0,62ch) 1fr;
+column-gap:var(--gutter);max-width:var(--sheet);margin-inline:auto;padding-inline:24px}
+.rail{grid-column:1;align-self:start;font-family:var(--mono);font-size:11px;
+color:var(--ink-dim);letter-spacing:.14em;text-transform:uppercase;line-height:1.45}
+.rail>*{display:block}
+.rail>*+*{margin-top:18px}
+.body{grid-column:2}
+.aside{grid-column:3;align-self:start;max-width:262px;font-size:14px;color:var(--ink-dim)}
+.full{grid-column:1/-1}
 
-.skip-link {
-  position: fixed;
-  top: 12px;
-  left: 12px;
-  z-index: 40;
-  padding: 10px 14px;
-  background: var(--accent);
-  color: var(--ground-deep);
-  font-family: var(--mono);
-  font-size: .76rem;
-  text-decoration: none;
-  transform: translateY(-160%);
-}
-.skip-link:focus { transform: none; }
+/* rail furniture */
+.folio{font-size:22px;color:var(--ink);letter-spacing:0;text-transform:none}
+.sec-no{font-size:30px;color:var(--ink-dim);letter-spacing:0;line-height:1}
+.cover-fig{margin-top:22px}
+/* Cover figures must fit the 140px rail, so the default is sized for a
+   six-glyph figure (minus 0.010, or 26/32). .lead is for a short one (104):
+   it is
+   the only place a cover figure may run to 64px without fouling the
+   headline beside it. */
+.cover-fig .n{display:block;font-size:42px;line-height:.9;color:var(--ink);
+letter-spacing:-.01em;text-transform:none;white-space:nowrap}
+.cover-fig.lead .n{font-size:64px;line-height:.86}
+.cover-fig.ours .n{color:var(--oxblood)}
+.cover-fig .k{display:block;margin-top:6px;font-size:10.5px;letter-spacing:.13em}
+.rail-note{text-transform:none;letter-spacing:.02em;font-size:11.5px;line-height:1.5}
 
-/* ---------- header ---------- */
-.site-header {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  background: color-mix(in srgb, var(--ground) 92%, transparent);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--hairline-soft);
-}
-.header-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 28px;
-  padding-block: 22px;
-}
-.wordmark {
-  font-family: var(--mono);
-  font-size: .82rem;
-  font-weight: 700;
-  letter-spacing: .34em;
-  text-decoration: none;
-  transition: letter-spacing .6s var(--ease-out), color .3s;
-}
-.wordmark:hover, .wordmark:focus-visible {
-  letter-spacing: .44em;
-  color: var(--accent);
-}
-.header-note {
-  font-family: var(--mono);
-  font-size: .68rem;
-  letter-spacing: .18em;
-  text-transform: uppercase;
-  color: var(--ink-dim);
-}
+/* ---------- masthead, contents, folio strip (spec §2, §5.0) ---------- */
+.mast{grid-column:1/-1;border-bottom:3px double var(--ink);padding:24px 0 14px;
+display:flex;justify-content:space-between;align-items:baseline;gap:20px;flex-wrap:wrap}
+/* True smcp is not in the display subset (only kern,liga,onum,tnum),
+   so the wordmark is set in caps with optical tracking rather than
+   letting the browser synthesize small caps. */
+.wordmark{font-size:34px;letter-spacing:.22em;text-transform:uppercase;
+text-decoration:none;line-height:1}
+.issue{font-family:var(--mono);font-size:10.5px;letter-spacing:.2em;
+text-transform:uppercase;color:var(--ink-dim)}
+.contents{grid-column:1/-1;display:flex;gap:26px;flex-wrap:wrap;padding:10px 0;
+border-bottom:1px solid var(--frame);font-family:var(--mono);font-size:11px;
+letter-spacing:.18em;text-transform:uppercase}
+.contents a{color:var(--ink-dim);text-decoration:none}
+.contents a:hover{color:var(--ink)}
+.contents .here{color:var(--ink);border-bottom:2px solid var(--oxblood);padding-bottom:6px}
 
-/* ---------- document masthead ---------- */
-.hero {
-  padding-block: clamp(80px, 13vh, 148px) clamp(64px, 10vh, 112px);
-  border-bottom: 1px solid var(--hairline);
-}
-.eyebrow {
-  font-family: var(--mono);
-  font-size: .72rem;
-  letter-spacing: .26em;
-  text-transform: uppercase;
-  color: var(--accent);
-  margin-bottom: clamp(24px, 4vh, 40px);
-}
-h1 {
-  max-width: 13ch;
-  font-size: clamp(3rem, 7vw, 6rem);
-  line-height: .98;
-  font-weight: 500;
-  letter-spacing: -.015em;
-}
-h1 em {
-  color: var(--accent);
-  font-style: italic;
-}
-.hero-copy {
-  display: grid;
-  grid-template-columns: minmax(0, 58ch) minmax(0, 1fr);
-  gap: 34px;
-  align-items: end;
-  margin-top: clamp(30px, 5vh, 52px);
-}
-.hero-copy > p {
-  color: var(--ink-dim);
-  font-size: 1.06rem;
-  line-height: 1.7;
-}
-.contents {
-  display: flex;
-  justify-content: flex-end;
-  gap: 18px 26px;
-  flex-wrap: wrap;
-}
-.contents a, .source-link {
-  font-family: var(--mono);
-  font-size: .74rem;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  text-decoration: none;
-  color: var(--ink-dim);
-  padding-bottom: 4px;
-  border-bottom: 1px solid var(--hairline);
-  transition: color .3s, border-color .3s;
-}
-.contents a:hover, .contents a:focus-visible,
-.source-link:hover, .source-link:focus-visible {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
+/* ---------- plates (spec §3) ---------- */
+/* Double rule = 1px border + 0.5px outline across a 3px gap.
+   Fill is the page ground: depth comes from rules, never elevation. */
+.plate{position:relative;border:1px solid var(--frame);outline:.5px solid var(--frame);
+outline-offset:3px;background:var(--cream);padding:30px 34px 26px;margin:26px 0}
+.sheet>.plate{grid-column:2/-1}
+.plate .tick{position:absolute;width:7px;height:7px;border:1px solid var(--frame)}
+.plate .tick.tl{top:-4px;left:-4px;border-right:0;border-bottom:0}
+.plate .tick.tr{top:-4px;right:-4px;border-left:0;border-bottom:0}
+.plate .tick.bl{bottom:-4px;left:-4px;border-right:0;border-top:0}
+.plate .tick.br{bottom:-4px;right:-4px;border-left:0;border-top:0}
+/* the plate number hangs in the margin rail, OUTSIDE the frame */
+.plate-no{position:absolute;top:-4px;right:calc(100% + 22px);width:122px;
+text-align:right;font-size:40px;line-height:1;color:var(--ink)}
+/* the title sits ON the top rule; its cream ground breaks the rule */
+.plate-title{position:absolute;top:-.66em;left:26px;background:var(--cream);
+padding:0 .6em;font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;
+text-transform:uppercase;color:var(--ink-dim);line-height:1.2}
+/* The status mark is set uppercase, but WRITE IT UPPERCASE IN THE MARKUP
+   too: tools/site_check.sh greps the file for the literal seal token and
+   its lock-version string, and text-transform does not change the bytes
+   it reads. (Those tokens are deliberately not spelled out anywhere in
+   this stylesheet: every page inlines this block, and a page that names
+   the token in a comment would be asked for a lock version it may have
+   no business claiming.) */
+.plate-status{position:absolute;top:-.66em;right:26px;background:var(--cream);
+padding:0 .6em;font-family:var(--mono);font-size:10px;letter-spacing:.18em;
+text-transform:uppercase;color:var(--ink-dim);line-height:1.2}
+.plate-head{display:flex;justify-content:flex-end;align-items:baseline;gap:12px;
+flex-wrap:wrap;min-height:0}
+/* figure + legend, and the deliberate void: the legend occupies the
+   first row of the second column only. The row beneath it is never
+   filled — that unworked corner is the composition's rest, and the
+   plate mark sits in it. */
+.plate-body{display:grid;grid-template-columns:minmax(0,1fr) 172px;
+grid-template-rows:auto 1fr;column-gap:30px}
+.plate-figure{grid-column:1;grid-row:1/-1;min-width:0}
+.plate-figure>svg{display:block;width:100%;height:auto}
+.plate-legend{grid-column:2;grid-row:1;font-family:var(--mono);font-size:10.5px;
+letter-spacing:.1em;color:var(--ink-dim);line-height:1.5}
+.plate-legend .k{display:flex;gap:9px;align-items:baseline;margin-bottom:9px}
+.plate-legend .k svg{flex:none;margin-top:1px}
+.plate-legend .h{display:block;letter-spacing:.2em;text-transform:uppercase;
+color:var(--ink);margin-bottom:10px}
+.plate-mark{position:absolute;right:10px;bottom:8px;opacity:.55}
+figcaption{font-size:13px;line-height:1.5;color:var(--ink-dim);margin-top:14px;max-width:56ch}
+figcaption b{font-weight:inherit;color:var(--ink)}
 
-/* ---------- FIG plates ---------- */
-.section { padding-block: clamp(64px, 10vh, 112px); }
-.section + .section { border-top: 1px solid var(--hairline-soft); }
-.fig {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  margin-bottom: clamp(30px, 5vh, 48px);
-  color: var(--ink-dim);
-  font-family: var(--mono);
-  font-size: .68rem;
-  letter-spacing: .3em;
-  text-transform: uppercase;
-}
-.fig b { color: var(--accent); font-weight: 700; }
-.fig .rule {
-  flex: 1;
-  height: 1px;
-  background: var(--hairline);
-  transform-origin: 0 50%;
-  animation: draw-rule .9s var(--ease-out) both;
-}
-@keyframes draw-rule {
-  from { transform: scaleX(0); }
-  to { transform: scaleX(1); }
-}
-.section-heading {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 46ch);
-  gap: 28px;
-  align-items: end;
-  margin-bottom: clamp(34px, 5vh, 54px);
-}
-h2 {
-  font-size: clamp(1.9rem, 3.6vw, 3rem);
-  font-weight: 500;
-  letter-spacing: -.01em;
-  line-height: 1.05;
-}
-.section-heading p {
-  color: var(--ink-dim);
-  font-size: .94rem;
-  line-height: 1.65;
-}
-.prose {
-  max-width: 72ch;
-}
-.prose p {
-  font-size: 1.03rem;
-  line-height: 1.75;
-}
-.prose p + p { margin-top: 22px; }
-.prose strong { color: var(--accent); font-weight: 700; }
-.prose code {
-  font-family: var(--mono);
-  font-size: .84em;
-  color: var(--ink);
-}
-.prose a, td a, .source-list a {
-  color: var(--ink);
-  text-decoration-color: var(--accent-dim);
-  text-underline-offset: .22em;
-  text-decoration-thickness: 1px;
-}
-.prose a:hover, .prose a:focus-visible,
-td a:hover, td a:focus-visible,
-.source-list a:hover, .source-list a:focus-visible {
-  color: var(--accent);
-  text-decoration-color: var(--accent);
-}
+/* ---------- the errata overprint (spec §4) ---------- */
+/* Both layers ship in the DOM, drawn. Only .js hides the overprint
+   until it is asked for, so no-JS and reduced-motion see both. */
+.overprint-layer{transition:opacity var(--t-fade) var(--ease)}
+.js .plate.has-overprint:not(.printed) .overprint-layer{opacity:0}
+.plate.printed .overprint-layer{opacity:1}
+.op-btn{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+border:1px solid var(--frame);background:var(--cream);color:var(--ink);
+padding:5px 10px;cursor:pointer;line-height:1.2}
+.op-btn:hover{border-color:var(--ink)}
+.op-btn[aria-pressed="true"]{color:var(--verdigris);border-color:var(--verdigris)}
+/* the delta prints as a marginal note in the rail, beside the plate */
+.op-delta{position:absolute;top:58px;right:calc(100% + 22px);width:122px;text-align:right;
+font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;color:var(--verdigris);
+line-height:1.45;transition:opacity var(--t-fade) var(--ease)}
+.js .plate.has-overprint:not(.printed) .op-delta{opacity:0}
 
-/* ---------- evidence table ---------- */
-.table-wrap {
-  margin-top: 42px;
-  overflow-x: auto;
-}
-table {
-  width: 100%;
-  min-width: 720px;
-  border-collapse: collapse;
-  font-variant-numeric: tabular-nums;
-}
-caption {
-  padding-bottom: 16px;
-  color: var(--ink-dim);
-  font-family: var(--mono);
-  font-size: .74rem;
-  letter-spacing: .06em;
-  text-align: left;
-}
-thead th {
-  padding: 0 18px 14px;
-  border-bottom: 1px solid var(--hairline);
-  color: var(--ink-dim);
-  font-family: var(--mono);
-  font-size: .66rem;
-  font-weight: 400;
-  letter-spacing: .2em;
-  text-align: left;
-  text-transform: uppercase;
-}
-thead th:first-child { padding-left: 0; }
-tbody th, tbody td {
-  padding: 17px 18px;
-  border-bottom: 1px solid var(--hairline-soft);
-  font-size: .9rem;
-  font-weight: 400;
-  line-height: 1.55;
-  text-align: left;
-  vertical-align: top;
-}
-tbody th {
-  padding-left: 0;
-  font-family: var(--serif);
-  font-size: 1rem;
-}
-.verdict {
-  color: var(--accent);
-  font-family: var(--mono);
-  font-size: .74rem;
-  font-weight: 700;
-  letter-spacing: .08em;
-  white-space: nowrap;
-}
-.verdict.no-lift { color: var(--ink-dim); }
+/* ---------- the engraved table (index record, methodology log) ---------- */
+/* Hairline COLUMN rules only. No row fills, no hover, no zebra. */
+.ledger{width:100%;border-collapse:collapse;font-size:15px}
+.ledger caption{caption-side:top;text-align:left;font-family:var(--mono);font-size:10.5px;
+letter-spacing:.18em;text-transform:uppercase;color:var(--ink-dim);padding-bottom:12px}
+.ledger th,.ledger td{padding:7px 14px;text-align:right;vertical-align:baseline;
+border-left:.5px solid var(--frame)}
+.ledger th:first-child,.ledger td:first-child{text-align:left;padding-left:0;border-left:0}
+.ledger thead th{background:var(--cream-deep);font-family:var(--mono);font-weight:400;
+font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-dim);
+border-bottom:1px solid var(--frame)}
+.ledger tfoot td,.ledger tr.total td{border-top:2px solid var(--ink);padding-top:9px}
+.dotplot{display:block;margin-top:6px}
 
-/* ---------- discipline ---------- */
-.discipline-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 36%);
-  gap: clamp(32px, 6vw, 80px);
-  align-items: start;
-}
-.clock-list {
-  list-style: none;
-  border-top: 1px solid var(--hairline);
-}
-.clock-list li {
-  padding-block: 22px;
-  border-bottom: 1px solid var(--hairline-soft);
-}
-.clock-list code {
-  display: block;
-  margin-bottom: 7px;
-  color: var(--accent);
-  font-family: var(--mono);
-  font-size: .78rem;
-}
-.clock-list span {
-  color: var(--ink-dim);
-  font-size: .9rem;
-  line-height: 1.6;
-}
-blockquote {
-  margin-top: 34px;
-  padding: 26px 28px;
-  border-left: 2px solid var(--accent);
-  background: var(--plate);
-  font-size: clamp(1.2rem, 2vw, 1.5rem);
-  font-style: italic;
-  line-height: 1.45;
-}
-blockquote cite {
-  display: block;
-  margin-top: 16px;
-  color: var(--ink-dim);
-  font-family: var(--mono);
-  font-size: .68rem;
-  font-style: normal;
-  letter-spacing: .1em;
-  text-transform: uppercase;
+/* ---------- footnote strip + apparatus ---------- */
+sup.fn-ref{font-family:var(--mono);font-size:10px;line-height:0;vertical-align:super}
+sup.fn-ref a{text-decoration:none}
+.footnotes{grid-column:1/-1;border-top:1px solid var(--frame);margin-top:46px;padding-top:14px;
+columns:2;column-gap:var(--gutter);font-size:13px;line-height:1.5;color:var(--ink-dim)}
+.footnotes li{list-style:none;break-inside:avoid;margin-bottom:9px}
+.footnotes .fn-no{font-family:var(--mono);font-size:10px;letter-spacing:.1em;
+color:var(--ink);margin-right:.5em}
+
+/* ---------- imprint + colophon (foot of all three pages) ---------- */
+.imprint{border-top:1px solid var(--frame);border-bottom:1px solid var(--frame);
+padding:18px 0;margin:28px 0;font-size:16px}
+.imprint .rubric{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;
+text-transform:uppercase;color:var(--ink-dim);margin-bottom:8px}
+.colophon{grid-column:1/-1;border-top:3px double var(--ink);margin-top:54px;
+padding:16px 0 64px;display:flex;flex-wrap:wrap;gap:9px 26px;
+font-family:var(--mono);font-size:11px;letter-spacing:.05em;color:var(--ink-dim)}
+.colophon .epigraph{font-family:var(--body);font-style:italic;letter-spacing:0;
+font-size:14px;flex-basis:100%;max-width:58ch}
+.rule-x{display:block;height:1px;background:var(--frame);border:0;margin:22px 0}
+
+/* ============================================================
+   MOTION — everything below is under .js, and .js is only added
+   when motion is welcome. Delete the two script blocks and what is
+   left is the finished page; that is the proof, not a claim.
+   pathLength is matched case-sensitively on SVG elements, so the
+   markup must write pathLength="1" exactly (never a magic dash).
+   ============================================================ */
+.js h1 .line>span{transform:translateY(105%);transition:transform var(--t-rise) var(--ease)}
+.js h1.in .line>span{transform:none}
+.js h1 .line:nth-child(2)>span{transition-delay:90ms}
+.js h1 .line:nth-child(3)>span{transition-delay:180ms}
+.js .plate [pathLength]{stroke-dasharray:1;stroke-dashoffset:1;
+transition:stroke-dashoffset var(--t-draw) var(--ease)}
+.js .plate.in [pathLength]{stroke-dashoffset:0}
+.js .rule-x{transform:scaleX(0);transform-origin:0 50%;
+transition:transform var(--t-rule) var(--ease)}
+.js .in .rule-x,.js .rule-x.in{transform:scaleX(1)}
+.js .footnotes{opacity:0;transition:opacity var(--t-fade) var(--ease)}
+.js .footnotes.in{opacity:1}
+
+/* .js is decided once, at load. A reader who turns reduced motion
+   on afterwards still gets the end state — that is what this block
+   is for, and it zeroes transition-delay as well as duration. */
+@media (prefers-reduced-motion:reduce){
+ *,*::before,*::after{transition-duration:.01ms!important;transition-delay:0s!important;
+ animation-duration:.01ms!important;animation-delay:0s!important}
+ .js h1 .line>span{transform:none}
+ .js .plate [pathLength]{stroke-dasharray:none;stroke-dashoffset:0}
+ .js .rule-x{transform:none}
+ .js .footnotes{opacity:1}
+ .js .plate.has-overprint:not(.printed) .overprint-layer,
+ .js .plate.has-overprint:not(.printed) .op-delta{opacity:1}
 }
 
-/* ---------- scoring ---------- */
-.score-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1px;
-  margin-top: 42px;
-  border: 1px solid var(--hairline-soft);
-  background: var(--hairline-soft);
-}
-.score-card {
-  padding: clamp(28px, 4vw, 42px);
-  background: var(--ground);
-}
-.score-label {
-  display: block;
-  margin-bottom: 16px;
-  color: var(--ink-dim);
-  font-family: var(--mono);
-  font-size: .68rem;
-  letter-spacing: .2em;
-  text-transform: uppercase;
-}
-.score-value {
-  display: block;
-  font-size: clamp(1.55rem, 3vw, 2.35rem);
-  font-weight: 500;
-  letter-spacing: -.01em;
-}
-.score-detail {
-  margin-top: 10px;
-  color: var(--ink-dim);
-  font-family: var(--mono);
-  font-size: .8rem;
-}
-.report-row {
-  margin-top: 28px;
-  text-align: right;
-}
-
-/* ---------- disclosure ---------- */
-.honest-wrap {
-  background: var(--ground-deep);
-  border-block: 1px solid var(--hairline);
-  padding-block: clamp(64px, 10vh, 110px);
-}
-.honest {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 58ch);
-  gap: clamp(28px, 5vw, 80px);
-}
-.disclosure-label {
-  margin-bottom: 22px;
-  color: var(--ink-dim);
-  font-family: var(--mono);
-  font-size: .68rem;
-  letter-spacing: .3em;
-  text-transform: uppercase;
-}
-.disclosure-label b { color: var(--accent); }
-.honest h2 { max-width: 12ch; }
-.honest-copy p {
-  font-size: 1.04rem;
-  line-height: 1.7;
-}
-.honest-copy p + p { margin-top: 22px; }
-.honest-copy strong { color: var(--accent); font-weight: 700; }
-.honest-copy .source-link {
-  display: inline-block;
-  margin-top: 28px;
+/* ---------- responsive (spec §8) ---------- */
+@media (max-width:880px){
+ .sheet{grid-template-columns:minmax(0,1fr);padding-inline:18px}
+ .rail,.body,.aside,.full{grid-column:1}
+ .sheet>.plate{grid-column:1}
+ .aside{max-width:none;border-top:1px solid var(--frame);padding-top:14px;margin-top:26px}
+ .mast{padding-top:18px}
+ .wordmark{font-size:27px}
+ /* the folio becomes a rule-bounded strip under the dek */
+ .folio{display:flex;justify-content:space-between;align-items:baseline;
+ border-top:1px solid var(--frame);border-bottom:1px solid var(--frame);
+ padding:8px 0;font-size:19px}
+ .rail>*+*{margin-top:14px}
+ .cover-fig{display:flex;align-items:baseline;gap:12px;margin-top:12px}
+ .cover-fig .n{font-size:38px}
+ .cover-fig .k{margin-top:0}
+ /* The rail collapses into an inline plate header. It is a block, not a
+    flex row: the number and title run together as a heading, and the
+    status mark, the control and the delta each take their own line as
+    shrink-to-fit boxes. A long title otherwise runs straight into the
+    status mark and the two read as one sentence. */
+ .plate{padding:20px 16px}
+ .plate-no,.plate-title,.plate-status,.op-delta{position:static;background:none;
+ padding:0;width:auto;text-align:left}
+ .plate-head{display:block;padding-bottom:9px;margin-bottom:16px;
+ border-bottom:1px solid var(--frame)}
+ .plate-no{display:inline-block;font-size:26px;line-height:1;margin-right:8px}
+ .plate-title,.plate-status,.op-btn,.plate-legend{font-size:11px}
+ .plate-title{display:inline}
+ /* the mark becomes a stamp, which is what it is */
+ .plate-status{display:block;width:max-content;max-width:100%;margin-top:12px;
+ border:1px solid var(--frame);padding:3px 7px}
+ .op-btn{display:block;width:max-content;max-width:100%;margin-top:12px}
+ .op-delta{display:block;font-size:11px;margin-top:12px}
+ /* stack figure over legend */
+ .plate-body{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto;row-gap:16px}
+ .plate-figure{grid-column:1;grid-row:1}
+ .plate-legend{grid-column:1;grid-row:2}
+ /* Spec §8 floor: never scale a plate label down. The figure is laid
+    out at 1.12x its authored user-space width inside a scroll box, so
+    a 10px authored label lands at 11.2 CSS px at 390px. Set --fig-w
+    to the SVG's viewBox width. */
+ .plate-figure{overflow-x:auto}
+ .plate-figure>svg{width:calc(var(--fig-w,1040) * 1.12px);max-width:none}
+ .footnotes{columns:1}
+ .ledger{font-size:14px}
+ .ledger th,.ledger td{padding:6px 9px}
 }
 
-/* ---------- reproducibility ---------- */
-.repro-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1px;
-  margin-top: 42px;
-  border: 1px solid var(--hairline-soft);
-  background: var(--hairline-soft);
+/* ---------- print (spec §6): an annual that prints badly is a costume ---------- */
+@media print{
+ @page{margin:16mm}
+ :root{--ink:#000;--ink-dim:#333;--frame:#000;--cream:#fff;--cream-deep:#fff}
+ body{background:#fff;font-size:11pt;line-height:1.45}
+ /* whatever the .js path was mid-way through, the paper gets the end state */
+ *,*::before,*::after{transition:none!important;animation:none!important}
+ .js h1 .line>span{transform:none}
+ .js .plate [pathLength]{stroke-dasharray:none;stroke-dashoffset:0}
+ .js .rule-x{transform:none}
+ .js .footnotes{opacity:1}
+ .js .plate.has-overprint .overprint-layer,.js .plate.has-overprint .op-delta{opacity:1}
+ .skip,.op-btn{display:none}
+ .plate{outline:none;border:.5px solid #000;break-inside:avoid;break-before:page;
+ padding:18px 20px}
+ .plate.opens-page{break-before:auto}
+ .plate-figure{overflow:visible}
+ .plate-figure>svg{width:100%}
+ .contents{border-bottom:.5px solid #000}
+ a{text-decoration:none}
+ /* Only http(s) URLs are printed after their anchor. A mailto: href would
+    print its whole query string, so the imprint must carry the address as
+    visible text instead of hiding it behind "write to the editor". */
+ a[href^="http"]::after{content:" (" attr(href) ")";font-size:.78em;color:#333;
+ word-break:break-all}
+ .contents a[href]::after,.wordmark[href]::after{content:none}
+ .footnotes{columns:2;break-inside:avoid}
+ .colophon{padding-bottom:0}
 }
-.repro-item {
-  padding: clamp(26px, 4vh, 38px) 28px;
-  background: var(--ground);
-}
-.repro-item h3 {
-  margin-bottom: 12px;
-  font-size: 1.12rem;
-  font-weight: 500;
-}
-.repro-item p {
-  color: var(--ink-dim);
-  font-size: .86rem;
-  line-height: 1.65;
-}
-.source-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 32px;
-  margin-top: 42px;
-  border-top: 1px solid var(--hairline);
-  list-style: none;
-}
-.source-list li {
-  padding-block: 18px;
-  border-bottom: 1px solid var(--hairline-soft);
-  color: var(--ink-dim);
-  font-family: var(--mono);
-  font-size: .78rem;
-  line-height: 1.55;
-}
+/* ============================================================
+   No. 1, section II — page-specific extensions to the shared
+   system. Nothing here introduces a colour, a weight on the
+   display face, a shadow, or a hue outside the two inks.
 
-/* ---------- footer ---------- */
-.site-footer {
-  border-top: 1px solid var(--hairline);
-  padding-block: clamp(44px, 7vh, 72px);
-  background: var(--ground-deep);
-}
-.footer-inner {
-  display: grid;
-  gap: 30px;
-}
-.footer-brand {
-  font-family: var(--mono);
-  font-size: .78rem;
-  font-weight: 700;
-  letter-spacing: .34em;
-}
-.footer-nav { display: flex; gap: 30px; flex-wrap: wrap; }
-.footer-nav a {
-  color: var(--ink-dim);
-  font-family: var(--mono);
-  font-size: .74rem;
-  letter-spacing: .12em;
-  text-decoration: none;
-  text-transform: uppercase;
-  border-bottom: 1px solid transparent;
-  padding-bottom: 4px;
-  transition: color .3s, border-color .3s;
-}
-.footer-nav a:hover, .footer-nav a:focus-visible {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-.footer-copy p {
-  max-width: 72ch;
-  color: var(--ink-dim);
-  font-size: .8rem;
-  line-height: 1.7;
-}
-.footer-note { color: var(--ink); }
+   This is the reference section, so it is set denser than the
+   record: the margin rail carries the provenance, terms of art
+   are engraved in small caps rather than bolded, and the
+   apparatus (contents, checks, sources) is ruled rather than
+   boxed.
+   ============================================================ */
 
-/* ---------- focus + responsive ---------- */
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
-  border-radius: 1px;
-}
+/* Terms of art are set as terms, not shouted. Synthetic bold in a
+   body serif is the same tell as synthetic bold on the didone. */
+strong{font-weight:400;font-variant-caps:small-caps;letter-spacing:.04em}
 
-@media (max-width: 880px) {
-  .hero-copy, .section-heading, .discipline-grid, .honest {
-    grid-template-columns: 1fr;
-  }
-  .contents { justify-content: flex-start; }
-  .repro-grid { grid-template-columns: 1fr; }
-}
-@media (max-width: 640px) {
-  .header-note { display: none; }
-  .score-grid, .source-list { grid-template-columns: 1fr; }
-  .report-row { text-align: left; }
-}
-@media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
-  *, *::before, *::after {
-    animation-duration: .01ms !important;
-    animation-delay: 0ms !important;
-    transition-duration: .01ms !important;
-    scroll-behavior: auto !important;
-  }
+/* A rubric names a block without taking a heading level. */
+.rubric{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;
+text-transform:uppercase;color:var(--ink-dim);margin-bottom:8px}
+
+/* ---- the outer margin: contents of this section ------------------ */
+.aside-h{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.22em;
+text-transform:uppercase;color:var(--ink-dim)}
+.toc{margin-top:9px;border-top:1px solid var(--frame);list-style:none}
+.toc li{display:grid;grid-template-columns:28px minmax(0,1fr);column-gap:10px;
+align-items:baseline;border-bottom:.5px solid var(--frame);padding:8px 0}
+.toc .i{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;color:var(--ink-dim);
+font-variant-numeric:lining-nums tabular-nums}
+.toc a{font-size:14px;text-decoration:none;border-bottom:.5px solid transparent}
+.toc a:hover{border-bottom-color:var(--ink)}
+
+/* ---- marginalia: the citations live in the rail ------------------ */
+.rail-cite{display:block;text-transform:none;letter-spacing:.02em;font-size:11.5px;
+line-height:1.45}
+.rail-cite+.rail-cite{margin-top:10px}
+
+/* ---- the decision log, re-engraved as the section's hero ---------
+   Three text columns, so every cell is left-ranged; the system's
+   right-ranged default is for figures. The table keeps its own
+   scroll box: at 390px it is wider than the sheet, and the spec's
+   floor is that labels never scale down. */
+.sheet>.wide{grid-column:2/-1}
+.log-wrap{overflow-x:auto;margin-top:16px}
+.log-wrap:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.ledger.log{min-width:680px}
+.ledger.log caption{font-family:var(--body);font-size:13px;line-height:1.5;
+letter-spacing:.01em;text-transform:none;max-width:58ch;padding-bottom:14px}
+.ledger.log th,.ledger.log td{text-align:left;vertical-align:top;padding:11px 16px}
+.ledger.log th:first-child,.ledger.log td:first-child{padding-left:0}
+.ledger.log tbody th{font-weight:400;font-size:15px;line-height:1.4}
+.ledger.log td:last-child{font-size:14px;line-height:1.5;color:var(--ink-dim)}
+.ledger.log .verdict{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;
+text-transform:uppercase;white-space:nowrap}
+
+/* ---- point-in-time: the two clocks as a ruled list --------------- */
+blockquote{margin:20px 0;padding-left:16px;border-left:2px solid var(--frame);
+font-style:italic;line-height:1.5}
+blockquote cite{display:block;margin-top:7px;font-style:normal;font-family:var(--mono);
+font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim)}
+.checks{list-style:none;margin-top:22px;border-top:1px solid var(--frame)}
+.checks li{border-bottom:.5px solid var(--frame);padding:10px 0}
+.checks code{display:block;font-family:var(--mono);font-size:12px;letter-spacing:.02em;
+color:var(--ink)}
+.checks span{display:block;margin-top:3px;font-size:14px;line-height:1.5;color:var(--ink-dim)}
+
+/* ---- small-caps run-in heads: the reproducibility apparatus ------ */
+.run{margin-top:14px;padding-top:12px;border-top:.5px solid var(--frame)}
+h3.run-in{display:inline;margin:0}
+h3.run-in::after{content:" · ";color:var(--ink-dim);letter-spacing:0}
+.run p{display:inline;font-size:15px;line-height:1.55;color:var(--ink-dim)}
+
+/* ---- sources ----------------------------------------------------- */
+.sources{border-top:1px solid var(--frame);margin-top:34px;padding-top:14px}
+.sources ul{list-style:none;columns:2;column-gap:var(--gutter)}
+.sources li{break-inside:avoid;margin-bottom:9px;font-size:14px;line-height:1.45}
+
+/* ---- the imprint, as on the record page -------------------------- */
+.imprint .addr{font-family:var(--mono);font-size:12.5px;letter-spacing:.04em}
+
+/* ---- PLATE IV: the point-in-time boundary ------------------------
+   Same geometry as PLATE I on the record page — 1040 user units
+   across the full plate, legend under the drawing — so its axis
+   annotations take the same measured sizes. Rendered, those land at
+   11.1-12.3 CSS px from 1440px down to 390px, above the spec's
+   11px floor. */
+#plate4 .plate-body,#plate5 .plate-body{grid-template-columns:minmax(0,1fr);
+grid-template-rows:auto auto;row-gap:15px}
+#plate4 .plate-figure,#plate5 .plate-figure{grid-column:1;grid-row:1}
+#plate4 .plate-legend,#plate5 .plate-legend{grid-column:1;grid-row:2;display:flex;
+flex-wrap:wrap;align-items:baseline;gap:7px 30px;border-top:.5px solid var(--frame);
+padding-top:11px}
+#plate4 .plate-legend .h,#plate4 .plate-legend .k,
+#plate5 .plate-legend .h,#plate5 .plate-legend .k{margin-bottom:0}
+#plate4 svg text{font-size:14px}
+@media (max-width:1120px){#plate4 svg text{font-size:18px}}
+@media (max-width:940px){#plate4 svg text{font-size:21px}}
+@media (max-width:880px){#plate4 svg text{font-size:11px}}
+
+/* ---- PLATE V: the score ladder ----------------------------------
+   A narrower drawing (620 user units) than PLATE IV, so it is sized
+   on its own ladder rather than PLATE I's. */
+#plate5 svg text{font-size:11px}
+@media (max-width:940px){#plate5 svg text{font-size:12px}}
+@media (max-width:880px){#plate5 svg text{font-size:10px}}
+
+@media (max-width:880px){
+ .sheet>.wide{grid-column:1}
+ .sources ul{columns:1}
+ .toc li{grid-template-columns:24px minmax(0,1fr)}
 }
 </style>
 </head>
 <body id="top">
-  <a class="skip-link" href="#main">Skip to methodology</a>
 
-  <header class="site-header">
-    <div class="shell header-row">
-      <!-- BRAND: Flamsteed — decided 2026-08-10, replacing Antecast ("ante" is a betting term; "anti-cast" when heard). For John Flamsteed, first Astronomer Royal, who refused to publish figures he had not finished checking. Domain: flamsteed.io REGISTERED 2026-08-10 (Porkbun, expires 2027-08-10); .com held dark by a third party since 2007 (renewed annually, so it will not drop); .org/.org.uk/.info belong to the Flamsteed Astronomy Society at the Royal Observatory. Citation URLs below stay on GitHub until the site is actually served from flamsteed.io — a released artifact must never cite a domain that does not resolve. -->
-      <a class="wordmark" href="./index.html" aria-label="Back to the home page">FLAMSTEED</a>
-      <p class="header-note">Methodology · point-in-time forecasting</p>
-    </div>
+<a class="skip" href="#main">Skip to methodology</a>
+
+<div class="sheet">
+  <header class="mast">
+    <a class="wordmark" href="./index.html">Flamsteed</a>
+    <span class="issue">A STATISTICAL ANNUAL · No. 1 · WORLD CUP MMXXVI</span>
   </header>
 
-  <main id="main">
-    <section class="hero" aria-labelledby="methodology-title">
-      <div class="shell">
-        <p class="eyebrow">Methods, evidence, limits</p>
-        <h1 id="methodology-title">How the numbers are <em>made.</em></h1>
-        <div class="hero-copy">
-          <p>A source-backed reference for editors checking how the forecast was fitted, what information it could see, how the tournament was simulated, and how the published record was scored.</p>
-          <nav class="contents" aria-label="On this page">
-            <a href="#model">Model</a>
-            <a href="#discipline">Discipline</a>
-            <a href="#simulation">Simulation</a>
-            <a href="#scoring">Scoring</a>
-            <a href="#limits">Limits</a>
-            <a href="#reproducibility">Reproduce</a>
-          </nav>
-        </div>
-      </div>
-    </section>
+  <nav class="contents" aria-label="Contents">
+    <a href="./index.html">I. THE RECORD</a>
+    <span class="here" aria-current="page">II. METHODS &amp; EVIDENCE</span>
+    <a href="./market-test.html">III. THE MARKET TEST</a>
+  </nav>
+</div>
 
-    <section class="section shell" id="model" aria-labelledby="model-title">
-      <p class="fig"><b>FIG. 01</b> The model <span class="rule"></span></p>
-      <div class="section-heading">
-        <h2 id="model-title">A scoreline model, judged out of sample</h2>
-        <p>The machinery matters; the decisions about what not to add matter just as much.</p>
-      </div>
-      <div class="prose">
-        <p>The forecast begins with a <strong>Bayesian scoreline model in the Dixon–Coles family</strong>, fitted with ADVI variational inference on 49k+ international results. Team attack and defence priors are anchored to point-in-time Elo strength, and host advantage is represented explicitly.</p>
-        <p>Additions are configuration-gated and must prove that switching them off restores the previous behavior byte for byte. Adoption is decided from pre-registered, held-out evidence. A negative result is published as a result, not hidden as a failed experiment. The full record is in the repository’s <a href="https://github.com/onbiggerthingsB/FLAMSTEED#decision-log-empirical-record">empirical decision log</a>.</p>
-      </div>
+<main class="sheet" id="main">
 
-      <div class="table-wrap" tabindex="0" role="region" aria-label="Empirical model decision log">
-        <table>
-          <caption>Model decisions recorded in the project README.</caption>
-          <thead>
-            <tr>
-              <th scope="col">Candidate</th>
-              <th scope="col">Verdict</th>
-              <th scope="col">Evidence</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <th scope="row">Elo-anchored strength prior (k=0.6)</th>
-              <td><span class="verdict">Adopted</span></td>
-              <td>Held-out RPS, n=2,111.</td>
-            </tr>
-            <tr>
-              <th scope="row">Host advantage (host_k=1.4)</th>
-              <td><span class="verdict">Adopted</span></td>
-              <td>MLE on n=873 finals-tier host games; 95% CI [1.18, 1.64].</td>
-            </tr>
-            <tr>
-              <th scope="row">Altitude covariate</th>
-              <td><span class="verdict no-lift">No lift</span></td>
-              <td><a href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/reports/altitude_2026-06-10.md">Committed altitude report</a>.</td>
-            </tr>
-            <tr>
-              <th scope="row">Club-Elo squad anchor (k_squad)</th>
-              <td><span class="verdict no-lift">No lift</span></td>
-              <td>Pooled support 0.0% on 113 held-out tournament matches.</td>
-            </tr>
-            <tr>
-              <th scope="row">Friendly tier down-weighting</th>
-              <td><span class="verdict no-lift">No lift</span></td>
-              <td>Flat RPS across the weight grid.</td>
-            </tr>
-            <tr>
-              <th scope="row">Scoreline tails in mismatches</th>
-              <td><span class="verdict">Open finding</span></td>
-              <td>Top-decile ratios 0.73–0.87 — the model over-predicts blowouts. No correction has been specified in the thinning direction; the one perturbation trialled ran the wrong way, and its verdict is withdrawn in the report itself. <a href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/reports/tails_2026-06-10.md">Committed tails report</a>.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
+  <!-- ── front matter: folio in the rail, contents in the outer
+       margin, the section's title in the measure ─────────────────── -->
+  <div class="rail">
+    <span class="folio">№ 1</span>
+    <span class="rail-note">Section II. Methods, evidence, limits.</span>
+  </div>
 
-    <section class="section shell" id="discipline" aria-labelledby="discipline-title">
-      <p class="fig"><b>FIG. 02</b> Point-in-time discipline <span class="rule"></span></p>
-      <div class="section-heading">
-        <h2 id="discipline-title">The model cannot learn tomorrow’s result today</h2>
-        <p>Point-in-time is a storage rule, a training rule, and a testable invariant.</p>
-      </div>
+  <div class="body">
+    <h1 class="watch">
+      <span class="line"><span>How the</span></span>
+      <span class="line"><span>numbers are</span></span>
+      <span class="line"><span><em>made.</em></span></span>
+    </h1>
+    <p class="dek">A source-backed reference for editors checking how the forecast was
+    fitted, what information it could see, how the tournament was simulated, and how the
+    published record was scored.</p>
+    <span class="rule-x watch" role="presentation"></span>
+  </div>
 
-      <div class="discipline-grid">
-        <div class="prose">
-          <p>Results live in a <strong>bitemporal store</strong>: one clock records when an event was valid, and another records when the system actually observed it. A read at a cutoff exposes a row only when both clocks say it was knowable then.</p>
-          <p>All downstream features and fits use the same cutoff. Training data is strictly before it—<code>date &lt; cutoff_day</code>—and later corrections cannot silently rewrite an earlier forecast.</p>
-          <blockquote>
-            “a canary that cannot fail is treated as a bug.”
-            <cite>README · How it works</cite>
-          </blockquote>
-        </div>
-        <ul class="clock-list" aria-label="Point-in-time eligibility checks">
-          <li>
-            <code>observed_at &lt;= cutoff</code>
-            <span>Was the information in the system by then?</span>
-          </li>
-          <li>
-            <code>valid_as_of &lt;= cutoff</code>
-            <span>Did the information describe a state valid by then?</span>
-          </li>
-          <li>
-            <code>positive control</code>
-            <span>Each leakage canary is paired with an injected leak that must trip it, proving the alarm is capable of failing.</span>
-          </li>
-        </ul>
-      </div>
-    </section>
+  <aside class="aside">
+    <span class="aside-h">Contents of this section</span>
+    <ol class="toc">
+      <li><span class="i">01</span><a href="#log">The decision log</a></li>
+      <li><span class="i">02</span><a href="#model">Model</a></li>
+      <li><span class="i">03</span><a href="#discipline">Discipline</a></li>
+      <li><span class="i">04</span><a href="#simulation">Simulation</a></li>
+      <li><span class="i">05</span><a href="#scoring">Scoring</a></li>
+      <li><span class="i">06</span><a href="#limits">Limits</a></li>
+      <li><span class="i">07</span><a href="#reproducibility">Reproduce</a></li>
+    </ol>
+  </aside>
 
-    <section class="section shell" id="simulation" aria-labelledby="simulation-title">
-      <p class="fig"><b>FIG. 03</b> The tournament simulation <span class="rule"></span></p>
-      <div class="section-heading">
-        <h2 id="simulation-title">The bracket is simulated, not approximated away</h2>
-        <p>The scoreline posterior is carried through the actual competition shape.</p>
-      </div>
-      <div class="prose">
-        <p>Each published tournament forecast aggregates <strong>20,000 seeded Monte Carlo draws</strong>. Every draw samples match scorelines, ranks the groups, assigns the qualifying third-placed teams, and resolves the real 48-team bracket through the final. Results already known at the cutoff are fixed; only the future is simulated.</p>
-        <p>The simulator is format-aware. The frozen WC-2026 path uses the FIFA tiebreak order and bracket assignment; the AC-2027 format supplies its own AFC tiebreak order, advancement shape, hosts, and assignment table. The rules are encoded from the official regulations described in the <a href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/docs/tournament-formats.md">committed tournament-format document</a>.</p>
-        <p>The same document records the deliberate approximations: seeded stand-ins are used for criteria such as cards, drawing of lots, and the applicable penalty tail when the source data cannot model them directly. Those limits are part of the method, not implementation details left out of the claim.</p>
-      </div>
-    </section>
+  <!-- ── § 1 — the decision log, the section's hero ───────────────── -->
+  <div class="rail">
+    <span class="sec-no">§ 1</span>
+    <span class="rail-note">Candidate, verdict, evidence — as recorded in the
+    repository, including the candidates that were refused.</span>
+    <a class="rail-cite" href="https://github.com/onbiggerthingsB/FLAMSTEED#decision-log-empirical-record">The empirical decision log</a>
+  </div>
 
-    <section class="section shell" id="scoring" aria-labelledby="scoring-title">
-      <p class="fig"><b>FIG. 04</b> Scoring <span class="rule"></span></p>
-      <div class="section-heading">
-        <h2 id="scoring-title">A probability forecast gets a probability score</h2>
-        <p>The scorecard reports both forecast quality and the simpler question of whether the most likely outcome happened.</p>
-      </div>
-      <div class="prose">
-        <p><strong>RPS</strong>, or ranked probability score, evaluates the probability assigned across the three ordered outcomes—home win, draw, away win—rather than treating the forecast as a single pick. Lower is better. Because the full distribution is scored, it punishes confident wrongness more heavily than a cautious miss.</p>
-        <p>A <strong>modal hit</strong> means the outcome with the model’s highest 1X2 probability was the outcome that occurred. In the committed scorecard, knockout scores include extra time; a match decided by a shootout is scored as a draw.</p>
-      </div>
+  <section class="wide" id="log" aria-labelledby="log-title">
+    <h2 id="log-title">The decision log</h2>
+    <div class="log-wrap" tabindex="0" role="region" aria-label="Empirical model decision log">
+      <table class="ledger log">
+        <caption>Model decisions recorded in the project README.</caption>
+        <thead>
+          <tr>
+            <th scope="col">Candidate</th>
+            <th scope="col">Verdict</th>
+            <th scope="col">Evidence</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Elo-anchored strength prior (k=0.6)</th>
+            <td><span class="verdict">Adopted</span></td>
+            <td>Held-out RPS, n=2,111.</td>
+          </tr>
+          <tr>
+            <th scope="row">Host advantage (host_k=1.4)</th>
+            <td><span class="verdict">Adopted</span></td>
+            <td>MLE on n=873 finals-tier host games; 95% CI [1.18, 1.64].</td>
+          </tr>
+          <tr>
+            <th scope="row">Altitude covariate</th>
+            <td><span class="verdict">No lift</span></td>
+            <td><a href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/reports/altitude_2026-06-10.md">Committed altitude report</a>.</td>
+          </tr>
+          <tr>
+            <th scope="row">Club-Elo squad anchor (k_squad)</th>
+            <td><span class="verdict">No lift</span></td>
+            <td>Pooled support 0.0% on 113 held-out tournament matches.</td>
+          </tr>
+          <tr>
+            <th scope="row">Friendly tier down-weighting</th>
+            <td><span class="verdict">No lift</span></td>
+            <td>Flat RPS across the weight grid.</td>
+          </tr>
+          <tr>
+            <th scope="row">Scoreline tails in mismatches</th>
+            <td><span class="verdict">Open finding</span></td>
+            <td>Top-decile ratios 0.73–0.87 — the model over-predicts blowouts. No correction has been specified in the thinning direction; the one perturbation trialled ran the wrong way, and its verdict is withdrawn in the report itself. <a href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/reports/tails_2026-06-10.md">Committed tails report</a>.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
 
-      <div class="score-grid" aria-label="Headline scorecard results">
-        <article class="score-card">
-          <span class="score-label">Group stage</span>
-          <strong class="score-value mono">46/72</strong>
-          <p class="score-detail">modal hits · mean RPS 0.157</p>
-        </article>
-        <article class="score-card">
-          <span class="score-label">All knockout</span>
-          <strong class="score-value mono">25/32</strong>
-          <p class="score-detail">modal hits · mean RPS 0.153</p>
-        </article>
-      </div>
-      <p class="report-row"><a class="source-link" href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/reports/live_scorecard_final.md">Read the full committed scorecard</a></p>
-    </section>
+  <!-- ── § 2 — the model ─────────────────────────────────────────── -->
+  <div class="rail">
+    <span class="sec-no">§ 2</span>
+    <span class="rail-note">Every addition is configuration-gated, and the evidence for
+    each one is held out and pre-registered.</span>
+  </div>
 
-    <div class="honest-wrap" id="limits">
-      <section class="honest shell" aria-labelledby="limits-title">
-        <div>
-          <p class="disclosure-label"><b>DISCLOSURE</b> — not a figure</p>
-          <h2 id="limits-title">What it does not claim</h2>
-        </div>
-        <div class="honest-copy">
-          <p>Over the full 104-match replay, the model and a plain Elo baseline are <strong>statistically tied</strong>—0.1561 against 0.1557. It was ahead through the group stage as played live—0.157 against 0.163—and the two converged across the knockouts. Both numbers are published because a forecaster that only reports its good window is not a forecaster.</p>
-          <p>It has <strong>no demonstrated edge against sharp betting markets</strong>. The project’s own audit records a tie there too. Nothing here is betting advice, and nothing on this site is sold as one.</p>
-          <a class="source-link" href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/reports/headroom_2026-06-10.md">Read the committed headroom audit</a>
-        </div>
-      </section>
+  <section class="body" id="model" aria-labelledby="model-title">
+    <h2 id="model-title">A scoreline model, judged out of sample</h2>
+    <p class="lede">The machinery matters; the decisions about what not to add matter
+    just as much.</p>
+    <p>The forecast begins with a <strong>Bayesian scoreline model in the Dixon–Coles
+    family</strong>, fitted with ADVI variational inference on 49k+ international
+    results. Team attack and defence priors are anchored to point-in-time Elo strength,
+    and host advantage is represented explicitly.</p>
+    <p>Additions are configuration-gated and must prove that switching them off restores
+    the previous behavior byte for byte. Adoption is decided from pre-registered,
+    held-out evidence. A negative result is published as a result, not hidden as a failed
+    experiment. The full record is in the repository’s
+    <a href="https://github.com/onbiggerthingsB/FLAMSTEED#decision-log-empirical-record">empirical
+    decision log</a>.</p>
+  </section>
+
+  <!-- ── § 3 — point-in-time discipline ──────────────────────────── -->
+  <div class="rail">
+    <span class="sec-no">§ 3</span>
+    <span class="rail-note">Each leakage canary ships with an injected leak that must
+    trip it.</span>
+  </div>
+
+  <section class="body" id="discipline" aria-labelledby="discipline-title">
+    <h2 id="discipline-title">The model cannot learn tomorrow’s result today</h2>
+    <p class="lede">Point-in-time is a storage rule, a training rule, and a testable
+    invariant.</p>
+    <p>Results live in a <strong>bitemporal store</strong>: one clock records when an
+    event was valid, and another records when the system actually observed it. A read at
+    a cutoff exposes a row only when both clocks say it was knowable then.</p>
+    <p>All downstream features and fits use the same cutoff. Training data is strictly
+    before it—<code>date &lt; cutoff_day</code>—and later corrections cannot silently
+    rewrite an earlier forecast.</p>
+    <blockquote>
+      “a canary that cannot fail is treated as a bug.”
+      <cite>README · How it works</cite>
+    </blockquote>
+    <ul class="checks" aria-label="Point-in-time eligibility checks">
+      <li>
+        <code>observed_at &lt;= cutoff</code>
+        <span>Was the information in the system by then?</span>
+      </li>
+      <li>
+        <code>valid_as_of &lt;= cutoff</code>
+        <span>Did the information describe a state valid by then?</span>
+      </li>
+      <li>
+        <code>positive control</code>
+        <span>Each leakage canary is paired with an injected leak that must trip it,
+        proving the alarm is capable of failing.</span>
+      </li>
+    </ul>
+  </section>
+
+  <!-- ── PLATE IV ─────────────────────────────────────────────────
+       A schematic of the store contract. It carries no measured
+       quantity, and it therefore carries no seal: the status mark on
+       a plate is a claim about provenance, and this plate's
+       provenance is that it is a drawing. -->
+  <div class="rail"></div>
+  <figure class="plate" id="plate4" style="--fig-w:1040" aria-labelledby="p4t p4d">
+    <span class="tick tl" aria-hidden="true"></span><span class="tick tr" aria-hidden="true"></span>
+    <span class="tick bl" aria-hidden="true"></span><span class="tick br" aria-hidden="true"></span>
+    <span class="plate-no">IV.</span>
+    <span class="plate-title">The point-in-time boundary</span>
+    <span class="plate-status">Schematic · not a measurement</span>
+    <div class="plate-body">
+      <div class="plate-figure">
+        <svg role="img" aria-labelledby="p4t p4d" viewBox="0 0 1040 250">
+          <title id="p4t">Plate IV — the point-in-time boundary, as a schematic</title>
+          <desc id="p4d">Two horizontal bands, one for each of the store's two clocks, cut by a single vertical rule marked cutoff. Marks to the left of the rule are filled: the system could know them. Marks to the right are hollow: it could not. No mark stands for a measured quantity.</desc>
+          <g font-family="ui-monospace,monospace" letter-spacing=".8" fill="var(--ink-dim)">
+            <text x="0" y="90">VALID AS OF</text>
+            <text x="0" y="174">OBSERVED AT</text>
+            <text x="760" y="16" text-anchor="middle" fill="var(--ink)">CUTOFF</text>
+            <text x="170" y="240">KNOWABLE</text>
+            <text x="1020" y="240" text-anchor="end" fill="var(--verdigris)">NOT YET KNOWABLE</text>
+          </g>
+          <g stroke="var(--frame)" stroke-width=".5" opacity=".55">
+            <line pathLength="1" x1="170" y1="86" x2="1020" y2="86"/>
+            <line pathLength="1" x1="170" y1="170" x2="1020" y2="170"/>
+          </g>
+          <g fill="var(--ink)">
+            <circle cx="200" cy="86" r="5"/><circle cx="246" cy="86" r="5"/>
+            <circle cx="296" cy="86" r="5"/><circle cx="344" cy="86" r="5"/>
+            <circle cx="392" cy="86" r="5"/><circle cx="438" cy="86" r="5"/>
+            <circle cx="494" cy="86" r="5"/><circle cx="546" cy="86" r="5"/>
+            <circle cx="596" cy="86" r="5"/><circle cx="650" cy="86" r="5"/>
+            <circle cx="704" cy="86" r="5"/><circle cx="738" cy="86" r="5"/>
+            <circle cx="218" cy="170" r="5"/><circle cx="268" cy="170" r="5"/>
+            <circle cx="314" cy="170" r="5"/><circle cx="366" cy="170" r="5"/>
+            <circle cx="414" cy="170" r="5"/><circle cx="466" cy="170" r="5"/>
+            <circle cx="512" cy="170" r="5"/><circle cx="566" cy="170" r="5"/>
+            <circle cx="620" cy="170" r="5"/><circle cx="672" cy="170" r="5"/>
+            <circle cx="724" cy="170" r="5"/>
+          </g>
+          <g fill="none" stroke="var(--verdigris)" stroke-width="1.3">
+            <circle cx="800" cy="86" r="5"/><circle cx="850" cy="86" r="5"/>
+            <circle cx="900" cy="86" r="5"/><circle cx="952" cy="86" r="5"/>
+            <circle cx="1000" cy="86" r="5"/>
+            <circle cx="812" cy="170" r="5"/><circle cx="866" cy="170" r="5"/>
+            <circle cx="918" cy="170" r="5"/><circle cx="972" cy="170" r="5"/>
+          </g>
+          <line pathLength="1" x1="760" y1="26" x2="760" y2="214" stroke="var(--ink)" stroke-width="1.3"/>
+          <line pathLength="1" x1="170" y1="214" x2="1020" y2="214" stroke="var(--ink)" stroke-width=".8"/>
+        </svg>
+      </div>
+      <div class="plate-legend">
+        <span class="h">Key</span>
+        <span class="k"><svg width="10" height="10" aria-hidden="true" focusable="false"><circle cx="5" cy="5" r="3.2" fill="var(--ink)"/></svg>knowable at the cutoff</span>
+        <span class="k"><svg width="10" height="10" aria-hidden="true" focusable="false"><circle cx="5" cy="5" r="3.2" fill="none" stroke="var(--verdigris)" stroke-width="1.2"/></svg><span class="realized">not yet knowable</span></span>
+        <span class="k"><svg width="10" height="10" aria-hidden="true" focusable="false"><line x1="5" y1="0" x2="5" y2="10" stroke="var(--ink)" stroke-width="1.3"/></svg>the cutoff</span>
+        <span class="k">No mark here is a measured quantity.</span>
+      </div>
+    </div>
+    <svg class="plate-mark" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+      <circle cx="6" cy="6" r="4" fill="none" stroke="var(--frame)" stroke-width=".7"/>
+      <path d="M6 0v12M0 6h12" stroke="var(--frame)" stroke-width=".7"/>
+    </svg>
+    <figcaption>A schematic of the store contract, not a measurement: no mark on this
+    plate is a figure from any report. Results are held on two clocks — when an event was
+    valid, and when the system observed it — and a read at a cutoff exposes a row only
+    when <b>both</b> clocks fall to the left of the rule. Everything to the right is drawn
+    hollow because a forecast issued at that cutoff could not have used it.</figcaption>
+  </figure>
+
+  <!-- ── § 4 — the tournament simulation ─────────────────────────── -->
+  <div class="rail">
+    <span class="sec-no">§ 4</span>
+    <span class="rail-note">The deliberate approximations are named in the committed
+    format document, not left out of the claim.</span>
+    <a class="rail-cite" href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/docs/tournament-formats.md">Committed tournament-format document</a>
+  </div>
+
+  <section class="body" id="simulation" aria-labelledby="simulation-title">
+    <h2 id="simulation-title">The bracket is simulated, not approximated away</h2>
+    <p class="lede">The scoreline posterior is carried through the actual competition
+    shape.</p>
+    <p>Each published tournament forecast aggregates <strong>20,000 seeded Monte Carlo
+    draws</strong>. Every draw samples match scorelines, ranks the groups, assigns the
+    qualifying third-placed teams, and resolves the real 48-team bracket through the
+    final. Results already known at the cutoff are fixed; only the future is
+    simulated.</p>
+    <p>The simulator is format-aware. The frozen WC-2026 path uses the FIFA tiebreak
+    order and bracket assignment; the AC-2027 format supplies its own AFC tiebreak order,
+    advancement shape, hosts, and assignment table. The rules are encoded from the
+    official regulations described in the
+    <a href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/docs/tournament-formats.md">committed
+    tournament-format document</a>.</p>
+    <p>The same document records the deliberate approximations: seeded stand-ins are used
+    for criteria such as cards, drawing of lots, and the applicable penalty tail when the
+    source data cannot model them directly. Those limits are part of the method, not
+    implementation details left out of the claim.</p>
+  </section>
+
+  <!-- ── § 5 — scoring ───────────────────────────────────────────── -->
+  <div class="rail">
+    <span class="sec-no">§ 5</span>
+    <span class="rail-note">Knockout scores are extra-time inclusive; a shootout is
+    scored as a draw.</span>
+    <a class="rail-cite" href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/reports/live_scorecard_final.md">Read the full committed scorecard</a>
+  </div>
+
+  <section class="body" id="scoring" aria-labelledby="scoring-title">
+    <h2 id="scoring-title">A probability forecast gets a probability score</h2>
+    <p class="lede">The scorecard reports both forecast quality and the simpler question
+    of whether the most likely outcome happened.</p>
+    <p><strong>RPS</strong>, or ranked probability score, evaluates the probability
+    assigned across the three ordered outcomes—home win, draw, away win—rather than
+    treating the forecast as a single pick. Lower is better. Because the full
+    distribution is scored, it punishes confident wrongness more heavily than a cautious
+    miss.</p>
+    <p>A <strong>modal hit</strong> means the outcome with the model’s highest 1X2
+    probability was the outcome that occurred. In the committed scorecard, knockout
+    scores include extra time; a match decided by a shootout is scored as a draw.</p>
+  </section>
+
+  <aside class="aside">
+    <span class="aside-h">Headline scorecard</span>
+    <ul class="calls">
+      <li><span class="k">Group stage</span><span class="v">46/72</span>
+      <span class="n">modal hits · mean RPS 0.157</span></li>
+      <li><span class="k">All knockout</span><span class="v">25/32</span>
+      <span class="n">modal hits · mean RPS 0.153</span></li>
+    </ul>
+  </aside>
+
+  <!-- ── PLATE V ──────────────────────────────────────────────────
+       Five values transcribed from reports/live_scorecard_final.md.
+       No overprint: an overprint pairs what we published against what
+       happened, and a score has no published counterpart — it is
+       measured after the fact, not forecast. -->
+  <div class="rail"></div>
+  <figure class="plate" id="plate5" style="--fig-w:620" aria-labelledby="p5t p5d">
+    <span class="tick tl" aria-hidden="true"></span><span class="tick tr" aria-hidden="true"></span>
+    <span class="tick bl" aria-hidden="true"></span><span class="tick br" aria-hidden="true"></span>
+    <span class="plate-no">V.</span>
+    <span class="plate-title">What a score costs</span>
+    <span class="plate-status">From the committed scorecard</span>
+    <div class="plate-body">
+      <div class="plate-figure">
+        <svg role="img" aria-labelledby="p5t p5d" viewBox="0 0 620 212">
+          <title id="p5t">Plate V — what a score costs: mean ranked probability score by stage</title>
+          <desc id="p5d">Five bands drawn to one scale, shortest at the top. Each band is a stage of the tournament and prints its own mean score beside it; lower is better. Every figure is repeated in the caption below.</desc>
+          <defs>
+            <pattern id="h5" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <line x1="0" y1="0" x2="0" y2="5" stroke="var(--ink)" stroke-width=".8"/>
+            </pattern>
+          </defs>
+          <g stroke="var(--frame)" stroke-width=".4" opacity=".4">
+            <line x1="300.3" y1="8" x2="300.3" y2="186"/>
+            <line x1="394.6" y1="8" x2="394.6" y2="186"/>
+            <line x1="488.9" y1="8" x2="488.9" y2="186"/>
+          </g>
+          <g font-family="ui-monospace,monospace" letter-spacing=".8" fill="var(--ink-dim)" text-anchor="end">
+            <text x="196" y="26">ROUND OF 32</text>
+            <text x="196" y="62">ALL KNOCKOUT</text>
+            <text x="196" y="98">GROUP STAGE</text>
+            <text x="196" y="134">THE FINAL</text>
+            <text x="196" y="170">THIRD PLACE</text>
+          </g>
+          <g fill="url(#h5)" stroke="var(--frame)" stroke-width=".7">
+            <rect x="206" y="14" width="109.4" height="16"/>
+            <rect x="206" y="50" width="144.3" height="16"/>
+            <rect x="206" y="86" width="148.0" height="16"/>
+            <rect x="206" y="122" width="255.5" height="16"/>
+            <rect x="206" y="158" width="313.9" height="16"/>
+          </g>
+          <g font-family="ui-monospace,monospace" letter-spacing=".6" fill="var(--ink)">
+            <text x="324.4" y="26">0.116</text>
+            <text x="359.3" y="62">0.153</text>
+            <text x="363.0" y="98">0.157</text>
+            <text x="470.5" y="134">0.271</text>
+            <text x="528.9" y="170">0.333</text>
+          </g>
+          <line pathLength="1" x1="206" y1="186" x2="536" y2="186" stroke="var(--ink)" stroke-width=".8"/>
+          <g font-family="ui-monospace,monospace" letter-spacing=".6" fill="var(--ink-dim)" text-anchor="middle">
+            <text x="300.3" y="202">.10</text>
+            <text x="394.6" y="202">.20</text>
+            <text x="488.9" y="202">.30</text>
+          </g>
+        </svg>
+      </div>
+      <div class="plate-legend">
+        <span class="h">Key</span>
+        <span class="k"><svg width="14" height="10" aria-hidden="true" focusable="false"><rect x="0" y="1" width="14" height="8" fill="url(#h5)" stroke="var(--frame)" stroke-width=".7"/></svg>mean ranked probability score</span>
+        <span class="k">Lower is better.</span>
+        <span class="k">Bands share one scale; each prints its own value.</span>
+      </div>
+    </div>
+    <svg class="plate-mark" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+      <circle cx="6" cy="6" r="4" fill="none" stroke="var(--frame)" stroke-width=".7"/>
+      <path d="M6 0v12M0 6h12" stroke="var(--frame)" stroke-width=".7"/>
+    </svg>
+    <figcaption>Mean ranked probability score by stage, transcribed from the committed
+    scorecard: Round of 32 <b>0.116</b>, all knockout <b>0.153</b>, group stage
+    <b>0.157</b>, the final <b>0.271</b>, the third-place match <b>0.333</b>. Lower is
+    better, and the ladder runs from the best stage the model had to the worst. All
+    knockout is the aggregate of the four knockout stages, not a sixth stage; the final
+    and the third-place match are one match each, which is the whole reason the two
+    longest bands are long. The eight-row stage table is on
+    <a href="./index.html">the record page</a> and in the
+    <a href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/reports/live_scorecard_final.md">committed
+    scorecard</a>.</figcaption>
+  </figure>
+
+  <!-- ── § 6 — what it does not claim ────────────────────────────── -->
+  <div class="rail">
+    <span class="sec-no">§ 6</span>
+    <span class="rail-note">Both numbers are published, in the same type size.</span>
+    <a class="rail-cite" href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/reports/headroom_2026-06-10.md">Read the committed headroom audit</a>
+  </div>
+
+  <section class="body" id="limits" aria-labelledby="limits-title">
+    <span class="rubric">Disclosure — not a figure</span>
+    <h2 id="limits-title">What it does not claim</h2>
+    <p>Over the full 104-match replay, the model and a plain Elo baseline are
+    <strong class="ours">statistically tied</strong>—<span class="ours">0.1561</span>
+    against <span class="market">0.1557</span>. It was ahead through the group stage as
+    played live—<span class="ours">0.157</span> against
+    <span class="market">0.163</span>—and the two converged across the knockouts. Both
+    numbers are published because a forecaster that only reports its good window is not a
+    forecaster.</p>
+    <p>It has <strong>no demonstrated edge against sharp betting markets</strong>.
+    An early audit called that a tie; a later preregistered test on 217
+    fixtures put the market <em>ahead</em> of the model by about 0.010 in mean RPS, and
+    the honest reading is that the market forecast better.
+    <a href="market-test.html">The full account is here</a>. Nothing on this site is
+    betting advice, and nothing on it is sold as one.</p>
+  </section>
+
+  <!-- ── § 7 — reproducibility ───────────────────────────────────── -->
+  <div class="rail">
+    <span class="sec-no">§ 7</span>
+    <span class="rail-note">A changed configuration, dataset, bracket, seed or code
+    state is a cache miss, never a stale result.</span>
+  </div>
+
+  <section class="body" id="reproducibility" aria-labelledby="reproducibility-title">
+    <h2 id="reproducibility-title">The evidence is committed with the code</h2>
+    <p class="lede">A rerun should either reproduce the state or explain exactly why its
+    inputs differ.</p>
+    <p>Posterior fits and tournament simulations use <strong>content-addressed
+    caches</strong>: their keys incorporate the inputs that can change an output, so a
+    changed configuration, dataset, bracket, seed, or code state becomes a clean cache
+    miss rather than a stale result.</p>
+
+    <div class="run">
+      <h3 class="run-in">Golden-hash oracle</h3>
+      <p>The frozen WC-2026 path is checked against committed hashes from a seeded
+      real-bracket simulation, not inferred from a generally green suite.</p>
+    </div>
+    <div class="run">
+      <h3 class="run-in">Approximately 900 tests</h3>
+      <p>The suite includes leakage canaries with positive controls, model and simulation
+      checks, and publication guards.</p>
+    </div>
+    <div class="run">
+      <h3 class="run-in">Open repository</h3>
+      <p>Source, configurations, specifications, diagnostics, negative findings, and the
+      final scorecard are available for inspection.</p>
     </div>
 
-    <section class="section shell" id="reproducibility" aria-labelledby="reproducibility-title">
-      <p class="fig"><b>FIG. 05</b> Reproducibility <span class="rule"></span></p>
-      <div class="section-heading">
-        <h2 id="reproducibility-title">The evidence is committed with the code</h2>
-        <p>A rerun should either reproduce the state or explain exactly why its inputs differ.</p>
-      </div>
-      <div class="prose">
-        <p>Posterior fits and tournament simulations use <strong>content-addressed caches</strong>: their keys incorporate the inputs that can change an output, so a changed configuration, dataset, bracket, seed, or code state becomes a clean cache miss rather than a stale result.</p>
-      </div>
-
-      <div class="repro-grid">
-        <article class="repro-item">
-          <h3>Golden-hash oracle</h3>
-          <p>The frozen WC-2026 path is checked against committed hashes from a seeded real-bracket simulation, not inferred from a generally green suite.</p>
-        </article>
-        <article class="repro-item">
-          <h3>Approximately 900 tests</h3>
-          <p>The suite includes leakage canaries with positive controls, model and simulation checks, and publication guards.</p>
-        </article>
-        <article class="repro-item">
-          <h3>Open repository</h3>
-          <p>Source, configurations, specifications, diagnostics, negative findings, and the final scorecard are available for inspection.</p>
-        </article>
-      </div>
-
-      <ul class="source-list" aria-label="Primary source documents">
+    <div class="sources">
+      <span class="rubric">Sources</span>
+      <ul aria-label="Primary source documents">
         <li><a href="https://github.com/onbiggerthingsB/FLAMSTEED">Source repository</a></li>
         <li><a href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/README.md">README and decision log</a></li>
         <li><a href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/reports/live_scorecard_final.md">Final live scorecard</a></li>
@@ -730,24 +934,69 @@ blockquote cite {
         <li><a href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/tests/sim/test_wc_golden.py">Golden-hash test</a></li>
         <li><a href="https://github.com/onbiggerthingsB/FLAMSTEED/blob/main/tests/golden/wc2026_sim_golden.json">Committed golden hashes</a></li>
       </ul>
-    </section>
-  </main>
-
-  <footer class="site-footer">
-    <div class="footer-inner shell">
-      <p class="footer-brand">FLAMSTEED</p>
-      <nav class="footer-nav" aria-label="Footer">
-        <a href="./methodology.html" aria-current="page">Methodology</a>
-        <a href="./market-test.html">The market test</a>
-        <!-- ARCHIVE LINKS (2×): Zenodo DOI is the canonical copy; repoint to ./archive/ when the self-hosted archive ships -->
-        <a href="https://doi.org/10.5281/zenodo.21641225">Archive</a>
-        <a href="https://doi.org/10.5281/zenodo.21641225">Track record</a>
-      </nav>
-      <div class="footer-copy">
-        <p class="footer-note">Forecasts are probabilistic statements about uncertain events. Not betting advice.</p>
-        <p>Independent project. Not affiliated with, endorsed by, or connected to any football governing body or competition organiser.</p>
-      </div>
     </div>
+  </section>
+
+  <div class="rail"></div>
+  <section class="body imprint">
+    <span class="rubric">Enquiries</span>
+    <p><a href="mailto:kekeli0924@gmail.com?subject=Tournament%20window%20enquiry">Enquire
+    about a tournament window</a> — <span class="addr">kekeli0924@gmail.com</span></p>
+  </section>
+
+</main>
+
+<div class="sheet">
+  <footer class="colophon">
+    <span>Flamsteed</span>
+    <span>№ 1 · World Cup MMXXVI</span>
+    <!-- ARCHIVE LINKS: Zenodo DOI is the canonical copy; repoint to ./archive/ when the self-hosted archive ships -->
+    <a href="https://doi.org/10.5281/zenodo.21641225">Forecast archive · CC BY 4.0 · doi:10.5281/zenodo.21641225</a>
+    <a href="https://github.com/onbiggerthingsB/FLAMSTEED/tree/main/reports/oa_lock">Sealed figures carry the lock version and the date they were sealed</a>
+    <p class="note">Forecasts are probabilistic statements about uncertain events. Not
+    betting advice. Independent project. Not affiliated with, endorsed by, or connected to
+    any football governing body or competition organiser.</p>
+    <span class="epigraph">For John Flamsteed, first Astronomer Royal, who refused to
+    publish figures he had not finished checking.</span>
   </footer>
+</div>
+
+<script>/* Reveal on approach, and the errata overprint. Source:
+   tools/annual_system/system.js, block B, verbatim. Delete both
+   script elements and what is left is the finished page. */
+(function () {
+  if (!document.documentElement.classList.contains('js')) return;
+
+  // Reveal on approach: plates draw, rules extend, footnotes fade.
+  // One-shot — nothing re-animates on the way back up.
+  //
+  // SCREENSHOT CAVEAT. The footnote strip is the one element that starts
+  // at opacity 0 under .js, so a full-page screenshot taken without
+  // scrolling photographs it blank. When capturing proof screenshots of
+  // a JS-enabled page, scroll to the foot first (or capture the
+  // script-free page, which never hides anything). Print is already
+  // handled: the print block in system.css forces the end state.
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (e) {
+      if (e.isIntersecting) {
+        e.target.classList.add('in');
+        io.unobserve(e.target);
+      }
+    });
+  }, { threshold: .25, rootMargin: '0px 0px -8% 0px' });
+  document.querySelectorAll('.plate,.watch').forEach(function (el) { io.observe(el); });
+
+  // The errata overprint. The label never changes; aria-pressed
+  // carries the state, which is what a toggle button owes a
+  // screen reader.
+  document.querySelectorAll('.op-btn').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var p = b.closest('.plate');
+      if (!p) return;
+      p.classList.toggle('printed');
+      b.setAttribute('aria-pressed', p.classList.contains('printed'));
+    });
+  });
+})();</script>
 </body>
 </html>
