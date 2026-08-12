@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import sys
 import inspect
 from pathlib import Path
 
@@ -164,6 +165,16 @@ def real_covariate_posterior(tmp_path_factory):
 
 
 @pytest.mark.slow
+@pytest.mark.skipif(
+    sys.platform != "darwin",
+    reason="byte-exact goldens: these sha256 literals pin grid BYTES, which "
+           "depend on the BLAS the floats were computed with. They were "
+           "generated on the production macOS/Accelerate machine and "
+           "legitimately differ under Linux/OpenBLAS (first observed on CI, "
+           "2026-08-12, where every hash differed while all parity and "
+           "coherence tests passed). The guarantee is bit-reproducibility "
+           "ON THE PRODUCTION PLATFORM; cross-platform semantic drift is "
+           "covered by the tolerance-based parity tests above.")
 def test_golden_grids_pin_the_production_map_numbers(real_posterior,
                                                      real_covariate_posterior):
     """[LOAD-BEARING, B2-4] Golden real-Posterior grids. The parity test
