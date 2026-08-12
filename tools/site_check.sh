@@ -47,9 +47,14 @@ for f in "$D"/index.html "$D"/methodology.html "$D"/market-test.html; do
   [ "$sz" -le 122880 ] || bad "$f is ${sz}B > 120KB"
 done
 
-# SEALED marks carry the CURRENT lock version
+# SEALED marks carry the CURRENT lock version.
+# The interpreter is resolved, not assumed: a clean CI checkout has no .venv,
+# and hardcoding it made this branch exit 127 — a missing interpreter must
+# never be able to masquerade as a passing check. wcmodel.eval.lock is
+# stdlib-only, so the system python3 reads the chain just as well.
 if grep -q 'SEALED' "$D"/*.html; then
-  V=$(PYTHONPATH=src .venv/bin/python -c "from wcmodel.eval.lock import verify_chain; print(verify_chain('reports/oa_lock')['version'])")
+  PY=".venv/bin/python"; [ -x "$PY" ] || PY="python3"
+  V=$(PYTHONPATH=src "$PY" -c "from wcmodel.eval.lock import verify_chain; print(verify_chain('reports/oa_lock')['version'])")
   grep -l 'SEALED' "$D"/*.html | while read -r f; do
     grep -q "LOCK-V${V}\b" "$f" || { say "FAIL: $f has SEALED mark without LOCK-V${V}"; exit 9; }
   done || fail=1
