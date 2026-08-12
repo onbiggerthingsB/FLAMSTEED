@@ -1,0 +1,46 @@
+name: Site uptime
+
+# The site went live 2026-08-11 and nothing watched it. This checks the three
+# public pages on a schedule and fails loudly — a red run in the Actions tab
+# and an email from GitHub — if any page stops serving or stops carrying its
+# sentinel text (a 200 from a wrong or empty page is not "up").
+#
+# CAVEAT, stated so it does not surprise anyone later: GitHub disables
+# scheduled workflows after 60 days without repo activity. If the repo goes
+# quiet, this watchdog silently stops — re-enable it from the Actions tab or
+# push any commit. A watchdog that can silently stop is not ideal, but it is
+# the best a zero-infrastructure setup offers, and the caveat is now written
+# down rather than discovered.
+
+on:
+  schedule:
+    - cron: '17 */12 * * *'   # twice a day; odd minute to avoid the top-of-hour stampede
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe the three pages
+        run: |
+          set -euo pipefail
+          fail=0
+          check () {
+            url="$1"; sentinel="$2"
+            body=$(curl -sSL --max-time 30 "$url") || { echo "::error::$url unreachable"; fail=1; return; }
+            code=$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 30 "$url")
+            if [ "$code" != "200" ]; then
+              echo "::error::$url returned $code"; fail=1; return
+            fi
+            case "$body" in
+              *"$sentinel"*) echo "OK   $url ($code, sentinel present)";;
+              *) echo "::error::$url is 200 but missing sentinel '$sentinel' — wrong or empty page"; fail=1;;
+            esac
+          }
+          check "https://flamsteed.io/"                  "Flamsteed"
+          check "https://flamsteed.io/methodology.html"  "bitemporal"
+          check "https://flamsteed.io/market-test.html"  "preregist"
+          exit "$fail"
