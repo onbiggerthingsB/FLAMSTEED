@@ -11,8 +11,9 @@ NORMALISED (halved) three-outcome ranked probability score::
 over the categories in the fixed order ``(home, draw, away)``, where ``o`` is
 the one-hot realised outcome. With ``r = 3`` the leading factor is ``1/2``, the
 score lies in ``[0, 1]``, and a uniform ``(1/3, 1/3, 1/3)`` forecast scores
-0.2222 on a home or away result and 0.1111 on a draw. The un-normalised
-convention omits the ``1/(r-1)`` and is exactly twice these numbers.
+5/18 = 0.2778 on a home or away result and 1/9 = 0.1111 on a draw. The
+un-normalised convention omits the ``1/(r-1)`` and is exactly twice these
+numbers.
 
 The bar this probe is measured against — de-vigged market ~0.196, walk-forward
 Elo ~0.203, base rate ~0.234 — is on THIS convention. A silent factor of two

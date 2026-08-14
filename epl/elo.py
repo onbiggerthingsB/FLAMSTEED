@@ -106,6 +106,15 @@ class EloConfig:
         Fraction of a continuing club's deviation from the division mean that
         survives the summer: ``R <- mean + carryover * (R - mean)``. 1.0 keeps
         the rating intact. Tuned on the earliest seasons only.
+    ``debut_offset``
+        EXTRA rating points, on top of ``promoted_offset``, for a promoted club
+        that has never appeared in this archive before. 0.0 means a debutant is
+        seeded exactly like any other promoted club, which is the default and
+        the null hypothesis. It exists so that hypothesis can be TESTED rather
+        than assumed — and it must be read with the archive's left-censoring in
+        mind: "never appeared in this archive" is not the same as "never played
+        in the Premier League" (Norwich 2015/16 had top-flight history the
+        archive simply does not contain). Tuned on the earliest seasons only.
     ``mov``
         Enable the goal-difference multiplier. OFF in the default config: the
         published ~0.203 bar is plain Elo. Sensitivity only.
@@ -121,6 +130,7 @@ class EloConfig:
     initial_rating: float = 1500.0
     promoted_offset: float = -150.0
     carryover: float = 1.0
+    debut_offset: float = 0.0
     mov: bool = False
     mov_shape: float = 0.8
     mov_base: float = 7.5
@@ -170,10 +180,23 @@ def _mov_multiplier(cfg: EloConfig, goal_diff: int, edge_winner: float) -> float
 
 
 def compute_elo_history(matches: pd.DataFrame, config: EloConfig | None = None,
-                        ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+                        capture_snapshots: bool = False,
+                        ) -> tuple[pd.DataFrame, list[dict[str, Any]]] | tuple[
+                            pd.DataFrame, list[dict[str, Any]], list[dict[str, Any]]]:
     """Walk `matches` forward, returning per-match PRE ratings and post ratings.
 
-    Returns ``(history, season_starts)``.
+    Returns ``(history, season_starts)``, or ``(history, season_starts,
+    snapshots)`` when ``capture_snapshots`` is set.
+
+    ``snapshots`` is one record per cutoff block, holding the FULL rating table
+    exactly as it stands when that block opens — after any season-boundary
+    re-seeding, before any of the block's own results. That is the only rating
+    state a forecast for a match in that block is allowed to use, so it is what
+    an external consumer (the Bayesian model's strength anchor,
+    :mod:`epl.anchor`) must read. Capturing it here rather than re-deriving it
+    means there is ONE implementation of the season-boundary rules; a second
+    one that drifted would silently confound the model-versus-Elo comparison
+    the whole probe exists to make.
 
     ``history`` has one row per input match, in chronological order, carrying
     ``elo_home_pre`` / ``elo_away_pre`` — the ratings as of the last block that
@@ -227,8 +250,11 @@ def compute_elo_history(matches: pd.DataFrame, config: EloConfig | None = None,
     fresh: set[str] = set()          # clubs seeded into the CURRENT season
     current_season: str | None = None
     prev_clubs: set[str] = set()
+    ever_seen: set[str] = set()      # every club with a match earlier in the archive
     season_starts: list[dict[str, Any]] = []
+    snapshots: list[dict[str, Any]] = []
     season_no = -1
+    keys = walk.cutoff_keys(df).to_numpy()
 
     for rows in walk.blocks(df):
         season = seasons[rows[0]]
@@ -237,12 +263,23 @@ def compute_elo_history(matches: pd.DataFrame, config: EloConfig | None = None,
                 raise ValueError("a cutoff block spans two seasons")
             season_no += 1
             clubs = set(home[seasons == season]) | set(away[seasons == season])
-            record = _open_season(cfg, ratings, prev_clubs, clubs, season)
+            record = _open_season(cfg, ratings, prev_clubs, clubs, season,
+                                  ever_seen)
             record["season_index"] = season_no
             season_starts.append(record)
             fresh = set(record["promoted"])
             prev_clubs = clubs
             current_season = season
+
+        if capture_snapshots:
+            snapshots.append({
+                "block": int(block_ids[rows[0]]),
+                "key": keys[rows[0]],
+                "season": season,
+                "season_index": season_no,
+                "row": int(rows[0]),
+                "ratings": dict(ratings),
+            })
 
         # --- price the whole block off the ratings standing right now -------
         seen: set[str] = set()
@@ -274,6 +311,8 @@ def compute_elo_history(matches: pd.DataFrame, config: EloConfig | None = None,
             ratings[away[i]] = elo_a_pre[i] - delta
             elo_h_post[i] = ratings[home[i]]
             elo_a_post[i] = ratings[away[i]]
+            ever_seen.add(home[i])
+            ever_seen.add(away[i])
 
     history = pd.DataFrame({
         "match_id": df["match_id"].to_numpy(),
@@ -292,11 +331,14 @@ def compute_elo_history(matches: pd.DataFrame, config: EloConfig | None = None,
         "away_promoted": promoted_a,
         "ftr": ftr,
     })
+    if capture_snapshots:
+        return history, season_starts, snapshots
     return history, season_starts
 
 
 def _open_season(cfg: EloConfig, ratings: dict[str, float],
                  prev_clubs: set[str], clubs: set[str], season: str,
+                 ever_seen: set[str] | None = None,
                  ) -> dict[str, Any]:
     """Apply the season-boundary rules in place; return what happened.
 
@@ -311,22 +353,31 @@ def _open_season(cfg: EloConfig, ratings: dict[str, float],
             ratings[club] = cfg.initial_rating
         return {"season": season, "division_mean": cfg.initial_rating,
                 "promoted": [], "promoted_seed": None,
+                "debuts": sorted(clubs), "debut_seed": cfg.initial_rating,
                 "continuing": len(clubs),
                 "mean_after": cfg.initial_rating, "first_season": True}
 
+    ever_seen = set() if ever_seen is None else ever_seen
     division_mean = float(np.mean([ratings[c] for c in sorted(prev_clubs)]))
     promoted = sorted(clubs - prev_clubs)
     seed = division_mean + cfg.promoted_offset
+    debut_seed = seed + cfg.debut_offset
     for club in sorted(clubs & prev_clubs):
         ratings[club] = division_mean + cfg.carryover * (ratings[club]
                                                          - division_mean)
+    debuts = [c for c in promoted if c not in ever_seen]
     for club in promoted:
-        ratings[club] = seed
+        # A club with NO match anywhere earlier in the archive gets
+        # `promoted_seed + debut_offset`; with the default debut_offset == 0
+        # that is exactly the promoted seed, i.e. no special case at all.
+        ratings[club] = debut_seed if club in debuts else seed
     return {
         "season": season,
         "division_mean": division_mean,
         "promoted": promoted,
         "promoted_seed": seed,
+        "debuts": debuts,
+        "debut_seed": debut_seed,
         "continuing": len(clubs & prev_clubs),
         "mean_after": float(np.mean([ratings[c] for c in sorted(clubs)])),
         "first_season": False,
