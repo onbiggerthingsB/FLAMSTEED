@@ -43,6 +43,30 @@ BASELINE_PREDICTIONS = BASELINE_DIR / "predictions.parquet"
 #: Headline scores, paired gaps, bootstrap CIs, per-season breakdown.
 SCORES_PATH = BASELINE_DIR / "scores.json"
 
+# --- the Bayesian scoreline model (src/wcmodel) wired to EPL ---------------
+#: Everything the fit probe writes. Under data/, so gitignored like the rest.
+FIT_DIR = DATA_DIR / "fit"
+
+#: A `wcmodel.data.store.BitemporalStore` root holding ONE table, `results`,
+#: rebuilt from `MATCHES_PARQUET`. This is the design input `wcmodel.model.
+#: scoreline.fit` consumes; it is derived, never a second source of truth.
+STORE_DIR = FIT_DIR / "store"
+
+#: Content-addressed posterior + feature-panel cache for EPL fits. Deliberately
+#: NOT the World Cup cache dir (`data/cache`): same directory, same filename
+#: namespace, and a corrupted or confusingly-named artifact in one project's
+#: cache is a debugging cost in the other. The keys themselves cannot collide
+#: (they hash the panel content), so this is hygiene, not correctness.
+FIT_CACHE_DIR = FIT_DIR / "cache"
+
+#: Timings, warnings, the smoke-test scores, and the walk-forward cost model
+#: from one `python -m epl.fit` run.
+FIT_REPORT_PATH = FIT_DIR / "single_fit.json"
+
+#: Measured cost of letting the forecaster go stale between refits — an Elo
+#: proxy for the Bayesian model's refit cadence (see `epl.fit.staleness_curve`).
+STALENESS_PATH = FIT_DIR / "staleness.json"
+
 
 def ensure_dirs() -> None:
     """Create the data directories if they do not exist yet."""
