@@ -28,6 +28,21 @@ MANIFEST_PATH = DATA_DIR / "manifest.json"
 #: raw club name -> canonical name -> stable key, with per-season occurrences.
 TEAM_MAPPING_PATH = DATA_DIR / "team_name_mapping.json"
 
+# --- baseline (walk-forward Elo vs the market) -----------------------------
+#: Everything the baseline writes. Under data/, so gitignored like the rest.
+BASELINE_DIR = DATA_DIR / "baseline"
+
+#: The frozen Elo hyperparameters plus the whole grid that produced them.
+#: Written by `python -m epl.baseline --tune` on the TUNING seasons only.
+TUNING_PATH = BASELINE_DIR / "tuning.json"
+
+#: Per-match probabilities for every forecaster on the complete-case scoring
+#: set, with the realised outcome and the bootstrap block label.
+BASELINE_PREDICTIONS = BASELINE_DIR / "predictions.parquet"
+
+#: Headline scores, paired gaps, bootstrap CIs, per-season breakdown.
+SCORES_PATH = BASELINE_DIR / "scores.json"
+
 
 def ensure_dirs() -> None:
     """Create the data directories if they do not exist yet."""
