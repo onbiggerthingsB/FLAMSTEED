@@ -97,7 +97,8 @@ class Cutoff:
 
 def matchweek_cutoffs(matches: pd.DataFrame,
                       score_seasons: Sequence[str] = windows.SCORE_SEASONS,
-                      cadence: int = CADENCE_WEEKS) -> list[Cutoff]:
+                      cadence: int = CADENCE_WEEKS,
+                      allow_excluded: bool = False) -> list[Cutoff]:
     """The refit schedule, with the point-in-time property asserted per cutoff.
 
     ``cadence = 1`` is the preregistered weekly walk: one fit per (season, ISO
@@ -109,9 +110,18 @@ def matchweek_cutoffs(matches: pd.DataFrame,
     boundary, and every fixture in a block falls on or after the block's cutoff
     day, so the ``date < cutoff`` gate cannot have shown the fit a fixture it is
     about to price.
+
+    ``allow_excluded`` opens the schedule to ``windows.EXCLUDED_SEASONS``. It
+    defaults to False, so THIS run and everything that reuses it keeps the guard
+    that stops 2025/26 drifting into a scored frame. The one sanctioned caller is
+    ``epl.improve.run_walk(window="holdout", holdout=True)``, where 2025/26 is
+    the deliberate fresh holdout for the DC-versus-Elo question — a question that
+    needs no odds and is therefore untouched by the odds-coverage bias that
+    excluded the season in the first place (``epl.windows``).
     """
     played = sort_for_walk_forward(matches.loc[matches["played"]])
-    windows.assert_no_score_leak(score_seasons, "the scoring window")
+    if not allow_excluded:
+        windows.assert_no_score_leak(score_seasons, "the scoring window")
     mw = epl_fit.matchweek_index(played)
     seasons = played["season"].to_numpy()
     dates = pd.to_datetime(played["date"]).dt.normalize().to_numpy()

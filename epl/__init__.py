@@ -51,8 +51,13 @@ the model
   `epl.anchor`    the model's strength anchor, made league-shaped (fixes 1, 2)
   `epl.dcfit`     one Dixon-Coles fit; no unpriceable fixture (fix 3)
   `epl.fit`       cost model + staleness proxy for a full walk-forward
+  `epl.walkforward` the run: the frozen model against Elo, scored once
+  `epl.improve`   config-gated dynamics — decay, cadence, break widening, a
+                  faster home term, congestion. Every gate OFF by default and
+                  provably inert when off, so the frozen configuration stays
+                  reachable exactly as the control arm of every later A/B.
 """
 
 __all__ = ["anchor", "baseline", "build", "dcfit", "devig", "elo", "fetch",
-           "fit", "freeze", "ordlogit", "parse", "paths", "schema", "score",
-           "teams", "validate", "walk", "windows"]
+           "fit", "freeze", "improve", "ordlogit", "parse", "paths", "schema",
+           "score", "teams", "validate", "walk", "walkforward", "windows"]

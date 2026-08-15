@@ -97,7 +97,16 @@ from wcmodel.model.inference import sample
 from wcmodel.model.volatility_diagnostic import count_volatility_arm
 from wcmodel.model.widening import likelihood_weight
 
-__all__ = ["ColdStartPosterior", "cold_start_clubs", "fit_epl", "EplFit"]
+__all__ = ["ColdStartPosterior", "cold_start_clubs", "fit_epl", "EplFit",
+           "EPL_COVARIATES"]
+
+#: The covariates that mean anything on a one-country league. ``rest_days`` is
+#: the only one ``features.build`` actually populates here (1.3% NaN at a
+#: mid-archive cutoff — the archive's first appearances); ``travel_km``,
+#: ``altitude_m`` and ``accl_alt`` come back 100% NaN. The frozen config enables
+#: NONE of them, so this list changes nothing on the preregistered path; it is
+#: the allow-list :mod:`epl.improve`'s congestion gate writes into.
+EPL_COVARIATES: tuple[str, ...] = ("rest_days",)
 
 
 # ==========================================================================
@@ -226,12 +235,18 @@ def fit_epl(cutoff, store, anchor: Anchor, cfg: dict,
     """
     import time
 
-    if cfg["model"]["covariates"]["enabled"]:
+    unsupported = [c for c in cfg["model"]["covariates"]["enabled"]
+                   if c not in EPL_COVARIATES]
+    if unsupported:
         raise NotImplementedError(
-            "covariates are enabled in the config; this probe reproduces the "
-            "published World Cup baseline, which has none, and the covariate "
-            "path is not wired for EPL (rest_days/travel/altitude are absent). "
-            "Enabling them would make this a different architecture.")
+            f"covariate(s) {unsupported} are enabled in the config but have no "
+            "EPL analogue: measured on this archive's panel, travel_km, "
+            "altitude_m and accl_alt are 100% NaN (no venues table, one "
+            "country, no acclimatisation gap), so enabling them would add a "
+            f"beta with nothing to estimate it from. {list(EPL_COVARIATES)} is "
+            "the whole supported set; see epl.improve for the gate that turns "
+            "it on. The FROZEN config enables none, so this guard is inert on "
+            "the preregistered path.")
 
     t0 = time.perf_counter()
     inf = cfg["model"]["inference"]
