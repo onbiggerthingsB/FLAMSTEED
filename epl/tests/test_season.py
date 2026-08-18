@@ -283,6 +283,72 @@ def test_played_iff_result_never_by_date(season_root: Path):
     assert with_result.table_so_far["arsenal"].gd == 1
 
 
+def test_table_so_far_covers_home_away_draw_and_adjustment(season_root: Path):
+    """Every branch of the results ladder, asserted for BOTH clubs, plus D16.
+
+    `table_so_far` is the first surface the operator reads on matchday one, and
+    a single home win exercises barely a third of it. Four independent sign
+    errors survive a home-win-only fixture: an away win credited to the home
+    club, a draw scored as a home win, the away club's GF and GA swapped, and
+    the points deduction dropped from the row. One outcome of each kind — plus
+    an archive season carrying a real deduction — is what makes them visible.
+    """
+    ledger = season_root / "2026_27" / "results_ledger.jsonl"
+    home_win = "2627:arsenal:coventry"        # 2026-08-21
+    away_win = "2627:brentford:tottenham"     # 2026-08-22
+    drawn = "2627:hull:man_united"            # 2026-08-22
+    _append_jsonl(ledger, [
+        _result_row(home_win, "2026-08-21", 2, 1, "2026-08-21T22:00"),
+        _result_row(away_win, "2026-08-22", 0, 2, "2026-08-22T22:00"),
+        _result_row(drawn, "2026-08-22", 1, 1, "2026-08-22T22:00"),
+    ])
+    state = season_mod.Season.load(SEASON, root=season_root).at("2026-08-25")
+    assert (state.played[home_win], state.played[away_win],
+            state.played[drawn]) == ((2, 1), (0, 2), (1, 1))
+
+    def row(club):
+        r = state.table_so_far[club]
+        return (r.played, r.w, r.d, r.l, r.gf, r.ga, r.gd, r.pts)
+
+    # a home win, 2-1
+    assert row("arsenal") == (1, 1, 0, 0, 2, 1, 1, 3)
+    assert row("coventry") == (1, 0, 0, 1, 1, 2, -1, 0)
+    # an AWAY win, 0-2 — the three points belong to the visiting club
+    assert row("brentford") == (1, 0, 0, 1, 0, 2, -2, 0)
+    assert row("tottenham") == (1, 1, 0, 0, 2, 0, 2, 3)
+    # a draw, 1-1 — one point each, no win and no defeat anywhere
+    assert row("hull") == (1, 0, 1, 0, 1, 1, 0, 1)
+    assert row("man_united") == (1, 0, 1, 0, 1, 1, 0, 1)
+
+    touched = {"arsenal", "coventry", "brentford", "tottenham", "hull", "man_united"}
+    assert len(touched) == 6
+    assert all(row(c) == (0, 0, 0, 0, 0, 0, 0, 0)
+               for c in state.table_so_far if c not in touched)
+
+    # D16: the deduction has to reach the ROW, not just `adjustments_known`.
+    # 2023/24 is the season that carries one (Everton -8, Forest -4), so the
+    # archive path is where that is asserted. Everton's record is seeded to be
+    # non-trivial — 9 wins, 27 draws, 2 defeats — so `3w + d - 8` is a real sum
+    # rather than an identity that holds at zero.
+    frame = _synthetic_archive("2023/24", "2324", CLUBS_2023_24, "2023-08-11")
+    at_home = frame.index[frame["home_key"] == "everton"]
+    away = frame.index[frame["away_key"] == "everton"]
+    frame.loc[at_home[:5], ["fthg", "ftag"]] = [3, 1]     # 5 home wins
+    frame.loc[at_home[5:7], ["fthg", "ftag"]] = [0, 1]    # 2 home defeats
+    frame.loc[away[:4], ["fthg", "ftag"]] = [0, 2]        # 4 away wins
+    archive = season_mod.archive_season_state(
+        frame, "2023/24", "2025-01-01", require_verified_adjustments=False)
+    assert len(archive.played) == 380
+
+    ev = archive.table_so_far["everton"]
+    assert (ev.played, ev.w, ev.d, ev.l) == (38, 9, 27, 2)
+    assert (ev.gf, ev.ga, ev.gd) == (23, 7, 16)
+    assert ev.adjustment == -8
+    assert ev.pts == 3 * ev.w + ev.d - 8 == 46
+    assert archive.table_so_far["nottm_forest"].adjustment == -4
+    assert archive.table_so_far["arsenal"].adjustment == 0    # no deduction, no shift
+
+
 def test_results_lag_flag(season_root: Path):
     state = season_mod.Season.load(SEASON, root=season_root).at("2026-08-23")
     assert state.results_lag is False        # opener is 2 days old

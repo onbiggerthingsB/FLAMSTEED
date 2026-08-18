@@ -168,47 +168,92 @@ def test_identities_p_w_d_l_gd_sum_zero():
 # C.4 -> C.5 -> C.6
 # ---------------------------------------------------------------------------
 
-#: Points/GD/GF separation, hand-built. Club 0 beats club 2; club 1 is levelled
-#: with club 0 on points by an adjustment and loses on GD. Clubs 3 and 5 draw
-#: 1-1, which levels club 3 with club 4 on points AND goal difference and
-#: separates them on goals scored.
-ORDER_OVERRIDES = {(0, 2): (2, 0), (3, 5): (1, 1)}
+#: Points/GD/GF separation, hand-built, with FOUR level pairs: two that check
+#: the ladder is STABLE and two that DISCRIMINATE.
+#:
+#: `np.lexsort` is stable, so a pair whose winner already sits at the LOWER club
+#: index proves nothing about the key that is supposed to separate them — delete
+#: the key and the permutation comes out identical, and so does every block and
+#: resolution code derived from it. Each stability pair below is therefore
+#: matched by a pair whose winner sits at the HIGHER club index, which is the
+#: only arrangement a dropped or reordered key can be caught by:
+#:
+#:    40 pts  club 0  (GD +2) over club 1 (GD  0)   C.5, stable   (0 <  1)
+#:    34 pts  club 9  (GD +2) over club 2 (GD +1)   C.5, DISCRIMINATING (9 > 2)
+#:            — and club 2 has the better GF (4 v 2), so this pair also flips if
+#:              C.6 is ever ranked ahead of C.5
+#:    33 pts  club 10 (GF  3) over club 5 (GF  2)   C.6, DISCRIMINATING (10 > 5)
+#:    30 pts  club 3  (GF  1) over club 4 (GF  0)   C.6, stable   (3 <  4)
+#:
+#: Clubs 6-8 and 11-19 are separated on points alone and fill positions 1-12.
+ORDER_OVERRIDES = {
+    (0, 11): (2, 0),      # club 0:  W, GD +2, GF 2   (club 11: GD -2)
+    (2, 12): (4, 3),      # club 2:  W, GD +1, GF 4   (club 12: GD -1)
+    (3, 13): (1, 1),      # club 3:  D, GD  0, GF 1
+    (5, 14): (2, 2),      # club 5:  D, GD  0, GF 2
+    (9, 15): (2, 0),      # club 9:  W, GD +2, GF 2   (club 15: GD -2)
+    (10, 16): (3, 3),     # club 10: D, GD  0, GF 3
+}
+#: The all-0-0 base leaves every club on 38 points; an override that is a win
+#: adds 2 more, so each adjustment below is chosen against the POST-override
+#: total to land the four level pairs at 40 / 34 / 33 / 30.
 ORDER_ADJ = np.zeros(C, np.int16)
-ORDER_ADJ[1] = 2                 # 38 + 2 = 40, level with club 0
-ORDER_ADJ[3] = -8                # 38 - 8 = 30
-ORDER_ADJ[4] = -8                # 38 - 8 = 30, level with club 3 on points and GD
-ORDER_ADJ[5] = -3                # 38 - 3 = 35
-for _i in range(6, C):
-    ORDER_ADJ[_i] = 22 - (_i - 6)   # 60, 59, ... 47 — distinct, all above 40
+for _club, _adj in {
+    0: 0, 1: 2,                            # 40, 40  — split by GD
+    9: -6, 2: -6,                          # 34, 34  — split by GD
+    10: -5, 5: -5,                         # 33, 33  — split by GF
+    3: -8, 4: -8,                          # 30, 30  — split by GF
+    6: 22, 7: 21, 8: 20, 11: 20, 12: 19,   # 60, 59, 58, 57, 56
+    13: 17, 14: 16, 15: 16, 16: 14,        # 55, 54, 53, 52
+    17: 13, 18: 12, 19: 11,                # 51, 50, 49
+}.items():
+    ORDER_ADJ[_club] = _adj
+
+#: The whole ladder this fixture must produce: club index at each position.
+ORDER_EXPECTED = [6, 7, 8, 11, 12, 13, 14, 15, 16, 17, 18, 19, 0, 1, 9, 2, 10, 5, 3, 4]
 
 
 def test_points_gd_gf_order():
     totals, ranking = _rank(ORDER_OVERRIDES, ORDER_ADJ)
 
     # the table the ladder is asked to rank (asserted, not assumed)
-    assert int(totals.pts[0, 0]) == 40 and int(totals.gd[0, 0]) == 2
-    assert int(totals.pts[0, 1]) == 40 and int(totals.gd[0, 1]) == 0
-    assert int(totals.pts[0, 3]) == 30 and int(totals.gd[0, 3]) == 0
-    assert int(totals.gf[0, 3]) == 1
-    assert int(totals.pts[0, 4]) == 30 and int(totals.gd[0, 4]) == 0
-    assert int(totals.gf[0, 4]) == 0
+    def table_row(club):
+        return (int(totals.pts[0, club]), int(totals.gd[0, club]),
+                int(totals.gf[0, club]))
+
+    assert table_row(0) == (40, 2, 2) and table_row(1) == (40, 0, 0)
+    assert table_row(9) == (34, 2, 2) and table_row(2) == (34, 1, 4)
+    assert table_row(10) == (33, 0, 3) and table_row(5) == (33, 0, 2)
+    assert table_row(3) == (30, 0, 1) and table_row(4) == (30, 0, 0)
 
     start = _row(ranking.block_start)
     span = _row(ranking.block_span)
     code = _row(ranking.resolution_code)
 
     assert span == [1] * C, "no shared block should survive points/GD/GF here"
-    assert start[0] == 15 and start[1] == 16          # GD splits the 40-point pair
+
+    # C.5 — goal difference
+    assert start[0] == 13 and start[1] == 14          # stable pair, 0 beats 1
     assert code[0] == table_mod.GD and code[1] == table_mod.GD
-    assert start[3] == 19 and start[4] == 20          # GF splits the 30-point pair
+    assert start[9] == 15 and start[2] == 16, (
+        "club 9 wins on GD from the HIGHER club index: this is the pair that "
+        "dies if -gd leaves the sort, or if -gf is ranked ahead of it")
+    assert code[9] == table_mod.GD and code[2] == table_mod.GD
+
+    # C.6 — goals scored
+    assert start[10] == 17 and start[5] == 18, (
+        "club 10 wins on GF from the HIGHER club index: this is the pair that "
+        "dies if -gf leaves the sort")
+    assert code[10] == table_mod.GF and code[5] == table_mod.GF
+    assert start[3] == 19 and start[4] == 20          # stable pair, 3 beats 4
     assert code[3] == table_mod.GF and code[4] == table_mod.GF
+
+    # C.4 alone
     assert start[6] == 1 and code[6] == table_mod.UNIQUE
-    assert start[2] == 17 and code[2] == table_mod.UNIQUE
+    assert start[19] == 12 and code[19] == table_mod.UNIQUE
 
     # `order` is the ladder sequence: club index at each position
-    assert _row(ranking.order)[:3] == [6, 7, 8]
-    assert _row(ranking.order)[14:16] == [0, 1]
-    assert _row(ranking.order)[18:] == [3, 4]
+    assert _row(ranking.order) == ORDER_EXPECTED
 
 
 # ---------------------------------------------------------------------------
