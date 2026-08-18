@@ -56,8 +56,16 @@ the model
                   faster home term, congestion. Every gate OFF by default and
                   provably inert when off, so the frozen configuration stays
                   reachable exactly as the control arm of every later A/B.
+
+the league-table simulator
+  `epl.season`    the season snapshot: 380 date-free fixture ids, the vendored
+                  CC0 fixture list, and three known-at ledgers (results, kickoff
+                  amendments, points adjustments) resolved to one point-in-time
+                  `SeasonState`. "Played" comes from the results ledger, never
+                  from the calendar. Data lives beside it in `epl/season/`.
 """
 
 __all__ = ["anchor", "baseline", "build", "dcfit", "devig", "elo", "fetch",
            "fit", "freeze", "improve", "ordlogit", "parse", "paths", "schema",
-           "score", "teams", "validate", "walk", "walkforward", "windows"]
+           "score", "season", "teams", "validate", "walk", "walkforward",
+           "windows"]

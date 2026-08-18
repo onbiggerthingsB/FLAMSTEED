@@ -4,7 +4,15 @@ Promoted and relegated clubs recur across seasons, so the join key has to be
 stable over the full 2014/15-2025/26 window. The registry below was built by
 enumerating every distinct `HomeTeam`/`AwayTeam` value in the twelve cached
 CSVs, not by guessing: 35 distinct spellings, whose per-season membership counts
-sum to exactly 240 = 12 seasons x 20 clubs.
+sum to exactly 240 = 12 seasons x 20 clubs. Coventry is the one entry that is
+not in that archive: it is promoted for 2026/27 and must be priceable, so it is
+registered ahead of its first archived match (plan v2 D6).
+
+The `FC`/`AFC` long forms are declared explicitly because openfootball prints
+them and football-data.co.uk does not — 19 of the 20 spellings in the vendored
+2026/27 fixture file failed `resolve` before they were added. They are aliases,
+NOT a suffix-stripping heuristic: a rule that quietly drops a trailing "FC"
+would also quietly accept "Manchester FC".
 
 Resolution is STRICT. An unrecognised spelling is reported as an issue rather
 than slugged into a new club. That is the whole point: a permissive slugger
@@ -26,37 +34,42 @@ import unicodedata
 #: canonical display name -> (stable key, additional accepted spellings)
 #: The canonical name itself is always an accepted spelling.
 _REGISTRY: dict[str, tuple[str, tuple[str, ...]]] = {
-    "Arsenal":           ("arsenal", ()),
-    "Aston Villa":       ("aston_villa", ("Villa",)),
-    "Bournemouth":       ("bournemouth", ("AFC Bournemouth",)),
-    "Brentford":         ("brentford", ()),
-    "Brighton":          ("brighton", ("Brighton & Hove Albion", "Brighton and Hove Albion")),
+    "Arsenal":           ("arsenal", ("Arsenal FC",)),
+    "Aston Villa":       ("aston_villa", ("Villa", "Aston Villa FC")),
+    "Bournemouth":       ("bournemouth", ("AFC Bournemouth", "Bournemouth FC")),
+    "Brentford":         ("brentford", ("Brentford FC",)),
+    "Brighton":          ("brighton", ("Brighton & Hove Albion", "Brighton and Hove Albion",
+                                       "Brighton & Hove Albion FC", "Brighton and Hove Albion FC")),
     "Burnley":           ("burnley", ()),
     "Cardiff":           ("cardiff", ("Cardiff City",)),
-    "Chelsea":           ("chelsea", ()),
-    "Crystal Palace":    ("crystal_palace", ("Palace",)),
-    "Everton":           ("everton", ()),
-    "Fulham":            ("fulham", ()),
+    "Chelsea":           ("chelsea", ("Chelsea FC",)),
+    "Coventry":          ("coventry", ("Coventry City", "Coventry City FC")),
+    "Crystal Palace":    ("crystal_palace", ("Palace", "Crystal Palace FC")),
+    "Everton":           ("everton", ("Everton FC",)),
+    "Fulham":            ("fulham", ("Fulham FC",)),
     "Huddersfield":      ("huddersfield", ("Huddersfield Town",)),
-    "Hull":              ("hull", ("Hull City",)),
-    "Ipswich":           ("ipswich", ("Ipswich Town",)),
-    "Leeds":             ("leeds", ("Leeds United", "Leeds Utd")),
+    "Hull":              ("hull", ("Hull City", "Hull City AFC", "Hull City FC")),
+    "Ipswich":           ("ipswich", ("Ipswich Town", "Ipswich Town FC")),
+    "Leeds":             ("leeds", ("Leeds United", "Leeds Utd", "Leeds United FC")),
     "Leicester":         ("leicester", ("Leicester City",)),
-    "Liverpool":         ("liverpool", ()),
+    "Liverpool":         ("liverpool", ("Liverpool FC",)),
     "Luton":             ("luton", ("Luton Town",)),
-    "Manchester City":   ("man_city", ("Man City", "Manchester C")),
-    "Manchester United": ("man_united", ("Man United", "Man Utd", "Manchester U")),
+    "Manchester City":   ("man_city", ("Man City", "Manchester C", "Manchester City FC")),
+    "Manchester United": ("man_united", ("Man United", "Man Utd", "Manchester U",
+                                         "Manchester United FC")),
     "Middlesbrough":     ("middlesbrough", ("Middlesboro",)),
-    "Newcastle":         ("newcastle", ("Newcastle United", "Newcastle Utd")),
+    "Newcastle":         ("newcastle", ("Newcastle United", "Newcastle Utd",
+                                        "Newcastle United FC")),
     "Norwich":           ("norwich", ("Norwich City",)),
-    "Nottingham Forest": ("nottm_forest", ("Nott'm Forest", "Notts Forest", "Nottm Forest")),
+    "Nottingham Forest": ("nottm_forest", ("Nott'm Forest", "Notts Forest", "Nottm Forest",
+                                           "Nottingham Forest FC")),
     "QPR":               ("qpr", ("Queens Park Rangers", "Q.P.R.")),
     "Sheffield United":  ("sheffield_united", ("Sheffield Utd", "Sheff United", "Sheff Utd")),
     "Southampton":       ("southampton", ()),
     "Stoke":             ("stoke", ("Stoke City",)),
-    "Sunderland":        ("sunderland", ()),
+    "Sunderland":        ("sunderland", ("Sunderland AFC",)),
     "Swansea":           ("swansea", ("Swansea City",)),
-    "Tottenham":         ("tottenham", ("Tottenham Hotspur", "Spurs")),
+    "Tottenham":         ("tottenham", ("Tottenham Hotspur", "Spurs", "Tottenham Hotspur FC")),
     "Watford":           ("watford", ()),
     "West Brom":         ("west_brom", ("West Bromwich Albion", "West Bromwich")),
     "West Ham":          ("west_ham", ("West Ham United", "West Ham Utd")),
