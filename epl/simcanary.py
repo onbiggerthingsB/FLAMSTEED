@@ -447,7 +447,8 @@ def _reference_grid(book: particles.ParticleBook, post, home: str,
             max_goals=draw_api.PRODUCTION_MAX_GOALS), float)
 
     lh, la = book.rates(home, away)
-    grids, _excluded = particles.fixture_grids(lh, la, book.rho, book.max_goals)
+    grids, _excluded, _after_clip = particles.fixture_grids(
+        lh, la, book.rho, book.max_goals)
     gbar = particles.mean_grid(grids)
     if not book.is_provisional(home, away):
         return gbar

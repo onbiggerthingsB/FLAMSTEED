@@ -205,15 +205,34 @@ class ParticleBook:
 
     # ---- construction ----------------------------------------------------
     @classmethod
-    def from_posterior(cls, post, *, max_goals: int = PRODUCTION_MAX_GOALS
-                       ) -> "ParticleBook":
+    def from_posterior(cls, post, *, max_goals: int = PRODUCTION_MAX_GOALS,
+                       allow_nonproduction: bool = False) -> "ParticleBook":
         """Freeze a fitted posterior, cold-start rows included (plan v2 D11).
 
         Every parameter is read through ``post._post(name)`` — the accessor
         ``draw_api.per_draw_rates`` uses — so a :class:`epl.dcfit.ColdStartPosterior`
         yields ``(n_fitted + n_promoted, S)`` for ``att``/``def`` and the promoted
         club is priceable. Reading ``idata`` directly is the P0-2 defect.
+
+        ``max_goals`` defaults to :data:`PRODUCTION_MAX_GOALS` and REFUSES any
+        other value unless ``allow_nonproduction=True`` is passed as well. The
+        truncation is not a tuning knob: production truncates and renormalises
+        the published per-fixture forecast at exactly 10 goals, so a book built
+        at 11 or 12 samples a different law from the one the forecast issues,
+        and the D11 excluded-mass record it produces is a record of a different
+        truncation than the one being gated. A keyword default is too quiet a
+        place for that decision to live — a caller that wants the sensitivity
+        sweep (``epl.sensitivity``, D19) says so in the call.
         """
+        max_goals = int(max_goals)
+        if max_goals != PRODUCTION_MAX_GOALS and not allow_nonproduction:
+            raise UnsupportedPosterior(
+                f"max_goals={max_goals} is not the frozen production truncation "
+                f"({PRODUCTION_MAX_GOALS}). A book built at another truncation "
+                "samples a different law from the published forecast and its "
+                "excluded-mass record gates a different quantity. Pass "
+                "allow_nonproduction=True to build one deliberately, as a "
+                "diagnostic, and do not issue from it.")
         likelihood = getattr(post, "likelihood", None)
         if likelihood != "dixon_coles":
             raise UnsupportedPosterior(
@@ -272,7 +291,7 @@ class ParticleBook:
             sigma_att=arrays["sigma_att"], sigma_def=arrays["sigma_def"],
             provisional=frozenset(str(t) for t in getattr(post, "provisional_teams", ()) or ()),
             cold_start=frozenset(str(t) for t in getattr(post, "cold_start_teams", ()) or ()),
-            likelihood=likelihood, alpha=alpha, max_goals=int(max_goals),
+            likelihood=likelihood, alpha=alpha, max_goals=max_goals,
             cfg_hash=_hash_json(cfg),
         )
 
@@ -351,25 +370,56 @@ class ParticleBook:
 
     @classmethod
     def load(cls, path) -> "ParticleBook":
-        """Read a bundle back; refuses one whose arrays no longer hash to its json."""
+        """Read a bundle back, or refuse it.
+
+        The recorded ``content_hash`` is REQUIRED, not optional. It covers the
+        metadata and every array byte, so it is the only thing standing between
+        a bundle that was truncated, half-written, edited or swapped and a
+        forecast issued from it that quotes an ``effective_posterior_hash``
+        nothing on disk has. A missing hash is refused for the same reason a
+        wrong one is: both mean the bundle cannot answer for its own contents,
+        and a bundle written by :meth:`save` always carries one. Reconstructing
+        the book from a corrupt npz can also fail earlier, on shape or on a
+        missing array — those are refusals too, and are re-raised as
+        :class:`ParticleError` so one exception type covers "this bundle is not
+        usable".
+        """
         path = Path(path)
         if path.suffix != ".npz":
             path = path.with_suffix(".npz")
-        meta = json.loads(path.with_suffix(".json").read_text())
-        with np.load(path) as npz:
-            arrays = {attr: np.ascontiguousarray(npz[attr], dtype=float)
-                      for _n, attr in _PARAMS}
-        teams = tuple(meta["teams"])
-        book = cls(
-            teams=teams, idx={t: i for i, t in enumerate(teams)},
-            provisional=frozenset(meta["provisional"]),
-            cold_start=frozenset(meta["cold_start"]),
-            likelihood=meta["likelihood"], alpha=float(meta["alpha"]),
-            max_goals=int(meta["max_goals"]), cfg_hash=meta["cfg_hash"],
-            schema_version=meta.get("schema_version", "epl-particlebook-1"),
-            **arrays)
+        meta_path = path.with_suffix(".json")
+        try:
+            meta = json.loads(meta_path.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ParticleError(
+                f"{meta_path.name} is missing or not readable JSON: {exc}") from exc
         recorded = meta.get("content_hash")
-        if recorded is not None and book.content_hash() != recorded:
+        if not recorded:
+            raise ParticleError(
+                f"{meta_path.name} records no content_hash, so the arrays beside "
+                "it cannot be checked against anything. Every bundle `save` "
+                "writes carries one; a bundle without one is refused rather "
+                "than trusted")
+        try:
+            with np.load(path) as npz:
+                arrays = {attr: np.ascontiguousarray(npz[attr], dtype=float)
+                          for _n, attr in _PARAMS}
+            teams = tuple(meta["teams"])
+            book = cls(
+                teams=teams, idx={t: i for i, t in enumerate(teams)},
+                provisional=frozenset(meta["provisional"]),
+                cold_start=frozenset(meta["cold_start"]),
+                likelihood=meta["likelihood"], alpha=float(meta["alpha"]),
+                max_goals=int(meta["max_goals"]), cfg_hash=meta["cfg_hash"],
+                schema_version=meta.get("schema_version", "epl-particlebook-1"),
+                **arrays)
+        except ParticleError:
+            raise
+        except Exception as exc:                       # corrupt / truncated npz
+            raise ParticleError(
+                f"{path.name} could not be read back as a particle book: "
+                f"{type(exc).__name__}: {exc}") from exc
+        if book.content_hash() != recorded:
             raise ParticleError(
                 f"{path.name} does not match its recorded content hash "
                 f"({recorded}); the bundle changed on disk and no forecast "
@@ -381,8 +431,8 @@ class ParticleBook:
 # the per-fixture legs
 # ==========================================================================
 def fixture_grids(lh, la, rho, max_goals: int
-                  ) -> tuple[np.ndarray, np.ndarray]:
-    """Per-particle scoreline grids ``(S, n, n)`` and excluded tail mass ``(S,)``.
+                  ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per-particle grids ``(S, n, n)`` and two excluded-tail vectors ``(S,)``.
 
     The vectorised form of ``draw_api.mean_grid_over_draws``'s per-draw loop:
     the independent Poisson outer product, ``dc_tau_np`` applied to the four
@@ -390,13 +440,22 @@ def fixture_grids(lh, la, rho, max_goals: int
     (the DC tau is a quasi-likelihood correction and CAN go negative on a tail
     ``rho`` against unbounded rates), then a per-particle renormalisation.
 
-    ``excluded_mass[s] = 1 - sum(grid[s])``, measured after the clip and before
-    the renormalisation: the probability the ``max_goals`` truncation throws
-    away. The four tau perturbations cancel exactly in aggregate, so this is the
-    Poisson truncation tail and nothing else — except where the clip fired,
-    which raises the sum and so can only make the reported mass SMALLER. The
-    number is honest either way and the gate in :func:`fixture_cdfs` is
-    one-sided, so a clip cannot hide a truncation problem behind it.
+    Returns ``(grids, excluded, excluded_after_clip)``.
+
+    ``excluded[s] = 1 - P(H <= max_goals) * P(A <= max_goals)`` at particle
+    ``s``'s own rates — the UNCLIPPED Poisson product tail, in closed form. That
+    is the quantity D11 gates on: the probability mass the ``max_goals``
+    truncation throws away. It is exactly the pre-clip grid sum's complement,
+    because the four tau perturbations cancel identically in aggregate
+    (``p00*(-lh*la*rho) + p01*(lh*rho) + p10*(la*rho) + p11*(-rho) == 0``); the
+    closed form is used rather than the sum so the number cannot depend on the
+    tau leg at all, and a test pins the two against each other.
+
+    ``excluded_after_clip[s] = 1 - sum(clip(grid[s]))`` is what v1 measured and
+    is kept as a diagnostic. Clipping can only RAISE the sum, so it can only
+    make the reported tail SMALLER: measuring there let a clip mask part of a
+    truncation problem, and the difference between the two vectors is exactly
+    the mass the clip put back. Both are recorded; the gate reads the first.
     """
     lh = np.asarray(lh, dtype=float)
     la = np.asarray(la, dtype=float)
@@ -417,13 +476,17 @@ def fixture_grids(lh, la, rho, max_goals: int
     g[:, 0, 1] *= dc_tau_np(0, 1, lh, la, rho)
     g[:, 1, 0] *= dc_tau_np(1, 0, lh, la, rho)
     g[:, 1, 1] *= dc_tau_np(1, 1, lh, la, rho)
+    # The tail, measured on the UNCLIPPED Poisson product and in closed form.
+    kept = ph.sum(axis=1) * pa.sum(axis=1)              # P(H<=max)*P(A<=max)
+    excluded = 1.0 - kept
+
     g = np.clip(g, 0.0, None)                           # tau<0 guard
 
     total = g.sum(axis=(1, 2))
     if not np.all(np.isfinite(g)) or not np.all(np.isfinite(total)) \
-            or np.any(total <= 0.0):
+            or not np.all(np.isfinite(excluded)) or np.any(total <= 0.0):
         raise DegenerateGrid("non-finite predictive grid")
-    return g / total[:, None, None], 1.0 - total
+    return g / total[:, None, None], excluded, 1.0 - total
 
 
 def mean_grid(grids: np.ndarray) -> np.ndarray:
@@ -490,7 +553,7 @@ class FixtureCDF:
     excluded: dict = field(default_factory=dict)
 
 
-def excluded_mass_stats(excluded) -> dict:
+def excluded_mass_stats(excluded, after_clip=None) -> dict:
     """One fixture's truncation record: mean, median, worst, and the tail count.
 
     The mean alone is a poor description of this quantity. At the 2026-08-21
@@ -503,16 +566,26 @@ def excluded_mass_stats(excluded) -> dict:
 
     ``flagged`` is the mean against :data:`FLAG_EXCLUDED_MASS`; the hard stop is
     :data:`HARD_STOP_EXCLUDED_MASS` and is applied in :func:`fixture_cdfs`.
+
+    Every number is measured on the unclipped Poisson product tail
+    (:func:`fixture_grids`). ``after_clip`` is optional and, when supplied,
+    records the post-clip mean alongside — the v1 quantity, kept so the two can
+    be compared rather than confused. It is never what the flag reads.
     """
     e = np.asarray(excluded, dtype=float)
     mean = float(e.mean())
-    return {
+    out = {
         "mean": mean,
         "median": float(np.median(e)),
         "worst": float(e.max()),
         "n_over_1pct": int((e > LARGE_PARTICLE_MASS).sum()),
         "flagged": bool(mean > FLAG_EXCLUDED_MASS),
     }
+    if after_clip is not None:
+        clipped = np.asarray(after_clip, dtype=float)
+        out["mean_after_clip"] = float(clipped.mean())
+        out["worst_after_clip"] = float(clipped.max())
+    return out
 
 
 def _outcome_matrix(n: int) -> np.ndarray:
@@ -549,8 +622,8 @@ def fixture_cdfs(book: ParticleBook, home: str, away: str) -> FixtureCDF:
     into the run's envelope and prints the flagged fixtures by id.
     """
     lh, la = book.rates(home, away)
-    grids, excluded = fixture_grids(lh, la, book.rho, book.max_goals)
-    stats = excluded_mass_stats(excluded)
+    grids, excluded, after_clip = fixture_grids(lh, la, book.rho, book.max_goals)
+    stats = excluded_mass_stats(excluded, after_clip)
     excluded_mean = stats["mean"]
     if excluded_mean > HARD_STOP_EXCLUDED_MASS:
         raise ExcludedMassTooLarge(

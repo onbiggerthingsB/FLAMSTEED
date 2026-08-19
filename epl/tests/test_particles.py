@@ -171,7 +171,7 @@ def test_mean_grid_allclose_mean_grid_over_draws_1e_12():
     h, a = TEAMS[2], TEAMS[8]
     lh, la = book.rates(h, a)
 
-    G, excluded = particles.fixture_grids(lh, la, book.rho, book.max_goals)
+    G, excluded, _ = particles.fixture_grids(lh, la, book.rho, book.max_goals)
     assert G.shape == (S, 11, 11)
     assert excluded.shape == (S,)
     assert np.allclose(G.sum(axis=(1, 2)), 1.0, atol=1e-12)   # per-particle renorm
@@ -186,7 +186,7 @@ def test_mean_grid_allclose_mean_grid_over_draws_1e_12():
     # POSITIVE CONTROL — the per-draw Dixon-Coles correction is really applied.
     # Build the same grids at rho = 0 and the parity above fails by orders of
     # magnitude, so a silent independent-Poisson grid could not pass.
-    flat, _ = particles.fixture_grids(lh, la, np.zeros_like(book.rho),
+    flat, _, _ = particles.fixture_grids(lh, la, np.zeros_like(book.rho),
                                       book.max_goals)
     assert np.max(np.abs(particles.mean_grid(flat) - ref)) > 1e-6
 
@@ -203,7 +203,7 @@ def test_widened_mixture_equals_production_grid_1e_12():
 
     # provisional fixture: (1-a) * gbar + a * q IS the production grid
     h, a = PROMOTED, TEAMS[3]
-    G, _ = particles.fixture_grids(*book.rates(h, a), book.rho, book.max_goals)
+    G, _, _ = particles.fixture_grids(*book.rates(h, a), book.rho, book.max_goals)
     gbar = particles.mean_grid(G)
     q = particles.widening_component(gbar, alpha)
     assert q.shape == gbar.shape
@@ -220,7 +220,7 @@ def test_widened_mixture_equals_production_grid_1e_12():
 
     # non-provisional fixture: production is the mean grid, no branch at all
     h2, a2 = TEAMS[0], TEAMS[1]
-    G2, _ = particles.fixture_grids(*book.rates(h2, a2), book.rho, book.max_goals)
+    G2, _, _ = particles.fixture_grids(*book.rates(h2, a2), book.rho, book.max_goals)
     gbar2 = particles.mean_grid(G2)
     prod2 = draw_api.production_grid(post, FixtureCtx(home=h2, away=a2))
     assert np.max(np.abs(gbar2 - prod2)) < 1e-12
@@ -289,7 +289,7 @@ def test_max_goals_is_production_10_not_sim_12():
 
     fc = particles.fixture_cdfs(book, TEAMS[0], TEAMS[1])
     assert fc.cdf.shape[1] == 11 * 11
-    G, _ = particles.fixture_grids(*book.rates(TEAMS[0], TEAMS[1]),
+    G, _, _ = particles.fixture_grids(*book.rates(TEAMS[0], TEAMS[1]),
                                    book.rho, book.max_goals)
     assert G.shape[1:] == (11, 11)
 
@@ -328,7 +328,7 @@ def test_excluded_mass_is_flagged_at_5e_3_and_stops_only_above_2e_2():
     # hands the engine is still a proper one.
     warm = particles.ParticleBook.from_posterior(_cold_start_posterior(mu_loc=1.0))
     lh, la = warm.rates(TEAMS[0], TEAMS[1])
-    _, excluded = particles.fixture_grids(lh, la, warm.rho, warm.max_goals)
+    _, excluded, _ = particles.fixture_grids(lh, la, warm.rho, warm.max_goals)
     assert particles.FLAG_EXCLUDED_MASS < excluded.mean() \
         < particles.HARD_STOP_EXCLUDED_MASS
     flagged = particles.fixture_cdfs(warm, TEAMS[0], TEAMS[1])
@@ -344,7 +344,7 @@ def test_excluded_mass_is_flagged_at_5e_3_and_stops_only_above_2e_2():
     # mode the ceiling exists for — still fails CLOSED.
     hot = particles.ParticleBook.from_posterior(_cold_start_posterior(mu_loc=2.4))
     lh, la = hot.rates(TEAMS[0], TEAMS[1])
-    _, excluded = particles.fixture_grids(lh, la, hot.rho, hot.max_goals)
+    _, excluded, _ = particles.fixture_grids(lh, la, hot.rho, hot.max_goals)
     assert excluded.mean() > particles.HARD_STOP_EXCLUDED_MASS
     with pytest.raises(particles.ExcludedMassTooLarge):
         particles.fixture_cdfs(hot, TEAMS[0], TEAMS[1])
@@ -470,7 +470,7 @@ def _chi_squared_p(observed, pmf, *, min_expected: float = 5.0) -> float:
 
 def test_grid_is_the_law_the_scalar_sampler_draws_from_chi_squared():
     lam_home, lam_away, rho = 1.62, 1.14, -0.03
-    grid, _ = particles.fixture_grids([lam_home], [lam_away], [rho],
+    grid, _, _ = particles.fixture_grids([lam_home], [lam_away], [rho],
                                       PRODUCTION_MAX_GOALS)
     pmf = grid[0].ravel()
     side = PRODUCTION_MAX_GOALS + 1
@@ -493,7 +493,7 @@ def test_grid_is_the_law_the_scalar_sampler_draws_from_chi_squared():
     # POSITIVE CONTROL — the same draws against a grid built at a deliberately
     # wrong rate MUST fail. Without this the test above passes for a grid that
     # is merely a valid distribution over 121 cells.
-    wrong, _ = particles.fixture_grids([lam_home * 1.15], [lam_away], [rho],
+    wrong, _, _ = particles.fixture_grids([lam_home * 1.15], [lam_away], [rho],
                                        PRODUCTION_MAX_GOALS)
     p_wrong = _chi_squared_p(observed, wrong[0].ravel())
     assert p_wrong < 1e-3, (
@@ -502,6 +502,151 @@ def test_grid_is_the_law_the_scalar_sampler_draws_from_chi_squared():
 
     # ...and so must a grid with the two sides swapped, which is the indexing
     # bug an arithmetic parity test cannot see.
-    swapped, _ = particles.fixture_grids([lam_away], [lam_home], [rho],
+    swapped, _, _ = particles.fixture_grids([lam_away], [lam_home], [rho],
                                          PRODUCTION_MAX_GOALS)
     assert _chi_squared_p(observed, swapped[0].ravel()) < 1e-3
+
+
+# ---------------------------------------------------------------------------
+# round 2 — the truncation record, the truncation itself, and the bundle
+# ---------------------------------------------------------------------------
+
+def test_excluded_mass_is_the_unclipped_poisson_tail_not_the_post_clip_sum():
+    """The gated number is measured BEFORE the tau clip, and that matters.
+
+    The Dixon-Coles tau is a quasi-likelihood correction and can drive a cell
+    negative — `tau(0,0) = 1 - lh*la*rho` goes negative as soon as
+    `lh*la*rho > 1`. Clipping puts that mass back, which RAISES the grid sum and
+    so LOWERS `1 - sum`: v1 measured there, and the clip could therefore mask
+    part of the truncation tail it was supposed to report. Here the clip is
+    larger than the tail itself and the v1 quantity comes out NEGATIVE.
+
+    The unclipped tail is asserted against the closed form
+    `1 - P(H<=max)*P(A<=max)` AND against the pre-clip grid sum, which are equal
+    because the four tau perturbations cancel identically in aggregate.
+    """
+    from scipy.stats import poisson
+
+    lh, la, rho = 3.0, 3.0, 0.2                      # lh*la*rho = 1.8 > 1
+    _grids, excluded, after_clip = particles.fixture_grids(
+        [lh], [la], [rho], PRODUCTION_MAX_GOALS)
+
+    xs = np.arange(PRODUCTION_MAX_GOALS + 1)
+    tail = 1.0 - poisson.pmf(xs, lh).sum() * poisson.pmf(xs, la).sum()
+    assert excluded[0] == pytest.approx(tail, rel=1e-12)
+
+    # the clip fired, hard: the v1 quantity is not merely smaller, it is negative
+    assert after_clip[0] < 0.0 < excluded[0]
+    assert excluded[0] - after_clip[0] == pytest.approx(
+        (rho * lh * la - 1.0) * np.exp(-lh - la), rel=1e-9), (
+        "the gap is exactly the mass the clip put back into the (0,0) cell")
+
+    # and the tau perturbations cancel: the pre-clip grid sum's complement IS
+    # the Poisson product tail, which is why the closed form is usable at all.
+    from wcmodel.model.likelihoods import dc_tau_np
+    g = np.outer(poisson.pmf(xs, lh), poisson.pmf(xs, la))
+    for (x, y) in ((0, 0), (0, 1), (1, 0), (1, 1)):
+        g[x, y] *= float(dc_tau_np(x, y, np.array([lh]), np.array([la]),
+                                   np.array([rho]))[0])
+    assert 1.0 - g.sum() == pytest.approx(tail, abs=1e-14)
+
+    # POSITIVE CONTROL: with no clip to fire the two measurements agree, so the
+    # gap above is the clip and not a second definition of the tail.
+    _g2, exc2, post2 = particles.fixture_grids([1.4], [1.1], [0.0],
+                                               PRODUCTION_MAX_GOALS)
+    assert exc2[0] == pytest.approx(post2[0], abs=1e-15)
+    assert exc2[0] > 0.0
+
+
+def test_excluded_mass_stats_records_both_measurements():
+    excluded = np.array([0.01, 0.02, 0.03, 0.30])
+    after = excluded - 0.005
+    stats = particles.excluded_mass_stats(excluded, after)
+    assert stats["mean"] == pytest.approx(0.09)
+    assert stats["mean_after_clip"] == pytest.approx(0.085)
+    assert stats["worst"] == pytest.approx(0.30)
+    assert stats["worst_after_clip"] == pytest.approx(0.295)
+    # the flag reads the unclipped mean and nothing else
+    assert stats["flagged"] is True
+    assert particles.excluded_mass_stats(excluded)["flagged"] is True
+    assert "mean_after_clip" not in particles.excluded_mass_stats(excluded)
+
+
+def test_max_goals_override_needs_allow_nonproduction():
+    """The truncation is the published law's, not a keyword default.
+
+    A book at 11 or 12 goals samples a different per-fixture law from the one
+    the forecast issues and its D11 excluded-mass record gates a different
+    quantity. The sensitivity sweep is entitled to build one; it has to say so.
+    """
+    post = _cold_start_posterior()
+    for other in (11, 12, 9):
+        with pytest.raises(particles.UnsupportedPosterior, match="max_goals"):
+            particles.ParticleBook.from_posterior(post, max_goals=other)
+
+    # explicit, deliberate, and it really does build a different grid
+    diag = particles.ParticleBook.from_posterior(post, max_goals=12,
+                                                 allow_nonproduction=True)
+    assert diag.max_goals == 12
+    assert diag.n_scorelines == 169
+
+    # POSITIVE CONTROL: the production value needs no flag, and passing the flag
+    # does not change what the default builds.
+    plain = particles.ParticleBook.from_posterior(post)
+    flagged = particles.ParticleBook.from_posterior(
+        post, max_goals=PRODUCTION_MAX_GOALS, allow_nonproduction=True)
+    assert plain.max_goals == PRODUCTION_MAX_GOALS == flagged.max_goals
+    assert plain.content_hash() == flagged.content_hash() != diag.content_hash()
+
+
+def test_load_refuses_a_corrupted_bundle(tmp_path):
+    """A bundle that cannot answer for its own contents is refused, every way.
+
+    The recorded `content_hash` covers the metadata and every array byte. It was
+    optional — `if recorded is not None` — so a bundle whose json had lost it
+    loaded silently, and a forecast issued from it would quote an
+    `effective_posterior_hash` that nothing on disk backs.
+    """
+    import json as _json
+
+    book = particles.ParticleBook.from_posterior(_cold_start_posterior())
+    path = tmp_path / "particles.npz"
+    book.save(path)
+    meta_path = path.with_suffix(".json")
+    good_npz = path.read_bytes()
+    good_meta = meta_path.read_text()
+
+    # POSITIVE CONTROL: untouched, it loads and hashes to the same thing.
+    assert particles.ParticleBook.load(path).content_hash() == book.content_hash()
+
+    # (a) one flipped byte deep inside the arrays
+    flipped = bytearray(good_npz)
+    i = len(flipped) - 64
+    flipped[i] ^= 0x01
+    path.write_bytes(bytes(flipped))
+    with pytest.raises(particles.ParticleError):
+        particles.ParticleBook.load(path)
+
+    # (b) a truncated (half-written) npz
+    path.write_bytes(good_npz[: len(good_npz) // 2])
+    with pytest.raises(particles.ParticleError):
+        particles.ParticleBook.load(path)
+
+    # (c) the recorded hash removed — refused, not trusted
+    path.write_bytes(good_npz)
+    meta = _json.loads(good_meta)
+    meta.pop("content_hash")
+    meta_path.write_text(_json.dumps(meta))
+    with pytest.raises(particles.ParticleError, match="content_hash"):
+        particles.ParticleBook.load(path)
+
+    # (d) metadata edited to disagree with the arrays it describes
+    meta = _json.loads(good_meta)
+    meta["alpha"] = float(meta["alpha"]) + 0.25
+    meta_path.write_text(_json.dumps(meta))
+    with pytest.raises(particles.ParticleError, match="content hash"):
+        particles.ParticleBook.load(path)
+
+    # ... and restoring the json restores the load, so (c)/(d) are the json.
+    meta_path.write_text(good_meta)
+    assert particles.ParticleBook.load(path).content_hash() == book.content_hash()

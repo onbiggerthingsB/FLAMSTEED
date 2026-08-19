@@ -521,7 +521,7 @@ def _hot_book(clubs, home, away, target, *, n_particles=16, jitter=0.30):
 
     def mass(delta):
         book = build(delta)
-        _, excluded = particles.fixture_grids(
+        _, excluded, _ = particles.fixture_grids(
             *book.rates(home, away), book.rho, book.max_goals)
         return float(excluded.mean())
 
@@ -618,7 +618,7 @@ def test_flagged_fixture_is_recorded_and_reported_but_does_not_stop(state, tmp_p
 def test_excluded_mass_above_the_pre_stated_ceiling_still_stops(state):
     """~2.5e-2 on one fixture: the run fails closed, as A1 (c) pre-stated."""
     book = _hot_book(state.clubs, "man_city", "coventry", 2.5e-2)
-    _, excluded = particles.fixture_grids(
+    _, excluded, _ = particles.fixture_grids(
         *book.rates("man_city", "coventry"), book.rho, book.max_goals)
     assert excluded.mean() > particles.HARD_STOP_EXCLUDED_MASS
 

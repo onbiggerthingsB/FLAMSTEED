@@ -291,7 +291,7 @@ def test_dc_wdl_widening_branch_reproduces_the_production_1x2(bridge):
     one_x_two, widened = provider.laws_for(fixture)
     assert widened is not None, "a provisional fixture must carry the branch"
 
-    grids, _ = particles.fixture_grids(*book.rates("c00", "c19"), book.rho,
+    grids, _, _ = particles.fixture_grids(*book.rates("c00", "c19"), book.rho,
                                        book.max_goals)
     produced = inflate_predictive(particles.mean_grid(grids), is_provisional=True,
                                   strength=book.alpha)
