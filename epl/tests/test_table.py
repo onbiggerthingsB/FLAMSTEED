@@ -348,6 +348,127 @@ def test_material_tie_uses_h2h_points_then_away_goals():
     assert code2[16] == code2[17] == table_mod.H2H_AWAY, (
         "head-to-head points are level here, so C.17.2 must be what separates them")
 
+#: The MIRROR of `H2H_PTS_OVERRIDES`: the decisive head-to-head match is an AWAY
+#: win, and the club it promotes sits at the HIGHER club index.
+#:
+#: Every head-to-head match among tie-block members in the fixtures above is a
+#: home win or a draw, so a ranker that credited an away win's three points to
+#: the HOME club would order all of them identically and every assertion would
+#: still pass. Here club 17 wins 0-2 AT club 16 and the reverse fixture is
+#: goalless, so C.17.1 puts club 17 first — and that sign error puts club 16
+#: first instead. The pair is level on points, GD and GF (39 / 0 / 2), which is
+#: what leaves C.17.1 as the only thing deciding 17th from 18th:
+#:
+#:    club 16: lost (16,17) 0-2 at home, beat club 18 2-0   -> 39, GD 0, GF 2
+#:    club 17: won  (16,17) 2-0 AWAY, lost 0-2 to club 18   -> 39, GD 0, GF 2
+#:
+#: club 18 is the compensator and is docked one point clear of the pair.
+H2H_PTS_AWAY_WIN_OVERRIDES = {(16, 17): (0, 2), (17, 16): (0, 0),
+                              (18, 17): (2, 0), (16, 18): (2, 0)}
+H2H_PTS_AWAY_WIN_ADJ = np.zeros(C, np.int16)
+for _i in range(16):
+    H2H_PTS_AWAY_WIN_ADJ[_i] = 20 - _i   # 58 .. 43
+H2H_PTS_AWAY_WIN_ADJ[18] = -1            # 39 - 1 = 38
+H2H_PTS_AWAY_WIN_ADJ[19] = -2            # 38 - 2 = 36
+
+
+def test_h2h_points_credit_an_away_win_to_the_visiting_club():
+    """C.17.1 with the decisive head-to-head match won by the VISITING club.
+
+    `test_material_tie_uses_h2h_points_then_away_goals` cannot see this: its
+    head-to-head matches are a home win and a draw, and so are every other
+    block's in this file, so crediting an away win to the home club reorders
+    nothing there.
+    """
+    totals, ranking = _rank(H2H_PTS_AWAY_WIN_OVERRIDES, H2H_PTS_AWAY_WIN_ADJ)
+
+    # the table the ladder is handed (asserted, not assumed)
+    assert int(totals.pts[0, 16]) == int(totals.pts[0, 17]) == 39
+    assert int(totals.gd[0, 16]) == int(totals.gd[0, 17]) == 0
+    assert int(totals.gf[0, 16]) == int(totals.gf[0, 17]) == 2
+    assert int(totals.pts[0, 18]) == 38 and int(totals.pts[0, 19]) == 36
+    assert table_mod.is_material(17, 2, BOUNDARIES)
+
+    start, span = _row(ranking.block_start), _row(ranking.block_span)
+    code = _row(ranking.resolution_code)
+    assert (start[17], span[17]) == (17, 1), (
+        "club 17 won the head-to-head 2-0 AWAY: 3 points to the VISITING club")
+    assert (start[16], span[16]) == (18, 1)
+    assert code[16] == code[17] == table_mod.H2H_PTS
+    assert _row(ranking.order)[16:18] == [17, 16], (
+        "the club promoted by C.17.1 has the HIGHER index, so a stable sort "
+        "that broke nothing cannot produce this order by accident")
+
+
+#: C.17.2 decided by goals SCORED away, not goals CONCEDED away — again with the
+#: promoted club at the HIGHER index.
+#:
+#: `H2H_AWAY_OVERRIDES` separates the pair with two DRAWS, so there every
+#: visiting club scored exactly what it conceded and "goals scored away" and
+#: "goals conceded away" are the same number. Here the two head-to-head matches
+#: are wins in OPPOSITE directions, by DIFFERENT margins, both to nil:
+#:
+#:    (16,17) 0-3  -> club 17 scored 3 away, conceded 0 away
+#:    (17,16) 0-1  -> club 16 scored 1 away, conceded 0 away
+#:
+#: C.17.1 is level at three points each; the SCORED reading puts club 17 on 3
+#: against club 16's 1, while the CONCEDED reading leaves both on 0 and the pair
+#: falls through to an unresolved play-off.
+#:
+#: Those two results alone leave club 17 four goals of GD ahead, so the
+#: compensators put it back with equal points on both sides: club 16 beats club
+#: 18 4-0 (+2 pts, +4 GD) while club 17 takes two 1-0 wins and two 0-1 defeats
+#: (+2 pts, 0 GD). The pair ends level on 41 pts / GD +2 / GF 5, block material
+#: at 17|18; clubs 19 and 18 finish 19th and 20th.
+H2H_AWAY_SCORED_OVERRIDES = {
+    (16, 17): (0, 3), (17, 16): (0, 1),   # the C.17 pair, both wins to nil
+    (16, 18): (4, 0),                     # club 16: +2 pts, +4 GD
+    (17, 18): (1, 0), (17, 19): (1, 0),   # club 17: +4 pts, +2 GD
+    (18, 17): (1, 0), (19, 17): (1, 0),   # club 17: -2 pts, -2 GD
+}
+H2H_AWAY_SCORED_ADJ = np.zeros(C, np.int16)
+for _i in range(16):
+    H2H_AWAY_SCORED_ADJ[_i] = 20 - _i     # 58 .. 43, all clear of the pair's 41
+
+
+def test_h2h_away_goals_count_goals_scored_not_goals_conceded():
+    """C.17.2 where the two readings of "away goals" disagree.
+
+    Every other C.17.2 fixture in this file is decided by drawn head-to-head
+    matches, where a visiting club's goals scored and goals conceded are the
+    same number; this one is decided by wins to nil in opposite directions, so
+    counting the wrong side of the scoreline leaves the pair level.
+    """
+    totals, ranking = _rank(H2H_AWAY_SCORED_OVERRIDES, H2H_AWAY_SCORED_ADJ)
+
+    assert int(totals.pts[0, 16]) == int(totals.pts[0, 17]) == 41
+    assert int(totals.gd[0, 16]) == int(totals.gd[0, 17]) == 2
+    assert int(totals.gf[0, 16]) == int(totals.gf[0, 17]) == 5
+    assert table_mod.is_material(17, 2, BOUNDARIES)
+
+    among = {(16, 17): (0, 3), (17, 16): (0, 1)}
+    scored_away = {16: 1, 17: 3}
+    conceded_away = {16: 0, 17: 0}
+    assert sum(ag for (h, a), (hg, ag) in among.items() if a == 17) == scored_away[17]
+    assert sum(ag for (h, a), (hg, ag) in among.items() if a == 16) == scored_away[16]
+    assert sum(hg for (h, a), (hg, ag) in among.items() if a == 17) == conceded_away[17]
+    assert sum(hg for (h, a), (hg, ag) in among.items() if a == 16) == conceded_away[16]
+    assert conceded_away[16] == conceded_away[17], (
+        "the conceded reading must leave the pair LEVEL, or this proves nothing")
+
+    assert table_mod.h2h_ladder([16, 17], among) == [
+        ((17,), table_mod.H2H_AWAY), ((16,), table_mod.H2H_AWAY)]
+
+    start, span = _row(ranking.block_start), _row(ranking.block_span)
+    code = _row(ranking.resolution_code)
+    assert (start[17], span[17]) == (17, 1), (
+        "club 17 scored 3 away in the head-to-head matches, club 16 scored 1")
+    assert (start[16], span[16]) == (18, 1)
+    assert code[16] == code[17] == table_mod.H2H_AWAY, (
+        "reading the home side of the scoreline leaves both on 0 away goals, "
+        "which is UNRESOLVED_PLAYOFF, not H2H_AWAY")
+    assert _row(ranking.order)[16:18] == [17, 16]
+
 
 #: A three-way material block at 16-18 where C.17.1 leaves clubs 15 and 16
 #: level, and the two readings of C.17.2 disagree:
@@ -556,6 +677,8 @@ ALL_CASES = (
     ("shared", {}, SHARED_ADJ),
     ("h2h_pts", H2H_PTS_OVERRIDES, H2H_PTS_ADJ),
     ("h2h_away", H2H_AWAY_OVERRIDES, H2H_AWAY_ADJ),
+    ("h2h_pts_away_win", H2H_PTS_AWAY_WIN_OVERRIDES, H2H_PTS_AWAY_WIN_ADJ),
+    ("h2h_away_scored", H2H_AWAY_SCORED_OVERRIDES, H2H_AWAY_SCORED_ADJ),
     ("original_set", ORIGINAL_SET_OVERRIDES, ORIGINAL_SET_ADJ),
     ("playoff", PLAYOFF_OVERRIDES, PLAYOFF_ADJ),
     ("multiway", {}, MULTIWAY_ADJ),
@@ -714,3 +837,64 @@ def test_h2h_ladder_flags_playoff_and_multiway_by_size():
              ("b", "c"): (1, 1), ("c", "b"): (1, 1)}
     assert table_mod.h2h_ladder(["a", "b", "c"], mixed) == [
         (("a",), table_mod.H2H_PTS), (("b", "c"), table_mod.UNRESOLVED_PLAYOFF)]
+
+def test_h2h_ladder_credits_an_away_win_to_the_visiting_club():
+    """C.17.1 at the pure-ladder level, decided by an AWAY win.
+
+    Every head-to-head match in the ladder case above is a home win or a draw,
+    so `pts[away] += 3` and `pts[home] += 3` produce the same ordering there.
+    """
+    among = {(16, 17): (0, 1), (17, 16): (0, 0)}
+    # club 17: 3 (away win) + 1 (draw) = 4 ; club 16: 0 + 1 = 1
+    assert table_mod.h2h_ladder([16, 17], among) == [
+        ((17,), table_mod.H2H_PTS), ((16,), table_mod.H2H_PTS)]
+
+    # and the reverse orientation, so neither club index can be privileged
+    assert table_mod.h2h_ladder([16, 17], {(17, 16): (0, 1), (16, 17): (0, 0)}) == [
+        ((16,), table_mod.H2H_PTS), ((17,), table_mod.H2H_PTS)]
+
+
+def test_h2h_ladder_away_goals_are_scored_not_conceded():
+    """C.17.2 at the pure-ladder level, where the two readings disagree.
+
+    Both clubs concede 0 as the visiting club, so the "goals conceded away"
+    misreading leaves them level and falls through to UNRESOLVED_PLAYOFF; only
+    "goals scored away from home" separates them.
+    """
+    among = {("a", "b"): (0, 1), ("b", "a"): (0, 3)}
+    # head-to-head points: a 3, b 3 -> level, so C.17.2 decides
+    # scored away:   a 3, b 1     conceded away: a 0, b 0
+    assert table_mod.h2h_ladder(["a", "b"], among) == [
+        (("a",), table_mod.H2H_AWAY), (("b",), table_mod.H2H_AWAY)]
+
+    # the reverse orientation, so the answer cannot come from the input order
+    assert table_mod.h2h_ladder(["a", "b"], {("a", "b"): (0, 3), ("b", "a"): (0, 1)}) == [
+        (("b",), table_mod.H2H_AWAY), (("a",), table_mod.H2H_AWAY)]
+
+    # One case that separates ALL FOUR readings of "goals scored away", so no
+    # single mutation of the counter survives it. The drawn fixtures elsewhere
+    # in this file cannot do this: in a draw hg == ag, so scored, conceded and
+    # total all order the block identically.
+    #
+    #    (a,b) 2-3 -> b wins away  |  (b,a) 0-4 -> a wins away  |  points level
+    #
+    #    scored away    a 4, b 3  -> a first   <- the Handbook text
+    #    conceded away  a 0, b 2  -> b first
+    #    total goals    a 4, b 5  -> b first
+    #    home-indexed   a 3, b 4  -> b first
+    four_ways = {("a", "b"): (2, 3), ("b", "a"): (0, 4)}
+    scored = {c: sum(ag for (h, a), (hg, ag) in four_ways.items() if a == c)
+              for c in "ab"}
+    conceded = {c: sum(hg for (h, a), (hg, ag) in four_ways.items() if a == c)
+                for c in "ab"}
+    total = {c: scored[c] + conceded[c] for c in "ab"}
+    home_indexed = {c: sum(ag for (h, a), (hg, ag) in four_ways.items() if h == c)
+                    for c in "ab"}
+    assert scored == {"a": 4, "b": 3}
+    for name, reading in (("conceded", conceded), ("total", total),
+                          ("home_indexed", home_indexed)):
+        assert (reading["a"] > reading["b"]) != (scored["a"] > scored["b"]), (
+            f"the {name} reading must disagree with the scored reading here, "
+            "or it is not being tested")
+    assert table_mod.h2h_ladder(["a", "b"], four_ways) == [
+        (("a",), table_mod.H2H_AWAY), (("b",), table_mod.H2H_AWAY)]
