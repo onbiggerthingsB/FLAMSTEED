@@ -245,25 +245,107 @@ def test_pinned_fixture_consumes_no_rng_and_equals_result(state):
 
 
 def test_kickoff_dates_do_not_enter_numbers(state):
-    """Kickoffs are metadata (D3): move all 380 and nothing numeric changes."""
-    book = _book(state.clubs, n_particles=16)
-    base = leaguesim.simulate("dc_native", state, book, 256, SEED, 128)
+    """Kickoffs are metadata (D3): move all 380 and nothing numeric changes.
 
-    moved = dataclasses.replace(state, kickoffs_known={
-        fid: (date + dt.timedelta(days=17), "12:34")
-        for fid, (date, _t) in state.kickoffs_known.items()})
+    Strengthened twice over the opener-only, forward-only version.
+
+    * MID-SEASON — 190 results pinned. At the opener every fixture is unplayed
+      and identically treated, so a calendar-driven implementation has nothing
+      to get wrong; with half the season played, "played" and "scheduled" are
+      two populations and reading the wrong clock separates them differently.
+    * STRICTLY EARLIER — every remaining fixture's kickoff is dragged 30 days
+      BEFORE the cutoff, which makes all 190 of them `unresolved` (kickoff
+      passed, no result). That is precisely the state in which deriving "played"
+      from the calendar would decide these matches had happened and drop them
+      out of the simulation. The numbers still may not move by one byte.
+    """
+    book = _book(state.clubs, n_particles=16)
+    half = sorted(state.fixtures)[:190]
+    mid = _with_played(state, {fid: (1, 0) for fid in half})
+    base = leaguesim.simulate("dc_native", mid, book, 256, SEED, 128)
+    assert base.plan.n_played == 190 and len(base.retained_rows.fixture_ordinals) == 190
+
+    unplayed = tuple(mid.unplayed)
+    earlier = mid.cutoff.normalize().date() - dt.timedelta(days=30)
+    moved = dataclasses.replace(
+        mid,
+        kickoffs_known={fid: (earlier, "12:34") for fid in mid.kickoffs_known},
+        statuses=dict(sorted({**{f: season_mod.STATUS_PLAYED for f in half},
+                              **{f: season_mod.STATUS_UNRESOLVED
+                                 for f in unplayed}}.items())),
+        unresolved=unplayed,
+        results_lag=True)
     shifted = leaguesim.simulate("dc_native", moved, book, 256, SEED, 128)
 
     assert shifted.matrix.tobytes() == base.matrix.tobytes()
     assert (shifted.retained_rows.scorelines.tobytes()
             == base.retained_rows.scorelines.tobytes())
+    assert shifted.retained_rows.points.tobytes() == base.retained_rows.points.tobytes()
+    assert (shifted.retained_rows.fixture_ordinals.tolist()
+            == base.retained_rows.fixture_ordinals.tolist()), (
+        "the set of simulated fixtures is the results ledger's, not the calendar's")
 
     # positive control: a RESULT does enter the numbers, so the comparison above
     # is not comparing two runs that could never differ.
-    target = sorted(state.fixtures)[7]
+    target = sorted(mid.unplayed)[7]
     with_result = leaguesim.simulate(
-        "dc_native", _with_played(state, {target: (5, 0)}), book, 256, SEED, 128)
+        "dc_native", _with_played(mid, {target: (5, 0)}), book, 256, SEED, 128)
     assert not np.array_equal(with_result.matrix, base.matrix)
+
+
+def test_retained_particle_assignment_is_the_stratified_index(state):
+    """The engine's particle column IS `particle_index(N, S)`, row for row.
+
+    `particle_index` is tested against its own definition elsewhere; this pins
+    the ENGINE to it. Everything downstream that groups by particle — the
+    cluster-by-particle SE, `sum_by_particle`'s strided trick, the whole D15
+    decomposition — assumes the season in row `i` was priced by draw `i mod S`,
+    and none of it would fail loudly if the engine used any other bijection.
+    """
+    n_sims, n_particles = 256, 16
+    book = _book(state.clubs, n_particles=n_particles)
+    run = leaguesim.simulate("dc_native", state, book, n_sims, SEED, 128)
+
+    expected = leaguesim.particle_index(n_sims, n_particles)
+    assert run.retained_rows.particle.tolist() == expected.tolist()
+    assert run.retained_rows.particle.dtype == expected.dtype
+
+    # POSITIVE CONTROL: a permutation that keeps the same MULTISET of particles
+    # — every draw still used N/S times, so the counts test cannot see it — is
+    # a different assignment, and this assertion does see it.
+    idx = np.arange(n_sims)
+    permuted = ((idx + idx // n_particles) % n_particles).astype(np.int16)
+    assert np.bincount(permuted, minlength=n_particles).tolist() == \
+        np.bincount(expected, minlength=n_particles).tolist()
+    assert not np.array_equal(permuted, expected)
+
+
+def test_run_refuses_an_unequal_or_single_particle_grid(state):
+    """`N % S != 0` and `S < 2` are refused: both break the published SE.
+
+    One cluster makes `_cluster_stats` report `se = 0` on every cell — a table
+    stating it has no Monte-Carlo error at all. Unequal clusters silently break
+    the equal-`k` identity the outer/inner split is written on. Refusing costs
+    nothing: every preregistered run is divisible.
+    """
+    book = _book(state.clubs, n_particles=16)
+    with pytest.raises(leaguesim.SimError, match="multiple of n_particles"):
+        leaguesim.simulate("dc_native", state, book, 250, SEED, 128)
+
+    one = _book(state.clubs, n_particles=1)
+    with pytest.raises(leaguesim.SimError, match="at least two clusters"):
+        leaguesim.simulate("dc_native", state, one, 256, SEED, 128)
+
+    # and the plan refuses it directly, so nothing can route around `simulate`
+    with pytest.raises(leaguesim.SimError, match="multiple of n_particles"):
+        leaguesim.SimPlan.from_state(state, n_sims=250, n_particles=16,
+                                     seed=SEED, chunk_size=128)
+
+    # POSITIVE CONTROL: the divisible pair one sim away still runs, so the
+    # refusal is the remainder and not the size.
+    ok = leaguesim.simulate("dc_native", state, book, 256, SEED, 128)
+    assert ok.plan.n_sims == 256
+    assert float(ok.mc["cluster_se_max"]) > 0.0
 
 
 # ==========================================================================

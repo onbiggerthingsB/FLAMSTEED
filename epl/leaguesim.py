@@ -64,6 +64,13 @@ uncertainty by an order of magnitude when the posterior draw is what decides the
 title. The variance is split into an outer (posterior) and an inner (match
 randomness) part, which sum back to the cluster variance exactly.
 
+That decomposition is written for EQUAL clusters, so a run must have at least
+two particles and a whole number of sims per particle: `SimPlan.from_state`
+refuses `S < 2` (one cluster reports every SE as exactly 0) and `N % S != 0`
+(unequal clusters break the identity the split is built on). Preregistered runs
+are divisible, so this refuses nothing the design asks for — see
+`_check_particle_grid`.
+
 WHAT IS NOT MODELLED, AND IS SAID SO
 ------------------------------------
 Strengths are frozen at the cutoff: no within-season drift, no injuries, no
@@ -209,6 +216,44 @@ def particle_index(n_sims: int, n_particles: int) -> np.ndarray:
     if n_particles > np.iinfo(np.int16).max:
         raise SimError("particle ids are int16; more than 32767 draws is out of contract")
     return (np.arange(n_sims, dtype=np.int64) % n_particles).astype(np.int16)
+
+
+def _check_particle_grid(n_sims: int, n_particles: int) -> None:
+    """A run must have at least two particles and an equal number of sims each.
+
+    REFUSE rather than generalise, and the reason is that the alternative is a
+    different estimator. `_cluster_stats` is written for equal clusters: `k =
+    n_total / n_clusters` is one number, and `within` averages the per-cluster
+    variances unweighted. Under `N % S != 0` the clusters differ in size by one,
+    `k` becomes a fiction, and the outer/inner split stops summing to the cluster
+    variance exactly — the identity D15 is built on. The correct unequal-cluster
+    form exists, but adopting it would change every published SE, so it is a
+    change to the metric and not a robustness patch.
+
+    `S < 2` is worse than approximate: with one cluster `_cluster_stats` returns
+    `se = 0` for every cell, and a run would publish a table with no
+    Monte-Carlo error rather than an unknown one. Zero is the one value that
+    cannot be right.
+
+    Every preregistered run is divisible (20,000 sims over 1,000 particles;
+    the retrospective's 20,000 over 1,000), so this refuses nothing the design
+    asks for. It refuses the run that would silently mis-state its own error.
+    """
+    if n_particles < 2:
+        raise SimError(
+            f"n_particles={n_particles}: the cluster-by-particle Monte-Carlo "
+            "error (D15) needs at least two clusters. With one, every standard "
+            "error would be reported as exactly 0 — a table with no stated "
+            "error rather than one with an unknown error")
+    if n_sims % n_particles != 0:
+        raise SimError(
+            f"n_sims={n_sims} is not a multiple of n_particles={n_particles} "
+            f"(remainder {n_sims % n_particles}). The stratification `i mod S` "
+            "would then use some draws once more than others, and the "
+            "equal-cluster variance decomposition D15 publishes would no longer "
+            "sum to the cluster variance. Preregistered runs are divisible; "
+            "choose an N that is, rather than reporting an SE this file cannot "
+            "compute correctly")
 
 
 def sum_by_particle(values: np.ndarray, lo: int, n_particles: int) -> np.ndarray:
@@ -436,6 +481,7 @@ class SimPlan:
             raise SimError("n_sims must be positive")
         if chunk_size <= 0:
             raise SimError("chunk_size must be positive")
+        _check_particle_grid(int(n_sims), int(n_particles))
         boundaries = tuple((int(a), int(b)) for a, b in
                            (DEFAULT_BOUNDARIES if boundaries is None else boundaries))
         rule_id = DEFAULT_RULE_ID if rule_id is None else rule_id
