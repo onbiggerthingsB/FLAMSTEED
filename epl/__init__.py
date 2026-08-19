@@ -63,6 +63,10 @@ the league-table simulator
                   amendments, points adjustments) resolved to one point-in-time
                   `SeasonState`. "Played" comes from the results ledger, never
                   from the calendar. Data lives beside it in `epl/season/`.
+  `epl.particles` the effective posterior frozen into arrays: one joint particle
+                  per simulated season, cold-start rows included, per-fixture
+                  grids truncated where production truncates, and the widening
+                  branch that makes the sampled marginal the published one.
   `epl.table`     the vectorised accumulator and the Premier League ranker:
                   points -> GD -> GF, shared positions unless the tie is
                   material, then the head-to-head ladder. What the rulebook
@@ -72,6 +76,6 @@ the league-table simulator
 """
 
 __all__ = ["anchor", "baseline", "build", "dcfit", "devig", "elo", "fetch",
-           "fit", "freeze", "improve", "ordlogit", "parse", "paths", "schema",
-           "score", "season", "table", "teams", "validate", "walk",
-           "walkforward", "windows"]
+           "fit", "freeze", "improve", "ordlogit", "parse", "particles",
+           "paths", "schema", "score", "season", "table", "teams", "validate",
+           "walk", "walkforward", "windows"]
