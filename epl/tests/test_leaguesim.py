@@ -667,6 +667,23 @@ def test_unmeasured_excluded_mass_block_carries_none_not_zero(small_run):
     assert small_run.envelope["excluded_mass"]["max"] > 0.0
 
 
+def test_limitations_renders_when_every_fixture_is_played(small_run):
+    """Codex review of e3cbcec: a grid-capable arm at a fully-played cutoff has
+    measured=True and n_fixtures=0, so max/mean/p90 are None; the renderer must
+    say so rather than format None with .3g (TypeError)."""
+    env = dict(small_run.envelope)
+    env["excluded_mass"] = {
+        "measured": True, "n_fixtures": 0, "max": None, "mean": None,
+        "p90": None, "n_flagged": 0, "flagged": [],
+        "flag_threshold": particles.FLAG_EXCLUDED_MASS,
+        "hard_stop_threshold": particles.HARD_STOP_EXCLUDED_MASS,
+    }
+    text = leaguesim._truncation_section(env)
+    assert "every fixture is played" in text
+    # POSITIVE CONTROL: the measured path still formats real numbers
+    assert "max **" in leaguesim._truncation_section(small_run.envelope)
+
+
 def test_limitations_note_is_byte_identical_across_runs(state, tmp_path):
     """(b) `limitations.md` embeds no wall-clock date — same spec, same bytes."""
     book = _book(state.clubs, provisional=("coventry",))

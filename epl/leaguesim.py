@@ -1374,6 +1374,14 @@ def _truncation_section(env: dict) -> str:
     """
     block = env.get("excluded_mass") or {}
     flag = block.get("flag_threshold", particles.FLAG_EXCLUDED_MASS)
+    if block.get("measured") and not block.get("n_fixtures"):
+        # A grid-capable arm at a cutoff with nothing left to simulate (every
+        # fixture played): measured is True, but there was no fixture to
+        # measure, so max/mean/p90 are None and must not be formatted.
+        return _textwrap.fill(
+            "* **none** — every fixture is played at this cutoff, so no grid "
+            "was built and there is no truncation tail to measure.",
+            width=78, subsequent_indent="  ")
     if not block.get("measured"):
         return _textwrap.fill(
             "* **none** — this arm does not price scorelines through the "
