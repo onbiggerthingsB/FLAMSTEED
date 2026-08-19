@@ -528,3 +528,85 @@ claimed and what was true.
 
 *A2, A3 and A1-C1 recorded 2026-08-19, all three before the code that implements
 or corrects anything they describe.*
+
+---
+
+## A2-N1 — harness v2 hashes, and one deviation from A2 (2026-08-19)
+
+**A2's original text above is deliberately unedited**, for the reason A1-C1
+gives: an entry that can be rewritten after the fact is not a record of what was
+decided in advance. This note records the one thing A2 said it could not state
+in advance, and one thing A2 said would not happen and did.
+
+### The v2 hashes
+
+The Fix commit that implements A2 changes `epl/simretro.py` and
+`epl/simmetrics.py`. Their SHA-256 as committed:
+
+| file | harness v1 (frozen by the prereg) | harness v2 |
+|---|---|---|
+| `epl/simretro.py` | `2b25ab35…` | `f1744c25172f84875522f134ac73284ddc1ba965f50edc402f4b0677a5763f9f` |
+| `epl/simmetrics.py` | `e73f2f70…` | `6756d86143425a2b55785c0c0be49839bf981b10e54857abda9272831217a7a4` |
+
+A run whose harness hashes match neither the v1 pair nor this v2 pair refuses,
+exactly as prereg §12 already requires. **R1 stands under v1** and is not
+re-scored; A2 gives the reasons in full and none of them has changed.
+
+Note that the v2 harness carries its own identity into every ledger row and into
+the resume key (`producer_identity`), so a ledger written under v1 and one
+written under v2 can no longer be mixed by accident — which is the point of A2
+(a), and which also means the hashes above are enforced per row rather than only
+verified once at the top of a run.
+
+### The deviation: TRPS now carries a Monte-Carlo error
+
+A2 pre-stated, under *What is pre-stated*: **"A TRPS Monte-Carlo error is not
+part of v2."** It said supplying one is a change to the metric set rather than a
+relabelling, put it out of scope, and recorded it as an open item so that the
+relabel would not be mistaken for having answered it.
+
+**The Fix commit supplies one anyway.** That is a deviation from a pre-statement
+and it is recorded here rather than made quietly.
+
+*What was added.* A `TRPS SE` column, and a `trps_se` field on every scored row.
+The method is the delta method on the run's own per-cell cluster-by-particle
+standard error: with `X` the cumulative forecast, `O` the cumulative outcome and
+`g = dTRPS/dm` evaluated at the reported matrix,
+
+```
+g[c, k] = 2 / (C (R−1)) · Σ_{r ≥ k} (X[c, r] − O[c, r])
+Var(TRPS) ≈ Σ_{c, k} g[c, k]² · se[c, k]²
+```
+
+*What the number is not.* The cells of one club are treated as independent. They
+are not — a club's row sums to 1, so its cells are predominantly **negatively**
+correlated — and ignoring those covariances **overstates** the variance. The
+reported SE is therefore conservative rather than exact. It is Monte-Carlo error
+only: it says nothing about model error, and nothing about TRPS being proper for
+the displayed marginals rather than for the joint law. It is `n/a` for the
+nulls, which record no per-cell error.
+
+*Why it is a deviation and not a new amendment.* Nothing about the metric SET
+changes: TRPS is still the primary score, computed by the same formula on the
+same matrices, and no pass rule reads the new number. What changes is that a
+headline number now has an error beside it, which is this project's standing
+rule everywhere else. A2's own reason for deferring it — that it is a change of
+substance rather than of labelling — is correct, and this note is the substance
+being declared instead of assumed.
+
+*What is NOT claimed.* No score in
+[`reports/epl_sim_retro_v1_1.md`](epl_sim_retro_v1_1.md) gains an SE
+retroactively. R1 ran under harness v1, which computed none, and the column is
+`n/a` for that run by construction. The first retrospective run that reports a
+TRPS SE will be the first run under v2, and there is not one yet.
+
+### Column names
+
+A2 pre-stated the headings `cons-cell MC SE (mean)` and `cons-cell MC SE (max)`.
+They are `mean cell SE` and `max cell SE`. The rename is cosmetic and the legend
+carries the full sentence A2 required — that both are cluster-by-particle error
+over the club × consequence cells, that neither is an error on TRPS, and that
+neither is the position matrix's own error — but the exact strings differ from
+the pre-statement and that is said here rather than left to a reader to notice.
+
+*Recorded 2026-08-19, immediately after the commit that produced the hashes.*
