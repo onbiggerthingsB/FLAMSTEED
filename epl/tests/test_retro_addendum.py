@@ -242,3 +242,168 @@ def test_the_addendum_reports_a_mean_row_per_cutoff_with_its_season_count():
 def test_an_empty_set_of_cells_refuses_rather_than_rendering_an_empty_table():
     with pytest.raises(retro_addendum.AddendumError):
         retro_addendum.addendum_markdown([], dated="2026-08-19")
+
+
+# ==========================================================================
+# 5. the deviation is recorded where the record lives
+# ==========================================================================
+# Addendum A departs from two pre-statements: A2's "A TRPS Monte-Carlo error is
+# **not** part of v2", and A2-N1's "No score in reports/epl_sim_retro_v1_1.md
+# gains an SE retroactively." It declares that departure in its own prose, which
+# is honest but is not the record: reports/epl_sim_amendments.md is the artifact
+# whose whole purpose is to hold what was pre-stated against what departed from
+# it, and a reader auditing THAT file was told the deviation had not happened.
+#
+# So: if the addendum is present, the ledger must carry a dated note recording
+# it — and the two sentences it departs from must still stand, wrong, unedited,
+# in the entries that wrote them, for the reason A1-C1 gives.
+#
+# Both "still stands" checks look INSIDE the owning entry, not anywhere in the
+# file. A later note quoting a sentence in order to contradict it must not be
+# able to stand in for the original — that is precisely the substitution this
+# guard exists to catch. The check is a pure function of the two texts, so every
+# way of failing it can be driven RED on synthetic input rather than by
+# vandalising the repo.
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# A2-N1's claim, verbatim modulo line wrapping. It is false of HEAD; it stays.
+_A2N1_CLAIM = "gains an SE retroactively. R1 ran under harness v1, which computed none"
+# A2's pre-statement, as A2 wrote it.
+_A2_PRESTATEMENT = "A TRPS Monte-Carlo error is **not** part of v2."
+_ADDENDUM_HEADING = "## Addendum A — TRPS Monte-Carlo error per cell"
+
+
+def _squash(text: str) -> str:
+    """Collapse whitespace, so a line-wrapped sentence matches an unwrapped one."""
+    return " ".join(text.split())
+
+
+def _entry(ledger_text: str, heading: str) -> str:
+    """One ledger entry: its heading through the next `## ` heading, or the end."""
+    start = ledger_text.find(heading)
+    if start < 0:
+        return ""
+    nxt = ledger_text.find("\n## ", start + len(heading))
+    return ledger_text[start:] if nxt < 0 else ledger_text[start:nxt]
+
+
+def _unrecorded_deviations(retro_text: str, ledger_text: str) -> list[str]:
+    """Reasons the ledger fails to record what the retrospective report did.
+
+    Empty means the record is complete. Reasons are returned rather than
+    asserted so that a failure names which half is missing.
+    """
+    if _ADDENDUM_HEADING not in retro_text:
+        return []  # nothing to record: the report supplies no retroactive SE
+
+    reasons: list[str] = []
+    append_only = ("this ledger is append-only (A1-C1): a deviation is recorded "
+                   "by a NEW dated note, never by editing the entry it departs "
+                   "from, and never by a later note quoting the sentence it "
+                   "replaced")
+
+    if _squash(_A2N1_CLAIM) not in _squash(_entry(ledger_text, "## A2-N1")):
+        reasons.append(f"A2-N1 no longer contains its own claim — {append_only}")
+    if _squash(_A2_PRESTATEMENT) not in _squash(_entry(ledger_text, "## A2 —")):
+        reasons.append(f"A2 no longer contains its TRPS-SE pre-statement — "
+                       f"{append_only}")
+
+    head = ledger_text.find("## A2-N3")
+    if head < 0:
+        reasons.append(
+            "no A2-N3 note: reports/epl_sim_retro_v1_1.md carries a TRPS MC SE "
+            "for its scored cells, a second deviation from A2's pre-statement "
+            "and a direct contradiction of A2-N1, and the ledger does not say so")
+        return reasons
+
+    if head < ledger_text.find("## A2-N1"):
+        reasons.append("A2-N3 precedes A2-N1; notes are appended, not interleaved")
+
+    note = _entry(ledger_text, "## A2-N3")
+    for needed, what in (
+            ("Addendum A", "the section it records"),
+            ("epl_sim_retro_v1_1.md", "the report it records"),
+            ("A2-N1", "the note it contradicts"),
+            ("No pass rule reads", "that nothing decides on these figures")):
+        if needed not in note:
+            reasons.append(f"A2-N3 does not name {what} ({needed!r})")
+    return reasons
+
+
+# a ledger shaped like the real one: A2 states it, A2-N1 denies the retroactive
+# case, A2-N3 records that it happened anyway
+_LEDGER = f"""## A2 — Harness v2 (2026-08-19)
+
+Pre-stated: {_A2_PRESTATEMENT}
+
+## A2-N1 — one deviation from A2 (2026-08-19)
+
+No score in `x.md` {_A2N1_CLAIM}, and there is not one yet.
+
+## A2-N2 — something else (2026-08-19)
+
+Unrelated.
+
+## A2-N3 — R1's TRPS gains one after the fact (2026-08-19)
+
+Addendum A of epl_sim_retro_v1_1.md is a second deviation, and A2-N1 said it
+would not happen. No pass rule reads them.
+"""
+_RETRO = f"body\n\n{_ADDENDUM_HEADING}\n\nTRPS ± MC SE\n"
+
+
+def test_the_check_passes_only_when_the_ledger_actually_records_it():
+    assert _unrecorded_deviations(_RETRO, _LEDGER) == []
+    # and with no addendum in the report there is nothing to record
+    assert _unrecorded_deviations("body only\n", _LEDGER.split("## A2-N3")[0]) == []
+
+
+def test_the_check_fails_when_the_note_is_missing_or_says_nothing():
+    """Positive control: no note at all, and a note that records nothing."""
+    absent = _LEDGER.split("## A2-N3")[0]
+    assert any("no A2-N3 note" in r
+               for r in _unrecorded_deviations(_RETRO, absent))
+
+    empty = absent + "## A2-N3 — a heading and no content (2026-08-19)\n\nnothing.\n"
+    assert len(_unrecorded_deviations(_RETRO, empty)) == 4
+
+
+def test_the_check_fails_when_a_pre_statement_was_edited_instead_of_superseded():
+    """Positive control, and the one that matters most.
+
+    Rewriting A2-N1 to agree with the report — rather than leaving it wrong and
+    appending a note — must fail even though A2-N3 quotes the deleted sentence
+    back, which is exactly how such an edit would look from a whole-file search.
+    """
+    edited = _LEDGER.replace(f"No score in `x.md` {_A2N1_CLAIM}, and there is "
+                             "not one yet.",
+                             "Scores may gain an SE retroactively.")
+    # the sentence still appears in the file — in A2-N3, quoting it
+    edited = edited.replace("A2-N1 said it\nwould not happen.",
+                            f"A2-N1 once said no score {_A2N1_CLAIM}.")
+    assert _A2N1_CLAIM in edited
+    assert any("A2-N1 no longer contains its own claim" in r
+               for r in _unrecorded_deviations(_RETRO, edited))
+
+    # the same substitution against A2's pre-statement
+    gutted = _LEDGER.replace(f"Pre-stated: {_A2_PRESTATEMENT}",
+                             "Pre-stated: a TRPS MC SE is part of v2.")
+    gutted = gutted.replace("is a second deviation,",
+                            f"is a second deviation from "
+                            f"{_A2_PRESTATEMENT},")
+    assert _A2_PRESTATEMENT in gutted
+    assert any("A2 no longer contains its TRPS-SE pre-statement" in r
+               for r in _unrecorded_deviations(_RETRO, gutted))
+
+
+def test_the_amendment_ledger_records_the_addendum_s_deviation():
+    """The real files: reports/epl_sim_amendments.md against Addendum A."""
+    retro = _REPO_ROOT / "reports" / "epl_sim_retro_v1_1.md"
+    ledger = _REPO_ROOT / "reports" / "epl_sim_amendments.md"
+    if not (retro.exists() and ledger.exists()):  # pragma: no cover
+        pytest.skip("reports/ is not in this checkout")
+
+    reasons = _unrecorded_deviations(retro.read_text(encoding="utf-8"),
+                                     ledger.read_text(encoding="utf-8"))
+    assert reasons == [], "; ".join(reasons)

@@ -735,3 +735,113 @@ behaviour is held by four tests in `epl/tests/test_simretro.py`:
 ledger is present in the checkout —
 `test_the_real_r1_ledger_does_not_certify_itself`, which asserts the three rows
 of the R1 table above against the artifact itself.
+
+---
+
+## A2-N3 — R1's TRPS gains a Monte-Carlo error after the fact (2026-08-19)
+
+**A2's, A2-N1's and A2-N2's text above are deliberately unedited**, for the
+reason A1-C1 gives. This note records a **second** deviation from A2's TRPS-SE
+pre-statement — and one that a reader of A2-N1 alone is told did not happen.
+A2-N1 declared the first deviation and, in the same breath, promised that the
+already-published R1 report would not acquire the number. It has. That is
+recorded here, in the ledger, because a deviation declared only inside the
+document that deviates is not on the record; this file **is** the record.
+
+*Arithmetic note: every number in this entry is an exact count of cells in a
+table that already exists. Nothing here is estimated, so nothing here carries a
+Monte-Carlo error of its own. The TRPS values and errors it points at carry the
+errors that addendum prints beside them.*
+
+### The observation
+
+A2-N1, under *What is NOT claimed*, says verbatim:
+
+> No score in `reports/epl_sim_retro_v1_1.md` gains an SE retroactively. R1 ran
+> under harness v1, which computed none, and the column is `n/a` for that run by
+> construction. The first retrospective run that reports a TRPS SE will be the
+> first run under v2, and there is not one yet.
+
+At HEAD, [`reports/epl_sim_retro_v1_1.md`](epl_sim_retro_v1_1.md) carries an
+**Addendum A — TRPS Monte-Carlo error per cell**, added the same day, which
+supplies exactly that. The report declares the departure itself, in a paragraph
+headed *Relation to amendment A2-N1* — prominently and honestly — but it
+declared it only where the departure happened. The ledger, whose entire purpose
+is to hold what was pre-stated against what departed from it, still told a
+reader the opposite.
+
+### What Addendum A supplies
+
+An error beside every scored R1 cell — numeric where the run stored a per-cell
+error, `n/a` where it did not:
+
+| | count |
+|---|---|
+| (season, cutoff) cells scored by R1 | **34** |
+| scored (cutoff, season, arm) cells in the addendum's tables | **166** (136 comparison + 30 MW28, the same accounting §2 gives) |
+| …carrying a numeric `±` (`dc_native`, `dc_wdl_bridge`, `elo_wdl_bridge`) | **102** |
+| …carrying `± n/a` (`flat` 34, `ppg_pointmass` 30) | **64** |
+| absent, shown `—` (`ppg_pointmass` at MW0, the `not_applicable` markers) | **4** |
+| per-cutoff mean rows, each with the MC error of the mean | **6** cutoffs, **29** arm-cells (18 numeric, 11 `n/a`) |
+
+The method is the delta method A2-N1 already records, applied to `matrix_se` —
+the cluster-by-particle per-cell error every R1 row already stored.
+
+### Why this is a deviation, and from what
+
+From **two** pre-statements, not one:
+
+1. **A2**: *"A TRPS Monte-Carlo error is **not** part of v2."* A2-N1 already
+   declared one deviation from this — v2's harness computes a TRPS SE. Addendum
+   A is a second, distinct one: the number is now attached to a run that
+   predates v2 entirely.
+2. **A2-N1 itself**, quoted above. That sentence is now false of HEAD. It stays
+   where it was written, unedited, and this note is attached to it — the same
+   treatment A1-C1 gave A1's arithmetic, and for the same reason: an entry that
+   can be quietly rewritten after the fact is not a record of what was decided
+   in advance.
+
+### What is preserved
+
+Everything A2-N1's sentence was protecting, except the sentence:
+
+- **R1's body is untouched.** Not one TRPS, wTRPS, Brier, CRPS, coverage, mean,
+  bootstrap interval, count or hash in §1–§10 has moved. The commit that added
+  the addendum removes **zero** lines from that file — it is a pure append, and
+  that is checkable in the diff, not merely asserted.
+- **Harness v1 still computed no TRPS SE.** The addendum changes nothing about
+  what the R1 run did. The R1 ledger `data/epl/sim/retro_r1.jsonl` is unchanged
+  and no stored row was rewritten; the errors were already in it.
+- **Nothing is presented as something R1 reported.** These are figures computed
+  after the fact, by a later formula, from stored per-cell errors — an addendum,
+  not a revision, and labelled as one on its first line.
+- **No pass rule reads them.** There is none to read (prereg §7). R1's §10
+  ruling, the published-arm question and R1's own two hard checks (retro §6)
+  are all unchanged by the addendum, and would be unchanged if it were deleted.
+
+### Why a note and not an edit
+
+Editing A2-N1 to say the opposite of what it said would remove the only thing
+that makes this ledger worth reading: that a reader can see what was claimed and
+what turned out to be true, in that order, against the git history. A2-N1's
+sentence was written in good faith and was overtaken within the day. It stays
+wrong, in place, with this attached.
+
+### Recording note
+
+Unlike A1-C1, A2 and A3 — written before the code they govern — this note is
+written **after** the thing it records, and that lateness is the defect it
+closes. The addendum was committed in `31dac41` with its deviation declared in
+its own prose; a read-only verifier reading that commit found the ledger had not
+been updated to match, which is how the gap surfaced. This entry decides
+nothing: no threshold moves, no pre-statement is amended, no flag changes, and
+R1's record stands exactly as A2-N2 leaves it.
+
+The invariant is now held by a test rather than by diligence:
+`test_the_amendment_ledger_records_the_addendum_s_deviation` in
+`epl/tests/test_retro_addendum.py` reads both files and fails if the addendum is
+present without this note, or if A2-N1's original sentence is edited away rather
+than superseded; `test_the_check_fails_when_the_ledger_does_not_record_the_deviation`
+is its positive control.
+
+*Recorded 2026-08-19, in the commit that responds to that finding.*
