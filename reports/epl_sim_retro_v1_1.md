@@ -20,7 +20,7 @@ This is the execution of the preregistration. It reports what the harness produc
 
 | | |
 |---|---|
-| Commit at run | `e814c0261de068a0d8955e2ebb207406586ee380` |
+| Commit at run | `07b5871b033bc0e027cc0364d37587f231d8cf5f` |
 | Harness schema | `epl-simretro-1` |
 | Metrics schema | `epl-simmetrics-1` |
 | N (simulated seasons per arm per cutoff) | **20,000** |
@@ -32,6 +32,8 @@ This is the execution of the preregistration. It reports what the harness produc
 | Median cell wall time | 8.3 s |
 | Verified adjustments required | yes (`require_verified_adjustments=True`) |
 | Threads | `OMP/OPENBLAS/MKL/VECLIB/NUMEXPR_NUM_THREADS=1`, serial, one process |
+
+**2026-08-19 correction.** *Commit at run* previously read `e814c0261de068a0d8955e2ebb207406586ee380`, which no branch reaches and whose own commit timestamp (17:59:53) falls after R1 finished: it did not exist while the run executed. R1 ran at `07b5871`, the preregistration commit, and the field now says so. No harness hash and no number in this report changes.
 
 **Fresh ledger, not a resume.** Prereg §10 required R1 to either write to a fresh ledger path or knowingly resume the T8 smoke's ten colliding rows. R1 wrote to a fresh path, so the smoke's ten `run_key`s were recomputed from scratch rather than reused — which is what makes the reproduction check in §9 a check rather than a tautology.
 

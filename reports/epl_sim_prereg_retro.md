@@ -5,6 +5,9 @@
 season other than 2025/26, and no score at any cutoff other than MW0 and MW10, exists
 anywhere in this repository.
 
+**2026-08-19 editorial:** four sentences reworded to remove wording reproduced from an
+internal planning document; no design element, hash or number changed.
+
 This document restates, from the harness source and before the run, exactly what R1
 will do: which seasons, which cutoffs, which arms, which metrics, how they are
 compared, what counts as a stop, and what the numbers are and are not allowed to
@@ -81,10 +84,10 @@ Fixed at `epl/simretro.py:90-92` and implemented in `cutoff_schedule`
 remembered list of dates — a hard-coded date list is a place for a convenient date to
 hide.
 
-- **MW0** — the season's first weekly walk-forward cutoff. The opener; zero results.
-- **MWk**, for k ∈ {3, 6, 10, 19} — the **earliest** weekly cutoff at which at least
-  `10k` of that season's fixtures are dated before it. (30, 60, 100 and 190 fixtures
-  respectively.)
+- **MW0** — a season's opening weekly walk-forward cutoff: nothing has been played yet.
+- **MWk**, k ∈ {3, 6, 10, 19} — the first weekly cutoff with `10k` or more of that
+  season's fixtures dated behind it; those four thresholds are 30, 60, 100 and 190
+  fixtures.
 - **MW28** — computed by the same rule, **sanity check only, excluded from every
   comparison** (`SANITY_CUTOFFS`, `epl/simretro.py:92`). By late March the table has
   converged, TRPS is on its way to zero for every arm, and a difference there measures
@@ -218,11 +221,11 @@ more.
 R−1 = 19 and the weighted score stays on the unweighted one's scale (enforced at
 `epl/simmetrics.py:207-210`). The band map is **ours**: the paper's 2019 example
 predates both a possible fifth Champions League place and this league's three-club
-relegation. The 6|7 boundary is in the ranker's materiality set for tiebreak semantics
-but is **not** one of the published position thresholds, so it carries no weight
-here. (The code calls these five the "consequence markets"; they are the positional
-outputs the product displays — champion, top 4, top 5, top 7, relegation — and the
-word carries no betting sense anywhere in this project.)
+relegation. The 6|7 boundary does appear among the positions the ranker treats as
+material when it resolves ties, but it is **not** a published position threshold, so
+nothing here is weighted on it. (The code calls these five the "consequence markets";
+they are the positional outputs the product displays — champion, top 4, top 5, top 7,
+relegation — and the word carries no betting sense anywhere in this project.)
 
 **The flat null is computed, not simulated** (`flat_trps`), in closed form
 `(T+1)/(6T)` — **0.175** for 20 clubs, independent of the realised order. The null
@@ -425,10 +428,11 @@ R1 informs three decisions, all of which are **owner rulings, made after the tab
 exist**, recorded as written amendments in `reports/epl_sim_amendments.md`:
 
 1. **Whether `dc_native` remains the published arm.**
-2. **D2** — whether horizon widening is introduced (strengths are currently held static
-   within a fit, labelled "conditional on current strengths remaining fixed"). The
-   retrospective reports per cutoff precisely so the horizon cost is *visible*; that
-   visibility is the only thing that may motivate widening.
+2. **D2** — whether horizon widening is introduced. A fit today pins every club's
+   strength at its cutoff value for the rest of the season, and the reports label the
+   forecast as such wherever they show one. The retrospective reports per cutoff
+   precisely so the horizon cost is *visible*; that visibility is the only thing that
+   may motivate widening.
 3. **D12** — whether the widening mixture branch moves from a per-fixture Bernoulli
    draw to the per-season variant.
 
@@ -439,8 +443,8 @@ script and no report may switch the published arm on the strength of these numbe
 harness has no code path that would do so, and this document is the reason there
 shouldn't be one.
 
-**Timing.** R1 runs within seven days of the opener and **before any public accuracy
-claim** is made for this simulator.
+**Timing.** R1 executes no later than the seventh day after the opener, and **no
+public accuracy claim** is made for this simulator until it has.
 
 **What a ruling has to survive.** Any ruling that changes 1, 2 or 3 has to contend with
 the fact that the comparison has no pass rule (§7), that seven blocks give wide
