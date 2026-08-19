@@ -76,6 +76,7 @@ from epl import elo as epl_elo, walk
 from epl.anchor import Anchor, AnchorState
 from epl.schema import sort_for_walk_forward
 from epl.season import Manifest, SeasonError, UnsupportedResultStatus, fixture_id
+from epl.season import resolve_ledger as season_resolve_ledger
 from epl.season import season_code as _season_code
 #: THE supported non-result statuses, imported rather than restated. Two lists
 #: of statuses in two modules drift, and this is the direction the drift is
@@ -215,53 +216,43 @@ def _check_identity(fid, home: str, away: str, manifest: Manifest,
     return expected
 
 
-def normalise_rows(rows: Iterable[Any], manifest: Manifest) -> tuple[LiveRow, ...]:
-    """Results-ledger rows -> :class:`LiveRow`, failing closed on anything odd.
+def _as_ledger_row(raw: Any) -> dict:
+    """A ledger row as a plain dict, whatever shape it arrived in.
 
-    Accepts the ledger's own shape (``{fixture_id, date_played, hg, ag, source,
-    observed_at, note}``, plan v2 D4) or ready-made :class:`LiveRow` objects.
-    A row carrying one of the statuses the season models
-    (:data:`LEDGER_STATUSES`: ``postponed`` / ``abandoned``) has no scoreline and
-    is skipped — it is a fixture state, not a result. A row carrying any OTHER
-    status raises :class:`epl.season.UnsupportedResultStatus`, exactly as
-    ``epl.season._visible_results`` does: ``awarded`` and ``void`` are out of v1
-    scope, and an anchor that walked silently past a row the table stops on
-    would rate a season nobody can score.
+    A ready-made :class:`LiveRow` used to be waved past every check on the
+    assumption that a typed object is a checked one. It is not: nothing stops
+    `LiveRow(observed_at=pd.NaT, hg=-1, ...)` being constructed, and a `NaT`
+    stamp compares False against every bound, so such a row is visible at every
+    cutoff. Flattening both shapes to a dict here is what makes "the same
+    validation" literally the same code rather than a promise.
+    """
+    if isinstance(raw, LiveRow):
+        return {"fixture_id": raw.fixture_id, "home_key": raw.home_key,
+                "away_key": raw.away_key, "date_played": raw.date_played,
+                "observed_at": raw.observed_at, "hg": raw.hg, "ag": raw.ag}
+    return dict(raw)
 
-    Everything else is checked rather than assumed, because this ledger is
-    hand-maintained during the season and a bad row here silently mis-rates a
-    club for weeks: the season code must be the manifest's, both clubs must be
-    in the manifest's twenty, the two clubs must be different, a ``fixture_id``
-    must agree with any ``home_key``/``away_key`` beside it, the score must be a
-    valid goal count, and both ``date_played`` and ``observed_at`` must be
-    finite timestamps (see :func:`_stamp` for why `NaT` is the dangerous case).
+
+def _manifest_identity(manifest: Manifest):
+    """`identify` for the live walk: the row must name a fixture of THIS season.
+
+    Called by :func:`epl.season.resolve_ledger` only once a row is VISIBLE, so a
+    club this season does not hold — a typo filed today, a row for a fixture the
+    manifest never had — stops the walk from the moment it is observed and not
+    one cutoff earlier. The ledger is append-only: rejecting it at construction
+    made tomorrow's entry retroactively break every forecast already issued.
     """
     clubs = set(manifest.clubs)
-    out: list[LiveRow] = []
-    for raw in rows:
-        if isinstance(raw, LiveRow):
-            unknown = {raw.home_key, raw.away_key} - clubs
-            if unknown:
-                raise TransitionError(
-                    f"{raw.fixture_id}: club(s) {sorted(unknown)} are not in the "
-                    f"{manifest.season} manifest")
-            _check_identity(raw.fixture_id, raw.home_key, raw.away_key, manifest,
-                            teams_given=True)
-            out.append(raw)
-            continue
-        row = dict(raw)
-        status = row.get("status")
-        if status is not None:
-            if status not in LEDGER_STATUSES:
-                raise UnsupportedResultStatus(
-                    f"{row.get('fixture_id', '<row>')}: results ledger status "
-                    f"{status!r} is out of v1 scope (only "
-                    f"{sorted(LEDGER_STATUSES)} are modelled)")
-            continue
+
+    def identify(row: dict) -> str:
         fid = row.get("fixture_id")
         home, away = row.get("home_key"), row.get("away_key")
-        teams_given = home is not None and away is not None
-        if not teams_given:
+        if home is None or away is None:
+            # PARTIAL keys are the dangerous shape: one supplied key with an id
+            # beside it used to skip the identity check entirely and then be
+            # overwritten from the id, so a row saying "chelsea" under
+            # `2627:arsenal:coventry` was silently rated as Arsenal. Fill the
+            # missing side from the id and check BOTH against it.
             if not fid:
                 raise TransitionError(
                     f"results row {row!r} has neither fixture_id nor "
@@ -269,38 +260,42 @@ def normalise_rows(rows: Iterable[Any], manifest: Manifest) -> tuple[LiveRow, ..
             parts = str(fid).split(":")
             if len(parts) != 3:
                 raise TransitionError(f"malformed fixture_id {fid!r}")
-            code, home, away = parts
+            code, fid_home, fid_away = parts
             if code != manifest.season_code:
                 raise TransitionError(
                     f"{fid}: season code {code!r} is not {manifest.season} "
                     f"({manifest.season_code!r})")
+            home = fid_home if home is None else home
+            away = fid_away if away is None else away
         # Identity first, so every message below can name the fixture.
-        fid = _check_identity(fid, home, away, manifest, teams_given=teams_given)
+        fid = _check_identity(fid, home, away, manifest, teams_given=True)
         unknown = {home, away} - clubs
         if unknown:
             raise TransitionError(
                 f"{fid}: club(s) {sorted(unknown)} are not in the {manifest.season} "
                 f"manifest, so the season it describes is not the season being walked")
-        out.append(LiveRow(
-            fixture_id=str(fid), home_key=str(home), away_key=str(away),
-            date_played=_stamp(row, "date_played", str(fid)).normalize(),
-            observed_at=_stamp(row, "observed_at", str(fid)),
-            hg=_goals(row, "hg", str(fid)), ag=_goals(row, "ag", str(fid))))
-    return tuple(out)
+        return fid
+
+    return identify
 
 
-def visible_rows(rows: Sequence[LiveRow], cutoff=None,
-                 observed_by=None) -> tuple[LiveRow, ...]:
-    """The rows a forecast at ``cutoff`` may see, in walk order.
+def _live_row(fid: str, row: dict) -> LiveRow:
+    """One winning ledger row as a :class:`LiveRow`, fully checked."""
+    home, away = row.get("home_key"), row.get("away_key")
+    if home is None or away is None:
+        _code, fid_home, fid_away = str(fid).split(":")
+        home = fid_home if home is None else home
+        away = fid_away if away is None else away
+    return LiveRow(
+        fixture_id=str(fid), home_key=str(home), away_key=str(away),
+        date_played=_stamp(row, "date_played", str(fid)).normalize(),
+        observed_at=_stamp(row, "observed_at", str(fid)),
+        hg=_goals(row, "hg", str(fid)), ag=_goals(row, "ag", str(fid)))
 
-    Bitemporal, mirroring ``epl.season._visible_results``: a row is visible iff
-    it was played strictly before the cutoff DAY and was observed by
-    ``observed_by`` (default: the cutoff). Where several rows describe one
-    fixture — a correction is appended, never edited in place — the latest
-    observation wins, ties broken by ledger order.
 
-    ``cutoff=None`` drops the date bound only; the known-at bound still applies.
-    """
+def _resolve(rows: Iterable[Any], identify, cutoff=None,
+             observed_by=None) -> tuple[LiveRow, ...]:
+    """The shared body of :func:`normalise_rows` and :func:`visible_rows`."""
     day = None if cutoff is None else _timestamp(cutoff).normalize()
     if observed_by is not None:
         obs = _timestamp(observed_by)
@@ -309,17 +304,76 @@ def visible_rows(rows: Sequence[LiveRow], cutoff=None,
     else:
         obs = pd.Timestamp.max
 
-    latest: dict[str, tuple[pd.Timestamp, int, LiveRow]] = {}
-    for order, row in enumerate(rows):
-        if row.observed_at > obs:
-            continue
-        if day is not None and row.date_played >= day:
-            continue
-        stamp = (row.observed_at, order)
-        if row.fixture_id not in latest or stamp > latest[row.fixture_id][:2]:
-            latest[row.fixture_id] = (row.observed_at, order, row)
-    return tuple(sorted((v[2] for v in latest.values()),
-                        key=lambda r: (r.key, r.fixture_id)))
+    view = season_resolve_ledger([_as_ledger_row(r) for r in rows],
+                                 cutoff_day=day, observed_by=obs,
+                                 identify=identify)
+    # Every VISIBLE score row is validated, not only the winners: a bad
+    # scoreline is a bad ledger row whether or not a later row happens to beat
+    # it, and `epl.season._validate_scores` holds the same line on the same set.
+    for row in view.scored:
+        fid = row.get("fixture_id") or "<row>"
+        _goals(row, "hg", str(fid))
+        _goals(row, "ag", str(fid))
+    out = [_live_row(fid, row) for fid, row in view.played_rows.items()]
+    return tuple(sorted(out, key=lambda r: (r.key, r.fixture_id)))
+
+
+def normalise_rows(rows: Iterable[Any], manifest: Manifest, *,
+                   cutoff=None, observed_by=None) -> tuple[LiveRow, ...]:
+    """The results ledger, resolved at ``(cutoff, observed_by)`` into walk rows.
+
+    Accepts the ledger's own shape (``{fixture_id, date_played, hg, ag, source,
+    observed_at, note}``, plan v2 D4) or ready-made :class:`LiveRow` objects;
+    both are flattened by :func:`_as_ledger_row` and go through exactly the same
+    checks, because a typed object is not a checked one.
+
+    ONE RESOLUTION. The bitemporal pass is
+    :func:`epl.season.resolve_ledger` — the same function ``Season.at`` reads
+    the table through. It used to be a second implementation here, and the two
+    could disagree in the direction that matters most: this walk dropped every
+    status row BEFORE resolving, so a match filed with a scoreline and later
+    ``abandoned`` stayed PLAYED for the anchor while the table it is scored
+    against called it unplayed. A rating walked forward by a result the league
+    took away is not a smaller version of that bug, it is the whole of it. Now
+    scores and statuses are resolved together and the later observation wins for
+    both readers by construction.
+
+    WHAT IS CHECKED, AND WHEN. `observed_at` is read first and must be a finite
+    stamp, because that is what "visible" means (see :func:`_stamp` for why
+    `NaT` is the dangerous case). Everything else is CONTENT and is checked only
+    once the row is visible: the season code must be the manifest's, both clubs
+    must be in the manifest's twenty, the two clubs must be different, a
+    ``fixture_id`` must agree with any ``home_key``/``away_key`` beside it —
+    including a PARTIAL one — the status must be one the season models
+    (:data:`LEDGER_STATUSES`), and the score and ``date_played`` must be valid.
+    The ledger is append-only, so a row filed tomorrow sits in the same file as
+    yesterday's: checking its content at construction made today's typo break
+    every forecast already issued.
+
+    ``cutoff=None`` drops the play-clock bound; ``observed_by=None`` with no
+    cutoff drops the knowledge bound, which is how a caller says "everything in
+    this file", and is the shape every row-hygiene test uses.
+    """
+    return _resolve(rows, _manifest_identity(manifest), cutoff, observed_by)
+
+
+def visible_rows(rows: Sequence[Any], cutoff=None,
+                 observed_by=None) -> tuple[LiveRow, ...]:
+    """:func:`normalise_rows` without a manifest to check the fixture against.
+
+    Same resolution, same stamp and score validation, same
+    :func:`epl.season.resolve_ledger`; the row is taken to name its own fixture
+    because there is no club set here to hold it against. Used where the rows
+    have already been through a manifest — re-resolving them is idempotent —
+    and never as a way around one.
+    """
+    def identify(row: dict) -> str:
+        fid = row.get("fixture_id")
+        if not fid:
+            raise TransitionError(f"results row {row!r} has no fixture_id")
+        return str(fid)
+
+    return _resolve(rows, identify, cutoff, observed_by)
 
 
 def rows_to_frame(rows: Sequence[LiveRow], season: str) -> pd.DataFrame:
@@ -577,7 +631,13 @@ class LiveAnchor:
         self.config = config
         self.manifest = manifest
         self.archive = Anchor(frame, config)
-        self.rows = normalise_rows(live_results_rows, manifest)
+        #: The results ledger AS FILED — raw, unresolved, unvalidated. It is not
+        #: normalised here on purpose. The ledger is append-only, so validating
+        #: it at construction let a row filed tomorrow — a club this season does
+        #: not hold, a status v1 does not model — break every forecast already
+        #: issued at an earlier cutoff, including a rerun of one. Content is
+        #: read in :meth:`visible_rows`, behind the known-at filter.
+        self.ledger_rows = tuple(live_results_rows)
         self._opening, self.open_record = _open_target(self.archive, manifest,
                                                        config)
         self._archive_keys = self.archive._keys
@@ -608,6 +668,18 @@ class LiveAnchor:
         return sorted(set(self.manifest.clubs) - set(fitted_teams))
 
     # --- the walk ---------------------------------------------------------
+    def visible_rows(self, cutoff=None, observed_by=None) -> tuple[LiveRow, ...]:
+        """THE resolution of this season's ledger at ``(cutoff, observed_by)``.
+
+        The one place the ledger is read. Both the Elo walk below and the frame
+        the fit trains on (:func:`epl.simcli.live_training_frame`) take their
+        rows from here, so the anchor and the panel cannot end up conditioned on
+        different sets — and both agree with ``Season.at``, because
+        :func:`normalise_rows` resolves through ``epl.season.resolve_ledger``.
+        """
+        return normalise_rows(self.ledger_rows, self.manifest,
+                              cutoff=cutoff, observed_by=observed_by)
+
     def _replay_at(self, cutoff, observed_by=None) -> ReplayResult:
         # The cache key must be the RESOLVED (day, observed_by) pair, not the
         # arguments: two intraday cutoffs on the same day share a day but not
@@ -622,7 +694,7 @@ class LiveAnchor:
             obs = pd.Timestamp.max
         key = (day, obs)
         if key not in self._cache:
-            rows = visible_rows(self.rows, day, obs)
+            rows = self.visible_rows(day, obs)
             self._cache[key] = replay(
                 dict(self._opening), rows_to_frame(rows, self.manifest.season),
                 self.config, promoted=self.open_record["promoted"],

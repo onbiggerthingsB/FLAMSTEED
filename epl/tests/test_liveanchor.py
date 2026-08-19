@@ -296,14 +296,45 @@ def test_normalise_rows_refuses_an_observed_at_that_is_not_a_timestamp(manifest)
         with pytest.raises(season_mod.SeasonError):
             la.normalise_rows([dict(good, observed_at=bad)], manifest)
 
-    # The leak itself, demonstrated on the type the guard now refuses to build:
-    # a `LiveRow` with a `NaT` stamp really is visible at a cutoff years before
-    # it, so the guard is load-bearing rather than tidy.
-    leaked = la.LiveRow(fixture_id=f"{SEASON_CODE}:arsenal:coventry",
-                        home_key="arsenal", away_key="coventry",
-                        date_played=pd.Timestamp("2026-08-21"),
-                        observed_at=pd.NaT, hg=2, ag=0)
-    assert len(la.visible_rows([leaked], "2026-08-25", "2020-01-01")) == 1
+    # A READY-MADE `LiveRow` GOES THROUGH THE SAME CHECKS AS A DICT.
+    # A typed object is not a checked one: nothing stops `LiveRow` being
+    # constructed with a `NaT` stamp or a negative score, and the old
+    # `normalise_rows` waved such an object straight through on the strength of
+    # its type. `NaT` compares False against every bound, so the row really was
+    # visible at a cutoff years before it — the leak, arriving through the one
+    # input shape the guard did not cover.
+    def live_row(**over):
+        base = dict(fixture_id=f"{SEASON_CODE}:arsenal:coventry",
+                    home_key="arsenal", away_key="coventry",
+                    date_played=pd.Timestamp("2026-08-21"),
+                    observed_at=pd.Timestamp("2026-08-22"), hg=2, ag=0)
+        return la.LiveRow(**{**base, **over})
+
+    # POSITIVE CONTROL: the well-formed object still resolves, through both
+    # doors, so the refusals below are refusals of the CONTENT.
+    assert len(la.normalise_rows([live_row()], manifest)) == 1
+    assert len(la.visible_rows([live_row()], "2026-08-25", "2026-08-30")) == 1
+
+    for bad in (dict(observed_at=pd.NaT), dict(date_played=pd.NaT),
+                dict(hg=-1), dict(ag=-1)):
+        with pytest.raises(season_mod.SeasonError):
+            la.normalise_rows([live_row(**bad)], manifest)
+        with pytest.raises(season_mod.SeasonError):
+            la.visible_rows([live_row(**bad)], "2026-08-25", "2026-08-30")
+
+    # The `observed_at` stamp is the one thing read BEFORE the knowledge bound,
+    # because it IS the bound: a `NaT` there would otherwise let the row through
+    # at a cutoff six years earlier, which is precisely the leak.
+    with pytest.raises(season_mod.SeasonError, match="observed_at"):
+        la.visible_rows([live_row(observed_at=pd.NaT)], "2026-08-25", "2020-01-01")
+    # ...while a row whose CONTENT is bad but which nobody has observed yet is
+    # correctly invisible and silent — the append-only rule, not an oversight.
+    assert la.visible_rows([live_row(hg=-1)], "2026-08-25", "2020-01-01") == ()
+
+    # ...and the unknown club is caught on a `LiveRow` too, not only on a dict.
+    with pytest.raises(la.TransitionError, match="not in the"):
+        la.normalise_rows([live_row(fixture_id=f"{SEASON_CODE}:arsenal:luton",
+                                    away_key="luton")], manifest)
 
 
 def test_normalise_rows_refuses_a_date_played_that_is_not_a_timestamp(manifest):
@@ -405,6 +436,136 @@ def test_normalise_rows_skips_supported_statuses_and_refuses_the_rest(manifest):
     assert len(la.normalise_rows([{
         "fixture_id": f"{SEASON_CODE}:arsenal:coventry", "date_played": "2026-08-21",
         "hg": 2, "ag": 0, "observed_at": "2026-08-22"}], manifest)) == 1
+
+
+def test_a_later_status_unplays_a_score_in_the_walk_as_well_as_the_table(manifest):
+    """ONE resolution: `abandoned` after a score is unplayed for BOTH readers.
+
+    The walk used to drop every status row before resolving, so the score kept
+    winning by default and the anchor walked a club's rating forward through a
+    result the league had taken away — while `Season.at`, reading the same file,
+    called the fixture unplayed. Two answers to one question, and the anchor's
+    was the wrong one.
+
+    Asserted against `Season.at` on the same ledger rather than against a
+    hard-coded expectation, because agreement is the property, and in both
+    directions: a postponement later corrected by the result of the rearranged
+    match still resolves to the RESULT, so the fix is not "statuses win".
+    """
+    fid = f"{SEASON_CODE}:arsenal:coventry"
+    score = {"fixture_id": fid, "date_played": "2026-08-21", "hg": 2, "ag": 0,
+             "source": "manual", "observed_at": "2026-08-22T09:00", "note": ""}
+    later_status = {"fixture_id": fid, "status": "abandoned", "source": "manual",
+                    "observed_at": "2026-08-23T09:00", "note": "crowd trouble"}
+    later_score = dict(score, observed_at="2026-08-24T09:00", hg=1, ag=1)
+
+    def both(rows, cutoff="2026-08-25"):
+        season = dataclasses.replace(
+            season_mod.Season.load(SEASON), results=tuple(rows))
+        walk = {r.fixture_id: (r.hg, r.ag)
+                for r in la.normalise_rows(rows, manifest, cutoff=cutoff,
+                                           observed_by=cutoff)}
+        return season.at(cutoff).played, walk
+
+    # POSITIVE CONTROL: the score alone is played for both readers.
+    table, walk = both([score])
+    assert table == {fid: (2, 0)} and walk == {fid: (2, 0)}
+
+    # the defect: a later `abandoned` unplays it — in the table AND in the walk
+    table, walk = both([score, later_status])
+    assert table == {} and walk == {}
+
+    # ...and the other direction still resolves to the result, so nothing here
+    # privileges statuses over scores; the LATER OBSERVATION wins either way.
+    table, walk = both([score, later_status, later_score])
+    assert table == {fid: (1, 1)} and walk == {fid: (1, 1)}
+
+    # ...and the abandonment is invisible before it was filed, so the walk is
+    # reading a knowledge clock and not a rule about statuses.
+    table, walk = both([score, later_status], cutoff="2026-08-22T18:00")
+    assert table == {fid: (2, 0)} and walk == {fid: (2, 0)}
+
+
+@needs_archive
+def test_a_future_bad_row_does_not_break_an_earlier_forecast(manifest, cfg,
+                                                             played):
+    """A row filed tomorrow may not break a forecast issued yesterday.
+
+    The results ledger is append-only: today's hand-entry error sits in the same
+    file as every row before it. `LiveAnchor.__init__` used to normalise the
+    WHOLE file eagerly — club membership, statuses, scores — so an unknown club
+    or an `awarded` row filed in September made every August forecast
+    unloadable, including a rerun of one already issued. Content is now read
+    behind the known-at filter, exactly as `Season.at` reads it.
+
+    Three shapes of bad row, each of them a real hand-entry failure, and each
+    with its POSITIVE CONTROL: the same row DOES stop the walk the moment it is
+    observed. A guard that never fires is not a guard.
+    """
+    good = {"fixture_id": f"{SEASON_CODE}:arsenal:coventry",
+            "date_played": "2026-08-21", "hg": 2, "ag": 0,
+            "source": "manual", "observed_at": "2026-08-22T09:00", "note": ""}
+    future = "2026-09-30T12:00"
+    bad_rows = {
+        "unknown club": {"fixture_id": f"{SEASON_CODE}:arsenal:luton",
+                         "date_played": "2026-09-20", "hg": 1, "ag": 0,
+                         "source": "manual", "observed_at": future, "note": ""},
+        "unsupported status": {"fixture_id": f"{SEASON_CODE}:chelsea:arsenal",
+                               "status": "awarded", "source": "manual",
+                               "observed_at": future, "note": ""},
+        "bad score": {"fixture_id": f"{SEASON_CODE}:chelsea:arsenal",
+                      "date_played": "2026-09-20", "hg": -1, "ag": 0,
+                      "source": "manual", "observed_at": future, "note": ""},
+    }
+    teams = ["arsenal", "coventry"]
+
+    for what, bad in bad_rows.items():
+        ledger = [good, bad]
+        # CONSTRUCTION does not read the ledger's content at all...
+        anchor = la.LiveAnchor(played, ledger, manifest, cfg)
+        # ...and the forecast that was issued before the bad row was filed is
+        # still exactly the forecast it was, ledger row and all.
+        state = anchor.state("2026-08-25", teams, observed_by="2026-08-25")
+        clean = la.LiveAnchor(played, [good], manifest, cfg).state(
+            "2026-08-25", teams, observed_by="2026-08-25")
+        assert state.ratings == clean.ratings, what
+        assert {r.fixture_id for r in anchor.visible_rows(
+            "2026-08-25", "2026-08-25")} == {good["fixture_id"]}, what
+
+        # POSITIVE CONTROL: once the row is observed, the walk fails closed.
+        with pytest.raises(season_mod.SeasonError):
+            anchor.state("2026-10-05", teams, observed_by="2026-10-05")
+
+
+def test_partial_team_keys_are_checked_against_the_fixture_id(manifest):
+    """One supplied key is checked, not silently overwritten from the id.
+
+    `teams_given` was `home is not None and away is not None`, so a row
+    carrying ONE key skipped the identity check and then had BOTH keys
+    overwritten from the `fixture_id`. A row saying `home_key: "chelsea"` under
+    `2627:arsenal:coventry` was therefore rated as Arsenal, quietly — the exact
+    mis-attribution the identity check exists to stop, reached through the
+    branch it did not cover.
+    """
+    good = {"fixture_id": f"{SEASON_CODE}:arsenal:coventry",
+            "date_played": "2026-08-21", "hg": 2, "ag": 0,
+            "observed_at": "2026-08-22"}
+
+    # POSITIVE CONTROLS: an AGREEING partial key is accepted, from either side,
+    # and the missing side is filled from the id.
+    for partial in ({"home_key": "arsenal"}, {"away_key": "coventry"}):
+        row = la.normalise_rows([dict(good, **partial)], manifest)[0]
+        assert (row.home_key, row.away_key) == ("arsenal", "coventry")
+
+    # a CONTRADICTING partial key, from either side, stops the walk
+    for partial in ({"home_key": "chelsea"}, {"away_key": "chelsea"}):
+        with pytest.raises(season_mod.SeasonError):
+            la.normalise_rows([dict(good, **partial)], manifest)
+
+    # ...and a partial key with no id at all cannot be resolved, so it refuses
+    with pytest.raises(la.TransitionError, match="neither fixture_id nor"):
+        la.normalise_rows([dict(good, fixture_id=None, home_key="arsenal")],
+                          manifest)
 
 
 @needs_archive

@@ -240,6 +240,69 @@ def test_ingest_manual_rows_validate_and_append(tmp_path):
     assert ledger.read_text() == before
 
 
+def test_manual_ingest_refuses_a_bad_stamp_at_WRITE_time(tmp_path):
+    """A malformed `observed_at` is refused before a byte reaches the ledger.
+
+    `_timestamp` maps `None`, `""`, `nan` and the string `"NaT"` to `NaT`
+    instead of raising, and the row-level override was not parsed at all — it
+    was `str(...)`-ed straight into the file. So a poison stamp was COMMITTED to
+    an append-only ledger and only refused the next time something read it, at
+    which point every snapshot fails closed on a row whose whole point is that
+    it is never edited. `NaT` compares False against every bound, so such a row
+    is visible at every cutoff: the leak the stamp exists to prevent, written
+    down and kept.
+
+    Both levels: the run-wide `--observed-at`, and a row's own override.
+    """
+    root = tmp_path / "season"
+    shutil.copytree(season_mod.SEASON_ROOT, root)
+    ledger = root / "2026_27" / "results_ledger.jsonl"
+    before = ledger.read_text()
+
+    def manual(name: str, **over) -> Path:
+        path = tmp_path / name
+        path.write_text(json.dumps({
+            "fixture_id": "2627:arsenal:coventry", "date_played": "2026-08-21",
+            "hg": 3, "ag": 0, **over}) + "\n")
+        return path
+
+    # POSITIVE CONTROL: the well-formed row, with a row-level override, writes.
+    rows = simcli.ingest_results(
+        season=SEASON, root=root, write=True, observed_at="2026-08-22T09:00:00",
+        manual_file=manual("ok.jsonl", observed_at="2026-08-23T10:00:00"))
+    assert rows[0]["observed_at"] == "2026-08-23T10:00:00"
+    written = ledger.read_text()
+    assert len(written.splitlines()) == len(before.splitlines()) + 1
+
+    # (a) the run-wide clock
+    for bad in ("", "not a timestamp", "NaT", float("nan")):
+        with pytest.raises(season_mod.SeasonError, match="observed_at"):
+            simcli.ingest_results(season=SEASON, root=root, write=True,
+                                  observed_at=bad,
+                                  manual_file=manual("a.jsonl"))
+        assert ledger.read_text() == written, "a refused ingest wrote anyway"
+
+    # (b) the row's own override, which was never parsed at all
+    for bad in ("NaT", "not a timestamp", ""):
+        with pytest.raises(season_mod.SeasonError):
+            simcli.ingest_results(
+                season=SEASON, root=root, write=True,
+                observed_at="2026-08-22T09:00:00",
+                manual_file=manual("b.jsonl", fixture_id="2627:chelsea:arsenal",
+                                   observed_at=bad))
+        assert ledger.read_text() == written
+
+    # (c) and `date_played`, the mirror image: `NaT >= cutoff_day` is False too
+    for bad in ("NaT", "not a timestamp"):
+        with pytest.raises(season_mod.SeasonError):
+            simcli.ingest_results(
+                season=SEASON, root=root, write=True,
+                observed_at="2026-08-22T09:00:00",
+                manual_file=manual("c.jsonl", fixture_id="2627:chelsea:arsenal",
+                                   date_played=bad))
+        assert ledger.read_text() == written
+
+
 # ==========================================================================
 # 3. the limitations note carries this run's own numbers   (plan v2 T9)
 # ==========================================================================

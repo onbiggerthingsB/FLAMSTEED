@@ -187,8 +187,17 @@ def live_fit(season_obj: season_mod.Season, cutoff, *, matches=None, store=None,
 
     anchor = liveanchor.LiveAnchor(archive, season_obj.results,
                                    season_obj.manifest, elo_cfg)
-    train, live_rows = live_training_frame(archive, anchor.rows, season, cutoff,
-                                           observed_by=observed_by)
+    # THE anchor's own resolution, not a second reading of the same file. The
+    # ledger used to be normalised eagerly in `LiveAnchor.__init__` and the
+    # whole normalised tuple handed here, which had two consequences: a row
+    # filed AFTER this forecast — an unknown club, a status v1 does not model —
+    # broke the construction and so broke every historical forecast that reruns
+    # through it; and the fit's frame was filtered by one function while the Elo
+    # walk was filtered by another. One call, behind the known-at bound, feeds
+    # both.
+    live_rows = anchor.visible_rows(cutoff, observed_by=observed_by)
+    train, _ = live_training_frame(archive, live_rows, season, cutoff,
+                                   observed_by=observed_by)
 
     if store is None:
         store = epl_fit.build_store(train, root=store_root or LIVE_STORE_DIR)
@@ -1342,7 +1351,15 @@ def _manual_rows(path: Path, season_obj, observed_at) -> list[dict]:
     existing = {r["fixture_id"]: (int(r["hg"]), int(r["ag"]))
                 for r in season_obj.results
                 if r.get("status") is None and r.get("hg") is not None}
-    observed = season_mod._timestamp(observed_at).isoformat()
+    # WRITE TIME, not read time. `_timestamp` maps `None`, `""`, `nan` and the
+    # string `"NaT"` to `NaT` rather than raising, so a malformed stamp used to
+    # be committed to an append-only ledger and only refused the next time
+    # anything read it — by which point the bad row is in the file, every later
+    # snapshot fails closed on it, and the fix is an edit to a ledger whose
+    # whole point is that it is never edited. The stamp is checked before a byte
+    # is written, at both levels: the run-wide `observed_at` here, and the
+    # per-row override below.
+    observed = season_mod._require_stamp(observed_at, "observed_at").isoformat()
 
     out: list[dict] = []
     seen: set[str] = set()
@@ -1375,6 +1392,15 @@ def _manual_rows(path: Path, season_obj, observed_at) -> list[dict]:
             continue
         if not row.get("date_played"):
             raise season_mod.SeasonError(f"{path}:{lineno}: {fid} has no date_played")
+        # Both point-in-time stamps parsed before the row is accepted. A row
+        # whose own `observed_at` is `"NaT"` or unparseable is refused here
+        # rather than stored: `NaT` compares False against every bound, so the
+        # row it stamps would be visible at EVERY cutoff.
+        season_mod._require_stamp(row["date_played"],
+                                  f"{path}:{lineno}: {fid} date_played")
+        if row.get("observed_at") is not None:
+            season_mod._require_stamp(row["observed_at"],
+                                      f"{path}:{lineno}: {fid} observed_at")
         out.append({
             "fixture_id": fid,
             "date_played": str(row["date_played"]),
