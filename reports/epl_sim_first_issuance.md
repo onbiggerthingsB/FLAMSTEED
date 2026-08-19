@@ -118,7 +118,8 @@ Deterministic: the same STOP on every attempt, at the same fit (ADVI average los
 | Fixtures over the 5e-3 gate | **1 of 380** (`2627:man_city:coventry`, 0.005365 — 7.3% over) |
 | Next worst | `arsenal:coventry` 0.003934, `liverpool:coventry` 0.003426, `man_city:hull` 0.003284 |
 | Mean excluded mass, all 380 | 1.55e-4 · 90th pct 3.46e-4 |
-| Median **particle** for the failing fixture | 1.9e-4 — four orders of magnitude under the gate |
+| Median **particle** for the failing fixture | 1.9e-4 — about **26×**, 1.4 orders of magnitude, under the gate |
+| | *(2026-08-19 correction: this row previously said "four orders of magnitude under the gate". `5e-3 / 1.9e-4 = 26.3158`, which is 1.42 orders. The point stands — the failing fixture's typical particle is nowhere near the gate and a handful of extreme particles carry the mean — and it was overstated by two and a half orders. Recorded in amendment A1-C1; no excluded-mass number changes.)* |
 | Worst 10 particles of 1,000 | contribute **42.6%** of the mean; 88 particles exceed 1%, 22 exceed 5% |
 | Worst particle (s=953) | λ_home = 10.25, λ_away = 0.90 → P(home > 10 goals) = 0.448 |
 
@@ -233,6 +234,10 @@ the preregistered retrospective.
 
 Reported only so the owner can see the surface — arm run in 0.8 s, whole issuance
 16.5 s:
+
+`±` is one cluster-by-particle Monte-Carlo standard error (plan v2 D15), in
+percentage points for probabilities and in points for E[points]. It is
+Monte-Carlo error only and says nothing about model error.
 
 | Club | P(champion) | P(top 4) | E[points] |
 |---|---:|---:|---:|

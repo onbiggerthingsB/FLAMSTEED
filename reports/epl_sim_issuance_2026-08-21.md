@@ -96,10 +96,35 @@ forecast rather than merely resembling it. It now has an answer, and the answer 
 yes at the preregistered 4σ. Its headroom is thin: the worst of 14,225 cells sits
 at 3.865σ, on `2627:man_united:liverpool`. That is close to what noise alone
 would produce: the expected largest |Z| among 14,225 independent standard normals
-is about **3.98**, so a worst cell at 3.87 is unremarkable rather than a near-miss
-— which is also the honest reading of why the criterion is set at 4σ. It is
-nevertheless the first number to watch on the next issuance, because a criterion
-this close to its own noise floor has little room to absorb a real defect.
+is **4.1014** (quadrature on `1 − (2Φ(x) − 1)^m`, absolute error 3.2e-08; median
+of the maximum 4.0617), so a worst cell at 3.87 is unremarkable rather than a
+near-miss. It is nevertheless the first number to watch on the next issuance,
+because a criterion this close to its own noise floor has little room to absorb a
+real defect.
+
+**2026-08-19 correction.** This paragraph previously gave that quantity as
+**about 3.98** and drew from it the further conclusion that 3.98 is "the honest
+reading of why the criterion is set at 4σ". Both are wrong. 3.9753 is
+`Φ⁻¹(1 − 1/(2m))` — the point at which the EXPECTED NUMBER of exceedances is one
+— which is neither the mean nor the median of the maximum. The error was small in
+size and unhelpful in direction: it understated the noise floor being invoked and
+so made the 4σ rule look better calibrated than it is. The 4σ rule is not well
+calibrated at this m. At m = 14,225 the two-sided normal tail at 4σ is 6.334e-05,
+which is 0.9010 expected exceedances and
+
+```
+P(at least one cell beyond 4σ) = 1 − (1 − 6.334e-05)^14225 = 0.5939
+```
+
+— **a correct sampler fails criterion 3 about three runs in five.** That is the
+subject of amendment **A3** (`reports/epl_sim_amendments.md`), which replaces the
+fixed per-cell 4σ with a family-wise `z* = Φ⁻¹(1 − α/(2m))` at α = 0.01 (`z* =
+4.9605` at this m) plus a global χ² leg, and which was recorded before the code
+that implements it. **This issuance is not re-gated**: it passed under the rule
+preregistered for it, and its worst cell clears A3's leg 1 by 1.096σ as well.
+Every figure above is arithmetic on the normal distribution and carries no
+Monte-Carlo error of its own; 3.865σ is quoted from this run's own acceptance
+record.
 
 ---
 
@@ -137,9 +162,19 @@ the top of the list pairs a strong home side with a promoted club.
 The per-fixture forecast this project already publishes renormalises over exactly
 the same grid, so this issuance is not discarding anything production keeps — it
 is reporting what production does not report. The four numbers are given together
-deliberately: the mean is 0.0054 while the median particle is 0.00019, four orders
-of magnitude smaller, so the tail is concentrated in a handful of cold-start draws
-and not a uniform property of the fixture. Its cause is that Coventry has zero
+deliberately: the mean is 0.0054 while the median particle is 0.00019, **28 times
+smaller — 1.45 orders of magnitude**, not four — so the tail is concentrated in a
+handful of cold-start draws and not a uniform property of the fixture.
+
+**2026-08-19 correction.** This sentence previously read "four orders of magnitude
+smaller". `0.005365 / 0.0001925 = 27.87`, which is `log10(27.87) = 1.445` orders.
+The point it was making survives the correction — the failing fixture's typical
+particle is nowhere near the gate and a handful of extreme particles carry the
+mean, which the worst-10 line below quantifies directly — but it was overstated by
+two and a half orders of magnitude. The same error, in the same words, is
+corrected for the first-issuance report in
+[`epl_sim_first_issuance.md`](epl_sim_first_issuance.md) and in amendment A1-C1.
+No excluded-mass number changes. Its cause is that Coventry has zero
 archive rows, so its attack and defence are prior draws; a few draws put Coventry's
 defence near −1.1, which against Man City's attack gives a home rate above 10 and
 loses 25–45% of *that particle's* mass past the truncation. This is expected to
@@ -203,7 +238,11 @@ It is the model doing what it is specified to do; whether the width is *right* i
 a question the retrospective has not yet been asked.
 
 *Concentration.* Arsenal 49.46% ± 0.79 and Man City 40.57% ± 0.77 is a two-club
-title race carrying 90.03% of the mass. The DC arm is visibly **less** concentrated
+title race carrying **90.03% ± 0.37** of the mass (percentage points, one
+cluster-by-particle Monte-Carlo standard error). The sum's error is SMALLER than
+either club's, not the quadrature sum of the two: the pair are strongly negatively
+correlated by construction, since a season in which one of them is champion is a
+season in which the other is not. The DC arm is visibly **less** concentrated
 than the Elo comparator at the very top (58.34% ± 0.35 vs 49.46% ± 0.79 for
 Arsenal) — which is the
 direction the parameter-uncertainty argument predicts — and its relegation
@@ -360,8 +399,11 @@ standard error is quoted for it.
 | 1\|2 (title) | 95.58% | 4.25% | 0.175% | 0.0% | 0.0% | 0.0% | 0.0% |
 
 Scorelines matter, and they matter at the relegation boundary about two and a half
-times as often as at the title: **11.3%** of relegation boundaries and **4.4%** of
-title boundaries are decided by something a points-only model cannot see. That is
+times as often as at the title: **11.34% ± 0.25** of relegation boundaries and
+**4.42% ± 0.15** of title boundaries are decided by something a points-only model
+cannot see (percentage points, one cluster-by-particle Monte-Carlo standard error,
+computed over the same 20,000 retained rows and 1,000 particles as every other
+figure in this report). That is
 the direct answer to "does simulating scorelines rather than results earn its
 cost" for this season. The mass the rulebook genuinely does not decide is 3e-5 per
 club — four orders of magnitude below a headline probability of 0.5, and it is
