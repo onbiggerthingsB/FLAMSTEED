@@ -84,10 +84,17 @@ the league-table simulator
                   does not decide is allocated fractionally and reported as
                   unresolved mass rather than silently ordered — and the ranker
                   consumes no randomness at all.
+  `epl.bridge`    the comparators, so the model is measured rather than
+                  presumed: an empirical P(scoreline | outcome) estimated
+                  point-in-time, the DC model reduced to its 1X2 through that
+                  bridge, frozen Elo through an ordered-logit head through the
+                  same bridge, and the two nulls. All three arms invert their
+                  outcome with the same uniform in the same slot, so a paired
+                  difference between them is a difference in the models.
 """
 
-__all__ = ["anchor", "baseline", "build", "dcfit", "devig", "elo", "fetch",
-           "fit", "freeze", "improve", "leaguesim", "liveanchor", "ordlogit",
-           "parse", "particles", "paths", "schema", "score", "season",
-           "simcanary", "table", "teams", "validate", "walk", "walkforward",
-           "windows"]
+__all__ = ["anchor", "baseline", "bridge", "build", "dcfit", "devig", "elo",
+           "fetch", "fit", "freeze", "improve", "leaguesim", "liveanchor",
+           "ordlogit", "parse", "particles", "paths", "schema", "score",
+           "season", "simcanary", "table", "teams", "validate", "walk",
+           "walkforward", "windows"]
