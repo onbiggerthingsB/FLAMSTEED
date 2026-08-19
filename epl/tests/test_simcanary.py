@@ -363,7 +363,7 @@ def test_marginal_parity_incl_provisional_fixture(parity):
     assert report["n_fixtures"] == 5
     assert report["n_provisional"] == 3
     assert report["n_cells_compared"] > 5 * 3, "scoreline cells, not just 1X2"
-    assert report["max_sigma"] <= report["n_sigma"]
+    assert report["max_sigma"] <= report["z_star"]
 
     # positive control: score the SAME run against a book with the widening
     # switched off. The widened fixtures' scoreline marginals must then
@@ -372,7 +372,9 @@ def test_marginal_parity_incl_provisional_fixture(parity):
         _book(run.clubs, n_particles=25, provisional=tuple(provisional), alpha=0.0),
         None, run, checked)
     assert off["PASS"] is False
-    failed = {line.split(" | ")[0] for line in off["failures"]}
+    # per-cell lines only: since A3 the failure list can also carry the global
+    # chi-squared leg's one-line verdict, which names no fixture.
+    failed = {line.split(" | ")[0] for line in off["failures"] if " | " in line}
     assert failed == set(widened[:3]), (
         "only the widened fixtures may move when alpha is switched off")
 
@@ -511,11 +513,176 @@ def test_acceptance_cutoffs_are_the_planned_two():
 
 
 def test_run_acceptance_without_the_panel(matches):
-    """The whole acceptance set, minus the 45s-a-cutoff feature panel."""
+    """The whole acceptance set, minus the 45s-a-cutoff feature panel.
+
+    MARGINAL PARITY IS IN THE SET. It was not, and a report headed "acceptance"
+    that omits the one criterion saying the sampled law IS the published one
+    reads as a full gate while being three quarters of one. The check set is
+    pinned here by name so removing a criterion is a test failure rather than a
+    quieter report.
+    """
     report = simcanary.run_acceptance(matches=matches, n_sims=64,
                                       skip_panel=True)
     assert report["PASS"] is True
     for label, entry in report["checks"].items():
+        assert set(entry) == {"leakage", "coherence", "marginal_parity",
+                              "played_set_parity", "PASS"}, label
         assert entry["leakage"]["PASS"] is True, label
         assert entry["coherence"]["PASS"] is True, label
+        assert entry["coherence"]["standard_errors_ok"] is True, label
+        assert entry["marginal_parity"]["PASS"] is True, (
+            label, entry["marginal_parity"]["failures"][:5])
+        assert entry["marginal_parity"]["n_cells_compared"] > 0
         assert entry["played_set_parity"] is None
+
+
+# ==========================================================================
+# round 2 — criterion 3 under amendment A3, and the coherence gaps
+# ==========================================================================
+
+def test_marginal_parity_threshold_is_family_wise_in_m(parity):
+    """The per-cell threshold moves with the size of the family, and is printed.
+
+    A fixed 4.0 sigma applied to m cells at once is not a 4-sigma rule: at the
+    14,225 cells of a real issuance the two-sided normal tail at 4 sigma is
+    6.334e-05, so a CORRECT sampler produces 0.90 expected exceedances and fails
+    about three runs in five. A3 replaces it with
+    `z* = Phi^-1(1 - alpha/(2m))`, alpha = 0.01.
+    """
+    from scipy.stats import norm
+
+    book, run, _provisional = parity
+    _widened, plain = _split_by_widening(book, run)
+
+    small = simcanary.marginal_parity(book, None, run, plain[:2])
+    large = simcanary.marginal_parity(book, None, run, plain[:20])
+
+    for report in (small, large):
+        m = report["n_cells_compared"]
+        assert report["alpha"] == pytest.approx(0.01)
+        assert report["z_star"] == pytest.approx(
+            float(norm.isf(0.01 / (2 * m))), rel=1e-12)
+        assert report["df"] == m
+        # all six numbers the amendment requires, on a PASSING run too
+        for key in ("n_cells_compared", "z_star", "max_sigma", "chi2", "df",
+                    "p_value"):
+            assert key in report and np.isfinite(report[key]), key
+        assert report["PASS"] is True, report["failures"][:5]
+
+    # the threshold really does move with m, and in the conservative direction
+    assert large["n_cells_compared"] > small["n_cells_compared"]
+    assert large["z_star"] > small["z_star"] > 3.0
+
+    # the retired constant is gone from the report and from the module
+    assert "n_sigma" not in small
+    assert not hasattr(simcanary, "DEFAULT_N_SIGMA")
+
+    # and the pre-stated number: at m = 14,225, z* = 4.9605
+    assert float(norm.isf(0.01 / (2 * 14225))) == pytest.approx(4.9605, abs=5e-5)
+
+
+def test_marginal_parity_global_leg_catches_what_the_per_cell_leg_cannot(parity):
+    """Leg 2 exists for the failure leg 1 is blind to: many small, one-way gaps.
+
+    A book tilted slightly against the one that produced the run moves every
+    cell a little and no cell past `z*`. Leg 1 sees nothing; the omnibus over
+    the same standardised deviations sees it immediately. Both legs are required
+    precisely so this run cannot report PASS.
+    """
+    book, run, provisional = parity
+    _widened, plain = _split_by_widening(book, run)
+    checked = plain[:40]
+
+    honest = simcanary.marginal_parity(book, None, run, checked)
+    assert honest["PASS"] is True and honest["p_value"] > honest["chi2_min_p"]
+
+    # tilt = 0.04 lifts every rate by 4%: at m ~ 950 that is max |Z| ~ 3.6
+    # against z* ~ 4.41 — comfortably inside leg 1 — and chi2 ~ 1488 on
+    # df ~ 964, p ~ 4e-25. The old fixed 4-sigma rule would have missed it too.
+    tilted = simcanary.marginal_parity(
+        _book(run.clubs, n_particles=25, provisional=tuple(provisional),
+              alpha=0.5, tilt=0.04),
+        None, run, checked)
+    assert tilted["leg1_per_cell_PASS"] is True, (
+        "the tilt must be small enough that no single cell trips z*: "
+        f"max |Z| = {tilted['max_sigma']:.2f} vs z* = {tilted['z_star']:.2f}")
+    assert tilted["max_sigma"] < 4.0, (
+        "and small enough that the RETIRED 4-sigma rule would have missed it: "
+        f"max |Z| = {tilted['max_sigma']:.2f}")
+    assert tilted["leg2_global_PASS"] is False
+    assert tilted["PASS"] is False
+    assert any("global chi2" in line for line in tilted["failures"])
+    assert tilted["chi2"] > honest["chi2"]
+    assert not [line for line in tilted["failures"] if " | " in line], (
+        "no single cell failed: leg 2 is what caught this and nothing else did")
+
+
+def test_marginal_parity_refuses_an_empty_fixture_set(parity):
+    """An empty comparison is not a passing comparison."""
+    book, run, _provisional = parity
+    with pytest.raises(simcanary.CanaryError, match="no fixtures"):
+        simcanary.marginal_parity(book, None, run, [])
+
+    # POSITIVE CONTROL: one fixture is enough to run
+    _widened, plain = _split_by_widening(book, run)
+    assert simcanary.marginal_parity(book, None, run, plain[:1])["PASS"] is True
+
+
+def test_coherence_fires_on_a_missing_or_negative_standard_error(small_run):
+    """Every published SE must be present, finite and non-negative.
+
+    This project's rule is a Monte-Carlo error beside every headline number. A
+    run whose `matrix_se` is absent, or whose consequence-market SE is NaN,
+    publishes headline numbers with nothing beside them — and the matrix can be
+    perfectly doubly stochastic while that is true, which is why coherence is
+    where it has to be caught.
+    """
+    base = simcanary.coherence(small_run)
+    assert base["standard_errors_ok"] is True and base["PASS"] is True
+
+    for label in ("missing_matrix_se", "nan_matrix_se", "negative_matrix_se",
+                  "nan_mc", "negative_market_se"):
+        run = copy.copy(small_run)
+        if label == "missing_matrix_se":
+            run.matrix_se = None
+        elif label == "nan_matrix_se":
+            run.matrix_se = small_run.matrix_se.copy()
+            run.matrix_se[0, 0] = np.nan
+        elif label == "negative_matrix_se":
+            run.matrix_se = small_run.matrix_se.copy()
+            run.matrix_se[3, 2] = -1e-9
+        elif label == "nan_mc":
+            run.mc = dict(small_run.mc, cluster_se_max=float("nan"))
+        else:
+            run.consequences = copy.deepcopy(small_run.consequences)
+            run.consequences[small_run.clubs[0]]["champion"]["se"] = -0.01
+
+        report = simcanary.coherence(run)
+        assert report["standard_errors_ok"] is False, label
+        assert report["PASS"] is False, label
+        assert report["failures"], label
+
+
+def test_coherence_fires_on_a_negative_mass_component(small_run):
+    """Per component, not just on the sum.
+
+    The three allocated-mass components are published separately, and checking
+    only their sum lets one go negative behind another going positive: two bugs
+    reported as none.
+    """
+    run = copy.copy(small_run)
+    run.shared_mass = small_run.shared_mass - 0.05
+    run.unresolved_playoff_mass = small_run.unresolved_playoff_mass + 0.05
+
+    # the SUM is exactly what it was, so the old check saw nothing
+    old_sum = (small_run.shared_mass + small_run.unresolved_playoff_mass
+               + small_run.unresolved_multiway_mass)
+    new_sum = (run.shared_mass + run.unresolved_playoff_mass
+               + run.unresolved_multiway_mass)
+    assert np.allclose(old_sum, new_sum)
+
+    report = simcanary.coherence(run)
+    assert report["mass_ok"] is False
+    assert report["PASS"] is False
+    assert any("shared_mass" in line and "negative" in line
+               for line in report["failures"])

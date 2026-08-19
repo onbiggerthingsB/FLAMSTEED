@@ -881,7 +881,12 @@ def _parity(book, post, run, fixtures) -> dict:
     report = simcanary.marginal_parity(book, post, run, fixtures)
     return _ok("marginal_parity", bool(report["PASS"]), report,
                "simulated per-fixture marginals ARE the published per-fixture "
-               "forecast, at 4 cluster-by-particle standard errors")
+               f"forecast: {report['n_cells_compared']} cells, both legs of "
+               f"amendment A3 — per-cell |Z| <= z* = {report['z_star']:.4f} "
+               f"(alpha = {report['alpha']:g}, family-wise in m) with max |Z| = "
+               f"{report['max_sigma']:.3f}, and the global chi2 = "
+               f"{report['chi2']:.1f} on df = {report['df']} giving "
+               f"p = {report['p_value']:.3g} > {report['chi2_min_p']:g}")
 
 
 def _coherence(run) -> dict:

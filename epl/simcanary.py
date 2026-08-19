@@ -40,8 +40,18 @@ the hot path and are runnable on their own:
 
     PYTHONPATH=src:. .venv/bin/python -m epl.simcanary
 
-runs the plan's acceptance set (leakage + coherence + played-set parity on the
-archive at 2024/25 MW10 and 2025/26 MW0) and prints the report as canonical JSON.
+runs the plan's acceptance set (leakage + coherence + marginal parity +
+played-set parity on the archive at 2024/25 MW10 and 2025/26 MW0) and prints the
+report as canonical JSON.
+
+MARGINAL PARITY. :func:`marginal_parity` is criterion 3 of the issuance gate and
+is the sharpest of the four checks here: the others say the run conditioned on
+the right rows and produced an admissible table, and only this one says the
+per-fixture law the engine samples IS the published forecast. Since amendment A3
+(owner ruling 2026-08-19) it is a TWO-LEGGED test — a family-wise per-cell
+threshold `z* = Phi^-1(1 - alpha/(2m))` and a global chi-squared over exactly the
+compared cells — because a fixed 4-sigma per-cell rule applied to fourteen
+thousand cells is failed by a CORRECT sampler about three runs in five.
 """
 
 from __future__ import annotations
@@ -54,6 +64,7 @@ from typing import Callable
 
 import numpy as np
 import pandas as pd
+from scipy.stats import chi2 as _chi2_dist, norm as _normal
 
 from epl import baseline, freeze, leaguesim, particles, paths
 from epl import season as season_mod
@@ -78,9 +89,29 @@ class CanaryError(RuntimeError):
 #: matrix is exact; 1e-8 is the floating-point allowance around it (plan v2 D10).
 DEFAULT_TOL = 1e-8
 
-#: How many cluster standard errors a simulated marginal may sit from the
-#: published one before the parity fails (plan v2 D12).
-DEFAULT_N_SIGMA = 4.0
+#: Criterion 3's family-wise level (amendment A3, owner ruling 2026-08-19,
+#: `reports/epl_sim_amendments.md`). The per-cell threshold is
+#: `z* = Phi^-1(1 - alpha / (2m))` with `m` the cells actually compared in that
+#: run, NOT a fixed number of sigma. The retired fixed threshold was 4.0, which
+#: at the 14,225 cells of a real issuance is a two-sided per-cell tail of
+#: 6.334e-05 and 0.90 expected exceedances: a CORRECT sampler failed it about
+#: three runs in five. A gate a correct sampler fails more often than it passes
+#: teaches an operator to explain failures away, which is the one thing this
+#: criterion cannot afford. At m = 14,225, alpha = 0.01 gives z* = 4.9605.
+DEFAULT_ALPHA = 0.01
+
+#: Criterion 3's global leg: the run fails if the Pearson-type omnibus
+#: `chi2 = sum(Z^2)` over exactly the compared cells, referred to chi2 with
+#: `df = m`, has `p <= 1e-3`. Deliberately very loose. It exists to catch a
+#: uniform mis-scaling that no single cell reveals — leg 1 cannot see a hundred
+#: cells each 3 sigma out in the same direction — and not to adjudicate a
+#: borderline run. Several documented slacks (the multinomial constraint inside
+#: a fixture, the dropped low-count cells, the home/draw/away triple being a
+#: linear combination of cells already in the sum, and the
+#: `max(cluster, binomial)` SE deflating every term) make it marginally EASIER
+#: to pass, which is why the threshold is set where a real signal, not noise,
+#: is needed to trip it.
+DEFAULT_CHI2_MIN_P = 1e-3
 
 #: Scoreline cells rarer than this many expected hits are not compared: at N
 #: sims a cell with an expected count of 2 has no usable standard error, and
@@ -459,22 +490,53 @@ def _reference_grid(book: particles.ParticleBook, post, home: str,
 
 
 def marginal_parity(book, post, run: leaguesim.SimRun, fixtures=None, *,
-                    n_sigma: float = DEFAULT_N_SIGMA,
+                    alpha: float = DEFAULT_ALPHA,
+                    chi2_min_p: float = DEFAULT_CHI2_MIN_P,
                     min_expected_count: float = DEFAULT_MIN_EXPECTED) -> dict:
     """Simulated per-fixture marginals must BE the published per-fixture forecast.
 
     For each fixture the simulated 1X2 frequencies and the simulated scoreline
-    frequencies are compared against :func:`_reference_grid` at `n_sigma`
+    frequencies are compared against :func:`_reference_grid` in
     cluster-by-particle standard errors (plan v2 D12/D15). Scoreline cells with
     fewer than `min_expected_count` expected hits are skipped — at those
     frequencies the estimator has no usable standard error, and comparing them
-    would add noise rather than evidence.
+    would add noise rather than evidence. `min_expected_count` is frozen at 25:
+    it is what determines `m`, a larger `m` RAISES `z*` and makes leg 1 easier,
+    so the rule that sets `m` is fixed alongside the rule that reads it.
 
     The standard error used is `max(cluster SE, binomial SE)`. The cluster form
     is the right estimator (seasons sharing a particle are not independent) but
     it collapses to zero for a cell every particle agrees on; the binomial form
     is the floor that stops a degenerate estimate from failing the check for the
     wrong reason.
+
+    TWO LEGS, BOTH REQUIRED (amendment A3, owner ruling 2026-08-19).
+
+    * **Leg 1 — per-cell, family-wise.** A cell fails if
+      `|Z| > z* = Phi^-1(1 - alpha / (2m))`, where `m` is the number of cells
+      this run actually compared. The retired rule was a fixed 4.0 sigma applied
+      to fourteen thousand cells at once, which a CORRECT sampler fails about
+      three runs in five (0.5939 at m = 14,225). Bonferroni is blunt and is
+      conservative under the dependence documented below, and conservative here
+      means harder to fail SPURIOUSLY, which is the property this criterion
+      needs most: the first time it fails should be a reason to stop.
+    * **Leg 2 — global.** `chi2 = sum(Z^2)` over exactly those `m` cells,
+      referred to chi2 with `df = m`; the run fails if `p <= chi2_min_p`. Leg 1
+      cannot see a hundred cells each 3 sigma out in the same direction; leg 2
+      cannot see one cell at 8 sigma among fourteen thousand.
+
+    `sum(Z^2)` is not exactly chi2_m and the report says so rather than hiding
+    it: within a fixture the scoreline cells are multinomial and lose a degree
+    of freedom, the expected-count floor drops cells and part of that
+    constraint with them, the home/draw/away triple is a linear combination of
+    cells already in the sum, and the `max(cluster, binomial)` SE deflates every
+    term. The net is to make leg 2 marginally easier to pass, which is why it
+    sits at a very loose `p > 1e-3`. Leg 1 does the per-cell work and leg 1's
+    arithmetic is exact.
+
+    `m`, `z*`, `max|Z|`, `chi2`, `df` and `p` are all reported on every run,
+    pass or fail: a criterion whose threshold moves with the run has to show its
+    threshold.
     """
     plan = run.plan
     n_sims, n_particles = plan.n_sims, plan.n_particles
@@ -491,13 +553,22 @@ def marginal_parity(book, post, run: leaguesim.SimRun, fixtures=None, *,
 
     column_of = {int(o): j for j, o
                  in enumerate(run.retained_rows.fixture_ordinals.tolist())}
+    explicit = fixtures is not None
     fixtures = ([plan.fixtures[p].fixture_id for p in plan.unplayed_positions]
                 if fixtures is None else list(fixtures))
+    if not fixtures:
+        raise CanaryError(
+            "marginal parity was asked to compare no fixtures"
+            + (" (fixtures=[])" if explicit else
+               ": every fixture in this state is played, so there is no "
+               "simulated marginal to compare")
+            + ". An empty comparison is not a passing comparison — the "
+            "criterion refuses rather than returning PASS over nothing.")
 
     side = int(book.max_goals) + 1
     labels = ["1x2 home", "1x2 draw", "1x2 away"] + [
         f"cell {h}-{a}" for h in range(side) for a in range(side)]
-    failures: list[str] = []
+    cells: list[tuple] = []          # (fid, k, deviation, empirical, reference)
     worst = 0.0
     n_cells = 0
     n_provisional = 0
@@ -543,10 +614,9 @@ def marginal_parity(book, post, run: leaguesim.SimRun, fixtures=None, *,
         n_cells += int(compared.sum())
         fixture_worst = float(np.max(deviation[compared], initial=0.0))
         worst = max(worst, fixture_worst)
-        for k in np.flatnonzero(compared & (deviation > n_sigma)):
-            failures.append(
-                f"{fid} | {labels[k]} | simulated {empirical[k]:.5f} vs published "
-                f"{ref[k]:.5f} = {deviation[k]:.2f} SE")
+        for k in np.flatnonzero(compared):
+            cells.append((fid, int(k), float(deviation[k]),
+                          float(empirical[k]), float(ref[k])))
         per_fixture.append({
             "fixture_id": fid,
             "provisional": bool(provisional),
@@ -554,17 +624,50 @@ def marginal_parity(book, post, run: leaguesim.SimRun, fixtures=None, *,
             "max_sigma": fixture_worst,
         })
 
+    # --- A3: both legs, over exactly the cells that were compared ----------
+    m = n_cells
+    if m == 0:
+        raise CanaryError(
+            f"marginal parity compared 0 cells over {len(fixtures)} fixture(s): "
+            f"no cell cleared the {min_expected_count:g} expected-count floor "
+            "and not even the 1X2 triple survived. A comparison of nothing is "
+            "not a passing comparison.")
+    z_star = float(_normal.isf(alpha / (2.0 * m)))
+    z = np.array([c[2] for c in cells], float)
+    chi2_stat = float(np.sum(z ** 2))
+    df = int(m)
+    p_value = float(_chi2_dist.sf(chi2_stat, df)) if np.isfinite(chi2_stat) else 0.0
+
+    failures = [
+        f"{fid} | {labels[k]} | simulated {emp:.5f} vs published {r:.5f} = "
+        f"{dev:.2f} SE (z* = {z_star:.4f})"
+        for fid, k, dev, emp, r in cells if dev > z_star]
+    leg1 = not failures
+    leg2 = bool(p_value > chi2_min_p)
+    if not leg2:
+        failures.append(
+            f"global chi2 = {chi2_stat:.1f} on df = {df} gives p = {p_value:.3e}, "
+            f"not above the {chi2_min_p:g} floor: the cells are collectively "
+            "further from the published grid than Monte-Carlo error explains")
+
     return {
         "n_fixtures": len(fixtures),
         "n_provisional": int(n_provisional),
-        "n_cells_compared": int(n_cells),
-        "n_sigma": float(n_sigma),
+        "n_cells_compared": int(m),
+        "alpha": float(alpha),
+        "z_star": z_star,
         "min_expected_count": float(min_expected_count),
         "reference": "production_grid" if post is not None else "book_mixture",
         "max_sigma": float(worst),
+        "chi2": chi2_stat,
+        "df": df,
+        "p_value": p_value,
+        "chi2_min_p": float(chi2_min_p),
+        "leg1_per_cell_PASS": bool(leg1),
+        "leg2_global_PASS": leg2,
         "per_fixture": per_fixture,
         "failures": failures,
-        "PASS": not failures,
+        "PASS": bool(leg1 and leg2),
     }
 
 
@@ -621,14 +724,84 @@ def coherence(run: leaguesim.SimRun, *, tol: float = DEFAULT_TOL) -> dict:
                 f"{market} sums to {total:.9f} across clubs, not {hi - lo}")
 
     # --- the convention-allocated mass is a SUBSET of the matrix -----------
-    mass = (np.asarray(run.shared_mass, float)
-            + np.asarray(run.unresolved_playoff_mass, float)
-            + np.asarray(run.unresolved_multiway_mass, float))
-    mass_ok = bool(np.all(mass >= -tol) and np.all(mass <= matrix + tol))
-    if not mass_ok:
+    # Per component AND in total. Checking only the sum lets a negative
+    # component hide behind a positive one — a shared-slot allocation of -0.02
+    # cancelled by an unresolved-playoff allocation of +0.02 is two bugs
+    # reported as none, and each component is published on its own surface.
+    components = {
+        "shared_mass": np.asarray(run.shared_mass, float),
+        "unresolved_playoff_mass": np.asarray(run.unresolved_playoff_mass, float),
+        "unresolved_multiway_mass": np.asarray(run.unresolved_multiway_mass, float),
+    }
+    mass_ok = True
+    for name, component in components.items():
+        if not np.all(np.isfinite(component)):
+            mass_ok = False
+            failures.append(f"{name} carries a non-finite value")
+        elif np.any(component < -tol):
+            mass_ok = False
+            failures.append(
+                f"{name} carries negative mass (worst {float(component.min()):.3e})")
+    mass = sum(components.values())
+    if not np.all(mass <= matrix + tol):
+        mass_ok = False
         failures.append(
             "the convention-allocated mass (shared + unresolved) is not a "
             "subset of the display matrix")
+
+    # --- every published standard error is a usable number ------------------
+    # A missing, NaN or negative SE is not a small problem beside a coherent
+    # matrix: this project's rule is an MC SE beside every headline number, and
+    # a run whose errors are absent or nonsense publishes headline numbers with
+    # nothing beside them. `matrix_se` in particular is the position matrix's
+    # own error and is the one a reader is most likely to quote.
+    se_ok = True
+    matrix_se = getattr(run, "matrix_se", None)
+    if matrix_se is None:
+        se_ok = False
+        failures.append("the run carries no matrix_se")
+    else:
+        matrix_se = np.asarray(matrix_se, float)
+        if matrix_se.shape != matrix.shape:
+            se_ok = False
+            failures.append(
+                f"matrix_se is {matrix_se.shape}, not the matrix's {matrix.shape}")
+        elif not np.all(np.isfinite(matrix_se)):
+            se_ok = False
+            failures.append("matrix_se carries a non-finite value")
+        elif np.any(matrix_se < 0.0):
+            se_ok = False
+            failures.append(
+                f"matrix_se carries a negative standard error "
+                f"(worst {float(matrix_se.min()):.3e})")
+    mc = run.mc or {}
+    # Named rather than pattern-matched, so a renamed field is a failure and not
+    # a silently skipped check. `outer` and `inner` are variance COMPONENTS —
+    # `outer = (between - within/k)/S` is an unbiased estimate that can come out
+    # negative on a cell with almost no between-particle spread — so they are
+    # required finite and not required non-negative. Everything named as a
+    # standard error is required non-negative too.
+    for name in ("cluster", "cluster_se_max", "matrix_cluster_se_max"):
+        value = mc.get(name)
+        if value is None or not np.isfinite(float(value)):
+            se_ok = False
+            failures.append(f"mc[{name!r}] is missing or not finite ({value!r})")
+        elif float(value) < 0.0:
+            se_ok = False
+            failures.append(f"mc[{name!r}] is a negative standard error ({value!r})")
+    for name in ("outer", "inner", "identity_max_abs_error"):
+        value = mc.get(name)
+        if value is None or not np.isfinite(float(value)):
+            se_ok = False
+            failures.append(f"mc[{name!r}] is missing or not finite ({value!r})")
+    for club, markets in sorted(run.consequences.items()):
+        for market, cell in sorted(markets.items()):
+            error = cell.get("se")
+            if error is None or not np.isfinite(float(error)) or float(error) < 0.0:
+                se_ok = False
+                failures.append(
+                    f"{club} {market}: standard error {error!r} is missing, "
+                    "non-finite or negative")
 
     # --- every club plays a complete double round-robin ---------------------
     double_round_robin_ok = bool(
@@ -704,6 +877,7 @@ def coherence(run: leaguesim.SimRun, *, tol: float = DEFAULT_TOL) -> dict:
         "matrix_cols_ok": bool(matrix_cols_ok),
         "markets_ok": bool(markets_ok),
         "mass_ok": bool(mass_ok),
+        "standard_errors_ok": bool(se_ok),
         "double_round_robin_ok": bool(double_round_robin_ok),
         "pinned_ok": bool(pinned_ok),
         "identities_ok": bool(identities_ok),
@@ -755,7 +929,22 @@ def _synthetic_book(clubs, n_particles: int = 16) -> particles.ParticleBook:
 def run_acceptance(cutoffs: dict | None = None, *, matches=None, store=None,
                    n_sims: int = 96, seed: int = 20260611,
                    skip_panel: bool = False) -> dict:
-    """The plan's T6 acceptance: leakage + coherence + played-set parity."""
+    """The plan's T6 acceptance: leakage + coherence + MARGINAL PARITY + panel.
+
+    Marginal parity is in this set, not beside it. It was the one criterion the
+    acceptance run omitted, and it is the sharpest of the four: leakage and
+    coherence say the run conditioned on the right rows and produced an
+    admissible table, and only parity says the per-fixture law being sampled IS
+    the published one. A report headed "acceptance" that skipped it read as a
+    full gate and was not one — so either it ran or the function had to be
+    renamed, and running it is the version that makes the report true.
+
+    The parity here scores the synthetic acceptance book against its own mixture
+    (`post=None`, `reference = "book_mixture"`), which is what makes it cheap
+    enough to belong in a runnable acceptance set. That is a check of the
+    SAMPLER, not of a fit; the fit-side parity against `production_grid` is the
+    issuance gate's (`epl.simcli`).
+    """
     cutoffs = ACCEPTANCE_CUTOFFS if cutoffs is None else cutoffs
     matches = baseline.load_matches() if matches is None else matches
     store = BitemporalStore(paths.STORE_DIR) if store is None else store
@@ -766,17 +955,19 @@ def run_acceptance(cutoffs: dict | None = None, *, matches=None, store=None,
         state = builder(cutoff, None)
         book = _synthetic_book(state.clubs)
         chunk = max(1, n_sims // 2)
+        run = leaguesim.simulate("dc_native", state, book, n_sims, seed, chunk)
         entry = {
             "leakage": leakage_canary(builder, book, cutoff, seed,
                                       n_sims=n_sims, chunk_size=chunk),
-            "coherence": coherence(leaguesim.simulate(
-                "dc_native", state, book, n_sims, seed, chunk)),
+            "coherence": coherence(run),
+            "marginal_parity": marginal_parity(book, None, run),
             "played_set_parity": (
                 None if skip_panel
                 else played_set_parity(store, cutoff, state, matches)),
         }
         entry["PASS"] = bool(
             entry["leakage"]["PASS"] and entry["coherence"]["PASS"]
+            and entry["marginal_parity"]["PASS"]
             and (entry["played_set_parity"] is None
                  or entry["played_set_parity"]["PASS"]))
         out[label] = entry
