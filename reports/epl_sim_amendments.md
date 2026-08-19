@@ -500,9 +500,20 @@ trip it by more than an order of magnitude."** A Poisson mean of 20 puts
 **98.92%** of its mass past 10 goals — `P(X ≥ 11 | λ = 20) = 0.989188`, exact,
 not simulated — not roughly half. **The correction runs in the ceiling's
 favour.** Such a fixture's excluded mass is at least `0.9892`, which is
-**49.5×** the 2e-2 ceiling, or **1.69 orders of magnitude** over it. The guard
-catches a mis-scaled rate **more** surely than A1 claimed, not less: A1
+**≈49.46×** the 2e-2 ceiling, or **1.69 orders of magnitude** over it. The
+guard catches a mis-scaled rate **more** surely than A1 claimed, not less: A1
 understated its own guard.
+
+*In-place fix, 2026-08-20 — to A1-C1's own arithmetic.* As written on 2026-08-19
+that ratio read **49.5×**. `0.989188 / 0.02 = 49.4594`, so the figure was rounded
+**up** — the same fault correction 1 records against A1, a ratio quoted rather
+than computed, repeated inside the note correcting it. It is fixed above in
+place, to **≈49.46×**, rather than by a further note: A1-C1 *is* the correction
+note, and a correction of a correction of a correction is a worse record than a
+fixed number whose history is stated here. Nothing else moves.
+`log10(49.4594) = 1.6942`, so **1.69 orders of magnitude** was and remains
+right, and neither the ruling, the 2e-2 ceiling nor the 5e-3 flag depends on the
+second decimal. Found by a read-only reviewer (Codex review of `a18c845` #5).
 
 **3. "Median particle for the failing fixture | 1.9e-4 — four orders of
 magnitude under the gate."** `5e-3 / 1.9e-4 = 26.3158`, which is **1.42 orders
@@ -845,3 +856,560 @@ than superseded; `test_the_check_fails_when_the_ledger_does_not_record_the_devia
 is its positive control.
 
 *Recorded 2026-08-19, in the commit that responds to that finding.*
+
+---
+
+## A3-N1 — leg 2 is demoted to a diagnostic (2026-08-20)
+
+**A3's original text above is deliberately unedited**, for the reason A1-C1
+gives. This note demotes one half of A3's ruling — before the code that
+implements the demotion — and records that A3's own defence of both legs
+asserted a direction it had not computed.
+
+*Arithmetic note: every figure in this entry is exact arithmetic on the normal
+or chi-square distribution — no simulation, so nothing here carries a
+Monte-Carlo error of its own. The one figure quoted from a run (3.865σ) is a
+standardised deviation the 2026-08-21 acceptance record reports; it carries
+whatever error that record states beside it and is not re-estimated here.*
+
+### The observation
+
+Two findings from a read-only reviewer, one against each leg.
+
+**Leg 2's reference distribution is not the one leg 2 refers to** (Codex review
+of `a18c845` #3). A3 lists four reasons `Σ Z²` is not exactly `χ²_m` and then
+asserts a direction — *"the net of these slacks makes leg 2 marginally **easier**
+to pass"*. That direction was asserted, not computed, and two of its own inputs
+make the assertion unsafe:
+
+- **The compared cells are correlated, twice over.** *Within* a fixture the
+  scoreline cells are multinomial: an excess in one cell forces a deficit in the
+  others, and the home/draw/away triple is an exact linear combination of
+  scoreline cells already in the sum. *Across* fixtures the same particle set
+  and the same simulated seasons drive every cell, so the deviations do not
+  decorrelate between fixtures either. `Σ Z²` is a quadratic form in a dependent
+  vector; its null is `χ²_m` only if that vector is m independent standard
+  normals, and it is not.
+- **The per-cell denominator is estimated, and floored.** `Z` divides by
+  `max(cluster SE, binomial SE)` (`epl/simcanary.py:532`) — a random quantity
+  bounded below, not a known constant — so each term is a squared ratio of two
+  estimates rather than a squared standard normal.
+
+Dependence does not simply make a quadratic form easier to pass. Positive
+dependence **inflates** the variance of `Σ Z²` and fattens its upper tail
+relative to `χ²_m`; the within-fixture multinomial pulls the other way; nobody
+has computed the net. `p > 1e-3` is therefore a threshold on a distribution that
+has not been calibrated, and setting it loose does not repair a wrong reference —
+it only makes the miscalibration harder to notice.
+
+**Leg 1's headline arithmetic is an iid reference, not the gate's error rate**
+(Codex review of `ce82484` #1). A3 quotes **0.9010** expected exceedances and
+
+```
+P(at least one cell beyond 4σ) = 1 − (1 − 6.334e-05)^14225 = 0.5939
+```
+
+as what a correct sampler does under the **old** 4σ rule. Both figures assume
+the m cells are independent, and the dependence that breaks leg 2 is the same
+dependence those two numbers were computed without. They are exactly right as
+what they are — the **iid reference for m cells** — and they were more than
+enough to establish A3's point, that a per-cell 4σ threshold at m = 14,225 is not
+a gate. They are not the family-wise error rate of any rule this project runs.
+
+### The ruling (owner, 2026-08-20)
+
+**Leg 2 is DEMOTED from pass/fail to a reported diagnostic.** `Σ Z²`, `df = m`
+and the nominal p are still computed on every run and still printed beside `m`,
+`z*` and `max|Z|` — all six, whether leg 1 passes or fails, exactly as A3
+requires. What changes is that **no run passes or fails on the last three**. The report
+labels the trio *diagnostic — the reference distribution is not calibrated*, and
+`marginal_parity`'s verdict is leg 1 alone. `DEFAULT_CHI2_MIN_P` stops being a
+threshold and becomes the p below which the diagnostic is flagged for a human to
+look at; it is not an acceptance criterion and the acceptance record says so.
+
+**Leg 1 REMAINS the criterion, unchanged.** A cell fails if
+`|Z| > z* = Φ⁻¹(1 − α/(2m))` with **α = 0.01** and m the cells actually compared
+in that run; at m = 14,225, `z* = 4.9605`. `min_expected_count` stays **25.0**,
+for the reason A3 gives: m must be frozen by the same rule that reads it.
+
+**Leg 1's error under dependence, in both directions, because A3 stated only
+one.**
+
+- **Conservative direction.** `P(any |Z| > z*) ≤ α` is Boole's inequality and
+  holds whatever the dependence — *provided each cell's Z is marginally standard
+  normal*. Positive dependence, which is what sharing one particle set across
+  fixtures produces, pushes the realised family-wise rate strictly below α, and
+  the more so the stronger it is. A3's *"conservative under the dependence
+  documented above"* is right about this half.
+- **Anti-conservative direction.** Measured against the **iid** figure this
+  ledger quotes, negative dependence runs the other way: for negatively
+  associated cells `P(at least one exceedance)` can **exceed** the product form
+  `1 − (1 − p)^m`. The within-fixture multinomial is exactly such negative
+  association, so the rule is slightly anti-conservative *relative to the iid
+  reference* — while still sitting under the Bonferroni bound, which the
+  multinomial cannot breach.
+- **And marginal normality is itself an approximation.** The floor on the
+  denominator deflates `|Z|` (conservative). A cell's count is discrete and
+  right-skewed, and at `z ≈ 5` its true upper tail is not guaranteed to be
+  bounded by the normal's (anti-conservative). The ≥25-expected-count rule
+  limits this and does not remove it.
+- **Neither direction has been computed.** Both are recorded because the
+  honest statement of leg 1 is *a bound whose slack is unknown in sign*, not
+  *a conservative rule*.
+
+**Calibrating it properly is v1.2, and the path is pre-stated here.** A
+**parametric-bootstrap null of the sampler**: B independent re-simulations of
+the same fixture set, at the same fitted posterior and the same particle book,
+differing only in seed, each pushed through the identical `marginal_parity`
+path against the same production reference. The null distributions of `max|Z|`
+and of `Σ Z²` are read off that ensemble, and the acceptance thresholds — a
+`max|Z|` quantile, and a restored leg-2 threshold if the ensemble supports one —
+are set from its quantiles instead of from a closed form that does not apply.
+**B, the quantile and the acceptance rule are NOT chosen here**; they are
+pre-stated in v1.2's own amendment, written before the bootstrap runs, in this
+file. What is fixed here is only that the calibration is done this way and that
+leg 2 cannot gate anything until it is.
+
+**The 2026-08-21 issuance is unaffected, and still passes leg 1.** Its worst
+cell, **3.865σ** over 14,225 compared cells, is below `z* = 4.9605` by
+**1.096σ**. It was gated by neither leg — it ran under the 4σ rule
+preregistered for it — and **no run has yet been gated by leg 2 at all**, so
+this demotion withdraws no verdict, changes no published number and re-opens no
+closed acceptance. The next `dc_native` issuance is the first run gated by
+leg 1 as amended, and the first to print leg 2 as a diagnostic.
+
+### The rationale
+
+A3's whole case against the 4σ rule was that a gate whose null nobody had
+calibrated is not a gate. Leg 2 was written in the same breath and has the same
+defect: a statistic referred to a distribution it does not follow, with a loose
+threshold standing in for a calibration. Keeping it as a pass/fail criterion
+while its reference is known to be wrong would repeat the error the amendment
+exists to correct, and would be worse than the 4σ rule was, because a loose
+uncalibrated gate fails silently in the direction of passing.
+
+Demoting rather than deleting keeps the number in front of the reader. The
+failure mode leg 2 was built for — a uniform, small mis-scaling that never
+produces a single dramatic cell — is real, and `Σ Z²` still points at it even
+when its p-value cannot be trusted to three decimal places. A diagnostic that is
+printed and read is worth more than a threshold that is passed without being
+believed.
+
+Recording both directions of leg 1's slack is the same discipline. A3 wrote
+*"conservative under the dependence documented above"*, which is true of one of
+the two dependences it had just documented and not of the other. The correct
+sentence is longer and less comfortable, and it is the one that survives review.
+
+### What is pre-stated
+
+- **Leg 1 is the criterion; leg 2 is a diagnostic.** α = 0.01, the `z*(m)`
+  formula, and `min_expected_count = 25.0` are unchanged from A3 and unchanged
+  here. No threshold moves in this note.
+- **All six numbers are still printed on every run** — `m`, `z*`, `max|Z|`,
+  `χ²`, `df`, `p` — with the last three labelled as an uncalibrated diagnostic.
+- **0.5939 and 0.9010 are the iid reference for m cells**, and are not claimed
+  as the family-wise error rate of any rule.
+- **The v1.2 calibration path is the parametric bootstrap described above**, and
+  its constants are pre-stated in a later entry, before it runs.
+- Nothing here was chosen after seeing a result under it: no run has been gated
+  by either leg, and the one figure quoted from an existing run (3.865σ) is
+  quoted, as A3 quoted it, to show that nothing retroactively fails.
+
+### Recording note
+
+A3's two-legged rule **is implemented at HEAD** (`epl/simcanary.py`, committed
+in `eba5585`): at the moment this is written, leg 2 can still fail a run. This
+note is recorded **before the commit that demotes it**, and before any run is
+gated by either leg.
+
+---
+
+## A2-N4 — the TRPS SE is a diagonal approximation, and "conservative" is withdrawn (2026-08-20)
+
+**A2's, A2-N1's, A2-N2's and A2-N3's text above are deliberately unedited**, for
+the reason A1-C1 gives. This note withdraws a claim A2-N1 made about the number
+it declared, and A2-N3 carried forward: that the delta-method TRPS standard
+error is *conservative*. It is not known to be.
+
+*Arithmetic note: this entry states a variance identity and the sign of its
+omitted terms. It estimates nothing, so it carries no Monte-Carlo error of its
+own. Every TRPS SE it relabels keeps the value it already has; the numbers do
+not move, only the claim about which way they err.*
+
+### The observation
+
+Codex reviews of `97ab5d0` #3 and `e5ec1cc` #3, independently, against the same
+sentence. A2-N1 records the estimator as
+
+```
+g[c, k] = 2 / (C (R−1)) · Σ_{r ≥ k} (X[c, r] − O[c, r])
+Var(TRPS) ≈ Σ_{c, k} g[c, k]² · se[c, k]²
+```
+
+and then says: *"The cells of one club are treated as independent. They are not
+— a club's row sums to 1, so its cells are predominantly **negatively**
+correlated — and ignoring those covariances **overstates** the variance. The
+reported SE is therefore conservative rather than exact."*
+
+The premise is right and the conclusion does not follow. The exact delta-method
+variance is the full quadratic form
+
+```
+Var(TRPS) ≈ Σ_{(c,k)} Σ_{(c',k')} g[c, k] · g[c', k'] · Cov(m[c, k], m[c', k'])
+```
+
+and the estimator keeps only the terms with `(c, k) = (c', k')`. What is dropped
+is `g · g' · Cov`, not `Cov`. The gradient has **mixed signs**: with `O` the
+cumulative outcome, `X[c, r] − O[c, r]` is non-negative for ranks below the
+club's realised position and non-positive at and above it, so `g[c, k]` is
+positive for some k and negative for others **within the same club's row**. A
+negative covariance multiplied by two gradient components of opposite sign
+contributes a **positive** term to the variance. The omitted total is therefore
+of undetermined sign, and the diagonal sum can be an over- **or** an
+under-estimate of the delta-method variance it approximates.
+
+The error is one of vocabulary rather than of arithmetic — no computed number is
+wrong — but "conservative" is exactly the word a reader uses to decide whether a
+tight SE can be trusted, and it was not earned.
+
+### The ruling (owner, 2026-08-20)
+
+**1. The quantity is relabelled.** It is the **diagonal approximation** to the
+delta-method Monte-Carlo variance of TRPS, and it is reported as
+`TRPS MC SE (diagonal approx.)`. The accompanying sentence, wherever this
+project states it, becomes: *the cross-cell covariance is omitted, and because
+the TRPS gradient changes sign within a club's row the omitted terms can raise
+or lower the variance — the direction of the approximation is not known.*
+
+**2. The word "conservative" is WITHDRAWN** wherever this project applies it to
+this number: A2-N1's *"conservative rather than exact"*, the harness
+legend that prints the same phrase, `epl/simmetrics.py`'s docstring, and
+Addendum A's *"Conservative, not exact"* bullet in
+[`reports/epl_sim_retro_v1_1.md`](epl_sim_retro_v1_1.md). Those sentences stay
+where they were written, unedited, for A1-C1's reason; this entry is what
+withdraws them, and a dated note in the retrospective report points a reader of
+Addendum A here.
+
+**3. Future runs that retain per-season rows compute the TRPS MC SE by
+cluster-by-particle bootstrap of TRPS itself.** Resample the particles — the
+same cluster the stored per-cell `matrix_se` is already built on — with
+replacement, recompute the position matrix and recompute TRPS on each resample,
+and report the standard deviation of the resampled TRPS values. That estimator
+needs no independence assumption, no gradient and no covariance matrix, and it
+is an error on TRPS rather than an error propagated from the cells. It requires
+the per-particle position tallies to be retained, which is why it is stated as a
+requirement on the runs that retain them rather than as something the existing
+ledger can be made to answer. **B and the resampling seed are not chosen here**;
+they are pre-stated in the amendment that accompanies the first run to report
+the bootstrap SE, before that run.
+
+**4. Addendum A's numbers STAY, relabelled.** Not one of the 102 numeric `±`
+figures in [`reports/epl_sim_retro_v1_1.md`](epl_sim_retro_v1_1.md) Addendum A
+changes: the arithmetic that produced them is unchanged and remains correct as
+the diagonal approximation it is. What is withdrawn is the bullet claiming they
+overstate. A dated note in that report records the withdrawal in place, beside
+the numbers it qualifies, so a reader of the addendum alone is not left with the
+retracted sentence — the failure mode A2-N3 was written to close, applied in the
+other direction.
+
+**5. R1's record is untouched, again.** No score moves, no pass rule reads a
+TRPS SE (prereg §7 leaves none to read), and every conclusion in
+[`reports/epl_sim_retro_v1_1.md`](epl_sim_retro_v1_1.md) §1–§10 is unchanged by
+this note and would be unchanged if the addendum were deleted.
+
+**6. The code still carries the withdrawn word at the moment this is written**,
+including the test that pins the phrase `conservative rather than exact`
+(`epl/tests/test_simretro.py:818`). Changing the harness text, its docstring and
+that test is the Fix commit that follows this entry, under TDD, and this entry
+is recorded before it.
+
+### The rationale
+
+This project's standing rule is a Monte-Carlo error beside every headline. A
+number reported under that rule is read as *how far this could move*, and the
+adjective attached to it decides which way a reader leans when it looks small.
+"Conservative" says *lean safe*. Nothing established that, and two reviewers
+reading independently reached the same objection from the same three lines.
+
+The diagonal approximation is worth keeping. It is cheap, it is computed from
+errors the ledger already stores, and it is the right order of magnitude for
+what it measures — the retrospective's own numbers put it one to two orders of
+magnitude under the between-season spread, which is the comparison that actually
+matters when reading a score. What it cannot support is a claim about its own
+direction, and the fix is to stop making one rather than to withdraw the number.
+
+The bootstrap is the estimator that answers the question the delta method was
+approximating, and it is stated here as a requirement on future runs precisely
+because it cannot be applied retroactively: R1's ledger stores per-cell errors,
+not per-particle tallies. Saying so plainly is better than implying the existing
+figures could be upgraded in place.
+
+### What is pre-stated
+
+- The label is **`TRPS MC SE (diagonal approx.)`**, and the sentence that
+  accompanies it states that the omitted covariance **can raise or lower** the
+  variance.
+- **"Conservative" is withdrawn** of this quantity in the harness, in the
+  metrics docstring, in Addendum A and in A2-N1 — by this note, not by editing
+  any of them.
+- Future runs retaining per-season rows report a **cluster-by-particle bootstrap
+  of TRPS itself**; the resampling unit is the particle, and B is pre-stated in
+  the amendment accompanying the first run that reports it.
+- **No number changes.** Addendum A's figures, R1's body, and every score in
+  this project stand exactly as issued.
+
+### Recording note
+
+Recorded **before the commit that changes the harness text, the metrics
+docstring and the test that pins the withdrawn phrase**, and before any run
+reports a bootstrap TRPS SE. The dated note in
+[`reports/epl_sim_retro_v1_1.md`](epl_sim_retro_v1_1.md) is written in the same
+commit as this entry, so the ledger and the report cannot disagree about the
+withdrawal for even one commit — which is the specific defect A2-N3 records.
+
+---
+
+## A4 — harness v3: typed refusals, and completeness on every path (2026-08-20)
+
+**Decision amended:** A2 (a) and A2 (b) as amended by A2-N2 — the producer
+identity, the resume/provenance guard, and the completeness identity
+`n_checked + n_documented_refusals == n_expected` — implemented in
+`epl/simretro.py` at the harness **v2.1** pair
+(`e449c78d…`, `6756d861…`).
+**Status of the amendment when written:** not a line of `epl/simretro.py` or
+`epl/simmetrics.py` has changed since A2-N2; both still hash to the v2.1 values
+recorded there. R1 is still the only retrospective run that exists, and it ran
+under **v1**.
+
+*Arithmetic note: every number in this entry is an exact count of arms, cells or
+ledger rows, or a SHA-256. Nothing here is estimated, so nothing here carries a
+Monte-Carlo error. No score is quoted, computed or changed.*
+
+### The observation
+
+Six findings from read-only reviews of the commits that built, repaired and
+recorded this accounting (`97ab5d0`, `ba8eca5`, `e5ec1cc`). Two are already closed; four are open at HEAD. All six are
+listed, with their status, because the ruling below is one design and it has to
+answer all of them.
+
+| # | finding | source | status at HEAD |
+|---|---|---|---|
+| 1 | the default/CLI path derived the expected grid from the rows it was handed, so any subset closed its own accounting | `97ab5d0` #1 | **closed** by v2.1 (A2-N2): unstated ⇒ `n_expected = None`, `complete = None`, `STOP_AND_INSPECT = True`, and `_cli` states its grid |
+| 2 | `run_retro` filtered `not_applicable` rows out of its return, so `n_documented_refusals` was structurally zero on the real path | `97ab5d0` #2 | **closed** by v2.1 (A2-N2): the markers are returned beside the forecasts |
+| 3 | a missing **required** arm is counted as a "documented refusal" | `ba8eca5` #1 | **OPEN** |
+| 4 | whole-cell refusals — season construction, runner exceptions — escape the accounting entirely | `ba8eca5` #2 | **OPEN** |
+| 5 | rows with no producer identity are exempt from the provenance guard | `e5ec1cc` #2 | **OPEN** |
+| 6 | an unrecorded harness hash is not refused | `e5ec1cc` #1 | **OPEN** |
+
+**3 — the harness writes its own alibi.** When the runner returns a cell without
+an arm, `run_retro` writes a `not_applicable` marker for it with the reason
+`"{arm} is not defined at {label}"` — for **any** arm, including the required
+`dc_native` and the always-defined `flat`. The runner is never asked whether it
+refused; its silence is converted into a documented refusal by the caller. An
+accidentally dropped `flat` therefore yields a marker, a "documented refusal",
+and — if some other cell passes — `complete = True`,
+`dc_native_beats_flat_everywhere = True` and `STOP_AND_INSPECT = False` on a run
+that has silently lost the comparison the whole retrospective exists to make.
+The test that covers this path omits `flat` on purpose and expects closure, so
+an accidental omission is indistinguishable from the fixture.
+
+**4 — the refusals that matter most cannot reach the accounting.** The two
+refusals R1 actually hit are `UnverifiedAdjustment` (`epl/season.py:581`, all six
+cutoffs of 2023/24) and `ExcludedMassTooLarge` (`epl/particles.py:629`, the
+2019/20 and 2020/21 openers, amendment A1). Both are raised *inside* the cell,
+before any row is written, and both propagate out of `run_retro`. Nothing writes
+a marker; the cell is simply absent, and the accounting can only report it as an
+undocumented hole. R1's eight missing cells are documented in **prose**, in the
+report, by a human — which is exactly the class of guarantee this ledger exists
+to convert into a check.
+
+**5 — the guard's own escape hatch.** The provenance refusal skips rows whose
+`producer` is absent (`row.get("producer") not in (None, me)`), and an absent
+`producer` is precisely the v1 schema. A v1 ledger is therefore appended to
+silently by a v2, v2.1 or later run, without the override that exists to make
+mixing deliberate. The keys cannot collide — a v1 key has no producer segment,
+so it can never satisfy a v3 request — but the file ends up holding two
+producers' rows with nothing recording it.
+
+**6 — the hash rule is stated, not enforced.** A2-N1 and A2-N2 both say *"a run
+whose harness hashes match none of the pairs recorded here refuses, exactly as
+prereg §12 requires."* `producer_identity()` hashes both files at run time and
+folds the digest into the key and every row — which makes rows from different
+harnesses non-interchangeable, and is genuinely worth having — but it never
+compares those hashes to the recorded pairs. A fresh ledger under an arbitrarily
+modified harness runs to completion and reports nothing unusual. The
+preregistration's §12 invalidation condition has no code behind it.
+
+### The ruling (owner, 2026-08-20) — pre-stated before the code
+
+**Harness v3.** Four changes in `epl/simretro.py`, under TDD, each with a
+positive control: every guard must be shown refusing the thing it exists to
+refuse, not merely accepting a good run.
+
+**(i) Typed refusals, written by the runner, counted by the scorer.**
+
+The runner writes a **typed refusal marker row** for every refusal it raises or
+catches. The row carries a `refusal_kind` from a closed set, and free-form
+`reason` text beside it:
+
+| `refusal_kind` | written when |
+|---|---|
+| `excluded_mass_ceiling` | `ExcludedMassTooLarge` — D11's 2e-2 hard ceiling (A1) |
+| `unverified_adjustment` | `UnverifiedAdjustment` — a points adjustment the season ledger has not verified |
+| `arm_not_defined` | an arm or null that does not exist at this cutoff by rule (`ppg_pointmass` at MW0) |
+| `runner_error` | any other exception from season construction, the fit, the simulation or the runner |
+
+`score_retro` counts **only typed markers** as documented refusals. A row with
+`not_applicable` text and no `refusal_kind` is not a documented refusal; it is a
+hole. **An absent required arm — `dc_native` or `flat` — with no typed marker
+gives `complete = False` and `STOP_AND_INSPECT = True`**, whatever else passed.
+The caller stops inventing reasons on the runner's behalf: `run_retro` no longer
+manufactures a marker for a missing arm it was not told about.
+
+Whole-cell failures are caught **at the cell boundary**, and a marker of the
+matching kind is written for every requested arm of that cell before anything
+propagates. `excluded_mass_ceiling`, `unverified_adjustment` and
+`arm_not_defined` are expected refusals: the marker is written and the run
+continues, as it does today. `runner_error` is not expected: the marker is
+written **and the exception is re-raised**, so an unexplained failure still stops
+the run — the marker exists so the hole is named in the ledger and can be seen
+by the resumed run, not so that an unknown error can be swallowed.
+
+**(ii) The expected grid is always the schedule, on every path.**
+
+`n_expected` is the **request**, and the request is `seasons × cutoffs × arms` —
+a (season, cutoff, **arm**) triple, not a (season, cutoff) pair. `requested_cells`
+returns triples for the same arms and nulls the matching `run_retro` call was
+given, and both the CLI and the default path pass it. The identity becomes
+
+```
+n_scored + n_typed_refusals == n_expected        (triples, not cells)
+```
+
+with `n_scored > 0` and zero violations, all three required for `complete`.
+`dc_native_beats_flat_everywhere` stays a strict boolean over the cells where
+both required arms scored, and is `False` unless `complete` is `True`.
+
+When a caller supplies no grid, `score_retro` does **not** derive one from the
+rows and does **not** return "not evaluated": it uses the **whole preregistered
+schedule** — every season, every cutoff label, every arm and null. That is the
+most demanding grid available, so an unstated request can only ever report more
+missing, never fewer, and the v2.1 `None` / NOT EVALUATED branch is retired
+because nothing can reach it. A smoke run scored without stating its grid will
+therefore read incomplete against the full schedule, correctly; `_cli` states its
+grid and reads exactly what it asked for.
+
+**(iii) A row with no producer is refused.**
+
+The provenance guard treats an absent `producer` as foreign. A ledger holding
+legacy rows refuses the run — by name, listing the offending keys — unless
+`--allow-legacy-rows` (`allow_legacy_rows=True`) is passed, which is recorded on
+every row the run writes, recorded in the run's envelope and **printed in the
+report**, exactly as the existing foreign-producer override is. The two overrides
+are counted separately in the sanity block.
+
+**(iv) `run_retro` refuses to start under an unrecorded harness.**
+
+Before any fit, `run_retro` compares the SHA-256 of `epl/simretro.py` and
+`epl/simmetrics.py` against the **recorded pairs**, and refuses — a named error —
+unless the running pair is one of them. The recorded pairs are exactly the pairs
+written in this ledger:
+
+| version | `epl/simretro.py` | `epl/simmetrics.py` | recorded in |
+|---|---|---|---|
+| v1 | `2b25ab35…` | `e73f2f70…` | the preregistration §1 |
+| v2 | `f1744c25…` | `6756d861…` | A2-N1 |
+| v2.1 | `e449c78d…` | `6756d861…` | A2-N2 |
+| v3 | *appended as a dated note after the Fix commit* | *idem* | this entry |
+
+The list lives in a module constant that the Fix commit updates, and **the code's
+list must equal this ledger's list** — a test reads this file and fails if they
+diverge, the same shape of check that already holds A2-N3's note against
+Addendum A. Development and the test suite necessarily run under unrecorded
+hashes; they pass an explicit `allow_unrecorded_harness=True`, which is recorded
+on every row written and printed in the report, and a run that used it is not a
+citable run. There is no silent path.
+
+**R1 and Addendum A stand under v1.** Nothing in
+[`reports/epl_sim_retro_v1_1.md`](epl_sim_retro_v1_1.md) is re-scored, for every
+reason A2 gives and A2-N2 re-checks: v3 changes no scoring arithmetic — it is
+four guards and one accounting unit. **v2 and v2.1 were never used for a
+published run**; no report in this repository cites a number produced under
+either. v3 will be the first harness after v1 to produce a published
+retrospective number, and the first retrospective run under it is the first run
+that can report `complete = True` against a stated triple-level grid.
+
+**Nothing else in the retrospective changes.** Not the question, the grid, the
+seasons, the cutoffs, the arms, the nulls, the pairings, the metrics or the pass
+rules. TRPS stays primary and unweighted; wTRPS stays secondary; the paired
+differences stay a diagnostic with no pass rule; scores are still never averaged
+across cutoffs.
+
+### The rationale
+
+Findings 3 and 4 are the same defect seen from both ends. The harness was asked
+to distinguish *refused on purpose* from *lost by accident*, and it was given no
+information with which to do it — so it guessed, and it guessed in the direction
+of "documented". A refusal is a fact the runner knows and the scorer does not;
+the only fix that can work is to make the runner say so, in a typed field, and
+to make the scorer believe nothing else. Every other arrangement reduces to the
+caller writing the alibi for the callee, which is what finding 3 is.
+
+Moving the accounting unit from the cell to the (season, cutoff, arm) triple is
+the smaller half of the same point. A cell is "present" as soon as one arm in it
+scored; the thing that gets lost is an arm, and until the unit of the identity
+is the arm, the identity cannot see the loss. A2 (b) chose the cell because the
+refusals it had in mind were whole-cell refusals — which is exactly finding 4,
+and both are answered by the same change.
+
+Findings 5 and 6 are guarantees this ledger has now asserted three times in
+prose. A2-N1 wrote that v1 and v2 rows "can no longer be mixed by accident";
+A2-N2 repeated it for v2.1; both sentences were true of the key and false of the
+guard, because the guard exempts the only rows a v1 ledger contains. The hash
+rule has been stated since the preregistration and has never had code behind it.
+The pattern is the one this file was created to catch — a guarantee stated in a
+document, satisfied in fact, and unenforced in code — and the answer is the same
+each time: put the check where the claim is.
+
+Making the default grid the **whole** preregistered schedule, rather than
+"not evaluated", is the conservative choice in the direction that costs
+something. It means a casual `score_retro(rows)` on a partial ledger prints a
+long list of missing triples and `complete = False`. That is noisier than a
+`None`, and it is the right noise: an unstated request is not a licence to
+certify, and the failure it produces is loud, specific and easy to correct by
+stating the grid.
+
+### What is pre-stated
+
+Fixed here, before the code exists and before any v3 run exists:
+
+- **The four refusal kinds are exactly** `excluded_mass_ceiling`,
+  `unverified_adjustment`, `arm_not_defined`, `runner_error`. The set is closed;
+  adding a fifth is an amendment.
+- **Only typed markers count as documented refusals.** An absent `dc_native` or
+  `flat` with no marker ⇒ `complete = False` **and** `STOP_AND_INSPECT = True`.
+- **`n_expected` is `seasons × cutoffs × arms`**, stated by the caller on every
+  path, defaulting to the whole preregistered schedule and never derived from
+  the rows. The identity is `n_scored + n_typed_refusals == n_expected`, with
+  `n_scored > 0` and no violations, all three required.
+- **A producer-less row refuses the run** unless `allow_legacy_rows` is passed,
+  and the override is recorded on every row, in the envelope and in the report.
+- **An unrecorded harness pair refuses the run before any fit**, with no silent
+  override; the recorded list in the code must equal the list in this entry, and
+  a test enforces that equality.
+- **`runner_error` re-raises after writing its marker.** The other three kinds
+  let the run continue.
+- The **v3 hashes** are the one thing this entry cannot state in advance; they
+  are appended here as a dated note by the commit that creates them, exactly as
+  A2-N1 and A2-N2 did for v2 and v2.1.
+
+No threshold above was chosen after seeing a result under it, because no result
+under harness v3 exists, and the only run this ledger describes — R1 — ran under
+v1 and is not re-scored.
+
+### Recording note
+
+Written **before any line of `epl/simretro.py` changed under this ruling**; both
+harness files were re-hashed at the moment of writing and still match the v2.1
+values in A2-N2. The commit that changes them follows this one.
+

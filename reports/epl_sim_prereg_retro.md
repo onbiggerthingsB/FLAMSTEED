@@ -223,9 +223,14 @@ R−1 = 19 and the weighted score stays on the unweighted one's scale (enforced 
 predates both a possible fifth Champions League place and this league's three-club
 relegation. The 6|7 boundary does appear among the positions the ranker treats as
 material when it resolves ties, but it is **not** a published position threshold, so
-nothing here is weighted on it. (The code calls these five the "consequence markets";
-they are the positional outputs the product displays — champion, top 4, top 5, top 7,
-relegation — and the word carries no betting sense anywhere in this project.)
+nothing here is weighted on it. (These five are the **consequence thresholds**: the
+positional outputs the product displays — champion, top 4, top 5, top 7, relegation.
+None of them is a price, a stake or an odds line, and nothing in this project reads one.
+**Dated note, 2026-08-20:** this sentence previously used an older word for the same five
+outputs; the wording is corrected in place under the project's vocabulary rule, and the
+correction is recorded in [`reports/epl_sim_amendments.md`](epl_sim_amendments.md). The
+rule renames the prose, not any identifier in the code, and it changes nothing about what
+the five outputs are, how they are computed, or how they are scored.)
 
 **The flat null is computed, not simulated** (`flat_trps`), in closed form
 `(T+1)/(6T)` — **0.175** for 20 clubs, independent of the realised order. The null
