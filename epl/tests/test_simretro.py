@@ -462,8 +462,15 @@ def test_retro_ledger_resumable_and_keyed_by_envelope_hash(tmp_path):
 
     first = simretro.run_retro(**kwargs)
     assert len(runner.calls) == 2, "one runner call per (season, cutoff)"
-    assert len(first) == 7, "2 arms + flat at both cutoffs, ppg only at MW10"
-    assert not any(r["arm"] == "ppg" and r["cutoff_label"] == "MW0" for r in first)
+    assert len(first) == 8, "2 arms + 2 nulls at both cutoffs, ppg@MW0 refused"
+    forecasts = [r for r in first if not r.get("not_applicable")]
+    assert len(forecasts) == 7, "2 arms + flat at both cutoffs, ppg only at MW10"
+    assert not any(r["arm"] == "ppg" and r["cutoff_label"] == "MW0"
+                   for r in forecasts), "ppg is undefined at the opener"
+    refused = [r for r in first if r.get("not_applicable")]
+    assert [(r["arm"], r["cutoff_label"]) for r in refused] == [("ppg", "MW0")], (
+        "and the refusal comes BACK, documented: it is the only evidence the "
+        "completeness accounting has that the cell is missing on purpose")
     keys = [row["run_key"] for row in first]
     assert len(set(keys)) == len(keys), "keys must identify a row uniquely"
     assert all(row["envelope_hash"] for row in first)
@@ -573,7 +580,10 @@ def smoke_runs(tmp_path_factory):
 @pytest.mark.slow
 @needs_archive
 def test_smoke_retro_runs_one_season_two_cutoffs_three_arms(smoke, tmp_path):
-    seen = {(row["season"], row["cutoff_label"], row["arm"]) for row in smoke}
+    seen = {(row["season"], row["cutoff_label"], row["arm"])
+            for row in smoke if not row.get("not_applicable")}
+    refused = {(row["season"], row["cutoff_label"], row["arm"])
+               for row in smoke if row.get("not_applicable")}
     assert {s for s, _, _ in seen} == {"2025/26"}
     assert {c for _, c, _ in seen} == {"MW0", "MW10"}
     for arm in simretro.ARMS:
@@ -582,8 +592,13 @@ def test_smoke_retro_runs_one_season_two_cutoffs_three_arms(smoke, tmp_path):
     assert ("2025/26", "MW0", "flat") in seen
     assert ("2025/26", "MW10", "ppg_pointmass") in seen, "PPG is defined by MW10"
     assert ("2025/26", "MW0", "ppg_pointmass") not in seen, "PPG is NA at the opener"
+    assert refused == {("2025/26", "MW0", "ppg_pointmass")}, (
+        "and the refusal is RETURNED, documented, not filtered out of the run")
 
-    scores = simretro.score_retro(smoke, n_boot=1_000)
+    # the grid is stated, from the same normalisation the run used — which is
+    # what `_cli` now does and what makes the accounting below mean anything
+    scores = simretro.score_retro(
+        smoke, n_boot=1_000, expected_cells=simretro.requested_cells(smoke=True))
     by = {(r["season"], r["cutoff_label"], r["arm"]): r for r in scores["rows"]}
     for label in ("MW0", "MW10"):
         native = by[("2025/26", label, "dc_native")]
@@ -593,7 +608,18 @@ def test_smoke_retro_runs_one_season_two_cutoffs_three_arms(smoke, tmp_path):
         assert native["wtrps"] > 0 and native["mc"]["cluster"] > 0
         assert native["points"]["crps"] > 0
         assert set(native["briers"]) == set(leaguesim.MARKETS)
+    assert scores["sanity"]["n_expected"] == 2
+    assert scores["sanity"]["n_checked"] == 2
+    assert scores["sanity"]["complete"] is True, "2 checked + 0 refused == 2"
+    assert scores["sanity"]["dc_native_beats_flat_everywhere"] is True
     assert scores["sanity"]["STOP_AND_INSPECT"] is False
+
+    # the SAME rows, scored the way the harness used to be called, certify
+    # nothing at all — the grid is what the flag rests on
+    blind = simretro.score_retro(smoke, n_boot=200)
+    assert blind["sanity"]["complete"] is None
+    assert blind["sanity"]["dc_native_beats_flat_everywhere"] is False
+    assert blind["sanity"]["STOP_AND_INSPECT"] is True
 
     markdown = simretro.report(scores)
     out = tmp_path / "smoke.md"
@@ -698,7 +724,9 @@ def test_beats_flat_everywhere_needs_every_expected_cell(tmp_path):
     rows = [dict(r, matrix=sharp.tolist()) if r["arm"] == "dc_native" else r
             for r in rows]
 
-    full = simretro.score_retro(rows, n_boot=50)
+    whole_grid = simretro.requested_cells(seasons=("2099/00",),
+                                          cutoffs=("MW0", "MW10"))
+    full = simretro.score_retro(rows, n_boot=50, expected_cells=whole_grid)
     sanity = full["sanity"]
     assert sanity["violations"] == [], "the fixture must beat the flat null"
     assert sanity["n_expected"] == 2 and sanity["n_checked"] == 2
@@ -800,3 +828,223 @@ def test_trps_carries_a_monte_carlo_error_and_the_columns_are_renamed(tmp_path):
     for row in native:
         key = (row["season"], row["cutoff_label"], row["arm"])
         assert pairs[key] == pytest.approx(2.0 * row["trps_se"], rel=1e-9)
+
+
+# ==========================================================================
+# harness v2.1 — the completeness identity, on the path it was never driven on
+# ==========================================================================
+
+def _r1_shaped_ledger(tmp_path, clubs, realised, runner):
+    """Three seasons x two cutoffs, scored sharp, in R1's own shape.
+
+    R1's grid was 42 (season, cutoff) cells and its ledger held 34: one season
+    refused entirely (`UnverifiedAdjustment`, all six cutoffs) and two openers
+    refused under the D11 truncation ceiling. This reproduces that shape small:
+    `2099/02` is absent altogether and `2099/01`'s opener is absent, so the
+    ledger holds 3 of 6 requested cells and nothing in it says so.
+    """
+    grid = {"MW0": pd.Timestamp("2099-08-10"), "MW10": pd.Timestamp("2099-11-20")}
+    rows = simretro.run_retro(
+        seasons=("2099/00", "2099/01"), cutoffs=("MW0", "MW10"),
+        arms=("dc_native",), nulls=("flat",), n_sims=64, seed=SEED,
+        ledger_path=tmp_path / "r1_shaped.jsonl", runner=runner,
+        schedules={"2099/00": grid, "2099/01": grid},
+        realised={"2099/00": realised,
+                  "2099/01": simretro.Realised(
+                      season="2099/01", position=dict(realised.position),
+                      span=dict(realised.span), points=dict(realised.points),
+                      adjustments={}, n_shared=0)},
+        verbose=False)
+    # dc_native must genuinely beat the flat null, or the flag would be False
+    # for a reason that has nothing to do with the accounting.
+    sharp = 0.6 * np.eye(len(clubs)) + 0.4 / len(clubs)
+    rows = [dict(r, matrix=sharp.tolist()) if r["arm"] == "dc_native" else r
+            for r in rows]
+    held = [r for r in rows if not (r["season"] == "2099/01"
+                                    and r["cutoff_label"] == "MW0")]
+    requested = simretro.requested_cells(
+        seasons=("2099/00", "2099/01", "2099/02"), cutoffs=("MW0", "MW10"))
+    return held, requested
+
+
+def test_completeness_is_not_derived_from_the_rows_it_was_handed(tmp_path):
+    """A2 (b) again, on the ONLY in-repo call path — the default one.
+
+    A2 (b) pre-states `n_expected` as "the requested (season, cutoff) cells"
+    and the flag as True only when
+    `n_checked + n_documented_refusals == n_expected`. With `expected_cells`
+    left at its default the grid was DERIVED from the rows just handed in, so
+    every row present was a cell expected and the identity could not fail:
+    scored through this path the real 170-row R1 ledger reported n_expected=34,
+    n_checked=34, n_missing=0, complete=True,
+    dc_native_beats_flat_everywhere=True and STOP_AND_INSPECT=False — on a run
+    eight cells short of its preregistered 42. That is A2 (b)'s own sentence,
+    "reported True on ANY non-empty subset", reproduced under v2.
+    """
+    clubs, realised = _clubs_and_realised()
+    runner = _CountingRunner(clubs)
+    held, requested = _r1_shaped_ledger(tmp_path, clubs, realised, runner)
+    assert len(requested) == 6
+    assert {(r["season"], r["cutoff_label"]) for r in held} == {
+        ("2099/00", "MW0"), ("2099/00", "MW10"), ("2099/01", "MW10")}
+
+    # THE DEFAULT PATH. A grid that was never stated cannot be closed against.
+    derived = simretro.score_retro(held, n_boot=50)
+    sanity = derived["sanity"]
+    assert sanity["n_expected"] is None, "a derived grid is not an expectation"
+    assert "NOT SUPPLIED" in sanity["n_expected_source"]
+    assert sanity["complete"] is None, "the identity was not evaluated"
+    assert sanity["dc_native_beats_flat_everywhere"] is False
+    assert sanity["STOP_AND_INSPECT"] is True
+
+    # the same rows, with the request stated: three of six cells are holes
+    stated = simretro.score_retro(held, n_boot=50, expected_cells=requested)
+    sanity = stated["sanity"]
+    assert sanity["n_expected"] == 6
+    assert sanity["n_expected_source"] == "supplied by the caller"
+    assert sanity["complete"] is False
+    assert sanity["dc_native_beats_flat_everywhere"] is False
+    assert sanity["STOP_AND_INSPECT"] is True
+    assert {(m["season"], m["cutoff_label"]) for m in sanity["missing"]} == {
+        ("2099/01", "MW0"), ("2099/02", "MW0"), ("2099/02", "MW10")}
+    assert all(m["documented"] is False for m in sanity["missing"])
+    assert sanity["n_documented_refusals"] == 0
+
+    # POSITIVE CONTROL: state the grid the ledger really does fill and the flag
+    # can be True — so it is the accounting moving it, not the fix disabling it.
+    whole = simretro.score_retro(
+        held, n_boot=50,
+        expected_cells=[("2099/00", "MW0"), ("2099/00", "MW10"),
+                        ("2099/01", "MW10")])
+    assert whole["sanity"]["n_expected"] == 3
+    assert whole["sanity"]["n_checked"] == 3
+    assert whole["sanity"]["complete"] is True
+    assert whole["sanity"]["dc_native_beats_flat_everywhere"] is True
+    assert whole["sanity"]["STOP_AND_INSPECT"] is False
+
+    # and the report says which of the two it is reading, in words
+    text = simretro.report(derived)
+    assert "NOT EVALUATED" in text and "not stated" in text
+    assert simretro.report(whole).count("the accounting closes: **True**") == 1
+
+
+def test_run_retro_returns_the_documented_refusals_it_wrote(tmp_path):
+    """A2 (b)'s other half: `n_documented_refusals` was structurally zero.
+
+    `run_retro` returned only rows that are NOT `not_applicable`, so the
+    documented-refusal term of the identity could never be non-zero on the path
+    that produces rows: a cell the runner legitimately declined, and wrote a
+    reason for, was indistinguishable from a hole. The marker is bookkeeping
+    for the resume AND the only evidence the accounting has that a missing cell
+    was refused on purpose.
+    """
+    clubs, realised = _clubs_and_realised()
+    runner = _CountingRunner(clubs, undefined_at=(("flat", "MW10"),))
+    rows = simretro.run_retro(**_v2_kwargs(tmp_path, clubs, realised, runner))
+    sharp = 0.6 * np.eye(len(clubs)) + 0.4 / len(clubs)
+    rows = [dict(r, matrix=sharp.tolist()) if r["arm"] == "dc_native" else r
+            for r in rows]
+
+    refusals = [r for r in rows if r.get("not_applicable")]
+    assert len(refusals) == 1, "the refusal comes back beside the forecasts"
+    assert (refusals[0]["arm"], refusals[0]["cutoff_label"]) == ("flat", "MW10")
+    assert refusals[0]["not_applicable"]
+
+    cells = simretro.requested_cells(seasons=("2099/00",), cutoffs=("MW0", "MW10"))
+    scored = simretro.score_retro(rows, n_boot=50, expected_cells=cells)
+    sanity = scored["sanity"]
+    assert sanity["n_checked"] == 1
+    assert sanity["n_documented_refusals"] == 1
+    assert sanity["complete"] is True, "1 checked + 1 refused == 2 expected"
+    assert sanity["STOP_AND_INSPECT"] is False
+    assert sanity["missing"][0]["documented"] is True
+
+    # POSITIVE CONTROL: hide the marker — the same shape becomes an
+    # undocumented hole, which is exactly what the harness used to do to itself.
+    hidden = [r for r in rows if not r.get("not_applicable")]
+    blind = simretro.score_retro(hidden, n_boot=50, expected_cells=cells)
+    assert blind["sanity"]["n_documented_refusals"] == 0
+    assert blind["sanity"]["complete"] is False
+    assert blind["sanity"]["dc_native_beats_flat_everywhere"] is False
+    assert blind["sanity"]["STOP_AND_INSPECT"] is True
+
+
+def test_requested_cells_is_the_grid_run_retro_fills(tmp_path):
+    """The request has to be statable, and stated the same way twice.
+
+    `expected_cells` is only worth anything if the caller can name the grid
+    without restating the harness's own defaults by hand — a second, drifting
+    copy of the schedule would close the identity against the wrong thing.
+    """
+    assert simretro.requested_cells() == tuple(
+        (s, c) for s in simretro.SEASONS for c in simretro.COMPARISON_CUTOFFS)
+    assert len(simretro.requested_cells()) == 35
+    assert simretro.requested_cells(smoke=True) == (("2025/26", "MW0"),
+                                                    ("2025/26", "MW10"))
+    assert len(simretro.requested_cells(
+        cutoffs=simretro.CUTOFF_LABELS)) == 42, "the whole preregistered grid"
+    with pytest.raises(simretro.RetroError, match="not in the fixed schedule"):
+        simretro.requested_cells(cutoffs=("MW7",))
+
+    # POSITIVE CONTROL: it is the grid the run really fills, not a parallel list
+    clubs, realised = _clubs_and_realised()
+    runner = _CountingRunner(clubs)
+    rows = simretro.run_retro(**_v2_kwargs(tmp_path, clubs, realised, runner))
+    assert {(r["season"], r["cutoff_label"]) for r in rows} == set(
+        simretro.requested_cells(seasons=("2099/00",), cutoffs=("MW0", "MW10")))
+
+
+R1_LEDGER = paths.DATA_DIR / "sim" / "retro_r1.jsonl"
+needs_r1_ledger = pytest.mark.skipif(
+    not R1_LEDGER.exists(), reason="the R1 ledger is not in this checkout")
+
+
+@needs_r1_ledger
+def test_the_real_r1_ledger_does_not_certify_itself(tmp_path):
+    """The artifact the defect was found on, held against the fixed harness.
+
+    The R1 ledger is 170 rows covering 34 of the 42 preregistered
+    (season, cutoff) cells: 2023/24 refused entirely (`UnverifiedAdjustment`,
+    six cutoffs) and two openers refused under the D11 ceiling. Scored through
+    the DEFAULT path it used to report n_expected=34, n_checked=34, n_missing=0,
+    complete=True, dc_native_beats_flat_everywhere=True, STOP_AND_INSPECT=False.
+
+    Gitignored, so this skips on a clean checkout; where the file exists it is
+    the only test here whose rows were produced by real fits.
+    """
+    rows = [json.loads(line) for line in R1_LEDGER.read_text().splitlines()
+            if line.strip()]
+    assert len(rows) == 170
+
+    # 1. the default path certifies NOTHING
+    derived = simretro.score_retro(rows, n_boot=20)["sanity"]
+    assert derived["n_checked"] == 34
+    assert derived["n_expected"] is None and derived["complete"] is None
+    assert derived["dc_native_beats_flat_everywhere"] is False
+    assert derived["STOP_AND_INSPECT"] is True
+
+    # 2. against the preregistered grid it is incomplete, and NAMES the holes
+    whole = simretro.requested_cells(cutoffs=simretro.CUTOFF_LABELS)
+    assert len(whole) == 42
+    stated = simretro.score_retro(rows, n_boot=20, expected_cells=whole)["sanity"]
+    assert stated["n_expected"] == 42 and stated["n_checked"] == 34
+    assert stated["complete"] is False
+    assert stated["dc_native_beats_flat_everywhere"] is False
+    holes = sorted({(m["season"], m["cutoff_label"]) for m in stated["missing"]})
+    assert holes == sorted(
+        [("2023/24", label) for label in simretro.CUTOFF_LABELS]
+        + [("2019/20", "MW0"), ("2020/21", "MW0")]), (
+        "exactly the two refusals reports/epl_sim_retro_v1_1.md §2 describes")
+
+    # 3. POSITIVE CONTROL: against the cells R1 actually claims — the admissible
+    # grid its report scopes every number to — the accounting closes and the
+    # hard check is True. No R1 number or claim moves; what moves is that the
+    # scope now has to be stated to be certified.
+    admissible = [cell for cell in whole if cell not in set(holes)]
+    assert len(admissible) == 34
+    closed = simretro.score_retro(rows, n_boot=20,
+                                  expected_cells=admissible)["sanity"]
+    assert closed["n_expected"] == 34 and closed["n_checked"] == 34
+    assert closed["complete"] is True
+    assert closed["dc_native_beats_flat_everywhere"] is True
+    assert closed["STOP_AND_INSPECT"] is False

@@ -78,7 +78,8 @@ __all__ = [
     "DEFAULT_N_SIMS", "NULLS", "SANITY_CUTOFFS", "SCHEMA_VERSION", "SEASONS",
     "SEED", "SMOKE_CUTOFFS", "SMOKE_SEASONS", "ArchiveRunner", "ArmResult",
     "CutoffResult", "Realised", "RetroError", "cutoff_schedule",
-    "realised_positions", "report", "run_retro", "score_retro", "weekly_cutoffs",
+    "realised_positions", "report", "requested_cells", "run_retro",
+    "score_retro", "weekly_cutoffs",
 ]
 
 SCHEMA_VERSION = "epl-simretro-1"
@@ -510,8 +511,11 @@ def _not_applicable_row(*, season, cutoff_label, cutoff, arm, n_sims, seed,
     ``ppg_pointmass`` is undefined before three complete rounds, so at MW0 there
     is nothing to write. Without this marker the key would stay missing, and
     every resumed run would pay for the whole cutoff's fit again just to
-    rediscover that. `score_retro` skips these rows and `run_retro` does not
-    return them: they are bookkeeping, not forecasts.
+    rediscover that. `score_retro` skips them when SCORING — they are
+    bookkeeping, not forecasts — and reads them for one other thing: they are
+    the only evidence the completeness accounting has that a cell is missing on
+    purpose rather than lost. So `run_retro` returns them beside the forecasts,
+    and a caller that wants forecasts alone filters on `not_applicable`.
     """
     producer = producer_identity()
     key = run_key(season, cutoff_label, cutoff, arm, n_sims, seed, producer)
@@ -577,6 +581,47 @@ def _read_ledger(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
+def _grid(seasons: Sequence[str] | None, cutoffs: Sequence[str] | None, *,
+          smoke: bool) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """What a request resolves to — ONE definition, used by both callers.
+
+    :func:`run_retro` and :func:`requested_cells` must not be able to disagree
+    about what was asked for. The completeness identity in :func:`score_retro`
+    is an identity between the grid REQUESTED and the rows that came back; if
+    the two sides are normalised by two copies of this logic they can drift,
+    and an identity that closes against a drifted grid is the same bug in a new
+    place.
+    """
+    if smoke:
+        seasons = SMOKE_SEASONS if seasons is None else seasons
+        cutoffs = SMOKE_CUTOFFS if cutoffs is None else cutoffs
+    seasons = tuple(SEASONS if seasons is None else seasons)
+    cutoffs = tuple(COMPARISON_CUTOFFS if cutoffs is None else cutoffs)
+    unknown = [c for c in cutoffs if c not in CUTOFF_LABELS]
+    if unknown:
+        raise RetroError(f"cutoff label(s) {unknown} are not in the fixed schedule")
+    return seasons, cutoffs
+
+
+def requested_cells(seasons: Sequence[str] | None = None,
+                    cutoffs: Sequence[str] | None = None, *,
+                    smoke: bool = False) -> tuple[tuple[str, str], ...]:
+    """The (season, cutoff) grid a :func:`run_retro` call would be asked to fill.
+
+    Pass it to :func:`score_retro` as `expected_cells`. A2 (b) defines
+    `n_expected` as *the requested cells*, which is a fact about the REQUEST and
+    cannot be recovered from the answer: a grid read off the rows that came back
+    is satisfied by whatever came back. This is the canonical way to state it,
+    computed by the same normalisation :func:`run_retro` applies to the same
+    arguments, so the two cannot drift apart.
+
+    The whole preregistered grid is ``requested_cells(cutoffs=CUTOFF_LABELS)``
+    (42 cells); the comparison grid alone is ``requested_cells()`` (35).
+    """
+    seasons, cutoffs = _grid(seasons, cutoffs, smoke=smoke)
+    return tuple((season, label) for season in seasons for label in cutoffs)
+
+
 def run_retro(seasons: Sequence[str] | None = None,
               cutoffs: Sequence[str] | None = None,
               arms: Sequence[str] = ARMS,
@@ -599,22 +644,20 @@ def run_retro(seasons: Sequence[str] | None = None,
     ``epl.walkforward.run_walk``: every forecast is a pure function of (season,
     cutoff, arm, n_sims, seed) and the frozen configuration, so a resumed run is
     the same run. Returns the rows for the REQUESTED keys, old and new, in
-    request order.
+    request order, INCLUDING the `not_applicable` markers for keys the runner
+    declined. Those markers used to be filtered out here, which made
+    `score_retro`'s `n_documented_refusals` structurally zero on this path —
+    a cell refused on purpose was then indistinguishable from a cell that was
+    lost, and the completeness accounting could not close on a correct run.
+    The grid the call requests is :func:`requested_cells` with the same
+    arguments; pass it to :func:`score_retro` as `expected_cells`.
 
     `runner` is the seam: the default :class:`ArchiveRunner` fits and simulates,
     and a test can substitute a callable with the same keyword signature to
     exercise the ledger without a fit.
     """
-    if smoke:
-        seasons = SMOKE_SEASONS if seasons is None else seasons
-        cutoffs = SMOKE_CUTOFFS if cutoffs is None else cutoffs
-    seasons = tuple(SEASONS if seasons is None else seasons)
-    cutoffs = tuple(COMPARISON_CUTOFFS if cutoffs is None else cutoffs)
+    seasons, cutoffs = _grid(seasons, cutoffs, smoke=smoke)
     arms, nulls = tuple(arms), tuple(nulls)
-
-    unknown = [c for c in cutoffs if c not in CUTOFF_LABELS]
-    if unknown:
-        raise RetroError(f"cutoff label(s) {unknown} are not in the fixed schedule")
 
     ledger_path = Path(ledger_path or (Path("data/epl/sim") / "retro_ledger.jsonl"))
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
@@ -690,8 +733,7 @@ def run_retro(seasons: Sequence[str] | None = None,
 
             for arm in (*arms, *nulls):
                 key = run_key(season, label, cutoff, arm, n_sims, seed, me)
-                row = have.get(key)
-                if row is not None and not row.get("not_applicable"):
+                if key in have:
                     wanted.append(key)
 
     return [have[key] for key in wanted]
@@ -782,6 +824,13 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
                 ) -> dict:
     """Every metric in plan v2 §5, per (season, cutoff, arm), plus the pairings.
 
+    `expected_cells` is the (season, cutoff) grid the run was ASKED for —
+    :func:`requested_cells` states it. Without it the completeness identity of
+    amendment A2 (b) cannot be evaluated, and the sanity block says so rather
+    than deriving a grid from the rows it was handed: `n_expected` is `None`,
+    `complete` is `None`, `dc_native_beats_flat_everywhere` is `False` and
+    `STOP_AND_INSPECT` is `True`.
+
     Aggregation happens WITHIN a cutoff label and never across labels — an
     opener forecast and a matchweek-19 forecast are different questions and a
     pooled TRPS would describe neither. The paired differences are bootstrapped
@@ -855,12 +904,26 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
     for row in scored:
         by_cell.setdefault((row["season"], row["cutoff_label"]), set()).add(
             row["arm"])
-    if expected_cells is None:
-        cells = set(by_cell) | {(s, c) for s, c, _a in documented}
-        expected_source = "derived from the rows supplied"
-    else:
+    # v2.1: and the grid has to be STATED. Deriving it from the rows just
+    # handed in makes the identity self-satisfying — every row present is a cell
+    # expected, so `n_checked == n_expected` holds by construction and any
+    # subset "closes". Scored through that path the real R1 ledger reported
+    # n_expected=34, n_checked=34, complete=True, STOP_AND_INSPECT=False on a
+    # run eight cells short of its preregistered 42. The derived cells are still
+    # worth reporting — an arm missing INSIDE a cell that IS present is a hole
+    # this can see without knowing the grid — but the identity is not evaluated
+    # and the flag cannot be True. :func:`requested_cells` states the grid.
+    stated = expected_cells is not None
+    if stated:
         cells = {(str(s), str(c)) for s, c in expected_cells}
         expected_source = "supplied by the caller"
+    else:
+        cells = set(by_cell) | {(s, c) for s, c, _a in documented}
+        expected_source = ("NOT SUPPLIED — the caller did not state the "
+                           "requested grid, so the completeness identity was "
+                           "not evaluated and no cell absent from these rows "
+                           "can have been noticed; pass `expected_cells` "
+                           "(see `requested_cells`) to evaluate it")
     missing = []
     for season, label in sorted(cells):
         present = by_cell.get((season, label), set())
@@ -873,12 +936,16 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
                 "reason": reason or "absent from the ledger",
                 "documented": reason is not None,
             })
-    n_expected = len(cells)
     documented_refusals = len({(m["season"], m["cutoff_label"]) for m in missing
                                if m["documented"]})
     undocumented = [m for m in missing if not m["documented"]]
-    complete = bool(checked + documented_refusals == n_expected
-                    and not undocumented)
+    # A2 (b)'s identity, evaluated only when there is a request to evaluate it
+    # against. `None` is "not evaluated" and is deliberately not `False`: a
+    # caller who states no grid has not been told its run is incomplete, it has
+    # been told nothing, and the flag below fails closed on that.
+    n_expected = len(cells) if stated else None
+    complete = (bool(checked + documented_refusals == n_expected
+                     and not undocumented) if stated else None)
     overrides = sum(1 for r in ledger if r.get("allow_foreign_producer"))
 
     return {
@@ -890,7 +957,7 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
         "by_cutoff": by_cutoff,
         "comparisons": paired,
         "sanity": {
-            "n_expected": int(n_expected),
+            "n_expected": None if n_expected is None else int(n_expected),
             "n_expected_source": expected_source,
             "n_checked": int(checked),
             "n_missing": len(missing),
@@ -899,9 +966,9 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
             "complete": complete,
             "n_foreign_producer_overrides": int(overrides),
             "dc_native_beats_flat_everywhere": bool(
-                checked and not violations and complete),
+                checked and not violations and complete is True),
             "violations": violations,
-            "STOP_AND_INSPECT": bool(violations or undocumented),
+            "STOP_AND_INSPECT": bool(violations or undocumented or not stated),
         },
         "never_averaged_across_cutoffs": True,
         "note": ("TRPS is primary and unweighted; wTRPS on the published "
@@ -999,13 +1066,18 @@ def report(scores: dict) -> str:
                 f"{cell['n_blocks']} |")
 
     sanity = scores["sanity"]
+    expected = ("a grid that was not stated" if sanity["n_expected"] is None
+                else f"{sanity['n_expected']} expected")
+    closes = ("**NOT EVALUATED** — the requested grid was not stated, so a cell "
+              "absent from these rows cannot have been noticed"
+              if sanity["complete"] is None else f"**{sanity['complete']}**")
     lines += ["", "## Sanity", "",
               f"- dc_native beats the flat null at every EXPECTED "
               f"(season, cutoff): **{sanity['dc_native_beats_flat_everywhere']}** "
               f"— {sanity['n_checked']} checked + "
               f"{sanity['n_documented_refusals']} documented refusal(s) against "
-              f"{sanity['n_expected']} expected ({sanity['n_expected_source']}); "
-              f"the accounting closes: **{sanity['complete']}**"]
+              f"{expected} ({sanity['n_expected_source']}); "
+              f"the accounting closes: {closes}"]
     if sanity["n_missing"]:
         lines.append("- missing cells: " + json.dumps(sanity["missing"]))
     if sanity["n_foreign_producer_overrides"]:
@@ -1046,15 +1118,22 @@ def _cli(argv: Iterable[str] | None = None) -> None:
             "the full seven-season retrospective is v1.1 R1 (plan v2 §6); "
             "T8 ships the harness and --smoke")
 
+    # The grid is stated by the caller, from the same normalisation the run
+    # used, so `score_retro` closes its accounting against what was ASKED for.
+    cells = requested_cells(smoke=True)
     rows = run_retro(smoke=True, n_sims=args.n_sims, seed=args.seed,
                      ledger_path=args.ledger, verbose=True)
-    scores = score_retro(rows)
+    scores = score_retro(rows, expected_cells=cells)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report(scores))
     print(f"[retro] {len(rows)} rows -> {out}")
     print(f"[retro] dc_native beats flat everywhere: "
-          f"{scores['sanity']['dc_native_beats_flat_everywhere']}")
+          f"{scores['sanity']['dc_native_beats_flat_everywhere']} "
+          f"({scores['sanity']['n_checked']} checked + "
+          f"{scores['sanity']['n_documented_refusals']} documented refusal(s) "
+          f"of {scores['sanity']['n_expected']} requested cells; "
+          f"the accounting closes: {scores['sanity']['complete']})")
 
 
 if __name__ == "__main__":       # pragma: no cover

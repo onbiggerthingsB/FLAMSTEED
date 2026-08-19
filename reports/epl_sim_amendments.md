@@ -610,3 +610,128 @@ neither is the position matrix's own error — but the exact strings differ from
 the pre-statement and that is said here rather than left to a reader to notice.
 
 *Recorded 2026-08-19, immediately after the commit that produced the hashes.*
+
+---
+
+## A2-N2 — A2 (b) was not enforced on the path that runs it (2026-08-19)
+
+**A2's and A2-N1's text above are deliberately unedited**, for the reason
+A1-C1 gives. This note records a defect in the Fix commit that implemented A2 —
+found by a read-only verifier reading that commit — the change that closes it,
+and the harness hashes it produces.
+
+*Arithmetic note: every number in this entry is an exact count of ledger rows or
+of grid cells. Nothing here is estimated, so nothing here carries a Monte-Carlo
+error. The R1 scores quoted elsewhere are unchanged and carry whatever error
+their own report records beside them.*
+
+### The observation
+
+A2 (b) pre-states `n_expected` as **"the requested (season, cutoff) cells"** and
+the flag as True only when `n_checked + n_documented_refusals == n_expected`,
+with `n_checked > 0` and no violations. The Fix commit implements exactly that —
+and only when the caller passes `expected_cells`. Two things then left the
+identity unable to fail on the path that actually produces rows.
+
+**The grid was derived from the answer.** With `expected_cells` at its default,
+`score_retro` set `cells` from the rows it had just been handed
+(`n_expected_source = "derived from the rows supplied"`). Every row present is
+then a cell expected, so `n_checked == n_expected` holds **by construction** and
+any subset closes its own accounting. `_cli` — the only in-repo caller — called
+`score_retro(rows)` with neither argument, and the new test drove only the
+explicit-`expected_cells` branch, so the suite was green across the gap.
+
+**Documented refusals never left `run_retro`.** `run_retro` returned only rows
+that are not `not_applicable`, so `n_documented_refusals` was **structurally
+zero** on that path: a cell the runner declined *and wrote a reason for* was
+indistinguishable from a cell that was lost, and the accounting could not close
+on a correct run even with the grid stated.
+
+Measured, before the change:
+
+| what was scored | `n_expected` | `n_checked` | `n_missing` | doc. refusals | `complete` | beats flat everywhere | `STOP_AND_INSPECT` |
+|---|---|---|---|---|---|---|---|
+| the real 170-row R1 ledger, default path | 34 | 34 | 0 | 0 | **True** | **True** | **False** |
+| one cell of a two-cell request | 1 | 1 | 0 | 0 | **True** | **True** | **False** |
+
+The first row is a run **eight cells short of its preregistered 42**, reporting
+that its accounting closes. That is A2 (b)'s own sentence — *"reported True on
+ANY non-empty subset — one surviving cell of a preregistered twenty-eight"* —
+reproduced under v2. A separate check confirmed the second half directly: a run
+in which the runner declined one null wrote **1** `not_applicable` marker to the
+ledger and returned **0** of them.
+
+### The ruling (owner, 2026-08-19)
+
+**Harness v2.1.** Both halves are fixed in `epl/simretro.py`, under TDD, each
+with a positive control.
+
+1. **The request is stated, never derived.** A new `requested_cells()` returns
+   the (season, cutoff) grid a `run_retro` call with the same arguments would be
+   asked to fill; `run_retro` and it share one normalisation (`_grid`) so the
+   two sides of the identity cannot drift apart. `_cli` states its grid.
+2. **An unstated grid certifies nothing.** With `expected_cells` absent,
+   `n_expected` and `complete` are `None` — *not evaluated*, which is not the
+   same as *complete* and not the same as *incomplete* —
+   `dc_native_beats_flat_everywhere` is `False`, and `STOP_AND_INSPECT` is
+   `True`. The report prints **NOT EVALUATED** and says why. Cells derived from
+   the rows are still scanned for a missing ARM inside a cell that is present,
+   which is a hole visible without knowing the grid.
+3. **`run_retro` returns the `not_applicable` markers** beside the forecasts, so
+   a documented refusal reaches the accounting that exists to count it.
+   `score_retro` still skips them when scoring.
+
+**A2's flag is unchanged and is now enforceable.**
+`dc_native_beats_flat_everywhere` is still a strict boolean, still True only
+under A2's three conditions. What changed is that the third condition can now
+fail.
+
+**The R1 record STANDS, and is not re-scored.** Every reason A2 gives holds:
+v2.1 changes no scoring arithmetic. Held against the fixed harness, the R1
+ledger reads:
+
+| grid stated | `n_expected` | `n_checked` | `complete` | beats flat everywhere |
+|---|---|---|---|---|
+| none (the default path) | `None` | 34 | `None` — not evaluated | False |
+| the preregistered grid | 42 | 34 | **False** | False |
+| the admissible cells R1 scopes its numbers to | 34 | 34 | **True** | **True** |
+
+Against the preregistered grid the harness now **names** the eight missing
+cells, and they are exactly the two refusals
+[`reports/epl_sim_retro_v1_1.md`](epl_sim_retro_v1_1.md) §2 reports before any
+score: all six cutoffs of 2023/24 (`UnverifiedAdjustment`), and the 2019/20 and
+2020/21 openers (D11's truncation ceiling, amendment A1). Against the 34
+admissible cells the accounting closes and the hard check is True.
+
+So **no R1 number and no R1 claim changes.** A2 justified not re-scoring R1
+partly on the assertion that *"R1's own `checked` = 28 is already the whole
+admissible grid, so the completeness identity's answer for R1 is known and is
+`True`"* — an assertion that was correct and that no code could check when it
+was written. It is now checkable, and it checks out. What changes is that the
+scope has to be **stated** for the flag to be True at all; R1 stated its scope in
+prose, on its first page, before any score, which is why the two readings agree.
+
+### The v2.1 hashes
+
+| file | v1 (frozen by the prereg) | v2 | v2.1 |
+|---|---|---|---|
+| `epl/simretro.py` | `2b25ab35…` | `f1744c25…` | `e449c78d96dffa663b9feccbcbb4f291f63d4452a34081bbdd68306afff91bff` |
+| `epl/simmetrics.py` | `e73f2f70…` | `6756d861…` | `6756d86143425a2b55785c0c0be49839bf981b10e54857abda9272831217a7a4` (unchanged) |
+
+`epl/simmetrics.py` is untouched by this change, so v2.1 is the **pair**
+(`e449c78d…`, `6756d861…`). A run whose harness hashes match none of the pairs
+recorded here refuses, exactly as prereg §12 requires. The producer identity
+that v2 puts in every ledger row and in the resume key is a digest over these
+files, so a v2 ledger and a v2.1 ledger cannot be mixed by accident either —
+which is why the fix does not, and could not, alter a stored row.
+
+### Recording note
+
+Recorded immediately after the Fix commit that produced the hashes. The
+behaviour is held by four tests in `epl/tests/test_simretro.py`:
+`test_completeness_is_not_derived_from_the_rows_it_was_handed`,
+`test_run_retro_returns_the_documented_refusals_it_wrote`,
+`test_requested_cells_is_the_grid_run_retro_fills`, and — where the gitignored
+ledger is present in the checkout —
+`test_the_real_r1_ledger_does_not_certify_itself`, which asserts the three rows
+of the R1 table above against the artifact itself.
