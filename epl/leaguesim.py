@@ -236,9 +236,19 @@ def _check_particle_grid(n_sims: int, n_particles: int) -> None:
     Monte-Carlo error rather than an unknown one. Zero is the one value that
     cannot be right.
 
-    Every preregistered run is divisible (20,000 sims over 1,000 particles;
-    the retrospective's 20,000 over 1,000), so this refuses nothing the design
-    asks for. It refuses the run that would silently mis-state its own error.
+    `N/S < 2` is the same failure one level down, and it is quieter. With ONE
+    simulation per particle the within-cluster variance is undefined —
+    `_cluster_stats` sets `within_defined=False` — and then substitutes ZERO for
+    it, which is published as `inner`, the match-randomness component of D15's
+    decomposition. A run at N == S therefore states that match randomness
+    contributes exactly nothing to its error, which is not a conservative
+    approximation of the truth but a specific false claim about it. `N/S >= 2`
+    is refused up front rather than reported as a zero nobody would query.
+
+    Every preregistered run is divisible and generous (20,000 sims over 1,000
+    particles is 20 each; the retrospective's the same), so this refuses nothing
+    the design asks for. It refuses the run that would silently mis-state its
+    own error.
     """
     if n_particles < 2:
         raise SimError(
@@ -246,6 +256,14 @@ def _check_particle_grid(n_sims: int, n_particles: int) -> None:
             "error (D15) needs at least two clusters. With one, every standard "
             "error would be reported as exactly 0 — a table with no stated "
             "error rather than one with an unknown error")
+    if n_sims < 2 * n_particles:
+        raise SimError(
+            f"n_sims={n_sims} over n_particles={n_particles} is "
+            f"{n_sims / n_particles:g} simulation(s) per particle: the "
+            "within-particle (match-randomness) variance of D15 needs at least "
+            "two. With one, it is undefined and would be published as `inner` = "
+            "0 — a claim that match randomness contributes nothing, not an "
+            "approximation of what it does contribute")
     if n_sims % n_particles != 0:
         raise SimError(
             f"n_sims={n_sims} is not a multiple of n_particles={n_particles} "
@@ -1453,12 +1471,30 @@ def _truncation_section(env: dict) -> str:
     block = env.get("excluded_mass") or {}
     flag = block.get("flag_threshold", particles.FLAG_EXCLUDED_MASS)
     if block.get("measured") and not block.get("n_fixtures"):
-        # A grid-capable arm at a cutoff with nothing left to simulate (every
-        # fixture played): measured is True, but there was no fixture to
-        # measure, so max/mean/p90 are None and must not be formatted.
+        # A grid-capable arm at a cutoff with nothing left to simulate: measured
+        # is True, but there was no fixture to measure, so max/mean/p90 are None
+        # and must not be formatted.
+        #
+        # "EVERY FIXTURE IS PLAYED" IS A CLAIM ABOUT THE LEDGER, so it is read
+        # from the ledger — `n_unplayed`, which `envelope` takes from the season
+        # state — and not inferred from the fact that no grid was measured. The
+        # two coincide on a correct run and come apart on exactly the run worth
+        # noticing: an arm that measured no fixture while the season still has
+        # some is not a completed season, it is a gap, and the note said the
+        # opposite of that in the sentence a reader trusts most.
+        unplayed = env.get("n_unplayed")
+        if unplayed == 0:
+            return _textwrap.fill(
+                "* **none** — every fixture is played at this cutoff "
+                "(`n_unplayed` = 0 in the results ledger), so no grid was "
+                "built and there is no truncation tail to measure.",
+                width=78, subsequent_indent="  ")
         return _textwrap.fill(
-            "* **none** — every fixture is played at this cutoff, so no grid "
-            "was built and there is no truncation tail to measure.",
+            "* **NOT MEASURED — INSPECT.** The run reports a measured "
+            "truncation record over 0 fixtures while the season still has "
+            f"**{unplayed}** unplayed fixture(s) in the results ledger. Those "
+            "two cannot both be right: no claim is made here about the "
+            "truncation tail of a run that did not measure one.",
             width=78, subsequent_indent="  ")
     if not block.get("measured"):
         return _textwrap.fill(

@@ -83,6 +83,39 @@ def _book(clubs, n_particles=16, *, spread="none", provisional=(), alpha=0.5):
     )
 
 
+class _Shifted:
+    """`DCNativeProvider` that prices season `i` with particle `(i + 1) mod S`.
+
+    A same-multiset permutation of the assignment: every draw is still used
+    exactly N/S times, and the column the engine RECORDS is unchanged, so no
+    assertion about `retained_rows.particle` can tell this apart from the real
+    thing. Only the numbers can.
+    """
+
+    name = "dc_native"
+
+    def __init__(self, book):
+        self._inner = leaguesim.DCNativeProvider(book)
+        self.book = book
+
+    @property
+    def n_particles(self):
+        return self._inner.n_particles
+
+    def sample(self, fixture, particle_idx, u):
+        rolled = (np.asarray(particle_idx, np.int64) + 1) % self.n_particles
+        return self._inner.sample(fixture, rolled.astype(np.int16), u)
+
+    def excluded_mass_for(self, fixture):
+        return self._inner.excluded_mass_for(fixture)
+
+    def content_hash(self):
+        return self._inner.content_hash()
+
+    def describe(self):
+        return self._inner.describe()
+
+
 def _with_played(state, played: dict):
     """The same state with `played` results added (statuses kept consistent)."""
     merged = dict(state.played)
@@ -96,6 +129,17 @@ def _with_played(state, played: dict):
         unplayed=tuple(f for f in state.unplayed if f not in played),
         statuses=dict(sorted(statuses.items())),
     )
+
+
+def _fully_played(season, result=(1, 0)):
+    """The season with EVERY fixture in the results ledger — a finished season.
+
+    Built from the fixture list, not from a flag: "played" in this project comes
+    from the results ledger and from nothing else, and a test that asserts what
+    the note says about a completed season has to construct one.
+    """
+    state = season.at("2026-08-21")
+    return _with_played(state, {f: result for f in state.unplayed})
 
 
 @pytest.fixture(scope="module")
@@ -303,7 +347,13 @@ def test_retained_particle_assignment_is_the_stratified_index(state):
     and none of it would fail loudly if the engine used any other bijection.
     """
     n_sims, n_particles = 256, 16
-    book = _book(state.clubs, n_particles=n_particles)
+    # DISTINCT particles. With `spread="none"` every draw carries the same
+    # strengths, so ANY assignment prices the season identically and the whole
+    # question is invisible: the previous version of this test compared the
+    # recorded column against itself over a book whose particles were
+    # interchangeable, and stayed green under an engine that priced with a
+    # permuted index while recording the right one.
+    book = _book(state.clubs, n_particles=n_particles, spread="champion")
     run = leaguesim.simulate("dc_native", state, book, n_sims, SEED, 128)
 
     expected = leaguesim.particle_index(n_sims, n_particles)
@@ -318,6 +368,21 @@ def test_retained_particle_assignment_is_the_stratified_index(state):
     assert np.bincount(permuted, minlength=n_particles).tolist() == \
         np.bincount(expected, minlength=n_particles).tolist()
     assert not np.array_equal(permuted, expected)
+
+    # ...AND THE COLUMN DESCRIBES THE PRICING, not just itself. `_Shifted`
+    # prices season `i` with particle `(i mod S) + 1 mod S` — the same multiset,
+    # a different bijection — which is exactly the mutant the recorded column
+    # cannot see. Its scorelines must differ, and its recorded column must NOT,
+    # which is the point: metadata alone proves nothing about the engine.
+    shifted = leaguesim.simulate("dc_native", state, _Shifted(book), n_sims,
+                                 SEED, 128)
+    assert shifted.retained_rows.particle.tolist() == expected.tolist(), (
+        "the engine records `i mod S` either way — so this column is not "
+        "evidence about which particle priced the season")
+    assert not np.array_equal(shifted.retained_rows.scorelines,
+                              run.retained_rows.scorelines), (
+        "a permuted particle assignment produced identical scorelines: the "
+        "engine is not pricing through the particle column at all")
 
 
 def test_run_refuses_an_unequal_or_single_particle_grid(state):
@@ -335,6 +400,31 @@ def test_run_refuses_an_unequal_or_single_particle_grid(state):
     one = _book(state.clubs, n_particles=1)
     with pytest.raises(leaguesim.SimError, match="at least two clusters"):
         leaguesim.simulate("dc_native", state, one, 256, SEED, 128)
+
+    # N == S: divisible, two clusters, and still wrong. One simulation per
+    # particle leaves the WITHIN-particle variance undefined, and
+    # `_cluster_stats` substitutes zero for it — published as `inner`, the
+    # match-randomness component of D15. A run that states match randomness
+    # contributes exactly nothing is not approximating, it is asserting
+    # something false, so it is refused before it can.
+    with pytest.raises(leaguesim.SimError, match="simulation"):
+        leaguesim.simulate("dc_native", state, book, 16, SEED, 16)
+    with pytest.raises(leaguesim.SimError, match="simulation"):
+        leaguesim.SimPlan.from_state(state, n_sims=16, n_particles=16,
+                                     seed=SEED, chunk_size=16)
+    # ... and the zero it would have published is real, not hypothetical: with
+    # one sim per cluster the within leg is undefined and comes back as 0.
+    undefined = leaguesim._cluster_stats(
+        psum=np.ones((16, 1)), psq=np.ones((16, 1)),
+        pcount=np.ones(16), n_total=16)
+    assert undefined["within_defined"] is False
+    assert float(undefined["inner"][0]) == 0.0
+    # POSITIVE CONTROL: at two per cluster it IS defined, so the refusal is
+    # about the count and not about `_cluster_stats` being broken.
+    defined = leaguesim._cluster_stats(
+        psum=np.array([[1.0], [1.0]]), psq=np.array([[1.0], [1.0]]),
+        pcount=np.full(2, 2.0), n_total=4)
+    assert defined["within_defined"] is True
 
     # and the plan refuses it directly, so nothing can route around `simulate`
     with pytest.raises(leaguesim.SimError, match="multiple of n_particles"):
@@ -749,21 +839,49 @@ def test_unmeasured_excluded_mass_block_carries_none_not_zero(small_run):
     assert small_run.envelope["excluded_mass"]["max"] > 0.0
 
 
-def test_limitations_renders_when_every_fixture_is_played(small_run):
+def test_limitations_renders_when_every_fixture_is_played(season, tmp_path):
     """Codex review of e3cbcec: a grid-capable arm at a fully-played cutoff has
     measured=True and n_fixtures=0, so max/mean/p90 are None; the renderer must
-    say so rather than format None with .3g (TypeError)."""
-    env = dict(small_run.envelope)
-    env["excluded_mass"] = {
-        "measured": True, "n_fixtures": 0, "max": None, "mean": None,
-        "p90": None, "n_flagged": 0, "flagged": [],
-        "flag_threshold": particles.FLAG_EXCLUDED_MASS,
-        "hard_stop_threshold": particles.HARD_STOP_EXCLUDED_MASS,
-    }
-    text = leaguesim._truncation_section(env)
+    say so rather than format None with .3g (TypeError).
+
+    Codex review of df90133: and "every fixture is played" is a claim about the
+    LEDGER, so it is asserted through the real pipeline — a season state with
+    380 results, `simulate()` -> `excluded_mass_report()` -> the note — rather
+    than by injecting `n_fixtures=0` into an OPENER envelope that still holds
+    380 unplayed fixtures and blessing the sentence. That injection made the
+    guard true by construction: it never built a fully-played state, so it could
+    not tell "the season is over" from "no grid was measured".
+    """
+    state = _fully_played(season)
+    assert state.unplayed == () and len(state.played) == 380
+    book = _book(state.clubs)
+    run = leaguesim.simulate("dc_native", state, book, 64, SEED, 32)
+
+    block = run.envelope["excluded_mass"]
+    assert block["measured"] is True and block["n_fixtures"] == 0
+    assert block["max"] is None and block["mean"] is None
+    assert run.envelope["n_unplayed"] == 0 and run.envelope["n_played"] == 380
+    assert run.excluded_mass["per_fixture"] == []
+
+    text = leaguesim.limitations_markdown(run)
     assert "every fixture is played" in text
-    # POSITIVE CONTROL: the measured path still formats real numbers
-    assert "max **" in leaguesim._truncation_section(small_run.envelope)
+    assert leaguesim.write_outputs(run, tmp_path)["limitations"].read_text() == text
+
+    # THE NEGATIVE CONTROL the old shape blessed: `measured` with no fixture
+    # measured while the ledger still holds 380 unplayed. That is not a finished
+    # season, it is a gap, and the note must not say the season is over.
+    gapped = dict(run.envelope)
+    gapped["n_unplayed"] = 380
+    gapped["n_played"] = 0
+    said = leaguesim._truncation_section(gapped)
+    assert "every fixture is played" not in said
+    assert "INSPECT" in said and "380" in said
+
+    # POSITIVE CONTROL: the measured path still formats real numbers.
+    opener = season.at("2026-08-21")
+    normal = leaguesim.simulate("dc_native", opener, _book(opener.clubs), 64,
+                                SEED, 32)
+    assert "max **" in leaguesim._truncation_section(normal.envelope)
 
 
 def test_limitations_note_is_byte_identical_across_runs(state, tmp_path):
