@@ -520,24 +520,43 @@ def marginal_parity(book, post, run: leaguesim.SimRun, fixtures=None, *,
       conservative under the dependence documented below, and conservative here
       means harder to fail SPURIOUSLY, which is the property this criterion
       needs most: the first time it fails should be a reason to stop.
-    * **Leg 2 — global.** `chi2 = sum(Z^2)` over exactly those `m` cells,
-      referred to chi2 with `df = m`; the run fails if `p <= chi2_min_p`. Leg 1
-      cannot see a hundred cells each 3 sigma out in the same direction; leg 2
-      cannot see one cell at 8 sigma among fourteen thousand.
+    * **Leg 2 — global, AND A DIAGNOSTIC ONLY (amendment A3-N1, 2026-08-20).**
+      `chi2 = sum(Z^2)` over exactly those `m` cells with `df = m`, and its `p`
+      against `chi2_min_p`, are computed and reported on every run — and NOTHING
+      passes or fails on them. `sum(Z^2)` is not chi2_m: within a fixture the
+      scoreline cells are multinomial and lose a degree of freedom, the
+      expected-count floor drops cells and part of that constraint with them,
+      the home/draw/away triple is a linear combination of cells already in the
+      sum, and each `Z` divides by an ESTIMATED, floored denominator. A3 asserted
+      the DIRECTION of that miscalibration without computing it; positive
+      dependence can fatten the upper tail instead. A threshold on an
+      uncalibrated distribution is not a criterion, so it is reported as what it
+      is. The calibration path is pre-stated in the ledger as v1.2: a parametric
+      bootstrap of the sampler's own null.
 
-    `sum(Z^2)` is not exactly chi2_m and the report says so rather than hiding
-    it: within a fixture the scoreline cells are multinomial and lose a degree
-    of freedom, the expected-count floor drops cells and part of that
-    constraint with them, the home/draw/away triple is a linear combination of
-    cells already in the sum, and the `max(cluster, binomial)` SE deflates every
-    term. The net is to make leg 2 marginally easier to pass, which is why it
-    sits at a very loose `p > 1e-3`. Leg 1 does the per-cell work and leg 1's
-    arithmetic is exact.
+    Leg 1 is the criterion. Its arithmetic is exact and its threshold is stated.
 
     `m`, `z*`, `max|Z|`, `chi2`, `df` and `p` are all reported on every run,
     pass or fail: a criterion whose threshold moves with the run has to show its
-    threshold.
+    threshold, and a diagnostic that gates nothing still has to be visible.
+
+    `alpha` and `chi2_min_p` are VALIDATED, not trusted. `alpha <= 0` makes
+    `z*` infinite or NaN, every `|Z| > z*` comparison False, and an arbitrarily
+    wrong sampler passes leg 1 — a fail-open path reachable by a single
+    mistyped keyword, on the one check that says the sampled law IS the
+    published one.
     """
+    if not np.isfinite(alpha) or not 0.0 < alpha < 1.0:
+        raise CanaryError(
+            f"alpha={alpha!r} is not in (0, 1). `z* = Phi^-1(1 - alpha/(2m))` "
+            "is then infinite or NaN, every per-cell comparison against it is "
+            "False, and leg 1 passes whatever the sampler did — the gate fails "
+            "OPEN on a mistyped keyword")
+    if not np.isfinite(chi2_min_p) or not 0.0 <= chi2_min_p < 1.0:
+        raise CanaryError(
+            f"chi2_min_p={chi2_min_p!r} is not in [0, 1). A p-value floor "
+            "outside the range p can take is not a floor: every p clears a "
+            "negative one and none clears 1")
     plan = run.plan
     n_sims, n_particles = plan.n_sims, plan.n_particles
     if n_sims % n_particles:
@@ -643,12 +662,19 @@ def marginal_parity(book, post, run: leaguesim.SimRun, fixtures=None, *,
         f"{dev:.2f} SE (z* = {z_star:.4f})"
         for fid, k, dev, emp, r in cells if dev > z_star]
     leg1 = not failures
-    leg2 = bool(p_value > chi2_min_p)
-    if not leg2:
-        failures.append(
-            f"global chi2 = {chi2_stat:.1f} on df = {df} gives p = {p_value:.3e}, "
-            f"not above the {chi2_min_p:g} floor: the cells are collectively "
-            "further from the published grid than Monte-Carlo error explains")
+    # A3-N1: REPORTED, NOT GATING. `p_value > chi2_min_p` is still computed and
+    # printed on every run and it stays out of `failures`, because `failures` is
+    # what the gate reads: a threshold on a statistic whose null distribution has
+    # not been established cannot fail a run, and saying so is not weakening the
+    # gate but describing it accurately.
+    chi2_note = (
+        f"UNCALIBRATED DIAGNOSTIC (A3-N1): global chi2 = {chi2_stat:.1f} on "
+        f"df = {df} gives p = {p_value:.3e}, "
+        f"{'above' if p_value > chi2_min_p else 'NOT above'} the reference "
+        f"{chi2_min_p:g}. Sum Z^2 is not chi2_m — the cells are dependent and "
+        "each Z divides by an estimated, floored SE — so this gates nothing. "
+        "It is printed on every run so a collective drift leg 1 cannot see is "
+        "still visible to a reader.")
 
     return {
         "n_fixtures": len(fixtures),
@@ -664,10 +690,15 @@ def marginal_parity(book, post, run: leaguesim.SimRun, fixtures=None, *,
         "p_value": p_value,
         "chi2_min_p": float(chi2_min_p),
         "leg1_per_cell_PASS": bool(leg1),
-        "leg2_global_PASS": leg2,
+        #: `None`, not a boolean: leg 2 is a reported diagnostic and has no
+        #: verdict to give. The key is kept so a reader who looks for the old
+        #: one finds the demotion rather than a missing field.
+        "leg2_global_PASS": None,
+        "leg2_chi2_above_reference": bool(p_value > chi2_min_p),
+        "leg2_note": chi2_note,
         "per_fixture": per_fixture,
         "failures": failures,
-        "PASS": bool(leg1 and leg2),
+        "PASS": bool(leg1),
     }
 
 
@@ -802,6 +833,22 @@ def coherence(run: leaguesim.SimRun, *, tol: float = DEFAULT_TOL) -> dict:
                 failures.append(
                     f"{club} {market}: standard error {error!r} is missing, "
                     "non-finite or negative")
+    # E[points] IS A HEADLINE. `points_summary` is printed beside every club in
+    # the issuance summary as `mean +/- se`, and it was the one published SE
+    # this check never looked at: a negative or non-finite error reached the top
+    # of the report while coherence passed. Every number that appears with a
+    # `+/-` beside it is checked here, not just the market columns.
+    for club, cell in sorted((run.points_summary or {}).items()):
+        for key in ("mean", "se"):
+            value = None if cell is None else cell.get(key)
+            if value is None or not np.isfinite(float(value)):
+                se_ok = False
+                failures.append(
+                    f"{club} E[points] {key}: {value!r} is missing or not finite")
+            elif key == "se" and float(value) < 0.0:
+                se_ok = False
+                failures.append(
+                    f"{club} E[points]: standard error {value!r} is negative")
 
     # --- every club plays a complete double round-robin ---------------------
     double_round_robin_ok = bool(

@@ -1063,15 +1063,36 @@ def output_numbers_digest(payload: dict) -> str:
 
 
 def _parity(book, post, run, fixtures) -> dict:
+    """The note states what HAPPENED, not what a passing run would have said.
+
+    It used to be a fixed sentence claiming `|Z| <= z*` and `p > floor`, written
+    whether or not either held — and it travels into the issuance report through
+    `summary_markdown`. A criterion that prints its own success text on failure
+    is worse than one with no note: the gate's verdict says FAIL two columns
+    away, and the sentence beside it says the thing passed.
+    """
     report = simcanary.marginal_parity(book, post, run, fixtures)
-    return _ok("marginal_parity", bool(report["PASS"]), report,
-               "simulated per-fixture marginals ARE the published per-fixture "
-               f"forecast: {report['n_cells_compared']} cells, both legs of "
-               f"amendment A3 — per-cell |Z| <= z* = {report['z_star']:.4f} "
-               f"(alpha = {report['alpha']:g}, family-wise in m) with max |Z| = "
-               f"{report['max_sigma']:.3f}, and the global chi2 = "
-               f"{report['chi2']:.1f} on df = {report['df']} giving "
-               f"p = {report['p_value']:.3g} > {report['chi2_min_p']:g}")
+    passed = bool(report["PASS"])
+    if passed:
+        leg1 = (f"per-cell |Z| <= z* = {report['z_star']:.4f} "
+                f"(alpha = {report['alpha']:g}, family-wise in m) with "
+                f"max |Z| = {report['max_sigma']:.3f}")
+        head = ("simulated per-fixture marginals ARE the published per-fixture "
+                f"forecast: {report['n_cells_compared']} cells, ")
+    else:
+        leg1 = (f"{len(report['failures'])} cell(s) exceed z* = "
+                f"{report['z_star']:.4f} (alpha = {report['alpha']:g}, "
+                f"family-wise in m); max |Z| = {report['max_sigma']:.3f}")
+        head = ("simulated per-fixture marginals are NOT the published "
+                f"per-fixture forecast: {report['n_cells_compared']} cells, ")
+    # Leg 2 is a reported diagnostic (amendment A3-N1) and gates nothing, so it
+    # is quoted with its own label rather than as a second criterion.
+    return _ok("marginal_parity", passed, report,
+               head + "amendment A3 leg 1 (A3-N1 demoted leg 2 to a "
+               f"diagnostic) — {leg1}. Diagnostic only: chi2 = "
+               f"{report['chi2']:.1f} on df = {report['df']}, "
+               f"p = {report['p_value']:.3g} against the "
+               f"{report['chi2_min_p']:g} reference.")
 
 
 def _coherence(run) -> dict:

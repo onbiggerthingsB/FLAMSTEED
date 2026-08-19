@@ -481,6 +481,35 @@ def test_coherence_fires_on_every_corruption(small_run, break_it, expect):
     assert report["failures"], "a failure must be named, not just flagged"
 
 
+@pytest.mark.parametrize("field,value", [
+    ("se", -0.5), ("se", float("nan")), ("se", None),
+    ("mean", float("inf")), ("mean", None),
+])
+def test_coherence_checks_the_expected_points_headline(small_run, field, value):
+    """E[points] carries a `+/-` in the summary, so its SE is checked here.
+
+    `points_summary` is printed beside every club at the top of the issuance
+    report as `mean +/- se`, and it was the one published standard error
+    coherence never looked at: a NEGATIVE E[points] SE reached the headline
+    while this check reported PASS. The separate guard in `epl.simcli` rejects
+    only missing or non-finite values, so a negative one passed both.
+    """
+    # POSITIVE CONTROL: untouched, the real run's points summary is coherent.
+    assert simcanary.coherence(small_run)["PASS"] is True
+
+    run = copy.copy(small_run)
+    run.points_summary = copy.deepcopy(small_run.points_summary)
+    club = small_run.clubs[0]
+    assert np.isfinite(run.points_summary[club]["se"]) >= 0
+    run.points_summary[club][field] = value
+
+    report = simcanary.coherence(run)
+    assert report["PASS"] is False
+    assert report["standard_errors_ok"] is False
+    assert any("E[points]" in line and club in line
+               for line in report["failures"]), report["failures"]
+
+
 def test_coherence_identity_leg_is_the_tables_own_checker(small_run):
     """The identity leg reuses `epl.table.check_identities`, not a second copy."""
     plan = small_run.plan
@@ -536,6 +565,41 @@ def test_run_acceptance_without_the_panel(matches):
         assert entry["played_set_parity"] is None
 
 
+def test_run_acceptance_propagates_a_FAILING_parity(matches, monkeypatch):
+    """The NEGATIVE control the set had none of: a failing leg must reach PASS.
+
+    `test_run_acceptance_without_the_panel` supplies only passing checks, so
+    deleting the marginal-parity conjunct from `run_acceptance`'s verdict left
+    it green — the criterion was in the report and out of the arithmetic, which
+    is precisely the shape the fix was supposed to close. Here parity is forced
+    to fail and the verdict has to follow it, per entry and overall.
+    """
+    real = simcanary.marginal_parity
+    calls = []
+
+    def failing(*args, **kwargs):
+        report = dict(real(*args, **kwargs))
+        calls.append(report["PASS"])
+        report["PASS"] = False
+        report["failures"] = ["forced failure (negative control)"]
+        return report
+
+    monkeypatch.setattr(simcanary, "marginal_parity", failing)
+    report = simcanary.run_acceptance(matches=matches, n_sims=64, skip_panel=True)
+
+    assert calls and all(calls), (
+        "the real parity passed on every cutoff, so the False below is the "
+        "forced one and not a genuinely failing sampler")
+    assert report["PASS"] is False
+    for label, entry in report["checks"].items():
+        assert entry["marginal_parity"]["PASS"] is False, label
+        assert entry["leakage"]["PASS"] is True, label
+        assert entry["coherence"]["PASS"] is True, label
+        assert entry["PASS"] is False, (
+            f"{label}: every other leg passed, so this entry's verdict is "
+            "reading marginal parity or it is reading nothing")
+
+
 # ==========================================================================
 # round 2 — criterion 3 under amendment A3, and the coherence gaps
 # ==========================================================================
@@ -581,20 +645,30 @@ def test_marginal_parity_threshold_is_family_wise_in_m(parity):
     assert float(norm.isf(0.01 / (2 * 14225))) == pytest.approx(4.9605, abs=5e-5)
 
 
-def test_marginal_parity_global_leg_catches_what_the_per_cell_leg_cannot(parity):
-    """Leg 2 exists for the failure leg 1 is blind to: many small, one-way gaps.
+def test_marginal_parity_leg2_is_reported_and_gates_nothing(parity):
+    """A3-N1 (2026-08-20): leg 2 is a diagnostic, and it is still PRINTED.
 
     A book tilted slightly against the one that produced the run moves every
-    cell a little and no cell past `z*`. Leg 1 sees nothing; the omnibus over
-    the same standardised deviations sees it immediately. Both legs are required
-    precisely so this run cannot report PASS.
+    cell a little and no cell past `z*`, so leg 1 sees nothing while the omnibus
+    over the same deviations lands at p ~ 1e-25. The omnibus was a PASS/FAIL leg
+    and is no longer one: `sum(Z^2)` is not chi2_m — the cells are dependent
+    (multinomial within a fixture, one particle set across fixtures) and each Z
+    divides by an estimated, floored SE — so `p <= 1e-3` was a threshold on an
+    uncalibrated distribution. A3 asserted the direction of that miscalibration
+    without computing it.
+
+    What this test now pins is the demotion done properly: the statistic is
+    still computed, still reported, still moves with the tilt, and the run's
+    verdict does not depend on it. The old shape asserted `PASS is False` here,
+    which was the gate failing a run on a number nobody has calibrated.
     """
     book, run, provisional = parity
     _widened, plain = _split_by_widening(book, run)
     checked = plain[:40]
 
     honest = simcanary.marginal_parity(book, None, run, checked)
-    assert honest["PASS"] is True and honest["p_value"] > honest["chi2_min_p"]
+    assert honest["PASS"] is True
+    assert honest["leg2_chi2_above_reference"] is True
 
     # tilt = 0.04 lifts every rate by 4%: at m ~ 950 that is max |Z| ~ 3.6
     # against z* ~ 4.41 — comfortably inside leg 1 — and chi2 ~ 1488 on
@@ -609,12 +683,60 @@ def test_marginal_parity_global_leg_catches_what_the_per_cell_leg_cannot(parity)
     assert tilted["max_sigma"] < 4.0, (
         "and small enough that the RETIRED 4-sigma rule would have missed it: "
         f"max |Z| = {tilted['max_sigma']:.2f}")
-    assert tilted["leg2_global_PASS"] is False
-    assert tilted["PASS"] is False
-    assert any("global chi2" in line for line in tilted["failures"])
+
+    # THE DEMOTION: the diagnostic sees it, the verdict does not read it, and
+    # nothing about it reaches `failures` (which is what the gate reads).
+    assert tilted["leg2_chi2_above_reference"] is False
     assert tilted["chi2"] > honest["chi2"]
-    assert not [line for line in tilted["failures"] if " | " in line], (
-        "no single cell failed: leg 2 is what caught this and nothing else did")
+    assert tilted["PASS"] is True, "leg 2 must not fail a run (A3-N1)"
+    assert tilted["failures"] == []
+    assert tilted["leg2_global_PASS"] is None, (
+        "the old boolean is kept as None so a reader finds the demotion, not "
+        "a missing field")
+
+    # ...and it is REPORTED, not silently dropped: every number the amendment
+    # requires is present on both runs, and the note says what it is.
+    for report in (honest, tilted):
+        for key in ("chi2", "df", "p_value", "chi2_min_p"):
+            assert np.isfinite(report[key]), key
+        assert "UNCALIBRATED DIAGNOSTIC" in report["leg2_note"]
+        assert f"{report['chi2']:.1f}" in report["leg2_note"]
+
+
+def test_marginal_parity_refuses_a_threshold_outside_its_own_range(parity):
+    """`alpha` and `chi2_min_p` are validated: the gate must not fail OPEN.
+
+    With `alpha <= 0`, `z* = Phi^-1(1 - alpha/(2m))` is `inf` or NaN, every
+    `|Z| > z*` is False, and leg 1 — the one criterion saying the sampled law IS
+    the published one — passes whatever the sampler did. It is reachable by a
+    single mistyped keyword, which is why it is refused rather than documented.
+    """
+    book, run, provisional = parity
+    _widened, plain = _split_by_widening(book, run)
+    checked = plain[:20]
+
+    # POSITIVE CONTROL: the defaults, and legitimate non-default values, work.
+    assert simcanary.marginal_parity(book, None, run, checked)["PASS"] is True
+    assert simcanary.marginal_parity(book, None, run, checked, alpha=0.05,
+                                     chi2_min_p=0.0)["PASS"] is True
+
+    for bad in (-1.0, 0.0, 1.0, 2.0, float("nan")):
+        with pytest.raises(simcanary.CanaryError, match="alpha"):
+            simcanary.marginal_parity(book, None, run, checked, alpha=bad)
+    for bad in (-1.0, 1.0, 2.0, float("nan")):
+        with pytest.raises(simcanary.CanaryError, match="chi2_min_p"):
+            simcanary.marginal_parity(book, None, run, checked, chi2_min_p=bad)
+
+    # THE FAIL-OPEN ITSELF, demonstrated on the arithmetic the guard protects:
+    # a tilted sampler that leg 1 rightly catches at the real z* is passed by
+    # every cell once alpha goes non-positive.
+    hot = _book(run.clubs, n_particles=25, provisional=tuple(provisional),
+                alpha=0.5, tilt=0.25)
+    caught = simcanary.marginal_parity(hot, None, run, checked)
+    assert caught["PASS"] is False and caught["failures"]
+    from scipy.stats import norm as _norm
+    assert not np.isfinite(float(_norm.isf(-1.0 / (2 * caught["df"])))), (
+        "z* at alpha = -1 is not a number, so no |Z| can exceed it")
 
 
 def test_marginal_parity_refuses_an_empty_fixture_set(parity):
