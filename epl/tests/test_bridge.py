@@ -80,6 +80,20 @@ def bridge(rows) -> "bridge_mod.EmpiricalBridge":
 
 
 @pytest.fixture(scope="module")
+def early_bridge() -> "bridge_mod.EmpiricalBridge":
+    """A conditional estimated well BEFORE every cutoff these tests forecast at.
+
+    The module `bridge` is estimated at 2024-01-01, and the Elo tests below
+    forecast at 2022-06-01 and at archive blocks earlier still. Pairing them was
+    a point-in-time violation nobody had noticed: the bridge had read every
+    scoreline between the two dates. The providers refuse that pairing now, so
+    the tests that are about the HEAD use a bridge their own cutoff can see.
+    """
+    return bridge_mod.EmpiricalBridge.fit(
+        _synthetic_matches(start="2010-01-01"), "2014-01-01")
+
+
+@pytest.fixture(scope="module")
 def season():
     return season_mod.Season.load("2026/27")
 
@@ -361,7 +375,7 @@ def _anchor_state(ratings: dict[str, float], cutoff) -> anchor_mod.AnchorState:
                                   sd=float(values.std()))
 
 
-def test_elo_provider_static_and_uses_only_pre_cutoff_history(bridge):
+def test_elo_provider_static_and_uses_only_pre_cutoff_history(early_bridge):
     history = _synthetic_history()
     cutoff = "2022-06-01"
     day = pd.Timestamp(cutoff).normalize()
@@ -371,10 +385,10 @@ def test_elo_provider_static_and_uses_only_pre_cutoff_history(bridge):
                 _plain_fixture("charlie", "alpha", 1)]
 
     provider = bridge_mod.EloOutcomeProvider.fit(anchor_state, history, fixtures,
-                                                 bridge)
+                                                 early_bridge)
     trimmed = bridge_mod.EloOutcomeProvider.fit(
         anchor_state, history.loc[pd.to_datetime(history["date"]) < day],
-        fixtures, bridge)
+        fixtures, early_bridge)
     assert provider.n_fit_rows == int((pd.to_datetime(history["date"]) < day).sum())
     assert provider.n_fit_rows < len(history)
     np.testing.assert_array_equal(provider.probs, trimmed.probs)
@@ -384,14 +398,16 @@ def test_elo_provider_static_and_uses_only_pre_cutoff_history(bridge):
     after = history.copy()
     post = np.flatnonzero(pd.to_datetime(after["date"]).to_numpy() >= day.to_datetime64())
     after.iloc[post[:50], after.columns.get_loc("ftr")] = "A"
-    unmoved = bridge_mod.EloOutcomeProvider.fit(anchor_state, after, fixtures, bridge)
+    unmoved = bridge_mod.EloOutcomeProvider.fit(anchor_state, after, fixtures,
+                                                early_bridge)
     np.testing.assert_array_equal(unmoved.probs, provider.probs)
 
     # POSITIVE CONTROL: a pre-cutoff result does.
     before = history.copy()
     pre = np.flatnonzero(pd.to_datetime(before["date"]).to_numpy() < day.to_datetime64())
     before.iloc[pre[:50], before.columns.get_loc("ftr")] = "A"
-    moved = bridge_mod.EloOutcomeProvider.fit(anchor_state, before, fixtures, bridge)
+    moved = bridge_mod.EloOutcomeProvider.fit(anchor_state, before, fixtures,
+                                              early_bridge)
     assert not np.allclose(moved.probs, provider.probs)
 
     # STATIC: the ratings do not move with the simulated season, so the law a
@@ -410,7 +426,7 @@ def test_elo_provider_static_and_uses_only_pre_cutoff_history(bridge):
 
 
 @needs_archive
-def test_elo_provider_reproduces_walk_forward_head_probs_at_a_block(bridge):
+def test_elo_provider_reproduces_walk_forward_head_probs_at_a_block(early_bridge):
     matches = baseline.load_matches()
     frame = sort_for_walk_forward(matches.loc[matches["played"]])
     anchor = anchor_mod.Anchor(frame, freeze.frozen_elo_config())
@@ -444,7 +460,7 @@ def test_elo_provider_reproduces_walk_forward_head_probs_at_a_block(bridge):
                 for i, r in enumerate(block_rows)]
 
     provider = bridge_mod.EloOutcomeProvider.fit(anchor_state, history, fixtures,
-                                                 bridge)
+                                                 early_bridge)
     assert provider.n_fit_rows == cut
     np.testing.assert_array_equal(provider.probs, reference[block_rows])
 
@@ -478,6 +494,82 @@ def test_arms_share_uniform_slots(state, bridge):
         n_particles=book.n_particles)
     hg_t, ag_t = tilted.sample(fixture, pidx, u)
     assert not np.array_equal(hg_dc, hg_t)
+
+    # SLOT CONTROL. The assertion above says the two arms use the SAME slots as
+    # each other; it says nothing about WHICH, and would hold just as well if
+    # both arms read the outcome from u[2] and the scoreline from u[0], or if
+    # one slot were never read at all. So each slot is disturbed on its own and
+    # the sample must move — for both arms, which is what pins the documented
+    # roles rather than merely their agreement.
+    for slot in (0, 2):
+        other = u.copy()
+        other[slot] = leaguesim.streams(SEED + 99, 0, fixture.ordinal).random(n)
+        for provider, name in ((dc, "dc_wdl_bridge"), (elo, "elo_wdl_bridge")):
+            hg_o, ag_o = provider.sample(fixture, pidx, other)
+            base_h, base_a = provider.sample(fixture, pidx, u)
+            assert not (np.array_equal(hg_o, base_h) and np.array_equal(ag_o, base_a)), (
+                f"{name} ignores u[{slot}]: disturbing it changed nothing")
+    # ... and swapping the outcome slot with the scoreline slot moves both arms,
+    # which a provider reading one slot for both purposes would survive.
+    swapped = u[[2, 1, 0]]
+    for provider, name in ((dc, "dc_wdl_bridge"), (elo, "elo_wdl_bridge")):
+        hg_s, ag_s = provider.sample(fixture, pidx, swapped)
+        base_h, base_a = provider.sample(fixture, pidx, u)
+        assert not (np.array_equal(hg_s, base_h) and np.array_equal(ag_s, base_a)), (
+            f"{name} is indifferent to u[0] and u[2] changing places")
+
+
+# ==========================================================================
+# round 2 — the bridge is point-in-time on the way OUT as well as in
+# ==========================================================================
+
+def test_providers_refuse_a_bridge_fitted_after_the_forecast_cutoff(
+        state, rows, bridge, early_bridge):
+    """A later bridge has read scorelines the forecast cannot see.
+
+    `EmpiricalBridge.fit` is point-in-time on the way in — it reads matches
+    strictly before its own cutoff — and that was the whole guarantee. Nothing
+    checked the other direction: an arm forecasting at C could be handed a
+    bridge estimated at C' > C, and every scoreline between the two dates was
+    then in the conditional the arm samples from. The failure is silent, which
+    is what makes it worth a guard: the run completes and the matrix is
+    admissible.
+    """
+    book = _book(state.clubs, n_particles=8, spread="flat")
+    fixtures = list(state.fixtures.values())
+    ratings = {club: 1500.0 + 7.0 * i for i, club in enumerate(state.clubs)}
+    anchor_state = _anchor_state(ratings, OPENER)
+    history = _synthetic_history()
+    late = bridge_mod.EmpiricalBridge.fit(rows, "2024-01-01")
+    assert late.cutoff == "2024-01-01"          # later than every cutoff below
+
+    # (a) the DC arm, told its own forecast cutoff
+    with pytest.raises(bridge_mod.BridgeError, match="leak, not a refinement"):
+        bridge_mod.DCWDLProvider(book, late, cutoff="2023-12-01")
+
+    # (b) the Elo arm, which always knows its own cutoff
+    with pytest.raises(bridge_mod.BridgeError, match="leak, not a refinement"):
+        bridge_mod.EloOutcomeProvider.fit(
+            _anchor_state({c: 1500.0 for c in ("alpha", "bravo")}, "2022-06-01"),
+            history, [_plain_fixture("alpha", "bravo")], late)
+
+    # (c) and the engine refuses it even when the provider was built without a
+    #     cutoff to check against — no run can route around this one.
+    unchecked = bridge_mod.DCWDLProvider(book, late)
+    early_state = dataclasses.replace(state, cutoff=pd.Timestamp("2023-06-01"))
+    with pytest.raises(leaguesim.SimError, match="cannot see"):
+        leaguesim.simulate("dc_wdl_bridge", early_state, unchecked, 64, SEED, 32)
+
+    # POSITIVE CONTROLS, both directions of "not after".
+    # equal cutoffs: the same day-floor is the same evidence
+    same = bridge_mod.EmpiricalBridge.fit(rows, "2024-01-01")
+    assert bridge_mod.DCWDLProvider(book, same, cutoff="2024-01-01").cutoff == "2024-01-01"
+    # an EARLIER bridge is fine, and really does run through the engine
+    ok = bridge_mod.DCWDLProvider(book, early_bridge, cutoff=OPENER)
+    run = leaguesim.simulate("dc_wdl_bridge", state, ok, 64, SEED, 32)
+    assert ok.describe()["bridge_cutoff"] == early_bridge.cutoff
+    assert run.envelope["bridge_hash"] == early_bridge.hash
+    table_mod.check_doubly_stochastic(run.matrix)
 
 
 def test_elo_provider_runs_through_the_engine(state, bridge):
@@ -529,12 +621,12 @@ def test_bridge_arms_are_deterministic_and_parallel_safe(state, bridge):
                                   ).digest() != serial.digest(), arm
 
 
-def test_elo_provider_refuses_a_fixture_it_did_not_price(bridge):
+def test_elo_provider_refuses_a_fixture_it_did_not_price(early_bridge):
     history = _synthetic_history()
     ratings = {"alpha": 1600.0, "bravo": 1500.0}
     provider = bridge_mod.EloOutcomeProvider.fit(
         _anchor_state(ratings, "2022-06-01"), history,
-        [_plain_fixture("alpha", "bravo")], bridge)
+        [_plain_fixture("alpha", "bravo")], early_bridge)
     with pytest.raises(bridge_mod.BridgeError, match="alien"):
         provider.sample(_plain_fixture("alien", "bravo"),
                         np.zeros(4, np.int16), np.zeros((3, 4)) + 0.5)

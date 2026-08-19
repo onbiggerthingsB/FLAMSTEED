@@ -206,6 +206,31 @@ class EmpiricalBridge:
             "counts": counts.tolist(),
         }))
 
+    # ---- point-in-time --------------------------------------------------
+    def refuse_if_after(self, forecast_cutoff, what: str) -> None:
+        """Refuse a bridge estimated LATER than the forecast it would price.
+
+        The conditional is fitted on matches strictly before its own cutoff, so
+        a bridge at a later cutoff has read scorelines the forecast cannot see —
+        every one of them, in the window between the two dates. That is a leak
+        of exactly the kind the whole cutoff apparatus exists to prevent, and it
+        is silent: the run completes, the matrix sums to one, and the arm quietly
+        knows more about how goals were distributed than its own cutoff allows.
+
+        Day-floored on both sides, matching the `date < cutoff.normalize()` rule
+        the fit uses. EQUAL cutoffs are fine and are the normal case: the same
+        day-floor means the same evidence.
+        """
+        mine = pd.Timestamp(self.cutoff).normalize()
+        theirs = pd.Timestamp(forecast_cutoff).normalize()
+        if mine > theirs:
+            raise BridgeError(
+                f"the bridge was estimated at {mine.date()} and {what} is "
+                f"{theirs.date()}: the bridge has read every scoreline between "
+                "those two dates and the forecast cannot see one of them. A "
+                "later bridge is a leak, not a refinement — refit it at the "
+                "forecast's own cutoff.")
+
     # ---- construction ---------------------------------------------------
     @classmethod
     def fit(cls, rows, cutoff, *,
@@ -357,12 +382,22 @@ class DCWDLProvider:
 
     name = "dc_wdl_bridge"
 
-    def __init__(self, book: particles.ParticleBook, bridge: EmpiricalBridge):
+    def __init__(self, book: particles.ParticleBook, bridge: EmpiricalBridge,
+                 *, cutoff=None):
         if int(book.max_goals) != int(bridge.max_goals):
             raise BridgeError(
                 f"the book truncates at {book.max_goals} goals and the bridge at "
                 f"{bridge.max_goals}: the two arms would not be sampling the same "
                 "scoreline space")
+        # This arm's own cutoff lives in the book's fit, which the book does not
+        # carry, so the forecast cutoff is passed in. When it is given the
+        # point-in-time check is enforced here; when it is not, `simulate`
+        # enforces the same rule against the plan's cutoff, which no run can
+        # avoid going through.
+        if cutoff is not None:
+            bridge.refuse_if_after(cutoff, "this arm's forecast cutoff")
+        self.cutoff = None if cutoff is None else str(
+            pd.Timestamp(cutoff).normalize().date())
         self.book = book
         self.bridge = bridge
         self._laws: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
@@ -371,11 +406,12 @@ class DCWDLProvider:
     # The per-fixture laws are derived and are rebuilt in a worker rather than
     # pickled to it, exactly as the native arm's CDF cache is.
     def __getstate__(self) -> dict:
-        return {"book": self.book, "bridge": self.bridge}
+        return {"book": self.book, "bridge": self.bridge, "cutoff": self.cutoff}
 
     def __setstate__(self, state: dict) -> None:
         self.book = state["book"]
         self.bridge = state["bridge"]
+        self.cutoff = state.get("cutoff")
         self._laws = {}
         self._excluded = {}
 
@@ -486,6 +522,9 @@ class EloOutcomeProvider:
         self.bridge = bridge
         self.params = params
         self.cutoff = str(pd.Timestamp(cutoff).normalize().date())
+        # This arm carries its own cutoff — the anchor's — so the point-in-time
+        # check is unconditional here.
+        bridge.refuse_if_after(self.cutoff, "the Elo arm's own cutoff")
         self.n_fit_rows = int(n_fit_rows)
         self.n_particles = int(n_particles)
         self.ratings = dict(ratings or {})

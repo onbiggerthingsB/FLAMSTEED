@@ -110,6 +110,7 @@ from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 import numpy as np
+import pandas as pd
 
 from epl import freeze, particles, paths, season as season_mod, table as table_mod
 
@@ -921,6 +922,7 @@ def simulate(arm: str, state, book_or_provider, n_sims: int, seed: int,
     """
     started = time.perf_counter()
     provider = resolve_provider(arm, book_or_provider)
+    _check_provider_is_point_in_time(provider, state)
 
     declared = int(n_particles if n_particles is not None else provider.n_particles)
     book = getattr(provider, "book", None)
@@ -948,6 +950,36 @@ def simulate(arm: str, state, book_or_provider, n_sims: int, seed: int,
                    wall_seconds=time.perf_counter() - started)
     return SimRun(arm=arm, plan=plan, retained_rows=rows, envelope=env,
                   excluded_mass=report, **aggregate)
+
+
+def _check_provider_is_point_in_time(provider, state) -> None:
+    """A provider fitted LATER than the forecast is refused, before any work.
+
+    The bridge arms carry an empirical scoreline conditional estimated at their
+    own cutoff, and `describe()` reports it as `bridge_cutoff`. A bridge dated
+    after the state being simulated has read scorelines the forecast cannot see,
+    which is a leak that no downstream check would notice — the run completes and
+    the matrix is admissible. The comparison lives here because this is the one
+    place that holds both the provider and the moment being forecast, and every
+    run goes through it. Day-floored on both sides; equal is fine.
+    """
+    describe = getattr(provider, "describe", None)
+    if describe is None:
+        return
+    try:
+        stamp = describe().get("bridge_cutoff")
+    except Exception:                                       # pragma: no cover
+        return
+    if stamp is None:
+        return
+    theirs = pd.Timestamp(stamp).normalize()
+    mine = pd.Timestamp(getattr(state, "cutoff", None)).normalize()
+    if theirs > mine:
+        raise SimError(
+            f"the provider's bridge was estimated at {theirs.date()} and this "
+            f"forecast's cutoff is {mine.date()}: the bridge has read scorelines "
+            "the forecast cannot see. Refit the bridge at the forecast's own "
+            "cutoff rather than simulating a leak.")
 
 
 def _check_pinned(rows: RetainedRows, plan: SimPlan) -> None:
