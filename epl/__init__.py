@@ -91,10 +91,23 @@ the league-table simulator
                   same bridge, and the two nulls. All three arms invert their
                   outcome with the same uniform in the same slot, so a paired
                   difference between them is a difference in the models.
+  `epl.simmetrics` the scores, written down before any of them exists: the
+                  published tournament rank probability score as the primary,
+                  unweighted over all 19 boundaries; the boundary-weighted form
+                  second because it scores what the product shows; consequence
+                  Briers; a floored, demoted champion log loss; points CRPS,
+                  MAE and interval coverage; and the per-boundary decider rates
+                  that answer "did the scorelines matter" directly.
+  `epl.simretro` the preregistered retrospective: the cutoff schedule as a
+                  rule rather than a list of dates, three arms and two nulls
+                  through one engine, a resumable JSONL ledger that carries
+                  everything scoring needs, season-block bootstrapped paired
+                  differences that are explicitly a diagnostic with no pass
+                  rule, and a report that never averages across cutoffs.
 """
 
 __all__ = ["anchor", "baseline", "bridge", "build", "dcfit", "devig", "elo",
            "fetch", "fit", "freeze", "improve", "leaguesim", "liveanchor",
            "ordlogit", "parse", "particles", "paths", "schema", "score",
-           "season", "simcanary", "table", "teams", "validate", "walk",
-           "walkforward", "windows"]
+           "season", "simcanary", "simmetrics", "simretro", "table", "teams",
+           "validate", "walk", "walkforward", "windows"]
