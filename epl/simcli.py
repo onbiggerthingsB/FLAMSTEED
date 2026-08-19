@@ -289,9 +289,11 @@ def forecast(*, season: str = DEFAULT_SEASON, cutoff,
     directory.mkdir(parents=True, exist_ok=True)
 
     runs: dict[str, leaguesim.SimRun] = {}
+    providers: dict[str, Any] = {}
     written: dict[str, list[str]] = {}
     for arm in arms:
-        provider = _provider(arm, fit, bridge, state, cutoff, n_particles)
+        provider = providers[arm] = _provider(arm, fit, bridge, state, cutoff,
+                                              n_particles)
         run = leaguesim.simulate(arm, state, provider, n_sims, seed,
                                  chunk_size=chunk_size, season=season_obj,
                                  boundaries=season_obj.manifest.material_boundaries,
@@ -323,6 +325,9 @@ def forecast(*, season: str = DEFAULT_SEASON, cutoff,
         gate_report = acceptance_gate(
             run=published, state=state, manifest=season_obj.manifest,
             book=book, post=fit.post, limitations=limitations,
+            # the re-run must go through the arm's OWN provider; falling back to
+            # the book would silently re-run a different arm
+            provider=providers[published_arm],
             witness_states=witness_states, verbose=verbose,
             **(gate_kwargs or {}))
         (directory / "acceptance.json").write_text(
@@ -764,6 +769,16 @@ def acceptance_gate(*, run: leaguesim.SimRun, state, manifest, book=None,
     if book is None:
         criteria["marginal_parity"] = _skipped(
             "marginal_parity", "no particle book was supplied")
+    elif run.arm != "dc_native":
+        # The check asks whether the SAMPLER reproduces the published
+        # Dixon-Coles per-fixture law. A bridge arm samples a different law on
+        # purpose (plan v2 D18), so running it here would report a difference
+        # that is the design rather than a defect.
+        criteria["marginal_parity"] = _skipped(
+            "marginal_parity",
+            f"arm {run.arm!r} samples an outcome model plus the empirical "
+            "scoreline bridge, not the DC per-fixture grid; per-fixture parity "
+            "with the published DC forecast is only defined for dc_native")
     else:
         _run("marginal_parity", lambda: _parity(book, post, run, parity_fixtures))
 

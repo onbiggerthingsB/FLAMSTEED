@@ -380,6 +380,74 @@ def test_reproducibility_reports_the_chunking_as_part_of_the_run(state, book):
     assert "chunk_size" in leaguesim.ENVELOPE_FIELDS
 
 
+class StubProvider:
+    """A ScorelineProvider that is NOT a ParticleBook.
+
+    Module level, so a spawned worker can import it: the gate's re-run goes
+    through a process pool and everything it touches must pickle.
+    """
+
+    name = "elo_wdl_bridge"
+
+    def __init__(self, n_particles: int):
+        self.n_particles = int(n_particles)
+
+    def sample(self, fixture, particle_idx, u):
+        hg = np.floor(np.asarray(u[0]) * 4).astype(np.int8)
+        ag = np.floor(np.asarray(u[1]) * 3).astype(np.int8)
+        return hg, ag
+
+    def content_hash(self) -> str:
+        return "stub-provider"
+
+
+def test_gate_reruns_the_published_arm_with_its_own_provider_not_the_book(
+        state, book, season_obj):
+    """A bridge arm's re-run must use the bridge, not the particle book."""
+    stub = StubProvider(N_PARTICLES)
+    run = leaguesim.simulate("elo_wdl_bridge", state, stub, N_SIMS, SEED, CHUNK,
+                             n_particles=N_PARTICLES)
+    limitations = leaguesim.limitations_markdown(run)
+
+    ok = simcli.acceptance_gate(
+        run=run, state=state, manifest=season_obj.manifest, book=book, post=None,
+        provider=stub, limitations=limitations, **FAST_GATE)
+    assert ok["criteria"]["serial_equals_chunked"]["PASS"] is True, (
+        ok["criteria"]["serial_equals_chunked"])
+
+    # POSITIVE CONTROL — with no provider the gate falls back to the book, which
+    # builds a DIFFERENT arm; it must fail loudly rather than re-run dc_native
+    # and report the agreement as this run's.
+    fallback = simcli.acceptance_gate(
+        run=run, state=state, manifest=season_obj.manifest, book=book, post=None,
+        limitations=limitations, **FAST_GATE)
+    cell = fallback["criteria"]["serial_equals_chunked"]
+    assert cell["PASS"] is False
+    assert "would label the run as something it is not" in cell["detail"]["error"]
+
+
+def test_marginal_parity_is_skipped_for_a_bridge_arm_not_silently_passed(
+        issuance, state, book, season_obj):
+    """Per-fixture parity is a DC-native question; a bridge arm samples another
+    law on purpose, so the criterion is SKIPPED (and the gate then cannot pass)
+    rather than reported as agreement or as a failure."""
+    run = issuance["runs"]["dc_native"]
+    native = simcli.acceptance_gate(
+        run=run, state=state, manifest=season_obj.manifest, book=book, post=None,
+        limitations=leaguesim.limitations_markdown(run), **FAST_GATE)
+    assert native["criteria"]["marginal_parity"]["status"] == "PASS"
+
+    relabelled = dataclasses.replace(run, arm="elo_wdl_bridge")
+    bridged = simcli.acceptance_gate(
+        run=relabelled, state=state, manifest=season_obj.manifest, book=book,
+        post=None, limitations=leaguesim.limitations_markdown(run), **FAST_GATE)
+    cell = bridged["criteria"]["marginal_parity"]
+    assert cell["status"] == "SKIPPED"
+    assert cell["PASS"] is False
+    assert "marginal_parity" in bridged["skipped"]
+    assert bridged["PASS"] is False
+
+
 def test_acceptance_gate_names_every_criterion_and_fails_when_one_fails(
         issuance, state, book, season_obj):
     gate = issuance["gate"]
