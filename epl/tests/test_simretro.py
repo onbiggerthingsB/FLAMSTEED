@@ -561,8 +561,12 @@ def smoke_runs(tmp_path_factory):
     runner = simretro.ArchiveRunner(verbose=False)
     matches = baseline.load_matches()
     cutoff = simretro.cutoff_schedule(matches, "2025/26")["MW10"]
+    # 2,000 over the retrospective's 1,000 particles: two sims per particle.
+    # 500 was inadmissible — fewer sims than draws, so half the book was never
+    # used and every "cluster" held one observation — and `SimPlan.from_state`
+    # now refuses it (D15 is written for equal clusters).
     result = runner(season="2025/26", cutoff_label="MW10", cutoff=cutoff,
-                    arms=("dc_native",), nulls=(), n_sims=500, seed=SEED)
+                    arms=("dc_native",), nulls=(), n_sims=2_000, seed=SEED)
     return {"dc_native": result.arms["dc_native"].run}
 
 
