@@ -23,12 +23,22 @@ be scored as if 379 matches were the whole of it. So a fixture with no visible
 result is `unresolved` when its known kickoff has passed and `scheduled`
 otherwise — and either way it is still simulated.
 
-Both ledgers are bitemporal and append-only. A result row carries `observed_at`
-(when *we* learned it) as well as `date_played` (when it happened), and the state
-at cutoff C sees a row only if `date_played < C.normalize()` **and**
-`observed_at <= C`. A points-adjustment row carries `known_at` and may supersede
-an earlier row; at C the applicable set is the rows known by C that no row known
-by C supersedes. Rewriting history is therefore impossible without an explicit,
+All three ledgers are bitemporal and append-only. A result row carries
+`observed_at` (when *we* learned it) as well as `date_played` (when it
+happened), and the state at cutoff C sees a row only if `date_played <
+C.normalize()` **and** `observed_at <= C`. Where several rows describe one
+fixture the latest observation wins, whether it carries a scoreline or a status:
+a result filed and later abandoned is unplayed, and a postponement later
+answered by the rearranged match is played. A kickoff amendment and a
+points-adjustment row each carry `known_at` and apply only if `known_at <= C`;
+an adjustment may also supersede an earlier row, so the applicable set at C is
+the rows known by C that no row known by C supersedes.
+
+`Season.at(C, observed_by=O)` moves the known-at bound off the cutoff and onto O
+for ALL THREE ledgers — results by `observed_at <= O`, amendments and
+adjustments by `known_at <= min(C, O)` — so an old forecast reruns as the
+forecast it was rather than as a stale results ledger read against a fresh
+schedule. Rewriting history is therefore impossible without an explicit,
 reviewable ledger row — which is the point.
 
 Layout under `epl/season/` (tracked in git, so the commit history IS the
@@ -717,29 +727,41 @@ def _visible_results(results: list[dict], fixtures_by_id, cutoff_day: pd.Timesta
     Bitemporal: a row is visible iff it happened before the cutoff DAY and was
     observed by the cutoff. Where several rows describe one fixture, the latest
     observation wins — corrections are appended, never edited in place.
+
+    "Latest observation wins" is resolved over scores and statuses TOGETHER, in
+    one pass. Two passes with the score winning at the end is the obvious
+    implementation and it is wrong in one direction: a match filed with a
+    scoreline and later abandoned or voided would keep the result the league
+    took away, because the status row it was corrected by never gets to win. The
+    other direction — a postponement corrected by the result of the rearranged
+    match — still resolves to the result, because that row is the later
+    observation, not because scores are privileged.
+
+    The unsupported-status check runs AFTER the known-at filter, deliberately.
+    The ledger is append-only, so a row filed tomorrow sits in the same file as
+    yesterday's; validating it before the filter would make today's entry
+    retroactively break every earlier snapshot — the same class of bug as
+    reading its content early. It still fails closed the moment it is visible.
     """
     scored: list[dict] = []
-    statuses: dict[str, str] = {}
     latest: dict[str, tuple[pd.Timestamp, int, dict]] = {}
 
     for order, row in enumerate(results):
         fid = row["fixture_id"]
         if fid not in fixtures_by_id:
             raise SeasonError(f"results ledger row for unknown fixture {fid!r}")
+        observed = _timestamp(row["observed_at"])
+        if observed > observed_by:
+            continue
         status = row.get("status")
         if status is not None and status not in _LEDGER_STATUSES:
             raise UnsupportedResultStatus(
                 f"{fid}: results ledger status {status!r} is out of v1 scope "
                 f"(only {sorted(_LEDGER_STATUSES)} are modelled)")
-        observed = _timestamp(row["observed_at"])
-        if observed > observed_by:
-            continue
-        if status is not None:
-            statuses[fid] = status
-            continue
-        if _timestamp(row["date_played"]) >= cutoff_day:
-            continue
-        scored.append(row)
+        if status is None:
+            if _timestamp(row["date_played"]) >= cutoff_day:
+                continue
+            scored.append(row)
         key = (observed, order)
         if fid not in latest or key > latest[fid][:2]:
             latest[fid] = (observed, order, row)
@@ -747,10 +769,14 @@ def _visible_results(results: list[dict], fixtures_by_id, cutoff_day: pd.Timesta
     _validate_scores(scored)
 
     played: dict[str, tuple[int, int]] = {}
+    statuses: dict[str, str] = {}
     for fid, (_, _, row) in latest.items():
+        status = row.get("status")
+        if status is not None:
+            statuses[fid] = status
+            continue
         played[fid] = (int(row["hg"]), int(row["ag"]))
         _check_orientation(fid, row, fixtures_by_id, kickoffs)
-        statuses.pop(fid, None)                 # a result supersedes a postponement
     return played, statuses
 
 
@@ -803,7 +829,16 @@ def _state(*, season, season_code_, clubs, fixtures, amendments, results, adjust
     cutoff_day = cut.normalize()
     fixtures_by_id = {f.fixture_id: f for f in fixtures}
 
-    kickoffs = _kickoffs_known(fixtures, amendments, cut)
+    # `observed_by` bounds the SNAPSHOT, so it bounds all three ledgers, not the
+    # results alone. A schedule move and a points deduction each carry `known_at`
+    # for the same reason a result carries `observed_at`, and a snapshot that
+    # read a stale results ledger against a fresh schedule and a fresh
+    # deductions table would not be any moment that ever existed — a rerun of an
+    # old forecast would then not be that forecast. `min` because a cutoff
+    # earlier than `observed_by` still bounds what has HAPPENED.
+    known_by = min(cut, obs)
+
+    kickoffs = _kickoffs_known(fixtures, amendments, known_by)
     played, ledger_statuses = _visible_results(
         list(results), fixtures_by_id, cutoff_day, obs, kickoffs)
 
@@ -828,7 +863,7 @@ def _state(*, season, season_code_, clubs, fixtures, amendments, results, adjust
             statuses[fid] = STATUS_SCHEDULED
 
     known_adjustments = adjustments_at(
-        list(adjustments), season, cut,
+        list(adjustments), season, known_by,
         require_verified=require_verified_adjustments)
     unknown = set(known_adjustments) - set(clubs)
     if unknown:

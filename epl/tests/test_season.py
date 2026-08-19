@@ -156,6 +156,27 @@ def test_vendored_file_hash_pinned():
     assert season_mod.load_manifest(SEASON).fixtures_sha256 == FIXTURES_SHA256
 
 
+def test_season_load_refuses_a_tampered_vendored_file(season_root: Path):
+    """The PIN is checked above; this checks the RUNTIME REFUSAL.
+
+    `test_vendored_file_hash_pinned` reads the repo's own bytes and compares
+    them to the manifest, so it passes whether or not `Season.load` ever looks.
+    Flipping one byte of a writable copy is what makes the guard itself
+    falsifiable: the load has to stop, and stop ON THE HASH.
+    """
+    path = season_root / "2026_27" / "fixtures_openfootball_2026-27.txt"
+    raw = path.read_bytes()
+
+    # Positive control: the untampered copy loads its 380 fixtures.
+    assert len(season_mod.Season.load(SEASON, root=season_root).fixtures) == 380
+
+    i = raw.index(b"Arsenal")
+    path.write_bytes(raw[:i] + b"B" + raw[i + 1:])
+    assert len(path.read_bytes()) == len(raw)        # ONE byte, not a truncation
+    with pytest.raises(season_mod.SeasonError, match="hashes to"):
+        season_mod.Season.load(SEASON, root=season_root)
+
+
 def test_season_module_not_shadowed_by_data_dir():
     """`epl/season.py` and the `epl/season/` data directory coexist by design."""
     assert Path(season_mod.__file__).name == "season.py"
@@ -388,6 +409,107 @@ def test_results_ledger_observed_at_respected(season_root: Path):
     assert fid not in late.at("2026-08-26", observed_by="2026-08-24").played
 
 
+def test_a_later_status_supersedes_an_earlier_score(season_root: Path):
+    """Latest OBSERVATION wins across scores AND statuses, not scores alone.
+
+    A match played, filed with a scoreline, and then struck from the record is
+    the case: the correction is appended (the ledger is never edited in place)
+    and a snapshot that sees both rows must read the fixture as UNPLAYED.
+    Resolving statuses and scores in two independent passes — with the score
+    always winning at the end — keeps a result the league has taken away, and
+    keeps it silently: nothing downstream re-reads the ledger.
+    """
+    ledger = season_root / "2026_27" / "results_ledger.jsonl"
+    fid = "2627:arsenal:coventry"
+    _append_jsonl(ledger, [
+        _result_row(fid, "2026-08-21", 2, 1, "2026-08-21T22:00"),
+        {"fixture_id": fid, "status": "abandoned", "source": "manual",
+         "observed_at": "2026-08-23T09:00", "note": "struck from the record"},
+    ])
+    loaded = season_mod.Season.load(SEASON, root=season_root)
+
+    seeing_both = loaded.at("2026-08-25")
+    assert fid not in seeing_both.played
+    assert fid in seeing_both.unplayed
+    assert seeing_both.statuses[fid] == "abandoned"
+    assert seeing_both.table_so_far["arsenal"] == season_mod.TableRow()
+    assert seeing_both.table_so_far["coventry"] == season_mod.TableRow()
+
+    # ...and the known-at bound still holds: before the correction was observed
+    # the scoreline is what the ledger said it was.
+    assert loaded.at("2026-08-25", observed_by="2026-08-22").played[fid] == (2, 1)
+
+    # POSITIVE CONTROL: the same two rows with the observations the other way
+    # round — the SCORE is the later correction — and the fixture IS played.
+    ledger.write_text("", encoding="utf-8")
+    _append_jsonl(ledger, [
+        {"fixture_id": fid, "status": "abandoned", "source": "manual",
+         "observed_at": "2026-08-21T22:00", "note": "abandoned at 70 mins"},
+        _result_row(fid, "2026-08-21", 2, 1, "2026-08-23T09:00"),
+    ])
+    replayed = season_mod.Season.load(SEASON, root=season_root).at("2026-08-25")
+    assert replayed.played[fid] == (2, 1)
+    assert replayed.statuses[fid] == "played"
+    assert replayed.table_so_far["arsenal"].pts == 3
+
+
+def test_a_later_observed_correction_wins_over_the_row_it_corrects(season_root: Path):
+    """Two scorelines for one fixture: the later OBSERVATION wins, not the later line."""
+    ledger = season_root / "2026_27" / "results_ledger.jsonl"
+    fid = "2627:arsenal:coventry"
+    # Written in the file the "wrong" way round on purpose: the correction is
+    # the FIRST line and the row it corrects the second, so a resolution that
+    # reads file order rather than observation order gets the stale scoreline.
+    _append_jsonl(ledger, [
+        _result_row(fid, "2026-08-21", 3, 1, "2026-08-23T09:00", note="correction"),
+        _result_row(fid, "2026-08-21", 2, 1, "2026-08-21T22:00"),
+    ])
+    loaded = season_mod.Season.load(SEASON, root=season_root)
+
+    assert loaded.at("2026-08-25").played[fid] == (3, 1)
+    assert loaded.at("2026-08-25").table_so_far["arsenal"].gf == 3
+    # POSITIVE CONTROL: bounded to before the correction was observed, the row
+    # it corrects is what a snapshot sees.
+    assert loaded.at("2026-08-25", observed_by="2026-08-22").played[fid] == (2, 1)
+
+
+def test_observed_by_bounds_amendments_and_adjustments_not_just_results(
+        season_root: Path):
+    """`observed_by` is a bound on the SNAPSHOT, so it bounds all three ledgers.
+
+    Bounding results only reproduces a stale reading of one ledger against a
+    fresh reading of the other two: the deduction that was ruled on Saturday and
+    the fixture that moved on Saturday would both be in a snapshot taken as of
+    Friday. A rerun of an old forecast would then not be that forecast.
+    """
+    amendments = season_root / "2026_27" / "kickoff_amendments.jsonl"
+    adjustments = season_root / "points_adjustments.jsonl"
+    fid = "2627:arsenal:coventry"
+    _append_jsonl(amendments, [{
+        "fixture_id": fid, "date": "2026-09-15", "time": "20:00",
+        "source": "test", "known_at": "2026-08-22T09:00", "note": "moved",
+    }])
+    _append_jsonl(adjustments, [{
+        "id": "adj-2627-test-01", "season": SEASON, "club_key": "arsenal",
+        "delta": -3, "known_at": "2026-08-22T09:00", "source": "test",
+        "supersedes": None, "verified": True, "note": "test",
+    }])
+    loaded = season_mod.Season.load(SEASON, root=season_root)
+
+    # As of Friday, neither had happened — even asking about Monday.
+    bounded = loaded.at("2026-08-24", observed_by="2026-08-21")
+    assert bounded.kickoffs_known[fid][0] == pd.Timestamp("2026-08-21").date()
+    assert bounded.adjustments_known == {}
+    assert bounded.table_so_far["arsenal"].adjustment == 0
+    assert bounded.table_so_far["arsenal"].pts == 0
+
+    # POSITIVE CONTROL: the same cutoff with no known-at bound sees both.
+    unbounded = loaded.at("2026-08-24")
+    assert unbounded.kickoffs_known[fid][0] == pd.Timestamp("2026-09-15").date()
+    assert unbounded.adjustments_known == {"arsenal": -3}
+    assert unbounded.table_so_far["arsenal"].pts == -3
+
+
 def test_result_conflict_stops(season_root: Path):
     ledger = season_root / "2026_27" / "results_ledger.jsonl"
     fid = "2627:arsenal:coventry"
@@ -464,6 +586,35 @@ def test_postponed_row_is_a_status_and_awarded_fails_closed(season_root: Path):
         season_mod.Season.load(SEASON, root=season_root).at("2026-08-24")
 
 
+def test_unsupported_status_is_checked_only_once_the_row_is_visible(
+        season_root: Path):
+    """An `awarded` row must not break a snapshot taken BEFORE it was filed.
+
+    The ledger is append-only, so tomorrow's row sits in the same file as
+    yesterday's; validating every line before the known-at filter runs makes a
+    row filed today retroactively unloadable at every earlier cutoff, which is
+    the same class of bug as reading its content early. It must still fail
+    closed the moment it IS visible — v1 does not model an awarded result.
+    """
+    ledger = season_root / "2026_27" / "results_ledger.jsonl"
+    fid = "2627:arsenal:coventry"
+    _append_jsonl(ledger, [{
+        "fixture_id": fid, "status": "awarded", "hg": 3, "ag": 0,
+        "source": "manual", "observed_at": "2026-09-01T12:00", "note": "test",
+    }])
+    loaded = season_mod.Season.load(SEASON, root=season_root)
+
+    early = loaded.at("2026-08-24")                       # not yet observed
+    assert early.statuses[fid] == "unresolved"
+    assert fid not in early.played
+    # ... and the explicit bound reproduces that reading from a later cutoff.
+    assert loaded.at("2026-09-02", observed_by="2026-08-24").statuses[fid] == "unresolved"
+
+    # POSITIVE CONTROL: once visible it fails closed, exactly as before.
+    with pytest.raises(season_mod.UnsupportedResultStatus):
+        loaded.at("2026-09-02")
+
+
 def test_detect_kickoff_amendments_finds_the_moved_fixture():
     base = season_mod.parse_openfootball(_vendored_path().read_text(encoding="utf-8"))
     fresh = list(base)
@@ -484,6 +635,31 @@ def test_detect_kickoff_amendments_finds_the_moved_fixture():
     assert season_mod.detect_kickoff_amendments(
         base, base, known_at="2026-08-19T12:00", source_id="openfootball@y",
         season_code=SEASON_CODE) == []
+
+
+def test_detect_kickoff_amendments_sees_a_time_only_move():
+    """A kickoff that moves only its TIME is an amendment too.
+
+    Diffing dates alone would miss a 20:00 -> 12:30 move; the overlay is what
+    the display and the unresolved/lag flags read, so a missed time move is a
+    schedule the operator cannot see.
+    """
+    base = season_mod.parse_openfootball(_vendored_path().read_text(encoding="utf-8"))
+    fresh = list(base)
+    moved = fresh[0]
+    assert moved.time == "20:00"                          # the file states it
+    fresh[0] = season_mod.FixtureRow(
+        matchday=moved.matchday, date=moved.date, time="12:30",
+        home_raw=moved.home_raw, away_raw=moved.away_raw, hg=None, ag=None)
+
+    rows = season_mod.detect_kickoff_amendments(
+        base, fresh, known_at="2026-08-19T12:00", source_id="openfootball@z",
+        season_code=SEASON_CODE)
+    assert len(rows) == 1
+    assert rows[0]["time"] == "12:30"
+    assert rows[0]["date"] == moved.date.isoformat()      # the DAY did not move
+    assert rows[0]["fixture_id"] == season_mod.fixture_id(
+        SEASON_CODE, teams.team_key(moved.home_raw), teams.team_key(moved.away_raw))
 
 
 # --- points adjustments ---------------------------------------------------
