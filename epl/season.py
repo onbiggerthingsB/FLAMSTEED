@@ -34,12 +34,27 @@ points-adjustment row each carry `known_at` and apply only if `known_at <= C`;
 an adjustment may also supersede an earlier row, so the applicable set at C is
 the rows known by C that no row known by C supersedes.
 
-`Season.at(C, observed_by=O)` moves the known-at bound off the cutoff and onto O
-for ALL THREE ledgers — results by `observed_at <= O`, amendments and
-adjustments by `known_at <= min(C, O)` — so an old forecast reruns as the
-forecast it was rather than as a stale results ledger read against a fresh
-schedule. Rewriting history is therefore impossible without an explicit,
-reviewable ledger row — which is the point.
+**Two clocks, and each ledger is read by exactly one of them.**
+
+* `observed_by` is the KNOWLEDGE clock, and it bounds ALL THREE ledgers: a
+  result is visible iff `observed_at <= observed_by`, a kickoff amendment and a
+  points adjustment iff `known_at <= observed_by`. It defaults to the cutoff.
+* `cutoff` is the PLAY clock, and it bounds one thing: a visible result counts
+  as played iff `date_played < cutoff.normalize()`.
+
+`Season.at(C, observed_by=O)` therefore reruns an old forecast as the forecast it
+was — one knowledge state, read consistently — rather than as a stale results
+ledger against a fresh schedule. Splitting the two (results at O, schedule and
+deductions at `min(C, O)`) is the shape this had first, and it is wrong in the
+`O > C` direction: it produced a snapshot that knew Saturday's results and
+Friday's schedule, which is no moment that ever existed. Rewriting history is
+still impossible without an explicit, reviewable ledger row — which is the point.
+
+Every stamp on every row is read through :func:`_require_stamp`, which refuses
+`NaT`. `pd.Timestamp` turns `None`, `nan`, `""` and `NaT` into `NaT` rather than
+raising, and `NaT` compares False against every bound — so a row carrying one
+would be visible at EVERY cutoff (a results row) or at NONE (a `known_at` row).
+Both are silent, and the first is exactly the leak the stamps exist to prevent.
 
 Layout under `epl/season/` (tracked in git, so the commit history IS the
 known-at record of what the operator entered and when):
@@ -330,7 +345,7 @@ def detect_kickoff_amendments(
         return out
 
     base, fresh = index(base_rows), index(fresh_rows)
-    known_at_text = _timestamp(known_at).isoformat()
+    known_at_text = _require_stamp(known_at, "known_at").isoformat()
     amendments: list[dict] = []
     for fid, new in fresh.items():
         old = base.get(fid)
@@ -490,6 +505,32 @@ def _timestamp(value) -> pd.Timestamp:
     return ts
 
 
+def _require_stamp(value, what: str) -> pd.Timestamp:
+    """A point-in-time stamp, or a refusal. Never `NaT`.
+
+    `pd.Timestamp` maps `None`, `nan`, `""` and `NaT` to `NaT` instead of
+    raising, and `NaT` compares False against every bound: `observed_at >
+    observed_by`, `date_played >= cutoff_day` and `known_at <= cutoff` are ALL
+    False for it. So an unstamped results row is visible at every cutoff — a
+    status row with a null `observed_at` would postpone a fixture in a snapshot
+    taken years before anyone filed it — and an unstamped `known_at` row is
+    visible at none, silently dropping a deduction from every table. Both fail
+    closed here rather than passing through the one branch a presence check does
+    not cover.
+    """
+    try:
+        ts = _timestamp(value)
+    except (TypeError, ValueError) as exc:
+        raise SeasonError(f"{what}={value!r} is not a timestamp") from exc
+    if pd.isna(ts):
+        raise SeasonError(
+            f"{what}={value!r} resolves to NaT, which compares False against "
+            "every point-in-time bound — the row it stamps would be visible at "
+            "every cutoff or at none. Fix the ledger row rather than letting it "
+            "through")
+    return ts
+
+
 def _read_jsonl(path: Path) -> list[dict]:
     if not path.exists():
         return []
@@ -527,9 +568,10 @@ def adjustments_at(rows: list[dict], season: str, cutoff,
     `require_verified` is the scoring gate: the retrospective refuses to score a
     season against a deduction nobody has checked against the league's record.
     """
-    at = _timestamp(cutoff)
+    at = _require_stamp(cutoff, "cutoff")
     mine = [r for r in rows if r["season"] == season]
-    known = [r for r in mine if _timestamp(r["known_at"]) <= at]
+    known = [r for r in mine
+             if _require_stamp(r["known_at"], f"adjustment {r['id']!r} known_at") <= at]
     superseded = {r["supersedes"] for r in known if r.get("supersedes")}
     live = [r for r in known if r["id"] not in superseded]
 
@@ -687,13 +729,17 @@ def _kickoffs_known(fixtures, amendments, cutoff: pd.Timestamp
                     ) -> dict[str, tuple[_dt.date, str | None]]:
     """Base kickoffs with every amendment known by `cutoff` applied, in order."""
     out = {f.fixture_id: (f.base_date, f.base_time) for f in fixtures}
-    rows = [r for r in amendments if _timestamp(r["known_at"]) <= cutoff]
-    for row in sorted(rows, key=lambda r: _timestamp(r["known_at"])):
+    def known(row):
+        return _require_stamp(
+            row["known_at"], f"kickoff amendment {row['fixture_id']!r} known_at")
+
+    rows = [r for r in amendments if known(r) <= cutoff]
+    for row in sorted(rows, key=known):
         fid = row["fixture_id"]
         if fid not in out:
             raise SeasonError(f"kickoff amendment for unknown fixture {fid!r}")
-        date = (_timestamp(row["date"]).date() if row.get("date")
-                else out[fid][0])
+        date = (_require_stamp(row["date"], f"kickoff amendment {fid!r} date").date()
+                if row.get("date") else out[fid][0])
         out[fid] = (date, row.get("time", out[fid][1]))
     return out
 
@@ -737,29 +783,36 @@ def _visible_results(results: list[dict], fixtures_by_id, cutoff_day: pd.Timesta
     match — still resolves to the result, because that row is the later
     observation, not because scores are privileged.
 
-    The unsupported-status check runs AFTER the known-at filter, deliberately.
-    The ledger is append-only, so a row filed tomorrow sits in the same file as
-    yesterday's; validating it before the filter would make today's entry
-    retroactively break every earlier snapshot — the same class of bug as
-    reading its content early. It still fails closed the moment it is visible.
+    The unsupported-status check AND the unknown-fixture check both run AFTER
+    the known-at filter, deliberately. The ledger is append-only, so a row filed
+    tomorrow sits in the same file as yesterday's; validating it before the
+    filter would make today's entry retroactively break every earlier snapshot —
+    the same class of bug as reading its content early. Both still fail closed
+    the moment the row is visible.
+
+    The `observed_at` stamp itself is read BEFORE either check and cannot be
+    skipped, because it is what "visible" means: a row whose stamp resolves to
+    `NaT` compares False against every bound and would otherwise be visible at
+    every cutoff (see :func:`_require_stamp`).
     """
     scored: list[dict] = []
     latest: dict[str, tuple[pd.Timestamp, int, dict]] = {}
 
     for order, row in enumerate(results):
         fid = row["fixture_id"]
-        if fid not in fixtures_by_id:
-            raise SeasonError(f"results ledger row for unknown fixture {fid!r}")
-        observed = _timestamp(row["observed_at"])
+        observed = _require_stamp(row.get("observed_at"), f"{fid} observed_at")
         if observed > observed_by:
             continue
+        if fid not in fixtures_by_id:
+            raise SeasonError(f"results ledger row for unknown fixture {fid!r}")
         status = row.get("status")
         if status is not None and status not in _LEDGER_STATUSES:
             raise UnsupportedResultStatus(
                 f"{fid}: results ledger status {status!r} is out of v1 scope "
                 f"(only {sorted(_LEDGER_STATUSES)} are modelled)")
         if status is None:
-            if _timestamp(row["date_played"]) >= cutoff_day:
+            if _require_stamp(row.get("date_played"),
+                              f"{fid} date_played") >= cutoff_day:
                 continue
             scored.append(row)
         key = (observed, order)
@@ -783,7 +836,7 @@ def _visible_results(results: list[dict], fixtures_by_id, cutoff_day: pd.Timesta
 def _check_orientation(fid: str, row: dict, fixtures_by_id, kickoffs) -> None:
     """Fail closed on a result that looks home/away-flipped (plan v2 D3)."""
     fixture = fixtures_by_id[fid]
-    played = _timestamp(row["date_played"]).date()
+    played = _require_stamp(row.get("date_played"), f"{fid} date_played").date()
     own = kickoffs[fid][0]
     if abs((played - own).days) <= ORIENTATION_FAR_DAYS:
         return
@@ -824,19 +877,28 @@ def _table_so_far(clubs, played, fixtures_by_id, adjustments) -> dict[str, Table
 
 def _state(*, season, season_code_, clubs, fixtures, amendments, results, adjustments,
            cutoff, observed_by, require_verified_adjustments) -> SeasonState:
-    cut = _timestamp(cutoff)
-    obs = cut if observed_by is None else _timestamp(observed_by)
+    cut = _require_stamp(cutoff, "cutoff")
+    obs = cut if observed_by is None else _require_stamp(observed_by, "observed_by")
     cutoff_day = cut.normalize()
     fixtures_by_id = {f.fixture_id: f for f in fixtures}
 
-    # `observed_by` bounds the SNAPSHOT, so it bounds all three ledgers, not the
-    # results alone. A schedule move and a points deduction each carry `known_at`
-    # for the same reason a result carries `observed_at`, and a snapshot that
-    # read a stale results ledger against a fresh schedule and a fresh
-    # deductions table would not be any moment that ever existed — a rerun of an
-    # old forecast would then not be that forecast. `min` because a cutoff
-    # earlier than `observed_by` still bounds what has HAPPENED.
-    known_by = min(cut, obs)
+    # `observed_by` is the KNOWLEDGE clock and it bounds all three ledgers, not
+    # the results alone. A schedule move and a points deduction each carry
+    # `known_at` for the same reason a result carries `observed_at`, and a
+    # snapshot that read a stale results ledger against a fresh schedule and a
+    # fresh deductions table would not be any moment that ever existed — a rerun
+    # of an old forecast would then not be that forecast.
+    #
+    # `obs`, NOT `min(cut, obs)`. The cutoff is the PLAY clock: it decides what
+    # has HAPPENED (`date_played < cutoff_day`, below), which is the one thing an
+    # amendment or an adjustment has no equivalent of — neither is an event that
+    # occurs on a pitch on a day, and each is applicable from the moment it is
+    # known. Clamping their known-at bound to the cutoff made `observed_by > C`
+    # read the results ledger as of `O` and the other two as of `C`: a snapshot
+    # that knew Saturday's results and Friday's schedule. `observed_by <= C`,
+    # which is the case every rerun of an old forecast uses, is unaffected —
+    # `min(C, O) == O` there.
+    known_by = obs
 
     kickoffs = _kickoffs_known(fixtures, amendments, known_by)
     played, ledger_statuses = _visible_results(
@@ -906,7 +968,7 @@ def ingest_openfootball_results(season: Season, text: str, observed_at, source_i
         if row.get("status") is None and row.get("hg") is not None:
             existing[row["fixture_id"]] = (int(row["hg"]), int(row["ag"]))
 
-    observed = _timestamp(observed_at).isoformat()
+    observed = _require_stamp(observed_at, "observed_at").isoformat()
     fixtures_by_id = {f.fixture_id: f for f in season.fixtures}
     new: list[dict] = []
     seen: set[str] = set()

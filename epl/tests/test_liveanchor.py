@@ -318,7 +318,7 @@ def test_normalise_rows_refuses_a_date_played_that_is_not_a_timestamp(manifest):
             la.normalise_rows([dict(good, date_played=bad)], manifest)
 
 
-def test_normalise_rows_enforces_fixture_identity(manifest):
+def test_normalise_rows_enforces_fixture_identity(manifest, monkeypatch):
     """A ledger row must describe a fixture that exists, and describe it once.
 
     Both failures are hand-entry failures and neither is loud: a self-fixture
@@ -326,19 +326,37 @@ def test_normalise_rows_enforces_fixture_identity(manifest):
     happened, and a `fixture_id` that disagrees with its own `home_key`/
     `away_key` silently attributes a result to the wrong pair of clubs. Nothing
     downstream re-derives either — the id is what the sim addresses fixtures by.
+
+    The self-play cases are asserted with `epl.season.fixture_id` STUBBED
+    PERMISSIVE. `fixture_id` refuses a self-fixture itself, so an assertion that
+    merely raises `SeasonError` here passes whether or not `_check_identity`
+    holds a guard of its own — it is the second line of defence answering for
+    the first, which is a test that cannot fail. With the stub in place the
+    refusal can only come from the guard under test.
     """
     good = {"fixture_id": f"{SEASON_CODE}:arsenal:coventry",
             "date_played": "2026-08-21", "hg": 2, "ag": 0,
             "observed_at": "2026-08-22"}
 
-    # a club cannot play itself, whether the id says so...
-    with pytest.raises(season_mod.SeasonError):
-        la.normalise_rows(
-            [dict(good, fixture_id=f"{SEASON_CODE}:arsenal:arsenal")], manifest)
-    # ...or the explicit team keys do
-    with pytest.raises(season_mod.SeasonError):
-        la.normalise_rows([dict(good, fixture_id=None,
-                                home_key="arsenal", away_key="arsenal")], manifest)
+    with monkeypatch.context() as patch:
+        patch.setattr(la, "fixture_id",
+                      lambda code, home, away: f"{code}:{home}:{away}")
+        # a club cannot play itself, whether the id says so...
+        with pytest.raises(la.TransitionError, match="cannot play itself"):
+            la.normalise_rows(
+                [dict(good, fixture_id=f"{SEASON_CODE}:arsenal:arsenal")], manifest)
+        # ...or the explicit team keys do
+        with pytest.raises(la.TransitionError, match="cannot play itself"):
+            la.normalise_rows([dict(good, fixture_id=None,
+                                    home_key="arsenal", away_key="arsenal")], manifest)
+        # POSITIVE CONTROL for the stub: under the same stub a legitimate row
+        # still normalises, so the two refusals above are the guard firing and
+        # not the stub breaking the call.
+        under_stub = la.normalise_rows(
+            [dict(good, fixture_id=None, home_key="arsenal", away_key="coventry")],
+            manifest)
+        assert under_stub[0].fixture_id == f"{SEASON_CODE}:arsenal:coventry"
+
     # an id that contradicts the teams beside it: home wrong...
     with pytest.raises(season_mod.SeasonError):
         la.normalise_rows([dict(good, home_key="chelsea", away_key="coventry")],

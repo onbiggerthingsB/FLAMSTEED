@@ -730,3 +730,139 @@ def test_archive_season_state_matches_the_real_archive():
     assert len(state.played) == len(rows)
     assert len(state.played) + len(state.unplayed) == 380
     assert len(state.clubs) == 20
+
+
+# --- round 2: the two clocks, NaT, and when a bad row may break a snapshot ---
+
+def test_a_stamp_that_resolves_to_nat_fails_closed(season_root: Path):
+    """`NaT` compares False against every bound, so an unstamped row leaks.
+
+    This is the same hole `epl.liveanchor._stamp` closes, reached through the
+    other reader of the same ledger. A status row with a null `observed_at` is
+    the sharpest case: `NaT > observed_by` is False, so the row is visible at
+    EVERY cutoff and postpones a fixture in a snapshot taken years before anyone
+    filed it. A null `date_played` is the mirror image — `NaT >= cutoff_day` is
+    False, so the row counts as played before it was played.
+
+    `known_at` fails the other way (`NaT <= cutoff` is False, so the row is
+    visible at no cutoff and a deduction silently vanishes from every table),
+    which is quieter and equally wrong. All three stop the load.
+    """
+    ledger = season_root / "2026_27" / "results_ledger.jsonl"
+    fid = "2627:arsenal:coventry"
+
+    # POSITIVE CONTROL first: the same row, properly stamped, is invisible
+    # before it was observed and visible after — so the refusals below are
+    # refusals of the stamp, not of the row.
+    _append_jsonl(ledger, [_result_row(fid, "2026-08-21", 2, 1, "2026-08-22T09:00")])
+    loaded = season_mod.Season.load(SEASON, root=season_root)
+    assert fid not in loaded.at("2026-08-22T08:00").played
+    assert loaded.at("2026-08-23").played[fid] == (2, 1)
+
+    # (a) a status row with no `observed_at`: under the old rule `NaT >
+    #     observed_by` is False, so the row was visible at every cutoff — here,
+    #     three weeks before the season starts.
+    for bad in (None, "", float("nan")):
+        ledger.write_text("")
+        _append_jsonl(ledger, [{
+            "fixture_id": fid, "status": "postponed", "source": "manual",
+            "observed_at": bad, "note": "test"}])
+        loaded = season_mod.Season.load(SEASON, root=season_root)
+        with pytest.raises(season_mod.SeasonError, match="observed_at"):
+            loaded.at("2026-08-01")
+
+    # (b) a result row with no `date_played`: "played" before it was played
+    ledger.write_text("")
+    _append_jsonl(ledger, [dict(
+        _result_row(fid, "2026-08-21", 2, 1, "2026-08-22T09:00"), date_played=None)])
+    with pytest.raises(season_mod.SeasonError, match="date_played"):
+        season_mod.Season.load(SEASON, root=season_root).at("2026-08-23")
+
+    # (c) a kickoff amendment with no `known_at`: applies at no cutoff at all
+    ledger.write_text("")
+    _append_jsonl(season_root / "2026_27" / "kickoff_amendments.jsonl", [{
+        "fixture_id": fid, "date": "2026-09-15", "time": "20:00",
+        "source": "test", "known_at": None, "note": "moved"}])
+    with pytest.raises(season_mod.SeasonError, match="known_at"):
+        season_mod.Season.load(SEASON, root=season_root).at(OPENER)
+
+
+def test_a_row_for_an_unknown_fixture_breaks_only_once_it_is_visible(
+        season_root: Path):
+    """The unknown-fixture check moves after the known-at filter (A3's reasoning).
+
+    A results row naming a fixture this season does not hold is a hand-entry
+    error and must stop the run. But the ledger is append-only, so the row filed
+    today sits in the same file as every earlier row: checking it before the
+    known-at filter makes today's typo retroactively unloadable at every cutoff
+    that came before it — the same class of bug as reading a row's content early.
+    """
+    ledger = season_root / "2026_27" / "results_ledger.jsonl"
+    _append_jsonl(ledger, [_result_row(
+        "2627:arsenal:notaclub", "2026-08-21", 2, 1, "2026-09-01T12:00")])
+    loaded = season_mod.Season.load(SEASON, root=season_root)
+
+    # not yet observed: the snapshot is unaffected
+    early = loaded.at("2026-08-24")
+    assert len(early.played) == 0
+    # ... and the explicit bound reproduces that reading from a later cutoff
+    assert len(loaded.at("2026-09-02", observed_by="2026-08-24").played) == 0
+
+    # POSITIVE CONTROL: once visible it fails closed
+    with pytest.raises(season_mod.SeasonError, match="unknown fixture"):
+        loaded.at("2026-09-02")
+
+
+def test_observed_by_is_the_knowledge_clock_for_all_three_ledgers(
+        season_root: Path):
+    """`observed_by > cutoff`: one knowledge state, read consistently.
+
+    The first shape of this bounded amendments and adjustments by
+    `min(cutoff, observed_by)` while the results ledger used `observed_by`
+    alone. Asking "what do we know NOW about the table as it stood on the 24th"
+    then read Saturday's results against Friday's schedule and Friday's
+    deductions — no moment that ever existed, and the failure is silent.
+
+    The two clocks are separate and each ledger is read by exactly one:
+    `observed_by` decides what is KNOWN (all three ledgers), `cutoff` decides
+    what has HAPPENED (a visible result is played iff `date_played < cutoff`).
+    """
+    amendments = season_root / "2026_27" / "kickoff_amendments.jsonl"
+    adjustments = season_root / "points_adjustments.jsonl"
+    ledger = season_root / "2026_27" / "results_ledger.jsonl"
+    fid = "2627:arsenal:coventry"
+    later = "2627:aston_villa:brentford"
+
+    _append_jsonl(amendments, [{
+        "fixture_id": fid, "date": "2026-09-15", "time": "20:00",
+        "source": "test", "known_at": "2026-08-30T09:00", "note": "moved"}])
+    _append_jsonl(adjustments, [{
+        "id": "adj-2627-test-02", "season": SEASON, "club_key": "arsenal",
+        "delta": -3, "known_at": "2026-08-30T09:00", "source": "test",
+        "supersedes": None, "verified": True, "note": "test"}])
+    _append_jsonl(ledger, [
+        # played before the cutoff, learned after it
+        _result_row(fid, "2026-08-21", 2, 1, "2026-08-30T09:00"),
+        # learned by the same clock, but played AFTER the cutoff
+        _result_row(later, "2026-08-29", 1, 0, "2026-08-30T09:00")])
+    loaded = season_mod.Season.load(SEASON, root=season_root)
+
+    known_now = loaded.at("2026-08-24", observed_by="2026-08-31")
+    assert known_now.played == {fid: (2, 1)}, "the play clock is the cutoff"
+    assert later in known_now.unplayed
+    assert known_now.kickoffs_known[fid][0] == pd.Timestamp("2026-09-15").date()
+    assert known_now.adjustments_known == {"arsenal": -3}
+    assert known_now.table_so_far["arsenal"].pts == 0            # 3 for the win, -3
+
+    # POSITIVE CONTROL, both directions.
+    # (i) at the cutoff itself nothing above is known yet — so the three
+    #     assertions are reading a bound, not a constant.
+    at_cutoff = loaded.at("2026-08-24")
+    assert at_cutoff.played == {}
+    assert at_cutoff.kickoffs_known[fid][0] == pd.Timestamp("2026-08-21").date()
+    assert at_cutoff.adjustments_known == {}
+    # (ii) `observed_by <= cutoff` is unchanged by the two clocks: it is the
+    #      rerun-an-old-forecast case and `min(C, O) == O` there.
+    rerun = loaded.at("2026-09-30", observed_by="2026-08-24")
+    assert rerun.played == {} and rerun.adjustments_known == {}
+    assert rerun.kickoffs_known[fid][0] == pd.Timestamp("2026-08-21").date()
