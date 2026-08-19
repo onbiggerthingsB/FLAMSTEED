@@ -58,6 +58,7 @@ import numpy as np
 from epl import leaguesim, table as table_mod
 
 __all__ = [
+    "scored_matrix", "matrix_margin_errors", "trps_se",
     "CONSEQUENCE_RANKS", "MetricError", "SCHEMA_VERSION", "TRPS_REFERENCE",
     "boundary_decider_rates", "champion_logloss_floored", "consequence_briers",
     "consequence_weights", "cumulative_forecast", "cumulative_outcome",
@@ -88,6 +89,86 @@ class MetricError(ValueError):
 # ==========================================================================
 # the shared shape check
 # ==========================================================================
+
+def scored_matrix(matrix, n_clubs: int | None = None) -> np.ndarray:
+    """A stored matrix, checked on BOTH margins before anything scores it.
+
+    A2 (d): `_as_matrix` checks shape, finiteness, non-negativity and ROW sums —
+    "every club must finish somewhere" — and stops there. `check_doubly_stochastic`
+    checks both margins and runs on a freshly simulated result, but never on a
+    matrix read back OUT of the ledger, and the scoring path is the one that
+    turns a stored row into a published number. A stored matrix whose columns
+    have drifted — rows still summing to 1, position mass no longer conserved —
+    scored silently.
+
+    Square shape is checked here too, and for the same reason: a 20-club league
+    has 20 positions, and a matrix that is not square is not a position matrix
+    at all. The tolerance is `epl.table.check_doubly_stochastic`'s own 1e-8, not
+    a looser number chosen to let something through.
+    """
+    out = _as_matrix(matrix)
+    if out.shape[0] != out.shape[1]:
+        raise MetricError(
+            f"a stored position matrix is square — {out.shape[0]} clubs and "
+            f"{out.shape[1]} positions is not a ranking of anything")
+    if n_clubs is not None and out.shape[0] != int(n_clubs):
+        raise MetricError(
+            f"the stored matrix is {out.shape} for {int(n_clubs)} clubs")
+    table_mod.check_doubly_stochastic(out)
+    return out
+
+
+def matrix_margin_errors(matrix) -> tuple[float, float]:
+    """``(worst row-sum deviation, worst column-sum deviation)`` from 1."""
+    out = np.asarray(matrix, dtype=float)
+    return (float(np.abs(out.sum(axis=1) - 1.0).max()),
+            float(np.abs(out.sum(axis=0) - 1.0).max()))
+
+
+def trps_se(matrix, positions, matrix_se) -> float | None:
+    """A Monte-Carlo standard error for TRPS, by the delta method.
+
+    A2 (c) relabelled the harness's misnamed `MC SE` column and recorded a TRPS
+    Monte-Carlo error as an OPEN ITEM, explicitly out of scope for v2. This
+    supplies it, and the deviation from that pre-statement is recorded as a
+    dated note under A2 rather than made quietly.
+
+    METHOD, stated because the number is only as good as it.
+    TRPS is a smooth function of the matrix cells through the cumulative
+    forecast, so with `g = dTRPS/dm` evaluated at the reported matrix::
+
+        g[c, k] = 2 / (C (R-1)) * sum_{r >= k} (X[c, r] - O[c, r])
+        Var(TRPS) ~= sum_{c, k} g[c, k]^2 * se[c, k]^2
+
+    where `se` is the run's own cluster-by-particle per-cell error. The cells of
+    one club are treated as INDEPENDENT, which they are not: a club's row sums
+    to 1, so its cells are predominantly NEGATIVELY correlated, and ignoring
+    those covariances OVERSTATES the variance. The reported SE is therefore
+    conservative rather than exact, and it is a Monte-Carlo error only — it says
+    nothing about model error, and nothing about the fact that TRPS is proper
+    for the displayed marginals and not for the joint law.
+
+    Returns None when the run recorded no per-cell error (the nulls do not).
+    """
+    if matrix_se is None:
+        return None
+    x = cumulative_forecast(matrix)
+    n_clubs, n_ranks = np.shape(matrix)
+    o = cumulative_outcome(positions, n_clubs, n_ranks)
+    se = np.asarray(matrix_se, dtype=float)
+    if se.shape != (n_clubs, n_ranks):
+        raise MetricError(
+            f"matrix_se is {se.shape}, expected {(n_clubs, n_ranks)}")
+    if not np.isfinite(se).all() or (se < 0).any():
+        raise MetricError("matrix_se carries a non-finite or negative entry")
+    residual = x - o                                   # [clubs, ranks-1]
+    # dX[c, r]/dm[c, k] = 1 for k <= r, so the derivative at cell k is the
+    # reverse cumulative sum of the residuals from k to R-1.
+    tail = np.cumsum(residual[:, ::-1], axis=1)[:, ::-1]
+    g = np.zeros((n_clubs, n_ranks), dtype=float)
+    g[:, : n_ranks - 1] = 2.0 * tail / (n_clubs * (n_ranks - 1))
+    return float(np.sqrt(float((g ** 2 * se ** 2).sum())))
+
 
 def _as_matrix(matrix) -> np.ndarray:
     out = np.asarray(matrix, dtype=float)

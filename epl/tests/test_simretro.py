@@ -601,3 +601,202 @@ def test_smoke_retro_runs_one_season_two_cutoffs_three_arms(smoke, tmp_path):
     assert "TRPS" in markdown and "wTRPS" in markdown and "MC" in markdown
     assert "dc_native" in markdown and "flat" in markdown
     assert out.stat().st_size > 200
+
+
+# ==========================================================================
+# harness v2 — amendment A2, recorded before this code existed
+# ==========================================================================
+
+def _v2_kwargs(tmp_path, clubs, realised, runner, ledger=None):
+    return dict(
+        seasons=("2099/00",), cutoffs=("MW0", "MW10"),
+        arms=("dc_native",), nulls=("flat",), n_sims=64, seed=SEED,
+        ledger_path=ledger or (tmp_path / "retro.jsonl"), runner=runner,
+        schedules={"2099/00": {"MW0": pd.Timestamp("2099-08-10"),
+                               "MW10": pd.Timestamp("2099-11-20")}},
+        realised={"2099/00": realised}, verbose=False)
+
+
+def _clubs_and_realised():
+    clubs = [f"club_{i:02d}" for i in range(20)]
+    return clubs, simretro.Realised(
+        season="2099/00", position={c: i + 1 for i, c in enumerate(clubs)},
+        span={c: 1 for c in clubs},
+        points={c: 80 - 3 * i for i, c in enumerate(clubs)},
+        adjustments={}, n_shared=0)
+
+
+def test_resume_key_carries_producer_identity_and_a_foreign_ledger_refuses(
+        tmp_path, monkeypatch):
+    """A2 (a): a ledger written by one producer cannot be resumed by another.
+
+    The v1 key was the question and nothing else — season, cutoff, arm, N,
+    seed — so a resume kept another producer's rows, appended its own, marked
+    neither, and reported nothing. The `envelope_hash` that would have caught it
+    is on every row and was never consulted at resume time.
+    """
+    clubs, realised = _clubs_and_realised()
+    ledger = tmp_path / "retro.jsonl"
+    runner = _CountingRunner(clubs)
+    first = simretro.run_retro(**_v2_kwargs(tmp_path, clubs, realised, runner,
+                                            ledger))
+    me = simretro.producer_identity()
+    assert all(row["producer"] == me for row in first)
+    assert all(row["run_key"].endswith(f"|p{me[:12]}") for row in first)
+
+    # resuming with the SAME producer is free: no runner call at all
+    calls = len(runner.calls)
+    again = simretro.run_retro(**_v2_kwargs(tmp_path, clubs, realised, runner,
+                                            ledger))
+    assert len(runner.calls) == calls, "the same producer resumes for nothing"
+    assert [r["run_key"] for r in again] == [r["run_key"] for r in first]
+
+    # a DIFFERENT producer refuses the ledger outright, before any fit
+    monkeypatch.setattr(simretro.producer_identity, "__wrapped__", None,
+                        raising=False)
+    other = _CountingRunner(clubs)
+    with monkeypatch.context() as patch:
+        patch.setattr(simretro, "producer_identity", lambda *a, **k: "f" * 64)
+        with pytest.raises(simretro.RetroError, match="different producer"):
+            simretro.run_retro(**_v2_kwargs(tmp_path, clubs, realised, other,
+                                            ledger))
+        assert other.calls == [], "it refused BEFORE paying for a fit"
+
+        # ... and the override is explicit, and marks every row it writes
+        mixed = simretro.run_retro(
+            **_v2_kwargs(tmp_path, clubs, realised, other, ledger),
+            allow_foreign_producer=True)
+        assert other.calls, "the override really did run"
+        assert all(r["producer"] == "f" * 64 for r in mixed)
+        assert all(r.get("allow_foreign_producer") for r in mixed)
+
+    # POSITIVE CONTROL: the producer identity moves when the harness moves.
+    with monkeypatch.context() as patch:
+        patch.setattr(simretro, "SCHEMA_VERSION", "epl-simretro-99")
+        simretro.producer_identity.cache_clear()
+        assert simretro.producer_identity() != me
+    simretro.producer_identity.cache_clear()
+    assert simretro.producer_identity() == me
+
+
+def test_beats_flat_everywhere_needs_every_expected_cell(tmp_path):
+    """A2 (b): completeness, not just non-emptiness.
+
+    `bool(checked and not violations)` was True on ANY non-empty subset,
+    because a missing cell is not a violation — it is simply not counted. One
+    surviving cell of a preregistered twenty-eight reported True.
+    """
+    clubs, realised = _clubs_and_realised()
+    runner = _CountingRunner(clubs)
+    rows = simretro.run_retro(**_v2_kwargs(tmp_path, clubs, realised, runner))
+    # The fake runner's matrices are random and lose to the flat null, which
+    # would make the flag False for the wrong reason and leave this test unable
+    # to see the completeness identity at all. dc_native's matrix is replaced
+    # with a doubly stochastic one concentrated on the realised order, so the
+    # ONLY thing that can move the flag below is the accounting.
+    sharp = 0.6 * np.eye(len(clubs)) + 0.4 / len(clubs)
+    rows = [dict(r, matrix=sharp.tolist()) if r["arm"] == "dc_native" else r
+            for r in rows]
+
+    full = simretro.score_retro(rows, n_boot=50)
+    sanity = full["sanity"]
+    assert sanity["violations"] == [], "the fixture must beat the flat null"
+    assert sanity["n_expected"] == 2 and sanity["n_checked"] == 2
+    assert sanity["complete"] is True
+    assert sanity["dc_native_beats_flat_everywhere"] is True
+
+    # drop one cutoff's flat row: one cell survives, and the flag must not
+    thin = [r for r in rows
+            if not (r["arm"] == "flat" and r["cutoff_label"] == "MW10")]
+    partial = simretro.score_retro(
+        thin, n_boot=50, expected_cells=[("2099/00", "MW0"),
+                                         ("2099/00", "MW10")])
+    assert partial["sanity"]["n_checked"] == 1
+    assert partial["sanity"]["n_expected"] == 2
+    assert partial["sanity"]["complete"] is False
+    assert partial["sanity"]["dc_native_beats_flat_everywhere"] is False
+    assert partial["sanity"]["STOP_AND_INSPECT"] is True
+    assert partial["sanity"]["missing"][0]["documented"] is False
+
+    # a DOCUMENTED refusal is different from a hole: it closes the accounting
+    documented = dict(thin[0])
+    documented.update({"arm": "flat", "cutoff_label": "MW10",
+                       "not_applicable": "flat is undefined here"})
+    with_reason = simretro.score_retro(
+        thin + [documented], n_boot=50,
+        expected_cells=[("2099/00", "MW0"), ("2099/00", "MW10")])
+    assert with_reason["sanity"]["n_documented_refusals"] == 1
+    assert with_reason["sanity"]["complete"] is True
+    assert with_reason["sanity"]["missing"][0]["reason"] == "flat is undefined here"
+
+
+def test_ledger_scoring_checks_both_margins_and_the_shape(tmp_path):
+    """A2 (d): the scoring path reads matrices back OUT of the ledger.
+
+    `_as_matrix` checks row sums — "every club must finish somewhere" — and
+    stops. A stored matrix whose COLUMNS have drifted is inadmissible and scored
+    silently, and scoring is the path that turns a stored row into a published
+    number.
+    """
+    clubs, realised = _clubs_and_realised()
+    runner = _CountingRunner(clubs)
+    rows = simretro.run_retro(**_v2_kwargs(tmp_path, clubs, realised, runner))
+    scored = simretro.score_retro(rows, n_boot=50)
+    assert scored["rows"][0]["matrix_col_max_error"] < 1e-8
+
+    # a column-corrupt matrix: rows STILL sum to 1, columns do not
+    broken = [dict(r) for r in rows]
+    matrix = np.asarray(broken[0]["matrix"], float)
+    matrix[0] = np.roll(matrix[0], 1)               # one club's row, permuted
+    assert np.allclose(matrix.sum(axis=1), 1.0)
+    assert not np.allclose(matrix.sum(axis=0), 1.0)
+    broken[0]["matrix"] = matrix.tolist()
+    with pytest.raises(Exception) as caught:
+        simretro.score_retro(broken, n_boot=50)
+    assert "column" in str(caught.value).lower() or "stochastic" in str(
+        caught.value).lower()
+
+    # ... and a non-square one is refused as a shape, not scored as a ranking
+    stretched = [dict(r) for r in rows]
+    stretched[0]["matrix"] = np.asarray(rows[0]["matrix"], float)[:, :19].tolist()
+    with pytest.raises(Exception):
+        simretro.score_retro(stretched, n_boot=50)
+
+
+def test_trps_carries_a_monte_carlo_error_and_the_columns_are_renamed(tmp_path):
+    """A2 (c), and past it: the column is renamed AND TRPS gets its own SE.
+
+    A2 pre-stated a TRPS Monte-Carlo error as an open item and OUT of scope for
+    v2. It is supplied here anyway, by the delta method on the run's own
+    per-cell cluster SE; the deviation is recorded as a dated note under A2.
+    """
+    clubs, realised = _clubs_and_realised()
+    runner = _CountingRunner(clubs)
+    rows = simretro.run_retro(**_v2_kwargs(tmp_path, clubs, realised, runner))
+    scored = simretro.score_retro(rows, n_boot=50)
+
+    native = [r for r in scored["rows"] if r["arm"] == "dc_native"]
+    assert native and all(r["trps_se"] is not None and r["trps_se"] > 0
+                          for r in native)
+    assert all("delta method" in r["trps_se_method"] for r in native)
+    # the nulls record no per-cell error, and the SE is `None` rather than 0
+    assert all(r["trps_se"] is None for r in scored["rows"] if r["arm"] == "flat")
+
+    text = simretro.report(scored)
+    assert "| TRPS SE |" in text and "| mean cell SE |" in text
+    assert "| max cell SE |" in text
+    assert "| MC SE |" not in text, "the misnamed column is gone"
+    assert "Neither is an error on TRPS" in text
+    assert "conservative rather than exact" in text
+
+    # the SE really is proportional to the per-cell error it propagates
+    doubled = [dict(r) for r in rows]
+    for row in doubled:
+        if row.get("matrix_se") is not None:
+            row["matrix_se"] = (np.asarray(row["matrix_se"], float) * 2).tolist()
+    twice = simretro.score_retro(doubled, n_boot=50)
+    pairs = {(r["season"], r["cutoff_label"], r["arm"]): r["trps_se"]
+             for r in twice["rows"]}
+    for row in native:
+        key = (row["season"], row["cutoff_label"], row["arm"])
+        assert pairs[key] == pytest.approx(2.0 * row["trps_se"], rel=1e-9)

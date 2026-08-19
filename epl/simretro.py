@@ -62,13 +62,14 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
 import numpy as np
 import pandas as pd
 
-from epl import baseline, bridge as bridge_mod, leaguesim, particles
+from epl import baseline, bridge as bridge_mod, freeze, leaguesim, particles
 from epl import score as score_mod, season as season_mod, simmetrics
 from epl import table as table_mod, walkforward
 
@@ -453,16 +454,48 @@ def _sha256_json(obj) -> str:
     return hashlib.sha256(_canonical(obj).encode("utf-8")).hexdigest()
 
 
-def run_key(season: str, cutoff_label: str, cutoff, arm: str, n_sims: int,
-            seed: int) -> str:
-    """What identifies a REQUEST — so a resume knows what it already has.
+def _sha256_file(path) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
-    The key is the question, not the answer: season, cutoff, arm, simulation
-    count and seed. The answer's fingerprint travels beside it as
-    `envelope_hash`, which is what makes a row traceable to the run that made it.
+
+@lru_cache(maxsize=1)
+def producer_identity(config_hash: str | None = None) -> str:
+    """Who is answering — the harness itself, not the question it answers.
+
+    A digest over the harness schema version, the SHA-256 of `epl/simretro.py`
+    and `epl/simmetrics.py` as they stand at run time, the metrics schema
+    version, and the frozen configuration's identity.
+
+    A2 (a): the v1 key was the question and nothing else, so a ledger written by
+    one producer and resumed by another passed its own resume test — the rows it
+    kept were stale, the rows it appended were fresh, the file marked neither and
+    nothing stopped. The `envelope_hash` that would have caught it is on every
+    row and was never consulted at resume time. Putting the producer IN the key
+    makes the mix impossible by construction rather than detectable in principle.
+    """
+    return _sha256_json({
+        "schema": SCHEMA_VERSION,
+        "metrics_schema": simmetrics.SCHEMA_VERSION,
+        "simretro_sha256": _sha256_file(Path(__file__).resolve()),
+        "simmetrics_sha256": _sha256_file(
+            Path(__file__).resolve().with_name("simmetrics.py")),
+        "config": config_hash or _sha256_json(freeze.frozen_wcmodel_config()),
+    })
+
+
+def run_key(season: str, cutoff_label: str, cutoff, arm: str, n_sims: int,
+            seed: int, producer: str | None = None) -> str:
+    """What identifies a REQUEST **and who answered it**.
+
+    The question — season, cutoff, arm, simulation count, seed — plus the first
+    twelve hex of :func:`producer_identity`. The answer's own fingerprint still
+    travels beside it as `envelope_hash`; the producer segment is what stops a
+    row made by a different harness from satisfying this request at all.
     """
     day = pd.Timestamp(cutoff).normalize().date()
-    return f"{season}|{cutoff_label}|{day}|{arm}|n{int(n_sims)}|s{int(seed)}"
+    who = (producer or producer_identity())[:12]
+    return (f"{season}|{cutoff_label}|{day}|{arm}|n{int(n_sims)}|s{int(seed)}"
+            f"|p{who}")
 
 
 def _stable(mapping) -> dict:
@@ -480,9 +513,11 @@ def _not_applicable_row(*, season, cutoff_label, cutoff, arm, n_sims, seed,
     rediscover that. `score_retro` skips these rows and `run_retro` does not
     return them: they are bookkeeping, not forecasts.
     """
-    key = run_key(season, cutoff_label, cutoff, arm, n_sims, seed)
+    producer = producer_identity()
+    key = run_key(season, cutoff_label, cutoff, arm, n_sims, seed, producer)
     return {
         "schema_version": SCHEMA_VERSION,
+        "producer": producer,
         "run_key": key,
         "envelope_hash": _sha256_json({"run_key": key, "not_applicable": reason}),
         "season": season, "cutoff_label": cutoff_label,
@@ -494,11 +529,13 @@ def _not_applicable_row(*, season, cutoff_label, cutoff, arm, n_sims, seed,
 
 def _row(*, season, cutoff_label, cutoff, arm, result: ArmResult, clubs,
          realised: Realised, seed, provenance, smoke) -> dict:
-    key = run_key(season, cutoff_label, cutoff, arm, result.n_sims, seed)
+    producer = producer_identity()
+    key = run_key(season, cutoff_label, cutoff, arm, result.n_sims, seed, producer)
 
     row = {
         "schema_version": SCHEMA_VERSION,
         "metrics_schema_version": simmetrics.SCHEMA_VERSION,
+        "producer": producer,
         "run_key": key,
         "envelope_hash": _sha256_json({"run_key": key,
                                        "envelope": _stable(result.envelope),
@@ -554,6 +591,7 @@ def run_retro(seasons: Sequence[str] | None = None,
               schedules: dict[str, dict[str, pd.Timestamp]] | None = None,
               realised: dict[str, Realised] | None = None,
               require_verified_adjustments: bool = True,
+              allow_foreign_producer: bool = False,
               verbose: bool = True) -> list[dict]:
     """Run every (season, cutoff, arm) that the ledger does not already hold.
 
@@ -582,6 +620,22 @@ def run_retro(seasons: Sequence[str] | None = None,
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     have = {row["run_key"]: row for row in _read_ledger(ledger_path)}
 
+    # A2 (a): refuse a ledger written by another producer, before any fit. The
+    # key already makes a foreign row unable to satisfy a request; this stops
+    # the run from silently APPENDING to someone else's file and leaving a
+    # ledger nobody can describe. The override is explicit and is recorded.
+    me = producer_identity()
+    foreign = sorted(key for key, row in have.items()
+                     if row.get("producer") not in (None, me))
+    if foreign and not allow_foreign_producer:
+        raise RetroError(
+            f"{ledger_path} holds {len(foreign)} row(s) written by a different "
+            f"producer than this one ({me[:12]}); the first are {foreign[:3]}. "
+            "A ledger that mixes producers is one whose rows were computed by "
+            "different code and cannot be compared. Re-run into a fresh ledger, "
+            "or pass allow_foreign_producer=True to append deliberately — which "
+            "is recorded on every row this run writes.")
+
     need_archive = schedules is None or realised is None or runner is None
     if need_archive and matches is None:
         matches = baseline.load_matches()
@@ -601,7 +655,8 @@ def run_retro(seasons: Sequence[str] | None = None,
         for label in cutoffs:
             cutoff = schedule[label]
             todo = [a for a in (*arms, *nulls)
-                    if run_key(season, label, cutoff, a, n_sims, seed) not in have]
+                    if run_key(season, label, cutoff, a, n_sims, seed, me)
+                    not in have]
             if todo:
                 if verbose:
                     print(f"[retro] {season} {label} ({pd.Timestamp(cutoff).date()}) "
@@ -628,11 +683,13 @@ def run_retro(seasons: Sequence[str] | None = None,
                                        smoke=smoke)
                         if row["run_key"] in have:
                             continue
+                        if allow_foreign_producer and foreign:
+                            row["allow_foreign_producer"] = True
                         fh.write(json.dumps(row, default=str) + "\n")
                         have[row["run_key"]] = row
 
             for arm in (*arms, *nulls):
-                key = run_key(season, label, cutoff, arm, n_sims, seed)
+                key = run_key(season, label, cutoff, arm, n_sims, seed, me)
                 row = have.get(key)
                 if row is not None and not row.get("not_applicable"):
                     wanted.append(key)
@@ -657,7 +714,10 @@ def _check_clubs(result: CutoffResult, season: str, label: str) -> None:
 
 def _score_one(row: dict) -> dict:
     clubs = list(row["clubs"])
-    matrix = np.asarray(row["matrix"], float)
+    # A2 (d): both margins, on the way OUT of the ledger. This is the path that
+    # turns a stored row into a published number, and it checked row sums only.
+    matrix = simmetrics.scored_matrix(row["matrix"], len(clubs))
+    row_error, col_error = simmetrics.matrix_margin_errors(matrix)
     realised = row["realised"]
     positions = np.array([int(realised["position"][c]) for c in clubs], np.int64)
 
@@ -673,6 +733,17 @@ def _score_one(row: dict) -> dict:
         "envelope_hash": row["envelope_hash"],
         "n_shared_realised": int(realised.get("n_shared", 0)),
         "trps": simmetrics.trps(matrix, positions),
+        # A2 (c) recorded a TRPS Monte-Carlo error as an open item and put it
+        # out of scope for v2; it is supplied here, by the delta method on the
+        # run's own per-cell cluster SE, and the deviation from that
+        # pre-statement is recorded as a dated note under A2.
+        "trps_se": simmetrics.trps_se(matrix, positions, row.get("matrix_se")),
+        "trps_se_method": ("delta method on the cluster-by-particle per-cell SE, "
+                           "cells treated as independent (conservative: a club's "
+                           "row sums to 1, so the neglected covariances are "
+                           "predominantly negative)"),
+        "matrix_row_max_error": row_error,
+        "matrix_col_max_error": col_error,
         "wtrps": simmetrics.wtrps(matrix, positions,
                                   simmetrics.consequence_weights(len(clubs))),
         "flat_trps": simmetrics.flat_trps(positions),
@@ -707,6 +778,7 @@ def _score_one(row: dict) -> dict:
 
 def score_retro(ledger, *, n_boot: int = N_BOOT,
                 comparisons: Sequence[tuple[str, str]] = DEFAULT_COMPARISONS,
+                expected_cells: Sequence[tuple[str, str]] | None = None,
                 ) -> dict:
     """Every metric in plan v2 §5, per (season, cutoff, arm), plus the pairings.
 
@@ -770,6 +842,45 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
         and not v["dc_native"]["trps"] < v["flat"]["trps"]]
     checked = sum(1 for v in index.values() if "dc_native" in v and "flat" in v)
 
+    # A2 (b): completeness, not just non-emptiness. `bool(checked and not
+    # violations)` reported True on ANY non-empty subset — one surviving cell of
+    # a preregistered twenty-eight — because a missing cell is not a violation,
+    # it is simply not counted. The flag now requires the accounting to close.
+    documented = {}
+    for row in ledger:
+        if row.get("not_applicable"):
+            documented[(row["season"], row["cutoff_label"], row["arm"])] = \
+                row["not_applicable"]
+    by_cell: dict[tuple[str, str], set[str]] = {}
+    for row in scored:
+        by_cell.setdefault((row["season"], row["cutoff_label"]), set()).add(
+            row["arm"])
+    if expected_cells is None:
+        cells = set(by_cell) | {(s, c) for s, c, _a in documented}
+        expected_source = "derived from the rows supplied"
+    else:
+        cells = {(str(s), str(c)) for s, c in expected_cells}
+        expected_source = "supplied by the caller"
+    missing = []
+    for season, label in sorted(cells):
+        present = by_cell.get((season, label), set())
+        for arm in ("dc_native", "flat"):
+            if arm in present:
+                continue
+            reason = documented.get((season, label, arm))
+            missing.append({
+                "season": season, "cutoff_label": label, "arm": arm,
+                "reason": reason or "absent from the ledger",
+                "documented": reason is not None,
+            })
+    n_expected = len(cells)
+    documented_refusals = len({(m["season"], m["cutoff_label"]) for m in missing
+                               if m["documented"]})
+    undocumented = [m for m in missing if not m["documented"]]
+    complete = bool(checked + documented_refusals == n_expected
+                    and not undocumented)
+    overrides = sum(1 for r in ledger if r.get("allow_foreign_producer"))
+
     return {
         "schema_version": SCHEMA_VERSION,
         "metrics_schema_version": simmetrics.SCHEMA_VERSION,
@@ -779,10 +890,18 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
         "by_cutoff": by_cutoff,
         "comparisons": paired,
         "sanity": {
+            "n_expected": int(n_expected),
+            "n_expected_source": expected_source,
             "n_checked": int(checked),
-            "dc_native_beats_flat_everywhere": bool(checked and not violations),
+            "n_missing": len(missing),
+            "missing": missing,
+            "n_documented_refusals": int(documented_refusals),
+            "complete": complete,
+            "n_foreign_producer_overrides": int(overrides),
+            "dc_native_beats_flat_everywhere": bool(
+                checked and not violations and complete),
             "violations": violations,
-            "STOP_AND_INSPECT": bool(violations),
+            "STOP_AND_INSPECT": bool(violations or undocumented),
         },
         "never_averaged_across_cutoffs": True,
         "note": ("TRPS is primary and unweighted; wTRPS on the published "
@@ -798,9 +917,15 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
 # 7. the report
 # ==========================================================================
 
-_COLUMNS = ("cutoff", "season", "arm", "TRPS", "flat TRPS", "wTRPS",
+#: A2 (c): `MC SE` was `stats_market["se"].mean()` — the MEAN cluster-by-particle
+#: error over the club x consequence cells — printed at the right-hand end of a
+#: row whose leading number is TRPS and described in the legend as the position
+#: matrix's error. It was neither. It is now named for what it is, its maximum
+#: is printed beside it, and TRPS carries its own SE.
+_COLUMNS = ("cutoff", "season", "arm", "TRPS", "TRPS SE", "flat TRPS", "wTRPS",
             "Brier champ", "Brier top4", "Brier releg", "champ -ln p",
-            "pts CRPS", "pts MAE", "cov50", "cov90", "MC SE")
+            "pts CRPS", "pts MAE", "cov50", "cov90",
+            "mean cell SE", "max cell SE")
 
 
 def _fmt(value, digits: int = 4) -> str:
@@ -824,6 +949,20 @@ def report(scores: dict) -> str:
         "error. Positional thresholds are not claims about qualification for "
         "any competition.",
         "",
+        "**The error columns.** `mean cell SE` and `max cell SE` are the mean "
+        "and the maximum cluster-by-particle Monte-Carlo error over the club x "
+        "consequence cells. Neither is an error on TRPS, and neither is the "
+        "position matrix's own error (that quantity is `matrix_cluster_se_max` "
+        "in the same `mc` block). Under harness v1 the first of them was printed "
+        "as `MC SE` beside TRPS and described as the matrix's error, which it "
+        "was not, and TRPS carried no Monte-Carlo error at all. `TRPS SE` is "
+        "that error: the delta method applied to the run's own per-cell "
+        "cluster-by-particle SE, treating a club's cells as independent. They "
+        "are not — a club's row sums to 1, so the neglected covariances are "
+        "predominantly negative — which makes the reported figure conservative "
+        "rather than exact. It is `n/a` for the nulls, which record no per-cell "
+        "error. All of it is Monte-Carlo error only.",
+        "",
         "| " + " | ".join(_COLUMNS) + " |",
         "|" + "|".join(["---"] * len(_COLUMNS)) + "|",
     ]
@@ -836,14 +975,15 @@ def report(scores: dict) -> str:
         mc = row.get("mc") or {}
         lines.append("| " + " | ".join([
             row["cutoff_label"], row["season"], row["arm"],
-            _fmt(row["trps"]), _fmt(row["flat_trps"]), _fmt(row["wtrps"]),
+            _fmt(row["trps"]), _fmt(row.get("trps_se"), 5),
+            _fmt(row["flat_trps"]), _fmt(row["wtrps"]),
             _fmt(row["briers"]["champion"], 4),
             _fmt(row["briers"]["top4"], 4),
             _fmt(row["briers"]["relegated"], 4),
             _fmt(row["champion_logloss"]["value"], 3),
             _fmt(points.get("crps"), 2), _fmt(points.get("mae"), 2),
             _fmt(points.get("coverage50"), 2), _fmt(points.get("coverage90"), 2),
-            _fmt(mc.get("cluster"), 5),
+            _fmt(mc.get("cluster"), 5), _fmt(mc.get("cluster_se_max"), 5),
         ]) + " |")
 
     lines += ["", "## Paired differences (TRPS), per cutoff", "",
@@ -860,9 +1000,19 @@ def report(scores: dict) -> str:
 
     sanity = scores["sanity"]
     lines += ["", "## Sanity", "",
-              f"- dc_native beats the flat null at every checked "
+              f"- dc_native beats the flat null at every EXPECTED "
               f"(season, cutoff): **{sanity['dc_native_beats_flat_everywhere']}** "
-              f"({sanity['n_checked']} checked)"]
+              f"— {sanity['n_checked']} checked + "
+              f"{sanity['n_documented_refusals']} documented refusal(s) against "
+              f"{sanity['n_expected']} expected ({sanity['n_expected_source']}); "
+              f"the accounting closes: **{sanity['complete']}**"]
+    if sanity["n_missing"]:
+        lines.append("- missing cells: " + json.dumps(sanity["missing"]))
+    if sanity["n_foreign_producer_overrides"]:
+        lines.append(
+            f"- **{sanity['n_foreign_producer_overrides']} row(s) were appended "
+            "under an explicit foreign-producer override**: this ledger mixes "
+            "rows computed by different harness code, on purpose and on record.")
     if sanity["STOP_AND_INSPECT"]:
         lines.append("- **STOP AND INSPECT** — violations: "
                      + json.dumps(sanity["violations"]))
