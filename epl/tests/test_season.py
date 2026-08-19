@@ -341,10 +341,21 @@ def test_table_so_far_covers_home_away_draw_and_adjustment(season_root: Path):
     assert row("hull") == (1, 0, 1, 0, 1, 1, 0, 1)
     assert row("man_united") == (1, 0, 1, 0, 1, 1, 0, 1)
 
+    # THE UNTOUCHED CLUBS WERE THE VACUOUS HALF OF THIS TEST. `all(...)` over
+    # "the clubs the table happens to hold" is True for a `table_so_far` that
+    # simply omits every club with nothing played yet — and a table that is
+    # missing fourteen rows on matchday one is one the operator reads as a
+    # six-club league, with fourteen clubs silently unrankable. So the KEY SET
+    # is asserted first, against the season's own club list, and only then the
+    # zeros; and the untouched clubs are counted, so an empty comprehension
+    # cannot stand in for fourteen all-zero rows.
     touched = {"arsenal", "coventry", "brentford", "tottenham", "hull", "man_united"}
     assert len(touched) == 6
-    assert all(row(c) == (0, 0, 0, 0, 0, 0, 0, 0)
-               for c in state.table_so_far if c not in touched)
+    assert set(state.table_so_far) == set(state.clubs)
+    assert len(state.table_so_far) == 20
+    untouched = sorted(set(state.table_so_far) - touched)
+    assert len(untouched) == 14
+    assert all(row(c) == (0, 0, 0, 0, 0, 0, 0, 0) for c in untouched)
 
     # D16: the deduction has to reach the ROW, not just `adjustments_known`.
     # 2023/24 is the season that carries one (Everton -8, Forest -4), so the
