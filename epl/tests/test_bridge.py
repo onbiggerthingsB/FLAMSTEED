@@ -807,3 +807,99 @@ def test_dc_wdl_prices_each_season_at_its_own_particle_not_at_the_mean(state, br
     freq, se = _one_x_two_frequencies(run, fixture_id)
     mutant_freq, _ = _one_x_two_frequencies(mutant_run, fixture_id)
     assert np.all(np.abs(freq - mutant_freq) <= 5 * np.maximum(se, 1e-12) + 0.02)
+
+
+class _PermutedParticleMutant(bridge_mod.DCWDLProvider):
+    """Prices each season at `(particle + ordinal) % S` — the WRONG particle.
+
+    The mean-mixture mutant above destroys the per-particle spread, and the
+    homogeneity statistic sees that immediately. A permutation does not: every
+    particle still prices some season, the spread is untouched, and the 1X2
+    marginal is unchanged. What it destroys is the CORRESPONDENCE — the season
+    labelled particle `s` in `retained_rows.particle` was priced by a different
+    draw — which is what every cluster-by-particle standard error, and the whole
+    D15 outer/inner split, is computed on.
+    """
+
+    def sample(self, fixture, particle_idx, u):
+        one_x_two, widened = self.laws_for(fixture)
+        idx = np.asarray(particle_idx, np.int64)
+        shifted = (idx + int(fixture.ordinal)) % one_x_two.shape[0]
+        probs = one_x_two[shifted]
+        if widened is not None:
+            coin = np.asarray(u[1]) < self.book.alpha
+            if coin.any():
+                probs[coin] = widened
+        return self.bridge.sample(
+            bridge_mod._draw_outcome(probs, np.asarray(u[0])), np.asarray(u[2]))
+
+
+def _per_particle_fit(run, fixture_id, laws) -> float:
+    """Pearson statistic for "particle s's seasons realise particle s's law".
+
+    ``sum_s (k_s - n_s p_s)^2 / (n_s p_s (1-p_s))`` with `p_s` taken from the
+    BOOK, not from the run — chi-squared on S df when the season labelled `s`
+    really was priced by draw `s`.
+    """
+    plan = run.plan
+    ordinal = plan.fixtures[plan.position_of(fixture_id)].ordinal
+    column = {int(o): j for j, o
+              in enumerate(run.retained_rows.fixture_ordinals.tolist())}[ordinal]
+    goals = run.retained_rows.scorelines[:, column, :].astype(np.int64)
+    home_win = (goals[:, 0] > goals[:, 1]).astype(float)
+    particle = run.retained_rows.particle
+    n_particles = laws.shape[0]
+
+    counts = np.bincount(particle, minlength=n_particles).astype(float)
+    wins = np.bincount(particle, weights=home_win, minlength=n_particles)
+    p = np.clip(laws[:, 0], 1e-6, 1 - 1e-6)
+    assert counts.min() > 0
+    return float((((wins - counts * p) ** 2) / (counts * p * (1 - p))).sum())
+
+
+def test_dc_wdl_prices_each_season_at_its_OWN_particle_not_a_permutation(
+        state, bridge):
+    """The season labelled particle s must have been priced by draw s.
+
+    The mean-mixture guard beside this one cannot see a permutation: the
+    per-particle laws still differ, the realised frequencies still differ across
+    particles, and the fixture's 1X2 marginal is identical. Only holding each
+    particle's realised frequency against ITS OWN law catches it — and that
+    correspondence is what every cluster-by-particle standard error assumes.
+    """
+    # A fixture whose ORDINAL is not a multiple of S: at a multiple the shift
+    # `(idx + ordinal) % S` is the identity and the mutant would not be one.
+    fixture_id = sorted(state.fixtures)[1]
+    fixture = state.fixtures[fixture_id]
+    home, away = fixture.home_key, fixture.away_key
+    book = _particle_spread_book(state.clubs, home, away)
+    n_sims, chunk = 3200, 800
+
+    honest = bridge_mod.DCWDLProvider(book, bridge)
+    laws, widened = honest.laws_for(_plain_fixture(home, away))
+    assert widened is None and laws.shape == (book.n_particles, 3)
+
+    run = leaguesim.simulate("dc_wdl_bridge", state, honest, n_sims, SEED, chunk)
+    ordinal = run.plan.fixtures[run.plan.position_of(fixture_id)].ordinal
+    assert ordinal % book.n_particles != 0, (
+        "the permutation below must actually permute: at an ordinal that is a "
+        "multiple of S it is the identity and the mutant is not a mutant")
+
+    mutant_run = leaguesim.simulate(
+        "dc_wdl_bridge", state, _PermutedParticleMutant(book, bridge),
+        n_sims, SEED, chunk)
+
+    from scipy.stats import chi2
+    df = book.n_particles
+    real = _per_particle_fit(run, fixture_id, laws)
+    permuted = _per_particle_fit(mutant_run, fixture_id, laws)
+    assert float(chi2.sf(real, df)) > 1e-3, (
+        f"the honest run's particles must realise their own laws "
+        f"(statistic {real:.1f} on {df} df)")
+    assert float(chi2.sf(permuted, df)) < 1e-9, (
+        f"the permutation must be caught (statistic {permuted:.1f} on {df} df)")
+
+    # ... and the OLD guard cannot see it: the permuted run still looks
+    # heterogeneous across particles, which is what that test measures.
+    assert float(chi2.sf(_home_win_homogeneity(mutant_run, fixture_id),
+                         book.n_particles - 1)) < 1e-6

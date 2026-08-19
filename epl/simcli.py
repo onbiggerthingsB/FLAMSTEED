@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import time
@@ -108,7 +109,12 @@ LIMITATIONS_PHRASES = (
     "Tiebreak rule id",
 )
 
-ISSUANCE_SCHEMA_VERSION = "epl-issuance-1"
+#: Bumped to -2 when `output_digests` and `provider_hashes` were added to the
+#: record (round-2 Codex review of d6a1a91): `check` now holds the FILE a reader
+#: downloads against the run it claims to describe, and refuses a provider that
+#: is not the one the issuance recorded. An `epl-issuance-1` record carries
+#: neither, and `check` reports them as unrecorded rather than failing it.
+ISSUANCE_SCHEMA_VERSION = "epl-issuance-2"
 
 
 class CliError(RuntimeError):
@@ -313,7 +319,15 @@ def forecast(*, season: str = DEFAULT_SEASON, cutoff,
     # `fit.training` is the frame the fit itself trained on; `fit.matches` is
     # the completed-season archive and has no rows of a season in progress.
     trained_on = fit.matches if fit.training is None else fit.training
-    archive = trained_on if matches is None else matches
+    # D18: the bridge is estimated on the frame the FIT trained on, and an
+    # explicit `matches` does not override it. `matches` is the archive a caller
+    # hands in for the season state and the fit; `fit.training` is what the fit
+    # actually saw, which mid-season is archive PLUS the season's own results
+    # ledger. Letting `matches` win here re-opened the exact defect D18 closed —
+    # a bridge that has never seen a match of the season it is pricing — and did
+    # it only on the code path that passes `matches`, which is every retrospective
+    # and every test.
+    archive = trained_on
     needs_bridge = bool({"dc_wdl_bridge", "elo_wdl_bridge"} & set(arms))
     if needs_bridge and archive is None:
         raise CliError(
@@ -399,6 +413,12 @@ def forecast(*, season: str = DEFAULT_SEASON, cutoff,
         "digests": {arm: run.digest() for arm, run in runs.items()},
         "numbers_digests": {arm: simcanary._numbers_digest(run)
                             for arm, run in runs.items()},
+        # the digest of the FILE each arm published, so `check` can hold the
+        # bytes a reader downloads against the run they claim to describe
+        "output_digests": {arm: output_numbers_digest(run.to_json())
+                           for arm, run in runs.items()},
+        "provider_hashes": {arm: provider.content_hash()
+                            for arm, provider in providers.items()},
         "files": written,
         "gate_PASS": None if gate_report is None else bool(gate_report["PASS"]),
         "wall_seconds": round(time.perf_counter() - started, 2),
@@ -578,6 +598,13 @@ def check_mc_uncertainty(run: leaguesim.SimRun) -> dict:
     """Every published headline carries a finite cluster-by-particle SE."""
     problems: list[str] = []
     worst = 0.0
+    # NEGATIVE is refused as well as non-finite. A standard error is a square
+    # root and cannot be below zero; a negative one is a broken estimator, and
+    # `abs()` or a print format would hide it while the number stayed wrong.
+    # `outer` and `inner` are variance COMPONENTS, not standard errors — an
+    # unbiased `outer = (between - within/k)/S` can legitimately come out
+    # negative on a cell with almost no between-particle spread — so they are
+    # required finite and are deliberately NOT required non-negative.
     for club, markets in run.consequences.items():
         for market, cell in markets.items():
             for key in ("p", "se", "outer", "inner"):
@@ -587,6 +614,8 @@ def check_mc_uncertainty(run: leaguesim.SimRun) -> dict:
                 value = float(cell[key])
                 if not np.isfinite(value):
                     problems.append(f"{club} {market}: {key} is not finite")
+                elif key in ("p", "se") and value < 0.0:
+                    problems.append(f"{club} {market}: {key} is negative ({value:.3e})")
             if "se" in cell and np.isfinite(float(cell["se"])):
                 worst = max(worst, float(cell["se"]))
 
@@ -595,15 +624,24 @@ def check_mc_uncertainty(run: leaguesim.SimRun) -> dict:
         problems.append("matrix_se does not have the matrix's shape")
     if not np.all(np.isfinite(matrix_se)):
         problems.append("the position matrix carries a non-finite standard error")
+    elif np.any(matrix_se < 0.0):
+        problems.append(
+            f"the position matrix carries a negative standard error "
+            f"(worst {float(matrix_se.min()):.3e})")
     for club, row in run.points_summary.items():
         if "se" not in row or not np.isfinite(float(row["se"])):
             problems.append(f"{club}: the points mean has no standard error")
+        elif float(row["se"]) < 0.0:
+            problems.append(f"{club}: the points mean's standard error is negative")
 
     mc = run.mc
     for key in ("cluster", "outer", "inner", "cluster_se_max",
                 "identity_max_abs_error"):
         if key not in mc or not np.isfinite(float(mc[key])):
             problems.append(f"mc.{key} missing or not finite")
+    for key in ("cluster", "cluster_se_max", "matrix_cluster_se_max"):
+        if key in mc and np.isfinite(float(mc[key])) and float(mc[key]) < 0.0:
+            problems.append(f"mc.{key} is a negative standard error")
     if float(mc.get("identity_max_abs_error", 1.0)) > 1e-9:
         problems.append("the outer/inner decomposition does not sum to the total")
 
@@ -633,21 +671,76 @@ def check_limitations(text: str, run: leaguesim.SimRun) -> dict:
         "n_unplayed": str(run.envelope["n_unplayed"]),
         "tiebreak_rule_id": run.envelope["tiebreak_rule_id"],
     }
-    absent = sorted(k for k, v in numbers.items() if v not in text)
 
-    return _ok("limitations", not missing and not absent, {
+    # D11 v1.0.1: the "Truncation-flagged fixtures" section is the one part of
+    # the note whose CONTENT is a finding rather than a restatement, and the
+    # heading check above passes on a section that says the opposite of what the
+    # envelope holds. So the flagged ids and the max/mean/p90 are read out of
+    # the envelope and required verbatim in the text — a note listing three
+    # flagged fixtures for a run whose envelope flags five is a failure, and so
+    # is one claiming "none" when the envelope names any.
+    block = run.envelope.get("excluded_mass") or {}
+    flagged_ids = [str(row["fixture"]) for row in (block.get("flagged") or [])]
+    if block.get("measured") and block.get("n_fixtures"):
+        for key in ("max", "mean", "p90"):
+            value = block.get(key)
+            if value is not None:
+                numbers[f"excluded_mass_{key}"] = f"{float(value):.3g}"
+        numbers["excluded_mass_n_fixtures"] = str(block["n_fixtures"])
+    for fid in flagged_ids:
+        numbers[f"flagged:{fid}"] = fid
+    if block.get("measured") and block.get("n_fixtures") and not flagged_ids:
+        numbers["flagged:none"] = "no fixture exceeds the flag threshold"
+
+    absent = sorted(k for k, v in numbers.items() if v not in text)
+    # ... and nothing may be listed as flagged that the envelope does not flag.
+    listed = set(re.findall(r"`(\d{4}:[a-z0-9_]+:[a-z0-9_]+)`", text))
+    extra = sorted(listed - set(flagged_ids))
+
+    return _ok("limitations", not missing and not absent and not extra, {
         "missing_sections": missing,
         "numbers_not_found": absent,
+        "flagged_in_note_not_in_envelope": extra,
+        "flagged_fixtures": flagged_ids,
+        "excluded_mass": {k: block.get(k) for k in
+                          ("measured", "n_fixtures", "max", "mean", "p90")},
         "unresolved_playoff_mass_per_club": playoff,
         "unresolved_multiway_mass_per_club": multiway,
         "chars": len(text),
     }, "auto-filled from the run, not a template a human forgot to complete")
 
 
+def _provider_identity_gap(provider, run) -> dict:
+    """Where the provider's identity disagrees with the run's own envelope.
+
+    The envelope records the identity of the provider that produced the run —
+    `effective_posterior_hash`, `bridge_hash`, `widening_mode`, `max_goals`, and
+    the arm's name. A provider that differs in any of them is not the thing the
+    run was made with, whatever else it reproduces. Empty dict means agreement.
+    """
+    gap: dict = {}
+    if getattr(provider, "name", run.arm) != run.arm:
+        gap["arm"] = [getattr(provider, "name", None), run.arm]
+    describe = getattr(provider, "describe", None)
+    described = {}
+    if describe is not None:
+        try:
+            described = dict(describe())
+        except Exception:                                   # pragma: no cover
+            described = {}
+    for key in ("effective_posterior_hash", "bridge_hash", "widening_mode",
+                "max_goals"):
+        if key not in described or key not in run.envelope:
+            continue
+        if described[key] != run.envelope[key]:
+            gap[key] = [described[key], run.envelope[key]]
+    return gap
+
+
 def check_reproducibility(arm: str, state, provider, *, n_sims: int, seed: int,
                           chunk_size: int, n_particles: int, season=None,
                           boundaries=None, rule_id: str | None = None,
-                          parallel_workers: int = 2) -> dict:
+                          parallel_workers: int = 2, run=None) -> dict:
     """Serial == chunk-concatenation == parallel, and a different seed moves it.
 
     The chunking is part of the run's DEFINITION, not a scheduling artefact:
@@ -658,6 +751,12 @@ def check_reproducibility(arm: str, state, provider, *, n_sims: int, seed: int,
 
     The seed control is the positive half: without it "the runs agree" is also
     what a sampler that ignored its uniforms would report.
+
+    Pass `run` — the gate does — and two more things are required: the provider
+    must BE the one the run's envelope names (`_provider_identity_gap`), and,
+    when the specification matches the run's own, the serial re-run must
+    reproduce the run's number digest. Without those the criterion measures the
+    provider it was handed against itself and says nothing about the issuance.
     """
     import concurrent.futures as cf
 
@@ -693,12 +792,42 @@ def check_reproducibility(arm: str, state, provider, *, n_sims: int, seed: int,
     control_digest = simcanary._numbers_digest(control)
 
     deterministic = serial_digest == repeat_digest
-    parallel_ok = parallel_digest is None or parallel_digest == serial_digest
+    # `parallel_ok` used to be `digest is None or digest == serial`, which is
+    # True whenever the parallel leg did not run — including when it was asked
+    # for. Whether it was asked for is now recorded and required: with workers
+    # and more than one chunk, a missing digest is a failure, not a pass.
+    parallel_requested = bool(parallel_workers) and serial.plan.n_chunks > 1
+    parallel_ran = parallel_digest is not None
+    parallel_ok = bool(parallel_ran and parallel_digest == serial_digest) \
+        if parallel_requested else True
     moved = control_digest != serial_digest
+
+    # The gate's re-run must reproduce THE RUN BEING GATED, not merely itself.
+    # Without this a caller could hand the gate any provider at all — a stub, a
+    # different book, the wrong arm's provider — and the criterion would pass on
+    # its own internal consistency while measuring nothing about the issuance.
+    identity: dict = {}
+    reproduces_run = None
+    if run is not None:
+        # `resolved`, not `provider`: a bare ParticleBook has no `describe`, and
+        # comparing an object with no identity to an envelope would find no gap
+        # in anything.
+        identity = _provider_identity_gap(resolved, run)
+        same_spec = (int(n_sims) == int(run.plan.n_sims)
+                     and int(chunk_size) == int(run.plan.chunk_size)
+                     and int(seed) == int(run.plan.seed))
+        reproduces_run = (serial_digest == simcanary._numbers_digest(run)
+                          if same_spec else None)
+
     passed = bool(deterministic and concatenation_ok and parallel_ok and moved
-                  and parallel_error is None)
+                  and parallel_error is None and not identity
+                  and reproduces_run is not False)
 
     return _ok("serial_equals_chunked", passed, {
+        "provider_identity_gap": identity,
+        "reproduces_the_gated_run": reproduces_run,
+        "parallel_requested": parallel_requested,
+        "parallel_ran": parallel_ran,
         "n_sims": int(n_sims),
         "chunk_size": chunk_size,
         "n_chunks": int(serial.plan.n_chunks),
@@ -758,12 +887,21 @@ def check_lock(*, script: str = "scripts/oa_lock.py", timeout: int = 900) -> dic
     except Exception as exc:                                # pragma: no cover
         return _ok("lock_valid", False, {"error": repr(exc)})
     first = (proc.stdout or "").strip().splitlines()
-    head = first[0] if first else ""
-    return _ok("lock_valid", head.strip() == "LOCK VALID", {
+    head = (first[0] if first else "").strip()
+    # BOTH. The text alone passes a run that printed LOCK VALID and then died
+    # on the next line — an exception after the first check, a partial walk of
+    # the chain, a non-zero exit nobody read. The exit code alone passes a
+    # script that was replaced by something that exits 0. Neither is the claim
+    # being made, which is that the whole chain verified.
+    passed = bool(proc.returncode == 0 and head == "LOCK VALID")
+    return _ok("lock_valid", passed, {
         "command": " ".join(cmd),
         "returncode": proc.returncode,
         "first_line": head,
-    }, "nothing polls this chain; it is verified after every commit")
+        "stderr_tail": (proc.stderr or "").strip()[-400:],
+    }, "nothing polls this chain; it is verified after every commit. The check "
+       "requires exit 0 AND the text: either alone can be true while the chain "
+       "did not verify")
 
 
 def _subprocess_env() -> dict:
@@ -847,7 +985,7 @@ def acceptance_gate(*, run: leaguesim.SimRun, state, manifest, book=None,
         _run("serial_equals_chunked", lambda: check_reproducibility(
             run.arm, state, repro_provider, n_sims=n, seed=run.plan.seed,
             chunk_size=chunk, n_particles=run.plan.n_particles,
-            boundaries=run.plan.boundaries, rule_id=run.plan.rule_id))
+            boundaries=run.plan.boundaries, rule_id=run.plan.rule_id, run=run))
 
     _run("mc_uncertainty", lambda: check_mc_uncertainty(run))
     _run("limitations", lambda: check_limitations(limitations, run))
@@ -875,6 +1013,34 @@ def acceptance_gate(*, run: leaguesim.SimRun, state, manifest, book=None,
         "note": ("A SKIPPED criterion is not a passing criterion: the gate only "
                  "passes when every one of the eleven ran and held."),
     }
+
+
+#: The fields of ``output_<arm>.json`` that are NUMBERS rather than provenance.
+#: The envelope is excluded on purpose: it carries wall time, git state and
+#: package versions, which differ between the issuance and any re-run and say
+#: nothing about whether the published numbers moved.
+OUTPUT_NUMBER_FIELDS = (
+    "arm", "season", "cutoff", "clubs", "positions", "n_sims", "n_particles",
+    "matrix", "matrix_se", "shared_mass", "unresolved_playoff_mass",
+    "unresolved_multiway_mass", "consequences", "points_summary", "cut_lines",
+    "tie_diagnostics", "mc",
+)
+
+
+def output_numbers_digest(payload: dict) -> str:
+    """sha256 over the published numbers of one ``output_<arm>.json`` payload.
+
+    The point is to compare the FILE on disk with what a re-run produces, which
+    `numbers_digests` in `issuance.json` cannot do: that digest is taken over
+    live arrays, so it says the re-run agrees with the run — not that the file
+    a reader downloads agrees with either. An edited matrix cell in
+    `output_dc_native.json` left every existing check passing.
+    """
+    missing = [k for k in OUTPUT_NUMBER_FIELDS if k not in payload]
+    if missing:
+        raise CliError(f"the output payload is missing {missing}")
+    return hashlib.sha256(leaguesim.canonical_json(
+        {k: payload[k] for k in OUTPUT_NUMBER_FIELDS}).encode("utf-8")).hexdigest()
 
 
 def _parity(book, post, run, fixtures) -> dict:
@@ -1018,6 +1184,32 @@ def _check_arm(arm: str, directory: Path, record: dict, season_obj, state, book,
     digest = simcanary._numbers_digest(run)
     expected = record["numbers_digests"][arm]
     matches = digest == expected
+
+    # The published FILE, read back off disk and held against both the record
+    # and the re-run. `numbers_digests` compares live arrays to live arrays; it
+    # cannot see an edited cell in `output_<arm>.json`, which is the artefact a
+    # reader actually downloads.
+    output_path = directory / f"output_{arm}.json"
+    file_digest = recorded_output = None
+    output_matches: bool | None = None
+    try:
+        payload = json.loads(output_path.read_text())
+        file_digest = output_numbers_digest(payload)
+        rerun_digest = output_numbers_digest(run.to_json())
+        recorded_output = (record.get("output_digests") or {}).get(arm)
+        output_matches = bool(
+            file_digest == rerun_digest
+            and (recorded_output is None or file_digest == recorded_output))
+    except (OSError, ValueError, CliError) as exc:
+        output_matches = False
+        file_digest = f"unreadable: {type(exc).__name__}: {exc}"
+
+    # A provider that is not the one the issuance recorded cannot answer for
+    # this arm, however well it reproduces itself.
+    recorded_provider = (record.get("provider_hashes") or {}).get(arm)
+    provider_matches = (None if recorded_provider is None
+                        else provider.content_hash() == recorded_provider)
+
     coherence = simcanary.coherence(run)
     if arm == "dc_native":
         try:
@@ -1031,7 +1223,9 @@ def _check_arm(arm: str, directory: Path, record: dict, season_obj, state, book,
             "comparing them would measure the arm's definition, not its "
             "reproduction. Its evidence here is the numbers digest.")}
 
-    passed = bool(matches and coherence["PASS"] and parity["PASS"])
+    passed = bool(matches and coherence["PASS"] and parity["PASS"]
+                  and output_matches is not False
+                  and provider_matches is not False)
     return {
         "arm": arm,
         "status": "PASS" if passed else "FAIL",
@@ -1040,7 +1234,12 @@ def _check_arm(arm: str, directory: Path, record: dict, season_obj, state, book,
             "digest_matches": bool(matches),
             "recorded_digest": expected,
             "recomputed_digest": digest,
+            "output_file_matches": output_matches,
+            "output_file_digest": file_digest,
+            "recorded_output_digest": recorded_output,
             "provider_hash": provider.content_hash(),
+            "provider_hash_matches": provider_matches,
+            "recorded_provider_hash": recorded_provider,
             "book_hash": book.content_hash(),
             "recorded_book_hash": record["effective_posterior_hash"],
         },
