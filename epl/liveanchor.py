@@ -75,12 +75,19 @@ import pandas as pd
 from epl import elo as epl_elo, walk
 from epl.anchor import Anchor, AnchorState
 from epl.schema import sort_for_walk_forward
-from epl.season import Manifest, SeasonError, fixture_id
+from epl.season import Manifest, SeasonError, UnsupportedResultStatus, fixture_id
 from epl.season import season_code as _season_code
+#: THE supported non-result statuses, imported rather than restated. Two lists
+#: of statuses in two modules drift, and this is the direction the drift is
+#: silent in: `epl.season` stops the run on a status it does not model, so a
+#: walk that quietly skipped the same row would rate a season the table refuses
+#: to score.
+from epl.season import _LEDGER_STATUSES as LEDGER_STATUSES
 
 __all__ = [
     "TransitionError", "LiveRow", "ReplayResult", "normalise_rows",
     "visible_rows", "replay", "open_target_season", "LiveAnchor",
+    "LEDGER_STATUSES",
 ]
 
 #: Columns of ``Anchor.history``, in order. :meth:`LiveAnchor.history_frame`
@@ -151,21 +158,83 @@ def _goals(row: dict, side: str, fid: str) -> int:
     return int(as_float)
 
 
+def _stamp(row: dict, field: str, fid: str) -> pd.Timestamp:
+    """One of the two point-in-time stamps, or a refusal. Never `NaT`.
+
+    `pd.Timestamp` turns `None`, `nan`, `NaT` and `""` into `NaT` rather than
+    raising, and `NaT` compares False against every bound: both
+    `observed_at > observed_by` and `date_played >= day` are False for it, so a
+    row carrying one is visible at EVERY cutoff. That is exactly the leak the
+    stamps exist to prevent, reached through the one branch a presence check
+    does not cover — so an unusable stamp stops the load rather than becoming a
+    row nobody can bound.
+    """
+    value = row.get(field)
+    if value is None:
+        raise TransitionError(
+            f"{fid}: results row has no {field}. A row with no point-in-time "
+            "stamp is visible at every cutoff, which is the leak the ledger "
+            "exists to prevent")
+    try:
+        stamp = _timestamp(value)
+    except (TypeError, ValueError) as exc:
+        raise TransitionError(
+            f"{fid}: {field}={value!r} is not a timestamp") from exc
+    if pd.isna(stamp):
+        raise TransitionError(
+            f"{fid}: {field}={value!r} resolves to NaT, which compares False "
+            "against every point-in-time bound — the row would be visible at "
+            "every cutoff. Fix the ledger row rather than letting it through")
+    return stamp
+
+
+def _check_identity(fid, home: str, away: str, manifest: Manifest,
+                    *, teams_given: bool) -> str:
+    """The fixture a row claims to describe must exist, and must be one fixture.
+
+    Both failures are hand-entry failures and neither is loud. A self-fixture is
+    not a match at all, and walking one moves a club's rating by a result that
+    cannot have happened. A `fixture_id` that disagrees with the `home_key`/
+    `away_key` beside it attributes a result to the wrong pair of clubs — and
+    the reverse pair is a real, separate fixture, so there is nothing safe to
+    guess. `epl.season.fixture_id` is the one definition of the id; this checks
+    the row against it rather than against a second rule.
+    """
+    if home == away:
+        raise TransitionError(
+            f"{fid}: {home!r} cannot play itself. A self-fixture is not a "
+            "match, and walking one moves a club's rating by a result that "
+            "cannot have happened")
+    expected = fixture_id(manifest.season_code, home, away)
+    if teams_given and fid and str(fid) != expected:
+        raise TransitionError(
+            f"fixture_id {fid!r} does not describe the teams beside it: "
+            f"{home!r} v {away!r} is {expected!r}. One of the two is wrong and "
+            "a league sim must not pick — the reverse pair is a real, separate "
+            "fixture. Fix the ledger row")
+    return expected
+
+
 def normalise_rows(rows: Iterable[Any], manifest: Manifest) -> tuple[LiveRow, ...]:
     """Results-ledger rows -> :class:`LiveRow`, failing closed on anything odd.
 
     Accepts the ledger's own shape (``{fixture_id, date_played, hg, ag, source,
     observed_at, note}``, plan v2 D4) or ready-made :class:`LiveRow` objects.
-    Rows carrying a ``status`` (``postponed`` / ``abandoned``) have no scoreline
-    and are dropped: they are a fixture state, not a result.
+    A row carrying one of the statuses the season models
+    (:data:`LEDGER_STATUSES`: ``postponed`` / ``abandoned``) has no scoreline and
+    is skipped — it is a fixture state, not a result. A row carrying any OTHER
+    status raises :class:`epl.season.UnsupportedResultStatus`, exactly as
+    ``epl.season._visible_results`` does: ``awarded`` and ``void`` are out of v1
+    scope, and an anchor that walked silently past a row the table stops on
+    would rate a season nobody can score.
 
-    Everything is checked rather than assumed, because this ledger is
+    Everything else is checked rather than assumed, because this ledger is
     hand-maintained during the season and a bad row here silently mis-rates a
     club for weeks: the season code must be the manifest's, both clubs must be
-    in the manifest's twenty, the score must be a valid goal count, and
-    ``observed_at`` must be present — a row with no known-at stamp would be
-    visible at every cutoff, which is precisely the leak the ledger exists to
-    prevent.
+    in the manifest's twenty, the two clubs must be different, a ``fixture_id``
+    must agree with any ``home_key``/``away_key`` beside it, the score must be a
+    valid goal count, and both ``date_played`` and ``observed_at`` must be
+    finite timestamps (see :func:`_stamp` for why `NaT` is the dangerous case).
     """
     clubs = set(manifest.clubs)
     out: list[LiveRow] = []
@@ -176,14 +245,23 @@ def normalise_rows(rows: Iterable[Any], manifest: Manifest) -> tuple[LiveRow, ..
                 raise TransitionError(
                     f"{raw.fixture_id}: club(s) {sorted(unknown)} are not in the "
                     f"{manifest.season} manifest")
+            _check_identity(raw.fixture_id, raw.home_key, raw.away_key, manifest,
+                            teams_given=True)
             out.append(raw)
             continue
         row = dict(raw)
-        if row.get("status") is not None:
+        status = row.get("status")
+        if status is not None:
+            if status not in LEDGER_STATUSES:
+                raise UnsupportedResultStatus(
+                    f"{row.get('fixture_id', '<row>')}: results ledger status "
+                    f"{status!r} is out of v1 scope (only "
+                    f"{sorted(LEDGER_STATUSES)} are modelled)")
             continue
         fid = row.get("fixture_id")
         home, away = row.get("home_key"), row.get("away_key")
-        if home is None or away is None:
+        teams_given = home is not None and away is not None
+        if not teams_given:
             if not fid:
                 raise TransitionError(
                     f"results row {row!r} has neither fixture_id nor "
@@ -196,23 +274,17 @@ def normalise_rows(rows: Iterable[Any], manifest: Manifest) -> tuple[LiveRow, ..
                 raise TransitionError(
                     f"{fid}: season code {code!r} is not {manifest.season} "
                     f"({manifest.season_code!r})")
-        fid = fid or fixture_id(manifest.season_code, home, away)
+        # Identity first, so every message below can name the fixture.
+        fid = _check_identity(fid, home, away, manifest, teams_given=teams_given)
         unknown = {home, away} - clubs
         if unknown:
             raise TransitionError(
                 f"{fid}: club(s) {sorted(unknown)} are not in the {manifest.season} "
                 f"manifest, so the season it describes is not the season being walked")
-        if row.get("date_played") is None:
-            raise TransitionError(f"{fid}: results row has no date_played")
-        if row.get("observed_at") is None:
-            raise TransitionError(
-                f"{fid}: results row has no observed_at. A row with no known-at "
-                "stamp is visible at every cutoff, which is the leak the ledger "
-                "exists to prevent")
         out.append(LiveRow(
             fixture_id=str(fid), home_key=str(home), away_key=str(away),
-            date_played=_timestamp(row["date_played"]).normalize(),
-            observed_at=_timestamp(row["observed_at"]),
+            date_played=_stamp(row, "date_played", str(fid)).normalize(),
+            observed_at=_stamp(row, "observed_at", str(fid)),
             hg=_goals(row, "hg", str(fid)), ag=_goals(row, "ag", str(fid))))
     return tuple(out)
 

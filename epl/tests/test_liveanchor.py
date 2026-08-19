@@ -279,6 +279,116 @@ def test_visible_rows_respect_date_and_observed_at(manifest):
     assert len(la.visible_rows(rows, "2026-08-25", "2026-08-30")) == 1
 
 
+def test_normalise_rows_refuses_an_observed_at_that_is_not_a_timestamp(manifest):
+    """A stamp that will not parse must STOP the load, not become `NaT`.
+
+    `NaT` compares False against every bound, so `observed_at > observed_by` is
+    False for it and a row carrying one is visible at every cutoff — the exact
+    leak the known-at stamp exists to prevent, arriving through the one branch
+    the missing-key check does not cover.
+    """
+    good = {"fixture_id": f"{SEASON_CODE}:arsenal:coventry",
+            "date_played": "2026-08-21", "hg": 2, "ag": 0,
+            "observed_at": "2026-08-22"}
+    assert len(la.normalise_rows([good], manifest)) == 1          # control: valid
+
+    for bad in (None, "", "not a timestamp", float("nan"), pd.NaT, np.nan):
+        with pytest.raises(season_mod.SeasonError):
+            la.normalise_rows([dict(good, observed_at=bad)], manifest)
+
+    # The leak itself, demonstrated on the type the guard now refuses to build:
+    # a `LiveRow` with a `NaT` stamp really is visible at a cutoff years before
+    # it, so the guard is load-bearing rather than tidy.
+    leaked = la.LiveRow(fixture_id=f"{SEASON_CODE}:arsenal:coventry",
+                        home_key="arsenal", away_key="coventry",
+                        date_played=pd.Timestamp("2026-08-21"),
+                        observed_at=pd.NaT, hg=2, ag=0)
+    assert len(la.visible_rows([leaked], "2026-08-25", "2020-01-01")) == 1
+
+
+def test_normalise_rows_refuses_a_date_played_that_is_not_a_timestamp(manifest):
+    """The same hole, the same shape: `NaT >= day` is False, so the row is
+    visible before it was played."""
+    good = {"fixture_id": f"{SEASON_CODE}:arsenal:coventry",
+            "date_played": "2026-08-21", "hg": 2, "ag": 0,
+            "observed_at": "2026-08-22"}
+    assert len(la.normalise_rows([good], manifest)) == 1          # control: valid
+    for bad in (None, "", "not a timestamp", float("nan"), pd.NaT):
+        with pytest.raises(season_mod.SeasonError):
+            la.normalise_rows([dict(good, date_played=bad)], manifest)
+
+
+def test_normalise_rows_enforces_fixture_identity(manifest):
+    """A ledger row must describe a fixture that exists, and describe it once.
+
+    Both failures are hand-entry failures and neither is loud: a self-fixture
+    walks a club against itself and moves its rating by a match that cannot have
+    happened, and a `fixture_id` that disagrees with its own `home_key`/
+    `away_key` silently attributes a result to the wrong pair of clubs. Nothing
+    downstream re-derives either — the id is what the sim addresses fixtures by.
+    """
+    good = {"fixture_id": f"{SEASON_CODE}:arsenal:coventry",
+            "date_played": "2026-08-21", "hg": 2, "ag": 0,
+            "observed_at": "2026-08-22"}
+
+    # a club cannot play itself, whether the id says so...
+    with pytest.raises(season_mod.SeasonError):
+        la.normalise_rows(
+            [dict(good, fixture_id=f"{SEASON_CODE}:arsenal:arsenal")], manifest)
+    # ...or the explicit team keys do
+    with pytest.raises(season_mod.SeasonError):
+        la.normalise_rows([dict(good, fixture_id=None,
+                                home_key="arsenal", away_key="arsenal")], manifest)
+    # an id that contradicts the teams beside it: home wrong...
+    with pytest.raises(season_mod.SeasonError):
+        la.normalise_rows([dict(good, home_key="chelsea", away_key="coventry")],
+                          manifest)
+    # ...and away wrong (a reversed pair is a REAL, separate fixture)
+    with pytest.raises(season_mod.SeasonError):
+        la.normalise_rows([dict(good, home_key="coventry", away_key="arsenal")],
+                          manifest)
+
+    # POSITIVE CONTROL: teams that agree with the id are accepted, and so is a
+    # row that carries teams and no id at all.
+    agreeing = la.normalise_rows(
+        [dict(good, home_key="arsenal", away_key="coventry")], manifest)
+    assert (agreeing[0].fixture_id, agreeing[0].home_key, agreeing[0].away_key) == (
+        f"{SEASON_CODE}:arsenal:coventry", "arsenal", "coventry")
+    from_teams = la.normalise_rows(
+        [dict(good, fixture_id=None, home_key="arsenal", away_key="coventry")],
+        manifest)
+    assert from_teams[0].fixture_id == f"{SEASON_CODE}:arsenal:coventry"
+
+
+def test_normalise_rows_skips_supported_statuses_and_refuses_the_rest(manifest):
+    """A status the walk does not model must raise, exactly as `epl.season` does.
+
+    Dropping every non-null status silently is the failure: an `awarded` result
+    is out of v1 scope and `epl.season` stops the run on it, so an anchor that
+    quietly walks past the same row prices a season the table refuses to score.
+    The supported set is IMPORTED from `epl.season`, not restated here — two
+    lists of statuses would drift, and the drift would be silent in this
+    direction too.
+    """
+    assert la.LEDGER_STATUSES is season_mod._LEDGER_STATUSES     # one source of truth
+
+    def status_row(status):
+        return {"fixture_id": f"{SEASON_CODE}:arsenal:coventry", "status": status,
+                "source": "manual", "observed_at": "2026-08-21T18:00", "note": ""}
+
+    for status in sorted(la.LEDGER_STATUSES):                    # postponed, abandoned
+        assert la.normalise_rows([status_row(status)], manifest) == ()
+
+    for status in ("awarded", "void", "who knows"):
+        with pytest.raises(season_mod.UnsupportedResultStatus):
+            la.normalise_rows([status_row(status)], manifest)
+
+    # POSITIVE CONTROL: a row with no status at all is still a result.
+    assert len(la.normalise_rows([{
+        "fixture_id": f"{SEASON_CODE}:arsenal:coventry", "date_played": "2026-08-21",
+        "hg": 2, "ag": 0, "observed_at": "2026-08-22"}], manifest)) == 1
+
+
 @needs_archive
 def test_visible_live_rows_match_season_state_played(manifest):
     """The anchor's point-in-time filter must agree with `Season.at`'s."""
@@ -337,6 +447,25 @@ def test_open_2026_27_leaves_wolves_burnley_west_ham_rated_but_outside_manifest(
     # carryover == 1.0, so a continuing club keeps its rating to the last bit
     # of rounding; assert the shape rather than the identity.
     assert opening["arsenal"] == pytest.approx(final["arsenal"], abs=1e-9)
+
+    # THE ASSERTIONS ABOVE CANNOT FAIL ON THEIR OWN. Every one of them holds if
+    # `open_target_season` simply handed back `_final_ratings()` — a relegated
+    # club's rating is untouched there too, and carryover is 1.0 for a
+    # continuing club. What must differ is the promoted half, so it is pinned
+    # here: each promoted club enters at the reseed, NOT at whatever the archive
+    # last had for it (Hull's 2016/17 rating, Ipswich's relegated season, and
+    # for Coventry no rating at all).
+    seed = float(np.mean([final[c] for c in sorted(manifest.prev_season_clubs)])) \
+        + cfg.promoted_offset
+    assert seed == pytest.approx(PROMOTED_SEED_2627, abs=0.01)
+    assert set(manifest.promoted) == {"coventry", "hull", "ipswich"}
+    for club in manifest.promoted:
+        assert opening[club] == seed, club
+    assert "coventry" not in final
+    assert final["hull"] == pytest.approx(HULL_STALE, abs=0.01)
+    assert final["ipswich"] == pytest.approx(IPSWICH_STALE, abs=0.01)
+    assert abs(opening["hull"] - final["hull"]) > 100.0
+    assert abs(opening["ipswich"] - final["ipswich"]) > 100.0
 
 
 @needs_archive
