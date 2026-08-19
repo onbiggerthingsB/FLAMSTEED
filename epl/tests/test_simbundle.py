@@ -225,13 +225,49 @@ def test_a_changed_elo_rating_is_refused(written, book, state):
     assert "ratings" in message or "re-derived" in message
 
 
-def test_a_changed_elo_head_parameter_is_refused(written, book, state):
+def test_a_changed_elo_head_parameter_is_refused_by_the_derivation_itself(
+        written, book, state, elo_provider):
+    """The HEAD path must fail on its own, not via a downstream hash mismatch.
+
+    Every message this module raises names the arm, so asserting only that
+    `'elo_wdl_bridge' in message` is satisfied by any failure anywhere — a
+    missing file, a schema bump, the provider hash comparison at the end. The
+    claim being made here is narrower: a changed `b` is caught by RE-DERIVING
+    the 1X2 rows from the ratings and the head and finding they no longer
+    reproduce the persisted ones, which is the check that makes the sidecar
+    evidence rather than a cache.
+    """
+    # POSITIVE CONTROL: untouched, this bundle rebuilds to the published arm, so
+    # the refusal below cannot be an artefact of a bundle that never worked.
+    assert simbundle.rebuild_provider(
+        "elo_wdl_bridge", written, book=book,
+        state=state).content_hash() == elo_provider.content_hash()
+
     _edit(written / simbundle.ELO_SIDECAR,
           lambda p: p["params"].__setitem__("b", p["params"]["b"] * 1.05))
     with pytest.raises(simbundle.BundleError) as exc:
         simbundle.rebuild_provider("elo_wdl_bridge", written, book=book,
                                    state=state)
-    assert "elo_wdl_bridge" in str(exc.value)
+    message = str(exc.value)
+    assert "elo_wdl_bridge" in message
+    # it is the DERIVATION that refuses...
+    assert "re-derived" in message and simbundle.ELO_SIDECAR in message
+    assert "head" in message
+    # ...and not `_same_hash`, whose message is the other way a changed head
+    # could have been noticed
+    assert "the provider rebuilt from the bundle hashes to" not in message
+
+
+def test_a_head_parameter_that_is_not_a_number_is_refused_not_raised(
+        written, book, state):
+    _edit(written / simbundle.ELO_SIDECAR,
+          lambda p: p["params"].__setitem__("b", "one-point-oh"))
+    with pytest.raises(simbundle.BundleError) as exc:
+        simbundle.rebuild_provider("elo_wdl_bridge", written, book=book,
+                                   state=state)
+    message = str(exc.value)
+    assert "elo_wdl_bridge" in message and simbundle.ELO_SIDECAR in message
+    assert "params" in message and "not a number" in message
 
 
 def test_a_swapped_book_is_refused_by_the_arms_manifest(written, book, state):
@@ -281,3 +317,283 @@ def test_a_fixture_set_the_elo_arm_never_priced_is_refused(written, book, state)
         simbundle.rebuild_provider("elo_wdl_bridge", written, book=book,
                                    state=state)
     assert "fixture" in str(exc.value)
+
+
+# ==========================================================================
+# 4. the anchor — a bundle coherent with ITSELF is not evidence
+# ==========================================================================
+def _anchors_of(directory: Path, book, elo_provider,
+                bridge: bridge_mod.EmpiricalBridge) -> dict:
+    """What `issuance.json` records for this bundle, before anything is edited."""
+    return {
+        "bridge_hash": bridge.content_hash(),
+        "arms_manifest_hash": simbundle.arms_manifest_hash(directory),
+        "provider_hashes": {
+            "dc_wdl_bridge": bridge_mod.DCWDLProvider(book, bridge).content_hash(),
+            "elo_wdl_bridge": elo_provider.content_hash()},
+    }
+
+
+def _double_every_count(directory: Path, book, elo_provider) -> dict:
+    """The coherent cross-file tamper, made as well as it can be made.
+
+    Doubling every count leaves the pmf — and therefore the cdf — bit-for-bit
+    identical, because each row is divided by its own total. The editor then
+    rewrites the three hashes the bundle checks against itself: `bridge.json`'s
+    own `hash`, and both arm hashes in `arms.json` and `elo_arm.json`. Nothing
+    inside the bundle disagrees with anything else after this.
+    """
+    bridge_path = directory / simbundle.BRIDGE_SIDECAR
+    payload = json.loads(bridge_path.read_text())
+    before = [list(row) for row in payload["cdf"]]
+
+    doubled = bridge_mod.EmpiricalBridge(
+        counts=np.asarray(payload["counts"], np.int64) * 2,
+        max_goals=int(payload["max_goals"]), cutoff=str(payload["cutoff"]),
+        n_rows=int(payload["n_rows"]) * 2,
+        n_excluded=int(payload["n_excluded"]) * 2)
+    payload["counts"] = doubled.counts.tolist()
+    payload["n_rows"] = int(doubled.n_rows)
+    payload["n_excluded"] = int(doubled.n_excluded)
+    payload["cdf"] = doubled.cdf.tolist()
+    payload["hash"] = doubled.content_hash()
+    bridge_path.write_text(json.dumps(payload))
+    # the premise of the whole tamper: the derived cdf did not move at all
+    assert payload["cdf"] == before
+
+    elo_path = directory / simbundle.ELO_SIDECAR
+    elo_payload = json.loads(elo_path.read_text())
+    elo = bridge_mod.EloOutcomeProvider(
+        probs=elo_provider.probs, fixture_ids=elo_provider.fixture_ids,
+        bridge=doubled, params=elo_provider.params,
+        cutoff=elo_provider.cutoff, n_fit_rows=elo_provider.n_fit_rows,
+        n_particles=elo_provider.n_particles, ratings=elo_provider.ratings)
+    elo_payload["content_hash"] = elo.content_hash()
+    elo_path.write_text(json.dumps(elo_payload))
+
+    arms_path = directory / simbundle.ARMS_SIDECAR
+    arms = json.loads(arms_path.read_text())
+    arms["arms"]["dc_wdl_bridge"]["content_hash"] = bridge_mod.DCWDLProvider(
+        book, doubled).content_hash()
+    arms["arms"]["elo_wdl_bridge"]["content_hash"] = elo.content_hash()
+    arms_path.write_text(json.dumps(arms))
+    return {"doubled_hash": doubled.content_hash()}
+
+
+def test_a_coherent_cross_file_tamper_is_caught_only_by_the_recorded_hashes(
+        written, book, state, fitted_bridge, elo_provider):
+    """THE hole this closes: every check inside the bundle can be satisfied.
+
+    The rebuild used to be held against the sidecars' own hashes, so an editor
+    who doubled the evidence and rewrote those hashes produced a bundle that
+    rebuilt, re-derived and re-hashed without a complaint — a bridge fitted on
+    twice as many matches as ever existed, passing as the published one. The
+    only thing that can tell the difference is a hash written down somewhere the
+    bundle does not control: `issuance.json`.
+    """
+    anchors = _anchors_of(written, book, elo_provider, fitted_bridge)
+    tamper = _double_every_count(written, book, elo_provider)
+    assert tamper["doubled_hash"] != anchors["bridge_hash"]
+
+    # POSITIVE CONTROL for the anchor being the thing that catches it: with no
+    # anchors, every internal check passes and both arms rebuild happily.
+    for arm in ("dc_wdl_bridge", "elo_wdl_bridge"):
+        assert simbundle.rebuild_provider(arm, written, book=book,
+                                          state=state) is not None, arm
+
+    # ...and against what the issuance recorded, both refuse, naming the file
+    # the recorded hash came from and both hashes.
+    for arm in ("dc_wdl_bridge", "elo_wdl_bridge"):
+        with pytest.raises(simbundle.BundleError) as exc:
+            simbundle.rebuild_provider(arm, written, book=book, state=state,
+                                       anchors=anchors)
+        message = str(exc.value)
+        assert arm in message
+        assert "bridge_hash" in message
+        assert simbundle.ISSUANCE_RECORD in message
+        assert anchors["bridge_hash"] in message
+        assert tamper["doubled_hash"] in message
+
+
+def test_the_untampered_bundle_passes_every_recorded_anchor(
+        written, book, state, fitted_bridge, elo_provider):
+    """POSITIVE CONTROL: the anchors are satisfiable, so the test above is not
+    asserting that anchoring refuses everything."""
+    anchors = _anchors_of(written, book, elo_provider, fitted_bridge)
+    for arm in ("dc_wdl_bridge", "elo_wdl_bridge"):
+        provider = simbundle.rebuild_provider(arm, written, book=book,
+                                              state=state, anchors=anchors)
+        assert provider.content_hash() == anchors["provider_hashes"][arm], arm
+
+
+def test_an_edited_arms_manifest_fails_against_its_recorded_hash(
+        written, book, state, fitted_bridge, elo_provider):
+    """The manifest's cold-start set is read by nothing else in the rebuild."""
+    anchors = _anchors_of(written, book, elo_provider, fitted_bridge)
+    _edit(written / simbundle.ARMS_SIDECAR,
+          lambda p: p.__setitem__("cold_start_teams", ["a_club_that_was_not"]))
+
+    # without the anchor nothing notices, because nothing else reads that field
+    assert simbundle.rebuild_provider("dc_wdl_bridge", written, book=book,
+                                      state=state) is not None
+    with pytest.raises(simbundle.BundleError) as exc:
+        simbundle.rebuild_provider("dc_wdl_bridge", written, book=book,
+                                   state=state, anchors=anchors)
+    message = str(exc.value)
+    assert simbundle.ARMS_SIDECAR in message
+    assert simbundle.ISSUANCE_RECORD in message
+
+
+def test_a_provider_hash_the_issuance_did_not_record_is_refused(
+        written, book, state, fitted_bridge, elo_provider):
+    anchors = _anchors_of(written, book, elo_provider, fitted_bridge)
+    anchors["provider_hashes"]["dc_wdl_bridge"] = "not-the-provider-published"
+    with pytest.raises(simbundle.BundleError) as exc:
+        simbundle.rebuild_provider("dc_wdl_bridge", written, book=book,
+                                   state=state, anchors=anchors)
+    message = str(exc.value)
+    assert simbundle.ISSUANCE_RECORD in message
+    assert "not-the-provider-published" in message
+
+
+def test_the_manifest_hash_is_over_content_not_bytes(written):
+    """A re-serialised manifest is the same manifest; an edited one is not."""
+    path = written / simbundle.ARMS_SIDECAR
+    before = simbundle.arms_manifest_hash(written)
+    payload = json.loads(path.read_text())
+    path.write_text(json.dumps(payload, indent=4))          # same content
+    assert simbundle.arms_manifest_hash(written) == before
+    _edit(path, lambda p: p["arms"]["dc_wdl_bridge"].__setitem__(
+        "content_hash", "0" * 64))
+    assert simbundle.arms_manifest_hash(written) != before
+
+
+def test_recorded_anchors_reports_an_older_record_as_unanchored():
+    """An `epl-issuance-2` record carries no manifest hash; None anchors nothing."""
+    got = simbundle.recorded_anchors({"bridge_hash": "abc",
+                                      "provider_hashes": {"dc_wdl_bridge": "d"}})
+    assert got["bridge_hash"] == "abc"
+    assert got["arms_manifest_hash"] is None
+    assert got["provider_hashes"] == {"dc_wdl_bridge": "d"}
+
+
+# ==========================================================================
+# 5. strict decoding — 7.5 is not 7, and NaN is not agreement
+# ==========================================================================
+def test_a_fractional_count_is_refused_rather_than_truncated(written, book,
+                                                             state):
+    """`np.asarray([7.5], np.int64)` is 7: a lenient decode would rebuild a
+    bridge from evidence nobody wrote and then hash it as the fitted one."""
+    _edit(written / simbundle.BRIDGE_SIDECAR,
+          lambda p: p["counts"][0].__setitem__(0, 7.5))
+    with pytest.raises(simbundle.BundleError) as exc:
+        simbundle.read_bridge(written)
+    message = str(exc.value)
+    assert "7.5" in message and "counts[0][0]" in message
+    assert "not an integer" in message
+
+
+def test_a_negative_count_is_refused(written):
+    _edit(written / simbundle.BRIDGE_SIDECAR,
+          lambda p: p["counts"][1].__setitem__(3, -1))
+    with pytest.raises(simbundle.BundleError) as exc:
+        simbundle.read_bridge(written)
+    assert "never negative" in str(exc.value)
+
+
+def test_a_nan_cdf_cell_is_refused_and_does_not_pass_the_tolerance(written):
+    """|persisted - rebuilt| > tol is False for NaN, so the comparison that
+    exists to catch an edited cdf would have read this as agreement."""
+    _edit(written / simbundle.BRIDGE_SIDECAR,
+          lambda p: p["cdf"][0].__setitem__(5, float("nan")))
+    with pytest.raises(simbundle.BundleError) as exc:
+        simbundle.read_bridge(written)
+    message = str(exc.value)
+    assert "cdf[0][5]" in message and "non-finite" in message
+
+
+def test_a_nan_elo_probability_is_refused(written, book, state):
+    _edit(written / simbundle.ELO_SIDECAR,
+          lambda p: p["probs"][2].__setitem__(1, float("nan")))
+    with pytest.raises(simbundle.BundleError) as exc:
+        simbundle.rebuild_provider("elo_wdl_bridge", written, book=book,
+                                   state=state)
+    message = str(exc.value)
+    assert "probs[2][1]" in message and "non-finite" in message
+
+
+def test_a_nan_rating_is_refused(written, book, state):
+    _edit(written / simbundle.ELO_SIDECAR,
+          lambda p: p["ratings"].__setitem__(sorted(p["ratings"])[0],
+                                             float("nan")))
+    with pytest.raises(simbundle.BundleError) as exc:
+        simbundle.rebuild_provider("elo_wdl_bridge", written, book=book,
+                                   state=state)
+    message = str(exc.value)
+    assert "ratings" in message and "non-finite" in message
+
+
+def test_a_nan_head_parameter_is_refused_before_it_can_make_nan_probabilities(
+        written, book, state):
+    _edit(written / simbundle.ELO_SIDECAR,
+          lambda p: p["params"].__setitem__("c1", float("nan")))
+    with pytest.raises(simbundle.BundleError) as exc:
+        simbundle.rebuild_provider("elo_wdl_bridge", written, book=book,
+                                   state=state)
+    message = str(exc.value)
+    assert "params" in message and "non-finite" in message
+
+
+# ==========================================================================
+# 6. malformed sidecars — a refusal naming the arm and the file, never a crash
+# ==========================================================================
+def test_a_sidecar_that_is_not_a_json_object_is_refused(written, book, state):
+    for name, arm in ((simbundle.BRIDGE_SIDECAR, "dc_wdl_bridge"),
+                      (simbundle.ARMS_SIDECAR, "dc_wdl_bridge"),
+                      (simbundle.ELO_SIDECAR, "elo_wdl_bridge")):
+        directory = written
+        payload = json.loads((directory / name).read_text())
+        (directory / name).write_text(json.dumps([payload]))
+        with pytest.raises(simbundle.BundleError) as exc:
+            simbundle.rebuild_provider(arm, directory, book=book, state=state)
+        message = str(exc.value)
+        assert arm in message and name in message
+        assert "not a JSON object" in message
+        (directory / name).write_text(json.dumps(payload))     # restore
+
+
+def test_an_unparseable_rating_is_refused_naming_the_arm_and_the_file(
+        written, book, state):
+    _edit(written / simbundle.ELO_SIDECAR,
+          lambda p: p["ratings"].__setitem__(sorted(p["ratings"])[0], "1500ish"))
+    with pytest.raises(simbundle.BundleError) as exc:
+        simbundle.rebuild_provider("elo_wdl_bridge", written, book=book,
+                                   state=state)
+    message = str(exc.value)
+    assert "elo_wdl_bridge" in message and simbundle.ELO_SIDECAR in message
+    assert "'1500ish'" in message and "not a number" in message
+
+
+def test_a_ratings_block_that_is_not_a_mapping_is_refused(written, book, state):
+    _edit(written / simbundle.ELO_SIDECAR,
+          lambda p: p.__setitem__("ratings", ["arsenal", 1500.0]))
+    with pytest.raises(simbundle.BundleError) as exc:
+        simbundle.rebuild_provider("elo_wdl_bridge", written, book=book,
+                                   state=state)
+    message = str(exc.value)
+    assert "elo_wdl_bridge" in message and simbundle.ELO_SIDECAR in message
+
+
+def test_a_missing_field_is_refused_naming_the_field(written):
+    _edit(written / simbundle.BRIDGE_SIDECAR, lambda p: p.pop("counts"))
+    with pytest.raises(simbundle.BundleError) as exc:
+        simbundle.read_bridge(written)
+    assert "'counts'" in str(exc.value)
+
+
+def test_a_ragged_counts_grid_is_refused(written):
+    _edit(written / simbundle.BRIDGE_SIDECAR,
+          lambda p: p["counts"].__setitem__(1, p["counts"][1][:-1]))
+    with pytest.raises(simbundle.BundleError) as exc:
+        simbundle.read_bridge(written)
+    assert "ragged" in str(exc.value)

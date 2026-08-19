@@ -821,6 +821,74 @@ def test_a_changed_elo_rating_fails_check_naming_the_elo_arm(three_arm_issuance)
         assert report["arms"][arm]["status"] == "PASS", arm
 
 
+def test_a_coherent_cross_file_tamper_fails_check_against_the_issuance_record(
+        three_arm_issuance, book):
+    """Every hash INSIDE the bundle can be made to agree; the record cannot.
+
+    Doubling every count in `bridge.json` leaves the cdf bit-for-bit identical —
+    each row is divided by its own total — so an editor who also rewrites that
+    file's `hash`, the `content_hash` in `elo_arm.json` and both arm hashes in
+    `arms.json` produces a bundle nothing inside it disagrees with. What refuses
+    it is `issuance.json`: the bridge rebuilt from those counts is not the one
+    whose hash the forecast recorded when it ran.
+    """
+    from epl import ordlogit, simbundle
+
+    tampered = _copy(three_arm_issuance, "coherent_tamper")
+    record = json.loads((tampered / "issuance.json").read_text())
+    assert record["arms_manifest_hash"], "the manifest anchor was not recorded"
+
+    path = tampered / simbundle.BRIDGE_SIDECAR
+    payload = json.loads(path.read_text())
+    cdf_before = [list(row) for row in payload["cdf"]]
+    doubled = bridge_mod.EmpiricalBridge(
+        counts=np.asarray(payload["counts"], np.int64) * 2,
+        max_goals=int(payload["max_goals"]), cutoff=str(payload["cutoff"]),
+        n_rows=int(payload["n_rows"]) * 2,
+        n_excluded=int(payload["n_excluded"]) * 2)
+    payload.update(counts=doubled.counts.tolist(), cdf=doubled.cdf.tolist(),
+                   n_rows=int(doubled.n_rows),
+                   n_excluded=int(doubled.n_excluded),
+                   hash=doubled.content_hash())
+    path.write_text(json.dumps(payload))
+    assert payload["cdf"] == cdf_before, "the tamper was supposed to be invisible"
+
+    elo_path = tampered / simbundle.ELO_SIDECAR
+    elo_payload = json.loads(elo_path.read_text())
+    elo = bridge_mod.EloOutcomeProvider(
+        probs=np.asarray(elo_payload["probs"], float),
+        fixture_ids=elo_payload["fixture_ids"], bridge=doubled,
+        params=ordlogit.OrdLogitParams(
+            **{k: v for k, v in elo_payload["params"].items() if k != "c2"}),
+        cutoff=elo_payload["cutoff"],
+        n_fit_rows=int(elo_payload["n_fit_rows"]),
+        n_particles=int(elo_payload["n_particles"]),
+        ratings=elo_payload["ratings"])
+    elo_payload["content_hash"] = elo.content_hash()
+    elo_path.write_text(json.dumps(elo_payload))
+
+    arms_path = tampered / simbundle.ARMS_SIDECAR
+    arms = json.loads(arms_path.read_text())
+    arms["arms"]["dc_wdl_bridge"]["content_hash"] = bridge_mod.DCWDLProvider(
+        book, doubled).content_hash()
+    arms["arms"]["elo_wdl_bridge"]["content_hash"] = elo.content_hash()
+    arms_path.write_text(json.dumps(arms))
+
+    report = simcli.check_issuance(tampered, verbose=False)
+    assert report["PASS"] is False
+    assert set(report["failed"]) == {"dc_wdl_bridge", "elo_wdl_bridge"}
+    for arm in ("dc_wdl_bridge", "elo_wdl_bridge"):
+        error = report["arms"][arm]["detail"]["error"]
+        assert "bridge_hash" in error and "issuance.json" in error, (arm, error)
+        assert record["bridge_hash"] in error, arm
+        # ...and the arm that reads no sidecar is unaffected
+    assert report["arms"]["dc_native"]["status"] == "PASS"
+    # the anchors are named in the report, so a reader can see what was checked
+    assert report["arms"]["dc_native"]["detail"]["sidecar_anchors"] == []
+    assert set(report["arms"]["dc_wdl_bridge"]["detail"]["sidecar_anchors"]) == {
+        "bridge_hash", "arms_manifest_hash", "provider_hash"}
+
+
 def test_a_missing_sidecar_makes_check_refuse_that_arm_and_not_pass(
         three_arm_issuance):
     from epl import simbundle
@@ -941,7 +1009,7 @@ def test_check_reads_the_published_output_file_back(issuance):
     """
     directory = Path(issuance["directory"])
     record = json.loads((directory / "issuance.json").read_text())
-    assert record["schema_version"] == "epl-issuance-2"
+    assert record["schema_version"] == "epl-issuance-3"
     assert set(record["output_digests"]) == set(record["arms"])
     assert set(record["provider_hashes"]) == set(record["arms"])
     assert simcli.check_issuance(directory, verbose=False)["PASS"] is True

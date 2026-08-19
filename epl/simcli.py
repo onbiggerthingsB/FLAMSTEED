@@ -114,7 +114,13 @@ LIMITATIONS_PHRASES = (
 #: downloads against the run it claims to describe, and refuses a provider that
 #: is not the one the issuance recorded. An `epl-issuance-1` record carries
 #: neither, and `check` reports them as unrecorded rather than failing it.
-ISSUANCE_SCHEMA_VERSION = "epl-issuance-2"
+#:
+#: Bumped to -3 when `arms_manifest_hash` was added (Codex review of 262ef98):
+#: the bridge arms' rebuild is now anchored to the hashes RECORDED HERE rather
+#: than only to what each sidecar says about itself, and the arms manifest is
+#: the last of the three that had no anchor. A record without it anchors two of
+#: the three and `check` says which, rather than claiming the third.
+ISSUANCE_SCHEMA_VERSION = "epl-issuance-3"
 
 
 class CliError(RuntimeError):
@@ -406,6 +412,10 @@ def forecast(*, season: str = DEFAULT_SEASON, cutoff,
         "chunk_size": int(chunk_size),
         "effective_posterior_hash": book.content_hash(),
         "bridge_hash": None if bridge is None else bridge.content_hash(),
+        # The anchor for the arms manifest: `check` holds `arms.json` against
+        # this rather than against itself, so an editor who rewrites the arm
+        # hashes there to make a doctored bridge look coherent is still refused.
+        "arms_manifest_hash": simbundle.arms_manifest_hash(directory),
         "n_played": len(state.played),
         "n_unplayed": len(state.unplayed),
         "n_unresolved": len(state.unresolved),
@@ -1095,6 +1105,14 @@ def check_issuance(directory, *, arms: Sequence[str] | None = None,
     re-run at the recorded seed, N and chunk size. The number digest must match
     what the issuance wrote.
 
+    The rebuild is ANCHORED to the hashes this record holds — ``bridge_hash``,
+    ``provider_hashes[arm]`` and ``arms_manifest_hash`` — and not only to what
+    each sidecar says about itself. Doubling every count in ``bridge.json``
+    leaves the cdf exactly where it was, so a cross-file edit that also rewrites
+    that file's own hash and the arm hashes in ``arms.json`` is coherent
+    everywhere inside the bundle; it is refused here because the bridge it
+    rebuilds to is not the one the issuance recorded.
+
     Three verdicts per arm, and only one of them is agreement:
 
     ``PASS``      rebuilt, re-run, same digest, coherent.
@@ -1153,21 +1171,40 @@ def check_issuance(directory, *, arms: Sequence[str] | None = None,
 def _check_arm(arm: str, directory: Path, record: dict, season_obj, state, book,
                *, verbose: bool) -> dict:
     """One arm, rebuilt from the bundle and re-run. Never raises."""
-    blank = {"arm": arm, "detail": {}, "coherence": {"PASS": False},
-             "marginal_parity": {"PASS": False}}
+    # A provider that is not the one the issuance recorded cannot answer for
+    # this arm, however well it reproduces itself.
+    recorded_provider = (record.get("provider_hashes") or {}).get(arm)
+    # Which recorded hashes this arm's REBUILD was held against. An arm whose
+    # record carried no anchor was checked against its own bundle only, and
+    # saying which is the difference between a check and a claim. Computed
+    # before anything can fail, so a FAILED or REFUSED arm reports it too.
+    anchored = ([] if arm == "dc_native" else sorted(
+        name for name, value in (
+            ("bridge_hash", record.get("bridge_hash")),
+            ("arms_manifest_hash", record.get("arms_manifest_hash")),
+            ("provider_hash", recorded_provider))
+        if value is not None))
+    blank = {"arm": arm, "detail": {"sidecar_anchors": anchored},
+             "coherence": {"PASS": False}, "marginal_parity": {"PASS": False}}
 
     why = simbundle.refusal(arm, directory)
     if why is not None:
         return {**blank, "status": "REFUSED", "PASS": False,
-                "detail": {"error": why}}
+                "detail": {**blank["detail"], "error": why}}
     try:
         provider = simbundle.rebuild_provider(
             arm, directory, book=book, state=state,
-            n_particles=record["n_particles"])
+            n_particles=record["n_particles"],
+            # The sidecars are held against what THIS record says the forecast
+            # produced, not only against each other: a cross-file edit that is
+            # coherent everywhere inside the bundle still has to agree with the
+            # bridge, provider and manifest hashes written here at issue time.
+            anchors=simbundle.recorded_anchors(record))
     except (simbundle.BundleError, bridge_mod.BridgeError,
             particles.ParticleError, KeyError) as exc:
         return {**blank, "status": "FAIL", "PASS": False,
-                "detail": {"error": f"{type(exc).__name__}: {exc}"}}
+                "detail": {**blank["detail"],
+                           "error": f"{type(exc).__name__}: {exc}"}}
 
     if verbose:
         # stderr, so `check`'s stdout is the report and nothing else
@@ -1204,9 +1241,6 @@ def _check_arm(arm: str, directory: Path, record: dict, season_obj, state, book,
         output_matches = False
         file_digest = f"unreadable: {type(exc).__name__}: {exc}"
 
-    # A provider that is not the one the issuance recorded cannot answer for
-    # this arm, however well it reproduces itself.
-    recorded_provider = (record.get("provider_hashes") or {}).get(arm)
     provider_matches = (None if recorded_provider is None
                         else provider.content_hash() == recorded_provider)
 
@@ -1240,6 +1274,7 @@ def _check_arm(arm: str, directory: Path, record: dict, season_obj, state, book,
             "provider_hash": provider.content_hash(),
             "provider_hash_matches": provider_matches,
             "recorded_provider_hash": recorded_provider,
+            "sidecar_anchors": anchored,
             "book_hash": book.content_hash(),
             "recorded_book_hash": record["effective_posterior_hash"],
         },
