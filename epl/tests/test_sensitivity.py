@@ -29,6 +29,33 @@ import pytest
 from epl import sensitivity
 
 
+#: The cutoff the D19 run itself uses. The wiring test fits nothing — a spy
+#: stands in for the sampler — but building the panel at the same cutoff shares
+#: the feature cache entry with the run rather than warming a second one.
+WIRING_CUTOFF = "2025-08-15"
+
+
+# ==========================================================================
+# fixtures — the real store and anchor, for the one test that needs the EPL
+# fit path itself rather than a stub
+# ==========================================================================
+@pytest.fixture(scope="module")
+def played() -> pd.DataFrame:
+    from epl import baseline
+    from epl.schema import sort_for_walk_forward
+
+    matches = baseline.load_matches()
+    return sort_for_walk_forward(matches.loc[matches["played"]])
+
+
+@pytest.fixture(scope="module")
+def fit_env(played):
+    from epl import freeze, fit as epl_fit
+    from epl.anchor import Anchor
+
+    return Anchor(played, freeze.frozen_elo_config()), epl_fit.build_store(played)
+
+
 # ==========================================================================
 # stubs — a posterior is anything with `_post`
 # ==========================================================================
@@ -77,12 +104,37 @@ def test_an_unreachable_backend_is_refused_rather_than_left_to_raise_later():
         assert "dispatch" in str(exc.value)
 
 
-def test_draw_count_knows_nuts_runs_two_chains():
+def test_the_draw_count_check_run_d19_performs_refuses_the_mistake_it_exists_for():
+    """`draw_count` was asserted on a dict the run never consumed.
+
+    Nothing in `run_d19` called it, so the assertion held whatever the run did
+    with its books. The run now checks both arms through `check_draw_count`, and
+    this exercises THAT arithmetic: the two arms must carry the same S, or a
+    difference in Monte-Carlo error between them is a difference in draw count
+    wearing the costume of a difference in posterior.
+    """
+    import inspect
+
     base = {"model": {"inference": {"backend": "advi", "draws": 1000,
                                     "tune": 1000}}}
+    nuts = sensitivity.richer_config(base, backend="nuts", draws=500)
     assert sensitivity.draw_count(base) == 1000
-    assert sensitivity.draw_count(
-        sensitivity.richer_config(base, backend="nuts", draws=500)) == 1000
+    assert sensitivity.draw_count(nuts) == 1000
+
+    # a book carrying what its config promised passes, under either backend
+    assert sensitivity.check_draw_count("NUTS", nuts, 1000) == 1000
+    assert sensitivity.check_draw_count("mean-field ADVI", base, 1000) == 1000
+
+    # ...and the mistake: NUTS `draws` read as a TOTAL rather than per chain,
+    # which halves the reference arm's S without anything else looking wrong
+    with pytest.raises(sensitivity.SensitivityError) as exc:
+        sensitivity.check_draw_count("NUTS", nuts, 500)
+    message = str(exc.value)
+    assert "NUTS" in message and "1000" in message and "500" in message
+    assert "2 chain(s)" in message
+
+    # and it is the run's own check, not a parallel implementation beside it
+    assert "check_draw_count(" in inspect.getsource(sensitivity.run_d19)
 
 
 # ==========================================================================
@@ -218,6 +270,57 @@ def test_report_names_both_arms_every_market_and_the_honest_caveats():
 # ==========================================================================
 # 5. THE POSITIVE CONTROL — the two backends really do disperse differently
 # ==========================================================================
+def test_the_backend_choice_reaches_the_sampler_through_the_epl_fit_path(
+        fit_env, played, monkeypatch):
+    """THE WIRING: `richer_config`'s dict has to survive the EPL fit path.
+
+    The positive control below proves the two BACKENDS disperse differently. It
+    could not prove that the config this module writes is the config the EPL fit
+    reads, because it called `sample` itself with literal keyword arguments —
+    so a renamed key, a block written at the wrong depth, or a `fit_epl` that
+    stopped reading `inference` would leave it green while the D19 run silently
+    compared mean-field with mean-field.
+
+    This goes through `epl.dcfit.fit_epl`, the function `run_d19` calls, with a
+    spy in place of the sampler: the recorded keyword arguments ARE the ones the
+    fit hands `wcmodel.model.inference.sample`, and they are checked against
+    both configs.
+    """
+    from epl import dcfit, freeze, fit as epl_fit, paths
+
+    anchor, store = fit_env
+
+    class _Reached(Exception):
+        """Raised by the spy: the fit got as far as the sampler."""
+
+    recorded: dict = {}
+
+    def spy(model, **kwargs):
+        recorded.clear()
+        recorded.update(kwargs)
+        raise _Reached
+
+    monkeypatch.setattr(dcfit, "sample", spy)
+
+    frozen = freeze.frozen_wcmodel_config()
+    richer = sensitivity.richer_config(frozen, backend="nuts", draws=500,
+                                       tune=1000)
+    for label, cfg, expected in (("production", frozen, "advi"),
+                                 ("reference", richer, "nuts")):
+        with epl_fit.config_read_once(cfg):
+            with pytest.raises(_Reached):
+                dcfit.fit_epl(WIRING_CUTOFF, store, anchor, cfg, matches=played,
+                              feature_cache_dir=paths.FIT_CACHE_DIR)
+        assert recorded["backend"] == expected, label
+        assert recorded["draws"] == cfg["model"]["inference"]["draws"], label
+        assert recorded["tune"] == cfg["model"]["inference"]["tune"], label
+
+    # ...and the frozen config is still the production one: the swap did not
+    # leak back into the object production shares.
+    assert freeze.frozen_wcmodel_config()["model"]["inference"]["backend"] \
+        == "advi"
+
+
 @pytest.mark.slow
 def test_mean_field_advi_is_measurably_tighter_than_nuts_on_a_correlated_target():
     """The swap is real, and it is the swap D19 is about.
@@ -229,17 +332,33 @@ def test_mean_field_advi_is_measurably_tighter_than_nuts_on_a_correlated_target(
     branches ran the same sampler, or a config that never reached
     ``sample`` — the D19 report's ratios would be meaningless, and this test is
     what would say so.
+
+    Driven FROM the configs `richer_config` builds, read at the key path
+    `epl.dcfit.fit_epl` reads them at — and the test above is what proves that
+    path is the one the fit actually uses.
     """
     import pymc as pm
     from wcmodel.model.inference import sample
+
+    base = {"model": {"inference": {"backend": "advi", "draws": 500,
+                                    "tune": 400, "advi_iters": 8000}}}
+    advi_cfg = sensitivity.richer_config(base, backend="advi")
+    nuts_cfg = sensitivity.richer_config(base, backend="nuts", draws=400,
+                                         tune=400)
 
     rho, sd = 0.95, 1.0
     cov = np.array([[sd ** 2, rho * sd * sd], [rho * sd * sd, sd ** 2]])
     with pm.Model() as model:
         pm.MvNormal("theta", mu=np.zeros(2), cov=cov, shape=2)
 
-    advi = sample(model, backend="advi", draws=500, seed=11, advi_iters=8000)
-    nuts = sample(model, backend="nuts", draws=400, tune=400, seed=11)
+    def fit(cfg):
+        inference = cfg["model"]["inference"]
+        return sample(model, backend=inference["backend"],
+                      draws=int(inference["draws"]),
+                      tune=int(inference["tune"]), seed=11,
+                      advi_iters=int(inference["advi_iters"]))
+
+    advi, nuts = fit(advi_cfg), fit(nuts_cfg)
 
     def marginal_sd(idata):
         arr = idata.posterior["theta"].stack(s=("chain", "draw")).values
@@ -344,3 +463,178 @@ def test_promoted_into_reads_the_archive_and_has_no_predecessor_at_the_start():
         "home_key": ["a", "b", "c", "a", "b", "z"]})
     assert sensitivity.promoted_into(frame, "2024/25") == ["z"]
     assert sensitivity.promoted_into(frame, "2023/24") == []
+
+
+# ==========================================================================
+# 7. the ratios are aligned by CLUB, and the reference's mixing is checked on
+#    every quantity the report puts a ratio beside
+# ==========================================================================
+def test_a_same_size_reorder_does_not_silently_produce_the_wrong_ratios():
+    """Two fits, two team indexes. Position is not identity.
+
+    Nothing guarantees the reference arm's team order is the production arm's.
+    When it is not, an element-wise ratio divides one club's spread by another's
+    and changes no shape, no `n`, and nothing else a reader could notice — the
+    numbers just belong to the wrong clubs. The alignment is by NAME.
+    """
+    teams = ("arsenal", "burnley", "chelsea", "derby")
+    rich = {"att": np.array([0.10, 0.20, 0.30, 0.40])}
+    # the same four clubs, in a different order, with each club's own sd
+    mf_teams = ("chelsea", "arsenal", "derby", "burnley")
+    mean_field = {"att": np.array([0.15, 0.05, 0.20, 0.10])}
+
+    aligned = sensitivity.sd_ratios(rich, mean_field, teams=teams,
+                                    mean_field_teams=mf_teams)
+    # arsenal 0.10/0.05 = 2, burnley 0.20/0.10 = 2, chelsea 0.30/0.15 = 2,
+    # derby 0.40/0.20 = 2 — every club against ITS OWN denominator
+    assert aligned["att"]["min"] == pytest.approx(2.0)
+    assert aligned["att"]["max"] == pytest.approx(2.0)
+
+    # POSITIVE CONTROL for the defect: matched by position, the same inputs give
+    # ratios that are not 2 anywhere and look perfectly plausible
+    by_position = sensitivity.sd_ratios(rich, mean_field, teams=teams)
+    assert by_position["att"]["min"] != pytest.approx(2.0)
+    assert by_position["att"]["n"] == 4          # same n, same shape, wrong club
+
+
+def test_aligning_two_different_club_sets_refuses_rather_than_overlapping():
+    with pytest.raises(sensitivity.SensitivityError) as exc:
+        sensitivity.align_by_name(np.arange(3.0), source=("a", "b", "c"),
+                                  target=("a", "b", "z"), what="'att'")
+    message = str(exc.value)
+    assert "different clubs" in message and "shared set" in message
+
+
+def test_alignment_leaves_a_scalar_parameter_alone():
+    teams, mf_teams = ("a", "b"), ("b", "a")
+    rich = {"att": np.array([0.2, 0.4]), "mu": np.array([0.5])}
+    mean_field = {"att": np.array([0.2, 0.1]), "mu": np.array([0.25])}
+    got = sensitivity.sd_ratios(rich, mean_field, teams=teams,
+                                mean_field_teams=mf_teams)
+    assert got["mu"]["mean"] == pytest.approx(2.0)
+    assert got["att"]["mean"] == pytest.approx(2.0)   # a:0.2/0.1, b:0.4/0.2
+
+
+def _idata(*, seed: int = 4, sigma_att_offset: float = 0.0):
+    """Two chains of a posterior shaped like the EPL fit's."""
+    az = pytest.importorskip("arviz")
+    rng = np.random.default_rng(seed)
+    n_chain, n_draw, n_team = 2, 400, 4
+    posterior = {name: rng.standard_normal((n_chain, n_draw))
+                 for name in ("home_adv", "mu", "rho", "sigma_att", "sigma_def")}
+    posterior["att_raw"] = rng.standard_normal((n_chain, n_draw, n_team))
+    posterior["def_raw"] = rng.standard_normal((n_chain, n_draw, n_team))
+    # one chain of sigma_att sits somewhere else entirely: it has not mixed
+    posterior["sigma_att"] = posterior["sigma_att"].copy()
+    posterior["sigma_att"][1] += sigma_att_offset
+    return az.from_dict({"posterior": posterior})
+
+
+class _WithIdata:
+    def __init__(self, idata):
+        self.idata = idata
+
+
+def test_the_convergence_check_covers_the_hyperparameters_it_reports_ratios_for():
+    """`sigma_att`/`sigma_def` carried the two largest ratios in the D19 report
+    and were the two blocks the convergence check never looked at."""
+    post = _WithIdata(_idata(sigma_att_offset=8.0))
+
+    got = sensitivity.convergence(post)
+    assert got["available"] is True
+    assert "sigma_att" in got["params"] and "sigma_def" in got["params"]
+    assert [f["param"] for f in got["flagged"]] == ["sigma_att"]
+    assert got["converged"] is False
+    assert got["max_rhat"] > 1.01
+
+    # POSITIVE CONTROL / the defect: covering PARAMS alone, the same badly-mixed
+    # reference comes back converged with nothing flagged
+    old = sensitivity.convergence(post, params=sensitivity.PARAMS)
+    assert old["converged"] is True and old["flagged"] == []
+
+    # ...and a reference that HAS mixed is not flagged by the wider check either
+    fine = sensitivity.convergence(_WithIdata(_idata(sigma_att_offset=0.0)))
+    assert fine["converged"] is True and fine["flagged"] == []
+
+
+def test_convergence_params_is_every_quantity_the_report_ratios():
+    assert set(sensitivity.CONVERGENCE_PARAMS) == (
+        set(sensitivity.PARAMS) | set(sensitivity.HYPERPARAMS))
+
+
+# ==========================================================================
+# 8. the ESS adjustment — NUTS draws are a Markov chain, not S clusters
+# ==========================================================================
+def test_the_ess_adjustment_is_the_stated_rule_and_is_floored_at_one():
+    got = sensitivity.ess_inflation(
+        {"available": True, "min_ess": 250.0, "max_rhat": 1.02}, 1000)
+    assert got["available"] is True
+    assert got["factor"] == pytest.approx(2.0)          # sqrt(1000 / 250)
+    assert "sqrt(1000 / 250)" in got["rule"]
+
+    # an ESS above S is not a licence to report a SMALLER error than the only
+    # one actually computed from the run
+    floored = sensitivity.ess_inflation(
+        {"available": True, "min_ess": 4000.0}, 1000)
+    assert floored["factor"] == 1.0
+    assert floored["raw_factor"] == pytest.approx(0.5)
+
+
+def test_no_ess_adjustment_is_invented_for_an_iid_arm_or_a_missing_ess():
+    single = sensitivity.ess_inflation(
+        {"available": False, "reason": "single chain: r-hat undefined"}, 1000)
+    assert single["available"] is False
+    assert "i.i.d." in single["reason"]
+    assert sensitivity.ess_inflation(None, 1000)["available"] is False
+    assert sensitivity.ess_inflation(
+        {"available": True, "min_ess": 0.0}, 1000)["available"] is False
+
+
+def test_the_report_labels_the_ess_adjusted_column_and_the_error_of_the_difference():
+    payload = _payload()
+    payload["arms"]["richer"]["provenance"]["convergence"] = {
+        "available": True, "converged": False, "max_rhat": 1.0200,
+        "min_ess": 250.0, "flagged": [{"param": "att", "rhat": 1.015}],
+        "params": list(sensitivity.CONVERGENCE_PARAMS)}
+    text = sensitivity.report_from_payload(payload, conclusion="x")
+
+    assert "NUTS ± (ESS-adj)" in text
+    assert "sqrt(1000 / 250)" in text
+    assert "Markov chain" in text
+    # the stub run carries se = 0.001 on every cell, so the adjusted column is
+    # 0.002 and the error of the difference is sqrt(2) * 0.001
+    assert "| 0.0020 |" in text
+    assert "| 0.0014 |" in text
+    # `Δ ±` is the error on the DIFFERENCE and says what it ignores
+    assert "Δ ±" in text and "sqrt(se_mean-field² + se_NUTS²)" in text
+    assert "same seed" in text and "OVERSTATES" in text
+
+
+def test_the_report_says_which_blocks_the_recorded_convergence_covered():
+    payload = _payload()
+    # a dump written before the check covered the hyperparameters
+    payload["arms"]["richer"]["provenance"]["convergence"] = {
+        "available": True, "converged": False, "max_rhat": 1.0200,
+        "min_ess": 380.9, "flagged": [{"param": "att", "rhat": 1.015}]}
+    text = sensitivity.report_from_payload(payload, conclusion="x")
+    assert "5 parameter block(s)" in text
+    assert "did **not** cover `sigma_att`, `sigma_def`" in text
+
+    # ...and a dump whose check covered all seven says so without the caveat
+    payload["arms"]["richer"]["provenance"]["convergence"]["params"] = list(
+        sensitivity.CONVERGENCE_PARAMS)
+    wider = sensitivity.report_from_payload(payload, conclusion="x")
+    assert "7 parameter block(s)" in wider
+    assert "did **not** cover" not in wider
+
+
+def test_a_dated_revision_note_is_printed_and_is_absent_when_there_is_none():
+    payload = _payload()
+    text = sensitivity.report_from_payload(
+        payload, conclusion="x",
+        revision_note="**2026-08-19 revision.** What changed, and what did not.")
+    assert "**2026-08-19 revision.**" in text
+    # under the header, before the first numbered section
+    assert text.index("2026-08-19 revision") < text.index("## 1.")
+    assert "2026-08-19 revision" not in sensitivity.report_from_payload(
+        payload, conclusion="x")

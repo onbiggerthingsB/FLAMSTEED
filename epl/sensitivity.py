@@ -29,6 +29,7 @@ panel, not a general result. The report says so.
 from __future__ import annotations
 
 import copy
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Any, Sequence
@@ -36,8 +37,10 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-__all__ = ["SensitivityError", "BACKENDS", "PARAMS", "richer_config",
-           "posterior_sds", "sd_ratios", "consequence_table", "points_sds",
+__all__ = ["SensitivityError", "BACKENDS", "PARAMS", "HYPERPARAMS",
+           "CONVERGENCE_PARAMS", "richer_config", "draw_count",
+           "check_draw_count", "posterior_sds", "align_by_name", "sd_ratios",
+           "ess_inflation", "consequence_table", "points_sds",
            "expected_relegations_among", "report_markdown", "run_d19"]
 
 #: The cutoff D19 is run at: a settled season, so both arms can also be scored
@@ -66,6 +69,12 @@ BACKENDS = ("advi", "nuts")
 #: spread of the team effects they govern.
 PARAMS = ("att", "def", "home_adv", "mu", "rho")
 HYPERPARAMS = ("sigma_att", "sigma_def")
+
+#: What the convergence check covers: EVERY quantity the report puts a ratio
+#: beside. It used to cover ``PARAMS`` alone, so the report quoted `sigma_att`
+#: and `sigma_def` ratios — 1.32x and 1.25x, among the largest gaps it found —
+#: from a reference whose mixing on those very blocks had never been looked at.
+CONVERGENCE_PARAMS = PARAMS + HYPERPARAMS
 
 
 class SensitivityError(RuntimeError):
@@ -114,6 +123,31 @@ def draw_count(cfg: dict) -> int:
     return 2 * n if inference["backend"] == "nuts" else n
 
 
+def check_draw_count(label: str, cfg: dict, n_particles: int) -> int:
+    """Refuse a book that does not carry the draw count its config promised.
+
+    :func:`run_d19` calls this on both arms, which is what makes
+    :func:`draw_count` load-bearing rather than decorative: the whole comparison
+    rests on the two books carrying the SAME S, so that a difference in
+    Monte-Carlo error between them is a property of the posterior and not of how
+    many draws each arm happened to get. A silent mismatch — ``draws`` read as a
+    total when NUTS means per chain — would show up as the richer arm being
+    mysteriously tighter.
+    """
+    expected = draw_count(cfg)
+    inference = cfg["model"]["inference"]
+    chains = 2 if inference["backend"] == "nuts" else 1
+    if int(n_particles) != expected:
+        raise SensitivityError(
+            f"{label}: the config promises {expected} posterior draw(s) "
+            f"({int(inference['draws'])} x {chains} chain(s) under "
+            f"{inference['backend']!r}) but the particle book carries "
+            f"{int(n_particles)}. The two arms would not be compared at the "
+            "same S, and the difference in Monte-Carlo error between them "
+            "would be a difference in draw count.")
+    return expected
+
+
 # ==========================================================================
 # 2. dispersion
 # ==========================================================================
@@ -139,8 +173,33 @@ def posterior_sds(post, params: Sequence[str] = PARAMS) -> dict[str, np.ndarray]
     return out
 
 
+def align_by_name(values: np.ndarray, *, source: Sequence[str],
+                  target: Sequence[str], what: str) -> np.ndarray:
+    """``values`` (indexed by ``source``) reordered into ``target``'s order.
+
+    The two arms are two separate fits, and each carries its OWN team index.
+    Nothing guarantees the two indices are in the same order, and when they are
+    not, an element-wise ratio silently divides one club's spread by another's —
+    same shape, same n, plausible-looking numbers, wrong club on every row. So
+    the alignment is by NAME and a set mismatch refuses rather than truncating
+    to the overlap.
+    """
+    source, target = [str(s) for s in source], [str(t) for t in target]
+    if sorted(source) != sorted(target):
+        only_source = sorted(set(source) - set(target))
+        only_target = sorted(set(target) - set(source))
+        raise SensitivityError(
+            f"{what}: the two fits index different clubs — "
+            f"{len(only_source)} only in one ({only_source[:5]}), "
+            f"{len(only_target)} only in the other ({only_target[:5]}). The "
+            "ratio is defined on the shared set or not at all.")
+    position = {club: i for i, club in enumerate(source)}
+    return np.asarray(values, dtype=float)[[position[c] for c in target]]
+
+
 def sd_ratios(rich: dict[str, np.ndarray], mean_field: dict[str, np.ndarray],
-              *, teams: Sequence[str] | None = None) -> dict[str, dict]:
+              *, teams: Sequence[str] | None = None,
+              mean_field_teams: Sequence[str] | None = None) -> dict[str, dict]:
     """``richer / mean-field`` posterior sd, per parameter.
 
     A ratio above 1 means mean-field was TIGHTER than the reference — the
@@ -148,11 +207,21 @@ def sd_ratios(rich: dict[str, np.ndarray], mean_field: dict[str, np.ndarray],
     and which team is at each end) rather than only its average, because a
     parameter can be well matched on average and badly matched on the one club
     whose spread reaches a cut line.
+
+    ``teams`` labels the RICHER arm's team axis and ``mean_field_teams`` the
+    production arm's. Give both and the team-indexed parameters are aligned by
+    NAME before the division: the two arms are two fits, each with its own
+    index, and a same-size reordering would otherwise divide one club's spread
+    by another's without changing a single shape.
     """
     out: dict[str, dict] = {}
     for name, rich_sd in rich.items():
         mf = np.asarray(mean_field[name], dtype=float)
         rich_sd = np.asarray(rich_sd, dtype=float)
+        if (teams is not None and mean_field_teams is not None
+                and mf.shape == (len(mean_field_teams),)):
+            mf = align_by_name(mf, source=mean_field_teams, target=teams,
+                               what=repr(name))
         if rich_sd.shape != mf.shape:
             raise SensitivityError(
                 f"{name!r}: richer sds are {rich_sd.shape} and mean-field "
@@ -203,6 +272,48 @@ def consequence_table(run, markets: Sequence[str] = ("champion", "top4",
             row[str(club)] = (float(cell["p"]), float(cell["se"]))
         out[market] = row
     return out
+
+
+def ess_inflation(convergence: dict | None, n_draws: int) -> dict:
+    """How much a NUTS arm's cluster MC standard error understates itself.
+
+    The run's per-cell standard error is a cluster-by-particle error: it treats
+    the S posterior draws as S INDEPENDENT clusters. That is right for ADVI,
+    whose draws are i.i.d. from one approximation, and wrong for NUTS, whose
+    draws are a Markov chain. The honest count of independent clusters is the
+    bulk effective sample size, so::
+
+        SE_adjusted = SE_cluster * sqrt(S / ESS_bulk_min)
+
+    with ``ESS_bulk_min`` the SMALLEST bulk ESS over the parameter blocks the
+    convergence check covered — the worst-mixed block, because the table is a
+    function of all of them together. The factor is floored at 1: an ESS above S
+    (NUTS can be antithetic) is not a reason to report a SMALLER error than the
+    cluster form, which is the only one actually computed from the run.
+
+    Returns ``available: False`` when the arm recorded no multi-chain
+    convergence — an ADVI arm needs no adjustment and does not get a made-up one.
+    """
+    conv = convergence or {}
+    if not conv.get("available"):
+        return {"available": False,
+                "reason": "no multi-chain convergence recorded for this arm; "
+                          "i.i.d. draws need no ESS adjustment"}
+    ess = conv.get("min_ess")
+    if ess is None or not np.isfinite(float(ess)) or float(ess) <= 0:
+        return {"available": False,
+                "reason": f"bulk ESS is {ess!r}, so no factor can be formed"}
+    raw = math.sqrt(float(n_draws) / float(ess))
+    return {
+        "available": True,
+        "factor": float(max(1.0, raw)),
+        "raw_factor": float(raw),
+        "n_draws": int(n_draws),
+        "min_ess": float(ess),
+        "rule": (f"SE_adjusted = SE_cluster * sqrt(S / ESS_bulk_min) = "
+                 f"sqrt({int(n_draws)} / {float(ess):.0f}) = {raw:.3f}"
+                 + ("" if raw >= 1.0 else ", floored at 1.000")),
+    }
 
 
 def points_sds(run) -> dict[str, float]:
@@ -287,8 +398,14 @@ def report_markdown(*, season: str, cutoff: str, cutoff_label: str,
                     mean_field: Arm, richer: Arm, ratios: dict,
                     hyper_ratios: dict, clubs: Sequence[str],
                     realised: dict, n_sims: int, seed: int,
-                    conclusion: str) -> str:
-    """The D19 report: the ratios, the two sets of numbers, and the honest read."""
+                    conclusion: str, revision_note: str = "") -> str:
+    """The D19 report: the ratios, the two sets of numbers, and the honest read.
+
+    ``revision_note`` is a dated paragraph about THIS rewriting of the report —
+    what changed in it and what did not — printed under the header. It is empty
+    for a report that has never been revised, and it is written by a human for
+    the same reason the conclusion is.
+    """
     lines: list[str] = []
     add = lines.append
 
@@ -311,6 +428,9 @@ def report_markdown(*, season: str, cutoff: str, cutoff_label: str,
         "qualification for any competition, and nothing here is a betting "
         "signal.")
     add("")
+    if revision_note.strip():
+        add(revision_note.strip())
+        add("")
 
     add("## 1. Posterior dispersion — richer / mean-field")
     add("")
@@ -337,24 +457,53 @@ def report_markdown(*, season: str, cutoff: str, cutoff_label: str,
                 f"**{cell['min_team']}** ({_f(cell['min'], 3)}).")
     add("")
 
+    inflation = ess_inflation((richer.provenance or {}).get("convergence"),
+                              richer.n_draws)
+    factor = inflation["factor"] if inflation["available"] else None
+
     add("## 2. Consequence probabilities, side by side")
     add("")
     add("Every figure carries its cluster-by-particle Monte-Carlo standard "
-        "error. `Δ` is reference minus production.")
+        "error. `Δ` is reference minus production, and `Δ ±` is the error on "
+        "that DIFFERENCE rather than on either column beside it: "
+        "`sqrt(se_mean-field² + se_NUTS²)`.")
+    add("")
+    if factor is not None:
+        add(f"**`NUTS ± (ESS-adj)`** is the NUTS column's error scaled by "
+            f"**{factor:.3f}**. A cluster-by-particle error counts the S "
+            "posterior draws as S INDEPENDENT clusters, which is right for "
+            "mean-field ADVI — i.i.d. draws from one approximation — and wrong "
+            "for NUTS, whose draws are a Markov chain. The rule is "
+            f"`{inflation['rule']}`, taking the SMALLEST bulk ESS over the "
+            "parameter blocks the reference arm's convergence check covered. "
+            "The unadjusted NUTS `±` is therefore a lower bound on that arm's "
+            "Monte-Carlo error, and the adjusted one is the honest column to "
+            "read it by.")
+    else:
+        add("No ESS-adjusted column for this run: "
+            + str(inflation.get("reason", "no factor could be formed")) + ".")
+    add("")
+    add("Both arms were simulated at the same seed and the same N, so their "
+        "Monte-Carlo errors are coupled rather than independent. `Δ ±` ignores "
+        "that covariance. Where common random numbers couple the two arms "
+        "positively — the usual case — the independent-sum form OVERSTATES the "
+        "error of the difference, so it is conservative rather than exact.")
     add("")
     for market in ("champion", "top4", "relegated"):
         add(f"### {market}")
         add("")
-        add("| club | mean-field | ± | NUTS | ± | Δ |")
-        add("|---|---|---|---|---|---|")
+        add("| club | mean-field | ± | NUTS | ± | NUTS ± (ESS-adj) | Δ | Δ ± |")
+        add("|---|---|---|---|---|---|---|---|")
         rows = []
         for club in clubs:
             p_mf, se_mf = mean_field.consequences[market][club]
             p_r, se_r = richer.consequences[market][club]
             rows.append((p_mf, club, se_mf, p_r, se_r))
         for p_mf, club, se_mf, p_r, se_r in sorted(rows, reverse=True):
+            adjusted = "n/a" if factor is None else _f(se_r * factor)
             add(f"| {club} | {_f(p_mf)} | {_f(se_mf)} | {_f(p_r)} | "
-                f"{_f(se_r)} | {p_r - p_mf:+.4f} |")
+                f"{_f(se_r)} | {adjusted} | {p_r - p_mf:+.4f} | "
+                f"{_f(float(np.hypot(se_mf, se_r)))} |")
         add("")
 
     add("## 3. Points-total spread per club")
@@ -369,11 +518,21 @@ def report_markdown(*, season: str, cutoff: str, cutoff_label: str,
 
     add("## 4. Promoted clubs and the drop")
     add("")
-    add("| arm | E[relegations among promoted] | MC SE (upper bound) |")
-    add("|---|---|---|")
+    add("| arm | E[relegations among promoted] | MC SE (upper bound) | "
+        "ESS-adjusted |")
+    add("|---|---|---|---|")
     for arm in (mean_field, richer):
+        adjusted = ("n/a" if factor is None or arm is not richer
+                    else _f(arm.promoted["se_upper_bound"] * factor, 3))
         add(f"| {arm.name} | {_f(arm.promoted['expected'], 3)} | "
-            f"{_f(arm.promoted['se_upper_bound'], 3)} |")
+            f"{_f(arm.promoted['se_upper_bound'], 3)} | {adjusted} |")
+    add("")
+    add("The MC SE is the SUM of the per-club relegation standard errors, "
+        "deliberately an upper bound: the events are negatively correlated "
+        "(three clubs go down, whoever they are) and the independent-sum form "
+        "would claim a covariance this report does not compute. The NUTS row "
+        "carries the same ESS adjustment as §2; `n/a` on the ADVI row is not a "
+        "missing number — i.i.d. draws need no adjustment.")
     add("")
     add(f"Promoted into {season}: "
         + ", ".join(f"`{c}`" for c in mean_field.promoted["clubs"]) + ".")
@@ -390,13 +549,28 @@ def report_markdown(*, season: str, cutoff: str, cutoff_label: str,
     conv = (richer.provenance or {}).get("convergence") or {}
     if conv.get("available"):
         flagged = conv.get("flagged") or []
+        # What the RECORDED numbers cover — read off the record, not assumed.
+        # A run written before the check covered the hyperparameters says so.
+        covered = [str(p) for p in (conv.get("params") or PARAMS)]
+        uncovered = [p for p in CONVERGENCE_PARAMS if p not in covered]
         add(f"Reference-arm convergence: worst r-hat "
             f"{_f(conv.get('max_rhat'), 4)}, smallest bulk ESS "
-            f"{_f(conv.get('min_ess'), 0)} over {len(PARAMS)} parameter blocks"
+            f"{_f(conv.get('min_ess'), 0)} over {len(covered)} parameter "
+            f"block(s) ({', '.join(f'`{p}`' for p in covered)})"
             + (f" — **flagged**: {', '.join(str(f['param']) for f in flagged)}."
                " A reference that has not mixed is not a reference, and the "
                "ratios above inherit that doubt."
                if flagged else " — nothing flagged above 1.01."))
+        if uncovered:
+            add("")
+            add("The check this run ran did **not** cover "
+                + ", ".join(f"`{p}`" for p in uncovered)
+                + ", so the r-hat and ESS above say nothing about how the "
+                  "reference mixed on blocks §1 nevertheless reports ratios "
+                  "for. The check now covers every quantity the report puts a "
+                  "ratio beside, and a re-run reports all "
+                + str(len(CONVERGENCE_PARAMS)) + "; these figures are the ones "
+                  "this run recorded and are not restated as if they were.")
         add("")
     add("TRPS is the plan's primary league-table score (Ekstrom, Van Eetvelde, "
         "Ley & Brefeld, *Evaluating one-shot tournament predictions*, "
@@ -442,7 +616,10 @@ def report_markdown(*, season: str, cutoff: str, cutoff_label: str,
         f"--n-sims {n_sims} --seed {seed} \\")
     add("  --json-out data/epl/d19/d19_2025_26_MW0.json \\")
     add("  --report-out reports/epl_sim_d19_sensitivity.md "
-        "--conclusion-file <file>")
+        "--conclusion-file <file>"
+        + (" \\" if revision_note.strip() else ""))
+    if revision_note.strip():
+        add("  --note-file <file>")
     add("```")
     add("")
     add("The two fits are seeded and deterministic: a re-run reproduces both "
@@ -471,7 +648,7 @@ def promoted_into(matches: pd.DataFrame, season: str) -> list[str]:
     return sorted(clubs(str(season)) - clubs(seasons[position - 1]))
 
 
-def convergence(post, params: Sequence[str] = PARAMS) -> dict:
+def convergence(post, params: Sequence[str] = CONVERGENCE_PARAMS) -> dict:
     """Worst r-hat and smallest bulk ESS across ``params``, or ``None``.
 
     Only meaningful for a multi-chain sampler: ADVI draws are i.i.d. from one
@@ -479,12 +656,20 @@ def convergence(post, params: Sequence[str] = PARAMS) -> dict:
     is reported as ``None`` rather than as a reassuring 1.0. A NUTS reference
     that has NOT converged is not a reference, and the report has to say which
     parameters carried the warning rather than quote the ratios as if it had.
+
+    Covers every quantity the report puts a ratio beside, hyperparameters
+    included: the default used to be ``PARAMS``, which left ``sigma_att`` and
+    ``sigma_def`` — the two largest gaps the D19 run reported — outside the only
+    check that could have said whether the reference had mixed on them. The
+    blocks actually covered are returned in ``params``, so a report rebuilt from
+    a dump can say what the recorded numbers cover rather than assume.
     """
     import arviz as az
 
     idata = getattr(post, "idata", None)
     if idata is None or int(idata.posterior.sizes.get("chain", 1)) < 2:
-        return {"available": False, "reason": "single chain: r-hat undefined"}
+        return {"available": False, "reason": "single chain: r-hat undefined",
+                "params": [str(p) for p in params]}
 
     worst_rhat, worst_ess, flagged = 0.0, float("inf"), []
     for name in params:
@@ -502,7 +687,8 @@ def convergence(post, params: Sequence[str] = PARAMS) -> dict:
         if r > 1.01:
             flagged.append({"param": name, "rhat": round(r, 4)})
     return {"available": True, "max_rhat": worst_rhat, "min_ess": worst_ess,
-            "flagged": flagged, "converged": not flagged}
+            "flagged": flagged, "converged": not flagged,
+            "params": [str(p) for p in params]}
 
 
 def _fit_one(cfg, cutoff, store, anchor, played, *, label: str, verbose: bool):
@@ -560,6 +746,9 @@ def run_d19(*, season: str = D19_SEASON, cutoff_label: str = D19_CUTOFF_LABEL,
         post, info, fit_seconds = _fit_one(cfg, cutoff, store, anchor, played,
                                            label=name, verbose=verbose)
         book = particles.ParticleBook.from_posterior(post)
+        # The comparison rests on both arms carrying the same S; a book that is
+        # not the draw count its own config promised breaks that silently.
+        check_draw_count(name, cfg, book.n_particles)
         missing = [c for c in state.clubs if c not in book.idx]
         if missing:
             raise SensitivityError(
@@ -596,8 +785,12 @@ def run_d19(*, season: str = D19_SEASON, cutoff_label: str = D19_CUTOFF_LABEL,
 
     mean_field, richer = arms["mean-field ADVI"], arms["NUTS"]
     teams = raw["NUTS"]["post_teams"]
+    # By NAME, not by position: the two arms are two fits and each carries its
+    # own team index, so a same-size reordering would divide one club's spread
+    # by another's without changing a single shape.
     ratios = sd_ratios({k: richer.sds[k] for k in PARAMS},
-                       {k: mean_field.sds[k] for k in PARAMS}, teams=teams)
+                       {k: mean_field.sds[k] for k in PARAMS}, teams=teams,
+                       mean_field_teams=raw["mean-field ADVI"]["post_teams"])
     hyper = sd_ratios({k: richer.sds[k] for k in HYPERPARAMS},
                       {k: mean_field.sds[k] for k in HYPERPARAMS})
     return {"season": season, "cutoff": str(pd.Timestamp(cutoff).date()),
@@ -634,7 +827,8 @@ def payload_of(got: dict) -> dict:
     }
 
 
-def report_from_payload(payload: dict, *, conclusion: str) -> str:
+def report_from_payload(payload: dict, *, conclusion: str,
+                        revision_note: str = "") -> str:
     """Rebuild the D19 report from :func:`payload_of`'s dump — no refit."""
     return report_markdown(
         season=payload["season"], cutoff=payload["cutoff"],
@@ -644,7 +838,7 @@ def report_from_payload(payload: dict, *, conclusion: str) -> str:
         ratios=payload["ratios"], hyper_ratios=payload["hyper_ratios"],
         clubs=list(payload["clubs"]), realised=payload.get("realised") or {},
         n_sims=int(payload["n_sims"]), seed=int(payload["seed"]),
-        conclusion=conclusion)
+        conclusion=conclusion, revision_note=revision_note)
 
 
 def _cli(argv: Sequence[str] | None = None) -> None:
@@ -670,14 +864,21 @@ def _cli(argv: Sequence[str] | None = None) -> None:
     ap.add_argument("--from-json", default=None,
                     help="rebuild the report from an earlier run's dump "
                          "instead of refitting")
+    ap.add_argument("--note-file", default=None,
+                    help="a file holding a dated note about THIS rewriting of "
+                         "the report — what changed in it and what did not; "
+                         "printed under the header, omitted when absent")
     args = ap.parse_args(list(argv) if argv is not None else None)
+
+    note = "" if not args.note_file else Path(args.note_file).read_text().strip()
 
     if args.from_json:
         payload = json.loads(Path(args.from_json).read_text())
         if not args.report_out or not args.conclusion_file:
             ap.error("--from-json needs --report-out and --conclusion-file")
         Path(args.report_out).write_text(report_from_payload(
-            payload, conclusion=Path(args.conclusion_file).read_text().strip()))
+            payload, conclusion=Path(args.conclusion_file).read_text().strip(),
+            revision_note=note))
         print(f"[d19] wrote {args.report_out} from {args.from_json}", flush=True)
         return
 
@@ -695,7 +896,8 @@ def _cli(argv: Sequence[str] | None = None) -> None:
                      "a sentence a human writes after reading the numbers")
         Path(args.report_out).write_text(report_from_payload(
             payload_of(got),
-            conclusion=Path(args.conclusion_file).read_text().strip()))
+            conclusion=Path(args.conclusion_file).read_text().strip(),
+            revision_note=note))
         print(f"[d19] wrote {args.report_out}", flush=True)
     print(json.dumps({k: got["ratios"][k]["mean"] for k in PARAMS}, indent=1))
 

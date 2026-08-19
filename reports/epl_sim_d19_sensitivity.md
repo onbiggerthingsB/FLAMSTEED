@@ -8,6 +8,8 @@ One cutoff: **2025/26 MW0** (cutoff `2025-08-15`), a settled season, so the two 
 
 Monte-Carlo error is not model error. A probability difference smaller than a couple of the standard errors printed beside it has not been shown to be a difference. Positional thresholds are not claims about qualification for any competition, and nothing here is a betting signal.
 
+**2026-08-19 revision (Codex review of `3844b59`).** Every number below is the 2026-08-19 run's, re-rendered from that run's saved dump with `--from-json`: no fit was re-run, and no probability, ratio, points spread, TRPS figure or hash has moved. What changed is how they are read. (i) The NUTS column now carries an **ESS-adjusted** Monte-Carlo standard error beside the cluster one (§2, §4) — the cluster form counts 1,000 posterior draws as 1,000 independent clusters, which is right for mean-field ADVI and wrong for a Markov chain. (ii) A difference between the two arms now carries the error **of the difference** rather than of one column beside it; the conclusion's Manchester City figure was previously quoted at 4.6 standard errors, which divided the gap by the production arm's error alone. (iii) §5 now states which parameter blocks the reference arm's recorded convergence check actually covered — five, not including `sigma_att`/`sigma_def`, the two blocks carrying the largest ratios in §1. The check has since been widened to cover all seven; a re-run would report them, and this run did not. (iv) The conclusion is stated as **indicative** rather than supported, for the reason (iii) gives.
+
 ## 1. Posterior dispersion — richer / mean-field
 
 A ratio above 1 means mean-field was tighter than the reference: the under-dispersion D19 names. `n` is how many quantities the ratio is taken over (one per club for the team effects, one for a scalar).
@@ -27,82 +29,86 @@ A ratio above 1 means mean-field was tighter than the reference: the under-dispe
 
 ## 2. Consequence probabilities, side by side
 
-Every figure carries its cluster-by-particle Monte-Carlo standard error. `Δ` is reference minus production.
+Every figure carries its cluster-by-particle Monte-Carlo standard error. `Δ` is reference minus production, and `Δ ±` is the error on that DIFFERENCE rather than on either column beside it: `sqrt(se_mean-field² + se_NUTS²)`.
+
+**`NUTS ± (ESS-adj)`** is the NUTS column's error scaled by **1.620**. A cluster-by-particle error counts the S posterior draws as S INDEPENDENT clusters, which is right for mean-field ADVI — i.i.d. draws from one approximation — and wrong for NUTS, whose draws are a Markov chain. The rule is `SE_adjusted = SE_cluster * sqrt(S / ESS_bulk_min) = sqrt(1000 / 381) = 1.620`, taking the SMALLEST bulk ESS over the parameter blocks the reference arm's convergence check covered. The unadjusted NUTS `±` is therefore a lower bound on that arm's Monte-Carlo error, and the adjusted one is the honest column to read it by.
+
+Both arms were simulated at the same seed and the same N, so their Monte-Carlo errors are coupled rather than independent. `Δ ±` ignores that covariance. Where common random numbers couple the two arms positively — the usual case — the independent-sum form OVERSTATES the error of the difference, so it is conservative rather than exact.
 
 ### champion
 
-| club | mean-field | ± | NUTS | ± | Δ |
-|---|---|---|---|---|---|
-| man_city | 0.3645 | 0.0076 | 0.3994 | 0.0074 | +0.0348 |
-| arsenal | 0.2933 | 0.0070 | 0.2695 | 0.0060 | -0.0238 |
-| liverpool | 0.2895 | 0.0070 | 0.2862 | 0.0066 | -0.0033 |
-| newcastle | 0.0234 | 0.0018 | 0.0186 | 0.0014 | -0.0048 |
-| chelsea | 0.0141 | 0.0013 | 0.0152 | 0.0012 | +0.0011 |
-| aston_villa | 0.0054 | 0.0007 | 0.0044 | 0.0006 | -0.0010 |
-| sunderland | 0.0021 | 0.0009 | 0.0021 | 0.0012 | +0.0000 |
-| brighton | 0.0021 | 0.0004 | 0.0010 | 0.0002 | -0.0010 |
-| brentford | 0.0019 | 0.0004 | 0.0009 | 0.0002 | -0.0009 |
-| nottm_forest | 0.0008 | 0.0002 | 0.0002 | 0.0001 | -0.0006 |
-| bournemouth | 0.0006 | 0.0002 | 0.0004 | 0.0001 | -0.0002 |
-| tottenham | 0.0006 | 0.0002 | 0.0001 | 0.0001 | -0.0004 |
-| crystal_palace | 0.0006 | 0.0002 | 0.0009 | 0.0002 | +0.0003 |
-| man_united | 0.0003 | 0.0001 | 0.0004 | 0.0002 | +0.0001 |
-| fulham | 0.0003 | 0.0001 | 0.0003 | 0.0001 | +0.0000 |
-| everton | 0.0001 | 0.0001 | 0.0001 | 0.0001 | -0.0000 |
-| west_ham | 0.0001 | 0.0000 | 0.0001 | 0.0000 | +0.0000 |
-| leeds | 0.0001 | 0.0000 | 0.0001 | 0.0000 | +0.0000 |
-| burnley | 0.0001 | 0.0000 | 0.0000 | 0.0000 | -0.0001 |
-| wolves | 0.0000 | 0.0000 | 0.0000 | 0.0000 | +0.0000 |
+| club | mean-field | ± | NUTS | ± | NUTS ± (ESS-adj) | Δ | Δ ± |
+|---|---|---|---|---|---|---|---|
+| man_city | 0.3645 | 0.0076 | 0.3994 | 0.0074 | 0.0120 | +0.0348 | 0.0106 |
+| arsenal | 0.2933 | 0.0070 | 0.2695 | 0.0060 | 0.0098 | -0.0238 | 0.0092 |
+| liverpool | 0.2895 | 0.0070 | 0.2862 | 0.0066 | 0.0107 | -0.0033 | 0.0096 |
+| newcastle | 0.0234 | 0.0018 | 0.0186 | 0.0014 | 0.0023 | -0.0048 | 0.0023 |
+| chelsea | 0.0141 | 0.0013 | 0.0152 | 0.0012 | 0.0019 | +0.0011 | 0.0017 |
+| aston_villa | 0.0054 | 0.0007 | 0.0044 | 0.0006 | 0.0010 | -0.0010 | 0.0009 |
+| sunderland | 0.0021 | 0.0009 | 0.0021 | 0.0012 | 0.0019 | +0.0000 | 0.0014 |
+| brighton | 0.0021 | 0.0004 | 0.0010 | 0.0002 | 0.0004 | -0.0010 | 0.0005 |
+| brentford | 0.0019 | 0.0004 | 0.0009 | 0.0002 | 0.0004 | -0.0009 | 0.0005 |
+| nottm_forest | 0.0008 | 0.0002 | 0.0002 | 0.0001 | 0.0002 | -0.0006 | 0.0003 |
+| bournemouth | 0.0006 | 0.0002 | 0.0004 | 0.0001 | 0.0002 | -0.0002 | 0.0002 |
+| tottenham | 0.0006 | 0.0002 | 0.0001 | 0.0001 | 0.0001 | -0.0004 | 0.0002 |
+| crystal_palace | 0.0006 | 0.0002 | 0.0009 | 0.0002 | 0.0004 | +0.0003 | 0.0003 |
+| man_united | 0.0003 | 0.0001 | 0.0004 | 0.0002 | 0.0003 | +0.0001 | 0.0002 |
+| fulham | 0.0003 | 0.0001 | 0.0003 | 0.0001 | 0.0002 | +0.0000 | 0.0002 |
+| everton | 0.0001 | 0.0001 | 0.0001 | 0.0001 | 0.0001 | -0.0000 | 0.0001 |
+| west_ham | 0.0001 | 0.0000 | 0.0001 | 0.0000 | 0.0001 | +0.0000 | 0.0001 |
+| leeds | 0.0001 | 0.0000 | 0.0001 | 0.0000 | 0.0001 | +0.0000 | 0.0001 |
+| burnley | 0.0001 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | -0.0001 | 0.0000 |
+| wolves | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | +0.0000 | 0.0000 |
 
 ### top4
 
-| club | mean-field | ± | NUTS | ± | Δ |
-|---|---|---|---|---|---|
-| man_city | 0.9261 | 0.0038 | 0.9489 | 0.0027 | +0.0228 |
-| arsenal | 0.9083 | 0.0038 | 0.9151 | 0.0034 | +0.0068 |
-| liverpool | 0.9040 | 0.0041 | 0.9154 | 0.0035 | +0.0114 |
-| newcastle | 0.3587 | 0.0075 | 0.3520 | 0.0075 | -0.0067 |
-| chelsea | 0.3095 | 0.0072 | 0.3133 | 0.0070 | +0.0037 |
-| aston_villa | 0.1680 | 0.0055 | 0.1660 | 0.0052 | -0.0020 |
-| brighton | 0.0801 | 0.0036 | 0.0767 | 0.0034 | -0.0034 |
-| brentford | 0.0789 | 0.0039 | 0.0696 | 0.0031 | -0.0093 |
-| crystal_palace | 0.0527 | 0.0028 | 0.0430 | 0.0023 | -0.0096 |
-| nottm_forest | 0.0394 | 0.0026 | 0.0348 | 0.0020 | -0.0046 |
-| bournemouth | 0.0366 | 0.0024 | 0.0356 | 0.0023 | -0.0010 |
-| fulham | 0.0324 | 0.0021 | 0.0295 | 0.0017 | -0.0029 |
-| tottenham | 0.0323 | 0.0021 | 0.0379 | 0.0023 | +0.0056 |
-| man_united | 0.0265 | 0.0019 | 0.0242 | 0.0017 | -0.0023 |
-| everton | 0.0173 | 0.0013 | 0.0141 | 0.0013 | -0.0032 |
-| sunderland | 0.0146 | 0.0026 | 0.0136 | 0.0026 | -0.0009 |
-| west_ham | 0.0063 | 0.0008 | 0.0048 | 0.0006 | -0.0015 |
-| leeds | 0.0039 | 0.0008 | 0.0021 | 0.0005 | -0.0017 |
-| wolves | 0.0033 | 0.0005 | 0.0022 | 0.0004 | -0.0010 |
-| burnley | 0.0011 | 0.0004 | 0.0011 | 0.0003 | +0.0000 |
+| club | mean-field | ± | NUTS | ± | NUTS ± (ESS-adj) | Δ | Δ ± |
+|---|---|---|---|---|---|---|---|
+| man_city | 0.9261 | 0.0038 | 0.9489 | 0.0027 | 0.0044 | +0.0228 | 0.0047 |
+| arsenal | 0.9083 | 0.0038 | 0.9151 | 0.0034 | 0.0054 | +0.0068 | 0.0051 |
+| liverpool | 0.9040 | 0.0041 | 0.9154 | 0.0035 | 0.0057 | +0.0114 | 0.0054 |
+| newcastle | 0.3587 | 0.0075 | 0.3520 | 0.0075 | 0.0122 | -0.0067 | 0.0106 |
+| chelsea | 0.3095 | 0.0072 | 0.3133 | 0.0070 | 0.0113 | +0.0037 | 0.0100 |
+| aston_villa | 0.1680 | 0.0055 | 0.1660 | 0.0052 | 0.0085 | -0.0020 | 0.0076 |
+| brighton | 0.0801 | 0.0036 | 0.0767 | 0.0034 | 0.0056 | -0.0034 | 0.0050 |
+| brentford | 0.0789 | 0.0039 | 0.0696 | 0.0031 | 0.0051 | -0.0093 | 0.0050 |
+| crystal_palace | 0.0527 | 0.0028 | 0.0430 | 0.0023 | 0.0037 | -0.0096 | 0.0036 |
+| nottm_forest | 0.0394 | 0.0026 | 0.0348 | 0.0020 | 0.0032 | -0.0046 | 0.0033 |
+| bournemouth | 0.0366 | 0.0024 | 0.0356 | 0.0023 | 0.0038 | -0.0010 | 0.0034 |
+| fulham | 0.0324 | 0.0021 | 0.0295 | 0.0017 | 0.0028 | -0.0029 | 0.0027 |
+| tottenham | 0.0323 | 0.0021 | 0.0379 | 0.0023 | 0.0038 | +0.0056 | 0.0031 |
+| man_united | 0.0265 | 0.0019 | 0.0242 | 0.0017 | 0.0027 | -0.0023 | 0.0025 |
+| everton | 0.0173 | 0.0013 | 0.0141 | 0.0013 | 0.0022 | -0.0032 | 0.0019 |
+| sunderland | 0.0146 | 0.0026 | 0.0136 | 0.0026 | 0.0042 | -0.0009 | 0.0037 |
+| west_ham | 0.0063 | 0.0008 | 0.0048 | 0.0006 | 0.0010 | -0.0015 | 0.0010 |
+| leeds | 0.0039 | 0.0008 | 0.0021 | 0.0005 | 0.0008 | -0.0017 | 0.0009 |
+| wolves | 0.0033 | 0.0005 | 0.0022 | 0.0004 | 0.0007 | -0.0010 | 0.0006 |
+| burnley | 0.0011 | 0.0004 | 0.0011 | 0.0003 | 0.0005 | +0.0000 | 0.0005 |
 
 ### relegated
 
-| club | mean-field | ± | NUTS | ± | Δ |
-|---|---|---|---|---|---|
-| burnley | 0.6464 | 0.0093 | 0.6570 | 0.0090 | +0.0105 |
-| sunderland | 0.6464 | 0.0115 | 0.6375 | 0.0112 | -0.0089 |
-| leeds | 0.5998 | 0.0101 | 0.6336 | 0.0095 | +0.0337 |
-| wolves | 0.2841 | 0.0075 | 0.2781 | 0.0067 | -0.0060 |
-| west_ham | 0.2419 | 0.0069 | 0.2366 | 0.0064 | -0.0052 |
-| everton | 0.1024 | 0.0042 | 0.1078 | 0.0042 | +0.0053 |
-| man_united | 0.0850 | 0.0042 | 0.0769 | 0.0034 | -0.0082 |
-| fulham | 0.0776 | 0.0038 | 0.0722 | 0.0035 | -0.0054 |
-| bournemouth | 0.0680 | 0.0034 | 0.0726 | 0.0035 | +0.0047 |
-| nottm_forest | 0.0635 | 0.0033 | 0.0566 | 0.0028 | -0.0069 |
-| tottenham | 0.0609 | 0.0032 | 0.0579 | 0.0030 | -0.0030 |
-| crystal_palace | 0.0421 | 0.0028 | 0.0447 | 0.0026 | +0.0026 |
-| brentford | 0.0350 | 0.0024 | 0.0288 | 0.0019 | -0.0062 |
-| brighton | 0.0313 | 0.0022 | 0.0266 | 0.0017 | -0.0047 |
-| aston_villa | 0.0100 | 0.0011 | 0.0085 | 0.0010 | -0.0015 |
-| chelsea | 0.0034 | 0.0005 | 0.0023 | 0.0004 | -0.0011 |
-| newcastle | 0.0021 | 0.0004 | 0.0022 | 0.0004 | +0.0001 |
-| man_city | 0.0000 | 0.0000 | 0.0000 | 0.0000 | +0.0000 |
-| liverpool | 0.0000 | 0.0000 | 0.0000 | 0.0000 | +0.0000 |
-| arsenal | 0.0000 | 0.0000 | 0.0000 | 0.0000 | +0.0000 |
+| club | mean-field | ± | NUTS | ± | NUTS ± (ESS-adj) | Δ | Δ ± |
+|---|---|---|---|---|---|---|---|
+| burnley | 0.6464 | 0.0093 | 0.6570 | 0.0090 | 0.0146 | +0.0105 | 0.0130 |
+| sunderland | 0.6464 | 0.0115 | 0.6375 | 0.0112 | 0.0182 | -0.0089 | 0.0161 |
+| leeds | 0.5998 | 0.0101 | 0.6336 | 0.0095 | 0.0155 | +0.0337 | 0.0139 |
+| wolves | 0.2841 | 0.0075 | 0.2781 | 0.0067 | 0.0108 | -0.0060 | 0.0100 |
+| west_ham | 0.2419 | 0.0069 | 0.2366 | 0.0064 | 0.0104 | -0.0052 | 0.0094 |
+| everton | 0.1024 | 0.0042 | 0.1078 | 0.0042 | 0.0068 | +0.0053 | 0.0059 |
+| man_united | 0.0850 | 0.0042 | 0.0769 | 0.0034 | 0.0055 | -0.0082 | 0.0054 |
+| fulham | 0.0776 | 0.0038 | 0.0722 | 0.0035 | 0.0056 | -0.0054 | 0.0051 |
+| bournemouth | 0.0680 | 0.0034 | 0.0726 | 0.0035 | 0.0057 | +0.0047 | 0.0049 |
+| nottm_forest | 0.0635 | 0.0033 | 0.0566 | 0.0028 | 0.0045 | -0.0069 | 0.0043 |
+| tottenham | 0.0609 | 0.0032 | 0.0579 | 0.0030 | 0.0049 | -0.0030 | 0.0044 |
+| crystal_palace | 0.0421 | 0.0028 | 0.0447 | 0.0026 | 0.0041 | +0.0026 | 0.0038 |
+| brentford | 0.0350 | 0.0024 | 0.0288 | 0.0019 | 0.0030 | -0.0062 | 0.0030 |
+| brighton | 0.0313 | 0.0022 | 0.0266 | 0.0017 | 0.0028 | -0.0047 | 0.0028 |
+| aston_villa | 0.0100 | 0.0011 | 0.0085 | 0.0010 | 0.0015 | -0.0015 | 0.0015 |
+| chelsea | 0.0034 | 0.0005 | 0.0023 | 0.0004 | 0.0006 | -0.0011 | 0.0007 |
+| newcastle | 0.0021 | 0.0004 | 0.0022 | 0.0004 | 0.0006 | +0.0001 | 0.0005 |
+| man_city | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | +0.0000 | 0.0000 |
+| liverpool | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | +0.0000 | 0.0000 |
+| arsenal | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | +0.0000 | 0.0000 |
 
 ## 3. Points-total spread per club
 
@@ -131,10 +137,12 @@ Every figure carries its cluster-by-particle Monte-Carlo standard error. `Δ` is
 
 ## 4. Promoted clubs and the drop
 
-| arm | E[relegations among promoted] | MC SE (upper bound) |
-|---|---|---|
-| mean-field ADVI | 1.893 | 0.031 |
-| NUTS | 1.928 | 0.030 |
+| arm | E[relegations among promoted] | MC SE (upper bound) | ESS-adjusted |
+|---|---|---|---|
+| mean-field ADVI | 1.893 | 0.031 | n/a |
+| NUTS | 1.928 | 0.030 | 0.048 |
+
+The MC SE is the SUM of the per-club relegation standard errors, deliberately an upper bound: the events are negatively correlated (three clubs go down, whoever they are) and the independent-sum form would claim a covariance this report does not compute. The NUTS row carries the same ESS adjustment as §2; `n/a` on the ADVI row is not a missing number — i.i.d. draws need no adjustment.
 
 Promoted into 2025/26: `burnley`, `leeds`, `sunderland`.
 
@@ -145,7 +153,9 @@ Promoted into 2025/26: `burnley`, `leeds`, `sunderland`.
 | mean-field ADVI | 0.1356 | 7.5 | 1.6 | 1000 |
 | NUTS | 0.1359 | 20.4 | 1.5 | 1000 |
 
-Reference-arm convergence: worst r-hat 1.0200, smallest bulk ESS 381 over 5 parameter blocks — **flagged**: att, def. A reference that has not mixed is not a reference, and the ratios above inherit that doubt.
+Reference-arm convergence: worst r-hat 1.0200, smallest bulk ESS 381 over 5 parameter block(s) (`att`, `def`, `home_adv`, `mu`, `rho`) — **flagged**: att, def. A reference that has not mixed is not a reference, and the ratios above inherit that doubt.
+
+The check this run ran did **not** cover `sigma_att`, `sigma_def`, so the r-hat and ESS above say nothing about how the reference mixed on blocks §1 nevertheless reports ratios for. The check now covers every quantity the report puts a ratio beside, and a re-run reports all 7; these figures are the ones this run recorded and are not restated as if they were.
 
 TRPS is the plan's primary league-table score (Ekstrom, Van Eetvelde, Ley & Brefeld, *Evaluating one-shot tournament predictions*, arXiv:1912.07364, eq. 2), unweighted at 1/(20·19), scored against the realised 2025/26 table through the sim's own ranker (0 shared finishing position(s)). ONE season and ONE cutoff: there is no interval on this difference and none is implied.
 
@@ -160,34 +170,52 @@ on `def`, averaged over 35 fitted clubs, with per-club ratios spanning
 positions is not what mean-field is collapsing. What it *is* collapsing are the
 terms common to every fixture: `mu` comes back 2.21x tighter than the reference
 and `home_adv` 1.32x, with the hierarchical scales `sigma_att`/`sigma_def`
-1.32x/1.25x tighter. Those gaps are large and real, but a global scoring-level
-term shifts every club together rather than reordering them, and the net effect
-on the object actually published runs the *other* way: the simulated
-points-total spread is about 4% narrower under NUTS (mean ratio 0.960, range
-0.932–0.996; mean sd 9.90 points against 9.51). The consequence probabilities
-move by at most 0.035 — Manchester City's title figure 0.3645 +/- 0.0076 to
-0.3994 +/- 0.0074, roughly 4.6 Monte-Carlo standard errors, and Leeds relegation
-0.5998 to 0.6336 — while most clubs move inside two standard errors; E[relegations
-among the three promoted clubs] is 1.893 against 1.928. TRPS on the realised
-2025/26 table is 0.13557 for mean-field against 0.13593 for NUTS, the production
-arm marginally *better* by 0.00036 on one season at one cutoff with no interval,
-which is a coin flip and is not a win for either arm. The cost is 7.5 s against
-20.4 s per fit, so nothing here is decided by runtime. Two caveats stop this
-being a clean bill of health. The NUTS reference did not fully mix — worst r-hat
-1.020 on the raw team effects and smallest bulk ESS 381 over 1,000 draws at
-3,000 tuning steps — so its own standard deviations carry noise; re-running it at
-1,000 tuning steps moved the reported ratios by roughly 1–7% (`att` 0.936 to
-0.947, `mu` 2.07 to 2.21, `home_adv` 1.24 to 1.32), which is the size of the
-reference-arm wobble and is smaller than the `mu` finding but comparable to the
-`att`/`def` ones. And this is ONE cutoff on ONE season, the opener, where every
-fixture is unplayed and the fit has no in-season evidence at all (no club is
-cold-start or provisional here, so the widening branch is inert and plays no
-part in either arm). The
-narrow claim D19 asked for is supported at this cutoff: moving to a richer
-posterior does not widen the published table intervals and does not improve the
-score, so mean-field is not buying its speed with visibly false confidence about
-the table. The broader claim — that this holds mid-season, or across seasons — is
-untested here, and no public uncertainty language should lean on it.
+1.32x/1.25x tighter. Those gaps are large, but a global scoring-level term
+shifts every club together rather than reordering them, and the net effect on
+the object actually published runs the *other* way: the simulated points-total
+spread is about 4% narrower under NUTS (mean ratio 0.960, range 0.932–0.996;
+mean sd 9.90 points against 9.51). The consequence probabilities move by at most
+0.035. Manchester City's title figure goes from 0.3645 +/- 0.0076 to
+0.3994 +/- 0.0074, a difference of +0.0348 against a standard error **of that
+difference** of 0.0106 — about **3.3** standard errors, and about **2.5** once
+the NUTS error carries the ESS adjustment of §2. (An earlier version of this
+paragraph read 4.6 standard errors; that divided the difference by the
+production arm's error alone, which is the error of one column and not of the
+gap between two.) Leeds relegation moves 0.5998 +/- 0.0101 to
+0.6336 +/- 0.0095, +0.0337 against a difference standard error of 0.0139 — about
+2.4, or 1.8 adjusted — while most clubs move inside two standard errors of the
+difference; E[relegations among the three promoted clubs] is 1.893 against
+1.928 +/- 0.030 (0.048 adjusted). TRPS on the realised 2025/26 table is 0.13557
+for mean-field against 0.13593 for NUTS, the production arm marginally *better*
+by 0.00036 on one season at one cutoff with no interval, which is a coin flip
+and is not a win for either arm. The cost is 7.5 s against 20.4 s per fit, so
+nothing here is decided by runtime.
+
+Three things stop this being a clean bill of health, and together they are why
+the finding is **indicative rather than supported**. The NUTS reference did not
+fully mix: worst r-hat 1.020 on the raw team effects and smallest bulk ESS 381
+over 1,000 draws at 3,000 tuning steps, so its own standard deviations carry
+noise, and re-running it at 1,000 tuning steps moved the reported ratios by
+roughly 1–7% (`att` 0.936 to 0.947, `mu` 2.07 to 2.21, `home_adv` 1.24 to 1.32)
+— the size of the reference-arm wobble, smaller than the `mu` finding but
+comparable to the `att`/`def` ones. That convergence check covered five
+parameter blocks and did **not** cover `sigma_att` or `sigma_def`, which carry
+ratios of 1.32x and 1.25x in §1, third and fourth
+largest behind `mu` and `home_adv`: nothing in this run says whether the
+reference had mixed on them. And this is ONE cutoff on ONE season, the opener,
+where every fixture is unplayed and the fit has no in-season evidence at all (no
+club is cold-start or provisional here, so the widening branch is inert and
+plays no part in either arm).
+
+What D19 asked for is therefore answered **provisionally** at this cutoff:
+moving to a richer posterior did not widen the published table intervals and did
+not improve the score, so on this evidence mean-field is not buying its speed
+with visibly false confidence about the table — but the reference this is
+measured against is itself unconverged on two of the seven blocks and unchecked
+on two more, and a finding measured against a shaky reference is a reading, not
+a result. It should not be treated as settled without a reference that mixes.
+The broader claim — that this holds mid-season, or across seasons — is untested
+here, and no public uncertainty language should lean on either.
 
 ## 7. Provenance
 
@@ -204,7 +232,8 @@ Reproduce with:
 PYTHONPATH=src:. python -u -m epl.sensitivity \
   --season '2025/26' --cutoff-label MW0 --n-sims 20000 --seed 20260611 \
   --json-out data/epl/d19/d19_2025_26_MW0.json \
-  --report-out reports/epl_sim_d19_sensitivity.md --conclusion-file <file>
+  --report-out reports/epl_sim_d19_sensitivity.md --conclusion-file <file> \
+  --note-file <file>
 ```
 
 The two fits are seeded and deterministic: a re-run reproduces both TRPS figures and both digests exactly. `--from-json` rewrites this report from the dump without paying for the fits again.
