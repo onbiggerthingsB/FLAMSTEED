@@ -518,6 +518,69 @@ def test_arms_share_uniform_slots(state, bridge):
         assert not (np.array_equal(hg_s, base_h) and np.array_equal(ag_s, base_a)), (
             f"{name} is indifferent to u[0] and u[2] changing places")
 
+    # WHICH SLOT DOES WHAT. Everything above says the two arms agree and that
+    # both slots are read; none of it says u[0] is the OUTCOME and u[2] the
+    # scoreline. Swap those two roles consistently in both providers and every
+    # assertion so far stays green — the test's own defining mutant survives it.
+    #
+    # So the bridge is replaced by a recorder that keeps what it was handed. The
+    # scoreline slot is pinned by identity (the recorder must receive u[2]
+    # itself), and the outcome slot by dependence (disturbing u[0] must move the
+    # outcomes the recorder saw; disturbing u[2] must not).
+    class _Recorder:
+        """Wraps the real bridge and keeps its arguments. Same numbers out."""
+
+        def __init__(self, inner):
+            self._inner = inner
+            self.hash = inner.hash
+            self.max_goals = inner.max_goals
+            self.last = None
+
+        def sample(self, outcomes, uniforms):
+            self.last = (np.array(outcomes, copy=True),
+                         np.array(uniforms, copy=True))
+            return self._inner.sample(outcomes, uniforms)
+
+        def describe(self):
+            return self._inner.describe()
+
+        def refuse_if_after(self, *args, **kwargs):
+            return self._inner.refuse_if_after(*args, **kwargs)
+
+    other = leaguesim.streams(SEED + 7, 0, fixture.ordinal).random(n)
+    for provider, name in ((dc, "dc_wdl_bridge"), (elo, "elo_wdl_bridge")):
+        recorder = _Recorder(bridge)
+        provider.bridge = recorder
+        try:
+            provider.sample(fixture, pidx, u)
+            outcomes_base, u_scoreline = recorder.last
+            np.testing.assert_array_equal(
+                u_scoreline, u[2],
+                err_msg=f"{name} did not draw its SCORELINE from u[2]")
+            assert not np.array_equal(u_scoreline, u[0]), (
+                f"{name}: u[0] and u[2] must differ, or this pins nothing")
+
+            moved = u.copy()
+            moved[2] = other
+            provider.sample(fixture, pidx, moved)
+            np.testing.assert_array_equal(
+                recorder.last[0], outcomes_base,
+                err_msg=f"{name} drew its OUTCOME from u[2]")
+            np.testing.assert_array_equal(
+                recorder.last[1], other,
+                err_msg=f"{name} ignored the disturbed scoreline slot")
+
+            moved = u.copy()
+            moved[0] = other
+            provider.sample(fixture, pidx, moved)
+            assert not np.array_equal(recorder.last[0], outcomes_base), (
+                f"{name} ignores u[0] for the outcome")
+            np.testing.assert_array_equal(
+                recorder.last[1], u[2],
+                err_msg=f"{name} drew its SCORELINE from u[0]")
+        finally:
+            provider.bridge = bridge
+
 
 # ==========================================================================
 # round 2 — the bridge is point-in-time on the way OUT as well as in
@@ -560,7 +623,31 @@ def test_providers_refuse_a_bridge_fitted_after_the_forecast_cutoff(
     with pytest.raises(leaguesim.SimError, match="cannot see"):
         leaguesim.simulate("dc_wdl_bridge", early_state, unchecked, 64, SEED, 32)
 
+    # (d) THE ELO HEAD'S OWN CUTOFF, which the engine could not see.
+    #     `elo_wdl_bridge` carries TWO fitted objects, and `_check_provider_is
+    #     _point_in_time` read only `bridge_cutoff`. So an Elo head fitted
+    #     through 2023-12 behind an EARLIER bridge — every constructor guard
+    #     satisfied, because the bridge really is not after the head — simulated
+    #     a 2022-06 state, and the ratings it prices from had walked eighteen
+    #     months of results the forecast cannot see. The engine is the backstop
+    #     no run routes around, so the check belongs there and covers every
+    #     fitted-at stamp the provider reports.
+    assert "elo_cutoff" in leaguesim.PROVIDER_CUTOFF_KEYS
+    late_elo = bridge_mod.EloOutcomeProvider.fit(
+        _anchor_state(ratings, "2023-12-01"), history, fixtures, early_bridge,
+        n_particles=8)
+    assert late_elo.describe()["elo_cutoff"] == "2023-12-01"
+    assert pd.Timestamp(late_elo.describe()["bridge_cutoff"]) < \
+        pd.Timestamp("2022-06-01"), "the BRIDGE must be innocent here"
+    leaky_state = dataclasses.replace(state, cutoff=pd.Timestamp("2022-06-01"))
+    with pytest.raises(leaguesim.SimError, match="Elo ordered-logit head"):
+        leaguesim.simulate("elo_wdl_bridge", leaky_state, late_elo, 64, SEED, 32)
+
     # POSITIVE CONTROLS, both directions of "not after".
+    # the SAME Elo head at a cutoff it does not precede still runs
+    later_state = dataclasses.replace(state, cutoff=pd.Timestamp("2024-03-01"))
+    ran = leaguesim.simulate("elo_wdl_bridge", later_state, late_elo, 64, SEED, 32)
+    table_mod.check_doubly_stochastic(ran.matrix)
     # equal cutoffs: the same day-floor is the same evidence
     same = bridge_mod.EmpiricalBridge.fit(rows, "2024-01-01")
     assert bridge_mod.DCWDLProvider(book, same, cutoff="2024-01-01").cutoff == "2024-01-01"

@@ -623,10 +623,17 @@ class EloOutcomeProvider:
         })
 
     def describe(self) -> dict:
+        # `elo_cutoff` is REPORTED, not implied. This arm carries two fitted
+        # objects with two cutoffs — the empirical bridge's and the ordered
+        # logit's — and only the bridge's reached `describe()`, so the engine's
+        # point-in-time backstop compared the forecast against one of them and
+        # was blind to the other. An Elo head fitted through 2023-12 behind an
+        # older bridge simulated a 2022-06 state without complaint.
         return {"widening_mode": "none",
                 "max_goals": int(self.bridge.max_goals),
                 "elo_head": None if self.params is None else self.params.as_dict(),
                 "elo_fit_rows": self.n_fit_rows,
+                "elo_cutoff": self.cutoff,
                 **self.bridge.describe()}
 
 
