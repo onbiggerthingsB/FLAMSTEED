@@ -593,3 +593,125 @@ def test_ppg_none_at_opener_pointmass_after_mw3(season, state):
 
     # Two rounds is not enough to extrapolate from.
     assert bridge_mod.ppg_pointmass(_played_through_matchday(season, 2)) is None
+
+
+# ==========================================================================
+# 6. the per-particle draw is load-bearing (D1 through D18)
+# ==========================================================================
+#
+# Verifier finding (d): `DCWDLProvider.sample` indexes `one_x_two[particle_idx]`,
+# and NOTHING downstream would notice if it averaged over particles instead —
+# the per-fixture 1X2 MARGINAL is identical either way, so every marginal-parity
+# test in this file passes under the mutant. What the mean mixture destroys is
+# the JOINT: under it every simulated season is priced at the same 1X2, the
+# posterior draw stops deciding anything, and the parameter uncertainty D1
+# exists to carry never reaches the title and relegation tails.
+#
+# So the guard is conditional: per-particle law variance > 0, and realised 1X2
+# frequencies that differ ACROSS particles by more than binomial noise.
+
+def _particle_spread_book(clubs, home, away, *, n_particles=16, swing=0.6):
+    """A book whose particles genuinely disagree about ONE fixture's 1X2.
+
+    The `_book` ladder tilts every club's attack together, which moves the total
+    goal rate but barely moves 1X2. Here only the home club's attack moves, so
+    the particles disagree about the OUTCOME and not merely the score.
+    """
+    clubs = tuple(clubs)
+    att = np.zeros((len(clubs), n_particles))
+    defe = np.zeros((len(clubs), n_particles))
+    att[clubs.index(home)] = np.linspace(-swing, swing, n_particles)
+    return particles.ParticleBook(
+        teams=clubs, idx={c: i for i, c in enumerate(clubs)},
+        att=att, defe=defe, mu=np.zeros(n_particles),
+        home_adv=np.full(n_particles, 0.25), rho=np.full(n_particles, -0.03),
+        sigma_att=np.full(n_particles, 0.4), sigma_def=np.full(n_particles, 0.4),
+        provisional=frozenset(), cold_start=frozenset(),
+        likelihood="dixon_coles", alpha=0.0,
+        max_goals=particles.PRODUCTION_MAX_GOALS, cfg_hash="test-spread")
+
+
+class _MeanMixtureMutant(bridge_mod.DCWDLProvider):
+    """The mutant the guard must catch: every season priced at the particle MEAN."""
+
+    def sample(self, fixture, particle_idx, u):
+        one_x_two, widened = self.laws_for(fixture)
+        n = len(np.asarray(particle_idx))
+        probs = np.repeat(one_x_two.mean(axis=0)[None, :], n, axis=0)
+        if widened is not None:
+            coin = np.asarray(u[1]) < self.book.alpha
+            if coin.any():
+                probs[coin] = widened
+        return self.bridge.sample(
+            bridge_mod._draw_outcome(probs, np.asarray(u[0])), np.asarray(u[2]))
+
+
+def _home_win_homogeneity(run, fixture_id) -> float:
+    """Pearson statistic for "every particle priced this fixture identically".
+
+    ``sum_s (k_s - n_s p)^2 / (n_s p (1-p))`` over the S particles, which is
+    chi-squared on S-1 df under that null. Large means the particles disagree —
+    which is what a per-particle draw is FOR.
+    """
+    plan = run.plan
+    ordinal = plan.fixtures[plan.position_of(fixture_id)].ordinal
+    column = {int(o): j for j, o
+              in enumerate(run.retained_rows.fixture_ordinals.tolist())}[ordinal]
+    goals = run.retained_rows.scorelines[:, column, :].astype(np.int64)
+    home_win = (goals[:, 0] > goals[:, 1]).astype(float)
+    particle = run.retained_rows.particle
+    n_particles = int(particle.max()) + 1
+
+    counts = np.bincount(particle, minlength=n_particles).astype(float)
+    wins = np.bincount(particle, weights=home_win, minlength=n_particles)
+    p = float(home_win.mean())
+    assert 0.0 < p < 1.0 and counts.min() > 0
+    return float((((wins - counts * p) ** 2) / (counts * p * (1 - p))).sum())
+
+
+def test_dc_wdl_prices_each_season_at_its_own_particle_not_at_the_mean(state, bridge):
+    home, away = state.clubs[0], state.clubs[1]
+    book = _particle_spread_book(state.clubs, home, away)
+    provider = bridge_mod.DCWDLProvider(book, bridge)
+    fixture_id = f"2627:{home}:{away}"
+    plan_fixture = _plain_fixture(home, away)
+
+    # 1. the laws themselves differ particle by particle
+    laws, widened = provider.laws_for(plan_fixture)
+    assert widened is None
+    assert laws.shape == (book.n_particles, 3)
+    assert laws.var(axis=0).max() > 1e-4, \
+        "the engineered book must make the particles disagree"
+    assert not np.allclose(laws, laws.mean(axis=0)[None, :])
+
+    # 2. and the SEASONS realise that disagreement. Under the mean mixture the
+    #    per-particle frequencies would differ only by binomial noise.
+    n_sims, chunk = 3200, 800
+    run = leaguesim.simulate("dc_wdl_bridge", state, provider, n_sims, SEED, chunk)
+    real = _home_win_homogeneity(run, fixture_id)
+
+    mutant = _MeanMixtureMutant(book, bridge)
+    mutant_run = leaguesim.simulate("dc_wdl_bridge", state, mutant, n_sims, SEED,
+                                    chunk)
+    mutated = _home_win_homogeneity(mutant_run, fixture_id)
+
+    from scipy.stats import chi2
+    df = book.n_particles - 1
+    assert float(chi2.sf(real, df)) < 1e-6, (
+        f"per-particle 1X2 frequencies must differ beyond binomial noise "
+        f"(statistic {real:.1f} on {df} df)")
+    assert float(chi2.sf(mutated, df)) > 1e-3, (
+        f"the mean-mixture mutant must look homogeneous (statistic "
+        f"{mutated:.1f} on {df} df) — otherwise the test above is not "
+        "measuring the per-particle draw")
+    assert real > 20 * mutated
+
+    # 3. and the two are different runs at the same seed, so the mutant is
+    #    something this suite could otherwise have missed entirely.
+    assert not np.array_equal(run.retained_rows.scorelines,
+                              mutant_run.retained_rows.scorelines)
+    # ...while their per-fixture MARGINALS agree, which is exactly why a
+    # marginal test cannot catch it.
+    freq, se = _one_x_two_frequencies(run, fixture_id)
+    mutant_freq, _ = _one_x_two_frequencies(mutant_run, fixture_id)
+    assert np.all(np.abs(freq - mutant_freq) <= 5 * np.maximum(se, 1e-12) + 0.02)

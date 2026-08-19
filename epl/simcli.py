@@ -132,7 +132,16 @@ class FitBundle:
     book: particles.ParticleBook
     post: Any = None
     anchor: Any = None
+    #: The completed-season archive (football-data). For a season in progress it
+    #: has NO rows of that season — which is why it is not what the bridge is
+    #: fitted on.
     matches: pd.DataFrame | None = None
+    #: The frame the fit actually TRAINED on: the archive PLUS the target
+    #: season's own observed results (plan v2 D5/D18). The empirical bridge must
+    #: see every valid played match before the cutoff, and mid-season those
+    #: include the results ledger's rows; feeding it `matches` alone would
+    #: estimate P(scoreline | outcome) from a frame that stops at last season.
+    training: pd.DataFrame | None = None
     info: dict = field(default_factory=dict)
 
 
@@ -166,11 +175,8 @@ def live_fit(season_obj: season_mod.Season, cutoff, *, matches=None, store=None,
 
     anchor = liveanchor.LiveAnchor(archive, season_obj.results,
                                    season_obj.manifest, elo_cfg)
-    live_rows = liveanchor.visible_rows(anchor.rows, cutoff, observed_by)
-    frames = [archive]
-    if live_rows:
-        frames.append(liveanchor.rows_to_frame(live_rows, season))
-    train = sort_for_walk_forward(pd.concat(frames, ignore_index=True))
+    train, live_rows = live_training_frame(archive, anchor.rows, season, cutoff,
+                                           observed_by=observed_by)
 
     if store is None:
         store = epl_fit.build_store(train, root=store_root or LIVE_STORE_DIR)
@@ -187,7 +193,7 @@ def live_fit(season_obj: season_mod.Season, cutoff, *, matches=None, store=None,
 
     book = particles.ParticleBook.from_posterior(post)
     return FitBundle(
-        book=book, post=post, anchor=anchor, matches=played,
+        book=book, post=post, anchor=anchor, matches=played, training=train,
         info={
             "fit_seconds": float(info.seconds),
             "n_training_matches": int(info.n_training_matches),
@@ -203,6 +209,31 @@ def live_fit(season_obj: season_mod.Season, cutoff, *, matches=None, store=None,
             "n_particles": int(book.n_particles),
             "wall_seconds": round(time.perf_counter() - started, 2),
         })
+
+
+def live_training_frame(archive, rows, season: str, cutoff, *, observed_by=None):
+    """``(train, live_rows)`` — the frame a live fit trains on (plan v2 D5/D18).
+
+    The archive plus the target season's OWN observed results, where "observed"
+    is :func:`epl.liveanchor.visible_rows`'s bitemporal rule: played strictly
+    before the cutoff DAY and known by ``observed_by``. A row dated on or after
+    the cutoff is not in the frame, whatever the ledger says about it.
+
+    Extracted from :func:`live_fit` so the point-in-time property can be tested
+    without paying for a fit, and so the empirical bridge and the Dixon-Coles
+    fit provably read the SAME frame: the bug this closes is a bridge fitted on
+    the archive alone, which for a season in progress means a bridge that has
+    never seen a match of the season it is pricing.
+    """
+    from epl import liveanchor
+    from epl.schema import sort_for_walk_forward
+
+    live_rows = liveanchor.visible_rows(rows, cutoff, observed_by)
+    frames = [archive]
+    if live_rows:
+        frames.append(liveanchor.rows_to_frame(live_rows, season))
+    return (sort_for_walk_forward(pd.concat(frames, ignore_index=True)),
+            live_rows)
 
 
 def _fitted_teams(cutoff, store, cfg) -> list[str]:
@@ -277,7 +308,12 @@ def forecast(*, season: str = DEFAULT_SEASON, cutoff,
             "and the season manifest disagree, which is the cold-start path "
             "failing (plan v2 D5/D11)")
 
-    archive = fit.matches if matches is None else matches
+    # D18: the bridge is estimated from every valid played match before the
+    # cutoff, and mid-season those INCLUDE the target season's results ledger.
+    # `fit.training` is the frame the fit itself trained on; `fit.matches` is
+    # the completed-season archive and has no rows of a season in progress.
+    trained_on = fit.matches if fit.training is None else fit.training
+    archive = trained_on if matches is None else matches
     needs_bridge = bool({"dc_wdl_bridge", "elo_wdl_bridge"} & set(arms))
     if needs_bridge and archive is None:
         raise CliError(

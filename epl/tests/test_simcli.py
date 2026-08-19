@@ -16,9 +16,11 @@ import shutil
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
-from epl import leaguesim, particles, season as season_mod, simcli
+from epl import bridge as bridge_mod, leaguesim, liveanchor, particles
+from epl import season as season_mod, simcli
 # The T6 acceptance run's league-shaped book: one definition, reused, so the
 # smoke path here and the canary path there cannot drift apart.
 from epl.simcanary import _synthetic_book as synthetic_book
@@ -487,3 +489,184 @@ def test_cli_check_reproduces_the_last_issuance(issuance, book):
     broken = simcli.check_issuance(tampered, verbose=False)
     assert broken["PASS"] is False
     assert broken["detail"]["digest_matches"] is False
+
+
+# ==========================================================================
+# 6. D18 — the live bridge sees the season's OWN results
+# ==========================================================================
+#
+# Verifier finding (a): `live_fit` set `FitBundle.matches` to the football-data
+# archive, and `forecast` fitted the empirical bridge on it. The archive has NO
+# rows of a season in progress, so mid-season the bridge estimating
+# P(scoreline | outcome) had never seen a match of the season it was pricing —
+# while the Dixon-Coles fit beside it trained on archive PLUS the results
+# ledger. D18 requires the bridge to see every valid played match before the
+# cutoff. The frame is now built once, by `simcli.live_training_frame`, and both
+# read it.
+
+def _archive_frame(n: int = 900, *, seed: int = 11) -> pd.DataFrame:
+    """League-shaped completed-season rows, all well before the opener."""
+    rng = np.random.default_rng(seed)
+    hg = rng.poisson(1.55, n)
+    ag = rng.poisson(1.20, n)
+    dates = pd.Timestamp("2023-01-01") + pd.to_timedelta(
+        np.sort(rng.integers(0, 1100, n)), unit="D")
+    return pd.DataFrame({
+        "match_id": [f"arch{i:05d}" for i in range(n)],
+        "season": "2025/26",
+        "date": dates,
+        "kickoff": pd.NaT,
+        "home_key": "aaa",
+        "away_key": "bbb",
+        "fthg": hg, "ftag": ag,
+        "ftr": np.where(hg > ag, "H", np.where(hg == ag, "D", "A")),
+        "played": True,
+    })
+
+
+def _ledger_rows(day: str):
+    """Three results-ledger rows of the target season, played on `day`."""
+    return tuple(
+        liveanchor.LiveRow(
+            fixture_id=f"2627:h{i}:a{i}", home_key=f"h{i}", away_key=f"a{i}",
+            date_played=pd.Timestamp(day), observed_at=pd.Timestamp(day),
+            hg=4 + i, ag=0)
+        for i in range(3))
+
+
+def test_live_training_frame_adds_the_seasons_results_and_respects_the_cutoff():
+    archive = _archive_frame()
+
+    empty, seen_none = simcli.live_training_frame(archive, (), SEASON, OPENER)
+    assert seen_none == () and len(empty) == len(archive)
+
+    before, seen_before = simcli.live_training_frame(
+        archive, _ledger_rows("2026-08-19"), SEASON, OPENER)
+    assert len(seen_before) == 3
+    assert len(before) == len(archive) + 3
+    # the ledger rows arrive in the shape the bridge reads
+    for column in ("date", "fthg", "ftag", "ftr", "played"):
+        assert column in before.columns
+    assert int((before["season"].astype(str) == SEASON).sum()) == 3
+
+    # POINT-IN-TIME POSITIVE CONTROL — the same three results dated ON or AFTER
+    # the cutoff are not in the frame at all.
+    after, seen_after = simcli.live_training_frame(
+        archive, _ledger_rows(OPENER), SEASON, OPENER)
+    assert seen_after == () and len(after) == len(archive)
+    later, seen_later = simcli.live_training_frame(
+        archive, _ledger_rows("2026-08-22"), SEASON, OPENER)
+    assert seen_later == () and len(later) == len(archive)
+
+    # ...and that is what moves the bridge: the three pre-cutoff results change
+    # the estimated conditional; the three post-cutoff ones cannot.
+    base = bridge_mod.EmpiricalBridge.fit(empty, OPENER).hash
+    assert bridge_mod.EmpiricalBridge.fit(before, OPENER).hash != base
+    assert bridge_mod.EmpiricalBridge.fit(after, OPENER).hash == base
+    assert bridge_mod.EmpiricalBridge.fit(later, OPENER).hash == base
+
+
+def test_forecast_fits_the_bridge_on_the_frame_the_fit_trained_on(book, tmp_path):
+    archive = _archive_frame()
+    trained, _ = simcli.live_training_frame(
+        archive, _ledger_rows("2026-08-19"), SEASON, OPENER)
+
+    def bridge_hash(training, where):
+        record = simcli.forecast(
+            season=SEASON, cutoff=OPENER, arms=("dc_wdl_bridge",),
+            n_sims=N_SIMS, seed=SEED, chunk_size=CHUNK,
+            n_particles=N_PARTICLES, out_root=tmp_path / where, gate=False,
+            verbose=False,
+            fit=simcli.FitBundle(post=None, book=book, matches=archive,
+                                 training=training))
+        return record["runs"]["dc_wdl_bridge"].envelope["bridge_hash"]
+
+    # `matches` is IDENTICAL in both calls; only `training` differs. A forecast
+    # that fitted the bridge on the archive would return the same hash twice.
+    plain = bridge_hash(archive, "plain")
+    with_ledger = bridge_hash(trained, "with_ledger")
+    assert with_ledger != plain, (
+        "the bridge must be fitted on the frame the fit trained on "
+        "(archive + the season's own observed results), not on the archive")
+
+
+# ==========================================================================
+# 7. the reproducibility check must be able to FAIL
+# ==========================================================================
+#
+# Verifier finding (e): `check_reproducibility` reported PASS on every input it
+# had ever been handed, so nothing showed that its three flags were computed
+# rather than written down. Two stubs, each breaking exactly one of them:
+#
+#   * `_CounterProvider` ignores its uniforms and reads a process-global
+#     counter, so two runs of the same specification differ -> `deterministic`
+#     and `chunk_concatenation_matches` must both go False;
+#   * `_ConstantProvider` is perfectly deterministic and chunk-consistent but
+#     blind to the seed -> `seed_control_changed` must go False.
+#
+# Together with the real arm's PASS they pin all three flags in both directions:
+# hardcoding any of them to a constant fails one of these three assertions.
+
+#: A process-global stream, advanced once per `sample` call. A plain modular
+#: counter is not safe here: the number of calls between two passes is a
+#: multiple of the fixture count, so a small modulus can realign by accident and
+#: hand the stub back its determinism. A generator's period cannot.
+_TICK = np.random.default_rng(20260819)
+
+
+class _CounterProvider:
+    """A sampler that ignores `u` and advances a process-global stream instead."""
+
+    name = "dc_native"
+    n_particles = N_PARTICLES
+
+    def sample(self, fixture, particle_idx, u):
+        n = len(np.asarray(particle_idx))
+        goals = _TICK.integers(0, 4, size=(2, n)).astype(np.int8)
+        return goals[0], goals[1]
+
+    def content_hash(self) -> str:
+        return "counter-stub"
+
+
+class _ConstantProvider:
+    """A sampler that ignores `u` entirely: same season at every seed."""
+
+    name = "dc_native"
+    n_particles = N_PARTICLES
+
+    def sample(self, fixture, particle_idx, u):
+        n = len(np.asarray(particle_idx))
+        return np.ones(n, np.int8), np.zeros(n, np.int8)
+
+    def content_hash(self) -> str:
+        return "constant-stub"
+
+
+def test_check_reproducibility_can_fail_and_its_flags_are_computed(state, book):
+    common = dict(n_sims=N_SIMS, seed=SEED, chunk_size=CHUNK,
+                  n_particles=N_PARTICLES, parallel_workers=0)
+
+    counter = simcli.check_reproducibility("dc_native", state,
+                                           _CounterProvider(), **common)
+    assert counter["PASS"] is False
+    assert counter["detail"]["deterministic"] is False
+    assert counter["detail"]["chunk_concatenation_matches"] is False
+
+    constant = simcli.check_reproducibility("dc_native", state,
+                                            _ConstantProvider(), **common)
+    assert constant["PASS"] is False
+    assert constant["detail"]["seed_control_changed"] is False
+    # ...and it fails for THAT reason only: the other two flags are still True,
+    # so `PASS` is not just "something went wrong somewhere".
+    assert constant["detail"]["deterministic"] is True
+    assert constant["detail"]["chunk_concatenation_matches"] is True
+
+    # POSITIVE CONTROL — the real arm passes the same check with all three
+    # flags True, so none of the assertions above can be met by a flag that is
+    # hardcoded False.
+    real = simcli.check_reproducibility("dc_native", state, book, **common)
+    assert real["PASS"] is True
+    for flag in ("deterministic", "chunk_concatenation_matches",
+                 "seed_control_changed"):
+        assert real["detail"][flag] is True, flag

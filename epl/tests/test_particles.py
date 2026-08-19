@@ -31,12 +31,13 @@ import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
+from scipy.stats import chi2
 
 from epl import anchor as anchor_mod, dcfit, freeze, particles
 from wcmodel.model import draw_api
 from wcmodel.model.draw_api import PRODUCTION_MAX_GOALS, FixtureCtx
 from wcmodel.model.posterior import Posterior
-from wcmodel.sim.scoreline import RateBook
+from wcmodel.sim.scoreline import RateBook, sample_score
 
 #: Small enough to keep the suite quick, large enough that a mean over
 #: particles is not a single draw in disguise.
@@ -431,3 +432,76 @@ def test_build_380_fixture_cdfs_at_s1000_under_3s():
     assert all(c.cdf.shape == (1000, 121) for c in cdfs)
     assert seconds < 3.0, f"380 FixtureCDFs took {seconds:.2f}s"
     print(f"\n380 FixtureCDFs at S=1000: {seconds:.2f}s")
+
+
+# ---------------------------------------------------------------------------
+# 8. D13 — the grid is the LAW the scalar sampler draws from
+# ---------------------------------------------------------------------------
+#
+# `fixture_grids` exists because `wcmodel.sim.scoreline.sample_score` costs
+# 41-52 us a call and a season is 380 fixtures x 20,000 simulated seasons (plan
+# v2 D13). The parity tests above pin the ARITHMETIC to 1e-12 against
+# `draw_api`'s per-draw loop. This one pins the DISTRIBUTION against the scalar
+# sampler the vectorised form replaced: 200,000 draws, the same rates, the same
+# 10-goal truncation, and a chi-squared test that the draws could have come from
+# our grid. An arithmetic parity test cannot catch a sampler that indexes the
+# flat grid transposed; a distributional one can.
+
+def _chi_squared_p(observed, pmf, *, min_expected: float = 5.0) -> float:
+    """Pearson goodness of fit, cells with expected < 5 pooled into one tail.
+
+    Pooling is not a convenience: a chi-squared over 121 cells of which 80 have
+    an expected count below 1 is not chi-squared distributed, and a test whose
+    null distribution is wrong is a test that reports whatever it likes.
+    """
+    observed = np.asarray(observed, dtype=float)
+    expected = np.asarray(pmf, dtype=float) * observed.sum()
+    keep = expected >= min_expected
+    obs = list(observed[keep])
+    exp = list(expected[keep])
+    tail = float(expected[~keep].sum())
+    if tail > 0.0:
+        obs.append(float(observed[~keep].sum()))
+        exp.append(tail)
+    obs, exp = np.array(obs), np.array(exp)
+    stat = float((((obs - exp) ** 2) / exp).sum())
+    return float(chi2.sf(stat, df=obs.size - 1))
+
+
+def test_grid_is_the_law_the_scalar_sampler_draws_from_chi_squared():
+    lam_home, lam_away, rho = 1.62, 1.14, -0.03
+    grid, _ = particles.fixture_grids([lam_home], [lam_away], [rho],
+                                      PRODUCTION_MAX_GOALS)
+    pmf = grid[0].ravel()
+    side = PRODUCTION_MAX_GOALS + 1
+
+    rng = np.random.default_rng(20260819)
+    n_draws = 200_000
+    flat = np.empty(n_draws, np.int64)
+    for i in range(n_draws):
+        x, y = sample_score(lam_home, lam_away, rng=rng, likelihood="dixon_coles",
+                            rho=rho, max_goals=PRODUCTION_MAX_GOALS)
+        flat[i] = x * side + y
+    observed = np.bincount(flat, minlength=side * side).astype(float)
+    assert observed.sum() == n_draws
+
+    p_value = _chi_squared_p(observed, pmf)
+    assert p_value > 1e-3, (
+        f"the vectorised grid and `sample_score` disagree at the same rates "
+        f"(chi-squared p = {p_value:.3g})")
+
+    # POSITIVE CONTROL — the same draws against a grid built at a deliberately
+    # wrong rate MUST fail. Without this the test above passes for a grid that
+    # is merely a valid distribution over 121 cells.
+    wrong, _ = particles.fixture_grids([lam_home * 1.15], [lam_away], [rho],
+                                       PRODUCTION_MAX_GOALS)
+    p_wrong = _chi_squared_p(observed, wrong[0].ravel())
+    assert p_wrong < 1e-3, (
+        f"a 15% rate error must be detectable at N={n_draws} "
+        f"(chi-squared p = {p_wrong:.3g}); the test is not measuring anything")
+
+    # ...and so must a grid with the two sides swapped, which is the indexing
+    # bug an arithmetic parity test cannot see.
+    swapped, _ = particles.fixture_grids([lam_away], [lam_home], [rho],
+                                         PRODUCTION_MAX_GOALS)
+    assert _chi_squared_p(observed, swapped[0].ravel()) < 1e-3
