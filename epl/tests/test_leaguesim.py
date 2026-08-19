@@ -645,6 +645,28 @@ def test_every_run_carries_finite_excluded_mass_fields(small_run, flat_run):
         assert json.loads(leaguesim.canonical_json(block)) == block
 
 
+def test_unmeasured_excluded_mass_block_carries_none_not_zero(small_run):
+    """An arm with no grids says "not measured" — max/mean/p90 are None, never 0.0.
+
+    Verifier finding 2026-08-19: a zero typed as a measurement would be averaged
+    into real measurements by anyone aggregating across arms.
+    """
+    class _NoGrids:          # a provider without excluded_mass_for, like the Elo arm
+        pass
+    report = leaguesim.excluded_mass_report(_NoGrids(), small_run.plan)
+    block = report["summary"]
+    assert block["measured"] is False and block["n_fixtures"] == 0
+    for key in ("max", "mean", "p90"):
+        assert block[key] is None, key
+    assert block["n_flagged"] == 0 and block["flagged"] == []
+    assert report["per_fixture"] == []
+    # survives the canonical-json round trip the digest runs on (null, not NaN)
+    assert json.loads(leaguesim.canonical_json(block)) == block
+    # POSITIVE CONTROL: a real provider measures
+    assert small_run.envelope["excluded_mass"]["measured"] is True
+    assert small_run.envelope["excluded_mass"]["max"] > 0.0
+
+
 def test_limitations_note_is_byte_identical_across_runs(state, tmp_path):
     """(b) `limitations.md` embeds no wall-clock date — same spec, same bytes."""
     book = _book(state.clubs, provisional=("coventry",))

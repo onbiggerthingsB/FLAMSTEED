@@ -344,7 +344,7 @@ is more accurate — that is what the retrospective is for, and it has not run.
 How positions were actually settled, over all 20 rungs: 73.34% unique on points
 alone, 25.35% on goal difference, 1.25% on goals scored, 0.0125% on head-to-head
 points, 0.0345% shared on a non-material rung, 0.004% on head-to-head away goals,
-0.003% left to the play-off convention, 0.0% three-or-more-way. These seven shares
+0.003% left to the play-off convention, 0.0% three-or-more-way. These eight shares
 sum to 1.000000.
 
 At the two boundaries that matter most. These are shares of the same 20,000

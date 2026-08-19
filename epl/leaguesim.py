@@ -1202,9 +1202,11 @@ def excluded_mass_report(provider, plan: SimPlan) -> dict:
     summary = {
         "measured": measure is not None,
         "n_fixtures": len(per_fixture),
-        "max": float(means.max()) if means.size else 0.0,
-        "mean": float(means.mean()) if means.size else 0.0,
-        "p90": float(np.quantile(means, 0.90)) if means.size else 0.0,
+        # None, not 0.0, when nothing was measured: a zero here would read as
+        # "measured, and it was zero" to anyone aggregating across arms.
+        "max": float(means.max()) if means.size else None,
+        "mean": float(means.mean()) if means.size else None,
+        "p90": float(np.quantile(means, 0.90)) if means.size else None,
         "n_flagged": len(flagged),
         "flag_threshold": float(particles.FLAG_EXCLUDED_MASS),
         "hard_stop_threshold": float(particles.HARD_STOP_EXCLUDED_MASS),
