@@ -570,8 +570,14 @@ def adjustments_at(rows: list[dict], season: str, cutoff,
     """
     at = _require_stamp(cutoff, "cutoff")
     mine = [r for r in rows if r["season"] == season]
+    # `.get`, and fail closed: a `known_at` that resolves to `NaT` is never
+    # `<= at`, so the deduction would vanish from every table ever built — the
+    # quietest of the three point-in-time failures and the one nobody would
+    # notice. An absent key raises `SeasonError` for the same reason it does in
+    # `_kickoffs_known`: a `KeyError` escapes the callers that catch this layer.
     known = [r for r in mine
-             if _require_stamp(r["known_at"], f"adjustment {r['id']!r} known_at") <= at]
+             if _require_stamp(r.get("known_at"),
+                               f"adjustment {r.get('id', '<row>')!r} known_at") <= at]
     superseded = {r["supersedes"] for r in known if r.get("supersedes")}
     live = [r for r in known if r["id"] not in superseded]
 
@@ -727,11 +733,23 @@ def _validate_round_robin(fixtures, season: str, clubs: tuple[str, ...]) -> None
 
 def _kickoffs_known(fixtures, amendments, cutoff: pd.Timestamp
                     ) -> dict[str, tuple[_dt.date, str | None]]:
-    """Base kickoffs with every amendment known by `cutoff` applied, in order."""
+    """Base kickoffs with every amendment known by `cutoff` applied, in order.
+
+    `known_at` has no deferred reading: it is not an event that happened on a
+    day, it is the moment the schedule move became knowable, so it is what
+    "visible" MEANS for this ledger and there is no earlier filter to hide
+    behind. A missing or `NaT` stamp therefore stops the load — `NaT <= cutoff`
+    is False, so the amendment would apply at NO cutoff and the fixture would
+    keep a date the league had moved, silently. `.get`, not `[...]`: an absent
+    key must raise the season layer's own error, because the callers that mean
+    "this snapshot is unusable" catch :class:`SeasonError` and a bare `KeyError`
+    would go straight past them.
+    """
     out = {f.fixture_id: (f.base_date, f.base_time) for f in fixtures}
     def known(row):
         return _require_stamp(
-            row["known_at"], f"kickoff amendment {row['fixture_id']!r} known_at")
+            row.get("known_at"),
+            f"kickoff amendment {row.get('fixture_id', '<row>')!r} known_at")
 
     rows = [r for r in amendments if known(r) <= cutoff]
     for row in sorted(rows, key=known):
@@ -766,13 +784,50 @@ def _validate_scores(rows: list[dict]) -> None:
             f"(finite, non-negative, integral)")
 
 
-def _visible_results(results: list[dict], fixtures_by_id, cutoff_day: pd.Timestamp,
-                     observed_by: pd.Timestamp, kickoffs) -> tuple[dict, dict]:
-    """(played scorelines, ledger statuses) visible at the cutoff.
+@dataclass(frozen=True)
+class LedgerView:
+    """One bitemporal reading of a results ledger — see :func:`resolve_ledger`.
+
+    ``winners`` is fixture id -> the row that WINS at ``(cutoff, observed_by)``:
+    a score row or a status row, whichever was observed last. ``scored`` is
+    every visible score row inside the cutoff day in ledger order, including the
+    ones a later row supersedes — a caller that validates scorelines must see
+    all of them, because a bad score is a bad ledger row whether or not another
+    row happens to beat it.
+    """
+
+    winners: dict[str, dict]
+    scored: tuple[dict, ...]
+
+    @property
+    def played_rows(self) -> dict[str, dict]:
+        """The winning rows that are RESULTS, in ledger-id order."""
+        return {fid: row for fid, row in self.winners.items()
+                if row.get("status") is None}
+
+    @property
+    def statuses(self) -> dict[str, str]:
+        """The winning rows that are STATES (`postponed` / `abandoned`)."""
+        return {fid: row["status"] for fid, row in self.winners.items()
+                if row.get("status") is not None}
+
+
+def resolve_ledger(results, *, cutoff_day=None, observed_by=None,
+                   identify) -> LedgerView:
+    """THE bitemporal resolution of a results ledger. One implementation.
+
+    Both readers of this project's results ledger go through here: the season
+    table (:func:`_visible_results`, and so ``Season.at``) and the live Elo walk
+    (:func:`epl.liveanchor.normalise_rows`). They used to resolve it separately,
+    and the two answers could differ in the direction that matters most: the
+    walk dropped every status row before resolving, so a score followed by a
+    later ``abandoned`` stayed PLAYED for the anchor while the table it is
+    scored against called it unplayed. A rating walked past a result the league
+    took away is not a smaller version of that bug; it is the whole of it.
 
     Bitemporal: a row is visible iff it happened before the cutoff DAY and was
-    observed by the cutoff. Where several rows describe one fixture, the latest
-    observation wins — corrections are appended, never edited in place.
+    observed by ``observed_by``. Where several rows describe one fixture, the
+    latest observation wins — corrections are appended, never edited in place.
 
     "Latest observation wins" is resolved over scores and statuses TOGETHER, in
     one pass. Two passes with the score winning at the end is the obvious
@@ -783,54 +838,87 @@ def _visible_results(results: list[dict], fixtures_by_id, cutoff_day: pd.Timesta
     match — still resolves to the result, because that row is the later
     observation, not because scores are privileged.
 
-    The unsupported-status check AND the unknown-fixture check both run AFTER
-    the known-at filter, deliberately. The ledger is append-only, so a row filed
-    tomorrow sits in the same file as yesterday's; validating it before the
-    filter would make today's entry retroactively break every earlier snapshot —
-    the same class of bug as reading its content early. Both still fail closed
-    the moment the row is visible.
+    ``identify(row) -> fixture id`` is the caller's registry check, and it is
+    called ONLY once the row is visible. The ledger is append-only, so a row
+    filed tomorrow sits in the same file as yesterday's; validating it before
+    the known-at filter would make today's typo retroactively break every
+    earlier snapshot — the same class of bug as reading its content early. The
+    unsupported-status check sits behind the same filter for the same reason,
+    and is applied HERE rather than by each caller so the two cannot drift about
+    which statuses the project models.
 
-    The `observed_at` stamp itself is read BEFORE either check and cannot be
+    The `observed_at` stamp itself is read BEFORE any of that and cannot be
     skipped, because it is what "visible" means: a row whose stamp resolves to
     `NaT` compares False against every bound and would otherwise be visible at
-    every cutoff (see :func:`_require_stamp`).
+    every cutoff (see :func:`_require_stamp`). Nothing else about the row —
+    `fixture_id` included — is read until the stamp has placed it in time.
+
+    ``cutoff_day=None`` drops the play-clock bound; ``observed_by=None`` drops
+    the knowledge bound.
     """
+    obs = pd.Timestamp.max if observed_by is None else _require_stamp(
+        observed_by, "observed_by")
+    day = None if cutoff_day is None else _require_stamp(
+        cutoff_day, "cutoff").normalize()
+
     scored: list[dict] = []
     latest: dict[str, tuple[pd.Timestamp, int, dict]] = {}
 
     for order, row in enumerate(results):
-        fid = row["fixture_id"]
-        observed = _require_stamp(row.get("observed_at"), f"{fid} observed_at")
-        if observed > observed_by:
+        # `.get`, and only for the message: the label must not be the thing
+        # that raises, or a future row missing its id breaks earlier snapshots.
+        label = row.get("fixture_id") or "<row>"
+        observed = _require_stamp(row.get("observed_at"), f"{label} observed_at")
+        if observed > obs:
             continue
-        if fid not in fixtures_by_id:
-            raise SeasonError(f"results ledger row for unknown fixture {fid!r}")
+        fid = identify(row)
         status = row.get("status")
         if status is not None and status not in _LEDGER_STATUSES:
             raise UnsupportedResultStatus(
                 f"{fid}: results ledger status {status!r} is out of v1 scope "
                 f"(only {sorted(_LEDGER_STATUSES)} are modelled)")
         if status is None:
-            if _require_stamp(row.get("date_played"),
-                              f"{fid} date_played") >= cutoff_day:
+            played_on = _require_stamp(row.get("date_played"), f"{fid} date_played")
+            if day is not None and played_on >= day:
                 continue
             scored.append(row)
         key = (observed, order)
         if fid not in latest or key > latest[fid][:2]:
             latest[fid] = (observed, order, row)
 
-    _validate_scores(scored)
+    return LedgerView(winners={fid: row for fid, (_, _, row) in latest.items()},
+                      scored=tuple(scored))
+
+
+def _fixture_registry_identity(fixtures_by_id):
+    """`identify` for the season table: the id must name a fixture it holds."""
+    def identify(row: dict) -> str:
+        fid = row.get("fixture_id")
+        if not fid:
+            raise SeasonError(f"results ledger row {row!r} has no fixture_id")
+        fid = str(fid)
+        if fid not in fixtures_by_id:
+            raise SeasonError(f"results ledger row for unknown fixture {fid!r}")
+        return fid
+    return identify
+
+
+def _visible_results(results: list[dict], fixtures_by_id, cutoff_day: pd.Timestamp,
+                     observed_by: pd.Timestamp, kickoffs) -> tuple[dict, dict]:
+    """(played scorelines, ledger statuses) visible at the cutoff.
+
+    A thin reading of :func:`resolve_ledger` — the resolution itself lives there
+    because the live Elo walk must get the same answer from the same code.
+    """
+    view = resolve_ledger(results, cutoff_day=cutoff_day, observed_by=observed_by,
+                          identify=_fixture_registry_identity(fixtures_by_id))
+    _validate_scores(list(view.scored))
 
     played: dict[str, tuple[int, int]] = {}
-    statuses: dict[str, str] = {}
-    for fid, (_, _, row) in latest.items():
-        status = row.get("status")
-        if status is not None:
-            statuses[fid] = status
-            continue
+    for fid, row in view.played_rows.items():
         played[fid] = (int(row["hg"]), int(row["ag"]))
         _check_orientation(fid, row, fixtures_by_id, kickoffs)
-    return played, statuses
+    return played, view.statuses
 
 
 def _check_orientation(fid: str, row: dict, fixtures_by_id, kickoffs) -> None:
@@ -1073,10 +1161,12 @@ def archive_season_state(matches: pd.DataFrame, season: str, cutoff,
 
 __all__ = [
     "ADJUSTMENTS_FILENAME", "AMENDMENTS_FILENAME", "MANIFEST_FILENAME",
-    "RESULTS_FILENAME", "SEASON_ROOT", "Fixture", "FixtureRow", "Manifest",
-    "OrientationSuspect", "ParseError", "ResultConflict", "Season", "SeasonError",
-    "SeasonState", "TableRow", "UnsupportedResultStatus", "UnverifiedAdjustment",
+    "RESULTS_FILENAME", "SEASON_ROOT", "Fixture", "FixtureRow", "LedgerView",
+    "Manifest", "OrientationSuspect", "ParseError", "ResultConflict", "Season",
+    "SeasonError", "SeasonState", "TableRow", "UnsupportedResultStatus",
+    "UnverifiedAdjustment",
     "adjustments_at", "archive_season_state", "detect_kickoff_amendments",
     "fixture_id", "ingest_openfootball_results", "load_adjustments", "load_manifest",
-    "openfootball_source_id", "parse_openfootball", "season_code", "season_dir_name",
+    "openfootball_source_id", "parse_openfootball", "resolve_ledger", "season_code",
+    "season_dir_name",
 ]

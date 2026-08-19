@@ -734,7 +734,7 @@ def test_archive_season_state_matches_the_real_archive():
 
 # --- round 2: the two clocks, NaT, and when a bad row may break a snapshot ---
 
-def test_a_stamp_that_resolves_to_nat_fails_closed(season_root: Path):
+def test_a_stamp_that_resolves_to_nat_fails_closed(season_root: Path, monkeypatch):
     """`NaT` compares False against every bound, so an unstamped row leaks.
 
     This is the same hole `epl.liveanchor._stamp` closes, reached through the
@@ -771,20 +771,106 @@ def test_a_stamp_that_resolves_to_nat_fails_closed(season_root: Path):
         with pytest.raises(season_mod.SeasonError, match="observed_at"):
             loaded.at("2026-08-01")
 
-    # (b) a result row with no `date_played`: "played" before it was played
+    # (b) a result row with no `date_played`: "played" before it was played.
+    #
+    #     Asserted with `_check_orientation` STUBBED OUT. It reads the very same
+    #     `date_played` through the very same `_require_stamp` two steps later,
+    #     so an assertion that merely matches "date_played" here passes whether
+    #     or not the play-clock filter holds a guard of its own — the second
+    #     line of defence answering for the first, which is a test that cannot
+    #     fail. With the stub in place the refusal can only come from the
+    #     visibility filter under test.
+    for bad in (None, "", float("nan"), "NaT"):
+        ledger.write_text("")
+        _append_jsonl(ledger, [dict(
+            _result_row(fid, "2026-08-21", 2, 1, "2026-08-22T09:00"),
+            date_played=bad)])
+        loaded = season_mod.Season.load(SEASON, root=season_root)
+        with monkeypatch.context() as patch:
+            patch.setattr(season_mod, "_check_orientation",
+                          lambda *a, **k: None)
+            with pytest.raises(season_mod.SeasonError, match="date_played"):
+                loaded.at("2026-08-23")
+    # POSITIVE CONTROL for the stub: under the same stub a properly stamped row
+    # still loads and is still played, so the four refusals above are the guard
+    # firing and not the stub breaking the call.
     ledger.write_text("")
-    _append_jsonl(ledger, [dict(
-        _result_row(fid, "2026-08-21", 2, 1, "2026-08-22T09:00"), date_played=None)])
-    with pytest.raises(season_mod.SeasonError, match="date_played"):
-        season_mod.Season.load(SEASON, root=season_root).at("2026-08-23")
+    _append_jsonl(ledger, [_result_row(fid, "2026-08-21", 2, 1, "2026-08-22T09:00")])
+    loaded = season_mod.Season.load(SEASON, root=season_root)
+    with monkeypatch.context() as patch:
+        patch.setattr(season_mod, "_check_orientation", lambda *a, **k: None)
+        assert loaded.at("2026-08-23").played[fid] == (2, 1)
 
-    # (c) a kickoff amendment with no `known_at`: applies at no cutoff at all
+    # (c) a `known_at` ledger — the other direction, and the quiet one:
+    #     `NaT <= cutoff` is False, so the row applies at NO cutoff and its
+    #     effect silently disappears from every table ever built. Both known-at
+    #     ledgers, and an ABSENT key as well as an unusable one: a bare
+    #     `KeyError` is not a closed failure here, because every caller that
+    #     means "this snapshot is unusable" catches `SeasonError`.
+    amendments = season_root / "2026_27" / "kickoff_amendments.jsonl"
+    adjustments = season_root / "points_adjustments.jsonl"
     ledger.write_text("")
-    _append_jsonl(season_root / "2026_27" / "kickoff_amendments.jsonl", [{
-        "fixture_id": fid, "date": "2026-09-15", "time": "20:00",
-        "source": "test", "known_at": None, "note": "moved"}])
+
+    amend = {"fixture_id": fid, "date": "2026-09-15", "time": "20:00",
+             "source": "test", "known_at": "2026-08-01T09:00", "note": "moved"}
+    deduct = {"id": "adj-2627-nat", "season": SEASON, "club_key": "arsenal",
+              "delta": -3, "known_at": "2026-08-01T09:00", "source": "test",
+              "supersedes": None, "verified": True, "note": "test"}
+
+    # POSITIVE CONTROL first: properly stamped, both rows apply.
+    amendments.write_text("")
+    _append_jsonl(amendments, [amend])
+    _append_jsonl(adjustments, [deduct])
+    control = season_mod.Season.load(SEASON, root=season_root).at(OPENER)
+    assert control.kickoffs_known[fid][0] == pd.Timestamp("2026-09-15").date()
+    assert control.adjustments_known["arsenal"] == -3
+
+    for bad in (None, "", float("nan"), "NaT"):
+        amendments.write_text("")
+        _append_jsonl(amendments, [dict(amend, known_at=bad)])
+        with pytest.raises(season_mod.SeasonError, match="known_at"):
+            season_mod.Season.load(SEASON, root=season_root).at(OPENER)
+    amendments.write_text("")
+    _append_jsonl(amendments, [{k: v for k, v in amend.items() if k != "known_at"}])
     with pytest.raises(season_mod.SeasonError, match="known_at"):
         season_mod.Season.load(SEASON, root=season_root).at(OPENER)
+
+    amendments.write_text("")
+    original = [r for r in season_mod._read_jsonl(adjustments)
+                if r["id"] != deduct["id"]]
+    broken = [dict(deduct, known_at=b) for b in (None, "", float("nan"), "NaT")]
+    broken.append({k: v for k, v in deduct.items() if k != "known_at"})
+    for row in broken:
+        adjustments.write_text("")
+        _append_jsonl(adjustments, original + [row])
+        with pytest.raises(season_mod.SeasonError, match="known_at"):
+            season_mod.Season.load(SEASON, root=season_root).at(OPENER)
+
+
+def test_a_ledger_row_with_no_fixture_id_breaks_only_once_it_is_visible(
+        season_root: Path):
+    """`fixture_id` is read AFTER the stamp, not before it.
+
+    The resolution's first act must be to place a row in time; everything else
+    about it — the id included — is content, and content is read only once the
+    row is visible. Reading `row["fixture_id"]` first made a future row that is
+    missing the field raise at EVERY earlier cutoff, which is the same defect
+    the unknown-fixture check was already moved to avoid, arriving one line
+    earlier.
+    """
+    ledger = season_root / "2026_27" / "results_ledger.jsonl"
+    _append_jsonl(ledger, [{
+        "date_played": "2026-08-21", "hg": 2, "ag": 1, "source": "manual",
+        "observed_at": "2026-09-01T12:00", "note": "no fixture_id"}])
+    loaded = season_mod.Season.load(SEASON, root=season_root)
+
+    # not yet observed: the snapshot is unaffected, and nothing raises
+    assert len(loaded.at("2026-08-24").played) == 0
+    assert len(loaded.at("2026-09-02", observed_by="2026-08-24").played) == 0
+
+    # POSITIVE CONTROL: once visible it fails closed, as a `SeasonError`
+    with pytest.raises(season_mod.SeasonError, match="fixture_id"):
+        loaded.at("2026-09-02")
 
 
 def test_a_row_for_an_unknown_fixture_breaks_only_once_it_is_visible(
