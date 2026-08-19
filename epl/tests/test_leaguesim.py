@@ -474,3 +474,193 @@ def test_default_boundaries_match_the_2026_27_manifest(season):
     assert leaguesim.DEFAULT_RULE_ID == season.manifest.tiebreak_rule_id
     assert leaguesim.DEFAULT_BOUNDARIES == season.manifest.material_boundaries
     table_mod.check_rule_id(leaguesim.DEFAULT_RULE_ID, leaguesim.DEFAULT_BOUNDARIES)
+
+
+# ==========================================================================
+# 6. the truncation flag (D11 v1.0.1 — owner ruling 2026-08-19)
+# ==========================================================================
+#
+# The ruling is recorded in `reports/epl_sim_amendments.md` entry A1, written
+# before the guard was changed. 5e-3 is now a FLAG: the fixture is recorded in
+# the envelope, listed by id in `limitations.md`, and the run completes, on the
+# grounds that production truncates at the same 10 goals and discards the same
+# tail silently. 2e-2 is a HARD STOP and was pre-stated in A1.
+
+def _hot_book(clubs, home, away, target, *, n_particles=16, jitter=0.30):
+    """A book engineered so ONE fixture's particle-mean excluded mass ~= target.
+
+    `att[home]` and `defe[away]` are bumped by the same amount, so the
+    home-vs-away fixture gets both bumps and every other fixture gets at most
+    one — and the excluded mass is convex enough in the rate that one bump is
+    orders of magnitude below the flag. `jitter` spreads the bump across
+    particles so the recorded median/worst/n_over_1pct differ from the mean
+    instead of all collapsing onto it.
+
+    The bump is found by bisection rather than hardcoded, and the caller asserts
+    the achieved mass: an engineered fixture that silently drifted off target
+    would make the flag test vacuous.
+    """
+    clubs = tuple(clubs)
+    hi, ai = clubs.index(home), clubs.index(away)
+
+    def build(delta):
+        att = np.zeros((len(clubs), n_particles))
+        defe = np.zeros((len(clubs), n_particles))
+        att[hi] += delta + np.linspace(-jitter, jitter, n_particles)
+        defe[ai] -= delta
+        return particles.ParticleBook(
+            teams=clubs, idx={c: i for i, c in enumerate(clubs)},
+            att=att, defe=defe, mu=np.zeros(n_particles),
+            home_adv=np.full(n_particles, 0.25),
+            rho=np.full(n_particles, -0.03),
+            sigma_att=np.full(n_particles, 0.4),
+            sigma_def=np.full(n_particles, 0.4),
+            provisional=frozenset(), cold_start=frozenset(),
+            likelihood="dixon_coles", alpha=0.0,
+            max_goals=particles.PRODUCTION_MAX_GOALS, cfg_hash="test-hot")
+
+    def mass(delta):
+        book = build(delta)
+        _, excluded = particles.fixture_grids(
+            *book.rates(home, away), book.rho, book.max_goals)
+        return float(excluded.mean())
+
+    lo, high = 0.0, 2.0
+    for _ in range(60):
+        mid = 0.5 * (lo + high)
+        lo, high = (mid, high) if mass(mid) < target else (lo, mid)
+    return build(0.5 * (lo + high))
+
+
+def _fixture_id(state, home, away):
+    for fid, fixture in state.fixtures.items():
+        if fixture.home_key == home and fixture.away_key == away:
+            return fid
+    raise AssertionError(f"no {home} v {away} fixture in this season")
+
+
+def test_flagged_fixture_is_recorded_and_reported_but_does_not_stop(state, tmp_path):
+    """~6e-3 on one fixture: FLAGGED, listed, and the run completes."""
+    home, away = "man_city", "coventry"
+    book = _hot_book(state.clubs, home, away, 6e-3)
+    fixture_id = _fixture_id(state, home, away)
+
+    measured = particles.fixture_cdfs(book, home, away)
+    assert particles.FLAG_EXCLUDED_MASS < measured.excluded_mean \
+        < particles.HARD_STOP_EXCLUDED_MASS, \
+        "the engineered fixture must sit between the flag and the ceiling"
+
+    run = leaguesim.simulate("dc_native", state, book, 320, SEED, 128)
+
+    # the run COMPLETED and its matrix is still admissible
+    assert np.allclose(run.matrix.sum(axis=1), 1.0, atol=1e-9)
+    assert np.allclose(run.matrix.sum(axis=0), 1.0, atol=1e-9)
+    assert (run.matrix >= 0).all()
+
+    block = run.envelope["excluded_mass"]
+    for key in ("max", "mean", "p90"):
+        assert np.isfinite(block[key]), key
+    assert block["max"] == pytest.approx(measured.excluded_mean)
+    assert block["p90"] <= block["max"] and block["mean"] <= block["max"]
+    # one fixture carrying the whole tail pulls the mean ABOVE the 90th
+    # percentile. That inversion is the reason all three are reported.
+    assert block["mean"] > block["p90"]
+    assert block["n_flagged"] == 1
+    assert block["n_fixtures"] == len(run.plan.unplayed_positions)
+    assert block["flag_threshold"] == particles.FLAG_EXCLUDED_MASS
+    assert block["hard_stop_threshold"] == particles.HARD_STOP_EXCLUDED_MASS
+
+    (entry,) = block["flagged"]
+    assert entry["fixture"] == fixture_id
+    assert entry["mean"] == pytest.approx(measured.excluded_mean)
+    assert entry["median"] == pytest.approx(measured.excluded["median"])
+    assert entry["worst"] == pytest.approx(measured.excluded["worst"])
+    assert entry["n_over_1pct"] == measured.excluded["n_over_1pct"] > 0
+    assert entry["median"] < entry["mean"] < entry["worst"], \
+        "the recorded stats must be four different numbers, not one repeated"
+
+    # (b) the FULL per-fixture vector is retained, not only the flagged ones
+    assert len(run.excluded_mass["per_fixture"]) == block["n_fixtures"]
+    ids = {row["fixture"] for row in run.excluded_mass["per_fixture"]}
+    assert fixture_id in ids
+    assert all(np.isfinite(row["mean"]) for row in run.excluded_mass["per_fixture"])
+
+    # (a) the fixture is listed BY ID in limitations.md, under its own section
+    text = leaguesim.limitations_markdown(run)
+    assert "## Truncation-flagged fixtures" in text
+    assert fixture_id in text
+    # line breaks are a wrapping detail; the SENTENCE is what ruling A1 (a)
+    # requires the note to carry.
+    flowed = " ".join(text.split())
+    assert "Production truncates at the same 10 goals and discards the same " \
+        "tail silently" in flowed, \
+        "ruling A1 (a) requires the note to say what production does with this tail"
+
+    written = leaguesim.write_outputs(run, tmp_path)
+    assert fixture_id in written["limitations"].read_text()
+    sidecar = json.loads(written["excluded_mass"].read_text())
+    assert len(sidecar["per_fixture"]) == block["n_fixtures"]
+
+    # POSITIVE CONTROL — the flag is not stuck on. The same season with a book
+    # that has no hot fixture records zero flagged and says so in the note.
+    cold = leaguesim.simulate("dc_native", state, _book(state.clubs), 320, SEED, 128)
+    cold_block = cold.envelope["excluded_mass"]
+    assert cold_block["n_flagged"] == 0 and cold_block["flagged"] == []
+    assert cold_block["max"] < particles.FLAG_EXCLUDED_MASS
+    assert len(cold.excluded_mass["per_fixture"]) == cold_block["n_fixtures"]
+    cold_text = leaguesim.limitations_markdown(cold)
+    assert "## Truncation-flagged fixtures" in cold_text
+    assert "none" in cold_text.split("## Truncation-flagged fixtures")[1] \
+        .split("##")[0].lower()
+    assert fixture_id not in cold_text
+
+
+def test_excluded_mass_above_the_pre_stated_ceiling_still_stops(state):
+    """~2.5e-2 on one fixture: the run fails closed, as A1 (c) pre-stated."""
+    book = _hot_book(state.clubs, "man_city", "coventry", 2.5e-2)
+    _, excluded = particles.fixture_grids(
+        *book.rates("man_city", "coventry"), book.rho, book.max_goals)
+    assert excluded.mean() > particles.HARD_STOP_EXCLUDED_MASS
+
+    with pytest.raises(particles.ExcludedMassTooLarge) as caught:
+        leaguesim.simulate("dc_native", state, book, 320, SEED, 128)
+    assert "coventry" in str(caught.value)
+
+
+def test_every_run_carries_finite_excluded_mass_fields(small_run, flat_run):
+    """The envelope block is present and finite for every run, flagged or not."""
+    for run in (small_run, flat_run):
+        block = run.envelope["excluded_mass"]
+        assert set(block) >= {"max", "mean", "p90", "n_flagged", "flagged",
+                              "n_fixtures", "measured", "flag_threshold",
+                              "hard_stop_threshold"}
+        assert block["measured"] is True
+        for key in ("max", "mean", "p90"):
+            assert np.isfinite(block[key]) and block[key] >= 0.0, key
+        assert isinstance(block["n_flagged"], int)
+        assert block["n_flagged"] == len(block["flagged"])
+        # it is a real measurement, not a hardcoded zero
+        assert block["max"] > 0.0
+        # and it survives the canonical-json round trip the digest runs on
+        assert json.loads(leaguesim.canonical_json(block)) == block
+
+
+def test_limitations_note_is_byte_identical_across_runs(state, tmp_path):
+    """(b) `limitations.md` embeds no wall-clock date — same spec, same bytes."""
+    book = _book(state.clubs, provisional=("coventry",))
+    first = leaguesim.simulate("dc_native", state, book, 320, SEED, 128)
+    second = leaguesim.simulate("dc_native", state, book, 320, SEED, 128)
+
+    a = leaguesim.limitations_markdown(first)
+    b = leaguesim.limitations_markdown(second)
+    assert a == b, "the note must depend on the run, not on the day it was written"
+    assert dt.date.today().isoformat() not in a, \
+        "today's date in the note makes every issuance unreproducible tomorrow"
+
+    wa = leaguesim.write_outputs(first, tmp_path / "a")
+    wb = leaguesim.write_outputs(second, tmp_path / "b")
+    assert wa["limitations"].read_bytes() == wb["limitations"].read_bytes()
+
+    # POSITIVE CONTROL — the note is not a constant: a different run says so.
+    other = leaguesim.simulate("dc_native", state, book, 320, SEED + 1, 128)
+    assert leaguesim.limitations_markdown(other) != a

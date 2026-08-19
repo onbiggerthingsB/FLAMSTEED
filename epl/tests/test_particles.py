@@ -293,19 +293,58 @@ def test_max_goals_is_production_10_not_sim_12():
     assert G.shape[1:] == (11, 11)
 
 
-def test_excluded_mass_logged_and_fails_above_5e_3():
-    assert particles.MAX_EXCLUDED_MASS == 5e-3
+def test_excluded_mass_is_flagged_at_5e_3_and_stops_only_above_2e_2():
+    """D11 v1.0.1 — the owner ruling of 2026-08-19.
+
+    Recorded in `reports/epl_sim_amendments.md` entry A1, before this guard was
+    touched. The 5e-3 number is KEPT, but its meaning changes from hard-stop to
+    FLAG: the fixture's excluded-mass statistics are recorded and reported and
+    the run completes, because production truncates at the same 10 goals and
+    discards the same tail silently. A particle-mean above 2e-2 — pre-stated in
+    A1 as 4x the worst fixture observed at the 2026-08-21 opener — still fails
+    the run closed, because that is a mis-scaled rate rather than a cold-start
+    tail.
+
+    This test replaces `test_excluded_mass_logged_and_fails_above_5e_3`, which
+    asserted the old semantics (stop at 5e-3).
+    """
+    assert particles.FLAG_EXCLUDED_MASS == 5e-3
+    assert particles.HARD_STOP_EXCLUDED_MASS == 2e-2
+    assert particles.MAX_EXCLUDED_MASS == particles.FLAG_EXCLUDED_MASS, \
+        "the old name is kept as an alias for the flag threshold"
 
     book = particles.ParticleBook.from_posterior(_cold_start_posterior())
     fc = particles.fixture_cdfs(book, TEAMS[0], TEAMS[1])
     # measured, not assumed: a real (tiny) tail mass is recorded, not a zero.
-    assert 0.0 < fc.excluded_mean < particles.MAX_EXCLUDED_MASS
+    assert 0.0 < fc.excluded_mean < particles.FLAG_EXCLUDED_MASS
+    assert fc.excluded["flagged"] is False
+    assert fc.excluded["mean"] == fc.excluded_mean
+    for key in ("mean", "median", "worst"):
+        assert np.isfinite(fc.excluded[key]), key
+    assert fc.excluded["n_over_1pct"] == 0
 
-    # a book whose rates make the 10-goal truncation bite fails CLOSED.
+    # BETWEEN the two thresholds: recorded, reported, NOT raised. The law it
+    # hands the engine is still a proper one.
+    warm = particles.ParticleBook.from_posterior(_cold_start_posterior(mu_loc=1.0))
+    lh, la = warm.rates(TEAMS[0], TEAMS[1])
+    _, excluded = particles.fixture_grids(lh, la, warm.rho, warm.max_goals)
+    assert particles.FLAG_EXCLUDED_MASS < excluded.mean() \
+        < particles.HARD_STOP_EXCLUDED_MASS
+    flagged = particles.fixture_cdfs(warm, TEAMS[0], TEAMS[1])
+    assert flagged.excluded["flagged"] is True
+    assert flagged.excluded["mean"] == pytest.approx(float(excluded.mean()))
+    assert flagged.excluded["median"] == pytest.approx(float(np.median(excluded)))
+    assert flagged.excluded["worst"] == pytest.approx(float(excluded.max()))
+    assert flagged.excluded["n_over_1pct"] == int((excluded > 0.01).sum()) > 0
+    assert flagged.cdf.shape == (warm.n_particles, warm.n_scorelines)
+    assert np.allclose(flagged.cdf[:, -1], 1.0)
+
+    # ABOVE the pre-stated ceiling — a mis-scaled rate, which is the failure
+    # mode the ceiling exists for — still fails CLOSED.
     hot = particles.ParticleBook.from_posterior(_cold_start_posterior(mu_loc=2.4))
     lh, la = hot.rates(TEAMS[0], TEAMS[1])
     _, excluded = particles.fixture_grids(lh, la, hot.rho, hot.max_goals)
-    assert excluded.mean() > particles.MAX_EXCLUDED_MASS
+    assert excluded.mean() > particles.HARD_STOP_EXCLUDED_MASS
     with pytest.raises(particles.ExcludedMassTooLarge):
         particles.fixture_cdfs(hot, TEAMS[0], TEAMS[1])
 

@@ -93,6 +93,9 @@ LIMITATIONS_SECTIONS = (
     "## What the forecast is conditional on",
     "## What the rulebook does not decide",
     "## The state of the season",
+    # D11 v1.0.1 (owner ruling 2026-08-19, reports/epl_sim_amendments.md A1):
+    # the flag list is part of the note, present even when it is empty.
+    "## Truncation-flagged fixtures",
     "## Monte-Carlo error",
     "## What these numbers are not",
 )

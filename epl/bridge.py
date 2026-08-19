@@ -79,8 +79,12 @@ OUTCOMES = ordlogit.OUTCOMES
 MIN_ROWS_PER_OUTCOME = 30
 
 #: Share of pre-cutoff matches allowed to fall outside the [0, max_goals]^2
-#: grid. Mirrors `epl.particles.MAX_EXCLUDED_MASS`: past this the sampled law
-#: is not the law the rows describe. The 2014/15-2025/26 archive has none.
+#: grid. Numerically the same 5e-3 as `epl.particles.FLAG_EXCLUDED_MASS`, and
+#: for the same reason — past this the sampled law is not the law the rows
+#: describe — but it is a HARD refusal and is NOT covered by the D11 v1.0.1
+#: amendment: that ruling is about a model tail production also discards, while
+#: this is about rows the bridge was fitted on and cannot represent. The
+#: 2014/15-2025/26 archive has none.
 MAX_EXCLUDED_SHARE = 5e-3
 
 #: How many complete rounds the PPG null needs before it will extrapolate.
@@ -362,6 +366,7 @@ class DCWDLProvider:
         self.book = book
         self.bridge = bridge
         self._laws: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
+        self._excluded: dict[str, dict] = {}
 
     # The per-fixture laws are derived and are rebuilt in a worker rather than
     # pickled to it, exactly as the native arm's CDF cache is.
@@ -372,6 +377,7 @@ class DCWDLProvider:
         self.book = state["book"]
         self.bridge = state["bridge"]
         self._laws = {}
+        self._excluded = {}
 
     @property
     def n_particles(self) -> int:
@@ -395,7 +401,19 @@ class DCWDLProvider:
                 widened = q @ particles._outcome_matrix(self.book.max_goals + 1)
             got = (cdfs.one_x_two, widened)
             self._laws[fixture.fixture_id] = got
+            self._excluded[fixture.fixture_id] = dict(cdfs.excluded)
         return got
+
+    def excluded_mass_for(self, fixture) -> dict:
+        """This fixture's D11 v1.0.1 truncation record (owner ruling A1).
+
+        This arm reduces the same truncated grids the native arm samples, so it
+        carries the same tail and reports it the same way. Before the amendment
+        it also failed closed on the same fixture — see the dated correction in
+        `reports/epl_sim_first_issuance.md`.
+        """
+        self.laws_for(fixture)
+        return dict(self._excluded[fixture.fixture_id])
 
     def sample(self, fixture, particle_idx, u):
         one_x_two, widened = self.laws_for(fixture)

@@ -88,13 +88,13 @@ is what is implemented; the arm name is checked against the provider's own
 
 from __future__ import annotations
 
-import datetime as _dt
 import hashlib
 import importlib.metadata as _md
 import json
 import platform as _platform
 import subprocess
 import sys
+import textwrap as _textwrap
 import time
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -112,7 +112,8 @@ __all__ = [
     "OUTPUT_SCHEMA_VERSION", "SCHEMA_VERSION", "STREAM_MAPPING", "ChunkRows",
     "DCNativeProvider", "FixturePlan", "ProviderError", "RetainedRows",
     "ScorelineProvider", "SimError", "SimPlan", "SimRun", "canonical_json",
-    "cluster_se", "cut_lines", "envelope", "limitations_markdown",
+    "cluster_se", "cut_lines", "envelope", "excluded_mass_report",
+    "limitations_markdown",
     "market_slices", "particle_index", "resolve_provider", "simulate",
     "simulate_chunk", "streams", "sum_by_particle", "variance_components",
     "write_outputs",
@@ -155,8 +156,8 @@ CUT_LINE_QUANTILES = (0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95)
 #: refactor without a test failing.
 ENVELOPE_FIELDS = (
     "anchor_spec", "arm", "arviz_version", "bridge_hash", "chunk_size", "cutoff",
-    "effective_posterior_hash", "epl_tree_sha256", "fixtures_base_sha256",
-    "frozen_config_sha256", "git_commit", "git_dirty",
+    "effective_posterior_hash", "epl_tree_sha256", "excluded_mass",
+    "fixtures_base_sha256", "frozen_config_sha256", "git_commit", "git_dirty",
     "kickoff_amendments_sha256", "manifest_sha256", "material_boundaries",
     "max_goals", "n_particles", "n_played", "n_sims", "n_unplayed",
     "n_unresolved", "numpy_version", "observed_by", "output_schema_version",
@@ -583,6 +584,15 @@ class DCNativeProvider:
         side = self.book.max_goals + 1
         return (flat // side).astype(np.int8), (flat % side).astype(np.int8)
 
+    def excluded_mass_for(self, fixture: FixturePlan) -> dict:
+        """This fixture's D11 v1.0.1 truncation record (owner ruling A1).
+
+        Reads the cached :class:`epl.particles.FixtureCDF` the arm samples from,
+        so the number reported is the number the sampler used and cannot be a
+        second, separately-computed estimate of it.
+        """
+        return dict(self.cdf_for(fixture).excluded)
+
     def content_hash(self) -> str:
         return self.book.content_hash()
 
@@ -760,6 +770,10 @@ class SimRun:
     mc: dict
     retained_rows: RetainedRows
     envelope: dict
+    #: The full D11 v1.0.1 truncation report: ``{"summary": ..., "per_fixture":
+    #: [...]}``. The summary is what the envelope carries; the per-fixture
+    #: vector is written beside the issuance (ruling A1 (b)).
+    excluded_mass: dict = field(default_factory=dict)
 
     @property
     def clubs(self) -> tuple[str, ...]:
@@ -882,9 +896,12 @@ def simulate(arm: str, state, book_or_provider, n_sims: int, seed: int,
     aggregate = _aggregate(rows, plan)
     _check_pinned(rows, plan)
 
+    report = excluded_mass_report(provider, plan)
     env = envelope(arm=arm, plan=plan, provider=provider, season=season,
+                   excluded_mass=report["summary"],
                    wall_seconds=time.perf_counter() - started)
-    return SimRun(arm=arm, plan=plan, retained_rows=rows, envelope=env, **aggregate)
+    return SimRun(arm=arm, plan=plan, retained_rows=rows, envelope=env,
+                  excluded_mass=report, **aggregate)
 
 
 def _check_pinned(rows: RetainedRows, plan: SimPlan) -> None:
@@ -1068,8 +1085,14 @@ def _tie_diagnostics(rows: RetainedRows, plan: SimPlan, mass) -> dict:
 # ==========================================================================
 
 def envelope(*, arm: str, plan: SimPlan, provider, season=None,
+             excluded_mass: dict | None = None,
              wall_seconds: float | None = None) -> dict:
-    """Everything needed to say what produced a number, and to produce it again."""
+    """Everything needed to say what produced a number, and to produce it again.
+
+    `excluded_mass` is the summary half of :func:`excluded_mass_report`; it is
+    recomputed here when a caller does not supply one, so the envelope always
+    carries the D11 v1.0.1 record whichever way it was built.
+    """
     book = getattr(provider, "book", None)
     described = provider.describe() if hasattr(provider, "describe") else {}
     files = _season_file_hashes(plan.season, season)
@@ -1106,6 +1129,9 @@ def envelope(*, arm: str, plan: SimPlan, provider, season=None,
         "max_goals": described.get("max_goals",
                                    None if book is None else int(book.max_goals)),
         "widening_mode": described.get("widening_mode", "none"),
+        # D11 v1.0.1 (owner ruling 2026-08-19, reports/epl_sim_amendments.md A1)
+        "excluded_mass": (excluded_mass_report(provider, plan)["summary"]
+                          if excluded_mass is None else excluded_mass),
         # the season snapshot
         "season": plan.season,
         "cutoff": plan.cutoff,
@@ -1136,6 +1162,57 @@ def envelope(*, arm: str, plan: SimPlan, provider, season=None,
     if missing:
         raise SimError(f"envelope field set drifted from ENVELOPE_FIELDS: {sorted(missing)}")
     return env
+
+
+def excluded_mass_report(provider, plan: SimPlan) -> dict:
+    """The D11 v1.0.1 truncation record for every fixture the run prices.
+
+    Owner ruling of 2026-08-19, recorded as entry A1 in
+    ``reports/epl_sim_amendments.md`` before the guard was changed. Two halves:
+
+    * ``summary`` — ``max``/``mean``/``p90`` over the per-fixture particle-means,
+      the count of flagged fixtures and the flagged records themselves. This is
+      what the envelope carries and therefore what the run digest covers.
+    * ``per_fixture`` — the full vector, flagged or not (ruling A1 (b)), written
+      beside the issuance by :func:`write_outputs`.
+
+    Only fixtures the run SIMULATES are measured: a played fixture is pinned
+    from the results ledger and no grid is ever built for it, so it has no
+    truncation tail to report. An arm that does not price scorelines through the
+    particle grids (the Elo arm) supplies no measurement at all, and says so
+    with ``measured = False`` and ``n_fixtures = 0`` rather than reporting a
+    zero that would read as "measured, and it was zero".
+
+    Recomputing this in the parent process is deliberate: with an executor the
+    workers hold the provider's caches and the parent's is empty, and an
+    envelope that differed between a serial and a parallel run would break the
+    property T5 exists to assert.
+    """
+    measure = getattr(provider, "excluded_mass_for", None)
+    per_fixture: list[dict] = []
+    if measure is not None:
+        for position in plan.unplayed_positions:
+            fixture = plan.fixtures[position]
+            stats = dict(measure(fixture))
+            per_fixture.append({"fixture": fixture.fixture_id, **stats})
+
+    means = np.array([row["mean"] for row in per_fixture], dtype=float)
+    flagged = sorted((row for row in per_fixture if row["flagged"]),
+                     key=lambda row: (-row["mean"], row["fixture"]))
+    summary = {
+        "measured": measure is not None,
+        "n_fixtures": len(per_fixture),
+        "max": float(means.max()) if means.size else 0.0,
+        "mean": float(means.mean()) if means.size else 0.0,
+        "p90": float(np.quantile(means, 0.90)) if means.size else 0.0,
+        "n_flagged": len(flagged),
+        "flag_threshold": float(particles.FLAG_EXCLUDED_MASS),
+        "hard_stop_threshold": float(particles.HARD_STOP_EXCLUDED_MASS),
+        "flagged": [{"fixture": row["fixture"], "mean": row["mean"],
+                     "median": row["median"], "worst": row["worst"],
+                     "n_over_1pct": row["n_over_1pct"]} for row in flagged],
+    }
+    return {"summary": summary, "per_fixture": per_fixture}
 
 
 @lru_cache(maxsize=1)
@@ -1269,12 +1346,57 @@ def write_outputs(run: SimRun, directory) -> dict[str, Path]:
         "envelope": directory / "envelope.json",
         "rows": directory / f"rows_{run.arm}.npz",
         "limitations": directory / "limitations.md",
+        # the full per-fixture truncation vector (D11 v1.0.1, ruling A1 (b));
+        # the envelope carries only its summary
+        "excluded_mass": directory / f"excluded_mass_{run.arm}.json",
     }
     written["output"].write_text(canonical_json(run.to_json()) + "\n")
     written["envelope"].write_text(canonical_json(run.envelope) + "\n")
     np.savez_compressed(written["rows"], **run.retained_rows.arrays())
     written["limitations"].write_text(limitations_markdown(run))
+    # A hand-built `SimRun` (a test double) may carry no report; fall back to
+    # the summary the envelope already holds rather than inventing a provider.
+    written["excluded_mass"].write_text(canonical_json(
+        run.excluded_mass or {"summary": run.envelope.get("excluded_mass", {}),
+                              "per_fixture": []}) + "\n")
     return written
+
+
+def _truncation_section(env: dict) -> str:
+    """The D11 v1.0.1 flag list, present in every note — "none" when empty.
+
+    A section that appears only when something is wrong teaches a reader that
+    its absence means nothing was checked. This one is always there, and always
+    carries the run's own max/mean/90th-percentile excluded mass beside the
+    flagged ids (owner ruling 2026-08-19, ``reports/epl_sim_amendments.md`` A1).
+    """
+    block = env.get("excluded_mass") or {}
+    flag = block.get("flag_threshold", particles.FLAG_EXCLUDED_MASS)
+    if not block.get("measured"):
+        return _textwrap.fill(
+            "* **none** — this arm does not price scorelines through the "
+            "truncated Dixon-Coles grids, so there is no truncation tail to "
+            "measure. Nothing was checked here, and nothing is claimed.",
+            width=78, subsequent_indent="  ")
+
+    header = _textwrap.fill(
+        f"Every fixture is priced on a grid truncated at {env['max_goals']} "
+        "goals per side, and the mass that truncation discards is measured per "
+        f"particle for all **{block['n_fixtures']}** simulated fixtures: max "
+        f"**{block['max']:.3g}**, mean **{block['mean']:.3g}**, 90th percentile "
+        f"**{block['p90']:.3g}**. **Production truncates at the same "
+        f"{env['max_goals']} goals and discards the same tail silently** — the "
+        "per-fixture forecast this project publishes renormalises over exactly "
+        "the same grid. Fixtures whose particle-mean excluded mass exceeds the "
+        f"{flag:g} flag threshold are listed here by id (D11 v1.0.1).", width=78)
+    if not block.get("flagged"):
+        return header + "\n\n* **none** — no fixture exceeds the flag threshold."
+    rows = "\n".join(
+        f"* `{row['fixture']}` — particle-mean **{row['mean']:.3g}**, median "
+        f"particle {row['median']:.3g}, worst particle {row['worst']:.3g}, "
+        f"particles over 1%: {row['n_over_1pct']}"
+        for row in block["flagged"])
+    return header + "\n\n" + rows
 
 
 def limitations_markdown(run: SimRun) -> str:
@@ -1283,6 +1405,11 @@ def limitations_markdown(run: SimRun) -> str:
     Written beside every issuance because the honest version of a league-table
     forecast is inseparable from what it does not model, and a template nobody
     fills in is worse than none.
+
+    It reads the cutoff and the run, and NOT ``date.today()``: a note that
+    embedded the day it was generated would make two issuances of the same
+    specification differ in their bytes, which is the one thing an issuance
+    must not do.
     """
     env = run.envelope
     playoff = float(run.unresolved_playoff_mass.sum() / len(run.clubs))
@@ -1290,12 +1417,13 @@ def limitations_markdown(run: SimRun) -> str:
     shared = run.tie_diagnostics["shared_position_rate"]
     worst = max((cell["se"] for club in run.consequences.values()
                  for cell in club.values()), default=0.0)
-    generated = _dt.date.today().isoformat()
 
     return f"""# Limitations — {run.arm}, {run.plan.season} at {run.plan.cutoff}
 
-Written automatically from the run itself ({generated}). Every number this
-issuance publishes is subject to all of the following.
+Written automatically from the run itself — from the cutoff and the issuance's
+own numbers, and from no wall clock, so two issuances of the same specification
+produce this file byte for byte. Every number this issuance publishes is subject
+to all of the following.
 
 ## What the forecast is conditional on
 
@@ -1330,6 +1458,10 @@ issuance publishes is subject to all of the following.
   (simulated either way): **{env['n_unresolved']}**.
 * Results lag flag: **{env['results_lag']}**.
 * Points adjustments applied: **{env['points_adjustments_applied'] or 'none'}**.
+
+## Truncation-flagged fixtures
+
+{_truncation_section(env)}
 
 ## Monte-Carlo error
 

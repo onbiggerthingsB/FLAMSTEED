@@ -32,9 +32,14 @@ THE FOUR LEGS, AND WHAT EACH IS PINNED TO
 3. **Truncation** — ``PRODUCTION_MAX_GOALS`` (10), the frozen production
    truncation, NOT the WC sim's ``sim.max_goals`` (12). A simulator that
    truncated differently would sample a different law from the one the forecast
-   issues. The mass the truncation excludes is MEASURED per particle and the
-   fixture fails closed above :data:`MAX_EXCLUDED_MASS`, so "the tail is
-   negligible" is a checked claim rather than an assumption.
+   issues. The mass the truncation excludes is MEASURED per particle, so "the
+   tail is negligible" is a checked claim rather than an assumption. Under D11
+   v1.0.1 (owner ruling 2026-08-19, ``reports/epl_sim_amendments.md`` A1) the
+   measurement is REPORTED rather than fatal up to :data:`FLAG_EXCLUDED_MASS`
+   — production truncates at the same 10 goals and discards the same tail
+   silently, so a simulator that refused would be quieter about the tail than
+   the forecast it prices, not louder — and the fixture fails closed only above
+   :data:`HARD_STOP_EXCLUDED_MASS`, which catches a mis-scaled rate.
 4. **Widening** (:func:`widening_component`, the ``q_cdf`` leg) — production
    issues, for a fixture involving a provisional club, ``(1-a)*gbar + a*q``
    where ``q`` is the max-entropy product grid matched to ``gbar``'s marginal
@@ -87,16 +92,45 @@ from wcmodel.model.likelihoods import dc_tau_np
 from wcmodel.model.widening import inflate_predictive
 
 __all__ = [
+    "FLAG_EXCLUDED_MASS", "HARD_STOP_EXCLUDED_MASS", "LARGE_PARTICLE_MASS",
     "MAX_EXCLUDED_MASS", "ParticleError", "UnsupportedPosterior",
     "ExcludedMassTooLarge", "DegenerateGrid", "ParticleBook", "FixtureCDF",
-    "fixture_grids", "mean_grid", "widening_component", "fixture_cdfs",
+    "excluded_mass_stats", "fixture_grids", "mean_grid", "widening_component",
+    "fixture_cdfs",
 ]
 
-#: The largest particle-mean tail mass the 10-goal truncation may exclude before
-#: a fixture is refused (plan v2 D11). At Premier League rates the real number is
-#: ~1e-7; anything near this threshold means the rates are not league-shaped and
-#: the grid is not the production grid in any useful sense.
-MAX_EXCLUDED_MASS = 5e-3
+#: The particle-mean tail mass above which a fixture is FLAGGED (plan v2 D11 as
+#: amended by D11 v1.0.1, owner ruling 2026-08-19; the entry is
+#: ``reports/epl_sim_amendments.md`` A1, recorded before this guard was changed).
+#: At Premier League rates the real number is ~1e-7; a fixture near this
+#: threshold is one whose rates are not league-shaped, and at the 2026-08-21
+#: opener exactly one of 380 was — a promoted club with zero archive rows,
+#: priced from cold-start prior draws.
+#:
+#: The number is UNCHANGED at its preregistered 5e-3; what changed is what
+#: happens at it. A flagged fixture is recorded in the run's envelope and listed
+#: by id in ``limitations.md``, and the run completes, because
+#: ``draw_api.production_grid`` truncates at the same 10 goals and discards the
+#: same tail without saying so. The flag makes the simulator MORE visible about
+#: that tail than production is.
+FLAG_EXCLUDED_MASS = 5e-3
+
+#: The particle-mean tail mass above which the fixture still fails CLOSED with
+#: :class:`ExcludedMassTooLarge`. Pre-stated in amendment A1, before any run
+#: under the amended rule existed, as 4x the worst fixture observed at the
+#: opener (0.005365). It still catches what the original guard was built for: a
+#: mis-scaled rate — ``lambda`` around 20 excludes about half the mass and
+#: trips this by more than an order of magnitude.
+HARD_STOP_EXCLUDED_MASS = 2e-2
+
+#: A particle counts as a "large" contributor to the flag record above this.
+#: Reported per flagged fixture because the mean is a poor description of a
+#: distribution where ten draws of a thousand carry 43% of it.
+LARGE_PARTICLE_MASS = 0.01
+
+#: The pre-amendment name for the 5e-3 threshold, kept as an alias so the
+#: number has one definition. It is the FLAG threshold, not a hard stop.
+MAX_EXCLUDED_MASS = FLAG_EXCLUDED_MASS
 
 #: The posterior parameters the book freezes, in the order the content hash
 #: consumes them. ``def`` is spelled ``defe`` on the book (``def`` is a keyword).
@@ -118,7 +152,11 @@ class UnsupportedPosterior(ParticleError):
 
 
 class ExcludedMassTooLarge(ParticleError):
-    """The 10-goal truncation excludes more mass than :data:`MAX_EXCLUDED_MASS`."""
+    """The truncation excludes more than :data:`HARD_STOP_EXCLUDED_MASS`.
+
+    Not raised between :data:`FLAG_EXCLUDED_MASS` and this ceiling: that band is
+    recorded and reported instead (D11 v1.0.1).
+    """
 
 
 class DegenerateGrid(ParticleError):
@@ -446,6 +484,35 @@ class FixtureCDF:
     one_x_two: np.ndarray           #: (S, 3) — home / draw / away per particle
     excluded_mean: float            #: particle-mean truncated tail mass
     provisional: bool
+    #: The D11 v1.0.1 record: ``{mean, median, worst, n_over_1pct, flagged}``.
+    #: Carried on every fixture, not only the flagged ones, so the envelope can
+    #: report the whole distribution rather than its outliers (ruling A1 (b)).
+    excluded: dict = field(default_factory=dict)
+
+
+def excluded_mass_stats(excluded) -> dict:
+    """One fixture's truncation record: mean, median, worst, and the tail count.
+
+    The mean alone is a poor description of this quantity. At the 2026-08-21
+    opener the worst fixture's particle-mean was 0.0054 while its MEDIAN
+    particle was 1.9e-4 and its worst particle 0.45: ten draws of a thousand
+    carried 43% of the mean. So the record keeps all four numbers, and
+    ``limitations.md`` prints all four for a flagged fixture — a reader who sees
+    only the mean would conclude the tail is uniformly small, which is the one
+    thing it is not.
+
+    ``flagged`` is the mean against :data:`FLAG_EXCLUDED_MASS`; the hard stop is
+    :data:`HARD_STOP_EXCLUDED_MASS` and is applied in :func:`fixture_cdfs`.
+    """
+    e = np.asarray(excluded, dtype=float)
+    mean = float(e.mean())
+    return {
+        "mean": mean,
+        "median": float(np.median(e)),
+        "worst": float(e.max()),
+        "n_over_1pct": int((e > LARGE_PARTICLE_MASS).sum()),
+        "flagged": bool(mean > FLAG_EXCLUDED_MASS),
+    }
 
 
 def _outcome_matrix(n: int) -> np.ndarray:
@@ -471,22 +538,28 @@ def _to_cdf(pmf: np.ndarray) -> np.ndarray:
 def fixture_cdfs(book: ParticleBook, home: str, away: str) -> FixtureCDF:
     """Build one fixture's sampling object from the book.
 
-    Rates -> per-particle grids -> truncation gate -> per-particle CDFs, plus
+    Rates -> per-particle grids -> truncation record -> per-particle CDFs, plus
     the widening component when production would widen this fixture. The
     resulting mixture ``(1-alpha)*mean(grids) + alpha*q`` is the production
     grid to floating point, which is the property plan v2 D12 is built on and
     the parity test asserts against ``Posterior.predict_scoreline`` directly.
+
+    The truncation record (D11 v1.0.1) is attached to every fixture and refuses
+    none below :data:`HARD_STOP_EXCLUDED_MASS`; :mod:`epl.leaguesim` collects it
+    into the run's envelope and prints the flagged fixtures by id.
     """
     lh, la = book.rates(home, away)
     grids, excluded = fixture_grids(lh, la, book.rho, book.max_goals)
-    excluded_mean = float(np.mean(excluded))
-    if excluded_mean > MAX_EXCLUDED_MASS:
+    stats = excluded_mass_stats(excluded)
+    excluded_mean = stats["mean"]
+    if excluded_mean > HARD_STOP_EXCLUDED_MASS:
         raise ExcludedMassTooLarge(
             f"{home} v {away}: the {book.max_goals}-goal truncation excludes a "
             f"particle-mean {excluded_mean:.3g} of the probability mass, over "
-            f"the {MAX_EXCLUDED_MASS:g} limit. The sampled law would differ "
-            "materially from the published grid, so the run fails closed "
-            "instead of quietly discarding the tail.")
+            f"the {HARD_STOP_EXCLUDED_MASS:g} ceiling pre-stated in amendment "
+            "A1. A mass this large is a mis-scaled rate, not a cold-start tail: "
+            "the sampled law would differ materially from the published grid, "
+            "so the run fails closed instead of quietly discarding the tail.")
 
     provisional = book.is_provisional(home, away)
     flat = grids.reshape(grids.shape[0], -1)
@@ -497,6 +570,7 @@ def fixture_cdfs(book: ParticleBook, home: str, away: str) -> FixtureCDF:
         one_x_two=flat @ _outcome_matrix(book.max_goals + 1),
         excluded_mean=excluded_mean,
         provisional=provisional,
+        excluded=stats,
     )
 
 
