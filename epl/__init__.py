@@ -67,6 +67,11 @@ the league-table simulator
                   per simulated season, cold-start rows included, per-fixture
                   grids truncated where production truncates, and the widening
                   branch that makes the sampled marginal the published one.
+  `epl.leaguesim` the engine: one joint posterior particle per simulated season,
+                  streams keyed by (chunk, fixture) so a played fixture owns a
+                  stream it never consumes, cluster-by-particle Monte-Carlo
+                  error, retained per-season rows, and a provenance envelope
+                  that says exactly what produced every number.
   `epl.table`     the vectorised accumulator and the Premier League ranker:
                   points -> GD -> GF, shared positions unless the tie is
                   material, then the head-to-head ladder. What the rulebook
@@ -76,6 +81,6 @@ the league-table simulator
 """
 
 __all__ = ["anchor", "baseline", "build", "dcfit", "devig", "elo", "fetch",
-           "fit", "freeze", "improve", "ordlogit", "parse", "particles",
-           "paths", "schema", "score", "season", "table", "teams", "validate",
-           "walk", "walkforward", "windows"]
+           "fit", "freeze", "improve", "leaguesim", "ordlogit", "parse",
+           "particles", "paths", "schema", "score", "season", "table", "teams",
+           "validate", "walk", "walkforward", "windows"]
