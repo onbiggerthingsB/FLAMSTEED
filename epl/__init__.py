@@ -72,6 +72,12 @@ the league-table simulator
                   stream it never consumes, cluster-by-particle Monte-Carlo
                   error, retained per-season rows, and a provenance envelope
                   that says exactly what produced every number.
+  `epl.simcanary` the checks a single run cannot make about itself: the
+                  leakage canary (a post-cutoff result rewritten, the whole run
+                  demanded back byte-identical, with two positive controls),
+                  played-set parity against `features.build`'s own row set, the
+                  D12 marginal parity against what production publishes, and the
+                  full D10 coherence list.
   `epl.table`     the vectorised accumulator and the Premier League ranker:
                   points -> GD -> GF, shared positions unless the tie is
                   material, then the head-to-head ladder. What the rulebook
@@ -81,6 +87,7 @@ the league-table simulator
 """
 
 __all__ = ["anchor", "baseline", "build", "dcfit", "devig", "elo", "fetch",
-           "fit", "freeze", "improve", "leaguesim", "ordlogit", "parse",
-           "particles", "paths", "schema", "score", "season", "table", "teams",
-           "validate", "walk", "walkforward", "windows"]
+           "fit", "freeze", "improve", "leaguesim", "liveanchor", "ordlogit",
+           "parse", "particles", "paths", "schema", "score", "season",
+           "simcanary", "table", "teams", "validate", "walk", "walkforward",
+           "windows"]
