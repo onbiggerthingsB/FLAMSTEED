@@ -19,6 +19,31 @@ ten of eleven criteria with the eleventh correctly recorded as not applicable.
 
 ---
 
+## Correction (added 2026-08-19, after the owner ruling; nothing above is rewritten)
+
+**The STOP note above understates the blast radius.** It says the `dc_native` arm
+fails closed. Two of the three arms do.
+
+`epl.bridge.DCWDLProvider.laws_for` builds its per-particle 1X2 by calling
+`epl.particles.fixture_cdfs` on the same book and the same fixture — that is the
+whole point of the arm, since its outcome marginal is *exactly* the native arm's.
+So the D11 guard trips on `2627:man_city:coventry` for `dc_wdl_bridge` as well,
+for the same reason and with the same number. Before the amendment recorded in
+`reports/epl_sim_amendments.md`, **only `elo_wdl_bridge` could run at this
+cutoff**, because it is the one arm that never touches the particle grids.
+
+That does not change any measurement in §2, the gate record in §3, or the
+demonstration issuance in §4: `elo_wdl_bridge` is what was run, and it is what
+§4 reports. It changes §5's framing — the decision the owner was asked for
+gates both model-side arms, not one — and it means the arm-vs-arm contrast in §4
+("the DC arm carries a joint posterior draw per season and should be visibly
+less concentrated") was doubly unavailable.
+
+The owner's ruling of 2026-08-19 (D11 v1.0.1) is recorded in
+`reports/epl_sim_amendments.md`, entry A1.
+
+---
+
 ## 1. What shipped
 
 `epl/simcli.py` (+ `epl/tests/test_simcli.py`, 18 tests). Four verbs:
