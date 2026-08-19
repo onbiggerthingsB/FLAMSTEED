@@ -369,7 +369,7 @@ class ParticleBook:
         return path
 
     @classmethod
-    def load(cls, path) -> "ParticleBook":
+    def load(cls, path, *, allow_nonproduction: bool = False) -> "ParticleBook":
         """Read a bundle back, or refuse it.
 
         The recorded ``content_hash`` is REQUIRED, not optional. It covers the
@@ -383,6 +383,16 @@ class ParticleBook:
         missing array — those are refusals too, and are re-raised as
         :class:`ParticleError` so one exception type covers "this bundle is not
         usable".
+
+        THE PRODUCTION GATE SURVIVES PERSISTENCE. ``from_posterior`` refuses a
+        ``max_goals`` other than :data:`PRODUCTION_MAX_GOALS` without
+        ``allow_nonproduction=True``, and that gate used to end at the point the
+        book was written down: a 12-goal diagnostic book saved by the D19
+        sensitivity sweep reloaded here as an ordinary one, priced a different
+        per-fixture law from the one the forecast publishes, and gated its D11
+        excluded mass on a different quantity — with nothing on the way in
+        saying so. The same flag is required on the way back, so the deliberate
+        act stays deliberate on both sides of the file.
         """
         path = Path(path)
         if path.suffix != ".npz":
@@ -393,6 +403,15 @@ class ParticleBook:
         except (OSError, json.JSONDecodeError) as exc:
             raise ParticleError(
                 f"{meta_path.name} is missing or not readable JSON: {exc}") from exc
+        # Valid JSON is not a valid sidecar. A file holding `[1, 2]` or `"x"`
+        # parses, and then `meta.get` raises `AttributeError` — outside the
+        # promised `ParticleError` contract, so a caller catching "this bundle
+        # is unusable" does not catch it.
+        if not isinstance(meta, dict):
+            raise ParticleError(
+                f"{meta_path.name} parses as {type(meta).__name__}, not a JSON "
+                "object; a particle bundle's sidecar is a mapping of metadata "
+                "and nothing else can describe the arrays beside it")
         recorded = meta.get("content_hash")
         if not recorded:
             raise ParticleError(
@@ -413,17 +432,30 @@ class ParticleBook:
                 max_goals=int(meta["max_goals"]), cfg_hash=meta["cfg_hash"],
                 schema_version=meta.get("schema_version", "epl-particlebook-1"),
                 **arrays)
+            # Inside the wrapper on purpose: an array of the wrong shape or
+            # dtype survives construction and only fails when the hash walks it,
+            # which used to raise whatever numpy raised rather than the one
+            # exception type this module promises.
+            digest = book.content_hash()
         except ParticleError:
             raise
         except Exception as exc:                       # corrupt / truncated npz
             raise ParticleError(
                 f"{path.name} could not be read back as a particle book: "
                 f"{type(exc).__name__}: {exc}") from exc
-        if book.content_hash() != recorded:
+        if digest != recorded:
             raise ParticleError(
                 f"{path.name} does not match its recorded content hash "
                 f"({recorded}); the bundle changed on disk and no forecast "
                 "built from it would be reproducible")
+        if book.max_goals != PRODUCTION_MAX_GOALS and not allow_nonproduction:
+            raise UnsupportedPosterior(
+                f"{path.name} records max_goals={book.max_goals}, not the "
+                f"production {PRODUCTION_MAX_GOALS}. A book truncated anywhere "
+                "else samples a different per-fixture law from the one the "
+                "forecast publishes and its D11 excluded-mass record gates a "
+                "different quantity. Pass allow_nonproduction=True to load one "
+                "deliberately, as the D19 sensitivity does")
         return book
 
 

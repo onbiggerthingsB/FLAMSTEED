@@ -25,6 +25,7 @@ Three defects are pinned here on purpose:
 
 from __future__ import annotations
 
+import dataclasses
 import time
 
 import numpy as np
@@ -566,10 +567,70 @@ def test_excluded_mass_stats_records_both_measurements():
     assert stats["mean_after_clip"] == pytest.approx(0.085)
     assert stats["worst"] == pytest.approx(0.30)
     assert stats["worst_after_clip"] == pytest.approx(0.295)
-    # the flag reads the unclipped mean and nothing else
-    assert stats["flagged"] is True
-    assert particles.excluded_mass_stats(excluded)["flagged"] is True
     assert "mean_after_clip" not in particles.excluded_mass_stats(excluded)
+
+    # THE FLAG READS THE UNCLIPPED MEAN, DISCRIMINATINGLY. Above, 0.09 and
+    # 0.085 both clear the 5e-3 threshold, so the assertion `flagged is True`
+    # held whichever of the two the flag read — it could not tell them apart.
+    # Here the threshold sits BETWEEN them, so computing `flagged` from
+    # `after_clip` flips this assertion.
+    split = np.array([0.012, 0.0])
+    split_after = np.array([0.012, -0.010])
+    straddle = particles.excluded_mass_stats(split, split_after)
+    assert straddle["mean_after_clip"] < particles.FLAG_EXCLUDED_MASS \
+        < straddle["mean"], "the two measurements must straddle the threshold"
+    assert straddle["flagged"] is True
+    # POSITIVE CONTROL: with both measurements under the threshold it is False,
+    # so `flagged` is reading a number and not pinned True.
+    assert particles.excluded_mass_stats(
+        np.array([0.001, 0.0]), np.array([0.001, -0.010]))["flagged"] is False
+    assert particles.excluded_mass_stats(excluded)["flagged"] is True
+
+
+def test_fixture_cdfs_gates_on_the_unclipped_tail_not_the_post_clip_sum():
+    """D11's hard stop reads `excluded`, and the two really can disagree.
+
+    Clipping the negative Dixon-Coles cells can only RAISE a grid's sum, so
+    `1 - sum` after the clip can only be SMALLER: measuring there lets the clip
+    mask part of a truncation problem. Every end-to-end threshold test so far
+    used fixtures where the clip did not fire at all, so swapping `excluded` for
+    `excluded_after_clip` in the gate left them all green — the central
+    invariant of the amendment had no test that could see it.
+
+    This book is built so the ceiling sits BETWEEN the two measurements. One
+    particle carries a real 8.3% truncation tail with no clip; the other has
+    `lh*la*rho = 3.8 > 1`, so `tau(0,0)` is negative and the clip puts back more
+    mass than that particle's whole tail. Mean unclipped 0.0417 is over the 2e-2
+    ceiling; mean post-clip 0.0161 is under it.
+    """
+    lh_over_la = np.log(np.array([6.0, 2.0]))          # exp(mu) IS the rate here
+    book = particles.ParticleBook(
+        teams=("h", "a"), idx={"h": 0, "a": 1},
+        att=np.zeros((2, 2)), defe=np.zeros((2, 2)),
+        mu=lh_over_la, home_adv=np.zeros(2), rho=np.array([0.0, 0.95]),
+        sigma_att=np.full(2, 0.4), sigma_def=np.full(2, 0.4),
+        provisional=frozenset(), cold_start=frozenset(),
+        likelihood="dixon_coles", alpha=0.1,
+        max_goals=PRODUCTION_MAX_GOALS, cfg_hash="test")
+
+    lh, la = book.rates("h", "a")
+    _grids, excluded, after_clip = particles.fixture_grids(
+        lh, la, book.rho, book.max_goals)
+    assert after_clip.mean() < particles.HARD_STOP_EXCLUDED_MASS < excluded.mean(), (
+        "the fixture must straddle the ceiling, or this test proves nothing")
+
+    with pytest.raises(particles.ExcludedMassTooLarge):
+        particles.fixture_cdfs(book, "h", "a")
+
+    # POSITIVE CONTROL: drop the hot particle's rate and BOTH measurements fall
+    # under the ceiling — the same clip, the same rho, no refusal. So the
+    # refusal above is the tail crossing the line, not the clip firing.
+    cool = dataclasses.replace(book, mu=np.log(np.array([2.5, 2.0])))
+    _g, exc2, post2 = particles.fixture_grids(*cool.rates("h", "a"), cool.rho,
+                                              cool.max_goals)
+    assert post2.mean() < exc2.mean() < particles.HARD_STOP_EXCLUDED_MASS
+    assert particles.fixture_cdfs(cool, "h", "a").excluded_mean == pytest.approx(
+        float(exc2.mean()))
 
 
 def test_max_goals_override_needs_allow_nonproduction():
@@ -650,3 +711,57 @@ def test_load_refuses_a_corrupted_bundle(tmp_path):
     # ... and restoring the json restores the load, so (c)/(d) are the json.
     meta_path.write_text(good_meta)
     assert particles.ParticleBook.load(path).content_hash() == book.content_hash()
+
+    # (e) VALID JSON THAT IS NOT A SIDECAR. `[1, 2]` and `"x"` parse, and then
+    #     `meta.get` raised `AttributeError` — outside the `ParticleError`
+    #     contract this method advertises, so a caller catching "this bundle is
+    #     unusable" did not catch it.
+    for not_an_object in ("[1, 2]", '"particles"', "null", "3"):
+        meta_path.write_text(not_an_object)
+        with pytest.raises(particles.ParticleError):
+            particles.ParticleBook.load(path)
+
+    # (f) A STRUCTURALLY MALFORMED ARRAY. It survives construction and fails
+    #     when `content_hash` walks it, which was OUTSIDE the try block.
+    meta_path.write_text(good_meta)
+    with np.load(path) as npz:
+        arrays = {k: npz[k] for k in npz.files}
+    arrays["rho"] = np.array(["not", "a", "number"])
+    np.savez(path, **arrays)
+    with pytest.raises(particles.ParticleError):
+        particles.ParticleBook.load(path)
+
+
+def test_load_enforces_the_production_gate_the_save_side_enforces(tmp_path):
+    """The 10-goal gate survives being written to disk and read back.
+
+    `from_posterior` refuses any other `max_goals` without an explicit
+    `allow_nonproduction`, and that gate used to stop at the file: a 12-goal
+    diagnostic book — exactly what the D19 sensitivity sweep builds — round-
+    tripped through `save`/`load` and came back as an ordinary production book.
+    It samples a different per-fixture law from the one the forecast publishes
+    and its D11 excluded-mass record gates a different quantity, with nothing on
+    the way in to say so.
+    """
+    post = _cold_start_posterior()
+    diag = particles.ParticleBook.from_posterior(post, max_goals=12,
+                                                 allow_nonproduction=True)
+    path = tmp_path / "diag.npz"
+    diag.save(path)
+
+    with pytest.raises(particles.UnsupportedPosterior, match="max_goals"):
+        particles.ParticleBook.load(path)
+
+    back = particles.ParticleBook.load(path, allow_nonproduction=True)
+    assert back.max_goals == 12
+    assert back.content_hash() == diag.content_hash()
+
+    # POSITIVE CONTROL, both directions: a production book needs no flag, and
+    # passing the flag does not change what comes back.
+    plain_path = tmp_path / "plain.npz"
+    plain = particles.ParticleBook.from_posterior(post)
+    plain.save(plain_path)
+    assert particles.ParticleBook.load(plain_path).content_hash() \
+        == particles.ParticleBook.load(
+            plain_path, allow_nonproduction=True).content_hash() \
+        == plain.content_hash() != diag.content_hash()
