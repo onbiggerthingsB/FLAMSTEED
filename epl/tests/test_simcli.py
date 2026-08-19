@@ -670,3 +670,168 @@ def test_check_reproducibility_can_fail_and_its_flags_are_computed(state, book):
     for flag in ("deterministic", "chunk_concatenation_matches",
                  "seed_control_changed"):
         assert real["detail"][flag] is True, flag
+
+
+# ==========================================================================
+# 8. v1.1 R2 — `check` re-derives a BRIDGE arm from its own bundle
+# ==========================================================================
+#
+# Before this section `check` refused any issuance whose published arm was not
+# `dc_native`, and never looked at the other arms at all: a three-arm issuance
+# was checked one-third of the way and reported PASS. The bridge arms are now
+# rebuilt from the sidecars `forecast` writes beside them (`epl.simbundle`), and
+# an arm that cannot be rebuilt is REFUSED — never silently skipped, and never
+# counted as agreement.
+
+@pytest.fixture(scope="module")
+def live_anchor(season_obj):
+    """The real transition anchor at the 2026/27 opener, on the real archive."""
+    from epl import baseline, freeze
+    from epl.schema import sort_for_walk_forward
+
+    matches = baseline.load_matches()
+    played = sort_for_walk_forward(matches.loc[matches["played"]])
+    archive = played.loc[played["season"].astype(str) != SEASON]
+    return liveanchor.LiveAnchor(archive, season_obj.results,
+                                 season_obj.manifest,
+                                 freeze.frozen_elo_config()), archive
+
+
+@pytest.fixture(scope="module")
+def three_arm_issuance(tmp_path_factory, book, live_anchor) -> dict:
+    """One issuance carrying all three arms — synthetic book, real everything else."""
+    anchor, archive = live_anchor
+    return simcli.forecast(
+        season=SEASON, cutoff=OPENER, arms=simcli.ARMS, n_sims=N_SIMS,
+        seed=SEED, chunk_size=CHUNK, n_particles=N_PARTICLES,
+        out_root=tmp_path_factory.mktemp("three_arm"), gate=False, verbose=False,
+        fit=simcli.FitBundle(post=None, book=book, anchor=anchor,
+                             matches=archive, training=archive,
+                             info={"synthetic": True, "cold_start_teams": []}))
+
+
+def _copy(issuance, name: str) -> Path:
+    directory = Path(issuance["directory"])
+    target = directory.parent / name
+    if target.exists():
+        shutil.rmtree(target)
+    shutil.copytree(directory, target)
+    return target
+
+
+def test_forecast_writes_the_sidecars_a_bridge_arm_needs(three_arm_issuance):
+    from epl import simbundle
+
+    directory = Path(three_arm_issuance["directory"])
+    for name in (simbundle.ARMS_SIDECAR, simbundle.BRIDGE_SIDECAR,
+                 simbundle.ELO_SIDECAR):
+        assert (directory / name).exists(), f"{name} was not written"
+
+    # the bridge sidecar IS the bridge the forecast used
+    payload = json.loads((directory / simbundle.BRIDGE_SIDECAR).read_text())
+    assert payload["hash"] == three_arm_issuance["bridge_hash"]
+
+
+def test_check_reproduces_every_arm_from_its_own_bundle(three_arm_issuance):
+    report = simcli.check_issuance(three_arm_issuance["directory"], verbose=False)
+    assert set(report["arms"]) == set(simcli.ARMS)
+    for arm in simcli.ARMS:
+        cell = report["arms"][arm]
+        assert cell["status"] == "PASS", (arm, cell)
+        assert cell["detail"]["digest_matches"] is True, arm
+        assert cell["detail"]["recomputed_digest"] == \
+            three_arm_issuance["numbers_digests"][arm]
+        assert cell["coherence"]["PASS"] is True, arm
+    assert report["PASS"] is True
+
+    # per-fixture parity is a DC-native question and is NOT claimed for an arm
+    # that samples another law on purpose
+    assert report["arms"]["dc_native"]["marginal_parity"]["PASS"] is True
+    for arm in ("dc_wdl_bridge", "elo_wdl_bridge"):
+        assert report["arms"][arm]["marginal_parity"]["status"] == "NOT_APPLICABLE"
+
+
+def test_a_perturbed_bridge_cdf_cell_fails_check_naming_both_bridge_arms(
+        three_arm_issuance):
+    from epl import simbundle
+
+    tampered = _copy(three_arm_issuance, "cdf_cell")
+    path = tampered / simbundle.BRIDGE_SIDECAR
+    payload = json.loads(path.read_text())
+    payload["cdf"][1][30] = payload["cdf"][1][30] + 0.02
+    path.write_text(json.dumps(payload))
+
+    report = simcli.check_issuance(tampered, verbose=False)
+    assert report["PASS"] is False
+    assert report["arms"]["dc_native"]["status"] == "PASS"
+    for arm in ("dc_wdl_bridge", "elo_wdl_bridge"):
+        cell = report["arms"][arm]
+        assert cell["status"] == "FAIL", arm
+        assert arm in cell["detail"]["error"]
+        assert "cdf" in cell["detail"]["error"]
+    assert set(report["failed"]) == {"dc_wdl_bridge", "elo_wdl_bridge"}
+
+
+def test_a_changed_elo_rating_fails_check_naming_the_elo_arm(three_arm_issuance):
+    from epl import simbundle
+
+    tampered = _copy(three_arm_issuance, "elo_rating")
+    path = tampered / simbundle.ELO_SIDECAR
+    payload = json.loads(path.read_text())
+    club = sorted(payload["ratings"])[0]
+    payload["ratings"][club] += 30.0
+    path.write_text(json.dumps(payload))
+
+    report = simcli.check_issuance(tampered, verbose=False)
+    assert report["PASS"] is False
+    assert report["failed"] == ["elo_wdl_bridge"]
+    error = report["arms"]["elo_wdl_bridge"]["detail"]["error"]
+    assert "elo_wdl_bridge" in error
+    # the other two arms do not depend on the Elo sidecar and still reproduce
+    for arm in ("dc_native", "dc_wdl_bridge"):
+        assert report["arms"][arm]["status"] == "PASS", arm
+
+
+def test_a_missing_sidecar_makes_check_refuse_that_arm_and_not_pass(
+        three_arm_issuance):
+    from epl import simbundle
+
+    stripped = _copy(three_arm_issuance, "no_sidecars")
+    for name in (simbundle.ARMS_SIDECAR, simbundle.BRIDGE_SIDECAR,
+                 simbundle.ELO_SIDECAR):
+        (stripped / name).unlink()
+
+    report = simcli.check_issuance(stripped, verbose=False)
+    assert report["PASS"] is False
+    assert report["arms"]["dc_native"]["status"] == "PASS"
+    assert report["arms"]["dc_native"]["detail"]["digest_matches"] is True
+    for arm in ("dc_wdl_bridge", "elo_wdl_bridge"):
+        cell = report["arms"][arm]
+        assert cell["status"] == "REFUSED"
+        assert cell["PASS"] is False
+        assert simbundle.BRIDGE_SIDECAR in cell["detail"]["error"]
+    assert set(report["refused"]) == {"dc_wdl_bridge", "elo_wdl_bridge"}
+
+    # ...and narrowing to the arm that CAN be rebuilt is an explicit act
+    narrowed = simcli.check_issuance(stripped, arms=("dc_native",), verbose=False)
+    assert narrowed["PASS"] is True
+    assert set(narrowed["arms"]) == {"dc_native"}
+
+
+def test_check_of_a_bridge_published_arm_no_longer_refuses_outright(
+        tmp_path_factory, book, live_anchor):
+    """The old `check` bailed on ANY non-native published arm before looking."""
+    anchor, archive = live_anchor
+    issued = simcli.forecast(
+        season=SEASON, cutoff=OPENER, arms=("dc_wdl_bridge",), n_sims=N_SIMS,
+        seed=SEED, chunk_size=CHUNK, n_particles=N_PARTICLES,
+        out_root=tmp_path_factory.mktemp("published_bridge"), gate=False,
+        verbose=False,
+        fit=simcli.FitBundle(post=None, book=book, anchor=anchor,
+                             matches=archive, training=archive, info={}))
+    assert issued["published_arm"] == "dc_wdl_bridge"
+
+    report = simcli.check_issuance(issued["directory"], verbose=False)
+    assert report["PASS"] is True
+    assert report["arm"] == "dc_wdl_bridge"
+    assert report["detail"]["digest_matches"] is True

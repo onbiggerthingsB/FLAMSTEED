@@ -42,7 +42,7 @@ import numpy as np
 import pandas as pd
 
 from epl import (bridge as bridge_mod, leaguesim, particles, paths,
-                 season as season_mod, simcanary, table as table_mod)
+                 season as season_mod, simbundle, simcanary, table as table_mod)
 
 # ==========================================================================
 # constants
@@ -358,6 +358,13 @@ def forecast(*, season: str = DEFAULT_SEASON, cutoff,
     if fit.info:
         (directory / "fit.json").write_text(
             leaguesim.canonical_json(_plain(fit.info)) + "\n")
+
+    # v1.1 R2: what a BRIDGE arm needs to be re-derived from this directory
+    # alone — the fitted bridge's counts, the Elo arm's ratings and head, the
+    # provisional/cold-start sets. New files beside the existing ones; nothing
+    # already written changes, and a dc_native-only issuance writes none of them.
+    simbundle.write_sidecars(directory, arms=arms, bridge=bridge, book=book,
+                             providers=providers, fit_info=fit.info)
 
     gate_report = None
     if gate:
@@ -905,33 +912,99 @@ def _cutoff_table(state, witness_states) -> dict:
 # 4. re-checking a written issuance
 # ==========================================================================
 
-def check_issuance(directory, *, verbose: bool = True) -> dict:
+def check_issuance(directory, *, arms: Sequence[str] | None = None,
+                   verbose: bool = True) -> dict:
     """Re-run a written issuance from its own bundle and demand it reproduces.
 
-    Rebuilds the season state from the snapshot at the recorded cutoff, reloads
-    the persisted particle book, re-runs the published arm at the recorded seed
-    and N, and compares the number digest with the one the issuance wrote. Then
-    the T6 checks: coherence, and per-fixture marginal parity against the book's
-    own published law.
+    EVERY arm the issuance carries, not only the published one (v1.1 R2). The
+    season state is rebuilt from the snapshot at the recorded cutoff and the
+    particle book is reloaded from ``particles.npz``; each arm's provider is
+    then rebuilt — ``dc_native`` is the book itself, the two bridge arms come
+    from :mod:`epl.simbundle`'s sidecars, re-derived rather than replayed — and
+    re-run at the recorded seed, N and chunk size. The number digest must match
+    what the issuance wrote.
+
+    Three verdicts per arm, and only one of them is agreement:
+
+    ``PASS``      rebuilt, re-run, same digest, coherent.
+    ``FAIL``      rebuilt but the numbers moved, or a sidecar does not describe
+                  what it claims (an edited cdf cell, a changed rating).
+    ``REFUSED``   the arm cannot be rebuilt here at all — an issuance written
+                  before the sidecars existed carries no record of the fitted
+                  bridge or the Elo head. A refusal is NOT a pass, and the
+                  overall verdict is False while one stands; narrowing to the
+                  arms that can be rebuilt (`arms=...`) is an explicit act.
+
+    Per-fixture marginal parity is a DC-native question — it asks whether the
+    simulated marginals ARE ``draw_api``'s published grids — so it is reported
+    ``NOT_APPLICABLE`` for an arm that samples another law on purpose, rather
+    than being computed against a reference that is not that arm's.
     """
     directory = Path(directory)
     record = json.loads((directory / "issuance.json").read_text())
-    arm = record["published_arm"]
-    if arm != "dc_native":
-        return {"PASS": False, "detail": {
-            "error": f"published arm {arm!r} cannot be rebuilt from the bundle "
-                     "alone: only the DC-native arm is fully described by the "
-                     "particle book"}}
+    requested = tuple(arms) if arms else tuple(record["arms"])
+    unknown = [a for a in requested if a not in record["numbers_digests"]]
+    if unknown:
+        raise CliError(
+            f"{directory} has no recorded digest for arm(s) {unknown}; it "
+            f"carries {sorted(record['numbers_digests'])}")
 
     season_obj = season_mod.Season.load(record["season"])
     state = season_obj.at(record["cutoff"], record["observed_by"])
     book = particles.ParticleBook.load(directory / "particles.npz")
 
+    results = {arm: _check_arm(arm, directory, record, season_obj, state, book,
+                               verbose=verbose)
+               for arm in requested}
+    failed = [a for a, r in results.items() if r["status"] == "FAIL"]
+    refused = [a for a, r in results.items() if r["status"] == "REFUSED"]
+    published = record["published_arm"]
+    headline = results.get(published, results[requested[0]])
+
+    return {
+        "PASS": not failed and not refused,
+        "directory": str(directory),
+        "arm": headline["arm"],
+        "arms": results,
+        "failed": failed,
+        "refused": refused,
+        "note": ("A REFUSED arm is not a passing arm: an issuance whose bridge "
+                 "sidecars are absent cannot be shown to reproduce, and saying "
+                 "so is the check working."),
+        # the published arm's view, kept at the top level so a caller that only
+        # ever asked about one arm still reads the same keys
+        "detail": headline["detail"],
+        "coherence": headline["coherence"],
+        "marginal_parity": headline["marginal_parity"],
+    }
+
+
+def _check_arm(arm: str, directory: Path, record: dict, season_obj, state, book,
+               *, verbose: bool) -> dict:
+    """One arm, rebuilt from the bundle and re-run. Never raises."""
+    blank = {"arm": arm, "detail": {}, "coherence": {"PASS": False},
+             "marginal_parity": {"PASS": False}}
+
+    why = simbundle.refusal(arm, directory)
+    if why is not None:
+        return {**blank, "status": "REFUSED", "PASS": False,
+                "detail": {"error": why}}
+    try:
+        provider = simbundle.rebuild_provider(
+            arm, directory, book=book, state=state,
+            n_particles=record["n_particles"])
+    except (simbundle.BundleError, bridge_mod.BridgeError,
+            particles.ParticleError, KeyError) as exc:
+        return {**blank, "status": "FAIL", "PASS": False,
+                "detail": {"error": f"{type(exc).__name__}: {exc}"}}
+
     if verbose:
+        # stderr, so `check`'s stdout is the report and nothing else
         print(f"[check] re-running {arm} at {record['cutoff']} "
-              f"(N={record['n_sims']}, seed={record['seed']})", flush=True)
+              f"(N={record['n_sims']}, seed={record['seed']})",
+              file=sys.stderr, flush=True)
     run = leaguesim.simulate(
-        arm, state, book, record["n_sims"], record["seed"],
+        arm, state, provider, record["n_sims"], record["seed"],
         chunk_size=record["chunk_size"], season=season_obj,
         boundaries=season_obj.manifest.material_boundaries,
         rule_id=season_obj.manifest.tiebreak_rule_id,
@@ -941,19 +1014,28 @@ def check_issuance(directory, *, verbose: bool = True) -> dict:
     expected = record["numbers_digests"][arm]
     matches = digest == expected
     coherence = simcanary.coherence(run)
-    try:
-        parity = simcanary.marginal_parity(book, None, run)
-    except Exception as exc:
-        parity = {"PASS": False, "error": f"{type(exc).__name__}: {exc}"}
+    if arm == "dc_native":
+        try:
+            parity = simcanary.marginal_parity(book, None, run)
+        except Exception as exc:
+            parity = {"PASS": False, "error": f"{type(exc).__name__}: {exc}"}
+    else:
+        parity = {"PASS": True, "status": "NOT_APPLICABLE", "note": (
+            f"{arm} samples the empirical bridge's conditional on purpose, so "
+            "its per-fixture scoreline marginal is not the particle book's and "
+            "comparing them would measure the arm's definition, not its "
+            "reproduction. Its evidence here is the numbers digest.")}
 
+    passed = bool(matches and coherence["PASS"] and parity["PASS"])
     return {
-        "PASS": bool(matches and coherence["PASS"] and parity["PASS"]),
-        "directory": str(directory),
         "arm": arm,
+        "status": "PASS" if passed else "FAIL",
+        "PASS": passed,
         "detail": {
             "digest_matches": bool(matches),
             "recorded_digest": expected,
             "recomputed_digest": digest,
+            "provider_hash": provider.content_hash(),
             "book_hash": book.content_hash(),
             "recorded_book_hash": record["effective_posterior_hash"],
         },
@@ -1231,6 +1313,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     c.add_argument("--season", default=DEFAULT_SEASON)
     c.add_argument("--cutoff", default=None)
     c.add_argument("--out-root", default=None)
+    c.add_argument("--arm", action="append", choices=list(ARMS), default=None,
+                   help="check only this arm (repeatable). The default is every "
+                        "arm the issuance recorded; narrowing is how an issuance "
+                        "written before the bridge sidecars existed is checked "
+                        "for the arms it CAN account for.")
 
     args = parser.parse_args(list(argv) if argv is not None else None)
 
@@ -1304,8 +1391,12 @@ def _cmd_retro(args) -> int:
 def _cmd_check(args) -> int:
     directory = (Path(args.directory) if args.directory
                  else _last_issuance(args.season, args.out_root, args.cutoff))
-    report = check_issuance(directory, verbose=True)
+    report = check_issuance(directory, arms=args.arm, verbose=True)
     print(leaguesim.canonical_json(_plain(report)))
+    for arm, cell in report["arms"].items():
+        print(f"[check] {arm}: {cell['status']}"
+              + (f" — {cell['detail']['error']}" if cell["status"] != "PASS"
+                 and cell["detail"].get("error") else ""), file=sys.stderr)
     return 0 if report["PASS"] else 4
 
 
