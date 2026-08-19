@@ -415,3 +415,91 @@ A second finding, quieter but squarely on the preregistered question: **the T8 s
 TRPS is primary and unweighted; wTRPS on the published consequence boundaries is secondary; the champion log loss is a floored diagnostic. Paired differences are a diagnostic with no pass rule (plan v2 §5). Nothing here is a betting signal, and a position is not a claim about qualification for any competition.
 
 *R1 run and scored 2026-08-19 from ledger `data/epl/sim/retro_r1.jsonl`. Harness `epl-simretro-1` / metrics `epl-simmetrics-1`, hashes verified against the preregistration at the top of §1.*
+
+---
+
+## Addendum A — TRPS Monte-Carlo error per cell
+
+**Added 2026-08-19.** The R1 body above is unchanged: not one TRPS, wTRPS, Brier, CRPS, coverage, mean, bootstrap interval, count or hash in §1–§10 has moved, and nothing here is a new run. This section adds the column those tables did not carry — a Monte-Carlo standard error on TRPS itself — computed from the per-cell errors the R1 ledger already stored (`data/epl/sim/retro_r1.jsonl`).
+
+### Method, and what the number is not
+
+TRPS is a smooth function of the position matrix through the cumulative forecast, so with `X` the cumulative forecast, `O` the cumulative outcome and `g = dTRPS/dm` evaluated at the reported matrix:
+
+```
+g[c, k] = 2 / (C (R−1)) · Σ_{r ≥ k} (X[c, r] − O[c, r])
+Var(TRPS) ≈ Σ_{c, k} g[c, k]² · se[c, k]²
+```
+
+`se` is the run's own cluster-by-particle per-cell error, stored on every R1 row as `matrix_se`. The arithmetic is not reimplemented here: `epl.simmetrics.trps_se` — the function harness v2 scores with — is imported and called unchanged, and a hand-worked case in `epl/tests/test_retro_addendum.py` checks that function against an independently written-out computation, so 'the same formula' has a test under it.
+
+- **Monte-Carlo error only.** It is how much this TRPS would move if the same forecast were re-simulated at another seed. It is **not** model error: a tight standard error on a badly specified model is still a badly specified model.
+- **Not the between-season spread.** How much an unseen season might have disagreed is what §4's season-block bootstrap reports, and it is one to two orders of magnitude larger. These two numbers are not versions of each other and must not be read as if they were.
+- **Conservative, not exact.** The cells of one club are treated as independent. They are not — a club's row sums to 1, so the neglected covariances are predominantly negative — and ignoring them **overstates** the variance.
+- **`n/a` for the nulls.** `flat` is closed-form and `ppg_pointmass` is a point mass; neither records a per-cell Monte-Carlo error, so neither gets an invented one.
+
+**Relation to amendment A2-N1.** That note, recording harness v2's TRPS SE as a declared deviation, said no score in this report *gains an SE retroactively*, on the ground that R1 ran under harness v1 and the column is `n/a` for it by construction. This addendum supplies one anyway, from the per-cell errors R1 did record, and that is a second deviation from a pre-statement — recorded here rather than made quietly. What A2-N1 was protecting is preserved: the R1 body's numbers are untouched, the harness that produced R1 still computed no TRPS SE, and nothing below is presented as something the R1 run reported. These are figures computed after the fact, by a later formula, from stored errors — an addendum, not a revision.
+
+### Every scored cell — TRPS ± MC SE
+
+Comparison cutoffs first, then the MW28 sanity cutoff, which is in no comparison (§7). `±` is the Monte-Carlo standard error described above.
+
+#### Comparison cutoffs
+
+| cutoff | season | `dc_native` | `dc_wdl_bridge` | `elo_wdl_bridge` | `flat` | `ppg_pointmass` |
+|---|---|---|---|---|---|---|
+| MW0 | 2021/22 | 0.0882 ± 0.00047 | 0.0885 ± 0.00047 | 0.0941 ± 0.00036 | 0.1750 ± n/a | — |
+| MW0 | 2022/23 | 0.1604 ± 0.00067 | 0.1598 ± 0.00067 | 0.1483 ± 0.00047 | 0.1750 ± n/a | — |
+| MW0 | 2024/25 | 0.1161 ± 0.00055 | 0.1163 ± 0.00055 | 0.1292 ± 0.00047 | 0.1750 ± n/a | — |
+| MW0 | 2025/26 | 0.1356 ± 0.00053 | 0.1349 ± 0.00052 | 0.1327 ± 0.00038 | 0.1750 ± n/a | — |
+| MW3 | 2019/20 | 0.0899 ± 0.00039 | 0.0897 ± 0.00039 | 0.0973 ± 0.00032 | 0.1750 ± n/a | 0.1803 ± n/a |
+| MW3 | 2020/21 | 0.0740 ± 0.00031 | 0.0741 ± 0.00031 | 0.0865 ± 0.00025 | 0.1750 ± n/a | 0.2053 ± n/a |
+| MW3 | 2021/22 | 0.0884 ± 0.00043 | 0.0884 ± 0.00043 | 0.0964 ± 0.00037 | 0.1750 ± n/a | 0.2197 ± n/a |
+| MW3 | 2022/23 | 0.1406 ± 0.00059 | 0.1399 ± 0.00058 | 0.1299 ± 0.00041 | 0.1750 ± n/a | 0.1947 ± n/a |
+| MW3 | 2024/25 | 0.1023 ± 0.00050 | 0.1022 ± 0.00050 | 0.1046 ± 0.00040 | 0.1750 ± n/a | 0.1421 ± n/a |
+| MW3 | 2025/26 | 0.1346 ± 0.00056 | 0.1341 ± 0.00055 | 0.1352 ± 0.00040 | 0.1750 ± n/a | 0.2934 ± n/a |
+| MW6 | 2019/20 | 0.0926 ± 0.00044 | 0.0925 ± 0.00044 | 0.1044 ± 0.00038 | 0.1750 ± n/a | 0.1895 ± n/a |
+| MW6 | 2020/21 | 0.0762 ± 0.00033 | 0.0759 ± 0.00033 | 0.0904 ± 0.00029 | 0.1750 ± n/a | 0.2053 ± n/a |
+| MW6 | 2021/22 | 0.0841 ± 0.00042 | 0.0845 ± 0.00041 | 0.0854 ± 0.00034 | 0.1750 ± n/a | 0.1737 ± n/a |
+| MW6 | 2022/23 | 0.1295 ± 0.00053 | 0.1289 ± 0.00052 | 0.1143 ± 0.00036 | 0.1750 ± n/a | 0.1895 ± n/a |
+| MW6 | 2024/25 | 0.0987 ± 0.00052 | 0.0986 ± 0.00052 | 0.1024 ± 0.00040 | 0.1750 ± n/a | 0.1263 ± n/a |
+| MW6 | 2025/26 | 0.1203 ± 0.00054 | 0.1198 ± 0.00053 | 0.1197 ± 0.00039 | 0.1750 ± n/a | 0.2000 ± n/a |
+| MW10 | 2019/20 | 0.0721 ± 0.00033 | 0.0724 ± 0.00032 | 0.0827 ± 0.00030 | 0.1750 ± n/a | 0.1737 ± n/a |
+| MW10 | 2020/21 | 0.0664 ± 0.00032 | 0.0660 ± 0.00032 | 0.0779 ± 0.00028 | 0.1750 ± n/a | 0.1316 ± n/a |
+| MW10 | 2021/22 | 0.0654 ± 0.00028 | 0.0653 ± 0.00027 | 0.0702 ± 0.00023 | 0.1750 ± n/a | 0.1211 ± n/a |
+| MW10 | 2022/23 | 0.1212 ± 0.00051 | 0.1206 ± 0.00051 | 0.1062 ± 0.00034 | 0.1750 ± n/a | 0.1684 ± n/a |
+| MW10 | 2024/25 | 0.0820 ± 0.00045 | 0.0821 ± 0.00045 | 0.0835 ± 0.00035 | 0.1750 ± n/a | 0.1263 ± n/a |
+| MW10 | 2025/26 | 0.0941 ± 0.00043 | 0.0937 ± 0.00042 | 0.0891 ± 0.00033 | 0.1750 ± n/a | 0.1526 ± n/a |
+| MW19 | 2019/20 | 0.0497 ± 0.00020 | 0.0497 ± 0.00020 | 0.0483 ± 0.00018 | 0.1750 ± n/a | 0.0842 ± n/a |
+| MW19 | 2020/21 | 0.0508 ± 0.00022 | 0.0505 ± 0.00021 | 0.0531 ± 0.00019 | 0.1750 ± n/a | 0.1000 ± n/a |
+| MW19 | 2021/22 | 0.0494 ± 0.00018 | 0.0495 ± 0.00018 | 0.0486 ± 0.00014 | 0.1750 ± n/a | 0.0579 ± n/a |
+| MW19 | 2022/23 | 0.0675 ± 0.00030 | 0.0673 ± 0.00029 | 0.0611 ± 0.00021 | 0.1750 ± n/a | 0.1105 ± n/a |
+| MW19 | 2024/25 | 0.0511 ± 0.00028 | 0.0510 ± 0.00028 | 0.0484 ± 0.00020 | 0.1750 ± n/a | 0.0842 ± n/a |
+| MW19 | 2025/26 | 0.0799 ± 0.00032 | 0.0797 ± 0.00031 | 0.0798 ± 0.00025 | 0.1750 ± n/a | 0.0947 ± n/a |
+
+#### MW28 — sanity only, in no comparison
+
+| cutoff | season | `dc_native` | `dc_wdl_bridge` | `elo_wdl_bridge` | `flat` | `ppg_pointmass` |
+|---|---|---|---|---|---|---|
+| MW28 | 2019/20 | 0.0390 ± 0.00016 | 0.0391 ± 0.00016 | 0.0378 ± 0.00014 | 0.1750 ± n/a | 0.0526 ± n/a |
+| MW28 | 2020/21 | 0.0458 ± 0.00015 | 0.0458 ± 0.00015 | 0.0493 ± 0.00014 | 0.1750 ± n/a | 0.0737 ± n/a |
+| MW28 | 2021/22 | 0.0453 ± 0.00019 | 0.0453 ± 0.00019 | 0.0470 ± 0.00016 | 0.1750 ± n/a | 0.0737 ± n/a |
+| MW28 | 2022/23 | 0.0384 ± 0.00017 | 0.0383 ± 0.00017 | 0.0339 ± 0.00013 | 0.1750 ± n/a | 0.0526 ± n/a |
+| MW28 | 2024/25 | 0.0395 ± 0.00019 | 0.0393 ± 0.00019 | 0.0385 ± 0.00014 | 0.1750 ± n/a | 0.0737 ± n/a |
+| MW28 | 2025/26 | 0.0543 ± 0.00021 | 0.0542 ± 0.00021 | 0.0520 ± 0.00018 | 0.1750 ± n/a | 0.0789 ± n/a |
+
+### Per-cutoff mean TRPS ± MC SE of the mean
+
+Means are taken **within** a cutoff and never across cutoffs, and the season count is on every row because it is not the same at every cutoff (§2). The error is the Monte-Carlo error of the mean, `sqrt(Σ se²) / n` over the seasons in that cell — again not the between-season spread.
+
+| cutoff | seasons | `dc_native` | `dc_wdl_bridge` | `elo_wdl_bridge` | `flat` | `ppg_pointmass` |
+|---|---|---|---|---|---|---|
+| MW0 | 4 | 0.1251 ± 0.00028 | 0.1249 ± 0.00028 | 0.1261 ± 0.00021 | 0.1750 ± n/a | — |
+| MW3 | 6 | 0.1049 ± 0.00019 | 0.1047 ± 0.00019 | 0.1083 ± 0.00015 | 0.1750 ± n/a | 0.2059 ± n/a |
+| MW6 | 6 | 0.1002 ± 0.00019 | 0.1000 ± 0.00019 | 0.1028 ± 0.00015 | 0.1750 ± n/a | 0.1807 ± n/a |
+| MW10 | 6 | 0.0835 ± 0.00016 | 0.0833 ± 0.00016 | 0.0849 ± 0.00013 | 0.1750 ± n/a | 0.1456 ± n/a |
+| MW19 | 6 | 0.0581 ± 0.00010 | 0.0580 ± 0.00010 | 0.0565 ± 0.00008 | 0.1750 ± n/a | 0.0886 ± n/a |
+| MW28 | 6 | 0.0437 ± 0.00007 | 0.0437 ± 0.00007 | 0.0431 ± 0.00006 | 0.1750 ± n/a | 0.0675 ± n/a |
+
+Read these against §3 and §7: the TRPS values are the same numbers those tables print, recomputed from the same ledger rows, and the column added is the error beside them. No pass rule reads any figure in this addendum — there is none to read (prereg §7) — and the published-arm question is unchanged by it.
+
