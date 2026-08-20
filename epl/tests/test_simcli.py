@@ -2089,6 +2089,143 @@ def test_the_committed_opener_reports_exactly_the_pre_A6_criteria_unanchored():
     assert _record_criterion(report, "acceptance_verdict")["status"] == "PASS"
 
 
+#: Every UNANCHORED entry the DEFAULT `check` command reports for the committed
+#: opener. A6 (b.5) pre-stated five criterion NAMES; the landed code reports
+#: those five names as NINE per-arm entries. The deviation is recorded in the
+#: ledger's "What landed for A6 (b)" note and pinned by the test below.
+COMMITTED_OPENER_UNANCHORED = {
+    "record_digest",
+    "acceptance_digest",
+    "dc_native.retained_rows_anchored",
+    "dc_native.truncation_sidecar_anchored",
+    "dc_native.parity_reference_is_production_grid",
+    "dc_wdl_bridge.retained_rows_anchored",
+    "dc_wdl_bridge.truncation_sidecar_anchored",
+    "elo_wdl_bridge.retained_rows_anchored",
+    "elo_wdl_bridge.truncation_sidecar_anchored",
+}
+
+
+def _a6_b_note() -> str:
+    """The amendment ledger's `What landed for A6 (b)` section, alone."""
+    path = (Path(simcli.__file__).resolve().parents[1] / "reports"
+            / "epl_sim_amendments.md")
+    if not path.exists():                                   # pragma: no cover
+        pytest.skip("reports/ is not in this checkout")
+    text = path.read_text(encoding="utf-8")
+    head = "### What landed for A6 (b) — `check` semantics"
+    start = text.find(head)
+    assert start != -1, f"{path} carries no {head!r} section"
+    rest = text[start + len(head):]
+    for nxt in ("\n### ", "\n## "):
+        cut = rest.find(nxt)
+        if cut != -1:
+            rest = rest[:cut]
+    return rest
+
+
+def _check_stderr_lines(report: dict) -> list[str]:
+    """Exactly the lines `_cmd_check` writes to stderr for `report`.
+
+    Built from the report the command prints them from (`epl/simcli.py:2474`),
+    so a transcript quoted in the ledger is held against what the code emits
+    rather than against a memory of what it emitted.
+    """
+    lines = []
+    for arm, cell in report["arms"].items():
+        error = cell["detail"].get("error")
+        suffix = f" — {error}" if cell["status"] != "PASS" and error else ""
+        lines.append(f"[check] {arm}: {cell['status']}{suffix}")
+    for row in report["criteria"]:
+        if row["status"] != "PASS":
+            suffix = f" — {row['note']}" if row["note"] else ""
+            lines.append(f"[check] {row['name']}: {row['status']}{suffix}")
+    line = f"[check] {report['headline']}"
+    if not report["fully_anchored"]:
+        line += "; unanchored: " + ", ".join(report["unanchored"])
+    lines.append(line)
+    return lines
+
+
+def test_the_committed_opener_whole_bundle_check_is_FAIL_and_the_ledger_says_so():
+    """A6 (b.5) held against the DOCUMENTED command, and against the note that
+    quotes it.
+
+    The narrowed test above passes `arms=("dc_native",)`, which is a different
+    question with a different answer. The documented command asks about the
+    whole bundle, whose two bridge arms are REFUSED for want of sidecars: its
+    headline is `FAIL`, its exit code is 4, and its unanchored list is
+    namespaced per arm and nine entries long. The ledger's "What landed for
+    A6 (b)" note quoted the NARROWED transcript under the whole-bundle command
+    and called the headline a PASS — a report saying something the code does
+    not say, which is the failure class `a2b1ead` was written to close, and one
+    the narrowed test could not catch because it narrows the same way. So this
+    measures both runs and holds every line of the note's two fenced blocks
+    against them.
+    """
+    whole = simcli.check_issuance(COMMITTED_OPENER, verbose=False)
+    narrowed = simcli.check_issuance(COMMITTED_OPENER, arms=("dc_native",),
+                                     verbose=False)
+
+    # 1. THE BUNDLE FAILS — and not for a new reason. Nothing FAILED; the two
+    #    bridge arms are REFUSED exactly as they were before A6 existed, that
+    #    bundle carrying no arm sidecars to be rebuilt from.
+    assert whole["PASS"] is False
+    assert whole["headline"] == "FAIL"
+    assert whole["fully_anchored"] is False
+    assert whole["failed"] == [] and whole["record_failed"] == []
+    assert whole["record_refused"] == []
+    assert sorted(whole["refused"]) == ["dc_wdl_bridge", "elo_wdl_bridge"]
+    assert whole["arms"]["dc_native"]["status"] == "PASS"
+    assert whole["arms"]["dc_native"]["detail"]["digest_matches"] is True
+
+    # 2. FIVE NAMES, NINE ENTRIES — the deviation from (b.5), which counted
+    #    criteria where `check` counts and namespaces per-arm entries.
+    assert set(whole["unanchored"]) == COMMITTED_OPENER_UNANCHORED
+    assert {entry.rsplit(".", 1)[-1]
+            for entry in COMMITTED_OPENER_UNANCHORED} == {
+        "record_digest", "acceptance_digest", "retained_rows_anchored",
+        "truncation_sidecar_anchored", "parity_reference_is_production_grid"}
+
+    # 3. The narrowed run reports a strict subset of them, under a PASS
+    #    headline that belongs to it and not to the bundle.
+    assert narrowed["PASS"] is True
+    assert narrowed["headline"] == "PASS (5 criteria unanchored: pre-A6 record)"
+    assert set(narrowed["unanchored"]) < COMMITTED_OPENER_UNANCHORED
+
+    # 4. THE LEDGER QUOTES BOTH RUNS, LINE FOR LINE, AND NAMES THE NARROWING.
+    note = _a6_b_note()
+    for report in (whole, narrowed):
+        for line in _check_stderr_lines(report):
+            assert line in note, f"the A6 (b) note does not carry: {line}"
+    record = json.loads((COMMITTED_OPENER / "issuance.json").read_text())
+    assert (f"[check] re-running dc_native at {record['cutoff']} "
+            f"(N={record['n_sims']}, seed={record['seed']})") in note
+    assert "--arm dc_native" in note, \
+        "the note quotes a narrowed run without naming the option that narrows it"
+
+    # 5. TWO BLOCKS, IN THAT ORDER, EACH CLAIMING THE EXIT CODE `_cmd_check`
+    #    returns for it (`epl/simcli.py:2487`). The narrowed block is the one
+    #    that carries the option that narrows it.
+    blocks = [b for i, b in enumerate(note.split("```")) if i % 2 == 1]
+    assert len(blocks) == 2, f"the note carries {len(blocks)} fenced blocks, not 2"
+    assert "--arm dc_native" not in blocks[0]
+    assert "--arm dc_native" in blocks[1]
+    for block, report in zip(blocks, (whole, narrowed)):
+        assert block.rstrip().splitlines()[-1].strip() == \
+            ("0" if report["PASS"] else "4")
+
+    # POSITIVE CONTROLS: the containment checks are not vacuous, and the note
+    # is not merely long enough to contain anything shaped like a transcript.
+    whole_headline = _check_stderr_lines(whole)[-1]
+    drifted = note.replace("dc_wdl_bridge.retained_rows_anchored",
+                           "dc_wdl_bridge.retained_rows_unanchored")
+    assert whole_headline not in drifted, \
+        "a drifted entry name must break the quotation this test checks"
+    assert whole_headline.replace("FAIL", "PASS") not in note, \
+        "the whole-bundle line must be quoted with the headline the code emits"
+
+
 # ==========================================================================
 # G5 — the vocabulary rename is a rename, and the cut lines carry an error
 # (`engine-pricing.md` #5 #6, `gate-retro.md` #5, `ranker.md` #4)

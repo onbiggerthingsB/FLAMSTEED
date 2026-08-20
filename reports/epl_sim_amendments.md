@@ -2440,30 +2440,90 @@ no sidecars.
 
 ### What landed for A6 (b) — `check` semantics (recorded 2026-08-20, with the G3 Fix commit)
 
-`epl-issuance-4` is live, the fourth verdict exists, and the committed opener was
-re-checked under the new code on 2026-08-20. It reports exactly what (b.5)
-pre-stated:
+`epl-issuance-4` is live and the fourth verdict exists. The committed opener was
+re-checked under the new code on 2026-08-20. **This is what the documented
+whole-bundle command emits** — the JSON report goes to stdout and is elided
+here; these are the stderr lines and the exit code:
 
 ```
-PASS (5 criteria unanchored: pre-A6 record)   fully_anchored: false
-record_digest                             UNANCHORED (pre-A6 record)
-acceptance_digest                         UNANCHORED (pre-A6 record)
-retained_rows_anchored                    UNANCHORED (pre-A6 record)
-truncation_sidecar_anchored               UNANCHORED (pre-A6 record)
-parity_reference_is_production_grid       UNANCHORED (pre-A6 record)
-published_output_full_digest              PASS
-envelope_agrees_with_record               PASS
-acceptance_verdict                        PASS
-truncation_sidecar_consistent             PASS
-retained_rows_reproduce                   PASS   <- the one A6 did not assert
+$ PYTHONPATH=src:. .venv/bin/python -m epl.simcli check \
+      --directory data/epl/sim/issuances/2026_27/2026-08-21
+[check] re-running dc_native at 2026-08-21 00:00:00 (N=20000, seed=20260611)
+[check] dc_native: PASS
+[check] dc_wdl_bridge: REFUSED — dc_wdl_bridge cannot be re-derived from this issuance: arms.json, bridge.json are missing. An issuance written before the arm sidecars existed carries no record of the fitted bridge or the Elo head, and a check that cannot rebuild the arm is not a passing check.
+[check] elo_wdl_bridge: REFUSED — elo_wdl_bridge cannot be re-derived from this issuance: arms.json, bridge.json, elo_arm.json are missing. An issuance written before the arm sidecars existed carries no record of the fitted bridge or the Elo head, and a check that cannot rebuild the arm is not a passing check.
+[check] record_digest: UNANCHORED — unanchored (pre-A6 record)
+[check] acceptance_digest: UNANCHORED — unanchored (pre-A6 record)
+[check] FAIL; unanchored: acceptance_digest, dc_native.parity_reference_is_production_grid, dc_native.retained_rows_anchored, dc_native.truncation_sidecar_anchored, dc_wdl_bridge.retained_rows_anchored, dc_wdl_bridge.truncation_sidecar_anchored, elo_wdl_bridge.retained_rows_anchored, elo_wdl_bridge.truncation_sidecar_anchored, record_digest
+$ echo $?
+4
 ```
 
-`retained_rows_reproduce` is the criterion (b.5) declined to predict — a
-re-derivation available on every schema. Measured now that the code exists: it
-PASSES for the committed opener's `dc_native` arm, all ten arrays element for
-element. `dc_native` still reports `digest_matches: true`; the two bridge arms
-are REFUSED there for the reason they always were, that bundle carrying no
-sidecars.
+*Arithmetic note: the two transcripts in this section quote verdicts, criterion
+names and an exit code. Nothing in them is estimated, so nothing in them carries
+a Monte-Carlo error.*
+
+**The headline is `FAIL` and the exit code is 4 — and for the reason they always
+were.** The two bridge arms are `REFUSED` because this bundle carries no arm
+sidecars, and a `REFUSED` arm is not a passing arm. That is A6 (b.5)'s *"its
+top-level verdict is unchanged"* holding rather than failing: `PASS` was already
+false for this bundle at `a2b1ead`, before A6 existed, on exactly those two arms.
+
+**Where the landed code DEVIATES from (b.5), recorded rather than smoothed over.**
+(b.5) pre-stated that *"exactly five report `UNANCHORED (pre-A6 record)`"* and
+named five criteria. The code reports those five **names** as nine per-arm
+**entries**. `record_digest` and `acceptance_digest` are record-level and appear
+once each. `retained_rows_anchored` and `truncation_sidecar_anchored` are per-arm
+and are evaluated for all three arms, none of which carries sidecars — six.
+`parity_reference_is_production_grid` appears for `dc_native` alone, because the
+two bridge arms are refused before the rebuild that would evaluate it — one. Two
+plus six plus one is nine, and every arm-level entry is namespaced
+`<arm>.<criterion>`, which is what makes an entry distinguishable from a name.
+(b.5) counted criteria and the tool counts and namespaces entries; the bundle's
+standing is the same under either count — five names, nine entries, and no
+anchor.
+
+**Narrowed to the published arm** — `--arm dc_native`, which is the question the
+per-criterion table in (b.5) is written about — the same bundle reports:
+
+```
+$ PYTHONPATH=src:. .venv/bin/python -m epl.simcli check \
+      --directory data/epl/sim/issuances/2026_27/2026-08-21 --arm dc_native
+[check] re-running dc_native at 2026-08-21 00:00:00 (N=20000, seed=20260611)
+[check] dc_native: PASS
+[check] record_digest: UNANCHORED — unanchored (pre-A6 record)
+[check] acceptance_digest: UNANCHORED — unanchored (pre-A6 record)
+[check] PASS (5 criteria unanchored: pre-A6 record); unanchored: acceptance_digest, dc_native.parity_reference_is_production_grid, dc_native.retained_rows_anchored, dc_native.truncation_sidecar_anchored, record_digest
+$ echo $?
+0
+```
+
+**That is a NARROWED run, and its headline is not the bundle's.** `--arm
+dc_native` asks about one arm and is answered about one arm; the bundle's verdict
+is the block above. Five entries here because one arm contributes two sidecar
+anchors and one parity anchor — not because the bundle has five.
+
+Per criterion for `dc_native`: `published_output_full_digest`,
+`envelope_agrees_with_record`, `truncation_sidecar_consistent` and
+`retained_rows_reproduce` all `PASS`, and the record-level `acceptance_verdict`
+`PASS`es. `retained_rows_reproduce` is the criterion (b.5) declined to predict —
+a re-derivation available on every schema. Measured now that the code exists: it
+passes for the committed opener's `dc_native` arm, all ten arrays element for
+element, and `dc_native` still reports `digest_matches: true`.
+
+> **Correction, 2026-08-20 (r6 Fix commit).** As first written, this note carried
+> one fenced block, headed `PASS (5 criteria unanchored: pre-A6 record)` with
+> `fully_anchored: false` beside it, and presented that as what the documented
+> whole-bundle command emits. It is not. That block is the `--arm dc_native`
+> run — an option the note did not mention — its criterion names were shown
+> stripped of the `<arm>.` namespace the code writes, and the whole-bundle
+> headline is `FAIL` with exit code 4 and nine entries. The two blocks above are
+> the two commands' actual output.
+> `test_the_committed_opener_reports_exactly_the_pre_A6_criteria_unanchored`
+> stayed green throughout because it, too, passed `arms=("dc_native",)`;
+> `test_the_committed_opener_whole_bundle_check_is_FAIL_and_the_ledger_says_so`
+> now measures both runs and holds every line of this note's two blocks against
+> them, so the note and the tool cannot drift apart again.
 
 Three points where the implementation had to decide something (b) does not
 spell out, each decided the strict way and stated here:
