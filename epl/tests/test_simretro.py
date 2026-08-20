@@ -496,12 +496,15 @@ def test_retro_ledger_resumable_and_keyed_by_envelope_hash(tmp_path):
         points={c: 80 - 3 * i for i, c in enumerate(clubs)},
         adjustments={}, n_shared=0)
 
-    # `ppg` stands in for the real ppg_pointmass: undefined at the opener.
-    runner = _CountingRunner(clubs, undefined_at=(("ppg", "MW0"),))
+    # `ppg_pointmass` by its real name: it is the one arm this harness defines
+    # CONDITIONALLY (prereg §4), and therefore the only one an
+    # `arm_not_defined` marker may legally name (`simretro.CONDITIONAL_ARMS`).
+    runner = _CountingRunner(clubs, undefined_at=(("ppg_pointmass", "MW0"),))
     ledger = tmp_path / "retro.jsonl"
     schedule = {"MW0": pd.Timestamp("2099-08-10"), "MW10": pd.Timestamp("2099-11-20")}
     kwargs = dict(seasons=("2099/00",), cutoffs=("MW0", "MW10"),
-                  arms=("dc_native", "dc_wdl_bridge"), nulls=("flat", "ppg"),
+                  arms=("dc_native", "dc_wdl_bridge"),
+                  nulls=("flat", "ppg_pointmass"),
                   n_sims=64, seed=SEED, ledger_path=ledger, runner=runner,
                   schedules={"2099/00": schedule},
                   realised={"2099/00": realised}, verbose=False,
@@ -512,11 +515,12 @@ def test_retro_ledger_resumable_and_keyed_by_envelope_hash(tmp_path):
     assert len(first) == 8, "2 arms + 2 nulls at both cutoffs, ppg@MW0 refused"
     forecasts = [r for r in first if not r.get("not_applicable")]
     assert len(forecasts) == 7, "2 arms + flat at both cutoffs, ppg only at MW10"
-    assert not any(r["arm"] == "ppg" and r["cutoff_label"] == "MW0"
+    assert not any(r["arm"] == "ppg_pointmass" and r["cutoff_label"] == "MW0"
                    for r in forecasts), "ppg is undefined at the opener"
     refused = [r for r in first if r.get("refusal_kind")]
     assert all(r["refusal_kind"] == "arm_not_defined" for r in refused)
-    assert [(r["arm"], r["cutoff_label"]) for r in refused] == [("ppg", "MW0")], (
+    assert [(r["arm"], r["cutoff_label"]) for r in refused] == [
+        ("ppg_pointmass", "MW0")], (
         "and the refusal comes BACK, documented: it is the only evidence the "
         "completeness accounting has that the cell is missing on purpose")
     keys = [row["run_key"] for row in first]
@@ -553,7 +557,7 @@ def test_retro_ledger_resumable_and_keyed_by_envelope_hash(tmp_path):
 
     scores = simretro.score_retro(rows, n_boot=200)
     assert {r["arm"] for r in scores["rows"]} == {"dc_native", "dc_wdl_bridge",
-                                                  "flat", "ppg"}
+                                                  "flat", "ppg_pointmass"}
     for row in scores["rows"]:
         assert 0.0 <= row["trps"] <= 1.0
         assert row["flat_trps"] == pytest.approx(21.0 / 120.0, abs=1e-12)
@@ -800,16 +804,21 @@ def test_beats_flat_everywhere_needs_every_expected_cell(tmp_path):
     assert partial["sanity"]["STOP_AND_INSPECT"] is True
     assert partial["sanity"]["missing"][0]["documented"] is False
 
-    # a TYPED refusal is different from a hole: it closes the accounting
+    # a TYPED refusal is different from a hole: it closes the accounting. The
+    # kind has to be one that can be TRUE of `flat`, which is defined at every
+    # cutoff — `unverified_adjustment` is a fact about the season and can reach
+    # any arm, while `arm_not_defined` is refused outright (see
+    # `test_an_arm_not_defined_marker_for_an_always_defined_arm_is_refused`).
     documented = {"season": "2099/00", "cutoff_label": "MW10", "arm": "flat",
-                  "refusal_kind": "arm_not_defined",
-                  "reason": "flat is undefined here",
-                  "not_applicable": "flat is undefined here"}
+                  "refusal_kind": "unverified_adjustment",
+                  "reason": "a deduction the ledger has not checked",
+                  "not_applicable": "a deduction the ledger has not checked"}
     with_reason = simretro.score_retro(thin + [documented], n_boot=50,
                                        expected_triples=whole_grid)
     assert with_reason["sanity"]["n_typed_refusals"] == 1
     assert with_reason["sanity"]["complete"] is True
-    assert with_reason["sanity"]["missing"][0]["reason"] == "flat is undefined here"
+    assert with_reason["sanity"]["missing"][0]["reason"] == \
+        "a deduction the ledger has not checked"
 
 
 def test_ledger_scoring_checks_both_margins_and_the_shape(tmp_path):
@@ -1002,25 +1011,30 @@ def test_run_retro_returns_the_documented_refusals_it_wrote(tmp_path):
     was refused on purpose.
     """
     clubs, realised = _clubs_and_realised()
-    runner = _CountingRunner(clubs, undefined_at=(("flat", "MW10"),))
-    rows = simretro.run_retro(**_v3_kwargs(tmp_path, clubs, realised, runner))
+    # `ppg_pointmass` at the opener: the ONE refusal of this kind the harness
+    # can truthfully make, and the arm it is true of (`CONDITIONAL_ARMS`).
+    runner = _CountingRunner(clubs, undefined_at=(("ppg_pointmass", "MW0"),))
+    rows = simretro.run_retro(**_v3_kwargs(tmp_path, clubs, realised, runner,
+                                           nulls=("flat", "ppg_pointmass")))
     sharp = 0.6 * np.eye(len(clubs)) + 0.4 / len(clubs)
     rows = [dict(r, matrix=sharp.tolist()) if r["arm"] == "dc_native" else r
             for r in rows]
 
     refusals = [r for r in rows if r.get("refusal_kind")]
     assert len(refusals) == 1, "the refusal comes back beside the forecasts"
-    assert (refusals[0]["arm"], refusals[0]["cutoff_label"]) == ("flat", "MW10")
+    assert (refusals[0]["arm"], refusals[0]["cutoff_label"]) == \
+        ("ppg_pointmass", "MW0")
     assert refusals[0]["refusal_kind"] == "arm_not_defined"
     assert refusals[0]["reason"]
 
     cells = simretro.requested_cells(seasons=("2099/00",), cutoffs=("MW0", "MW10"),
-                                     arms=("dc_native",), nulls=("flat",))
+                                     arms=("dc_native",),
+                                     nulls=("flat", "ppg_pointmass"))
     scored = simretro.score_retro(rows, n_boot=50, expected_triples=cells)
     sanity = scored["sanity"]
-    assert sanity["n_scored"] == 3
+    assert sanity["n_scored"] == 5
     assert sanity["n_typed_refusals"] == 1
-    assert sanity["complete"] is True, "3 scored + 1 refused == 4 expected"
+    assert sanity["complete"] is True, "5 scored + 1 refused == 6 expected"
     assert sanity["STOP_AND_INSPECT"] is False
     assert sanity["missing"][0]["documented"] is True
 
@@ -1304,13 +1318,17 @@ def test_only_a_typed_marker_the_runner_wrote_is_a_documented_refusal(tmp_path):
     grid = simretro.requested_cells(seasons=("2099/00",), cutoffs=("MW0", "MW10"),
                                     arms=("dc_native",), nulls=("flat",))
 
-    # 1. a refusal the RUNNER declares is typed, and it closes the accounting
-    runner = _TypedRunner(clubs, refuse_at=(("flat", "MW10", "arm_not_defined"),))
+    # 1. a refusal the RUNNER declares is typed, and it closes the accounting.
+    #    `unverified_adjustment`, not `arm_not_defined`: `flat` is a constant
+    #    matrix and is defined at every cutoff, so the kind that asserts "no
+    #    such arm here by rule" would be a false statement and is refused.
+    runner = _TypedRunner(
+        clubs, refuse_at=(("flat", "MW10", "unverified_adjustment"),))
     rows = _sharpen(simretro.run_retro(
         **_v3_kwargs(tmp_path / "typed", clubs, realised, runner)), clubs)
     marker = [r for r in rows if r.get("refusal_kind")]
     assert len(marker) == 1
-    assert marker[0]["refusal_kind"] == "arm_not_defined"
+    assert marker[0]["refusal_kind"] == "unverified_adjustment"
     assert marker[0]["reason"] == "flat refused at MW10"
     assert (marker[0]["arm"], marker[0]["cutoff_label"]) == ("flat", "MW10")
 
@@ -1611,6 +1629,43 @@ def _ledger_harness_versions(text: str) -> dict[str, tuple[str, str]]:
     return out
 
 
+def _ledger_harness_version_list(text: str) -> list[str]:
+    """The versions A4 STATES a hash pair for, in order and WITHOUT collapsing.
+
+    Codex review of cdd8879: the equality check between the code list and this
+    one is built from dictionaries on both sides, and a dictionary keeps the
+    last of a repeated key. A4's ruling table also carries a v3 row whose cells
+    are a placeholder rather than hashes — that row states no pair and is not a
+    second statement of one, so only rows that parse to a pair are counted.
+    """
+    import re
+
+    start = text.find("## A4 —")
+    assert start >= 0, "amendment A4 is not in the ledger"
+    entry = text[start:]
+    nxt = entry.find("\n## ", 1)
+    entry = entry if nxt < 0 else entry[:nxt]
+
+    def _hash(cell: str) -> str | None:
+        cell = cell.strip().strip("`").strip()
+        cell = cell.split(" ")[0].rstrip("…").strip("`")
+        return cell if re.fullmatch(r"[0-9a-f]{8,64}", cell) else None
+
+    found: list[str] = []
+    for line in entry.splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 3:
+            continue
+        version = cells[0].strip().strip("`")
+        if not re.fullmatch(r"v\d+(\.\d+)?", version):
+            continue
+        if _hash(cells[1]) and _hash(cells[2]):
+            found.append(version)
+    return found
+
+
 def test_the_recorded_harness_list_in_the_code_equals_the_one_in_the_ledger():
     """A4 (iv): put the check where the claim is.
 
@@ -1623,9 +1678,25 @@ def test_the_recorded_harness_list_in_the_code_equals_the_one_in_the_ledger():
                    / "epl_sim_amendments.md")
     if not ledger_path.exists():                            # pragma: no cover
         pytest.skip("reports/ is not in this checkout")
-    stated = _ledger_harness_versions(ledger_path.read_text(encoding="utf-8"))
+    text = ledger_path.read_text(encoding="utf-8")
+    stated = _ledger_harness_versions(text)
+    entries = simretro.recorded_harness_versions()
     coded = {v["version"]: (v["simretro_sha256"], v["simmetrics_sha256"])
-             for v in simretro.recorded_harness_versions()}
+             for v in entries}
+
+    # NEITHER SIDE MAY COLLAPSE A DUPLICATE (Codex review of cdd8879). Both
+    # halves of this comparison used to be built as version-keyed dictionaries,
+    # and a dictionary silently keeps the LAST of any repeated key — so a rogue
+    # second `v3` pair, inserted before the legitimate one and matching a
+    # mutated harness, was overwritten out of the comparison while
+    # `run_retro`'s membership test accepted it. The code side now refuses a
+    # repeated key outright (`recorded_harness_versions`); the LEDGER side is
+    # counted here, because a duplicate row in amendment A4 has the same effect
+    # on a human reader.
+    assert len(coded) == len(entries), "the code list repeats a version key"
+    ledger_versions = _ledger_harness_version_list(text)
+    assert len(ledger_versions) == len(set(ledger_versions)), (
+        f"amendment A4 states a version more than once: {ledger_versions}")
 
     assert set(coded) == set(stated), (
         f"code records {sorted(coded)}, the ledger records {sorted(stated)}")
@@ -1756,3 +1827,279 @@ def test_the_cluster_bootstrap_se_needs_no_independence_assumption():
     lopsided = np.stack([first, 3.0 * second])
     with pytest.raises(simmetrics.MetricError, match="unequal"):
         simmetrics.trps_se_cluster(lopsided, positions, n_boot=8, seed=1)
+
+
+def test_the_bootstrap_refuses_a_tally_with_the_right_total_and_wrong_margins():
+    """Equal TOTAL mass is not a coherent tally (Codex review of b5aa609).
+
+    The guard checked `n_clubs * k` per particle and stopped, and total mass
+    says nothing about how the mass is arranged. A tally in which both clubs
+    finished FIRST in every one of a particle's seasons — and rank 2 was
+    occupied by nobody — carries exactly the total a real tally does. Every
+    resample built from it is a matrix whose rows sum to one and whose COLUMNS
+    do not, and `_as_matrix` checks rows, so `trps` scores it without
+    complaint: a standard error reported for a season that cannot happen.
+    """
+    positions = [1, 2]
+    honest = np.array([[1.0, 0.0], [0.0, 1.0]])          # club 0 first, 1 second
+    impossible = np.array([[1.0, 0.0], [1.0, 0.0]])      # BOTH first, none second
+
+    assert impossible.sum() == honest.sum(), (
+        "the premise: the old check sees these two as the same tally")
+    with pytest.raises(simmetrics.MetricError, match="league seasons"):
+        simmetrics.trps_se_cluster(np.stack([honest, impossible]), positions,
+                                   n_boot=8, seed=1)
+
+    # ...and it says WHICH margin is wrong and by how much
+    with pytest.raises(simmetrics.MetricError, match="rank 0 appears 2"):
+        simmetrics.trps_se_cluster(np.stack([impossible, impossible]), positions,
+                                   n_boot=8, seed=1)
+
+    # POSITIVE CONTROL: the coherent pair still works, so the check is about
+    # the margins and not about the shape of the call.
+    other = np.array([[0.0, 1.0], [1.0, 0.0]])
+    assert simmetrics.trps_se_cluster(np.stack([honest, other]), positions,
+                                      n_boot=64, seed=1) > 0
+
+    # k > 1 per particle is fine — a particle simulates many seasons — as long
+    # as both margins are that same k.
+    many = np.array([[3.0, 1.0], [1.0, 3.0]])
+    assert simmetrics.trps_se_cluster(np.stack([many, 4.0 * honest]), positions,
+                                      n_boot=64, seed=1) > 0
+
+    # a non-square grid is not a league table and is named as such
+    with pytest.raises(simmetrics.MetricError, match="clubs == ranks"):
+        simmetrics.trps_se_cluster(np.ones((2, 2, 3)), positions,
+                                   n_boot=8, seed=1)
+
+
+# ==========================================================================
+# Codex b5aa609 / cdd8879 / 7b9d7d1 — the accounting the accounting missed
+# ==========================================================================
+def test_completeness_is_a_set_identity_and_an_overlap_cannot_pay_for_a_hole(
+        tmp_path):
+    """`n_scored + n_typed_refusals == n_expected` is cardinality, and it cancels.
+
+    A triple carrying BOTH a score and a refusal marker is counted on both
+    sides of that sum — which is a contradiction no run should be able to
+    produce — and the double count pays for exactly one undocumented hole
+    somewhere else. Two scored rows plus one refusal overlapping one of them,
+    against three expected triples, gave 2 + 1 == 3: `identity_holds`,
+    `complete`, and `dc_native_beats_flat_everywhere` over a grid with a cell
+    missing. The question completeness asks is WHICH triples are covered, so
+    that is the question the code now asks.
+    """
+    clubs, realised = _clubs_and_realised()
+    runner = _CountingRunner(clubs)
+    rows = _sharpen(simretro.run_retro(
+        **_v3_kwargs(tmp_path, clubs, realised, runner)), clubs)
+
+    grid = simretro.requested_cells(seasons=("2099/00",), cutoffs=("MW0", "MW10"),
+                                    arms=("dc_native",), nulls=("flat",))
+    # POSITIVE CONTROL: intact, the run closes.
+    assert simretro.score_retro(rows, n_boot=50,
+                                expected_triples=grid)["sanity"]["complete"]
+
+    # THE DEFECT, built exactly: drop flat@MW10 (the hole), and add a typed
+    # refusal on a triple that ALREADY scored (the overlap). Three expected,
+    # two scored, one refusal — and the counts balance.
+    thin = [r for r in rows
+            if not (r["arm"] == "flat" and r["cutoff_label"] == "MW10")]
+    thin = [r for r in thin if not (r["arm"] == "dc_native"
+                                    and r["cutoff_label"] == "MW10")]
+    grid3 = tuple(t for t in grid if t != ("2099/00", "MW10", "dc_native"))
+    overlap = {"season": "2099/00", "cutoff_label": "MW0", "arm": "flat",
+               "refusal_kind": "unverified_adjustment",
+               "reason": "a deduction the ledger has not checked",
+               "not_applicable": "a deduction the ledger has not checked"}
+    sanity = simretro.score_retro(thin + [overlap], n_boot=50,
+                                  expected_triples=grid3)["sanity"]
+
+    assert sanity["n_expected"] == 3
+    assert sanity["n_scored"] == 2
+    assert sanity["n_typed_refusals"] == 1, (
+        "the arithmetic identity 2 + 1 == 3 must actually hold here, or this "
+        "test is not exercising the cancellation it exists for")
+    assert sanity["n_overlapping"] == 1
+    assert sanity["overlapping"] == [
+        {"season": "2099/00", "cutoff_label": "MW0", "arm": "flat"}]
+    assert sanity["identity_holds"] is False
+    assert sanity["complete"] is False
+    assert sanity["dc_native_beats_flat_everywhere"] is False
+    assert sanity["STOP_AND_INSPECT"] is True
+
+
+def test_an_arm_not_defined_marker_for_an_always_defined_arm_is_refused(tmp_path):
+    """The kind was checked for MEMBERSHIP, never for truth.
+
+    "No such arm here by rule" is a claim about a rule, and this harness has
+    exactly one rule of that shape: `ppg_pointmass` needs three complete
+    rounds. `flat` is a constant matrix and exists at every cutoff, so
+    labelling flat@MW10 `arm_not_defined` is not a refusal — it is a false
+    statement that closes the completeness accounting over a lost cell and
+    certifies a comparison that was never made.
+    """
+    clubs, realised = _clubs_and_realised()
+    assert simretro.CONDITIONAL_ARMS == ("ppg_pointmass",)
+
+    # 1. the runner cannot WRITE it
+    runner = _TypedRunner(clubs, refuse_at=(("flat", "MW10", "arm_not_defined"),))
+    with pytest.raises(simretro.RetroError, match="arm_not_defined") as caught:
+        simretro.run_retro(**_v3_kwargs(tmp_path / "write", clubs, realised,
+                                        runner))
+    assert "flat" in str(caught.value)
+    assert "ppg_pointmass" in str(caught.value)
+
+    # 2. and a ledger that already holds one cannot be SCORED. A ledger can
+    #    arrive from a run this process did not make, so both ends are checked.
+    honest = _sharpen(simretro.run_retro(
+        **_v3_kwargs(tmp_path / "score", clubs, realised,
+                     _CountingRunner(clubs))), clubs)
+    mislabelled = [r for r in honest if r["cutoff_label"] != "MW10"
+                   or r["arm"] != "flat"]
+    mislabelled.append({"season": "2099/00", "cutoff_label": "MW10",
+                        "arm": "flat", "refusal_kind": "arm_not_defined",
+                        "reason": "flat is not defined at MW10",
+                        "not_applicable": "flat is not defined at MW10"})
+    with pytest.raises(simretro.RetroError, match="arm_not_defined"):
+        simretro.score_retro(mislabelled, n_boot=50)
+
+    # POSITIVE CONTROL: the same kind on the arm it is TRUE of goes through,
+    # so this is a legality rule and not a ban on the kind.
+    legal = _CountingRunner(clubs, undefined_at=(("ppg_pointmass", "MW0"),))
+    ok = simretro.run_retro(**_v3_kwargs(tmp_path / "legal", clubs, realised,
+                                         legal, nulls=("flat", "ppg_pointmass")))
+    assert [r["refusal_kind"] for r in ok if r.get("refusal_kind")] == \
+        ["arm_not_defined"]
+
+
+def test_the_override_flags_are_covered_by_the_envelope_hash(tmp_path):
+    """Override provenance could be added or removed without moving a hash.
+
+    The flags are set AFTER `_row` and `_refusal_row` have hashed the envelope,
+    so the record that a run appended to a foreign or v1 ledger — or ran under
+    a harness pair prereg §12 makes invalid — sat outside every hash in the
+    row. That provenance is the entire reason the overrides are permitted: they
+    are explicit, recorded on every row, and printed in the report, and
+    "recorded" has to mean something an edit cannot quietly undo.
+    """
+    clubs, realised = _clubs_and_realised()
+    ledger = tmp_path / "legacy.jsonl"
+    ledger.write_text(json.dumps({
+        "schema_version": "epl-simretro-1",
+        "run_key": "2099/00|MW0|2099-08-10|nobody|n64|s20260611",
+        "season": "2099/00", "cutoff_label": "MW0", "arm": "nobody"}) + "\n")
+
+    overridden = simretro.run_retro(**_v3_kwargs(
+        tmp_path, clubs, realised, _CountingRunner(clubs), ledger,
+        allow_legacy_rows=True))
+    clean = simretro.run_retro(**_v3_kwargs(
+        tmp_path, clubs, realised, _CountingRunner(clubs),
+        tmp_path / "clean.jsonl"))
+
+    assert all(r.get("allow_legacy_rows") for r in overridden)
+    assert not any(r.get("allow_legacy_rows") for r in clean)
+    by_key = {r["run_key"]: r for r in clean}
+    assert set(by_key) == {r["run_key"] for r in overridden}, (
+        "the two runs answer the same questions, so only the override differs")
+    for row in overridden:
+        assert row["envelope_hash"] != by_key[row["run_key"]]["envelope_hash"], (
+            "the same run under an override must not hash to the same envelope "
+            "as the same run without one")
+
+    # ...and the seal is a function of WHICH flags, not merely of any flag.
+    # A bare row, so the assertion is about the seal and not about the flags a
+    # development run already carries (`allow_unrecorded_harness` is one).
+    plain = {"envelope_hash": "0" * 64}
+    one = simretro._seal_overrides(dict(plain, allow_legacy_rows=True))
+    other = simretro._seal_overrides(dict(plain, allow_foreign_producer=True))
+    both = simretro._seal_overrides(dict(plain, allow_legacy_rows=True,
+                                         allow_foreign_producer=True))
+    assert len({plain["envelope_hash"], one["envelope_hash"],
+                other["envelope_hash"], both["envelope_hash"]}) == 4
+    # a row with no override at all is untouched, so nothing moves for a run
+    # that needed none
+    assert simretro._seal_overrides(dict(plain))["envelope_hash"] == \
+        plain["envelope_hash"]
+    # and a flag set to False is not an override, so removing one is a change
+    assert simretro._seal_overrides(
+        dict(plain, allow_legacy_rows=False))["envelope_hash"] == \
+        plain["envelope_hash"]
+
+
+def test_a_persisted_runner_error_marker_stays_stop_worthy_on_resume(tmp_path):
+    """`runner_error` is written AND re-raised — and then resumed past.
+
+    `run_retro` skips occupied keys, so the cell that failed is never retried:
+    the marker becomes an ordinary typed refusal, closes the completeness
+    accounting, and the resumed run reports a clean bill of health for a run
+    that fell over. The marker is the record of an unexplained failure and
+    stays stop-worthy for as long as it is in the ledger, whatever the
+    completeness verdict says about it.
+    """
+    clubs, realised = _clubs_and_realised()
+    ledger = tmp_path / "boom.jsonl"
+    runner = _TypedRunner(clubs, raise_at={"MW10": ZeroDivisionError("fell over")})
+    with pytest.raises(ZeroDivisionError):
+        simretro.run_retro(**_v3_kwargs(tmp_path, clubs, realised, runner, ledger))
+
+    # the resume: every key is occupied, nothing is retried, and the run
+    # completes without raising
+    resumed = _sharpen(simretro.run_retro(**_v3_kwargs(
+        tmp_path, clubs, realised, _CountingRunner(clubs), ledger)), clubs)
+    grid = simretro.requested_cells(seasons=("2099/00",), cutoffs=("MW0", "MW10"),
+                                    arms=("dc_native",), nulls=("flat",))
+    sanity = simretro.score_retro(resumed, n_boot=50,
+                                  expected_triples=grid)["sanity"]
+
+    assert sanity["n_runner_errors"] == 2
+    assert {(e["cutoff_label"], e["arm"]) for e in sanity["runner_errors"]} == {
+        ("MW10", "dc_native"), ("MW10", "flat")}
+    assert sanity["identity_holds"] is True, (
+        "the marker DOES close the accounting — which is exactly why the STOP "
+        "flag has to be able to fire without it")
+    assert sanity["complete"] is True
+    assert sanity["STOP_AND_INSPECT"] is True
+
+    # POSITIVE CONTROL: the same shape with an EXPLAINED refusal does not STOP,
+    # so the flag is about `runner_error` and not about markers in general.
+    quiet = tmp_path / "quiet.jsonl"
+    calm = _TypedRunner(clubs, raise_at={
+        "MW10": particles.ExcludedMassTooLarge("excluded mass too large")})
+    rows = _sharpen(simretro.run_retro(**_v3_kwargs(
+        tmp_path, clubs, realised, calm, quiet)), clubs)
+    calm_sanity = simretro.score_retro(rows, n_boot=50,
+                                       expected_triples=grid)["sanity"]
+    assert calm_sanity["n_runner_errors"] == 0
+    assert calm_sanity["STOP_AND_INSPECT"] is False
+
+
+def test_the_harness_version_list_refuses_a_duplicate_version_key(tmp_path,
+                                                                  monkeypatch):
+    """A version key names ONE pair; the equality check keeps only the last.
+
+    Both sides of `test_the_recorded_harness_list_in_the_code_equals_the_one_in
+    _the_ledger` collapse into a version-keyed dictionary, so a rogue second
+    `v3` — inserted before the legitimate one and matching a mutated harness —
+    was overwritten out of the comparison while `run_retro`'s membership test
+    accepted it. The list is what authorises a harness to produce a citable
+    number, and a version that names two harnesses authorises whichever one the
+    reader did not check.
+    """
+    recorded = list(simretro.recorded_harness_versions())
+    rogue = dict(recorded[-1], simretro_sha256="a" * 64,
+                 simmetrics_sha256="b" * 64,
+                 recorded_in="nowhere: the rogue entry")
+    assert rogue["version"] == recorded[-1]["version"]
+
+    path = tmp_path / "retro_harness_versions.json"
+    path.write_text(json.dumps({"versions": [rogue] + recorded}))
+    monkeypatch.setattr(simretro, "RETRO_HARNESS_VERSIONS_PATH", path)
+    with pytest.raises(simretro.RetroError, match="more than once") as caught:
+        simretro.recorded_harness_versions()
+    assert rogue["version"] in str(caught.value)
+
+    # POSITIVE CONTROL: the same file without the duplicate is accepted, so the
+    # refusal is the repeated key and not the monkeypatched path.
+    path.write_text(json.dumps({"versions": recorded}))
+    assert len(simretro.recorded_harness_versions()) == len(recorded)

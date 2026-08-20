@@ -25,6 +25,12 @@
       "simretro_sha256": "6fc293dfc6abb463f3345bd0894ad0c02ba61e7613cb62b5bb5fba38abaa0576",
       "simmetrics_sha256": "6f5390092b2cef3a92d2dcedb6ec954545a2e9a891011414c79fc68d0bb0189b",
       "recorded_in": "reports/epl_sim_amendments.md A4, dated note 'The v3 hashes, and what landed'; the first harness after v1 that may produce a published retrospective number"
+    },
+    {
+      "version": "v4",
+      "simretro_sha256": "7aabbd7822c29f4628c03012cf3fad1df4bcd9a2e37b5e770cdaff680880d321",
+      "simmetrics_sha256": "53c11eb14ff93e156595bfd69991250d820731926d2073c7047a8e7d21cde58d",
+      "recorded_in": "reports/epl_sim_amendments.md A4, dated note 'The v4 hashes — set-identity completeness, marker legality, sealed overrides' (2026-08-20); never used for a published run"
     }
   ]
 }

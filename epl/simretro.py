@@ -75,12 +75,14 @@ from epl import table as table_mod, walkforward
 
 __all__ = [
     "ARMS", "COMPARISON_CUTOFFS", "CUTOFF_LABELS", "DEFAULT_COMPARISONS",
-    "DEFAULT_N_SIMS", "NULLS", "REFUSAL_KINDS", "SANITY_CUTOFFS",
+    "CONDITIONAL_ARMS", "DEFAULT_N_SIMS", "NULLS", "REFUSAL_KINDS",
+    "SANITY_CUTOFFS",
     "SCHEMA_VERSION", "SEASONS", "SEED", "SMOKE_CUTOFFS", "SMOKE_SEASONS",
     "ArchiveRunner", "ArmResult", "CutoffResult", "Realised", "RetroError",
     "UnrecordedHarness", "cutoff_schedule", "harness_hashes",
     "realised_positions", "recorded_harness_versions", "report",
-    "requested_cells", "run_retro", "score_retro", "weekly_cutoffs",
+    "check_marker_legality", "requested_cells", "run_retro", "score_retro",
+    "weekly_cutoffs",
 ]
 
 SCHEMA_VERSION = "epl-simretro-1"
@@ -123,6 +125,25 @@ REFUSAL_KINDS = ("excluded_mass_ceiling",     # D11's 2e-2 hard ceiling (A1)
                                               # checked against the league record
                  "arm_not_defined",           # no such arm here by rule
                  "runner_error")              # anything else — marked, then RAISED
+
+#: Which arms the harness defines CONDITIONALLY, and are therefore the only
+#: arms an `arm_not_defined` marker can legally name (Codex review of b5aa609).
+#:
+#: The kind was validated as a MEMBER of `REFUSAL_KINDS` and never as a claim
+#: that could be false. "No such arm here by rule" is a statement about a RULE,
+#: and there is exactly one rule of that shape in this harness: `ppg_pointmass`
+#: needs `bridge.PPG_MIN_ROUNDS` complete rounds and does not exist before them
+#: (prereg §4). Every other arm is defined at every cutoff — `flat` is a
+#: constant matrix, and the three simulated arms are the retrospective's whole
+#: question — so a marker saying `flat` is "not defined at MW10" is not a
+#: refusal, it is a false statement that CLOSES the completeness accounting and
+#: certifies a run that lost the comparison it exists to make.
+#:
+#: The other three kinds are not restricted, and must not be:
+#: `unverified_adjustment` and `runner_error` are facts about a season or a
+#: failure that can reach any arm, and `excluded_mass_ceiling` is raised at the
+#: cell boundary and marked for every arm requested there, nulls included.
+CONDITIONAL_ARMS = ("ppg_pointmass",)
 
 #: A4 (iv): the harness pairs this project has recorded, stated in amendment
 #: A4 and held against this file by `epl/tests/test_simretro.py`. The list is a
@@ -527,6 +548,26 @@ def recorded_harness_versions() -> tuple[dict, ...]:
             if not entry.get(key):
                 raise RetroError(
                     f"{RETRO_HARNESS_VERSIONS_PATH} has an entry missing {key!r}")
+    # Codex review of cdd8879: A VERSION KEY IS UNIQUE. The equality check
+    # between this file and amendment A4 collapses both sides into a
+    # version-keyed dictionary, and a dictionary silently keeps the last of any
+    # duplicate — so a rogue second `v3` pair, inserted before the legitimate
+    # one and matching a mutated harness, was overwritten out of the comparison
+    # while `run_retro`'s membership test accepted it. The list is what
+    # authorises a harness to produce a citable number; a version that names two
+    # different harnesses authorises whichever one the reader did not check.
+    seen: dict[str, int] = {}
+    for entry in versions:
+        seen[entry["version"]] = seen.get(entry["version"], 0) + 1
+    duplicated = sorted(v for v, n in seen.items() if n > 1)
+    if duplicated:
+        raise RetroError(
+            f"{RETRO_HARNESS_VERSIONS_PATH} records version(s) {duplicated} "
+            "more than once. A version key names ONE harness pair: two entries "
+            "under one name means the list authorises a pair that is not the "
+            "one the amendment ledger states, and the equality check between "
+            "the two keeps only the last of them. Give the new pair its own "
+            "version, in this file and in amendment A4.")
     return versions
 
 
@@ -575,6 +616,34 @@ def _stable(mapping) -> dict:
     return {k: v for k, v in (mapping or {}).items() if k not in _VOLATILE}
 
 
+def check_marker_legality(kind: str, arm: str, *, where: str) -> None:
+    """Refuse a typed marker whose KIND cannot be true of that ARM.
+
+    Codex review of b5aa609. `_refusal_row` validated `kind` against
+    :data:`REFUSAL_KINDS` and stopped there — membership, never truth. So a
+    runner could label the always-defined `flat` at MW10 `arm_not_defined`, the
+    scorer would count it as documented, the completeness identity would close
+    and the run would be certified as beating the flat null everywhere while
+    the flat null was missing from a cutoff. The one kind that asserts a RULE
+    is held against the rules this harness actually has
+    (:data:`CONDITIONAL_ARMS`); the other three are facts about a season or a
+    failure and can name any arm.
+
+    Raised on the way IN (a runner writing the marker) and on the way OUT (a
+    persisted ledger being scored), because a ledger can arrive from a run this
+    process did not make.
+    """
+    if kind == "arm_not_defined" and arm not in CONDITIONAL_ARMS:
+        raise RetroError(
+            f"{where} `arm_not_defined` for {arm!r}, which this harness defines "
+            f"at every cutoff. That kind means 'no such arm here by rule' and "
+            f"the only arm(s) with such a rule are {list(CONDITIONAL_ARMS)} "
+            f"({bridge_mod.PPG_MIN_ROUNDS} complete rounds, prereg §4). A "
+            "marker of this kind for an always-defined arm is not a documented "
+            "refusal: it closes the completeness accounting over a cell that "
+            "was simply lost, and certifies a comparison that was never made.")
+
+
 def _refusal_row(*, season, cutoff_label, cutoff, arm, n_sims, seed,
                  kind: str, reason: str) -> dict:
     """A TYPED claim on a key the runner refused, so a resume stays cheap.
@@ -598,6 +667,7 @@ def _refusal_row(*, season, cutoff_label, cutoff, arm, n_sims, seed,
         raise RetroError(
             f"{kind!r} is not one of the four refusal kinds A4 fixed "
             f"({', '.join(REFUSAL_KINDS)}); adding a fifth is an amendment")
+    check_marker_legality(kind, arm, where="the runner declared")
     producer = producer_identity()
     key = run_key(season, cutoff_label, cutoff, arm, n_sims, seed, producer)
     return {
@@ -853,6 +923,7 @@ def run_retro(seasons: Sequence[str] | None = None,
             row["allow_legacy_rows"] = True
         if allow_unrecorded_harness and unrecorded:
             row["allow_unrecorded_harness"] = True
+        _seal_overrides(row)
         fh.write(json.dumps(row, default=str) + "\n")
         have[row["run_key"]] = row
 
@@ -956,6 +1027,35 @@ def run_retro(seasons: Sequence[str] | None = None,
                     wanted.append(key)
 
     return [have[key] for key in wanted]
+
+
+#: The three flags that record a run made under an explicit override. Named
+#: once so the seal below and the report cannot drift from each other.
+OVERRIDE_FLAGS = ("allow_foreign_producer", "allow_legacy_rows",
+                  "allow_unrecorded_harness")
+
+
+def _seal_overrides(row: dict) -> dict:
+    """Fold the override flags into the row's ``envelope_hash``.
+
+    Codex review of b5aa609 (3). The flags are set AFTER `_row` and
+    `_refusal_row` have hashed the envelope, so override provenance — the
+    record that a run appended to a foreign or v1 ledger, or ran under a
+    harness pair prereg §12 makes invalid — could be added to or removed from
+    any row without invalidating a single hash. That provenance is the reason
+    the overrides are allowed to exist at all: they are explicit, recorded on
+    every row, and printed in the report, and "recorded" has to mean something
+    a later edit cannot quietly undo.
+
+    The seal is applied only when a flag is actually set, so an ordinary row's
+    hash is exactly what it was; and it is deterministic, so the same run
+    resumed writes the same hash.
+    """
+    overrides = {name: True for name in OVERRIDE_FLAGS if row.get(name)}
+    if overrides:
+        row["envelope_hash"] = _sha256_json(
+            {"envelope_hash": row["envelope_hash"], "overrides": overrides})
+    return row
 
 
 def _refusal_kind(exc: BaseException) -> str:
@@ -1074,11 +1174,17 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
     casual `score_retro(rows)` on a partial ledger reads incomplete — correctly,
     loudly, and with the fix being to state the grid.
 
-    The identity is ``n_scored + n_typed_refusals == n_expected``, over triples,
-    with `n_scored > 0` and zero violations — all three required for `complete`.
+    The identity is over SETS of triples, not counts: the scored triples united
+    with the typed refusals must BE the expected set, and no triple may appear
+    in both halves — with `n_scored > 0` and zero violations, all required for
+    `complete`. Counts cancel and sets do not: a triple carrying both a score
+    and a refusal is counted twice by ``n_scored + n_typed_refusals``, paying
+    for exactly one undocumented hole elsewhere.
+
     Only a TYPED marker counts as a refusal (A4 (i)): a row carrying
     `not_applicable` text and no `refusal_kind` is a hole, which is what a v1
-    ledger's markers are.
+    ledger's markers are — and the kind must be one that can be TRUE of the arm
+    it names (:func:`check_marker_legality`), or the ledger is refused outright.
 
     Aggregation happens WITHIN a cutoff label and never across labels — an
     opener forecast and a matchweek-19 forecast are different questions and a
@@ -1149,10 +1255,30 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
     # `refusal_kind` is a hole: v1 wrote exactly that shape, and under v2.1 so
     # did this module's own caller, for any arm the runner failed to return —
     # including the required `dc_native` and the always-defined `flat`.
+    #
+    # Codex b5aa609 (2): AND THE KIND MUST BE TRUE OF THE ARM. Membership in
+    # `REFUSAL_KINDS` was the whole check, so `flat` at MW10 labelled
+    # `arm_not_defined` — of a null that is a constant matrix and is defined
+    # everywhere — was counted as documented, closed the identity, and
+    # certified a run that had lost the comparison. A ledger can arrive from a
+    # run this process did not make, so the rule is applied here as well as at
+    # the marker's writing.
+    for row in ledger:
+        if row.get("refusal_kind") in REFUSAL_KINDS:
+            check_marker_legality(row["refusal_kind"], row["arm"],
+                                  where=(f"{row['season']} "
+                                         f"{row['cutoff_label']} carries"))
     documented = {
         (row["season"], row["cutoff_label"], row["arm"]):
             row.get("reason") or row.get("not_applicable") or ""
         for row in ledger if row.get("refusal_kind") in REFUSAL_KINDS}
+    # A4 (i) again: `runner_error` is the one kind that is written AND re-raised,
+    # so a ledger that holds one is a ledger whose run did not finish. On resume
+    # the key is occupied and the cell is never retried, so the marker's only
+    # remaining job is to keep saying so — see the STOP flag below.
+    runner_errors = sorted(
+        (row["season"], row["cutoff_label"], row["arm"]) for row in ledger
+        if row.get("refusal_kind") == "runner_error")
     by_cell: dict[tuple[str, str], set[str]] = {}
     for row in scored:
         by_cell.setdefault((row["season"], row["cutoff_label"]), set()).add(
@@ -1193,11 +1319,21 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
     n_typed_refusals = len(typed_refusals)
     undocumented = [m for m in missing if not m["documented"]]
 
-    # A4 (ii)'s identity, over triples. It fails short when a triple is a hole
-    # and fails long when one carries both a score and a refusal marker, which
-    # is a contradiction no run should be able to produce.
+    # A4 (ii)'s identity, over triples — AND OVER SETS, not counts (Codex
+    # review of b5aa609). `n_scored + n_typed_refusals == n_expected` is an
+    # accounting identity in cardinality only, and cardinality cancels: a
+    # triple carrying BOTH a score and a refusal marker is counted twice, which
+    # pays for exactly one undocumented hole somewhere else. Two scored rows
+    # plus one refusal that overlaps one of them, against three expected
+    # triples, gave 2 + 1 == 3 — identity_holds, complete, and
+    # dc_native_beats_flat_everywhere — over a grid with a cell missing. The
+    # question is which triples are covered, so that is what is asked: the
+    # union must BE the expected set, and no triple may be in both halves.
     n_expected = len(expected)
-    identity = n_scored + n_typed_refusals == n_expected
+    scored_in_grid = expected & scored_triples
+    overlapping = sorted(scored_in_grid & typed_refusals)
+    covered = scored_in_grid | typed_refusals
+    identity = covered == expected and not overlapping
     complete = bool(identity and n_scored > 0 and not violations)
     foreign_overrides = sum(1 for r in ledger if r.get("allow_foreign_producer"))
     legacy_overrides = sum(1 for r in ledger if r.get("allow_legacy_rows"))
@@ -1220,6 +1356,12 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
             "n_missing": len(missing),
             "missing": missing,
             "n_typed_refusals": int(n_typed_refusals),
+            "n_overlapping": len(overlapping),
+            "overlapping": [{"season": s, "cutoff_label": c, "arm": a}
+                            for s, c, a in overlapping],
+            "n_runner_errors": len(runner_errors),
+            "runner_errors": [{"season": s, "cutoff_label": c, "arm": a}
+                              for s, c, a in runner_errors],
             "identity_holds": bool(identity),
             "complete": complete,
             "n_foreign_producer_overrides": int(foreign_overrides),
@@ -1228,7 +1370,15 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
             "dc_native_beats_flat_everywhere": bool(
                 checked and not violations and complete),
             "violations": violations,
-            "STOP_AND_INSPECT": bool(violations or undocumented or not identity),
+            # `runner_errors` is here (Codex review of 7b9d7d1, item 2): the
+            # marker is written and the exception re-raised, so the run that
+            # wrote it stopped — but `run_retro` skips occupied keys on resume,
+            # so the next run never retries that cell and the marker becomes a
+            # documented refusal that closes the accounting. An unexplained
+            # failure stays stop-worthy for as long as it stays in the ledger,
+            # whatever the completeness verdict says.
+            "STOP_AND_INSPECT": bool(violations or undocumented or overlapping
+                                     or runner_errors or not identity),
         },
         "never_averaged_across_cutoffs": True,
         "note": ("TRPS is primary and unweighted; wTRPS on the published "
@@ -1367,6 +1517,18 @@ def report(scores: dict) -> str:
             f"- **{sanity['n_unrecorded_harness_overrides']} row(s) were "
             "produced under an UNRECORDED harness pair**, by explicit override. "
             "Prereg §12 makes such a run invalid: this is **not a citable run**.")
+    if sanity["n_overlapping"]:
+        lines.append(
+            f"- **{sanity['n_overlapping']} triple(s) carry BOTH a score and a "
+            "typed refusal**, which is a contradiction: "
+            + json.dumps(sanity["overlapping"]))
+    if sanity["n_runner_errors"]:
+        lines.append(
+            f"- **{sanity['n_runner_errors']} `runner_error` marker(s) are in "
+            "this ledger**: the run that wrote one did not finish, and a "
+            "resumed run skips the occupied key rather than retrying it. The "
+            "failure is unexplained until someone explains it: "
+            + json.dumps(sanity["runner_errors"]))
     if sanity["STOP_AND_INSPECT"]:
         lines.append("- **STOP AND INSPECT** — violations: "
                      + json.dumps(sanity["violations"]))

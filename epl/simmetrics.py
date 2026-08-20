@@ -228,6 +228,39 @@ def trps_se_cluster(tallies, positions, *, n_boot, seed) -> float:
             "does (plan v2 D15), and unequal ones would silently reweight the "
             "matrix a resample builds")
 
+    # AND THE MARGINS, NOT ONLY THE MASS (Codex review of b5aa609, item 4).
+    # Total mass is `n_clubs * k` and says nothing about how it is arranged, so
+    # a tally in which two clubs both finished first in every one of a
+    # particle's k seasons — and rank 2 was occupied by nobody — carries exactly
+    # the total a coherent tally does. Every resample built from it is a matrix
+    # whose rows sum to 1 and whose COLUMNS do not, which `trps` accepts
+    # (`_as_matrix` checks rows), so the bootstrap would report a standard error
+    # for a season that cannot happen. A league season is a bijection between
+    # clubs and ranks: each club finishes once per season and each rank is
+    # occupied once, so every row AND every column of a particle's tally is the
+    # same k.
+    if counts.shape[1] != counts.shape[2]:
+        raise MetricError(
+            f"a tally is [particles, clubs, ranks] with clubs == ranks; got "
+            f"{counts.shape[1]} clubs and {counts.shape[2]} ranks, which is not "
+            "a league table")
+    k = totals[0] / counts.shape[1]
+    rows = counts.sum(axis=2)                       # [particles, clubs]
+    cols = counts.sum(axis=1)                       # [particles, ranks]
+    if not (np.allclose(rows, k) and np.allclose(cols, k)):
+        which = "club" if not np.allclose(rows, k) else "rank"
+        margins = rows if which == "club" else cols
+        p, i = np.unravel_index(int(np.argmax(np.abs(margins - k))),
+                                margins.shape)
+        raise MetricError(
+            f"particle {p}'s tally is not a count of league seasons: {which} "
+            f"{i} appears {float(margins[p, i]):g} time(s) where every {which} "
+            f"must appear {k:g}. Each club finishes exactly once per season and "
+            "each rank is occupied exactly once, so both margins are the same "
+            "number; a tally with the right TOTAL and the wrong margins "
+            "resamples into a matrix whose columns do not sum to one, which "
+            "`trps` scores without complaint.")
+
     rng = np.random.default_rng(int(seed))
     draws = np.empty(int(n_boot), dtype=float)
     for b in range(int(n_boot)):

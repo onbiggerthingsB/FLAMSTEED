@@ -1532,6 +1532,87 @@ each of which drives its guard RED on the thing the guard exists to refuse, and
 by `test_the_real_r1_ledger_does_not_certify_itself`, which asserts the four
 rows of the table above against the artifact itself where it is present.
 
+### The v4 hashes — set-identity completeness, marker legality, sealed overrides (recorded 2026-08-20)
+
+A round-2 Codex review of the v3 Fix commit (`b5aa609`) and of the commit that
+recorded v3 (`cdd8879`) found four defects in what A4 ruled and one in how it
+was recorded. All five are fixed in the commit this note accompanies, which
+therefore produces a NEW harness pair. R1 stands under v1 and is not re-scored;
+**v4 has not been used for a published run.**
+
+*Arithmetic note: this note quotes two SHA-256 values and counts of rows. No
+score is quoted, computed or changed by it.*
+
+| version | `epl/simretro.py` | `epl/simmetrics.py` | recorded in |
+|---|---|---|---|
+| v4 | `7aabbd7822c29f4628c03012cf3fad1df4bcd9a2e37b5e770cdaff680880d321` | `53c11eb14ff93e156595bfd69991250d820731926d2073c7047a8e7d21cde58d` | this note, and `epl/retro_harness_versions.json` |
+
+**What v4 changes, and why each was wrong under v3.**
+
+1. **Completeness is a SET identity.** A4 (ii) states the identity as
+   `n_scored + n_typed_refusals == n_expected`, and cardinality cancels: a
+   triple carrying both a score and a typed refusal is counted on both sides,
+   paying for exactly one undocumented hole somewhere else. Two scored rows plus
+   one overlapping refusal against three expected triples closed the accounting
+   over a grid with a cell missing — `identity_holds`, `complete`, and
+   `dc_native_beats_flat_everywhere`, all true, all wrong. The union of the
+   scored triples and the typed refusals must now BE the expected set, with an
+   empty intersection; `n_overlapping` and the offending triples are reported
+   and are STOP-worthy.
+
+2. **A marker's KIND must be true of its ARM.** `arm_not_defined` means "no such
+   arm here by rule", and this harness has exactly one such rule:
+   `ppg_pointmass` needs three complete rounds (prereg §4). v3 validated the
+   kind for membership in the closed set and never as a claim, so `flat` — a
+   constant matrix, defined at every cutoff — could be labelled
+   `arm_not_defined` at MW10 and the accounting would close over the missing
+   comparison. `epl.simretro.CONDITIONAL_ARMS` names the arms that may carry
+   that kind; the check runs when a marker is written AND when a ledger is
+   scored, since a ledger can arrive from a run this process did not make. The
+   other three kinds are unrestricted, and must be: `unverified_adjustment` and
+   `runner_error` are facts about a season or a failure, and
+   `excluded_mass_ceiling` is marked for every arm of a refused cell.
+
+3. **The override flags are inside `envelope_hash`.** `allow_foreign_producer`,
+   `allow_legacy_rows` and `allow_unrecorded_harness` were set after the row was
+   hashed, so override provenance could be added to or removed from any row
+   without invalidating a hash — and that provenance is the entire reason the
+   overrides are permitted. The flags are folded into the row's envelope hash at
+   append time; a row with no override is unchanged, so nothing already written
+   moves.
+
+4. **A persisted `runner_error` stays STOP-worthy.** The marker is written and
+   the exception re-raised, so the run that wrote one did not finish — but
+   `run_retro` skips occupied keys on resume, so the cell is never retried and
+   the marker becomes an ordinary documented refusal that closes the accounting.
+   `score_retro` now reports `n_runner_errors` and sets `STOP_AND_INSPECT`
+   whenever one is present, whatever the completeness verdict says. (This is the
+   contract A4 did not require and Codex `7b9d7d1` item 2 asked for.)
+
+5. **A version key names ONE pair.** `cdd8879` claimed exact equality between
+   this ledger's list and `epl/retro_harness_versions.json`, but both sides of
+   the test collapsed into a version-keyed dictionary, and a dictionary keeps
+   the last of a repeated key — so a rogue second `v3` entry, inserted before
+   the legitimate one and matching a mutated harness, was overwritten out of the
+   comparison while the runtime membership test accepted it.
+   `recorded_harness_versions()` now refuses a repeated version outright, and
+   the test counts both lists without collapsing them.
+
+**Recording note.** Recorded in the same commit as the code that produced the
+hashes, which is what makes the entry citable rather than a promise. The
+behaviour is held by five new tests in `epl/tests/test_simretro.py` —
+`test_completeness_is_a_set_identity_and_an_overlap_cannot_pay_for_a_hole`,
+`test_an_arm_not_defined_marker_for_an_always_defined_arm_is_refused`,
+`test_the_override_flags_are_covered_by_the_envelope_hash`,
+`test_a_persisted_runner_error_marker_stays_stop_worthy_on_resume` and
+`test_the_harness_version_list_refuses_a_duplicate_version_key` — plus
+`test_the_bootstrap_refuses_a_tally_with_the_right_total_and_wrong_margins`,
+which closes a fifth Codex finding in `epl/simmetrics.py`: the bootstrap checked
+each particle's total tally mass and not its per-club and per-rank margins, so a
+tally in which two clubs both finished first — and one rank was occupied by
+nobody — carried the right total and resampled into a matrix whose columns do
+not sum to one, which `trps` scores without complaint.
+
 ---
 
 ## A5 — the 2023/24 points adjustments are attested and verified (2026-08-20)
