@@ -430,9 +430,37 @@ def test_coherence_identities(small_run):
                 "pinned_ok", "double_round_robin_ok", "mass_ok",
                 "retained_totals_ok"):
         assert report[key] is True, key
-    assert report["market_totals"] == pytest.approx(
-        {"champion": 1.0, "top4": 4.0, "top5": 5.0, "top7": 7.0, "relegated": 3.0},
-        abs=1e-9)
+    expected = {"champion": 1.0, "top4": 4.0, "top5": 5.0, "top7": 7.0,
+                "relegated": 3.0}
+    assert report["threshold_totals"] == pytest.approx(expected, abs=1e-9)
+    assert report["schema_version"] == simcanary.COHERENCE_SCHEMA_VERSION
+
+
+def test_a_pre_rename_coherence_report_is_still_readable():
+    """The vocabulary rename is a rename, not a data migration.
+
+    `engine-pricing.md` #6 / `ranker.md` #4: `market_totals` and
+    `market_max_error` carried prohibited vocabulary and are now
+    `threshold_totals` and `threshold_max_error`. A report written under
+    `epl-coherence-1` is a RECORD of a run that happened, and reading it must
+    not depend on a spelling adopted afterwards.
+    """
+    old = {"market_totals": {"champion": 1.0}, "market_max_error": 2.5}
+    assert simcanary.coherence_field(old, "threshold_totals") == {"champion": 1.0}
+    assert simcanary.coherence_field(old, "threshold_max_error") == 2.5
+
+    new = {"schema_version": simcanary.COHERENCE_SCHEMA_VERSION,
+           "threshold_totals": {"champion": 2.0}, "threshold_max_error": 0.5}
+    assert simcanary.coherence_field(new, "threshold_totals") == {"champion": 2.0}
+    assert simcanary.coherence_field(new, "threshold_max_error") == 0.5
+
+    # POSITIVE CONTROL: the compat map is a MAP and not a wildcard — a field
+    # that never existed under either spelling reads as absent.
+    assert simcanary.coherence_field({}, "threshold_totals") is None
+    assert simcanary.coherence_field(new, "no_such_field", "gap") == "gap"
+
+    # Nothing writes the old spelling any more.
+    assert "market_totals" not in new and "market_max_error" not in new
 
 
 @pytest.mark.parametrize("break_it,expect", [

@@ -994,3 +994,157 @@ def test_limitations_note_is_byte_identical_across_runs(state, tmp_path):
     # POSITIVE CONTROL — the note is not a constant: a different run says so.
     other = leaguesim.simulate("dc_native", state, book, 320, SEED + 1, 128)
     assert leaguesim.limitations_markdown(other) != a
+
+
+# ==========================================================================
+# G5 — the engine refuses what it used to coerce, and prices its own cut lines
+# (`engine-pricing.md` #2 #5, `ranker.md` #3)
+# ==========================================================================
+
+class _FractionalProvider:
+    """A provider that returns goals a scoreline cannot hold.
+
+    `engine-pricing.md` #2 / `live-forecast.md` #2: a public provider returning
+    `1.9 / 0.2` produced the scoreline `1-0` through `simulate`, because the
+    int8 store TRUNCATES and only shape and range were validated. Nothing
+    anywhere recorded that the result had been changed.
+    """
+
+    name = "fractional"
+    n_particles = 4
+
+    def content_hash(self) -> str:
+        return "f" * 64
+
+    def __init__(self, home=1.9, away=0.2):
+        self.home, self.away = home, away
+        self.book = None
+
+    def describe(self) -> dict:
+        return {"kind": "test", "cutoff": "2026-08-21",
+                "observed_by": "2026-08-21"}
+
+    def sample(self, fixture, pidx, uniforms):
+        n = uniforms.shape[1]
+        return (np.full(n, self.home, float), np.full(n, self.away, float))
+
+
+def test_simulate_refuses_non_integral_goals(state):
+    """A goal is a whole number, and refusing is not the same as rounding."""
+    with pytest.raises(leaguesim.ProviderError) as caught:
+        leaguesim.simulate("fractional", state, _FractionalProvider(1.9, 0.2),
+                           64, SEED, 32)
+    message = str(caught.value)
+    assert "non-integral" in message
+    assert "1.9" in message or "0.2" in message
+    assert "TRUNCATES" in message
+
+    # 0.2 alone is refused too — the away side is not an afterthought.
+    with pytest.raises(leaguesim.ProviderError, match="non-integral"):
+        leaguesim.simulate("fractional", state, _FractionalProvider(1.0, 0.2),
+                           64, SEED, 32)
+    # ...and so is a non-finite count, which would otherwise reach `int8` as
+    # an arbitrary integer.
+    with pytest.raises(leaguesim.ProviderError, match="non-finite"):
+        leaguesim.simulate("fractional", state,
+                           _FractionalProvider(float("nan"), 0.0), 64, SEED, 32)
+
+    # POSITIVE CONTROL: the same provider with WHOLE numbers runs, so the
+    # refusal is the fractional part and not the seam.
+    run = leaguesim.simulate("fractional", state, _FractionalProvider(2.0, 0.0),
+                             64, SEED, 32)
+    assert run.matrix.shape == (20, 20)
+
+
+def test_a_plan_refuses_a_fixture_list_that_is_not_a_round_robin(state):
+    """`ranker.md` #3: 380 fixtures, 20 clubs, 38 appearances each — and a
+    duplicated ordered pair paid for by a missing one.
+
+    The appearance count cannot see the swap, and the head-to-head lookup then
+    overwrites the duplicate and finds nothing for the meeting that is gone, so
+    a boundary tie is broken on evidence the season does not contain — while the
+    published matrix stays doubly stochastic, which is what made it invisible.
+    """
+    plan = leaguesim.SimPlan.from_state(state, n_sims=64, n_particles=16,
+                                        seed=SEED)
+    fixtures = list(plan.fixtures)
+    assert len(fixtures) == 380
+    assert set(plan.fixtures_per_club.tolist()) == {38}
+
+    # Take fixture 1's pair and overwrite it with fixture 0's: still 380
+    # fixtures, still 38 appearances per club for the two clubs involved only
+    # if we swap symmetrically, so pick a swap that preserves the counts.
+    victim, donor = fixtures[1], fixtures[0]
+    swapped = list(fixtures)
+    swapped[1] = dataclasses.replace(
+        victim, home_key=donor.home_key, away_key=donor.away_key,
+        home_idx=donor.home_idx, away_idx=donor.away_idx)
+    with pytest.raises(leaguesim.SimError) as caught:
+        dataclasses.replace(plan, fixtures=tuple(swapped))
+    message = str(caught.value)
+    assert "double round-robin" in message
+    assert "1 duplicated" in message and "1 missing" in message
+    assert donor.home_key in message and victim.home_key in message
+
+    # A missing fixture with nothing put back is refused too.
+    with pytest.raises(leaguesim.SimError, match="double round-robin"):
+        dataclasses.replace(plan, fixtures=tuple(fixtures[:-1]))
+
+    # POSITIVE CONTROL: the untouched list is accepted, and a mere REORDER is
+    # accepted — the check is about the SET of ordered pairs, not their order.
+    dataclasses.replace(plan, fixtures=tuple(fixtures))
+    dataclasses.replace(plan, fixtures=tuple(reversed(fixtures)))
+
+
+def test_every_cut_line_carries_a_monte_carlo_bound(small_run):
+    """`engine-pricing.md` #5: the cut lines were the one published headline
+    with no error beside it.
+
+    The bound is a distribution-free order-statistic interval and the method
+    says so in full, including what it assumes and what it is not.
+    """
+    bounds = small_run.cut_line_bounds
+    assert bounds["n_sims"] == small_run.plan.n_sims
+    assert bounds["alpha"] == leaguesim.CUT_LINE_ALPHA
+    assert bounds["method"] == leaguesim.CUT_LINE_INTERVAL_METHOD
+    # the method STATES its assumption and its limit rather than implying them
+    for phrase in ("order-statistic", "Binomial", "exchangeable",
+                   "cluster-robust", "model error", "stratification",
+                   "not independent"):
+        assert phrase.lower() in bounds["method"].lower(), phrase
+
+    assert set(bounds["lines"]) == set(small_run.cut_lines)
+    for name, row in bounds["lines"].items():
+        assert set(row) == set(small_run.cut_lines[name])
+        for key, band in row.items():
+            assert band["lo"] <= band["value"] <= band["hi"], (name, key)
+            assert band["value"] == small_run.cut_lines[name][key], (name, key)
+
+    # The interval is not a constant: the 50% line is bracketed more tightly
+    # than the 5% line, which is what an order-statistic interval does.
+    mid = bounds["lines"]["pos4"]["q50"]
+    tail = bounds["lines"]["pos4"]["q05"]
+    assert (mid["hi"] - mid["lo"]) <= (tail["hi"] - tail["lo"])
+
+
+def test_the_cut_line_bound_is_exact_on_a_hand_worked_column():
+    """Hand-worked, so the interval is not whatever the code happens to return.
+
+    N = 100 seasons whose 4th-place points are 1..100, one each. The 50%
+    quantile with `method="lower"` is the 50th smallest, i.e. 50. The two-sided
+    95% order-statistic bracket is [X_(l), X_(u)] with l and u read off
+    Binomial(100, 0.5): l = 40, u = 61, so the bracket is [40, 61].
+    """
+    from scipy.stats import binom
+
+    n = 100
+    points = np.zeros((n, 20), dtype=np.int64)
+    points[:, 3] = np.arange(1, n + 1)          # 4th column, distinct values
+    points[:, :3] = 200                          # the three above it
+    points[:, 4:] = 0                            # everything below
+
+    got = leaguesim.cut_line_bounds(points, quantiles=(0.5,))["lines"]["pos4"]["q50"]
+    lo_rank = int(binom.ppf(0.025, n, 0.5))
+    hi_rank = int(binom.ppf(0.975, n, 0.5)) + 1
+    assert (lo_rank, hi_rank) == (40, 61)
+    assert got == {"lo": 40, "hi": 61, "value": 50}

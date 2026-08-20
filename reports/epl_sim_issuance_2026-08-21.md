@@ -622,3 +622,45 @@ itself.
 > * The forecast has not been scored against a preregistered retrospective at the
 >   time of writing; until it has, treat it as a demonstration of the pipeline
 >   rather than as an accuracy claim.
+
+---
+
+## 2026-08-20 — the criterion is renamed, this record is not
+
+**Read this beside the gate table above.** Criterion 6 is named
+`matrix_and_markets` in this document and in the `acceptance.json` this issuance
+wrote, because that is what the code called it on the day the gate ran. Five
+final-state reviews found the name in breach of the project's standing
+vocabulary rule (`engine-pricing.md` #6, `gate-retro.md` #5, `ranker.md` #4,
+`live-ingest.md` #4, `live-forecast.md` #5), and it is now
+**`matrix_and_thresholds`**. Two other strings went with it: the forecast note's
+*"any published market"* is now *"any published threshold"*, and the coherence
+report's `market_totals` / `market_max_error` keys are now `threshold_totals` /
+`threshold_max_error`.
+
+**Nothing above is rewritten and no number moves.** A renamed criterion is the
+same check under a different word, and this report plus the bundle beside it are
+the record of a gate that ran on 2026-08-21 — editing them to match a later
+vocabulary would be editing the evidence. So:
+
+* the rename is a **schema change** and says so: `epl-acceptance-2` for the gate
+  report, `epl-coherence-2` for the coherence report;
+* the read side accepts **either** spelling —
+  `epl.simcli.acceptance_criterion` / `acceptance_criteria_present` and
+  `epl.simcanary.coherence_field` — so this bundle's `acceptance.json` is still
+  read, still checked, and still shows the eleven criteria it covers;
+* nothing writes the old spelling any more.
+
+`epl/tests/test_simcli.py::test_a_pre_rename_acceptance_report_is_still_recognised`
+and `epl/tests/test_simcanary.py::test_a_pre_rename_coherence_report_is_still_readable`
+hold that compatibility open, each with a positive control showing the map is a
+map and not a wildcard.
+
+**Also added on this date, and not present in the tables above:** every cut line
+now carries a Monte-Carlo bracket beside it (`engine-pricing.md` #5) — a
+distribution-free order-statistic interval whose method, assumption and limit
+are stated in full under the table it appears in
+(`epl.leaguesim.CUT_LINE_INTERVAL_METHOD`). This issuance predates it and its
+cut-line table therefore carries no bracket; a bundle with no recorded bound now
+says so in place of the bracket, rather than printing a bare number as though it
+had one.

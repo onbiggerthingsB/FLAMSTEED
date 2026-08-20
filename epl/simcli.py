@@ -84,13 +84,44 @@ GATE_CRITERIA = (
     "marginal_parity",           # simulated marginals == the published forecast
     "tiebreak_oracle",           # the T3 ladder suite passes
     "cutoff_table",              # played + adjustments reconstruct the table
-    "matrix_and_markets",        # matrix and threshold counts agree
+    "matrix_and_thresholds",     # matrix and threshold counts agree
     "serial_equals_chunked",     # serial and chunked runs reproduce
     "mc_uncertainty",            # MC uncertainty beside every headline
     "limitations",               # limitations explicit
     "src_scripts_untouched",     # git diff --stat -- src scripts empty
     "lock_valid",                # the preregistration lock chain still verifies
 )
+
+#: Current criterion name -> the name it replaced. READ-SIDE ONLY.
+#:
+#: `matrix_and_markets` was renamed under the standing vocabulary rule
+#: (`engine-pricing.md` #6, `gate-retro.md` #5, `ranker.md` #4). An
+#: `acceptance.json` written before the rename names the old criterion, and that
+#: file is a RECORD: rewriting it to match a later vocabulary would be editing
+#: the evidence. So nothing writes the old spelling any more and everything that
+#: READS an acceptance report accepts either, through
+#: :func:`acceptance_criterion`. The rename is a schema change and
+#: :data:`GATE_SCHEMA_VERSION` says so.
+GATE_CRITERIA_COMPAT = {"matrix_and_thresholds": "matrix_and_markets"}
+
+#: The acceptance report's schema, bumped when its criterion NAMES change.
+GATE_SCHEMA_VERSION = "epl-acceptance-2"
+
+
+def acceptance_criterion(report: dict, name: str) -> dict | None:
+    """One criterion out of an `acceptance.json`, under either spelling."""
+    criteria = (report or {}).get("criteria") or {}
+    if name in criteria:
+        return criteria[name]
+    old = GATE_CRITERIA_COMPAT.get(name)
+    return criteria.get(old) if old else None
+
+
+def acceptance_criteria_present(report: dict) -> set[str]:
+    """The criteria a stored report covers, named as this version names them."""
+    criteria = set((report or {}).get("criteria") or {})
+    renamed = {old: new for new, old in GATE_CRITERIA_COMPAT.items()}
+    return {renamed.get(name, name) for name in criteria}
 
 #: Section headings :func:`epl.leaguesim.limitations_markdown` must emit. The
 #: check below refuses a note missing any of them, and the test deletes each in
@@ -1238,7 +1269,7 @@ def acceptance_gate(*, run: leaguesim.SimRun, state, manifest, book=None,
             "tiebreak_oracle", "not requested for this gate run")
 
     _run("cutoff_table", lambda: _cutoff_table(state, witness_states))
-    _run("matrix_and_markets", lambda: _coherence(run))
+    _run("matrix_and_thresholds", lambda: _coherence(run))
 
     repro_provider = provider if provider is not None else book
     if repro_provider is None:
@@ -1272,6 +1303,7 @@ def acceptance_gate(*, run: leaguesim.SimRun, state, manifest, book=None,
         "season": run.plan.season,
         "cutoff": run.plan.cutoff,
         "criteria": ordered,
+        "schema_version": GATE_SCHEMA_VERSION,
         "failed": failed,
         "skipped": skipped,
         "PASS": not failed and not skipped,
@@ -1343,7 +1375,7 @@ def _parity(book, post, run, fixtures) -> dict:
 
 def _coherence(run) -> dict:
     report = simcanary.coherence(run)
-    return _ok("matrix_and_markets", bool(report["PASS"]), report,
+    return _ok("matrix_and_thresholds", bool(report["PASS"]), report,
                "rows and columns each sum to 1 and every consequence market is "
                "its own column sum")
 
@@ -1432,8 +1464,19 @@ def _check_acceptance(directory: Path, record: dict) -> dict:
         return _criterion(name, "FAIL", {"error": str(exc)},
                           "acceptance.json is unreadable")
     reported = bool(report.get("PASS"))
+    # The criteria the stored report covers, read under EITHER spelling: a
+    # pre-rename `acceptance.json` names `matrix_and_markets` and is a record,
+    # not a file to be rewritten to match a later vocabulary.
+    present = acceptance_criteria_present(report)
+    absent = sorted(set(GATE_CRITERIA) - present)
     detail = {"gate_PASS": bool(recorded), "acceptance_PASS": reported,
-              "failed": report.get("failed"), "skipped": report.get("skipped")}
+              "failed": report.get("failed"), "skipped": report.get("skipped"),
+              "schema_version": report.get("schema_version"),
+              "criteria_absent": absent}
+    if absent:
+        return _criterion(name, "FAIL", detail,
+                          f"the gate report is missing {len(absent)} criterion "
+                          f"(criteria): {absent}")
     if not reported:
         return _criterion(name, "FAIL", detail, "the gate did not pass")
     if bool(recorded) != reported:
@@ -2217,12 +2260,40 @@ def summary_markdown(record: dict, runs: dict, gate: dict | None) -> str:
         lines.append(f"| {club} | {line(club, 'relegated')} | "
                      f"{pts['mean']:.1f} ± {pts['se']:.2f} |")
 
+    # `engine-pricing.md` #5: every other published headline carried an MC
+    # error beside it and these carried none. Each cell is now the quantile with
+    # its Monte-Carlo bracket, and the method is stated under the table rather
+    # than left to be guessed — an interval whose method is not stated is a
+    # decoration, which is the standing lesson of A2-N4.
     cut = published.cut_lines
+    bounds = (getattr(published, "cut_line_bounds", None) or {})
+    bound_lines = bounds.get("lines") or {}
     lines += ["", "## Cut lines (points, from the simulated seasons)", "",
-              "| Line | 5% | 50% | 95% |", "| --- | ---: | ---: | ---: |"]
-    for name, row in cut.items():
-        lines.append(f"| {name} | {row.get('q05', '')} | {row.get('q50', '')} "
-                     f"| {row.get('q95', '')} |")
+              "| Line | 5% [MC 95%] | 50% [MC 95%] | 95% [MC 95%] |",
+              "| --- | ---: | ---: | ---: |"]
+
+    def _cell(name: str, key: str) -> str:
+        value = cut.get(name, {}).get(key)
+        if value is None:
+            return ""
+        band = (bound_lines.get(name) or {}).get(key)
+        if band is None:
+            return str(value)
+        return f"{value} [{band['lo']}–{band['hi']}]"
+
+    for name in cut:
+        lines.append(f"| {name} | {_cell(name, 'q05')} | {_cell(name, 'q50')} "
+                     f"| {_cell(name, 'q95')} |")
+    if bounds:
+        lines += ["",
+                  f"**Monte-Carlo uncertainty on every cut line above.** The "
+                  f"bracket beside each quantile is a two-sided "
+                  f"{100 * (1 - bounds['alpha']):.0f}% "
+                  f"{bounds['method']}"]
+    else:
+        lines += ["", "**No Monte-Carlo bound is recorded for these cut lines** "
+                  "— this bundle predates `cut_line_bounds`, and a headline "
+                  "without an error is not a headline with a small one."]
 
     lines += ["", "## Acceptance gate", ""]
     if gate is None:

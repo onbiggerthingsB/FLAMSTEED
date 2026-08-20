@@ -715,6 +715,39 @@ def marginal_parity(book, post, run: leaguesim.SimRun, fixtures=None, *,
 # 5. coherence (plan v2 D10)
 # ==========================================================================
 
+#: The coherence report's schema, bumped when its KEYS change.
+#:
+#: `-2` renames two keys under the standing vocabulary rule (`ranker.md` #4,
+#: `engine-pricing.md` #6, `gate-retro.md` #5): ``market_max_error`` became
+#: ``threshold_max_error`` and ``market_totals`` became ``threshold_totals``.
+#: A renamed key is a schema change, so the version says so, and
+#: :func:`coherence_field` reads either spelling out of a stored report — a `-1`
+#: report on disk stays readable and nothing has to be regenerated.
+COHERENCE_SCHEMA_VERSION = "epl-coherence-2"
+
+#: New name -> the `-1` name it replaced. Read-side only: nothing writes the old
+#: spelling any more.
+COHERENCE_FIELD_COMPAT = {
+    "threshold_max_error": "market_max_error",
+    "threshold_totals": "market_totals",
+}
+
+
+def coherence_field(report: dict, name: str, default=None):
+    """Read one coherence field by its CURRENT name, from any schema.
+
+    The rename is a rename and not a new number: a stored `-1` report says the
+    same thing under the old spelling, and refusing to read it would turn a
+    vocabulary fix into a data migration.
+    """
+    if name in report:
+        return report[name]
+    old = COHERENCE_FIELD_COMPAT.get(name)
+    if old is not None and old in report:
+        return report[old]
+    return default
+
+
 def coherence(run: leaguesim.SimRun, *, tol: float = DEFAULT_TOL) -> dict:
     """Every D10 identity, checked and NAMED rather than raised on the first.
 
@@ -743,7 +776,7 @@ def coherence(run: leaguesim.SimRun, *, tol: float = DEFAULT_TOL) -> dict:
     slices = leaguesim.market_slices(n_clubs)
     markets_ok = True
     market_error = 0.0
-    market_totals: dict[str, float] = {}
+    threshold_totals: dict[str, float] = {}
     for market in leaguesim.MARKETS:
         lo, hi = slices[market]
         total = 0.0
@@ -757,7 +790,7 @@ def coherence(run: leaguesim.SimRun, *, tol: float = DEFAULT_TOL) -> dict:
                     f"{club} {market}: published {published:.9f} != column sum "
                     f"{expected:.9f}")
             total += published
-        market_totals[market] = total
+        threshold_totals[market] = total
         if abs(total - (hi - lo)) > tol * n_clubs:
             markets_ok = False
             failures.append(
@@ -927,8 +960,9 @@ def coherence(run: leaguesim.SimRun, *, tol: float = DEFAULT_TOL) -> dict:
         "n_sims": plan.n_sims,
         "matrix_row_max_error": row_error,
         "matrix_col_max_error": col_error,
-        "market_max_error": float(market_error),
-        "market_totals": market_totals,
+        "schema_version": COHERENCE_SCHEMA_VERSION,
+        "threshold_max_error": float(market_error),
+        "threshold_totals": threshold_totals,
         "matrix_rows_ok": bool(matrix_rows_ok),
         "matrix_cols_ok": bool(matrix_cols_ok),
         "markets_ok": bool(markets_ok),

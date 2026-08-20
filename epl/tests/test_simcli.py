@@ -110,9 +110,10 @@ def test_cli_forecast_smoke_on_synthetic_book_writes_all_artifacts(issuance):
     assert gate["criteria"]["tiebreak_oracle"]["status"] == "SKIPPED"
     assert gate["criteria"]["src_scripts_untouched"]["status"] == "SKIPPED"
     for name in ("clubs_and_fixtures", "promoted_complete", "marginal_parity",
-                 "cutoff_table", "matrix_and_markets", "serial_equals_chunked",
+                 "cutoff_table", "matrix_and_thresholds", "serial_equals_chunked",
                  "mc_uncertainty", "limitations"):
         assert gate["criteria"][name]["PASS"] is True, (name, gate["criteria"][name])
+    assert gate["schema_version"] == simcli.GATE_SCHEMA_VERSION
 
     # the summary a human reads names the arm, the cutoff and the gate verdict
     summary = (directory / "summary.md").read_text()
@@ -2086,3 +2087,88 @@ def test_the_committed_opener_reports_exactly_the_pre_A6_criteria_unanchored():
                  "truncation_sidecar_consistent", "retained_rows_reproduce"):
         assert _criterion(cell, name)["status"] == "PASS", name
     assert _record_criterion(report, "acceptance_verdict")["status"] == "PASS"
+
+
+# ==========================================================================
+# G5 — the vocabulary rename is a rename, and the cut lines carry an error
+# (`engine-pricing.md` #5 #6, `gate-retro.md` #5, `ranker.md` #4)
+# ==========================================================================
+
+def test_a_pre_rename_acceptance_report_is_still_recognised():
+    """`matrix_and_markets` became `matrix_and_thresholds` under the standing
+    vocabulary rule, and an `acceptance.json` written before the rename is a
+    RECORD of a gate that ran — not a file to be rewritten to match a later
+    vocabulary.
+
+    So: nothing WRITES the old spelling, and everything that READS an acceptance
+    report accepts either.
+    """
+    assert "matrix_and_thresholds" in simcli.GATE_CRITERIA
+    assert "matrix_and_markets" not in simcli.GATE_CRITERIA
+    assert simcli.GATE_CRITERIA_COMPAT["matrix_and_thresholds"] == \
+        "matrix_and_markets"
+
+    old = {"criteria": {name: {"status": "PASS", "PASS": True}
+                        for name in simcli.GATE_CRITERIA}}
+    old["criteria"]["matrix_and_markets"] = old["criteria"].pop(
+        "matrix_and_thresholds")
+    assert simcli.acceptance_criterion(old, "matrix_and_thresholds") == {
+        "status": "PASS", "PASS": True}
+    assert simcli.acceptance_criteria_present(old) == set(simcli.GATE_CRITERIA)
+
+    new = {"criteria": {name: {"status": "PASS", "PASS": True}
+                        for name in simcli.GATE_CRITERIA}}
+    assert simcli.acceptance_criteria_present(new) == set(simcli.GATE_CRITERIA)
+
+    # POSITIVE CONTROL: the compat map is not a wildcard. A report that is
+    # genuinely missing a criterion is genuinely missing it, under either name.
+    holed = {"criteria": {k: v for k, v in new["criteria"].items()
+                          if k != "mc_uncertainty"}}
+    assert "mc_uncertainty" not in simcli.acceptance_criteria_present(holed)
+    assert simcli.acceptance_criterion(holed, "mc_uncertainty") is None
+
+
+def test_check_refuses_an_acceptance_report_missing_a_criterion(tmp_path):
+    """A6 (b.3) + the rename: `check` reads the gate report, and a report that
+    does not cover the eleven criteria has not shown the gate ran.
+    """
+    directory = tmp_path / "issuance"
+    directory.mkdir()
+    record = {"gate_PASS": True}
+
+    full = {"schema_version": simcli.GATE_SCHEMA_VERSION, "PASS": True,
+            "failed": [], "skipped": [],
+            "criteria": {name: {"status": "PASS", "PASS": True}
+                         for name in simcli.GATE_CRITERIA}}
+    (directory / "acceptance.json").write_text(json.dumps(full))
+    assert simcli._check_acceptance(directory, record)["status"] == "PASS"
+
+    # the SAME report under the pre-rename spelling still passes
+    old = json.loads(json.dumps(full))
+    old["criteria"]["matrix_and_markets"] = old["criteria"].pop(
+        "matrix_and_thresholds")
+    old["schema_version"] = "epl-acceptance-1"
+    (directory / "acceptance.json").write_text(json.dumps(old))
+    assert simcli._check_acceptance(directory, record)["status"] == "PASS"
+
+    # a report genuinely short of a criterion FAILs and names it
+    holed = json.loads(json.dumps(full))
+    holed["criteria"].pop("lock_valid")
+    (directory / "acceptance.json").write_text(json.dumps(holed))
+    verdict = simcli._check_acceptance(directory, record)
+    assert verdict["status"] == "FAIL"
+    assert verdict["detail"]["criteria_absent"] == ["lock_valid"]
+
+
+def test_the_summary_cut_line_table_states_its_monte_carlo_method():
+    """`engine-pricing.md` #5: the cut-line headlines carried no error at all.
+
+    The rendered table now carries a bracket per quantile AND the method under
+    it — an interval whose method is not stated is a decoration (A2-N4).
+    """
+    method = leaguesim.CUT_LINE_INTERVAL_METHOD
+    assert "order-statistic" in method
+    assert "Binomial" in method
+    assert "exchangeable" in method
+    assert "cluster-robust" in method
+    assert "model error" in method

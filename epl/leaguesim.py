@@ -120,7 +120,8 @@ __all__ = [
     "OUTPUT_SCHEMA_VERSION", "SCHEMA_VERSION", "STREAM_MAPPING", "ChunkRows",
     "DCNativeProvider", "FixturePlan", "ProviderError", "RetainedRows",
     "ScorelineProvider", "SimError", "SimPlan", "SimRun", "canonical_json",
-    "cluster_se", "cut_lines", "envelope", "excluded_mass_report",
+    "cluster_se", "cut_line_bounds", "cut_lines", "CUT_LINE_INTERVAL_METHOD",
+    "envelope", "excluded_mass_report",
     "limitations_markdown",
     "market_slices", "particle_index", "resolve_provider", "simulate",
     "simulate_chunk", "streams", "sum_by_particle", "variance_components",
@@ -407,6 +408,105 @@ def market_slices(n_clubs: int) -> dict[str, tuple[int, int]]:
             "relegated": (n_clubs - 3, n_clubs)}
 
 
+def _check_round_robin(clubs, fixtures) -> None:
+    """The fixture list IS the complete double round-robin (`ranker.md` #3).
+
+    Every plan was held to 38 appearances per club and nothing else, and
+    appearance counts cannot see a SWAP: duplicate the ordered pair (A, B) in
+    place of (C, D) and every club still appears 38 times, while the head-to-head
+    lookup silently overwrites the duplicate and finds nothing for the missing
+    meeting — so a 17-18 tie broken on H2H is broken on the wrong evidence and
+    the output is still doubly stochastic, which is what makes it invisible.
+    Set equality over ordered pairs sees the duplicate and the hole at once.
+
+    This is the same check A6 (a.1) puts on the retrospective's realised archive,
+    on the same reasoning, applied to the other end of the pipeline.
+    """
+    pairs = [(f.home_key, f.away_key) for f in fixtures]
+    seen = set(pairs)
+    complete = {(h, a) for h in clubs for a in clubs if h != a}
+    duplicates = sorted({p for p in seen if pairs.count(p) > 1})
+    missing = sorted(complete - seen)
+    extra = sorted(seen - complete)
+    if len(pairs) != len(complete) or duplicates or missing or extra:
+        raise SimError(
+            f"the fixture list is not a complete double round-robin over "
+            f"{len(clubs)} clubs: {len(pairs)} fixtures against "
+            f"{len(complete)} ordered pairs, {len(duplicates)} duplicated, "
+            f"{len(missing)} missing, {len(extra)} not between two of the "
+            f"clubs. duplicated={duplicates[:4]}; missing={missing[:4]}; "
+            f"extra={extra[:4]}. A per-club appearance count cannot see a "
+            "duplicated pair paid for by a missing one (`ranker.md` #3): the "
+            "head-to-head lookup overwrites the duplicate and finds nothing "
+            "for the meeting that is gone, so a boundary tie is broken on "
+            "evidence the season does not contain.")
+
+
+#: How the cut-line interval below is computed. Named once, travels with the
+#: numbers, and is printed under the table — because an interval whose method is
+#: not stated is a decoration (A2-N4 is the standing lesson).
+CUT_LINE_INTERVAL_METHOD = (
+    "distribution-free order-statistic interval. For the q-quantile of N "
+    "simulated seasons the reported value is the order statistic X_(k); the "
+    "interval is [X_(l), X_(u)] with l and u read off the Binomial(N, q) "
+    "distribution at the two-sided 5% level, which is exact and assumes no "
+    "shape for the points distribution. WHAT IT ASSUMES: that the N seasons are "
+    "exchangeable draws from this run's own mixture. They are not independent — "
+    "seasons are assigned to posterior particles by `i mod S`, which is "
+    "stratification, not independent sampling — so this is a Monte-Carlo "
+    "interval under exchangeability and NOT a cluster-robust one, and the "
+    "direction of the departure is not established here. WHAT IT IS NOT: model "
+    "error. It says how far the cut line would move if this same posterior were "
+    "re-simulated, and nothing about whether the posterior is right.")
+
+#: The two-sided level the interval above is taken at.
+CUT_LINE_ALPHA = 0.05
+
+
+def cut_line_bounds(points, quantiles=CUT_LINE_QUANTILES,
+                    alpha: float = CUT_LINE_ALPHA) -> dict:
+    """Monte-Carlo bounds beside every cut line (`engine-pricing.md` #5).
+
+    The cut-line headlines carried no uncertainty at all while every other
+    published headline carried an MC SE beside it. This supplies one, by the
+    method :data:`CUT_LINE_INTERVAL_METHOD` states in full.
+
+    Returns ``{"method": ..., "alpha": ..., "n_sims": ..., "lines": {name:
+    {"q05": {"lo": int, "hi": int, "value": int}, ...}}}``.
+    """
+    from scipy.stats import binom
+
+    pts = np.asarray(points)
+    if pts.ndim != 2:
+        raise SimError(f"points must be [N, clubs], got {pts.shape}")
+    n_sims = int(pts.shape[0])
+    ranked = -np.sort(-pts, axis=1)
+
+    lines: dict[str, dict[str, dict[str, int]]] = {}
+    for key, position in (("champion", 1), ("pos4", 4), ("pos5", 5),
+                          ("pos17", 17), ("pos18", 18)):
+        if position > pts.shape[1]:
+            continue
+        column = np.sort(ranked[:, position - 1])
+        row: dict[str, dict[str, int]] = {}
+        for q in quantiles:
+            # The order-statistic bracket: P(X_(l) <= x_q <= X_(u)) is
+            # P(l <= Bin(N, q) <= u - 1), so take the alpha/2 and 1 - alpha/2
+            # quantiles of that binomial as the (1-based) ranks and clamp.
+            lo_rank = int(binom.ppf(alpha / 2.0, n_sims, float(q)))
+            hi_rank = int(binom.ppf(1.0 - alpha / 2.0, n_sims, float(q))) + 1
+            lo_rank = max(1, min(n_sims, lo_rank))
+            hi_rank = max(1, min(n_sims, hi_rank))
+            row[f"q{int(round(q * 100)):02d}"] = {
+                "lo": int(column[lo_rank - 1]),
+                "hi": int(column[hi_rank - 1]),
+                "value": int(np.quantile(column, q, method="lower")),
+            }
+        lines[key] = row
+    return {"method": CUT_LINE_INTERVAL_METHOD, "alpha": float(alpha),
+            "n_sims": n_sims, "lines": lines}
+
+
 def cut_lines(points, quantiles=CUT_LINE_QUANTILES) -> dict[str, dict[str, int]]:
     """Points needed to finish 1st / 4th / 5th / 17th / 18th, as distributions.
 
@@ -484,6 +584,7 @@ class SimPlan:
         np.add.at(counts, self.home_idx, 1)
         np.add.at(counts, self.away_idx, 1)
         set_(self, "fixtures_per_club", counts)
+        _check_round_robin(self.clubs, self.fixtures)
 
     # ---- construction ---------------------------------------------------
     @classmethod
@@ -738,6 +839,27 @@ def simulate_chunk(provider, plan: SimPlan, chunk_index: int) -> ChunkRows:
                 f"for {fixture.fixture_id}, expected ({size},) twice")
         if home_goals.min() < 0 or away_goals.min() < 0:
             raise ProviderError(f"{provider.name} returned negative goals")
+        # A GOAL IS A WHOLE NUMBER, and the int8 store is a truncation, not a
+        # cast (`engine-pricing.md` #2, `live-forecast.md` #2). Only shape and
+        # range were validated, so a provider returning 1.9 / 0.2 became the
+        # scoreline 1-0 — a different result, silently, with nothing anywhere
+        # recording that it had been changed. Refuse rather than round: which
+        # way to round is a modelling decision and this is not the place to
+        # make it.
+        for side, goals in (("home", home_goals), ("away", away_goals)):
+            if not np.all(np.isfinite(goals)):
+                raise ProviderError(
+                    f"{provider.name} returned a non-finite {side} goal count "
+                    f"for {fixture.fixture_id}")
+            if not np.array_equal(goals, np.floor(goals)):
+                bad = np.asarray(goals, float)[
+                    np.asarray(goals, float) != np.floor(np.asarray(goals, float))]
+                raise ProviderError(
+                    f"{provider.name} returned {bad.size} non-integral {side} "
+                    f"goal count(s) for {fixture.fixture_id}, the first being "
+                    f"{float(bad[0])!r}. A goal is a whole number; the int8 "
+                    "store TRUNCATES, so 1.9 would have been published as 1 "
+                    "and nothing would record that the scoreline was changed.")
         # Fail closed rather than let an out-of-range goal count wrap silently
         # into the int8 store (where it would resurface as "negative goals" two
         # steps later, in a message that points at the wrong thing).
@@ -831,6 +953,12 @@ class SimRun:
     consequences: dict
     points_summary: dict
     cut_lines: dict
+    #: `engine-pricing.md` #5: an MC bound beside every cut line, by the method
+    #: :data:`CUT_LINE_INTERVAL_METHOD` states. Deliberately OUTSIDE
+    #: `simcli.OUTPUT_NUMBER_FIELDS`: it is covered by the FULL payload digest
+    #: that A6 (b.1) made load-bearing, and adding it to the numbers allowlist
+    #: would move the numbers digest of every already-published record.
+    cut_line_bounds: dict
     tie_diagnostics: dict
     mc: dict
     retained_rows: RetainedRows
@@ -904,6 +1032,7 @@ class SimRun:
             "consequences": self.consequences,
             "points_summary": self.points_summary,
             "cut_lines": self.cut_lines,
+            "cut_line_bounds": self.cut_line_bounds,
             "tie_diagnostics": self.tie_diagnostics,
             "mc": self.mc,
             "envelope": self.envelope,
@@ -1125,6 +1254,7 @@ def _aggregate(rows: RetainedRows, plan: SimPlan) -> dict:
         "consequences": consequences,
         "points_summary": _points_summary(rows.points, stats_points, plan),
         "cut_lines": cut_lines(rows.points),
+        "cut_line_bounds": cut_line_bounds(rows.points),
         "tie_diagnostics": _tie_diagnostics(rows, plan, mass),
         "mc": mc,
     }
@@ -1609,7 +1739,7 @@ to all of the following.
 
 * {env['n_sims']} simulated seasons, {env['n_particles']} posterior draws, each used
   {run.mc['sims_per_particle_min']}-{run.mc['sims_per_particle_max']} times.
-  Largest cluster-by-particle standard error on any published market:
+  Largest cluster-by-particle standard error on any published threshold:
   **{worst:.4f}**.
 * Standard errors are Monte-Carlo only. They do not describe model error, and a
   tight standard error on a badly specified model is still a badly specified
