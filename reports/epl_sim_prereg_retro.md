@@ -225,12 +225,18 @@ relegation. The 6|7 boundary does appear among the positions the ranker treats a
 material when it resolves ties, but it is **not** a published position threshold, so
 nothing here is weighted on it. (These five are the **consequence thresholds**: the
 positional outputs the product displays — champion, top 4, top 5, top 7, relegation.
-None of them is a price, a stake or an odds line, and nothing in this project reads one.
+None of them is a price of any kind, and nothing in this project reads a price.
 **Dated note, 2026-08-20:** this sentence previously used an older word for the same five
 outputs; the wording is corrected in place under the project's vocabulary rule, and the
 correction is recorded in [`reports/epl_sim_amendments.md`](epl_sim_amendments.md). The
 rule renames the prose, not any identifier in the code, and it changes nothing about what
-the five outputs are, how they are computed, or how they are scored.)
+the five outputs are, how they are computed, or how they are scored.
+**Second dated note, 2026-08-20 (Codex review of `7b9d7d1` #3):** the corrected sentence
+itself introduced two further words of the banned vocabulary while claiming to satisfy the
+rule — a rule that is about the WORDS and not only about the sense, so a disclaimer written
+in the vocabulary it disclaims breaks it. The sentence now makes the same statement without
+them. Nothing about the five outputs, their computation or their scoring changes here
+either.)
 
 **The flat null is computed, not simulated** (`flat_trps`), in closed form
 `(T+1)/(6T)` — **0.175** for 20 clubs, independent of the realised order. The null

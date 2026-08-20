@@ -941,13 +941,23 @@ one.**
   fixtures produces, pushes the realised family-wise rate strictly below α, and
   the more so the stronger it is. A3's *"conservative under the dependence
   documented above"* is right about this half.
-- **Anti-conservative direction.** Measured against the **iid** figure this
+- **Anti-conservative direction — WITHDRAWN as stated, 2026-08-20 (Codex review
+  of `7b9d7d1` #5).** This bullet read: *"Measured against the iid figure this
   ledger quotes, negative dependence runs the other way: for negatively
-  associated cells `P(at least one exceedance)` can **exceed** the product form
+  associated cells `P(at least one exceedance)` can exceed the product form
   `1 − (1 − p)^m`. The within-fixture multinomial is exactly such negative
-  association, so the rule is slightly anti-conservative *relative to the iid
-  reference* — while still sitting under the Bonferroni bound, which the
-  multinomial cannot breach.
+  association, so the rule is slightly anti-conservative relative to the iid
+  reference."* The inference does not hold. Negative association bounds
+  `P(∩ A_i) ≤ Π P(A_i)` for events that are **coordinatewise increasing** (or
+  all decreasing) in the underlying counts, and the events here are
+  `|Z_i| > z*` — TWO-SIDED exceedances, which are increasing in `|count −
+  expected|` and neither increasing nor decreasing in the counts themselves. The
+  multinomial's negative association therefore says nothing about them in this
+  form, and the direction claimed **is not supported**. It is not replaced by
+  the opposite claim: the direction of the departure from the iid reference is
+  simply **not established** here. What does stand, and is unaffected, is the
+  Bonferroni bound — the realised family-wise rate is at most α under ANY
+  dependence — and that is the only guarantee leg 1 is asserted to have.
 - **And marginal normality is itself an approximation.** The floor on the
   denominator deflates `|Z|` (conservative). A cell's count is discrete and
   right-skewed, and at `z ≈ 5` its true upper tail is not guaranteed to be
@@ -1071,6 +1081,27 @@ under-estimate of the delta-method variance it approximates.
 The error is one of vocabulary rather than of arithmetic — no computed number is
 wrong — but "conservative" is exactly the word a reader uses to decide whether a
 tight SE can be trusted, and it was not earned.
+
+**Dated rigor note, 2026-08-20 (Codex review of `7b9d7d1` #4) — the ARGUMENT
+above is withdrawn; the CONCLUSION stands.** The paragraph infers that `g[c, k]`
+has mixed signs within a club's row from the signs of `X[c, r] − O[c, r]`. That
+does not follow: `g[c, k]` is a REVERSE CUMULATIVE SUM, `Σ_{r ≥ k} (X[c, r] −
+O[c, r])`, not the summand, and a sum of terms of mixed sign need not change sign
+as `k` moves. Two rows of any R1 matrix are immediate counterexamples. For the
+club that finished **first**, `O[c, r] = 1` for every `r ≥ 1`, so every summand is
+`≤ 0` and every `g[c, k]` is `≤ 0` — no sign change anywhere in the row. For the
+club that finished **last**, `O[c, r] = 0` for every `r < R`, so every summand up
+to `R` is `≥ 0` and the gradient does not change sign there either. Rows in the
+middle of the table CAN produce a sign change. So counterexamples exist in both
+directions and **no sign claim is made** about the omitted covariance total.
+
+The conclusion A2-N4 draws is unaffected and is reaffirmed here: the estimator
+drops `g · g' · Cov` rather than `Cov`, the dropped total's sign is **not
+determined** by anything computed, and the diagonal sum can be an over- or an
+under-estimate of the delta-method variance. What is withdrawn is the *proof by
+gradient sign*, which was not a proof. "Conservative" remains withdrawn — for the
+stronger reason that nothing establishes the direction, rather than for the
+weaker one that the gradient argument establishes the opposite.
 
 ### The ruling (owner, 2026-08-20)
 
@@ -1715,3 +1746,41 @@ open (R1 §10).
 
 Written in the same commit that edits the four rows and the tests, and before
 the 2023/24 run. The evidence table above is the one the owner was shown.
+
+### A5-N1 — the attestation is no longer self-supporting (recorded 2026-08-20)
+
+**Decision amended:** none. No row, flag, date, URL or score changes here.
+
+*Arithmetic note: this entry quotes no number that was computed. It records a
+check and who performed it.*
+
+**The gap.** A5 records that *the assistant did the verification work* and that
+the owner authorised the flip on that basis. Everything in it is stated plainly,
+including that the owner did not personally compare the rows to the published
+record — but the CHECK itself then rested on a single agent's reading of four
+web pages, and the only evidence that the reading was right was the same agent's
+table. An attestation whose sole support is the party being attested for is
+self-supporting, and that is the one property this ledger exists to prevent.
+
+**What closed it.** In the review round this note accompanies, a SEPARATE
+verifier agent — not the one that produced A5's table, and working from the four
+`source_url` values in `epl/season/points_adjustments.jsonl` rather than from
+A5's summary — independently re-fetched the four premierleague.com statements on
+**2026-08-20** and reported that all four confirm the rows as recorded: the −10
+of 17 Nov 2023, the Appeal Board's substitution of six for ten on 26 Feb 2024,
+Nottingham Forest's −4 of 18 Mar 2024, and Everton's separate −2 of 08 Apr 2024,
+each immediate and each matching its row's `delta`, `known_at` and `supersedes`.
+
+**What this note is, exactly.** It is the record of that second reading, filed by
+a third party — the author of this entry, who consolidated the review round's
+findings and did **not** re-fetch the four pages personally. So the chain is now:
+one agent checked and tabulated (A5), a second agent independently re-fetched and
+confirmed (this note), the owner authorised on the record (A5), and a third wrote
+it down. That is two independent readings rather than one, which is what "no
+longer self-supporting" means here and all it means. It is still not a human
+reading the league's pages, and A5's sentence about D16 — *whether that satisfies
+D16 is a question about D16* — is unchanged and still open.
+
+**Recording note.** Filed in the documentation commit of the round, dated rather
+than folded into A5's own text, so that A5 remains the record of what was done
+when it was written and this remains the record of what was added afterwards.

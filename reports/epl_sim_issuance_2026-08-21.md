@@ -94,13 +94,28 @@ could never supply — it is only defined for the DC-native arm, and it is the c
 that the simulated per-fixture scoreline marginals *are* the published per-fixture
 forecast rather than merely resembling it. It now has an answer, and the answer is
 yes at the preregistered 4σ. Its headroom is thin: the worst of 14,225 cells sits
-at 3.865σ, on `2627:man_united:liverpool`. That is close to what noise alone
-would produce: the expected largest |Z| among 14,225 independent standard normals
-is **4.1014** (quadrature on `1 − (2Φ(x) − 1)^m`, absolute error 3.2e-08; median
-of the maximum 4.0617), so a worst cell at 3.87 is unremarkable rather than a
-near-miss. It is nevertheless the first number to watch on the next issuance,
-because a criterion this close to its own noise floor has little room to absorb a
-real defect.
+at 3.865σ, on `2627:man_united:liverpool`.
+
+**2026-08-20 reframing (Codex review of `d2263c6` #3).** The paragraph that stood
+here read 3.865σ against an IID reference and called it *unremarkable*, and named
+that reference a *noise floor*. Under **A3-N1** that reading is withdrawn while
+every number in it stands. What is true: among 14,225 **independent** standard
+normals the expected largest |Z| is **4.1014** (quadrature on `1 − (2Φ(x) − 1)^m`,
+absolute error 3.2e-08; median of the maximum 4.0617). What does not follow: that
+3.865 is unremarkable *for this run*. The 14,225 cells are not independent — within
+a fixture the scoreline cells are multinomial, the home/draw/away triple is a linear
+combination of cells already counted, and every `Z` divides by an ESTIMATED, floored
+`max(cluster, binomial)` standard error rather than by a known one — so the
+distribution of the maximum under the actual dependence is a different distribution,
+it has **not been computed**, and its mean can sit either side of 4.1014. Calling
+4.1014 a *noise floor* asserts a calibration that does not exist.
+
+**What gates, and what does not.** Nothing above is a criterion. This issuance
+passed criterion 3 under the fixed 4σ rule preregistered for it, and its worst cell
+also clears **A3's leg 1** — the family-wise `z* = Φ⁻¹(1 − α/(2m)) = 4.9605` at this
+m — by 1.096σ. Leg 1 is the criterion; the iid maximum is context for reading it and
+not a second test. 3.865σ remains the first number to watch on the next issuance,
+which is a statement about margin and not about noise.
 
 **[SE-1] — 2026-08-20 correction note (Codex review of ce82484 #2).** The two
 `±` figures marked above — the 90.03% ± 0.37 title-race concentration and the
@@ -142,9 +157,25 @@ approximation. Under dependence the true exceedance probability can sit either
 side of 0.5939, and it has not been computed. The sentence below is therefore a
 statement about the iid arithmetic, not a measurement of the sampler; the same
 relabelling is recorded as the ledger entry **A3-N1**, which also demotes A3's
-leg 2 to an uncalibrated diagnostic. The 0.9010 expected-exceedance figure above
-is exact under marginal normality (an expectation is linear and needs no
-independence) and is not relabelled.
+leg 2 to an uncalibrated diagnostic.
+
+**0.9010 IS AN IID-REFERENCE FIGURE TOO** — dated correction, 2026-08-20 (Codex
+review of `d2263c6` #2). This paragraph previously said the 0.9010
+expected-exceedance figure "is exact under marginal normality (an expectation is
+linear and needs no independence) and is not relabelled", while the amendments
+ledger says of both numbers: *"Both figures assume the m cells are independent …
+They are exactly right as what they are — the iid reference for m cells"*
+(A3-N1). The report and the ledger cannot both be the record, so they are
+reconciled here, in the ledger's direction and without moving either number.
+Precisely: **0.9010 = m × 6.334e-05 needs no independence** — an expectation is
+linear, and that much of the old sentence was right — but it does need each cell's
+`Z` to be a STANDARD NORMAL, and A3-N1's own reasoning says it is not one: the
+denominator is an estimated, floored `max(cluster, binomial)` standard error, and a
+cell's count is discrete and right-skewed, so the 6.334e-05 tail is itself an
+approximation. **Both 0.5939 and 0.9010 are therefore figures of the iid reference
+model for m = 14,225 cells, and neither is a measurement of this sampler.** They
+differ only in which assumption each leans on — 0.5939 needs independence as well
+as marginal normality, 0.9010 needs marginal normality alone.
 
 — under that iid reference, **a correct sampler would fail criterion 3 about
 three runs in five.** That is the

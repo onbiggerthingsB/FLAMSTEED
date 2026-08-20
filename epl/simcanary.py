@@ -515,11 +515,20 @@ def marginal_parity(book, post, run: leaguesim.SimRun, fixtures=None, *,
     * **Leg 1 — per-cell, family-wise.** A cell fails if
       `|Z| > z* = Phi^-1(1 - alpha / (2m))`, where `m` is the number of cells
       this run actually compared. The retired rule was a fixed 4.0 sigma applied
-      to fourteen thousand cells at once, which a CORRECT sampler fails about
-      three runs in five (0.5939 at m = 14,225). Bonferroni is blunt and is
-      conservative under the dependence documented below, and conservative here
-      means harder to fail SPURIOUSLY, which is the property this criterion
-      needs most: the first time it fails should be a reason to stop.
+      to fourteen thousand cells at once, and under the IID REFERENCE for
+      m = 14,225 cells a correct sampler fails it with probability 0.5939 —
+      about three runs in five. THAT IS THE IID ARITHMETIC AND NOT A
+      MEASUREMENT OF THIS SAMPLER (amendment A3-N1, 2026-08-20): the product
+      form `1 - (1 - p)^m` assumes the m cells are independent, and they are
+      not, for the reasons leg 2's demotion sets out below. The actual
+      exceedance probability under this dependence has NOT been computed and
+      can sit either side of 0.5939. The iid reference was more than enough to
+      establish A3's point — that a per-cell 4 sigma threshold at this m is not
+      a gate — and it is not the failure rate of any rule this project runs.
+      Bonferroni is blunt and is conservative under positive dependence, and
+      conservative here means harder to fail SPURIOUSLY, which is the property
+      this criterion needs most: the first time it fails should be a reason to
+      stop.
     * **Leg 2 — global, AND A DIAGNOSTIC ONLY (amendment A3-N1, 2026-08-20).**
       `chi2 = sum(Z^2)` over exactly those `m` cells with `df = m`, and its `p`
       against `chi2_min_p`, are computed and reported on every run — and NOTHING
