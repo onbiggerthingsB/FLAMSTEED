@@ -1537,6 +1537,18 @@ def test_the_recorded_harness_list_in_the_code_equals_the_one_in_the_ledger():
         assert coded[version][1].startswith(two), f"{version} epl/simmetrics.py"
         assert len(coded[version][0]) == 64 and len(coded[version][1]) == 64
 
+    # And HEAD's own harness pair is one of them. A4 (iv) makes a run under an
+    # unrecorded pair invalid, so a checkout whose harness is not recorded can
+    # only produce uncitable runs — which is a state worth failing on, not a
+    # state to be discovered by a run that refuses. The Fix commit that created
+    # v3 is followed by the commit that records it; this is what makes that
+    # second commit mandatory rather than a promise.
+    assert simretro.harness_hashes() in {
+        (v["simretro_sha256"], v["simmetrics_sha256"]) for v in
+        simretro.recorded_harness_versions()}, (
+        "epl/simretro.py or epl/simmetrics.py has changed without being "
+        "recorded in epl/retro_harness_versions.json and amendment A4")
+
     # POSITIVE CONTROL: the parser reads the LEDGER, not the code, and the
     # comparison above really fails when the two disagree — on a hash, and on
     # the set of versions.

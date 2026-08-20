@@ -1413,3 +1413,121 @@ Written **before any line of `epl/simretro.py` changed under this ruling**; both
 harness files were re-hashed at the moment of writing and still match the v2.1
 values in A2-N2. The commit that changes them follows this one.
 
+### The v3 hashes, and what landed (recorded 2026-08-20, immediately after the Fix commit)
+
+**A4's text above is deliberately unedited**, for the reason A1-C1 gives: an
+entry that can be rewritten after the fact is not a record of what was decided
+in advance. This note records the one thing A4 said it could not state in
+advance — the v3 hashes — and three places where the code that landed differs
+from the wording of the ruling.
+
+*Arithmetic note: every number in this note is an exact count of ledger rows or
+grid triples, or a SHA-256. Nothing here is estimated, so nothing here carries a
+Monte-Carlo error. No score is quoted, computed or changed.*
+
+#### The v3 hashes
+
+The Fix commit changes `epl/simretro.py`, `epl/simmetrics.py` and
+`epl/retro_addendum.py`, and adds `epl/retro_harness_versions.json`. The harness
+pair's SHA-256 as committed:
+
+| version | `epl/simretro.py` | `epl/simmetrics.py` | recorded in |
+|---|---|---|---|
+| v3 | `6fc293dfc6abb463f3345bd0894ad0c02ba61e7613cb62b5bb5fba38abaa0576` | `6f5390092b2cef3a92d2dcedb6ec954545a2e9a891011414c79fc68d0bb0189b` | this note, and `epl/retro_harness_versions.json` |
+
+A run whose harness hashes match none of the pairs recorded here refuses, as
+prereg §12 requires — and, for the first time, refuses in code rather than in
+prose. **R1 stands under v1** and is not re-scored; **v2 and v2.1 were never
+used for a published run.**
+
+#### Deviation 1 — the list is a data file, not a module constant
+
+A4 (iv) says "the list lives in a module constant that the Fix commit updates".
+It does not, and it cannot: appending a version to `epl/simretro.py` changes
+that file's own SHA-256, so the entry being appended is invalidated by the act
+of appending it. The recorded pairs live in `epl/retro_harness_versions.json`,
+which `epl.simretro.recorded_harness_versions()` reads and which no hash covers.
+
+The substance A4 asked for is unchanged and is enforced:
+`test_the_recorded_harness_list_in_the_code_equals_the_one_in_the_ledger` parses
+the tables in THIS entry — the ruling's table and the one above — and fails if
+the versions or the hashes diverge from the JSON, which is the same docs/code
+coupling that holds A2-N3's note against Addendum A.
+
+#### Deviation 2 — two renames, stated rather than left to be noticed
+
+A2-N1's *Column names* section exists because a pre-stated string differed from
+the one that shipped. The same two things happened here.
+
+* `score_retro`'s `expected_cells` keyword is **`expected_triples`**. A4 (ii)
+  did not name the keyword; passing triples to something called `expected_cells`
+  is precisely the drift this ledger exists to catch.
+* The sanity block renames `n_checked` → **`n_scored`** and
+  `n_documented_refusals` → **`n_typed_refusals`**, as A4 requires, and adds
+  **`n_cells_compared`** beside them — the number of cells where BOTH required
+  arms scored, which is what `dc_native_beats_flat_everywhere` ranges over and
+  which the pre-statement did not name. It is a count, not a threshold, and no
+  flag reads it that did not already read the same quantity under its old name.
+
+One boundary is worth stating because it is not perfect. A marker's key is built
+from the cutoff DATE, so a failure to resolve the SCHEDULE itself has no key to
+be written under and propagates unmarked. Everything downstream of the schedule
+— the realised table, the fit, the simulation, the runner — is marked. An
+unmarked schedule failure still stops the run and still reads as an undocumented
+hole in the accounting; what it does not get is a named row.
+
+#### Deviation 3 — `trps_se_cluster` exists and nothing calls it
+
+A2-N4 (3) requires future runs that retain per-season rows to report a
+cluster-by-particle bootstrap of TRPS itself. `epl.simmetrics.trps_se_cluster`
+is that estimator, landed here with tests: it resamples particles with
+replacement, recomputes the position matrix and recomputes TRPS on each
+resample. **`n_boot` and the seed are required arguments with no defaults**,
+because A2-N4 pre-states that B and the resampling seed are chosen in the
+amendment accompanying the first run that reports the number — a default here
+would be that choice, made by this module, after the fact. No ledger row in this
+repository stores per-particle tallies, so nothing in the harness calls it and
+no number in this project comes from it.
+
+#### R1 re-read under the triple unit — and it no longer closes
+
+A2-N2 recorded a three-row sanity table for the R1 ledger under the CELL unit.
+Held against v3 the same 170-row artifact reads:
+
+| grid stated | `n_expected` | `n_scored` | `n_typed_refusals` | `complete` | beats flat everywhere |
+|---|---|---|---|---|---|
+| none (the default path) | 210 | 166 | 0 | **False** | False |
+| the preregistered schedule, as triples | 210 | 166 | 0 | **False** | False |
+| the admissible cells R1 scopes its numbers to, as triples | 170 | 166 | 0 | **False** | False |
+| the 166 triples R1 actually scored | 166 | 166 | 0 | **True** | **True** |
+
+Row three is the change, and it is the change A4 predicted in its own words:
+*"the first retrospective run under v3 is the first run that can report
+`complete = True` against a stated triple-level grid."* R1's four
+`ppg_pointmass`-at-MW0 markers carry `not_applicable` TEXT and no
+`refusal_kind`, because v1 wrote no typed field — so under A4 (i) they are holes
+rather than documented refusals, and the admissible grid is four triples short.
+The eight whole-cell holes the harness names are unchanged and are still exactly
+the two refusals [`reports/epl_sim_retro_v1_1.md`](epl_sim_retro_v1_1.md) §2
+reports before any score: all six cutoffs of 2023/24 (`UnverifiedAdjustment`)
+and the 2019/20 and 2020/21 openers (D11's ceiling, amendment A1).
+
+**No R1 number and no R1 claim changes.** R1 stands under v1, is not re-scored,
+and every conclusion in §1–§10 of its report is untouched. What changes is that
+a harness that can tell a refusal from a loss now says, of a v1 ledger, that it
+cannot tell — which is the honest answer and the reason A4 exists.
+
+#### Recording note
+
+Recorded immediately after the Fix commit that produced the hashes. The
+behaviour is held by seven tests in `epl/tests/test_simretro.py` —
+`test_only_a_typed_marker_the_runner_wrote_is_a_documented_refusal`,
+`test_a_whole_cell_refusal_is_typed_for_every_requested_arm`,
+`test_an_unexpected_error_is_marked_and_then_re_raised`,
+`test_the_expected_grid_is_the_schedule_on_every_path`,
+`test_a_producer_less_row_refuses_the_run_unless_it_is_allowed`,
+`test_run_retro_refuses_an_unrecorded_harness_before_any_fit` and
+`test_the_recorded_harness_list_in_the_code_equals_the_one_in_the_ledger` —
+each of which drives its guard RED on the thing the guard exists to refuse, and
+by `test_the_real_r1_ledger_does_not_certify_itself`, which asserts the four
+rows of the table above against the artifact itself where it is present.
