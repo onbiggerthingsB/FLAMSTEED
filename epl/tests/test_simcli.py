@@ -952,6 +952,90 @@ def test_a_coherent_cross_file_tamper_fails_check_against_the_issuance_record(
         "bridge_hash", "arms_manifest_hash", "provider_hash"}
 
 
+def test_a_v3_record_stripped_of_the_manifest_anchor_fails_and_names_it(
+        three_arm_issuance):
+    """The fail-closed anchor was DOWNGRADEABLE by deleting a line (Codex 04b26a2).
+
+    `arms_manifest_hash` arrived with `epl-issuance-3` and is what holds
+    `arms.json` — the file whose arm hashes an editor has to rewrite to make a
+    doctored bridge look coherent — against the run that wrote it. Reporting a
+    missing one as "unanchored" meant a CURRENT record could opt out of the
+    strongest check in the bundle by dropping the field, and `check` still
+    returned PASS. On -3 every anchor is required, per bridge arm.
+    """
+    stripped = _copy(three_arm_issuance, "no_manifest_anchor")
+    path = stripped / "issuance.json"
+    record = json.loads(path.read_text())
+    assert record["schema_version"] == "epl-issuance-3"
+    assert record.pop("arms_manifest_hash")
+    path.write_text(json.dumps(record))
+
+    report = simcli.check_issuance(stripped, verbose=False)
+    assert report["PASS"] is False
+    assert set(report["failed"]) == {"dc_wdl_bridge", "elo_wdl_bridge"}
+    for arm in ("dc_wdl_bridge", "elo_wdl_bridge"):
+        detail = report["arms"][arm]["detail"]
+        assert detail["missing_mandatory_anchors"] == ["arms_manifest_hash"], arm
+        assert detail["digest_matches"] is True, (
+            f"{arm} reproduces its numbers exactly; the FAIL is the missing "
+            "anchor and nothing else, which is the point")
+    # `dc_native` reads no sidecar, so neither hash exists for it and demanding
+    # them would be a criterion no honest record could satisfy
+    assert report["arms"]["dc_native"]["status"] == "PASS"
+    assert report["arms"]["dc_native"]["detail"]["missing_mandatory_anchors"] == []
+
+    # ...and the same absence on the schema that PREDATES the field is still
+    # reported as unanchored, because that leniency is what it exists for
+    older = _copy(three_arm_issuance, "schema_2_no_manifest_anchor")
+    path = older / "issuance.json"
+    record = json.loads(path.read_text())
+    record["schema_version"] = "epl-issuance-2"
+    del record["arms_manifest_hash"]
+    path.write_text(json.dumps(record))
+    lenient = simcli.check_issuance(older, verbose=False)
+    assert lenient["PASS"] is True
+    for arm in ("dc_wdl_bridge", "elo_wdl_bridge"):
+        anchors = lenient["arms"][arm]["detail"]["sidecar_anchors"]
+        assert "arms_manifest_hash" not in anchors, arm
+        assert "bridge_hash" in anchors, arm
+
+
+def test_an_edited_bridge_row_count_fails_an_otherwise_intact_v3_bundle(
+        three_arm_issuance):
+    """`n_rows` was evidence no hash covered (Codex 04b26a2).
+
+    The bridge's content hash is over schema, cutoff, grid bound and counts —
+    not over how many pre-cutoff matches were read to build them — so before
+    the sidecar carried a hash of its own content, multiplying `n_rows` by a
+    hundred left `bridge.json`'s `hash`, the `bridge_hash` in `issuance.json`,
+    every provider hash and every simulation digest exactly where they were. A
+    reader was told the conditional rested on a hundred times the history it
+    did, by a bundle that reproduces perfectly.
+    """
+    from epl import simbundle
+
+    tampered = _copy(three_arm_issuance, "row_count")
+    path = tampered / simbundle.BRIDGE_SIDECAR
+    payload = json.loads(path.read_text())
+    before = dict(payload)
+    payload["n_rows"] = payload["n_rows"] * 100
+    path.write_text(json.dumps(payload))
+
+    # the premise: nothing the OLD checks read has moved
+    assert payload["hash"] == before["hash"]
+    assert payload["counts"] == before["counts"]
+    assert payload["cdf"] == before["cdf"]
+
+    report = simcli.check_issuance(tampered, verbose=False)
+    assert report["PASS"] is False
+    assert set(report["failed"]) == {"dc_wdl_bridge", "elo_wdl_bridge"}
+    for arm in ("dc_wdl_bridge", "elo_wdl_bridge"):
+        error = report["arms"][arm]["detail"]["error"]
+        assert simbundle.BRIDGE_SIDECAR in error, (arm, error)
+        assert "n_rows" in error, (arm, error)
+    assert report["arms"]["dc_native"]["status"] == "PASS"
+
+
 def test_a_missing_sidecar_makes_check_refuse_that_arm_and_not_pass(
         three_arm_issuance):
     from epl import simbundle

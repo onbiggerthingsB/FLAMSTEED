@@ -339,9 +339,10 @@ def _double_every_count(directory: Path, book, elo_provider) -> dict:
 
     Doubling every count leaves the pmf — and therefore the cdf — bit-for-bit
     identical, because each row is divided by its own total. The editor then
-    rewrites the three hashes the bundle checks against itself: `bridge.json`'s
-    own `hash`, and both arm hashes in `arms.json` and `elo_arm.json`. Nothing
-    inside the bundle disagrees with anything else after this.
+    rewrites every hash the bundle checks against itself: `bridge.json`'s own
+    `hash` and its `sidecar_hash`, the `bridge_sidecar_hash` the manifest
+    records for it, and both arm hashes in `arms.json` and `elo_arm.json`.
+    Nothing inside the bundle disagrees with anything else after this.
     """
     bridge_path = directory / simbundle.BRIDGE_SIDECAR
     payload = json.loads(bridge_path.read_text())
@@ -357,6 +358,7 @@ def _double_every_count(directory: Path, book, elo_provider) -> dict:
     payload["n_excluded"] = int(doubled.n_excluded)
     payload["cdf"] = doubled.cdf.tolist()
     payload["hash"] = doubled.content_hash()
+    payload[simbundle.SIDECAR_HASH_FIELD] = simbundle.sidecar_hash(payload)
     bridge_path.write_text(json.dumps(payload))
     # the premise of the whole tamper: the derived cdf did not move at all
     assert payload["cdf"] == before
@@ -373,6 +375,7 @@ def _double_every_count(directory: Path, book, elo_provider) -> dict:
 
     arms_path = directory / simbundle.ARMS_SIDECAR
     arms = json.loads(arms_path.read_text())
+    arms["bridge_sidecar_hash"] = payload[simbundle.SIDECAR_HASH_FIELD]
     arms["arms"]["dc_wdl_bridge"]["content_hash"] = bridge_mod.DCWDLProvider(
         book, doubled).content_hash()
     arms["arms"]["elo_wdl_bridge"]["content_hash"] = elo.content_hash()
@@ -597,3 +600,118 @@ def test_a_ragged_counts_grid_is_refused(written):
     with pytest.raises(simbundle.BundleError) as exc:
         simbundle.read_bridge(written)
     assert "ragged" in str(exc.value)
+
+
+# ==========================================================================
+# 6. Codex 04b26a2 — the evidence the hashes did not cover, and the finite
+#    head parameter that is still not derivable
+# ==========================================================================
+def test_the_bridge_sidecar_hashes_over_its_own_content_and_the_manifest_says_so(
+        written, fitted_bridge):
+    """`n_rows` is evidence and rode in unauthenticated until this field.
+
+    `EmpiricalBridge.content_hash()` covers schema, cutoff, grid bound and
+    counts — a conditional is a function of those and of nothing else — so
+    `bridge.json`'s `hash`, and the `bridge_hash` the issuance records, are
+    both blind to the two row counts beside them. The sidecar's own content
+    hash is what closes that, and the arms manifest is where it is recorded.
+    """
+    payload = json.loads((written / simbundle.BRIDGE_SIDECAR).read_text())
+    manifest = json.loads((written / simbundle.ARMS_SIDECAR).read_text())
+
+    assert payload["n_rows"] == fitted_bridge.n_rows
+    assert payload[simbundle.SIDECAR_HASH_FIELD] == simbundle.sidecar_hash(payload)
+    assert manifest["bridge_sidecar_hash"] == \
+        payload[simbundle.SIDECAR_HASH_FIELD]
+
+    # the premise: the bridge's OWN hash does not move when a row count does
+    moved = dict(payload, n_rows=payload["n_rows"] * 100)
+    assert simbundle.sidecar_hash(moved) != simbundle.sidecar_hash(payload)
+    rebuilt = bridge_mod.EmpiricalBridge(
+        counts=np.asarray(payload["counts"], np.int64),
+        max_goals=int(payload["max_goals"]), cutoff=str(payload["cutoff"]),
+        n_rows=int(moved["n_rows"]), n_excluded=int(payload["n_excluded"]))
+    assert rebuilt.content_hash() == payload["hash"], (
+        "if the bridge's own hash moved with n_rows this test would be "
+        "asserting nothing the old code did not already catch")
+
+
+def test_an_edited_row_count_is_refused_by_the_sidecars_own_hash(written):
+    """Layer one: the file disagrees with the hash it carries over itself."""
+    _edit(written / simbundle.BRIDGE_SIDECAR,
+          lambda p: p.__setitem__("n_rows", p["n_rows"] * 100))
+    with pytest.raises(simbundle.BundleError) as exc:
+        simbundle.read_bridge(written)
+    message = str(exc.value)
+    assert simbundle.BRIDGE_SIDECAR in message
+    assert simbundle.SIDECAR_HASH_FIELD in message
+    assert "n_rows" in message
+
+
+def test_an_edited_row_count_whose_own_hash_was_rewritten_fails_the_manifest(
+        written, book, state, fitted_bridge, elo_provider):
+    """Layer two: rewrite the field beside it and the manifest still refuses.
+
+    And layer three behind that — the manifest that records this hash is held
+    against `arms_manifest_hash` in `issuance.json`, so rewriting BOTH is what
+    the coherent-tamper test above already covers.
+    """
+    def relabel(payload):
+        payload["n_excluded"] = payload["n_excluded"] + 500
+        payload.pop(simbundle.SIDECAR_HASH_FIELD, None)
+        payload[simbundle.SIDECAR_HASH_FIELD] = simbundle.sidecar_hash(payload)
+
+    _edit(written / simbundle.BRIDGE_SIDECAR, relabel)
+    # the self-check is satisfied: the sidecar is coherent with itself
+    assert simbundle.read_bridge(written) is not None
+
+    for arm in ("dc_wdl_bridge", "elo_wdl_bridge"):
+        with pytest.raises(simbundle.BundleError) as exc:
+            simbundle.rebuild_provider(arm, written, book=book, state=state)
+        message = str(exc.value)
+        assert arm in message, message
+        assert "bridge_sidecar_hash" in message
+        assert simbundle.ARMS_SIDECAR in message
+
+
+def test_a_finite_head_parameter_that_cannot_be_derived_is_refused_not_raised(
+        written, book, state):
+    """s = 1000 is finite, passes every decode check, and overflows exp().
+
+    `s` is the LOG width of the draw band, so the derivation opens with
+    `exp(s)` and `OrdLogitParams.c2` — which the arm's content hash reads —
+    does the same. Uncaught this is not a refused arm but an `OverflowError`
+    out of the middle of `check_issuance`, taking every OTHER arm's verdict
+    with it.
+    """
+    _edit(written / simbundle.ELO_SIDECAR,
+          lambda p: p["params"].__setitem__("s", 1000.0))
+    with pytest.raises(simbundle.BundleError) as exc:
+        simbundle.rebuild_provider("elo_wdl_bridge", written, book=book,
+                                   state=state)
+    message = str(exc.value)
+    assert "elo_wdl_bridge" in message
+    assert simbundle.ELO_SIDECAR in message
+    assert "OverflowError" in message
+
+    # POSITIVE CONTROL: it really is the overflow and not the edit per se —
+    # the same field at a value exp() can take is refused by the DERIVATION,
+    # with a different message.
+    _edit(written / simbundle.ELO_SIDECAR,
+          lambda p: p["params"].__setitem__("s", 2.0))
+    with pytest.raises(simbundle.BundleError) as exc:
+        simbundle.rebuild_provider("elo_wdl_bridge", written, book=book,
+                                   state=state)
+    assert "OverflowError" not in str(exc.value)
+    assert "re-derived" in str(exc.value)
+
+
+def test_an_old_schema_sidecar_is_refused_rather_than_read_unauthenticated(
+        written):
+    """A bundle written before the sidecar carried its own hash cannot be
+    checked for its row counts, and says so instead of skipping the check."""
+    _edit(written / simbundle.BRIDGE_SIDECAR,
+          lambda p: p.__setitem__("schema", "epl-bridge-sidecar-1"))
+    with pytest.raises(simbundle.BundleError) as exc:
+        simbundle.read_bridge(written)
+    assert "epl-bridge-sidecar-2" in str(exc.value)

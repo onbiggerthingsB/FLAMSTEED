@@ -131,8 +131,15 @@ LIMITATIONS_TRUNCATION_DENIALS = (
 #: Bumped to -3 when `arms_manifest_hash` was added (Codex review of 262ef98):
 #: the bridge arms' rebuild is now anchored to the hashes RECORDED HERE rather
 #: than only to what each sidecar says about itself, and the arms manifest is
-#: the last of the three that had no anchor. A record without it anchors two of
-#: the three and `check` says which, rather than claiming the third.
+#: the last of the three that had no anchor.
+#:
+#: ON -3 ALL THREE ARE MANDATORY for an arm that reads a sidecar (Codex review
+#: of 04b26a2). Reporting a missing one as "unanchored" made the fail-closed
+#: anchor downgradeable by deleting a line: a current record with
+#: `arms_manifest_hash` removed sent `arms.json` back to being checked against
+#: itself — the file an editor rewrites to make a doctored bridge look coherent
+#: — and `check` still returned PASS. A -1 or -2 record predates the field and
+#: keeps the leniency that exists for exactly that.
 ISSUANCE_SCHEMA_VERSION = "epl-issuance-3"
 
 
@@ -1188,6 +1195,12 @@ def check_issuance(directory, *, arms: Sequence[str] | None = None,
     everywhere inside the bundle; it is refused here because the bridge it
     rebuilds to is not the one the issuance recorded.
 
+    On ``epl-issuance-3`` every one of those anchors is REQUIRED for an arm that
+    reads a sidecar, and a record missing one FAILs that arm naming the field
+    rather than reporting it unanchored — otherwise the strongest check in the
+    bundle could be switched off by deleting a line from the record it is
+    supposed to be held against.
+
     Three verdicts per arm, and only one of them is agreement:
 
     ``PASS``      rebuilt, re-run, same digest, coherent.
@@ -1257,13 +1270,26 @@ def _check_arm(arm: str, directory: Path, record: dict, season_obj, state, book,
     # the leniency that exists for records written before the fields existed was
     # extended to records that are missing them. Only `epl-issuance-1` may lack
     # them; anything else must carry them or FAIL.
+    #
+    # `bridge_hash` and `arms_manifest_hash` arrived with `epl-issuance-3` and
+    # are the same story one version later (Codex review of 04b26a2). Reporting
+    # them as "unanchored" on a -3 record made the fail-closed anchor
+    # DOWNGRADEABLE: delete `arms_manifest_hash`, and the arms manifest — the
+    # file whose arm hashes an editor has to rewrite to make a doctored bridge
+    # look coherent — went back to being checked against itself, with `check`
+    # still returning PASS. On -3 they are required, per BRIDGE ARM: `dc_native`
+    # is the particle book and reads no sidecar, so neither hash exists for it
+    # and demanding them would be a criterion no honest record could satisfy.
     schema = str(record.get("schema_version") or "")
     legacy = schema == "epl-issuance-1"
+    mandatory: list[tuple[str, object]] = [
+        ("provider_hashes", recorded_provider),
+        ("output_digests", (record.get("output_digests") or {}).get(arm))]
+    if not legacy and schema != "epl-issuance-2" and simbundle.ARM_SIDECARS.get(arm):
+        mandatory += [("bridge_hash", record.get("bridge_hash")),
+                      ("arms_manifest_hash", record.get("arms_manifest_hash"))]
     missing_anchors = [] if legacy else sorted(
-        name for name, value in (
-            ("provider_hashes", recorded_provider),
-            ("output_digests", (record.get("output_digests") or {}).get(arm)))
-        if value is None)
+        name for name, value in mandatory if value is None)
     # Which recorded hashes this arm's REBUILD was held against. An arm whose
     # record carried no anchor was checked against its own bundle only, and
     # saying which is the difference between a check and a claim. Computed

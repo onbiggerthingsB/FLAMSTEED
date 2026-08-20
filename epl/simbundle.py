@@ -17,13 +17,20 @@ already writes:
 
 ``bridge.json``
     the bridge's RAW COUNTS (the evidence), its cutoff, grid bound and row
-    counts, its derived cdf, and its content hash.
+    counts, its derived cdf, its content hash, and a hash over the whole of its
+    own content. The last of those exists because ``n_rows`` and ``n_excluded``
+    are provenance rather than parameters and are therefore NOT inside
+    ``EmpiricalBridge.content_hash()``: without it, either could be multiplied
+    by a hundred and every hash in the bundle and in ``issuance.json`` would
+    still agree, publishing false evidence about how much history the
+    conditional read. The value is recorded in ``arms.json``, which
+    ``issuance.json`` anchors.
 ``elo_arm.json``
     the Elo arm's rating table, its ordered-logit parameters, the fixture ids it
     priced, the 1X2 row it priced each with, and its content hash.
 ``arms.json``
-    the book hash, the provisional and cold-start sets, and each bridge arm's
-    provider content hash.
+    the book hash, ``bridge.json``'s own content hash, the provisional and
+    cold-start sets, and each bridge arm's provider content hash.
 
 On the way back in, nothing is trusted. The bridge is REBUILT from its counts
 through :class:`epl.bridge.EmpiricalBridge`'s own constructor — which recomputes
@@ -45,8 +52,11 @@ was never fitted. Every rebuild is therefore held against the hashes
 sidecars do not write, and the doubled-count bundle fails on the first of them.
 A caller with no issuance record — a unit test, an ad-hoc rebuild — passes no
 anchors and gets the internal checks alone; ``simcli check``, which always has
-the record, always passes them, and reports an anchor the record does not carry
-as unanchored rather than as agreement.
+the record, always passes them. On schema ``epl-issuance-3`` a MISSING anchor is
+a failed arm and not an unanchored one: the leniency that exists for records
+written before a field did is conditioned on the schema that predates it, so a
+current record stripped of ``arms_manifest_hash`` cannot downgrade itself into
+the older, weaker check by deleting the line.
 
 NOTHING IS DECODED LENIENTLY. ``numpy`` reads 7.5 into an ``int64`` array by
 truncating it, and NaN passes every ``|a - b| <= tol`` comparison because a
@@ -75,9 +85,10 @@ import numpy as np
 from epl import bridge as bridge_mod, ordlogit
 
 __all__ = ["BundleError", "ARM_SIDECARS", "ARMS_SIDECAR", "BRIDGE_SIDECAR",
-           "ELO_SIDECAR", "ISSUANCE_RECORD", "write_sidecars", "read_arms",
-           "read_bridge", "rebuild_provider", "missing_sidecars",
-           "manifest_hash", "arms_manifest_hash", "recorded_anchors"]
+           "ELO_SIDECAR", "ISSUANCE_RECORD", "SIDECAR_HASH_FIELD",
+           "write_sidecars", "read_arms", "read_bridge", "rebuild_provider",
+           "missing_sidecars", "manifest_hash", "arms_manifest_hash",
+           "sidecar_hash", "check_manifest_anchor", "recorded_anchors"]
 
 BRIDGE_SIDECAR = "bridge.json"
 ELO_SIDECAR = "elo_arm.json"
@@ -87,9 +98,27 @@ ARMS_SIDECAR = "arms.json"
 #: refusals can say where the number they disagree with came from.
 ISSUANCE_RECORD = "issuance.json"
 
-BRIDGE_SCHEMA = "epl-bridge-sidecar-1"
+#: Bumped to -2 when the bridge sidecar acquired its own content hash
+#: (:data:`SIDECAR_HASH_FIELD`, Codex review of 04b26a2). ``n_rows`` and
+#: ``n_excluded`` ride in the sidecar but NOT in ``EmpiricalBridge``'s content
+#: hash, so before that field existed either could be edited without moving a
+#: single hash in the bundle or the record — false evidence about how much
+#: history the conditional was fitted on, carried by a bundle that reproduces
+#: exactly. A sidecar of the older version is refused rather than read
+#: leniently: it carries no hash over its own content and cannot be shown to be
+#: the one that was written.
+BRIDGE_SCHEMA = "epl-bridge-sidecar-2"
 ELO_SCHEMA = "epl-elo-sidecar-1"
-ARMS_SCHEMA = "epl-arm-sidecar-1"
+#: Bumped to -2 with it: the manifest is where the bridge sidecar's content hash
+#: is RECORDED, and the manifest is itself anchored by ``arms_manifest_hash`` in
+#: ``issuance.json``. That is the chain that makes the field evidence rather
+#: than another number the editor rewrites.
+ARMS_SCHEMA = "epl-arm-sidecar-2"
+
+#: The field inside ``bridge.json`` holding the hash of everything else in it.
+#: Named once so the hash can be computed over "the payload minus this key" in
+#: both directions without the name being written down twice.
+SIDECAR_HASH_FIELD = "sidecar_hash"
 
 #: Which sidecars each arm needs to be rebuilt. ``dc_native`` needs none — the
 #: particle book the issuance already writes is the whole of that arm — and that
@@ -253,8 +282,9 @@ def write_sidecars(directory, *, arms: Sequence[str], bridge, book,
             "the fitted bridge to be persisted, and none was supplied")
 
     written: list[Path] = []
+    bridge_sidecar_hash: str | None = None
     if BRIDGE_SIDECAR in needed:
-        written.append(_write(directory / BRIDGE_SIDECAR, {
+        payload = {
             "schema": BRIDGE_SCHEMA,
             "hash": bridge.content_hash(),
             "cutoff": str(bridge.cutoff),
@@ -264,7 +294,13 @@ def write_sidecars(directory, *, arms: Sequence[str], bridge, book,
             "counts": np.asarray(bridge.counts, np.int64).tolist(),
             # derived, and checked against the rebuild rather than used by it
             "cdf": np.asarray(bridge.cdf, float).tolist(),
-        }))
+        }
+        # Everything above, including the two row counts the bridge's own
+        # content hash does not cover. Recorded in the arms manifest too, so the
+        # field cannot simply be rewritten alongside the number it authenticates.
+        bridge_sidecar_hash = sidecar_hash(payload)
+        payload[SIDECAR_HASH_FIELD] = bridge_sidecar_hash
+        written.append(_write(directory / BRIDGE_SIDECAR, payload))
 
     if ELO_SIDECAR in needed:
         elo = providers.get("elo_wdl_bridge")
@@ -289,6 +325,10 @@ def write_sidecars(directory, *, arms: Sequence[str], bridge, book,
         written.append(_write(directory / ARMS_SIDECAR, {
             "schema": ARMS_SCHEMA,
             "book_hash": book.content_hash(),
+            # where `bridge.json`'s own content hash is RECORDED. The manifest is
+            # anchored by `arms_manifest_hash` in `issuance.json`, so this is the
+            # link that turns the bridge sidecar's row counts into evidence.
+            "bridge_sidecar_hash": bridge_sidecar_hash,
             "provisional_teams": sorted(str(t) for t in book.provisional),
             "cold_start_teams": sorted(str(t) for t in
                                        info.get("cold_start_teams", ())),
@@ -306,11 +346,11 @@ def _write(path: Path, payload: dict) -> Path:
     return path
 
 
-def manifest_hash(payload) -> str:
-    """sha256 over the arms manifest's canonical CONTENT.
+def _canonical_sha256(payload, *, name: str) -> str:
+    """sha256 over a payload's canonical CONTENT.
 
     Content, not bytes: a reader that re-serialises the file gets the same hash,
-    and only an edit to what the manifest SAYS moves it.
+    and only an edit to what the file SAYS moves it.
     """
     from epl import leaguesim
 
@@ -318,9 +358,37 @@ def manifest_hash(payload) -> str:
         canonical = leaguesim.canonical_json(payload)
     except (TypeError, ValueError) as exc:
         raise BundleError(
-            f"{ARMS_SIDECAR} cannot be canonicalised, so it cannot be held "
+            f"{name} cannot be canonicalised, so it cannot be held "
             f"against a recorded hash ({exc})") from exc
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def manifest_hash(payload) -> str:
+    """sha256 over the arms manifest's canonical CONTENT."""
+    return _canonical_sha256(payload, name=ARMS_SIDECAR)
+
+
+def sidecar_hash(payload) -> str:
+    """sha256 over a sidecar's OWN content, minus the field that will hold it.
+
+    ``EmpiricalBridge.content_hash()`` covers the schema, the cutoff, the grid
+    bound and the counts — the things the conditional is a function of — and
+    deliberately not ``n_rows`` or ``n_excluded``, which are provenance rather
+    than parameters: two bridges fitted on different numbers of rows that
+    happened to land on the same counts ARE the same conditional. The sidecar,
+    though, publishes those two numbers as evidence about the fit, and until
+    this hash existed neither was covered by anything. Editing ``n_rows`` from
+    900 to 90,000 left every hash in the bundle and every anchor in
+    ``issuance.json`` unmoved, so a reader was told the conditional rested on a
+    hundred times the history it did by a bundle that reproduced perfectly.
+
+    The value is recorded in the arms manifest, which ``issuance.json`` anchors,
+    so an editor who rewrites this field must also rewrite the manifest — and
+    the manifest is held against the hash the forecast wrote.
+    """
+    payload = dict(_mapping(payload, arm="bridge", name=BRIDGE_SIDECAR))
+    payload.pop(SIDECAR_HASH_FIELD, None)
+    return _canonical_sha256(payload, name=BRIDGE_SIDECAR)
 
 
 def arms_manifest_hash(directory) -> str | None:
@@ -391,18 +459,34 @@ def read_arms(directory, *, arm: str = "arms",
     have to rewrite to make a doctored bridge look coherent — is refused.
     """
     payload = _load(directory, ARMS_SIDECAR, ARMS_SCHEMA, arm)
-    if expect_hash is not None:
-        got = manifest_hash(payload)
-        if got != expect_hash:
-            raise BundleError(
-                f"{arm}: {ARMS_SIDECAR} hashes to {got}, not to the "
-                f"{expect_hash} recorded in {ISSUANCE_RECORD} — the manifest "
-                "beside this issuance is not the one the forecast wrote")
+    check_manifest_anchor(payload, expect_hash, arm=arm)
     return payload
 
 
+def check_manifest_anchor(payload, expect_hash: str | None, *,
+                          arm: str = "arms") -> None:
+    """Hold an already-loaded manifest against its recorded hash.
+
+    Separate from :func:`read_arms` only so :func:`rebuild_provider` can read
+    the manifest once — it needs ``bridge_sidecar_hash`` out of it BEFORE the
+    bridge is rebuilt — and still apply the anchor in the order the refusals
+    read best: the evidence the arm is made of first, the manifest that
+    describes it second.
+    """
+    if expect_hash is None:
+        return
+    got = manifest_hash(payload)
+    if got != expect_hash:
+        raise BundleError(
+            f"{arm}: {ARMS_SIDECAR} hashes to {got}, not to the "
+            f"{expect_hash} recorded in {ISSUANCE_RECORD} — the manifest "
+            "beside this issuance is not the one the forecast wrote")
+
+
 def read_bridge(directory, *, arm: str = "bridge",
-                expect_hash: str | None = None) -> bridge_mod.EmpiricalBridge:
+                expect_hash: str | None = None,
+                expect_sidecar_hash: str | None = None,
+                ) -> bridge_mod.EmpiricalBridge:
     """Rebuild the bridge from its COUNTS and check what it hashes to.
 
     The counts are the evidence and the cdf is a function of them, so the
@@ -414,6 +498,16 @@ def read_bridge(directory, *, arm: str = "bridge",
     the cdf identical, so an editor who also rewrites this file's ``hash`` passes
     both checks. ``expect_hash`` is the ``bridge_hash`` ``issuance.json``
     recorded at issue time, and that edit fails against it.
+
+    NEITHER OF THOSE COVERS ``n_rows`` OR ``n_excluded``. Both are the bridge's
+    provenance rather than its parameters, so
+    :meth:`epl.bridge.EmpiricalBridge.content_hash` — and therefore ``hash``,
+    and therefore ``bridge_hash`` — is blind to them, and until the sidecar
+    carried its own content hash an editor could multiply the row count by a
+    hundred and leave every hash in the bundle and the record standing. That
+    hash is :data:`SIDECAR_HASH_FIELD`, checked here against the file's own
+    content and then, through ``expect_sidecar_hash``, against the value the
+    arms manifest recorded — a file ``issuance.json`` anchors in turn.
     """
     payload = _load(directory, BRIDGE_SIDECAR, BRIDGE_SCHEMA, arm)
     counts = _int_grid(_field(payload, "counts", arm=arm, name=BRIDGE_SIDECAR),
@@ -467,6 +561,27 @@ def read_bridge(directory, *, arm: str = "bridge",
             f"its counts — worst cell [{outcome}, {cell}] off by "
             f"{delta.max():.3g}. The persisted cdf was edited, or it is not this "
             "bridge's.")
+
+    # The sidecar ENVELOPE, last: `n_rows` and `n_excluded` are evidence about
+    # the fit that no hash above this line reads.
+    recomputed = sidecar_hash(payload)
+    recorded = payload.get(SIDECAR_HASH_FIELD)
+    if recorded != recomputed:
+        raise BundleError(
+            f"{arm}: {BRIDGE_SIDECAR} hashes to {recomputed} over its own "
+            f"content, not to the {recorded!r} it carries as "
+            f"{SIDECAR_HASH_FIELD!r} — a field of this sidecar was edited. "
+            "`n_rows` and `n_excluded` are evidence about how much history the "
+            "conditional was fitted on and are NOT covered by the bridge's own "
+            "content hash, which is why this one exists.")
+    if expect_sidecar_hash is not None and recomputed != expect_sidecar_hash:
+        raise BundleError(
+            f"{arm}: {BRIDGE_SIDECAR} hashes to {recomputed} over its own "
+            f"content, not to the {expect_sidecar_hash} recorded as "
+            f"`bridge_sidecar_hash` in {ARMS_SIDECAR} — this sidecar's "
+            "`n_rows`/`n_excluded` are not the ones the forecast wrote, and "
+            "rewriting the field beside them does not help: the manifest that "
+            f"records this hash is itself anchored to {ISSUANCE_RECORD}.")
     return rebuilt
 
 
@@ -514,7 +629,22 @@ def _read_elo(directory, state, bridge, *, n_particles: int | None,
 
     edge = np.array([ratings[f.home_key] - ratings[f.away_key] for f in fixtures],
                     dtype=float)
-    derived = ordlogit.predict(params, edge)
+    # FINITE IS NOT DERIVABLE. `_number` refuses NaN and inf, and every head
+    # parameter here passed it — but `s` is a LOG width and the derivation opens
+    # with `exp(s)`, so a perfectly finite s = 1000 raises OverflowError out of
+    # `math.exp` (and `OrdLogitParams.c2`, which the content hash reads, raises
+    # the same). Uncaught, that is not a refused arm: it is a traceback out of
+    # `check_issuance` that abandons every OTHER arm's verdict too.
+    try:
+        derived = ordlogit.predict(params, edge)
+    except (OverflowError, FloatingPointError, ZeroDivisionError) as exc:
+        raise BundleError(
+            f"{arm}: the 1X2 row cannot be re-derived from {ELO_SIDECAR}'s head "
+            f"parameters — {type(exc).__name__}: {exc}. Every parameter is "
+            "finite and still does not describe a head this arm can be rebuilt "
+            "from (`s` is the LOG width of the draw band, so the derivation "
+            "starts at exp(s)); the sidecar is refused rather than allowed to "
+            "abandon the other arms' verdicts.") from exc
     persisted = _float_grid(_field(payload, "probs", arm=arm, name=ELO_SIDECAR),
                             arm=arm, name=ELO_SIDECAR, field="probs")
     if persisted.shape != derived.shape:
@@ -544,7 +674,14 @@ def _read_elo(directory, state, bridge, *, n_particles: int | None,
     except (TypeError, ValueError, bridge_mod.BridgeError) as exc:
         raise BundleError(
             f"{arm}: {ELO_SIDECAR} does not describe an Elo arm ({exc})") from exc
-    _same_hash(arm, provider, payload.get("content_hash"), ELO_SIDECAR)
+    # `content_hash` reads `OrdLogitParams.c2`, which is `c1 + exp(s)`: the same
+    # arithmetic that the derivation above guards, guarded on the way out too.
+    try:
+        _same_hash(arm, provider, payload.get("content_hash"), ELO_SIDECAR)
+    except (OverflowError, FloatingPointError, ZeroDivisionError) as exc:
+        raise BundleError(
+            f"{arm}: {ELO_SIDECAR}'s head parameters cannot be hashed — "
+            f"{type(exc).__name__}: {exc}") from exc
     return provider
 
 
@@ -568,12 +705,15 @@ def rebuild_provider(arm: str, directory, *, book, state,
                           f"{sorted(ARM_SIDECARS)}")
     anchor = _anchor_for(anchors, arm=arm)
 
-    # The EVIDENCE first: a bundle whose counts are not the fitted ones is not
-    # this arm's bundle, whatever the rest of it says about itself.
+    # The manifest is LOADED first (it records the bridge sidecar's own content
+    # hash) but ANCHORED after, so the refusals still lead with the evidence: a
+    # bundle whose counts are not the fitted ones is not this arm's bundle,
+    # whatever the rest of it says about itself.
+    manifest = read_arms(directory, arm=arm)
     bridge = read_bridge(directory, arm=arm,
-                         expect_hash=anchor["bridge_hash"])
-    manifest = read_arms(directory, arm=arm,
-                         expect_hash=anchor["arms_manifest_hash"])
+                         expect_hash=anchor["bridge_hash"],
+                         expect_sidecar_hash=manifest.get("bridge_sidecar_hash"))
+    check_manifest_anchor(manifest, anchor["arms_manifest_hash"], arm=arm)
     arms_entry = _mapping(manifest.get("arms") or {}, arm=arm,
                           name=ARMS_SIDECAR, what="'s arms")
     cell = _mapping(arms_entry.get(arm) or {}, arm=arm, name=ARMS_SIDECAR,
