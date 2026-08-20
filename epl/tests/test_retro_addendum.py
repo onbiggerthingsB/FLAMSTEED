@@ -225,8 +225,15 @@ def test_the_addendum_states_the_method_the_deviation_and_the_body_unchanged():
     # over the report's own relabelling, with the suite green throughout.
     assert "conservative" not in text.lower()
     assert "overstates" not in text.lower()
+    assert "conservative rather than exact" not in text
     assert "can raise or lower the variance" in text
     assert "the direction of the approximation is not known" in text
+    # ...and the OTHER omitted covariance, which the mean-of-seasons form makes
+    # and which nothing had stated (Codex review of 31dac41, item 2): R1 runs
+    # every cell at one seed, so the seasons are not independent draws.
+    assert "The seasons share a seed" in text
+    assert "direction is unknown" in text
+    assert "`epl.leaguesim`" in text
     # the pre-statement it departs from is named, not left for a reader to find
     assert "A2-N1" in text
     # every cell carries its error, and the nulls carry `n/a` rather than 0
@@ -449,3 +456,15 @@ def test_the_generated_headings_are_the_ones_the_published_report_prints():
 
     # and the withdrawn claim is not what the generator would write back
     assert "conservative" not in generated.lower()
+    assert "conservative rather than exact" not in generated
+
+    # the SOURCE too, not only its output: a phrase withdrawn in the report and
+    # left in the code is one regeneration away from coming back (Codex review
+    # of d2263c6, item 4).
+    import inspect
+
+    from epl import simmetrics
+
+    for module in (retro_addendum, simmetrics):
+        assert "conservative rather than exact" not in inspect.getsource(module), \
+            module.__name__

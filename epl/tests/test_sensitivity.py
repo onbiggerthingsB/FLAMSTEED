@@ -133,8 +133,99 @@ def test_the_draw_count_check_run_d19_performs_refuses_the_mistake_it_exists_for
     assert "NUTS" in message and "1000" in message and "500" in message
     assert "2 chain(s)" in message
 
-    # and it is the run's own check, not a parallel implementation beside it
-    assert "check_draw_count(" in inspect.getsource(sensitivity.run_d19)
+    # The "and the run calls it" leg is a separate test below, because a source
+    # -string probe is not evidence that a call happens (Codex review of
+    # 89f4c13): `if False:` around the call satisfies `"check_draw_count(" in
+    # getsource(run_d19)` exactly as well as the call does.
+
+
+@pytest.fixture(scope="module")
+def all_matches() -> pd.DataFrame:
+    from epl import baseline
+
+    return baseline.load_matches()
+
+
+def test_run_d19_really_calls_the_draw_count_check_and_the_equal_S_check(
+        all_matches, monkeypatch):
+    """The two guards are exercised THROUGH `run_d19`, not through its source.
+
+    The old probe was `"check_draw_count(" in inspect.getsource(run_d19)`,
+    which stays green under `if False:` around the call — the exact mutant the
+    guard exists to be safe from. Both checks are made to raise instead, and
+    the run must carry the raise out. The fit and the book are stubbed: what is
+    under test is the control flow, and a real fit would say nothing more about
+    it than a stub does.
+    """
+    from epl import particles
+
+    class _Book:
+        n_particles = 1000
+
+        def content_hash(self):                     # pragma: no cover
+            return "0" * 64
+
+    monkeypatch.setattr(sensitivity, "_fit_one",
+                        lambda *a, **k: (object(), object(), 0.0))
+    monkeypatch.setattr(particles.ParticleBook, "from_posterior",
+                        staticmethod(lambda post: _Book()))
+
+    # 1. `check_draw_count` runs, on the first arm, before either simulation
+    calls: list[str] = []
+
+    def _explode(label, cfg, n_particles):
+        calls.append(label)
+        raise RuntimeError("check_draw_count ran")
+
+    monkeypatch.setattr(sensitivity, "check_draw_count", _explode)
+    with pytest.raises(RuntimeError, match="check_draw_count ran"):
+        sensitivity.run_d19(n_sims=8, nuts_draws=4, nuts_tune=4, verbose=False,
+                            matches=all_matches)
+    assert calls == ["mean-field ADVI"], (
+        "the check must run on the FIRST arm, before the second fit is paid for")
+
+    # `check_arms_share_S` is wired the same way and is exercised through the
+    # report path below, which needs no fit at all: it runs before the first
+    # number is printed, so a dump rebuilt at unequal S is refused too.
+
+
+def test_two_arms_at_different_draw_counts_are_refused(all_matches):
+    """Each arm against its own config is not enough (Codex review of 89f4c13).
+
+    A 2,000-draw ADVI book and a 1,000-draw NUTS book each satisfy
+    `check_draw_count`, and the comparison then reads a difference in
+    Monte-Carlo error as a difference in posterior approximation when it is a
+    difference in S. The claim the report makes is that the two arms were
+    compared at the same S, so that claim is checked between the arms.
+    """
+    def _arm_with(name: str, n_draws: int):
+        return sensitivity.Arm(
+            name=name, backend="advi" if "ADVI" in name else "nuts",
+            n_draws=n_draws, fit_seconds=0.0, sim_seconds=0.0, sds={},
+            consequences={}, points_sd={}, trps=0.1, promoted={},
+            provenance={})
+
+    equal = (_arm_with("mean-field ADVI", 1000), _arm_with("NUTS", 1000))
+    assert sensitivity.check_arms_share_S(*equal) == 1000
+
+    with pytest.raises(sensitivity.SensitivityError) as exc:
+        sensitivity.check_arms_share_S(_arm_with("mean-field ADVI", 2000),
+                                       _arm_with("NUTS", 1000))
+    message = str(exc.value)
+    assert "2000" in message and "1000" in message
+    assert "mean-field ADVI" in message and "NUTS" in message
+
+    # ...AND IT IS WIRED, on the path that prints the report: a dump whose two
+    # arms disagree on S is refused before a single number is printed, and one
+    # that agrees says so in the text.
+    payload = _payload()
+    text = sensitivity.report_from_payload(payload, conclusion="x")
+    assert f"Both arms carry S = {payload['arms']['richer']['n_draws']}" in text
+
+    payload["arms"]["mean_field"]["n_draws"] = \
+        int(payload["arms"]["richer"]["n_draws"]) * 2
+    with pytest.raises(sensitivity.SensitivityError):
+        sensitivity.report_from_payload(payload, conclusion="x")
 
 
 # ==========================================================================
@@ -515,8 +606,13 @@ def test_alignment_leaves_a_scalar_parameter_alone():
     assert got["att"]["mean"] == pytest.approx(2.0)   # a:0.2/0.1, b:0.4/0.2
 
 
-def _idata(*, seed: int = 4, sigma_att_offset: float = 0.0):
-    """Two chains of a posterior shaped like the EPL fit's."""
+def _idata(*, seed: int = 4, sigma_att_offset: float = 0.0,
+           drop: tuple[str, ...] = ()):
+    """Two chains of a posterior shaped like the EPL fit's.
+
+    `drop` names blocks the posterior does NOT carry, which is the shape a
+    convergence check must report as not-covered rather than skip in silence.
+    """
     az = pytest.importorskip("arviz")
     rng = np.random.default_rng(seed)
     n_chain, n_draw, n_team = 2, 400, 4
@@ -527,6 +623,8 @@ def _idata(*, seed: int = 4, sigma_att_offset: float = 0.0):
     # one chain of sigma_att sits somewhere else entirely: it has not mixed
     posterior["sigma_att"] = posterior["sigma_att"].copy()
     posterior["sigma_att"][1] += sigma_att_offset
+    for name in drop:
+        posterior.pop(name, None)
     return az.from_dict({"posterior": posterior})
 
 
@@ -605,9 +703,12 @@ def test_the_report_labels_the_ess_adjusted_column_and_the_error_of_the_differen
     # 0.002 and the error of the difference is sqrt(2) * 0.001
     assert "| 0.0020 |" in text
     assert "| 0.0014 |" in text
-    # `Δ ±` is the error on the DIFFERENCE and says what it ignores
+    # `Δ ±` is the error on the DIFFERENCE and says what it ignores — and does
+    # NOT claim a direction for what it ignores (Codex review of 89f4c13)
     assert "Δ ±" in text and "sqrt(se_mean-field² + se_NUTS²)" in text
-    assert "same seed" in text and "OVERSTATES" in text
+    assert "same seed" in text
+    assert "the direction of `Δ ±` is not known" in text
+    assert "conservative rather than exact" not in text
 
 
 def test_the_report_says_which_blocks_the_recorded_convergence_covered():
@@ -638,3 +739,102 @@ def test_a_dated_revision_note_is_printed_and_is_absent_when_there_is_none():
     assert text.index("2026-08-19 revision") < text.index("## 1.")
     assert "2026-08-19 revision" not in sensitivity.report_from_payload(
         payload, conclusion="x")
+
+
+# ==========================================================================
+# 9. Codex 89f4c13 — what the ESS column is, and what the check covered
+# ==========================================================================
+def test_the_ess_adjustment_is_labelled_a_heuristic_and_says_why_twice():
+    """It was presented as "the honest column to read it by". It is not one.
+
+    The cluster form treats a Markov chain as S independent clusters, so it IS
+    a lower bound and SOME inflation is warranted — but two things stop the
+    product from being a corrected standard error, and neither is quantified
+    anywhere: the ESS is a MARGINAL-parameter quantity and the column is a
+    FUNCTIONAL of the whole posterior, and the factor scales an error that also
+    contains independent match-simulation noise no ESS deficit inflates.
+    """
+    got = sensitivity.ess_inflation(
+        {"available": True, "min_ess": 250.0}, 1000)
+    assert got["kind"] == "heuristic"
+    assert len(got["caveats"]) == 2
+    joined = " ".join(got["caveats"]).lower()
+    assert "marginal" in joined and "functional" in joined
+    assert "match-simulation" in joined
+
+    # both reach the REPORT, where a reader meets the number
+    payload = _payload()
+    payload["arms"]["richer"]["provenance"]["convergence"] = {
+        "available": True, "converged": True, "max_rhat": 1.0,
+        "min_ess": 250.0, "flagged": [],
+        "params": list(sensitivity.CONVERGENCE_PARAMS)}
+    text = sensitivity.report_from_payload(payload, conclusion="x")
+    assert "HEURISTIC" in text
+    for caveat in got["caveats"]:
+        assert caveat in text, caveat
+    assert "the honest column to read it by" not in text
+
+    # and the docstring the maintainer reads says the same word
+    assert "HEURISTIC" in sensitivity.ess_inflation.__doc__
+
+
+def test_a_convergence_variable_the_posterior_lacks_is_reported_not_skipped():
+    """`params` claimed coverage the loop had not delivered.
+
+    A variable absent from the posterior was `continue`d over and `params` came
+    back as the REQUESTED list, so the report's own "which blocks were covered"
+    sentence — added to close exactly this gap — was reading a claim rather
+    than a fact.
+    """
+    full = _WithIdata(_idata(sigma_att_offset=0.0))
+    everything = sensitivity.convergence(full)
+    assert set(everything["params"]) == set(sensitivity.CONVERGENCE_PARAMS)
+    assert everything["not_covered"] == []
+
+    # a posterior missing one block: it is NAMED, and `params` shrinks
+    thin = _WithIdata(_idata(sigma_att_offset=0.0, drop=("sigma_def",)))
+    got = sensitivity.convergence(thin)
+    assert got["available"] is True
+    assert "sigma_def" not in got["params"]
+    assert got["not_covered"] == ["sigma_def"]
+    assert set(got["requested"]) == set(sensitivity.CONVERGENCE_PARAMS)
+
+    # ...and the report says so rather than counting seven blocks
+    payload = _payload()
+    payload["arms"]["richer"]["provenance"]["convergence"] = got
+    text = sensitivity.report_from_payload(payload, conclusion="x")
+    assert f"{len(got['params'])} parameter block(s)" in text
+    assert "did **not** cover `sigma_def`" in text
+
+    # a posterior carrying NONE of them is not "available" at all
+    nothing = sensitivity.convergence(full, params=("no_such_block",))
+    assert nothing["available"] is False
+    assert nothing["not_covered"] == ["no_such_block"]
+    assert nothing["params"] == []
+
+
+def test_the_withdrawn_conservative_wording_cannot_be_regenerated():
+    """A2-N4 withdrew it; a generator that still says it puts it back.
+
+    `reports/epl_sim_retro_v1_1.md` and `reports/epl_sim_d19_sensitivity.md`
+    are generated artifacts, so a phrase withdrawn in the report and left in
+    the code is a phrase one regeneration away from returning. The generators
+    are held against the withdrawal, not just the files they last produced.
+    """
+    import inspect
+
+    from epl import retro_addendum, simmetrics
+
+    for module in (simmetrics, retro_addendum, sensitivity):
+        source = inspect.getsource(module)
+        assert "conservative rather than exact" not in source, module.__name__
+
+    # and in the prose each of them GENERATES, not only in their source
+    payload = _payload()
+    payload["arms"]["richer"]["provenance"]["convergence"] = {
+        "available": True, "converged": True, "max_rhat": 1.0,
+        "min_ess": 250.0, "flagged": [],
+        "params": list(sensitivity.CONVERGENCE_PARAMS)}
+    d19 = sensitivity.report_from_payload(payload, conclusion="x")
+    assert "conservative" not in d19.lower()
+    assert "the direction of `Δ ±` is not known" in d19

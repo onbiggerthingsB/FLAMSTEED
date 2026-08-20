@@ -39,8 +39,10 @@ import pandas as pd
 
 __all__ = ["SensitivityError", "BACKENDS", "PARAMS", "HYPERPARAMS",
            "CONVERGENCE_PARAMS", "richer_config", "draw_count",
-           "check_draw_count", "posterior_sds", "align_by_name", "sd_ratios",
-           "ess_inflation", "consequence_table", "points_sds",
+           "check_draw_count", "check_arms_share_S", "posterior_sds",
+           "align_by_name", "sd_ratios", "ess_inflation",
+           "ESS_ADJUSTMENT_KIND", "ESS_ADJUSTMENT_CAVEATS",
+           "consequence_table", "points_sds",
            "expected_relegations_among", "report_markdown", "run_d19"]
 
 #: The cutoff D19 is run at: a settled season, so both arms can also be scored
@@ -146,6 +148,29 @@ def check_draw_count(label: str, cfg: dict, n_particles: int) -> int:
             "same S, and the difference in Monte-Carlo error between them "
             "would be a difference in draw count.")
     return expected
+
+
+def check_arms_share_S(mean_field, richer) -> int:
+    """Refuse two arms compared at different posterior draw counts.
+
+    :func:`check_draw_count` holds each book against ITS OWN config, and two
+    configs can promise different numbers — a 2,000-draw ADVI arm and a
+    1,000-draw NUTS arm each pass their own check and confound the comparison
+    the report exists to make, because the richer arm's Monte-Carlo error would
+    be smaller for a reason that has nothing to do with its posterior. The two
+    arms are held against EACH OTHER here, which is the claim actually being
+    made. Returns the shared S so a caller can print it.
+    """
+    left, right = int(mean_field.n_draws), int(richer.n_draws)
+    if left != right:
+        raise SensitivityError(
+            f"{mean_field.name} carries {left} posterior draw(s) and "
+            f"{richer.name} carries {right}. The comparison is between two "
+            "posterior APPROXIMATIONS at one draw count; at two different draw "
+            "counts a difference in Monte-Carlo error between the arms is a "
+            "difference in S wearing the costume of a difference in posterior, "
+            "and no column in this report separates the two.")
+    return left
 
 
 # ==========================================================================
@@ -274,22 +299,53 @@ def consequence_table(run, markets: Sequence[str] = ("champion", "top4",
     return out
 
 
-def ess_inflation(convergence: dict | None, n_draws: int) -> dict:
-    """How much a NUTS arm's cluster MC standard error understates itself.
+#: What the ESS-adjusted column is, in the two sentences a reader needs before
+#: using it. Codex review of 89f4c13: the quantity was presented as the honest
+#: error and is not one, so the label and both caveats travel together — in the
+#: returned dict, in the report, and in the docstring below.
+ESS_ADJUSTMENT_KIND = "heuristic"
 
-    The run's per-cell standard error is a cluster-by-particle error: it treats
-    the S posterior draws as S INDEPENDENT clusters. That is right for ADVI,
-    whose draws are i.i.d. from one approximation, and wrong for NUTS, whose
-    draws are a Markov chain. The honest count of independent clusters is the
-    bulk effective sample size, so::
+ESS_ADJUSTMENT_CAVEATS = (
+    "the ESS is a MARGINAL-parameter one and the column is a FUNCTIONAL of the "
+    "whole posterior: the bulk ESS of the worst-mixed parameter block need not "
+    "bound the effective sample size of a champion or relegation probability, "
+    "which can mix better or worse than any single block",
+    "the factor multiplies the WHOLE cluster standard error, and that error "
+    "contains independent match-simulation noise as well as posterior-draw "
+    "noise; no ESS deficit inflates the match-simulation part, so the scaling "
+    "over-corrects it",
+)
+
+
+def ess_inflation(convergence: dict | None, n_draws: int) -> dict:
+    """A HEURISTIC bound on how much a NUTS arm's cluster MC SE understates itself.
+
+    HEURISTIC, and the word is load-bearing (Codex review of 89f4c13). The run's
+    per-cell standard error is a cluster-by-particle error: it treats the S
+    posterior draws as S INDEPENDENT clusters. That is right for ADVI, whose
+    draws are i.i.d. from one approximation, and wrong for NUTS, whose draws are
+    a Markov chain — so the cluster form is a lower bound on that arm's error,
+    and SOME inflation is warranted. What is not established is that THIS
+    inflation is the right one::
 
         SE_adjusted = SE_cluster * sqrt(S / ESS_bulk_min)
 
     with ``ESS_bulk_min`` the SMALLEST bulk ESS over the parameter blocks the
-    convergence check covered — the worst-mixed block, because the table is a
-    function of all of them together. The factor is floored at 1: an ESS above S
-    (NUTS can be antithetic) is not a reason to report a SMALLER error than the
-    cluster form, which is the only one actually computed from the run.
+    convergence check covered. Two things are wrong with reading the product as
+    a corrected standard error, and both are stated wherever the number is
+    printed (:data:`ESS_ADJUSTMENT_CAVEATS`):
+
+    1. the ESS is MARGINAL and the column is a FUNCTIONAL. A champion
+       probability is a function of the whole posterior, and the bulk ESS of the
+       worst-mixed marginal block does not bound the effective sample size of
+       that functional in either direction;
+    2. the factor scales the WHOLE cluster error, which carries independent
+       match-simulation noise as well as posterior-draw noise. No ESS deficit
+       inflates the match-simulation part, so the scaling over-corrects it.
+
+    The factor is floored at 1: an ESS above S (NUTS can be antithetic) is not a
+    reason to report a SMALLER error than the cluster form, which is the only
+    one actually computed from the run.
 
     Returns ``available: False`` when the arm recorded no multi-chain
     convergence — an ADVI arm needs no adjustment and does not get a made-up one.
@@ -306,6 +362,8 @@ def ess_inflation(convergence: dict | None, n_draws: int) -> dict:
     raw = math.sqrt(float(n_draws) / float(ess))
     return {
         "available": True,
+        "kind": ESS_ADJUSTMENT_KIND,
+        "caveats": list(ESS_ADJUSTMENT_CAVEATS),
         "factor": float(max(1.0, raw)),
         "raw_factor": float(raw),
         "n_draws": int(n_draws),
@@ -406,6 +464,12 @@ def report_markdown(*, season: str, cutoff: str, cutoff_label: str,
     for a report that has never been revised, and it is written by a human for
     the same reason the conclusion is.
     """
+    # Before a single number is printed. The report's whole claim is that the
+    # two columns differ because the posteriors differ, and at unequal S it
+    # would be printing a difference in draw count instead. `run_d19` checks
+    # this too; here it also covers a report rebuilt from a dump.
+    check_arms_share_S(mean_field, richer)
+
     lines: list[str] = []
     add = lines.append
 
@@ -468,26 +532,44 @@ def report_markdown(*, season: str, cutoff: str, cutoff_label: str,
         "that DIFFERENCE rather than on either column beside it: "
         "`sqrt(se_mean-field² + se_NUTS²)`.")
     add("")
+    add(f"**Both arms carry S = {int(richer.n_draws)} posterior draws.** That "
+        "is what makes the comparison one between two posterior "
+        "APPROXIMATIONS: at two different draw counts a difference in "
+        "Monte-Carlo error between the arms would be a difference in S wearing "
+        "the costume of a difference in posterior, and no column here "
+        "separates the two. The run refuses to report unequal arms "
+        "(`check_arms_share_S`).")
+    add("")
     if factor is not None:
         add(f"**`NUTS ± (ESS-adj)`** is the NUTS column's error scaled by "
-            f"**{factor:.3f}**. A cluster-by-particle error counts the S "
+            f"**{factor:.3f}**, and it is a **HEURISTIC** bound rather than a "
+            "corrected standard error. A cluster-by-particle error counts the S "
             "posterior draws as S INDEPENDENT clusters, which is right for "
             "mean-field ADVI — i.i.d. draws from one approximation — and wrong "
-            "for NUTS, whose draws are a Markov chain. The rule is "
-            f"`{inflation['rule']}`, taking the SMALLEST bulk ESS over the "
-            "parameter blocks the reference arm's convergence check covered. "
-            "The unadjusted NUTS `±` is therefore a lower bound on that arm's "
-            "Monte-Carlo error, and the adjusted one is the honest column to "
-            "read it by.")
+            "for NUTS, whose draws are a Markov chain, so the unadjusted NUTS "
+            "`±` is a lower bound on that arm's Monte-Carlo error and SOME "
+            f"inflation is warranted. The rule is `{inflation['rule']}`, taking "
+            "the SMALLEST bulk ESS over the parameter blocks the reference "
+            "arm's convergence check covered. What is NOT established is that "
+            "this is the right inflation, for two reasons, and neither is "
+            "quantified here:")
+        add("")
+        for caveat in inflation.get("caveats", ESS_ADJUSTMENT_CAVEATS):
+            add(f"- {caveat};")
+        add("")
+        add("so the adjusted column is a plausible order of magnitude for the "
+            "understatement and is not an error anything in this run computed.")
     else:
         add("No ESS-adjusted column for this run: "
             + str(inflation.get("reason", "no factor could be formed")) + ".")
     add("")
     add("Both arms were simulated at the same seed and the same N, so their "
         "Monte-Carlo errors are coupled rather than independent. `Δ ±` ignores "
-        "that covariance. Where common random numbers couple the two arms "
-        "positively — the usual case — the independent-sum form OVERSTATES the "
-        "error of the difference, so it is conservative rather than exact.")
+        "that covariance, and the sign of the covariance is not computed here. "
+        "Common random numbers usually couple two arms positively, in which "
+        "case the independent-sum form overstates the error of the difference — "
+        "but that is an expectation about this kind of coupling and not a "
+        "measurement of this one, so **the direction of `Δ ±` is not known**.")
     add("")
     for market in ("champion", "top4", "relegated"):
         add(f"### {market}")
@@ -669,15 +751,25 @@ def convergence(post, params: Sequence[str] = CONVERGENCE_PARAMS) -> dict:
     idata = getattr(post, "idata", None)
     if idata is None or int(idata.posterior.sizes.get("chain", 1)) < 2:
         return {"available": False, "reason": "single chain: r-hat undefined",
-                "params": [str(p) for p in params]}
+                "params": [str(p) for p in params],
+                "requested": [str(p) for p in params], "not_covered": []}
 
     worst_rhat, worst_ess, flagged = 0.0, float("inf"), []
+    covered, absent = [], []
     for name in params:
         variable = "att_raw" if name == "att" else "def_raw" if name == "def" else name
         if variable not in idata.posterior:
             variable = name
-        if variable not in idata.posterior:              # pragma: no cover
+        if variable not in idata.posterior:
+            # NOT SILENTLY SKIPPED (Codex review of 89f4c13). `params` used to
+            # come back as the REQUESTED list whatever the loop managed to read,
+            # so a posterior missing `sigma_att` produced a report saying the
+            # check covered seven blocks when it had covered six — and the
+            # report's own "which blocks were covered" sentence, added to close
+            # exactly this gap, was reading a claim rather than a fact.
+            absent.append(str(name))
             continue
+        covered.append(str(name))
         r = float(np.nanmax(np.asarray(az.rhat(idata, var_names=[variable]
                                                )[variable].values)))
         e = float(np.nanmin(np.asarray(az.ess(idata, var_names=[variable]
@@ -686,9 +778,19 @@ def convergence(post, params: Sequence[str] = CONVERGENCE_PARAMS) -> dict:
         worst_ess = min(worst_ess, e)
         if r > 1.01:
             flagged.append({"param": name, "rhat": round(r, 4)})
+    if not covered:
+        return {"available": False,
+                "reason": ("the posterior carries none of the requested "
+                           f"parameter blocks {sorted(absent)}, so no r-hat or "
+                           "ESS could be computed"),
+                "params": [], "requested": [str(p) for p in params],
+                "not_covered": absent}
     return {"available": True, "max_rhat": worst_rhat, "min_ess": worst_ess,
             "flagged": flagged, "converged": not flagged,
-            "params": [str(p) for p in params]}
+            # what was ACTUALLY read, and what was asked for and was not there
+            "params": covered,
+            "requested": [str(p) for p in params],
+            "not_covered": absent}
 
 
 def _fit_one(cfg, cutoff, store, anchor, played, *, label: str, verbose: bool):
@@ -784,6 +886,14 @@ def run_d19(*, season: str = D19_SEASON, cutoff_label: str = D19_CUTOFF_LABEL,
         raw[name] = {"post_teams": list(post.teams), "run": run}
 
     mean_field, richer = arms["mean-field ADVI"], arms["NUTS"]
+    # EACH ARM AGAINST ITS OWN CONFIG IS NOT ENOUGH (Codex review of 89f4c13).
+    # `check_draw_count` holds each book against what its config promised, and
+    # two configs can promise different numbers: a 2,000-draw ADVI arm and a
+    # 1,000-draw NUTS arm both pass, and the comparison then reads a difference
+    # in draw count as a difference in posterior approximation. The claim the
+    # whole report rests on is that the two arms were compared at the SAME S,
+    # so that is asserted directly, between the arms.
+    check_arms_share_S(mean_field, richer)
     teams = raw["NUTS"]["post_teams"]
     # By NAME, not by position: the two arms are two fits and each carries its
     # own team index, so a same-size reordering would divide one club's spread

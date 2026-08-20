@@ -133,6 +133,18 @@ def per_cutoff_means(cells: Sequence[dict]) -> dict[tuple[str, str], dict]:
     this number as if it were an interval on 'how a season might have gone'
     would understate the uncertainty by an order of magnitude. Means are taken
     WITHIN a cutoff and never across cutoffs, the rule the report already holds.
+
+    THE SEASONS SHARE A SEED (Codex review of 31dac41, item 2). ``sqrt(sum(se^2))
+    / n`` is the error of a mean of INDEPENDENT terms, and R1's seasons are not
+    independent draws: ``epl.simretro.run_retro`` runs every cell at one seed,
+    and ``epl.leaguesim`` keys its streams on ``(seed, chunk, fixture ordinal)``
+    — so two seasons at the same cutoff reuse the same RNG streams on
+    differently-numbered fixtures. Whatever covariance that induces is omitted
+    here. Its sign is not computed and is not asserted: with a positive
+    covariance this figure understates the error of the mean and with a negative
+    one it overstates it, and nothing in this addendum establishes which. The
+    number is reported as what it is — a mean-of-independent-terms form — and
+    the omission is stated rather than argued away.
     """
     grouped: dict[tuple[str, str], list[dict]] = {}
     for cell in cells:
@@ -277,6 +289,17 @@ def addendum_markdown(cells: Sequence[dict], *, ledger_path=DEFAULT_LEDGER,
         "cutoff (§2). The error is the Monte-Carlo error of the mean, "
         "`sqrt(Σ se²) / n` over the seasons in that cell — again not the "
         "between-season spread.")
+    add("")
+    add("**The seasons share a seed, and this form assumes they do not.** "
+        "`sqrt(Σ se²) / n` is the error of a mean of INDEPENDENT terms. R1 ran "
+        "every cell at one seed (`epl.simretro.run_retro`), and the engine keys "
+        "its random streams on `(seed, chunk, fixture ordinal)` "
+        "(`epl.leaguesim`), so two seasons at the same cutoff reuse the same "
+        "streams on differently-numbered fixtures. Whatever covariance that "
+        "induces is **omitted** here, and its **direction is unknown**: a "
+        "positive covariance would make this figure too small and a negative "
+        "one too large, and nothing in this addendum computes which. Stated "
+        "rather than argued away — the same discipline as A2-N4 above.")
     add("")
     add("| cutoff | seasons | " + " | ".join(f"`{a}`" for a in arms) + " |")
     add("|---" * (2 + len(arms)) + "|")
