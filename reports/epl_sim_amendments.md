@@ -1784,3 +1784,453 @@ D16 is a question about D16* — is unchanged and still open.
 **Recording note.** Filed in the documentation commit of the round, dated rather
 than folded into A5's own text, so that A5 remains the record of what was done
 when it was written and this remains the record of what was added afterwards.
+
+---
+
+## A6 — harness v5, `check` semantics, the `observed_by` clarification, and the CRN pairing note (2026-08-20)
+
+**Decisions amended:** three, all named.
+(i) the retrospective harness contract of
+[`reports/epl_sim_prereg_retro.md`](epl_sim_prereg_retro.md) §1 as it stands after
+A2 (a) and A4 (i)–(iv) and the v4 note — what a run must validate, and what its key
+and seal must cover;
+(ii) the realised-outcome rule of that document's §5 and §6 — a shared realised
+rank is reported and then scored as a point mass, and after this it is scored over
+its span;
+(iii) the issuance `check` contract of plan v2 T9 as it stands at
+`epl-issuance-3`.
+**(c) and (d) amend nothing.** (c) restates an invariant the plan already has and
+the code does not implement everywhere; (d) corrects a DESCRIPTION of what the
+sampler does, and changes no sampler, no threshold, no number and no rule.
+**Status of the amendment when written:** not a line of `epl/` has changed under
+this ruling. `epl/simretro.py` and `epl/simmetrics.py` still hash to the **v4**
+pair recorded in A4's dated note. The committed opener issuance at
+`data/epl/sim/issuances/2026_27/2026-08-21/` is byte-for-byte as published, R1 and
+Addenda A and B are as published, and this entry changes no number in any of them.
+
+*Arithmetic note: every number in this entry is an exact count of ledger rows,
+clubs, fixtures or ordered pairs, or a SHA-256 read off — or recomputed from — a
+committed file. Nothing here is estimated, so nothing here carries a Monte-Carlo
+error. Two figures are QUOTED from the reviews and were not recomputed here; both
+are marked where they appear. No score is computed, quoted or changed.*
+
+### The observation
+
+Six final-state, read-only composition reviews were run against clean `a2b1ead`
+and kept outside the repository at `~/Desktop/codex-reviews/final-state/`. Five
+produced findings — `engine-pricing.md`, `gate-retro.md`, `ranker.md`,
+`live-ingest.md`, `live-forecast.md`. The sixth, `live-path`, returned **zero
+bytes on both its attempt and its retry** (`_status.txt`), and the ground it was
+given was covered instead by the two later reviews `live-ingest.md` and
+`live-forecast.md`; that is stated here rather than left as a silent gap in the
+count. All five that ran end **DO-NOT-SHIP**, each on composition — the modules
+hold, and the paths that join them do not.
+
+Their findings, deduplicated across files, with what this entry does about each.
+The four that A6 rules on are the four the owner asked for; the rest are recorded
+because a round whose findings are half-transcribed is not a record, and **nothing
+below accepts them — an unruled finding is not an accepted one.**
+
+| # | finding | where it is reported | A6 |
+|---|---|---|---|
+| 1 | `observed_by` bounds the state and the training frame and is then dropped when the DC fit builds its Elo covariates (`epl/dcfit.py:261`, called from `epl/simcli.py:231`) and when the Elo arm is built (`epl/simcli.py:486`); the empirical bridge filters on the cutoff alone (`epl/bridge.py:553`) | `engine-pricing.md` #1, `gate-retro.md` #1, `live-forecast.md` #1, `live-ingest.md` #1 | **(c)** |
+| 2 | the engine checks a provider's self-reported dates and accepts a provider with no usable `describe()` (`epl/leaguesim.py:978`, `:1000`) | `engine-pricing.md` #1, `gate-retro.md` #1 | **(c)** |
+| 3 | the retrospective's realised truth is neither complete nor identity-bound: `run_retro` checks only non-empty and no duplicate ordered pair (`epl/simretro.py:264`), so a 379-result archive ranks and scores as a normal 20-club season, and the truth is in neither the run key (`:599`) nor the envelope seal (`:699`) | `gate-retro.md` #2, `ranker.md` #1 | **(a)** |
+| 4 | scoring discards the stored `span` (`epl/simretro.py:1096`): a realised 17–18 tie is scored as if both clubs were definitely 17th | `ranker.md` #2 | **(a)** |
+| 5 | `check` verifies only the numerical fields; the full digest the record already carries is never read (`epl/simcli.py:1089`), so an edited `observed_by` inside a published output left every check passing | `gate-retro.md` #3 | **(b)** |
+| 6 | the retained rows and the full per-fixture truncation vector are written (`epl/leaguesim.py:1456`) and excluded from the digest and the check (`epl/simcli.py:1337`) | `engine-pricing.md` #4 | **(b)** |
+| 7 | `check` ignores `gate_PASS` and `acceptance.json` (`epl/simcli.py:462`, `:1242`), so an issuance that exited 3 on a failed gate can `check` PASS | `live-forecast.md` #3 | **(b)** |
+| 8 | check-time parity passes `post=None` (`epl/simcli.py:1364`), so the reference is the book's own mixture and the production adapter is never called | `gate-retro.md` #4 | **(b)** |
+| 9 | the native arm inverse-CDFs a scoreline grid (`epl/leaguesim.py:648`) while the bridge arms inverse-CDF H/D/A (`epl/bridge.py:454`), so sharing `u[0]` does not pair their outcomes | `engine-pricing.md` #3 | **(d)** |
+| 10 | non-integral goals are coerced silently, on ingest (`epl/simcli.py:1491`) and at validation (`epl/leaguesim.py:733`) | `engine-pricing.md` #2, `live-forecast.md` #2 | not ruled here |
+| 11 | the advertised ingest cannot create a ledger revision, and detected kickoff moves are not ingested (`epl/season.py:1054`, `:325`, `epl/simcli.py:1450`, `:1462`) | `live-ingest.md` #2, #3 | not ruled here |
+| 12 | direct `leaguesim.simulate` validates 38 appearances per club and not the round-robin, so duplicated ordered pairs with matching missing pairs pass (`epl/leaguesim.py:1034`, `epl/table.py:517`) | `ranker.md` #3 | not ruled here — **(a)** closes the same hole for the retrospective's realised archive only, and says so |
+| 13 | the cut-line headlines carry no Monte-Carlo error (`epl/simcli.py:1597`) | `engine-pricing.md` #5 | not ruled here |
+| 14 | issuance writes are in place and `issuance.json` precedes `summary.md`, so an interruption leaves a stale or missing summary that is still selected as the last issuance (`epl/simcli.py:465`, `:469`, `:1784`) | `live-forecast.md` #4 | not ruled here |
+| 15 | prohibited vocabulary in tracked forecast output and in one gate-criterion key | `engine-pricing.md` #6, `gate-retro.md` #5, `ranker.md` #4, `live-ingest.md` #4, `live-forecast.md` #5 | not ruled here — a rename of a JSON key is a schema/version bump with a backward-compatible read and its own dated note, per the standing rule |
+
+### The ruling (owner, 2026-08-20) — pre-stated before the code
+
+#### (a) Harness v5 — the realised archive is validated, identified, and scored over its own spans
+
+**(a.1) `run_retro` validates the realised archive BEFORE it scores anything, and
+refuses otherwise.** The check runs inside `realised_positions`, so every caller
+gets it, and `run_retro` runs it once per season before the first fit of that
+season:
+
+* the club set is the season manifest's, and has **exactly 20** members; the set
+  of clubs appearing in the archive rows must **equal** it, not be contained in
+  it — an archive may not define its own league;
+* there are **exactly 380** played results;
+* the 380 ordered pairs are **exactly** the complete double round-robin
+  `{(h, a) : h ≠ a}` — every ordered pair present once and none extra. This
+  subsumes the existing duplicate check and adds the missing-pair case the
+  duplicate check cannot see.
+
+A failure raises a typed `IncompleteRealisedArchive` (a `RetroError`) naming the
+counts and listing the missing and extra ordered pairs. It is a refusal to score,
+not a `refusal_kind` marker: A4's markers document a cell that could not be run,
+and this is a season whose truth is not a season.
+
+**(a.2) The realised truth enters the run key and the envelope seal.**
+`realised_hash` is the SHA-256 of the canonical JSON of
+`{"season", "results": sorted [(home, away, hg, ag)], "adjustments": sorted
+mapping, "boundaries", "rule_id"}` — the results **and** the adjustments, because
+an adjustment moves the table without moving a result, and the boundaries and
+rule id, because they decide what a tie means. Its first twelve hex become a
+`|t…` segment of `run_key`, and the hash itself joins the row's `envelope_hash`
+payload. A row scored against one truth then cannot satisfy a request under
+another, and a resumed run that meets a changed archive stops instead of mixing.
+`score_retro` reports `realised_hash` per season in its sanity block and sets
+`STOP_AND_INSPECT` if any season carries two distinct values.
+
+**No row is re-keyed.** R1's ledger stands exactly as it is; its rows could not
+satisfy a v5 request in any case, because the producer segment A2 (a) put in the
+key already changes when `epl/simretro.py` does.
+
+**(a.3) Scoring becomes span-aware, and the rule is exactly the ranker's own.**
+The realised outcome stops being a vector of integers and becomes a matrix
+`O[c, j]` of the same kind and orientation as the forecast matrix. For club `c`
+with realised block start `p_c` and block span `k_c`:
+
+```
+O[c, j] = 1 / k_c   for  p_c <= j <= p_c + k_c - 1
+O[c, j] = 0         otherwise
+```
+
+That is exactly the allocation the ranker already makes for a simulated tie —
+`epl/table.py`'s stated convention, *"a block of k clubs spanning k positions
+takes 1/k of each"* (plan v2 D8), implemented in `leaguesim._mass_chunk` as
+`inside / span`. `cumulative_outcome` becomes `cumsum(O, axis=1)[:, :-1]`, which
+is the identical transformation `cumulative_forecast` applies to the forecast, and
+`consequence_briers` takes the realised value of a consequence to be the mass `O`
+puts inside that consequence's position slice — `y_c = Σ_{j ∈ slice} O[c, j]` —
+which is fractional exactly when the tie straddles the boundary.
+
+**The consequence, stated as the rule rather than left to be derived: a forecast
+that matches the ranker's own allocation scores zero.** TRPS is
+`Σ (O_cum − X_cum)² / (C·(R−1))`; a club forecast at 0.5/0.5 across a realised
+17–18 tie has `X_cum = O_cum` at every boundary and contributes nothing, and its
+relegation Brier is `(0.5 − 0.5)² = 0`. Under v4 that same forecast is charged for
+being right. Two invariants are asserted on `O` on the way in, the same two the
+forecast matrix is held to: every row sums to 1, and every column sums to 1 —
+`table.check_doubly_stochastic` is run on the realised outcome matrix, because a
+fractional allocation that is not doubly stochastic is not a table.
+
+**(a.4) v5 reduces to v4 exactly when no realised tie occurred, and R1 + Addenda A
+and B stand as published.** When `k_c = 1` for every club, `O` is a permutation
+matrix and its cumulative is `(ranks >= p_c)` — precisely what
+`cumulative_outcome` returns today — so every score is unchanged bit-for-bit.
+**No realised tie occurred anywhere in the seven seasons.** Read off
+`data/epl/sim/retro_r1.jsonl` on 2026-08-20 at `a2b1ead`: **190** scored rows,
+`realised.n_shared == 0` on **every one of them**, and all **3,800** club-spans
+(190 rows × 20 clubs) equal **1**. Re-scoring R1, Addendum A and Addendum B under
+v5 would return the same numbers, so they are not re-scored, for the reason A2 and
+A4 both give: the run of record is the run that ran.
+
+**(a.5) The v5 hashes are the one thing this entry cannot state in advance.** They
+are appended as a dated note **inside the A4 entry**, where A4 (iv)'s harness-
+version list lives and where
+`test_the_recorded_harness_list_in_the_code_equals_the_one_in_the_ledger` reads
+it. A6 states the rule and deliberately does **not** restate the list: a second
+copy of it in a second entry is a list the test does not read, which is the exact
+shape of failure the v4 note's item 5 was written about.
+
+**Nothing else in the retrospective changes.** Not the question, the grid, the
+seasons, the cutoffs, the arms, the nulls, the metrics or the pass rules. TRPS
+stays primary and unweighted; the paired differences stay a diagnostic with no
+pass rule; scores are still never averaged across cutoffs.
+
+#### (b) `check` semantics — what a PASS is allowed to mean
+
+**A fourth verdict.** Beside `PASS`, `FAIL` and `REFUSED`, a criterion may report
+**`UNANCHORED`**: *the record predates the field this criterion is held against.*
+An `UNANCHORED` criterion did not run, claims nothing, and neither passes nor
+fails the record. It is listed by name in `check`'s output and printed in the
+report line. **It is not a passing criterion**: `check` gains a separate boolean
+`fully_anchored`, false whenever the list is non-empty, and its headline reads
+`PASS (n criteria unanchored: pre-A6 record)` so the boolean cannot be read
+without the qualification.
+
+**The new record fields arrive as `epl-issuance-4`**, with the leniency
+conditioned on the schema exactly as `epl-issuance-2` and `-3` already condition
+theirs: mandatory from `-4` on, and a `-4` record missing one **FAILs** that arm
+naming the field. Earlier records are read as they are today and report
+`UNANCHORED` for the criteria the missing fields anchor. The added fields are
+`record_digest`, `sidecar_digests` (per arm: the retained-rows `.npz` and the
+truncation `.json`), `acceptance_digest`, and `training_frame_sha256`. Nothing is
+renamed and nothing is removed.
+
+**(b.1) The full-record digest becomes part of what `check` verifies.** For each
+arm, `check` reads the published `output_<arm>.json` off disk, drops only
+`NON_REPRODUCIBLE_FIELDS` from its envelope, hashes the whole payload — matrix,
+consequences, cut lines, `mc`, **and the envelope, including `observed_by`,
+`provider_hash`, `effective_posterior_hash`, `git_commit` and
+`results_snapshot_sha256`** — and requires it to equal `record["digests"][arm]`.
+That anchor already exists in every record ever written; it was simply never
+read, which is why `gate-retro.md` #3 could change a published `observed_by` to
+`2099-01-01` and watch the check pass.
+
+The record's own fields that no output carries — `published_arm`, `arms`, `files`,
+`gate_PASS` — are covered by `record_digest`: the SHA-256 of the canonical JSON of
+the whole record with exactly one field removed, `record_digest` itself. It is
+written into `issuance.json` **and printed in `summary.md`**, and `check` requires
+both copies to agree with the recomputation, naming which copy disagrees. **A6
+states its limit rather than overselling it:** a digest a file carries about
+itself is a checksum against accident, not a seal against an editor, and an editor
+who updates every copy in the directory is caught by the repository history and by
+nothing in the bundle. That is what the history is for, and saying so is cheaper
+than a fourth copy.
+
+`check` additionally requires each arm's envelope to agree with the record on the
+ten fields both carry — `season`, `arm`, `cutoff`, `observed_by`, `seed`,
+`n_sims`, `n_particles`, `chunk_size`, `n_played`, `results_lag` — a disagreement
+being a `FAIL` naming the field. This is evaluable on every schema, since it
+compares two things a bundle already has.
+
+**(b.2) The two sidecars are anchored.** `sidecar_digests` records the SHA-256 of
+`rows_<arm>.npz` and of `excluded_mass_<arm>.json` as written, and `check`
+recomputes both. Independently of that anchor, and on every schema:
+
+* the **retained rows** are re-derived — `check` already re-runs the arm — and the
+  npz's ten arrays are compared to the re-run's `retained_rows.arrays()`
+  element-for-element. A disagreement is a `FAIL`.
+* the **truncation sidecar** must be internally and externally consistent: its
+  `summary` must equal the `excluded_mass` block in the arm's envelope (which
+  `digests[arm]` anchors), and `max`, `mean`, `p90`, `n_fixtures`, `n_flagged` and
+  the flagged set must **recompute exactly** from its own `per_fixture` vector.
+  When the envelope says `measured: false` the vector must be empty, and a
+  non-empty vector under `measured: false` is a `FAIL`.
+
+The residual is stated: a doctored per-fixture vector that preserves every
+statistic the envelope carries is invisible to the recomputation and is caught
+only by `sidecar_digests`, which is why the field exists and why its absence is
+reported rather than shrugged at.
+
+**(b.3) `check` consults `acceptance.json`.** A bundle with no `acceptance.json`,
+or a record whose `gate_PASS` is `null`, reports **`REFUSED`** for this criterion —
+a bundle that cannot show it passed its gate has not shown it, and a refusal is
+not a pass. A present gate report whose `PASS` is false, or whose `PASS`
+disagrees with the record's `gate_PASS`, is a **`FAIL`**. This is what stops a
+`forecast --skip-oracle` issuance — which exits 3 with a failed gate — from
+`check`ing PASS afterwards. From `epl-issuance-4` the gate report's bytes are
+anchored by `acceptance_digest`.
+
+**(b.4) The check-time parity rerun uses the production grid, or refuses.** A
+posterior is **RECONSTRUCTABLE** at check time when the record names the fit's
+inputs — `cutoff`, `observed_by`, the frozen configuration identity, and (from
+`-4`) `training_frame_sha256` — and re-deriving under exactly those inputs yields
+a posterior for which
+`ParticleBook.from_posterior(post).content_hash() == record["effective_posterior_hash"]`.
+Nothing weaker counts: a posterior that does not reproduce the anchored book is
+not the posterior this issuance published from, and using it as the reference
+would measure a different law.
+
+* Reconstructable ⇒ parity's reference is `draw_api.production_grid(post, …)` and
+  the criterion reports `PASS`/`FAIL`. The production adapter is then actually
+  called at check time, which is the whole point: today it never is, so adapter
+  drift is invisible to every check in the repository.
+* Not reconstructable, on a record that carries the fit anchor ⇒ **`REFUSED`**,
+  which is not `PASS`, and the arm is not `PASS`.
+* On a **pre-A6 record**, which pins no training frame and therefore cannot say
+  which frame the fit that made it saw ⇒ **`UNANCHORED`**. The book-mixture
+  comparison is still computed and reported, labelled as the diagnostic it is,
+  and A3's leg 1 continues to pass or fail on it exactly as it does today.
+
+**(b.5) What the committed opener issuance will report — pre-stated, by criterion.**
+`data/epl/sim/issuances/2026_27/2026-08-21/` is an **`epl-issuance-1`** record. It
+is not re-issued, not re-run and not edited by A6 or by the commit that implements
+it. Of the criteria above, **exactly five report `UNANCHORED (pre-A6 record)` for
+it — `record_digest`, `retained_rows_anchored`, `truncation_sidecar_anchored`,
+`acceptance_digest`, `parity_reference_is_production_grid`**. The rest were
+evaluated against the committed bundle **on 2026-08-20 at `a2b1ead`** by
+recomputation from the files as committed: the four A6 can settle in advance each
+report `PASS`, and the fifth is a re-derivation whose outcome A6 does not assert.
+
+| criterion | verdict for the committed opener | evidence |
+|---|---|---|
+| `published_output_full_digest` | **PASS**, all three arms | recomputed from each `output_<arm>.json` with `wall_seconds` dropped: `3a40110cd412…`, `5d3dad2d540e…`, `04bda8e4e6d6…` — equal to the record's `digests` map |
+| `envelope_agrees_with_record` | **PASS**, all three arms | the ten shared fields agree; `bridge_hash` is absent for `dc_native` and `effective_posterior_hash` differs for `elo_wdl_bridge`, both by construction, so neither is in the shared set |
+| `acceptance_verdict` | **PASS** | `acceptance.json` carries `PASS: true`, `failed: []`, `skipped: []`; the record carries `gate_PASS: true` |
+| `truncation_sidecar_consistent` | **PASS**, all three arms | each sidecar's `summary` equals its envelope's `excluded_mass`; `max`, `mean`, `p90` and `n_fixtures` recompute exactly from the 380-entry vectors for the two DC arms; `elo_wdl_bridge` carries `measured: false` with an empty vector |
+| `retained_rows_reproduce` | **runs** — a re-derivation, available on every schema | A6 does **not** assert its outcome in advance; it is measured when the code lands and reported then |
+| `record_digest` · `retained_rows_anchored` · `truncation_sidecar_anchored` · `acceptance_digest` | **UNANCHORED (pre-A6 record)** | the record carries no such field, and computing one now and calling it an anchor would be the record anchoring itself after the fact — the one thing this ledger exists to prevent |
+| `parity_reference_is_production_grid` | **UNANCHORED (pre-A6 record)** | no `training_frame_sha256`; the posterior the fit saw cannot be identified from the record, so the production adapter cannot be shown to have been exercised for this issuance. The book-mixture leg is still computed and reported |
+
+So the committed opener stays verifiable **for exactly what its record can
+support**, its top-level verdict is unchanged, and it can never report
+`fully_anchored`. That is the honest end state and it is recorded here rather than
+engineered around: the first issuance written under `epl-issuance-4` is the first
+that can be fully anchored, and no earlier one is retrofitted into looking like it.
+
+#### (c) `observed_by` binds the WHOLE forecast — a clarification, not an amendment
+
+`observed_by` is a bound on the **run's knowledge**, not on one of its inputs.
+Everything a forecast reads that is derived from match results is bounded by it:
+
+1. the season **state** — already;
+2. the **training frame** — already;
+3. the **anchor state supplying `elo_z`** to the DC fit (`epl/dcfit.py:261`);
+4. the Elo arm's own **anchor state and history frame** (`epl/simcli.py:486-489`);
+5. the empirical **bridge**'s fitting frame (`epl/bridge.py:553`), whose filter is
+   `date < cutoff` with no knowledge bound at all.
+
+A provider that cannot state the knowledge bound it was built under is **refused**
+rather than trusted; `epl/leaguesim.py:978`/`:1000` currently checks self-reported
+dates and accepts a provider with no usable `describe()`.
+
+**This is a bug fix to an existing invariant and is recorded here for the
+avoidance of doubt.** No preregistered decision changes: plan v2 D5/D18 and the
+bitemporal rule already say what the five surfaces above must do. Three of the
+five reviews name it as their P0, and it is written down so that the fix commit is
+read as *implementing* the invariant rather than as *introducing* it — and so that
+the gap between what the plan said and what the code did is dated, rather than
+discovered later as an undocumented change of behaviour.
+
+**Pre-stated positive control**, before the fix exists: at `cutoff = 2026-08-26`,
+`observed_by = 2026-08-22`, with one result played 2026-08-24 and filed as
+observed 2026-08-25, every arm's numbers must be identical to the same run against
+a ledger from which that row is absent entirely. `gate-retro.md` #1 reports that at
+HEAD the same probe moves Arsenal by **+2.99 Elo** while the state sees zero
+results — *quoted from that review and not recomputed here*.
+
+#### (d) Native and bridge arms do not share an OUTCOME draw — a note on what CRN buys
+
+The `u`-slot convention (`epl/leaguesim.py:583`) is a fixed contract, and it is
+worth having. What it does **not** do is pair outcomes across the native and
+bridge arms, and the phrase "common random numbers" has been read as if it did:
+
+* `DCNativeProvider.sample` inverts `u[0]` against the **flattened scoreline CDF**
+  — `flat = (rows < u[0]).sum()`, then `(hg, ag) = (flat // side, flat % side)`,
+  row-major over 121 cells (`epl/leaguesim.py:648`);
+* `DCWDLProvider.sample` and `EloOutcomeProvider.sample` invert `u[0]` against a
+  **three-cell H/D/A CDF** and then draw the scoreline from the bridge's
+  conditional with `u[2]` (`epl/bridge.py:454`, `:607`).
+
+The same uniform indexes two different partitions of `[0, 1)`, and the home-win
+cells are scattered through the row-major flattening rather than contiguous, so
+equal `u[0]` does not mean equal outcome. `engine-pricing.md` #3 reports a HEAD
+probe in which, with identical 1X2 laws, the arms disagreed on **76.5%** of
+fixture outcomes — *quoted from that review and not recomputed here*.
+
+**What follows, and what does not.** Every draw is still an exact draw from its own
+arm's law, so no marginal, no matrix and no point estimate is affected, and no
+number in R1, Addendum A or Addendum B is wrong. What is affected is the **degree
+of coupling** in the paired columns that compare `dc_native` against a bridge arm:
+they are validly paired *within an occasion* — same season, same cutoff, same fit,
+same fixtures, same random slots — and they are **not** variance-reduced to the
+degree "common random numbers" suggests, because the coupling stops at the uniform
+and does not reach the outcome. The two bridge arms **are** pathwise paired against
+each other, on both slots. Nothing in this project turns on the difference: the
+paired differences are a diagnostic with no pass rule (prereg §7 and §11, restated
+at Addendum B.5), and this note does not create one.
+
+**A6 (d) takes precedence** over the prereg's *"with common random numbers"*
+sentence and over the `ScorelineProvider` docstring wherever either is read as
+asserting outcome-level pairing between `dc_native` and a bridge arm. The pointer
+sentences at those two places land with the code commit, in the pattern the v4
+note used; the sentences themselves stay unedited, for the reason A1-C1 gives.
+
+**An outcome-paired native sampler is v1.2, and is not retrofitted.** Making the
+native arm draw the outcome first and the scoreline conditionally would change
+every `dc_native` number this project has ever issued, the published opener
+included. That is a new sampler, and a new sampler belongs to a version with its
+own preregistration — not to a patch that silently re-bases the published record.
+
+### The rationale
+
+Findings 3, 4, 5, 6, 7 and 8 are one defect wearing six coats: **a check whose
+inputs are chosen by the thing being checked.** The harness decides what the truth
+is from the rows it was handed; the scorer takes the ranker's fractional answer and
+rounds it; `check` hashes the fields it expects to move and skips the ones that
+carry provenance; parity compares the sampler to a reference derived from the
+sampler's own book. Each is defensible in isolation and each removes the same
+thing — an independent statement the artefact has to agree with. A6 puts one back
+in each place: the schedule for the archive, the ranker's own allocation for the
+outcome, the record's full digest for the file, the production adapter for the
+grid, and the gate report for the gate.
+
+Span-aware scoring is the smaller half of the same point and the one with a sharp
+edge. The simulator already treats a tie fractionally — every forecast matrix in
+the repository allocates 1/k across a tied block — and the scorer then compared
+that fractional forecast to an integer truth. A forecast that reproduces the
+ranker's own answer was charged for it. Making `O` a row of the same kind as the
+forecast's row is not a new convention; it is the convention already in the code,
+applied on both sides of the subtraction.
+
+The `UNANCHORED` verdict exists because the alternatives are both dishonest. Making
+the new criteria pass vacuously on old records turns the leniency into the hole it
+was written to avoid — the mistake `epl-issuance-2` already made once, and which
+the schema-strict comment at `epl/simcli.py:1265` records. Failing old records for
+lacking fields that did not exist when they were written would say the published
+issuance is wrong, which it is not. The truthful third answer is *this criterion
+had nothing to hold this record against*, said out loud, in a list, next to a
+boolean that goes false. A pre-A6 record can then be verified for what it supports
+and can never claim more.
+
+(c) is written as an amendment entry although it amends nothing because the
+alternative is worse: a fix commit that quietly changes what every future forecast
+sees, with no dated statement of what the rule always was. The invariant is old;
+the observation that the code does not implement it is new; the entry dates the
+second without pretending to change the first.
+
+(d) is the case this ledger handles least often and should: **the code is right and
+the description is wrong.** No number moves, no rule changes, and the only thing at
+stake is what a reader is entitled to conclude from the word "paired". Writing it
+down costs one entry. Leaving it costs a future reader the belief that a narrow
+paired interval reflects a coupling that was never there.
+
+### What is pre-stated
+
+Fixed here, before the code exists and before any run under any of it exists:
+
+- **The realised-archive validation is exactly three conditions** — the manifest's
+  20 clubs as an equality, 380 played results, and the complete double
+  round-robin as a set equality over ordered pairs — refusing with
+  `IncompleteRealisedArchive` and naming the missing and extra pairs. It is a
+  refusal to score, never a `refusal_kind` marker.
+- **`realised_hash` covers results, adjustments, boundaries and rule id**, enters
+  `run_key` as a `|t…` segment and the row's `envelope_hash`, and two distinct
+  values for one season is `STOP_AND_INSPECT`.
+- **The span rule is `O[c, j] = 1/k_c` across the realised block and 0 elsewhere**,
+  cumulated by the same function that cumulates the forecast, with
+  `y_c = Σ_{j ∈ slice} O[c, j]` for the consequence Briers. A forecast matching the
+  ranker's allocation scores **zero**. `O` is asserted doubly stochastic.
+- **v5 reduces to v4 wherever every span is 1**, and R1 + Addenda A and B are not
+  re-scored: 190 scored rows, `n_shared == 0` on every one, all 3,800 club-spans
+  equal to 1.
+- **`UNANCHORED` is a fourth verdict, is not a pass, and forces `fully_anchored`
+  false**; the five criteria it applies to for the committed opener are named in
+  (b.5), and none of the criteria A6 settles in advance FAILs it.
+- **`epl-issuance-4` adds `record_digest`, `sidecar_digests`, `acceptance_digest`
+  and `training_frame_sha256`**, mandatory from `-4` on, absent-and-`UNANCHORED`
+  before it, with no key renamed or removed.
+- **A missing or `null` gate report is `REFUSED`, a false or disagreeing one is
+  `FAIL`.**
+- **Parity uses `production_grid` only when the re-derived posterior reproduces the
+  anchored `effective_posterior_hash`**, and otherwise `REFUSED` — or `UNANCHORED`
+  on a record with no fit anchor.
+- **`observed_by` binds the state, the training frame, the DC fit's Elo
+  covariates, the Elo arm's anchor and history, and the bridge's fitting frame**;
+  a provider that cannot state its bound is refused.
+- **No outcome-paired native sampler is built in v1.1.** It is v1.2, with its own
+  preregistration, and no published `dc_native` number is re-based to it.
+- The **v5 hashes** are the one thing this entry cannot state in advance; they are
+  appended as a dated note inside the A4 entry, where the list the test reads
+  lives.
+
+No threshold, count or rule above was chosen after seeing a result under it: no
+run under harness v5 exists, no record under `epl-issuance-4` exists, and the four
+verdicts pre-stated for the committed opener were recomputed from the bundle
+exactly as it was published on 2026-08-19 and committed unchanged since.
+
+### Recording note
+
+Written **before any line of `epl/` changed under this ruling**. Both harness files
+were re-hashed at the moment of writing and still match the **v4** values in A4's
+dated note — `7aabbd78…` and `53c11eb1…`, unchanged; `git diff --stat main -- src
+scripts` is empty; the committed opener bundle and `data/epl/sim/retro_r1.jsonl`
+are untouched, and every count and digest quoted in (a.4) and (b.5) was recomputed
+from those files exactly as they stand committed. The full suite — 508 tests — is
+green at this commit, which changes no code. The commit that implements any of
+this follows this one.
