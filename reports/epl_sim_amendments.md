@@ -1644,6 +1644,104 @@ tally in which two clubs both finished first — and one rank was occupied by
 nobody — carried the right total and resampled into a matrix whose columns do
 not sum to one, which `trps` scores without complaint.
 
+### The v5 hashes — a validated, identified, span-aware truth (recorded 2026-08-20)
+
+Amendment **A6 (a)** — ruled and recorded at `38830a2` before the code existed —
+changes what `run_retro` validates, what its key and seal cover, and what the
+scorer compares a forecast to. The commit this note accompanies implements it and
+therefore produces a NEW harness pair. The note lives **here**, inside A4,
+because A4 (iv)'s version list lives here and
+`test_the_recorded_harness_list_in_the_code_equals_the_one_in_the_ledger` reads
+this entry and no other; A6 (a.5) states that rule and deliberately does not
+restate the list, since a second copy is a list the test does not read.
+
+**The record lands in the same commit as the code it identifies.** A6 (a.5) says
+these hashes cannot be stated *in advance* — a file's own SHA-256 cannot be
+written into that file — which is why the list is a data file the harness reads.
+It does not say they may be stated in a *later* commit, and they may not: the
+test above asserts that HEAD's own pair is one of the recorded ones, so a commit
+that changes the harness without recording it is red at that assertion, and every
+code commit in this project is green. Code and record therefore arrive together —
+the shape `cdd8879` used when it introduced that assertion together with the v3
+pair satisfying it.
+
+**R1, Addendum A and Addendum B stand under v1 and v3 and are not re-scored.
+v5 has not been used for a published run.**
+
+*Arithmetic note: this note quotes two SHA-256 values and exact counts of ledger
+rows, clubs and scored components. Nothing here is estimated, so nothing here
+carries a Monte-Carlo error. No score is quoted, computed or changed by it.*
+
+| version | `epl/simretro.py` | `epl/simmetrics.py` | recorded in |
+|---|---|---|---|
+| v5 | `d64bef11ea3cefa32f585eb2e6749465a9acbbb6de54981ddf96f52dcf7eea1d` | `b03d4fbcda4b4f6405ee165acc8a2786e79f0ef37111e6369f199d7dca32c5a4` | this note, and `epl/retro_harness_versions.json` |
+
+**What v5 changes, and why each was wrong under v4.**
+
+1. **The realised archive is validated before it is ranked** (A6 (a.1)). v1–v4
+   checked non-empty and no duplicate ordered pair. A duplicate check cannot see
+   a MISSING pair, so a 379-result archive produced a perfectly normal-looking
+   20-club truth, ranked and scored, while the schedule still held 380 fixtures
+   and the forecasts simulated the match the table never counted
+   (`gate-retro.md` #2, `ranker.md` #1). `realised_positions` now requires
+   exactly 20 clubs **as an equality** — an archive may not define its own league
+   by leaving one out — exactly 380 played results, and the 380 ordered pairs to
+   BE the complete double round-robin, which subsumes the duplicate check and
+   adds the missing-pair case. Failure raises the typed
+   `IncompleteRealisedArchive`; `_refusal_kind` classes it `runner_error`, so the
+   markers naming the cells are written and the exception is re-raised and the
+   run stops. This closes for the realised archive the hole `ranker.md` #3
+   reports in `leaguesim.simulate`, and closes it **there only**: A6's table says
+   so and this note repeats it rather than letting the fix look wider than it is.
+
+2. **The truth is in the key and in the seal** (A6 (a.2)). `realised_hash` is the
+   SHA-256 of the canonical JSON of the season, the sorted results, the sorted
+   adjustments, the boundaries and the rule id — the adjustments because one
+   moves the table without moving a result, the boundaries and the rule because
+   they decide what a tie means. Its first twelve hex are a `|t…` segment of
+   `run_key` and the hash joins the row's `envelope_hash` payload, so a row
+   scored against one archive cannot satisfy a request under another and a
+   resumed run that meets a changed archive re-runs instead of mixing. The
+   segment sits **before** the producer segment and is **omitted** when there is
+   no truth to name: every key ever written still ends `|p…`, and a refusal
+   marker for a season whose truth could not be built is keyed exactly as it was.
+   `score_retro` reports `realised_hash_by_season` and sets `STOP_AND_INSPECT`
+   when one season carries two distinct values. A pre-A6 row carries no hash and
+   reads as one unknown truth, which is why the published ledger raises no stop.
+
+3. **Scoring is span-aware, and the rule is the ranker's own** (A6 (a.3)). The
+   realised outcome is a matrix `O[c, j] = 1/k_c` across the club's realised
+   block — `epl/table.py`'s stated *"a block of k clubs spanning k positions
+   takes 1/k of each"*, which `leaguesim._mass_chunk` already applies to the
+   forecast side. `_score_one` reads the `span` every ledger row has stored since
+   v1 and that the scorer never read (`ranker.md` #2). A forecast reproducing the
+   ranker's own 0.5/0.5 split across a realised 17–18 tie now scores **zero** on
+   TRPS and on the relegation Brier, where v4 charged it `2 × 0.25 / (20 × 19)`
+   for being right. `O` is held to the two margins the forecast matrix is held
+   to; v4's point-mass outcome for a tie fails them — rank 18's column sums to 0
+   and rank 17's to 2 — and the code now refuses to build it rather than scoring
+   against it.
+
+**Why no published number moves, measured rather than asserted.** `O` reduces to
+v4's step function exactly when every span is 1. Read off
+`data/epl/sim/retro_r1.jsonl` as committed, on 2026-08-20: **190** scored rows,
+**3,800** club-spans (190 × 20) **all equal to 1**, `realised.n_shared == 0` on
+**every** row, and **1,520** scored components (190 rows × 8 — TRPS, wTRPS, flat
+TRPS, the TRPS MC SE, the Brier block, `beats_flat`, the champion log loss and
+the points block) re-derived through `epl.simretro._score_one` under v5 and
+compared to the same rows with the `span` field dropped, which is v4's input
+because v4 never read it: **0 moved**.
+`test_v5_reduces_to_v4_on_the_published_R1_ledger` performs that comparison and
+carries a positive control — one real published row given a realised 17–18 tie it
+did not have, whose TRPS then moves — so "unchanged" is a fact about this
+ledger's spans and not a property of the comparison. The same figures are stated
+as a dated note at the foot of
+[`reports/epl_sim_retro_v1_1.md`](epl_sim_retro_v1_1.md).
+
+**What this note does not claim.** It records a harness pair and an arithmetic
+result. It rules on nothing: A6 is the ruling, this is the recording A6 (a.5)
+said could not be written in advance.
+
 ---
 
 ## A5 — the 2023/24 points adjustments are attested and verified (2026-08-20)

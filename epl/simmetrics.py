@@ -125,7 +125,7 @@ def matrix_margin_errors(matrix) -> tuple[float, float]:
             float(np.abs(out.sum(axis=0) - 1.0).max()))
 
 
-def trps_se(matrix, positions, matrix_se) -> float | None:
+def trps_se(matrix, positions, matrix_se, spans=None) -> float | None:
     """The DIAGONAL APPROXIMATION to the delta-method MC variance of TRPS.
 
     A2 (c) relabelled the harness's misnamed `MC SE` column and recorded a TRPS
@@ -163,12 +163,18 @@ def trps_se(matrix, positions, matrix_se) -> float | None:
     none of these assumptions, for runs that retain per-particle tallies.
 
     Returns None when the run recorded no per-cell error (the nulls do not).
+
+    `spans` is A6 (a.3)'s realised block width, and it is threaded here for the
+    same reason it is threaded into :func:`trps`: this is the GRADIENT of that
+    score, so an `O` computed one way for the number and another for its error
+    would be an error on a different quantity. With every span 1 it is the step
+    function it always was.
     """
     if matrix_se is None:
         return None
     x = cumulative_forecast(matrix)
     n_clubs, n_ranks = np.shape(matrix)
-    o = cumulative_outcome(positions, n_clubs, n_ranks)
+    o = cumulative_outcome(positions, n_clubs, n_ranks, spans)
     se = np.asarray(matrix_se, dtype=float)
     if se.shape != (n_clubs, n_ranks):
         raise MetricError(
@@ -319,18 +325,83 @@ def cumulative_forecast(matrix) -> np.ndarray:
     return np.cumsum(out, axis=1)[:, :-1]
 
 
-def cumulative_outcome(positions, n_clubs: int, n_ranks: int) -> np.ndarray:
-    """``O_rt`` — a step function that turns on at the rank the club obtained."""
+def realised_outcome(positions, n_clubs: int, n_ranks: int,
+                     spans=None) -> np.ndarray:
+    """``O[c, j]`` — the realised table as a MATRIX, span-aware (A6 (a.3)).
+
+    ``O[c, j] = 1/k_c`` for ``p_c <= j+1 <= p_c + k_c - 1``, and 0 elsewhere:
+    exactly the allocation the ranker already makes for a simulated tie —
+    `epl.table`'s stated convention, *"a block of k clubs spanning k positions
+    takes 1/k of each"* (plan v2 D8), implemented in `leaguesim._mass_chunk` as
+    ``inside / span``. Applying it on BOTH sides of the subtraction is the whole
+    of amendment A6 (a.3): the simulator has always treated a tie fractionally,
+    and the scorer then compared that fractional forecast to an integer truth,
+    so a forecast reproducing the ranker's own answer was charged for it.
+
+    With every span 1 this is a permutation matrix and everything downstream
+    reduces exactly to the point-mass form, which is why no published number
+    moves (A6 (a.4)).
+
+    Two invariants are asserted on the way out, the same two the FORECAST matrix
+    is held to: every row sums to 1 and every column sums to 1. A fractional
+    allocation that is not doubly stochastic is not a table.
+    """
     pos = _as_positions(positions, n_clubs, n_ranks)
-    ranks = np.arange(1, n_ranks)[None, :]
-    return (ranks >= pos[:, None]).astype(float)
+    if spans is None:
+        k = np.ones(n_clubs, dtype=np.int64)
+    else:
+        k = np.asarray(spans).reshape(-1)
+        if k.size != n_clubs:
+            raise MetricError(f"{k.size} spans for {n_clubs} clubs")
+        if not np.all(k == np.floor(np.asarray(k, dtype=float))):
+            raise MetricError("a block span is a whole number of positions")
+        k = k.astype(np.int64)
+    if (k < 1).any():
+        raise MetricError("every block span is at least 1")
+    if (pos + k - 1 > n_ranks).any():
+        raise MetricError("a realised block runs past the last rank")
+
+    ranks = np.arange(1, n_ranks + 1)[None, :]
+    inside = (ranks >= pos[:, None]) & (ranks < (pos + k)[:, None])
+    out = inside.astype(float) / k[:, None]
+
+    # The doubly-stochastic assertion applies to a FULL RANKING — one club per
+    # position, which is the league's shape and the retrospective's only shape.
+    # The paper's Example 1 ranks four teams into three RANK CLASSES of sizes
+    # 1, 1, 2, where a column legitimately sums to the class size; that is a
+    # different object and it is not held to this.
+    if n_clubs == n_ranks:
+        rows = out.sum(axis=1)
+        cols = out.sum(axis=0)
+        if (not np.allclose(rows, 1.0, atol=1e-9)
+                or not np.allclose(cols, 1.0, atol=1e-9)):
+            raise MetricError(
+                "the realised outcome is not doubly stochastic: row error "
+                f"{float(np.abs(rows - 1).max()):.3g}, column error "
+                f"{float(np.abs(cols - 1).max()):.3g}. A realised table whose "
+                "shared blocks do not tile the positions they span is not a "
+                "table — which is exactly what a shared rank scored as a point "
+                "mass produces (amendment A6 (a.3)).")
+    return out
+
+
+def cumulative_outcome(positions, n_clubs: int, n_ranks: int,
+                       spans=None) -> np.ndarray:
+    """``O_rt`` — the realised matrix cumulated by the SAME transformation
+    :func:`cumulative_forecast` applies to the forecast.
+
+    With every span 1 this is the step function that turns on at the rank the
+    club obtained, which is exactly what it was before A6 (a.3).
+    """
+    return np.cumsum(realised_outcome(positions, n_clubs, n_ranks, spans),
+                     axis=1)[:, :-1]
 
 
 # ==========================================================================
 # 1. TRPS (primary) and wTRPS (secondary)
 # ==========================================================================
 
-def trps(matrix, positions) -> float:
+def trps(matrix, positions, spans=None) -> float:
     """The tournament rank probability score. Lower is better; 0 is perfect.
 
     `matrix` is ``[clubs, ranks]`` — the product's own orientation, one row per
@@ -342,7 +413,7 @@ def trps(matrix, positions) -> float:
     """
     x = cumulative_forecast(matrix)
     n_clubs, n_ranks = np.shape(matrix)
-    o = cumulative_outcome(positions, n_clubs, n_ranks)
+    o = cumulative_outcome(positions, n_clubs, n_ranks, spans)
     return float(((o - x) ** 2).sum() / (n_clubs * (n_ranks - 1)))
 
 
@@ -372,7 +443,7 @@ def consequence_weights(n_ranks: int = 20,
     return out
 
 
-def wtrps(matrix, positions, weights) -> float:
+def wtrps(matrix, positions, weights, spans=None) -> float:
     """TRPS with per-boundary weights (paper eq. 4). Secondary, higher variance.
 
     `weights` has one entry per boundary r = 1..R−1 and must sum to R−1, which
@@ -392,11 +463,11 @@ def wtrps(matrix, positions, weights) -> float:
         raise MetricError(
             f"weights sum to {float(w.sum()):.6g}, not {n_ranks - 1}: the "
             "weighted score would not be on the unweighted score's scale")
-    o = cumulative_outcome(positions, n_clubs, n_ranks)
+    o = cumulative_outcome(positions, n_clubs, n_ranks, spans)
     return float((w[None, :] * (o - x) ** 2).sum() / (n_clubs * (n_ranks - 1)))
 
 
-def flat_trps(positions, n_ranks: int | None = None) -> float:
+def flat_trps(positions, n_ranks: int | None = None, spans=None) -> float:
     """TRPS of the flat matrix, in closed form — the null that must be beaten.
 
     For the uniform ``1/R`` forecast, ``X_rt = r/R`` and the per-club sum is a
@@ -412,6 +483,12 @@ def flat_trps(positions, n_ranks: int | None = None) -> float:
     pos = _as_positions(pos, n_clubs, ranks)
     if ranks < 2:
         raise MetricError("the flat null needs at least two ranks")
+    if spans is not None and np.any(np.asarray(spans) != 1):
+        # The closed form assumes point masses. With a realised tie the score is
+        # computed directly against the flat matrix — still exact, still free of
+        # Monte-Carlo error, and the closed form is kept for the span-1 case so
+        # every published flat_trps is bit-for-bit what it was.
+        return trps(np.full((n_clubs, ranks), 1.0 / ranks), pos, spans=spans)
 
     def g(m):                      # Σ_{i=1..m} i²
         m = np.asarray(m, dtype=float)
@@ -425,7 +502,7 @@ def flat_trps(positions, n_ranks: int | None = None) -> float:
 # 2. consequence markets
 # ==========================================================================
 
-def consequence_briers(matrix, positions) -> dict[str, float]:
+def consequence_briers(matrix, positions, spans=None) -> dict[str, float]:
     """Brier scores for the five markets the product publishes.
 
     `champion` is the 20-way multi-category Brier ``Σ_c (p_c − o_c)²`` — the
@@ -437,12 +514,16 @@ def consequence_briers(matrix, positions) -> dict[str, float]:
     n_clubs, n_ranks = x.shape
     pos = _as_positions(positions, n_clubs, n_ranks)
     slices = leaguesim.market_slices(n_ranks)
+    # A6 (a.3): the realised value of a consequence is the MASS `O` puts inside
+    # that consequence's position slice, which is fractional exactly when a
+    # realised tie straddles the boundary.
+    outcome = realised_outcome(pos, n_clubs, n_ranks, spans)
 
     out: dict[str, float] = {}
     for market in leaguesim.MARKETS:
         lo, hi = slices[market]
         p = x[:, lo:hi].sum(axis=1)
-        o = ((pos > lo) & (pos <= hi)).astype(float)
+        o = outcome[:, lo:hi].sum(axis=1)
         if market == "champion":
             out[market] = float(((p - o) ** 2).sum())
         else:

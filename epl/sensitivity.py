@@ -865,13 +865,18 @@ def run_d19(*, season: str = D19_SEASON, cutoff_label: str = D19_CUTOFF_LABEL,
                   f"sim {sim_seconds}s", flush=True)
 
         positions = realised.position_vector(list(run.clubs))
+        # A6 (a.3): the realised outcome is scored over its SPAN here too. One
+        # definition of the score or none — a D19 arm scored against a point
+        # mass while the retrospective scores against the ranker's own 1/k
+        # allocation would be two scores wearing one name.
+        spans = realised.span_vector(list(run.clubs))
         arms[name] = Arm(
             name=name, backend=backend, n_draws=int(book.n_particles),
             fit_seconds=fit_seconds, sim_seconds=sim_seconds,
             sds=posterior_sds(post, list(PARAMS) + list(HYPERPARAMS)),
             consequences=consequence_table(run),
             points_sd=points_sds(run),
-            trps=float(simmetrics.trps(run.matrix, positions)),
+            trps=float(simmetrics.trps(run.matrix, positions, spans=spans)),
             promoted=expected_relegations_among(run, promoted),
             provenance={
                 "convergence": convergence(post),

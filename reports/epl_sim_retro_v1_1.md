@@ -7,6 +7,8 @@ This is the execution of the preregistration. It reports what the harness produc
 
 **Standing disclaimers.** Monte-Carlo standard error is reported beside every simulated row and **is not model error** — a tight SE on a badly specified model is still a badly specified model. Scores are per (season, cutoff) and are **never averaged across cutoffs**: the opener and matchweek 19 are different questions. Table positions are table positions; ranks 1, 4, 5, 7 and 17 are not claims about qualification for, or exclusion from, any competition. Every forecast scored here was made at a past cutoff conditional on the strengths at that cutoff staying fixed for the remainder of the season — a named, unmodelled limitation. There is no betting content anywhere in this run: no odds, no market comparison, no stake.
 
+**2026-08-20 — harness v5 exists and this report is NOT re-scored.** Amendment **A6 (a)** makes the retrospective scorer span-aware and makes the realised archive validated and identity-bound. Every number in this report was produced under harness v1 (body, Addendum A) or v3 (Addendum B) and **not one of them moves under v5** — measured, not assumed; the arithmetic is in the dated note at the foot of this file. R1 and both addenda stand exactly as published.
+
 ---
 
 ## Addendum B — 2026-08-20 — 2023/24 added after the owner-authorised adjustment attestation
@@ -718,3 +720,44 @@ Means are taken **within** a cutoff and never across cutoffs, and the season cou
 
 Read these against §3 and §7: the TRPS values are the same numbers those tables print, recomputed from the same ledger rows, and the column added is the error beside them. No pass rule reads any figure in this addendum — there is none to read (prereg §7) — and the published-arm question is unchanged by it.
 
+
+---
+
+## 2026-08-20 — harness v5, and why nothing in this report is re-scored
+
+**Amendment A6 (a)** changes three things about the retrospective harness. This note records what they are and, for each, what it does to the numbers above — which is nothing, and the nothing is measured rather than assumed.
+
+*Arithmetic note: every figure in this note is an exact count of ledger rows, clubs or scored components, or a comparison of two floating-point values for equality. Nothing here is estimated, so nothing here carries a Monte-Carlo error. No score is computed, quoted or changed.*
+
+### What v5 changes
+
+1. **The realised archive is validated before it is ranked** (A6 (a.1)): exactly 20 clubs as an equality, exactly 380 played results, and the 380 ordered pairs exactly the complete double round-robin. Under v1–v4 the check was non-empty plus no duplicate ordered pair, so an archive with one result missing ranked and scored as a normal 20-club season while the forecasts simulated the match the table never counted. A duplicate check cannot see a missing pair; a set equality sees both.
+2. **The realised truth enters the run key and the envelope seal** (A6 (a.2)): `realised_hash` over the results, the adjustments, the boundaries and the rule id. A row scored against one archive can no longer satisfy a request under another, and `score_retro` stops if one season carries two truths.
+3. **Scoring is span-aware** (A6 (a.3)): the realised outcome becomes a matrix `O[c, j] = 1/k_c` across the club's realised block — the ranker's own allocation for a tie, `epl/table.py`'s stated 1/k convention — instead of a point mass at the block's first rank. A forecast that reproduces the ranker's own 0.5/0.5 split across a shared rank therefore scores **zero** on that component, where v4 charged it for being right.
+
+### Why the numbers above do not move
+
+`O` reduces to the v4 step function exactly when every club's span is 1 — then `O` is a permutation matrix and its cumulative is `(rank ≥ position)`, which is what v4 built. **No realised tie occurred anywhere in the seven seasons**, so the reduction is exact everywhere this report scores.
+
+Read off `data/epl/sim/retro_r1.jsonl` as committed, on 2026-08-20:
+
+| quantity | value |
+|---|---|
+| scored rows in the ledger (= scored `(season, cutoff, arm)` cells) | **190** |
+| typed refusal markers beside them | 10 |
+| distinct `(season, cutoff)` cells | 39 |
+| club-spans checked (190 rows × 20 clubs) | **3,800** |
+| club-spans equal to 1 | **3,800** — all of them |
+| rows with `realised.n_shared > 0` | **0** |
+| scored components re-derived under v5 and compared to v4 (190 rows × 8 components) | **1,520** |
+| components that moved | **0** |
+
+The eight components are TRPS, wTRPS, flat TRPS, the TRPS MC SE (diagonal approx.), the five consequence Briers as a block, `beats_flat`, the champion log loss, and the points block (CRPS, MAE, coverage). The comparison is made **through `epl.simretro._score_one`** — the function that turns a stored row into a published number — and the v4 side is the same stored row with its `span` field dropped, which is what v4 did with that field: it never read it. So this is v5 against v4, not v5 against a restatement of v5.
+
+The check is in the suite, not only here: `epl/tests/test_simretro.py::test_v5_reduces_to_v4_on_the_published_R1_ledger` performs exactly the comparison tabulated above and carries a **positive control** — one real published row given a realised 17–18 tie it did not have, whose TRPS then moves — so "unchanged" is a fact about this ledger's spans and not a property of the comparison.
+
+### What is therefore NOT done
+
+R1, Addendum A and Addendum B are **not re-scored** and are **not re-keyed**, for the reason A2 and A4 both give and A6 (a.4) repeats: the run of record is the run that ran. Their rows carry no `realised_hash`, which `score_retro` reads as a single unknown truth per season — one value, not two — so scoring the published ledger under v5 raises no mixed-truth stop. The one thing that would change if these rows were re-run is their `run_key`, which already changes whenever `epl/simretro.py` does, because A2 (a) put the producer digest in it.
+
+**No pass rule reads anything in this note**, and there is none to read (prereg §7). The published-arm question of §10 is untouched.

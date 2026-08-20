@@ -75,12 +75,14 @@ from epl import table as table_mod, walkforward
 
 __all__ = [
     "ARMS", "COMPARISON_CUTOFFS", "CUTOFF_LABELS", "DEFAULT_COMPARISONS",
-    "CONDITIONAL_ARMS", "DEFAULT_N_SIMS", "NULLS", "REFUSAL_KINDS",
-    "SANITY_CUTOFFS",
+    "CONDITIONAL_ARMS", "DEFAULT_N_SIMS", "NULLS", "N_CLUBS", "N_RESULTS",
+    "REFUSAL_KINDS", "SANITY_CUTOFFS",
     "SCHEMA_VERSION", "SEASONS", "SEED", "SMOKE_CUTOFFS", "SMOKE_SEASONS",
-    "ArchiveRunner", "ArmResult", "CutoffResult", "Realised", "RetroError",
+    "ArchiveRunner", "ArmResult", "CutoffResult", "IncompleteRealisedArchive",
+    "Realised", "RetroError",
     "UnrecordedHarness", "cutoff_schedule", "harness_hashes",
-    "realised_positions", "recorded_harness_versions", "report",
+    "realised_hash", "realised_positions", "recorded_harness_versions",
+    "report", "run_key",
     "check_marker_legality", "requested_cells", "run_retro", "score_retro",
     "weekly_cutoffs",
 ]
@@ -162,6 +164,24 @@ class UnrecordedHarness(RetroError):
     """The running harness pair is not one the ledger records (prereg §12)."""
 
 
+class IncompleteRealisedArchive(RetroError):
+    """The season's archive is not a season (amendment A6 (a.1)).
+
+    A refusal to SCORE, not an A4 refusal marker: a marker documents a cell that
+    could not be run, and this is a season whose truth is not a truth. It names
+    the counts and lists the missing and extra ordered pairs.
+    """
+
+
+#: How many clubs a Premier League season has. Named because A6 (a.1) makes the
+#: club set an EQUALITY rather than a bound, and an equality needs a right-hand
+#: side that is stated once.
+N_CLUBS = 20
+
+#: How many results a complete double round-robin over :data:`N_CLUBS` holds.
+N_RESULTS = N_CLUBS * (N_CLUBS - 1)
+
+
 # ==========================================================================
 # 1. the cutoff schedule (plan v2 §5)
 # ==========================================================================
@@ -226,10 +246,26 @@ class Realised:
     points: dict[str, int]
     adjustments: dict[str, int]
     n_shared: int
+    #: A6 (a.2). The SHA-256 of the archive this truth was derived from —
+    #: :func:`realised_hash`. It has no default: a truth with no identity is
+    #: what A6 exists to stop, and a default would let one back in silently.
+    realised_hash: str
 
     @property
     def clubs(self) -> tuple[str, ...]:
         return tuple(sorted(self.position))
+
+    def span_vector(self, clubs: Sequence[str]) -> np.ndarray:
+        """``k_c`` per club — the width of the realised block it shares.
+
+        A6 (a.3): the span is what makes the realised outcome a table rather
+        than a point mass, and it was stored on every row from v1 onward and
+        never read by the scorer.
+        """
+        missing = [c for c in clubs if c not in self.span]
+        if missing:
+            raise RetroError(f"the realised table has no span for {missing}")
+        return np.array([self.span[c] for c in clubs], dtype=np.int64)
 
     def position_vector(self, clubs: Sequence[str]) -> np.ndarray:
         missing = [c for c in clubs if c not in self.position]
@@ -257,6 +293,15 @@ def realised_positions(matches: pd.DataFrame, season: str, *,
 
     A shared finishing position is reported (`n_shared`) rather than silently
     ordered: both clubs take the shared rank, per plan v2 §5.
+
+    **A6 (a.1): the archive is validated before it is ranked.** Twenty clubs as
+    an EQUALITY, 380 played results, and the 380 ordered pairs exactly the
+    complete double round-robin. The old check was non-empty plus no duplicate
+    ordered pair, and a duplicate check cannot see a MISSING pair: removing one
+    result left a perfectly normal-looking 20-club truth ranked and scored over
+    379 matches while the forecasts simulated 380 (`gate-retro.md` #2,
+    `ranker.md` #1). Set equality sees both halves at once and subsumes the
+    duplicate check.
     """
     boundaries = leaguesim.DEFAULT_BOUNDARIES if boundaries is None else boundaries
     rule_id = leaguesim.DEFAULT_RULE_ID if rule_id is None else rule_id
@@ -266,10 +311,7 @@ def realised_positions(matches: pd.DataFrame, season: str, *,
         raise RetroError(f"no played archive rows for {season}")
     results = {(str(r.home_key), str(r.away_key)): (int(r.fthg), int(r.ftag))
                for r in frame.itertuples()}
-    if len(results) != len(frame):
-        raise RetroError(
-            f"{season}: {len(frame)} rows collapse to {len(results)} ordered "
-            "pairs — the archive holds a duplicate fixture")
+    _check_archive_complete(season, results, n_rows=len(frame))
 
     if adjustments is None:
         rows = season_mod.load_adjustments()
@@ -299,7 +341,73 @@ def realised_positions(matches: pd.DataFrame, season: str, *,
         points=points,
         adjustments=dict(sorted(adjustments.items())),
         n_shared=sum(1 for _, _, span in placed if span > 1),
+        realised_hash=realised_hash(season, results, adjustments,
+                                    boundaries=boundaries, rule_id=rule_id),
     )
+
+
+def _check_archive_complete(season: str, results: dict, *, n_rows: int) -> None:
+    """A6 (a.1). Twenty clubs, 380 results, the complete double round-robin.
+
+    The three checks are stated separately because they fail differently and a
+    reader of the refusal needs to know which one fired: a 19-club archive is a
+    different mistake from a 20-club archive with a hole in it.
+    """
+    if len(results) != n_rows:
+        raise IncompleteRealisedArchive(
+            f"{season}: {n_rows} played rows collapse to {len(results)} ordered "
+            "pairs — the archive holds a duplicate fixture")
+
+    clubs = sorted({club for pair in results for club in pair})
+    if len(clubs) != N_CLUBS:
+        raise IncompleteRealisedArchive(
+            f"{season}: the archive's played rows name {len(clubs)} clubs, not "
+            f"{N_CLUBS}. The club set is the season's, not the archive's — an "
+            "archive may not define its own league by leaving one out "
+            "(amendment A6 (a.1)).")
+
+    complete = {(home, away) for home in clubs for away in clubs if home != away}
+    missing = sorted(complete - set(results))
+    extra = sorted(set(results) - complete)
+    if len(results) != N_RESULTS or missing or extra:
+        raise IncompleteRealisedArchive(
+            f"{season}: {len(results)} played result(s), not {N_RESULTS}, and "
+            f"the ordered pairs are not the complete double round-robin: "
+            f"{len(missing)} missing, {len(extra)} extra. "
+            f"missing={_pairs_excerpt(missing)}; extra={_pairs_excerpt(extra)}. "
+            "A season ranked over fewer results than its forecasts simulated is "
+            "not a season, and a duplicate check cannot see a missing pair "
+            "(amendment A6 (a.1)).")
+
+
+#: How many ordered pairs a refusal prints in full. A whole missing club is 38
+#: pairs and the message has to stay readable; the COUNTS above are always exact.
+_PAIRS_SHOWN = 6
+
+
+def _pairs_excerpt(pairs: Sequence[tuple[str, str]]) -> str:
+    shown = [list(p) for p in pairs[:_PAIRS_SHOWN]]
+    rest = len(pairs) - len(shown)
+    return json.dumps(shown) + (f" (+{rest} more)" if rest else "")
+
+
+def realised_hash(season: str, results: dict, adjustments: dict, *,
+                  boundaries, rule_id: str) -> str:
+    """A6 (a.2). What identifies the TRUTH a retrospective row was scored against.
+
+    The results **and** the adjustments, because an adjustment moves the table
+    without moving a result; and the boundaries and the rule id, because they
+    decide what a tie means and therefore what the realised table is.
+    """
+    return _sha256_json({
+        "kind": "epl-realised-archive-1",
+        "season": season,
+        "results": sorted([home, away, int(hg), int(ag)]
+                          for (home, away), (hg, ag) in results.items()),
+        "adjustments": {str(k): int(v) for k, v in sorted(adjustments.items())},
+        "boundaries": [[int(lo), int(hi)] for lo, hi in boundaries],
+        "rule_id": str(rule_id),
+    })
 
 
 # ==========================================================================
@@ -597,18 +705,29 @@ def producer_identity(config_hash: str | None = None) -> str:
 
 
 def run_key(season: str, cutoff_label: str, cutoff, arm: str, n_sims: int,
-            seed: int, producer: str | None = None) -> str:
-    """What identifies a REQUEST **and who answered it**.
+            seed: int, producer: str | None = None, *,
+            truth: str | None = None) -> str:
+    """What identifies a REQUEST, **who answered it**, and **what it was scored
+    against**.
 
     The question — season, cutoff, arm, simulation count, seed — plus the first
-    twelve hex of :func:`producer_identity`. The answer's own fingerprint still
-    travels beside it as `envelope_hash`; the producer segment is what stops a
-    row made by a different harness from satisfying this request at all.
+    twelve hex of :func:`producer_identity`, plus (A6 (a.2)) the first twelve hex
+    of the season's :func:`realised_hash`. The answer's own fingerprint still
+    travels beside it as `envelope_hash`; the producer segment stops a row made
+    by a different harness from satisfying this request, and the truth segment
+    stops a row scored against a different archive from satisfying it either — a
+    resumed run that meets a changed archive stops instead of mixing.
+
+    The truth segment sits BEFORE the producer segment, and is OMITTED when
+    there is no truth to name. Both are deliberate: every key ever written still
+    ends `|p…`, and a key for a season whose truth could not be built — the
+    refusal markers A4 (i) writes — is exactly the key it was before A6.
     """
     day = pd.Timestamp(cutoff).normalize().date()
     who = (producer or producer_identity())[:12]
+    what = f"|t{truth[:12]}" if truth else ""
     return (f"{season}|{cutoff_label}|{day}|{arm}|n{int(n_sims)}|s{int(seed)}"
-            f"|p{who}")
+            f"{what}|p{who}")
 
 
 def _stable(mapping) -> dict:
@@ -645,7 +764,7 @@ def check_marker_legality(kind: str, arm: str, *, where: str) -> None:
 
 
 def _refusal_row(*, season, cutoff_label, cutoff, arm, n_sims, seed,
-                 kind: str, reason: str) -> dict:
+                 kind: str, reason: str, truth: str | None = None) -> dict:
     """A TYPED claim on a key the runner refused, so a resume stays cheap.
 
     ``ppg_pointmass`` is undefined before three complete rounds, so at MW0 there
@@ -669,13 +788,15 @@ def _refusal_row(*, season, cutoff_label, cutoff, arm, n_sims, seed,
             f"({', '.join(REFUSAL_KINDS)}); adding a fifth is an amendment")
     check_marker_legality(kind, arm, where="the runner declared")
     producer = producer_identity()
-    key = run_key(season, cutoff_label, cutoff, arm, n_sims, seed, producer)
+    key = run_key(season, cutoff_label, cutoff, arm, n_sims, seed, producer,
+                  truth=truth)
     return {
         "schema_version": SCHEMA_VERSION,
         "producer": producer,
         "run_key": key,
+        "realised_hash": truth,
         "envelope_hash": _sha256_json({"run_key": key, "refusal_kind": kind,
-                                       "reason": reason}),
+                                       "reason": reason, "truth": truth}),
         "season": season, "cutoff_label": cutoff_label,
         "cutoff": str(pd.Timestamp(cutoff).normalize().date()),
         "arm": arm, "is_null": bool(arm in NULLS),
@@ -689,16 +810,22 @@ def _refusal_row(*, season, cutoff_label, cutoff, arm, n_sims, seed,
 def _row(*, season, cutoff_label, cutoff, arm, result: ArmResult, clubs,
          realised: Realised, seed, provenance, smoke) -> dict:
     producer = producer_identity()
-    key = run_key(season, cutoff_label, cutoff, arm, result.n_sims, seed, producer)
+    truth = realised.realised_hash or None
+    key = run_key(season, cutoff_label, cutoff, arm, result.n_sims, seed,
+                  producer, truth=truth)
 
     row = {
         "schema_version": SCHEMA_VERSION,
         "metrics_schema_version": simmetrics.SCHEMA_VERSION,
         "producer": producer,
         "run_key": key,
+        # A6 (a.2): the truth is in the KEY (so a row cannot satisfy a request
+        # under another archive) and in the SEAL (so it cannot be edited in
+        # place without the seal disagreeing).
         "envelope_hash": _sha256_json({"run_key": key,
                                        "envelope": _stable(result.envelope),
-                                       "provenance": _stable(provenance)}),
+                                       "provenance": _stable(provenance),
+                                       "truth": truth}),
         "digest": result.digest,
         "season": season,
         "cutoff_label": cutoff_label,
@@ -724,6 +851,7 @@ def _row(*, season, cutoff_label, cutoff, arm, result: ArmResult, clubs,
             "points": dict(realised.points),
             "adjustments": dict(realised.adjustments),
             "n_shared": int(realised.n_shared),
+            "hash": truth,
         },
         "provenance": provenance,
     }
@@ -927,17 +1055,24 @@ def run_retro(seasons: Sequence[str] | None = None,
         fh.write(json.dumps(row, default=str) + "\n")
         have[row["run_key"]] = row
 
-    def _refuse(season: str, triples, kind: str, reason: str) -> None:
+    def _refuse(season: str, triples, kind: str, reason: str,
+                truth: str | None = None) -> None:
         """Write one typed marker per (label, cutoff, arm) that has no row."""
         with ledger_path.open("a") as fh:
             for label, cutoff, arm in triples:
                 _append(fh, _refusal_row(
                     season=season, cutoff_label=label, cutoff=cutoff, arm=arm,
-                    n_sims=n_sims, seed=seed, kind=kind, reason=reason))
+                    n_sims=n_sims, seed=seed, kind=kind, reason=reason,
+                    truth=truth))
 
-    def _todo(season: str, label: str, cutoff) -> list[str]:
+    def _todo(season: str, label: str, cutoff,
+              truth: str | None = None) -> list[str]:
+        # A6 (a.2): the key a row would be written under is the key we look for.
+        # A season whose truth changed has different keys and is re-run, which
+        # is the point: a resumed run meets the change rather than mixing.
         return [a for a in (*arms, *nulls)
-                if run_key(season, label, cutoff, a, n_sims, seed, me) not in have]
+                if run_key(season, label, cutoff, a, n_sims, seed, me,
+                           truth=truth) not in have]
 
     wanted: list[str] = []
     for season in seasons:
@@ -956,6 +1091,11 @@ def run_retro(seasons: Sequence[str] | None = None,
         except Exception as exc:                          # noqa: BLE001 — typed below
             outcome = None
             season_refusal = (_refusal_kind(exc), _refusal_reason(exc))
+            # A6 (a.1): `IncompleteRealisedArchive` is `runner_error` by
+            # `_refusal_kind`'s fall-through, so the markers are written and the
+            # exception is then RE-RAISED below. That is the ruling's "refusal
+            # to score": the run stops, and the ledger says which cells it
+            # stopped on.
             # A4 (i): every requested arm of every cutoff of this season is
             # named in the ledger before anything propagates. R1's 2023/24 —
             # `UnverifiedAdjustment`, all six cutoffs — is this case exactly,
@@ -970,9 +1110,11 @@ def run_retro(seasons: Sequence[str] | None = None,
             if season_refusal[0] == "runner_error":
                 raise
 
+        truth = outcome.realised_hash or None if outcome is not None else None
+
         for label in cutoffs:
             cutoff = schedule[label]
-            todo = _todo(season, label, cutoff)
+            todo = _todo(season, label, cutoff, truth)
             if todo and season_refusal is None:
                 if verbose:
                     print(f"[retro] {season} {label} ({pd.Timestamp(cutoff).date()}) "
@@ -987,7 +1129,7 @@ def run_retro(seasons: Sequence[str] | None = None,
                 except Exception as exc:                  # noqa: BLE001 — typed here
                     kind = _refusal_kind(exc)
                     _refuse(season, [(label, cutoff, arm) for arm in todo],
-                            kind, _refusal_reason(exc))
+                            kind, _refusal_reason(exc), truth)
                     if kind == "runner_error":
                         raise
                     if verbose:
@@ -1019,10 +1161,11 @@ def run_retro(seasons: Sequence[str] | None = None,
                             _append(fh, _refusal_row(
                                 season=season, cutoff_label=label, cutoff=cutoff,
                                 arm=arm, n_sims=n_sims, seed=seed,
-                                kind=kind, reason=reason))
+                                kind=kind, reason=reason, truth=truth))
 
             for arm in (*arms, *nulls):
-                key = run_key(season, label, cutoff, arm, n_sims, seed, me)
+                key = run_key(season, label, cutoff, arm, n_sims, seed, me,
+                              truth=truth)
                 if key in have:
                     wanted.append(key)
 
@@ -1094,6 +1237,14 @@ def _score_one(row: dict) -> dict:
     row_error, col_error = simmetrics.matrix_margin_errors(matrix)
     realised = row["realised"]
     positions = np.array([int(realised["position"][c]) for c in clubs], np.int64)
+    # A6 (a.3): the span has been stored on every row since v1 and was never
+    # read. `O` is the ranker's OWN allocation — 1/k across the shared block —
+    # so a forecast reproducing it scores zero instead of being charged for
+    # being right (`ranker.md` #2). A v1..v4 row with no span reads as all-1s,
+    # which is what the scorer assumed and, on the published ledger, what the
+    # spans actually are.
+    spans = np.array([int((realised.get("span") or {}).get(c, 1)) for c in clubs],
+                     np.int64)
 
     out = {
         "season": row["season"],
@@ -1105,13 +1256,15 @@ def _score_one(row: dict) -> dict:
         "n_sims": int(row["n_sims"]),
         "run_key": row["run_key"],
         "envelope_hash": row["envelope_hash"],
+        "realised_hash": realised.get("hash"),
         "n_shared_realised": int(realised.get("n_shared", 0)),
-        "trps": simmetrics.trps(matrix, positions),
+        "trps": simmetrics.trps(matrix, positions, spans=spans),
         # A2 (c) recorded a TRPS Monte-Carlo error as an open item and put it
         # out of scope for v2; it is supplied here, by the delta method on the
         # run's own per-cell cluster SE, and the deviation from that
         # pre-statement is recorded as a dated note under A2.
-        "trps_se": simmetrics.trps_se(matrix, positions, row.get("matrix_se")),
+        "trps_se": simmetrics.trps_se(matrix, positions, row.get("matrix_se"),
+                                      spans=spans),
         "trps_se_method": ("TRPS MC SE (diagonal approx.): the delta method on "
                            "the cluster-by-particle per-cell SE, keeping only "
                            "the diagonal of the quadratic form. The cross-cell "
@@ -1123,9 +1276,10 @@ def _score_one(row: dict) -> dict:
         "matrix_row_max_error": row_error,
         "matrix_col_max_error": col_error,
         "wtrps": simmetrics.wtrps(matrix, positions,
-                                  simmetrics.consequence_weights(len(clubs))),
-        "flat_trps": simmetrics.flat_trps(positions),
-        "briers": simmetrics.consequence_briers(matrix, positions),
+                                  simmetrics.consequence_weights(len(clubs)),
+                                  spans=spans),
+        "flat_trps": simmetrics.flat_trps(positions, spans=spans),
+        "briers": simmetrics.consequence_briers(matrix, positions, spans=spans),
         "mc": row.get("mc"),
         "boundary_deciders": (row.get("tie_diagnostics") or {}).get(
             "boundary_deciders"),
@@ -1335,6 +1489,20 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
     covered = scored_in_grid | typed_refusals
     identity = covered == expected and not overlapping
     complete = bool(identity and n_scored > 0 and not violations)
+    # A6 (a.2): one season, one truth. The key already makes a row scored
+    # against archive A unable to satisfy a request under archive B, so a run
+    # that meets a changed archive re-runs rather than mixing — but a LEDGER
+    # can still end up holding both, and `score_retro` reads ledgers it did not
+    # write. A pre-A6 row carries no hash at all and reads as None; the whole
+    # published R1 ledger is that case, which is one value per season and
+    # therefore not mixed.
+    truths: dict[str, set] = {}
+    for row in scored:
+        truths.setdefault(row["season"], set()).add(row.get("realised_hash"))
+    realised_hash_by_season = {season: sorted(v, key=lambda h: (h is None, h))
+                               for season, v in sorted(truths.items())}
+    mixed_truth = sorted(s for s, v in truths.items() if len(v) > 1)
+
     foreign_overrides = sum(1 for r in ledger if r.get("allow_foreign_producer"))
     legacy_overrides = sum(1 for r in ledger if r.get("allow_legacy_rows"))
     unrecorded_overrides = sum(1 for r in ledger
@@ -1362,6 +1530,9 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
             "n_runner_errors": len(runner_errors),
             "runner_errors": [{"season": s, "cutoff_label": c, "arm": a}
                               for s, c, a in runner_errors],
+            "realised_hash_by_season": realised_hash_by_season,
+            "n_mixed_truth_seasons": len(mixed_truth),
+            "mixed_truth_seasons": mixed_truth,
             "identity_holds": bool(identity),
             "complete": complete,
             "n_foreign_producer_overrides": int(foreign_overrides),
@@ -1378,7 +1549,8 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
             # failure stays stop-worthy for as long as it stays in the ledger,
             # whatever the completeness verdict says.
             "STOP_AND_INSPECT": bool(violations or undocumented or overlapping
-                                     or runner_errors or not identity),
+                                     or runner_errors or mixed_truth
+                                     or not identity),
         },
         "never_averaged_across_cutoffs": True,
         "note": ("TRPS is primary and unweighted; wTRPS on the published "
@@ -1529,13 +1701,26 @@ def report(scores: dict) -> str:
             "resumed run skips the occupied key rather than retrying it. The "
             "failure is unexplained until someone explains it: "
             + json.dumps(sanity["runner_errors"]))
+    if sanity["n_mixed_truth_seasons"]:
+        lines.append(
+            f"- **{sanity['n_mixed_truth_seasons']} season(s) carry TWO OR MORE "
+            "realised truths** (A6 (a.2)): rows in this ledger were scored "
+            "against different archives and are not comparable: "
+            + json.dumps(sanity["mixed_truth_seasons"]))
     if sanity["STOP_AND_INSPECT"]:
         lines.append("- **STOP AND INSPECT** — violations: "
                      + json.dumps(sanity["violations"]))
     zero_hits = sum(r["champion_logloss"]["zero_hits"] for r in scores["rows"])
     lines.append(f"- champion log-loss zero hits (floored at 0.5/N): {zero_hits}")
     shared = sum(r["n_shared_realised"] for r in scores["rows"])
-    lines.append(f"- shared realised positions across scored seasons: {shared}")
+    lines.append(f"- shared realised positions across scored seasons: {shared} "
+                 "(A6 (a.3): a shared realised rank is scored over its SPAN, "
+                 "so a forecast matching the ranker's own 1/k allocation "
+                 "scores zero; with none shared, v5 is v4 bit-for-bit)")
+    truths = sanity["realised_hash_by_season"]
+    named = {s: [h[:12] if h else "none (pre-A6 row)" for h in v]
+             for s, v in truths.items()}
+    lines.append(f"- realised truth per season: {json.dumps(named)}")
     lines += ["", scores["note"], ""]
     return "\n".join(lines)
 

@@ -37,6 +37,7 @@ this repository rather than against my own restatement of it.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -55,6 +56,20 @@ RULE_ID = leaguesim.DEFAULT_RULE_ID
 needs_archive = pytest.mark.skipif(
     not paths.MATCHES_PARQUET.exists(),
     reason="archive parquet absent (data/epl is gitignored)")
+
+
+def _synthetic_truth(season: str, salt: str = "") -> str:
+    """A `realised_hash` for a table that stands for no archive (A6 (a.2)).
+
+    The synthetic tables below are stated directly rather than derived from 380
+    results, so there is nothing for `simretro.realised_hash` to hash. This
+    hashes the STATEMENT that the table is synthetic instead of pretending to
+    hash results that do not exist. It is a 64-hex identity, which is all the
+    run key and the envelope seal ask of it, and two different `salt` values
+    give two different truths — which is what the mixed-truth test needs.
+    """
+    return hashlib.sha256(
+        f"synthetic-truth|{season}|{salt}".encode("utf-8")).hexdigest()
 
 
 # ==========================================================================
@@ -494,7 +509,8 @@ def test_retro_ledger_resumable_and_keyed_by_envelope_hash(tmp_path):
         position={c: i + 1 for i, c in enumerate(clubs)},
         span={c: 1 for c in clubs},
         points={c: 80 - 3 * i for i, c in enumerate(clubs)},
-        adjustments={}, n_shared=0)
+        adjustments={}, n_shared=0,
+        realised_hash=_synthetic_truth("2099/00"))
 
     # `ppg_pointmass` by its real name: it is the one arm this harness defines
     # CONDITIONALLY (prereg §4), and therefore the only one an
@@ -575,7 +591,8 @@ def test_report_never_averages_trps_across_cutoffs(tmp_path):
     realised = simretro.Realised(
         season="2099/00", position={c: i + 1 for i, c in enumerate(clubs)},
         span={c: 1 for c in clubs}, points={c: 80 - 3 * i for i, c in enumerate(clubs)},
-        adjustments={}, n_shared=0)
+        adjustments={}, n_shared=0,
+        realised_hash=_synthetic_truth("2099/00"))
     runner = _CountingRunner(clubs)
     rows = simretro.run_retro(
         seasons=("2099/00",), cutoffs=("MW0", "MW10"), arms=("dc_native",),
@@ -706,7 +723,8 @@ def _clubs_and_realised():
         season="2099/00", position={c: i + 1 for i, c in enumerate(clubs)},
         span={c: 1 for c in clubs},
         points={c: 80 - 3 * i for i, c in enumerate(clubs)},
-        adjustments={}, n_shared=0)
+        adjustments={}, n_shared=0,
+        realised_hash=_synthetic_truth("2099/00"))
 
 
 def test_resume_key_carries_producer_identity_and_a_foreign_ledger_refuses(
@@ -918,7 +936,8 @@ def _r1_shaped_ledger(tmp_path, clubs, realised, runner):
                   "2099/01": simretro.Realised(
                       season="2099/01", position=dict(realised.position),
                       span=dict(realised.span), points=dict(realised.points),
-                      adjustments={}, n_shared=0)},
+                      adjustments={}, n_shared=0,
+                      realised_hash=_synthetic_truth("2099/01"))},
         verbose=False, allow_unrecorded_harness=True)
     # dc_native must genuinely beat the flat null, or the flag would be False
     # for a reason that has nothing to do with the accounting.
@@ -2103,3 +2122,354 @@ def test_the_harness_version_list_refuses_a_duplicate_version_key(tmp_path,
     # refusal is the repeated key and not the monkeypatched path.
     path.write_text(json.dumps({"versions": recorded}))
     assert len(simretro.recorded_harness_versions()) == len(recorded)
+
+
+# ==========================================================================
+# G4 — harness v5: the realised archive is validated, identified, and scored
+# over its own spans (amendment A6 (a); `gate-retro.md` #2, `ranker.md` #1 #2)
+# ==========================================================================
+
+def _archive_frame_for(season: str, clubs, *, played=True) -> pd.DataFrame:
+    """A complete 380-match double round-robin, one match per day."""
+    import itertools
+
+    rows = []
+    day = pd.Timestamp("2098-08-10")
+    for home, away in itertools.permutations(clubs, 2):
+        rows.append({"season": season, "season_code": "9899", "date": day,
+                     "home_key": home, "away_key": away, "fthg": 1, "ftag": 0,
+                     "played": played})
+        day += pd.Timedelta(days=1)
+    return pd.DataFrame(rows)
+
+
+def test_run_retro_refuses_a_379_result_archive(tmp_path):
+    """`gate-retro.md` #2 / `ranker.md` #1: 379 results ranked as a season.
+
+    `realised_positions` checked only non-empty and no duplicate ordered pair,
+    so removing one result produced a perfectly normal-looking 20-club truth —
+    and the schedule still held 380 fixtures, so the forecasts simulated a match
+    the realised table never scored. A duplicate check cannot see a MISSING
+    pair; a set equality against the complete double round-robin can.
+    """
+    clubs = [f"club_{i:02d}" for i in range(20)]
+    full = _archive_frame_for("2098/99", clubs)
+    assert len(full) == 380
+
+    # POSITIVE CONTROL: the complete archive scores.
+    ok = simretro.realised_positions(full, "2098/99", adjustments={})
+    assert len(ok.position) == 20
+
+    holed = full.copy()
+    holed.loc[7, "played"] = False
+    with pytest.raises(simretro.IncompleteRealisedArchive) as exc:
+        simretro.realised_positions(holed, "2098/99", adjustments={})
+    message = str(exc.value)
+    assert "379" in message
+    assert "missing" in message and "1 missing" in message
+    # the message NAMES the hole rather than only counting it
+    home, away = str(full.loc[7, "home_key"]), str(full.loc[7, "away_key"])
+    assert home in message and away in message
+
+    # A club set that is CONTAINED in the season's but not equal to it: an
+    # archive may not define its own league. 19 clubs is a complete round-robin
+    # over 19, so ONLY the club-count equality can refuse it — which is why
+    # A6 (a.1) states the club set as an equality and not as a bound.
+    nineteen = full[(full["home_key"] != clubs[19]) & (full["away_key"] != clubs[19])]
+    assert len(nineteen) == 19 * 18
+    with pytest.raises(simretro.IncompleteRealisedArchive, match="19 clubs"):
+        simretro.realised_positions(nineteen, "2098/99", adjustments={})
+
+    # A duplicated ordered pair with a matching missing pair — 380 rows, 20
+    # clubs, and not a round-robin. `ranker.md` #3 is the same shape in
+    # `leaguesim.simulate`; A6 (a.1) closes it for the realised archive and
+    # says so.
+    swapped = full.copy()
+    swapped.loc[1, ["home_key", "away_key"]] = [home, away]
+    assert len(swapped) == 380
+    with pytest.raises(simretro.IncompleteRealisedArchive):
+        simretro.realised_positions(swapped, "2098/99", adjustments={})
+
+    # AND THE RUN STOPS. A6 (a.1) calls this a refusal to SCORE: the markers
+    # are written (so the ledger says which cells the run died on) and the
+    # exception is re-raised, so nothing downstream ever sees a 379-result
+    # season as a season.
+    ledger = tmp_path / "holed.jsonl"
+    with pytest.raises(simretro.IncompleteRealisedArchive):
+        simretro.run_retro(
+            seasons=("2098/99",), cutoffs=("MW0",), arms=("dc_native",),
+            nulls=("flat",), n_sims=8, seed=SEED, ledger_path=ledger,
+            matches=holed, runner=_CountingRunner(clubs),
+            schedules={"2098/99": {"MW0": pd.Timestamp("2098-08-10")}},
+            verbose=False, allow_unrecorded_harness=True)
+    written = [json.loads(line) for line in ledger.read_text().splitlines() if line.strip()]
+    assert written, "the run names the cells it stopped on"
+    assert {r["refusal_kind"] for r in written} == {"runner_error"}
+    assert all("IncompleteRealisedArchive" in r["reason"] for r in written)
+
+
+def test_the_realised_hash_enters_the_run_key_and_the_envelope_seal(tmp_path):
+    """A6 (a.2): a row scored against one truth cannot satisfy a request under
+    another, and a resumed run that meets a changed archive stops instead of
+    mixing.
+
+    Results AND adjustments AND boundaries AND rule id: an adjustment moves the
+    table without moving a result, and the boundaries and the rule decide what a
+    tie means.
+    """
+    clubs = [f"club_{i:02d}" for i in range(20)]
+    frame = _archive_frame_for("2098/99", clubs)
+    plain = simretro.realised_positions(frame, "2098/99", adjustments={})
+    docked = simretro.realised_positions(frame, "2098/99",
+                                         adjustments={clubs[0]: -10})
+    assert len(plain.realised_hash) == 64
+    assert plain.realised_hash != docked.realised_hash, (
+        "a points deduction moves the table without moving a result")
+
+    # A DIFFERENT RESULT is a different truth too, and so is a different rule.
+    moved = frame.copy()
+    moved.loc[0, "ftag"] = 3
+    assert (simretro.realised_positions(moved, "2098/99", adjustments={})
+            .realised_hash != plain.realised_hash)
+    # ...and so are the boundaries and the rule id, which decide what a tie
+    # means. Asserted on the hash function directly: the ranker refuses a rule
+    # id whose `material=` clause disagrees with its boundaries, so the two
+    # cannot be varied independently through `realised_positions`.
+    results = {(str(r.home_key), str(r.away_key)): (int(r.fthg), int(r.ftag))
+               for r in frame.itertuples()}
+    base = simretro.realised_hash("2098/99", results, {},
+                                  boundaries=BOUNDARIES, rule_id=RULE_ID)
+    assert base == plain.realised_hash
+    assert simretro.realised_hash("2098/99", results, {},
+                                  boundaries=BOUNDARIES,
+                                  rule_id=RULE_ID + ";v2") != base
+    assert simretro.realised_hash("2098/99", results, {},
+                                  boundaries=BOUNDARIES[:-1],
+                                  rule_id=RULE_ID) != base
+    assert simretro.realised_hash("2097/98", results, {},
+                                  boundaries=BOUNDARIES, rule_id=RULE_ID) != base
+
+    key_a = simretro.run_key("2098/99", "MW0", "2098-08-10", "dc_native", 64, 7,
+                             "producer0000", truth=plain.realised_hash)
+    key_b = simretro.run_key("2098/99", "MW0", "2098-08-10", "dc_native", 64, 7,
+                             "producer0000", truth=docked.realised_hash)
+    assert key_a != key_b
+    assert f"|t{plain.realised_hash[:12]}" in key_a
+    # The producer segment stays LAST, so every key ever written still ends
+    # `|p…` and the A2 (a) assertions about it are untouched.
+    assert key_a.endswith("|pproducer0000")
+    # No truth means no segment at all: a refusal marker for a season whose
+    # truth could not be built is keyed exactly as it was before A6.
+    assert simretro.run_key("2098/99", "MW0", "2098-08-10", "dc_native", 64, 7,
+                            "producer0000") == key_a.replace(
+                                f"|t{plain.realised_hash[:12]}", "")
+
+    # END TO END: the truth is in the key AND in the seal of a written row, and
+    # a run that meets a CHANGED archive re-runs instead of reusing.
+    ledger = tmp_path / "truth.jsonl"
+    common = dict(seasons=("2098/99",), cutoffs=("MW0",), arms=("dc_native",),
+                  nulls=(), n_sims=8, seed=SEED, ledger_path=ledger,
+                  runner=_CountingRunner(clubs),
+                  schedules={"2098/99": {"MW0": pd.Timestamp("2098-08-10")}},
+                  verbose=False, allow_unrecorded_harness=True)
+    first = simretro.run_retro(realised={"2098/99": plain}, **common)
+    assert len(first) == 1
+    row = first[0]
+    assert f"|t{plain.realised_hash[:12]}" in row["run_key"]
+    assert row["realised"]["hash"] == plain.realised_hash
+
+    # the seal covers the truth: recomputing it without the truth disagrees
+    assert row["envelope_hash"] != simretro._sha256_json({
+        "run_key": row["run_key"],
+        "envelope": simretro._stable({"seed": SEED}),
+        "provenance": simretro._stable(row["provenance"]),
+        "truth": None})
+
+    calls = len(common["runner"].calls)
+    same = simretro.run_retro(realised={"2098/99": plain}, **common)
+    assert len(common["runner"].calls) == calls, "the same truth resumes free"
+    assert [r["run_key"] for r in same] == [r["run_key"] for r in first]
+
+    changed = simretro.run_retro(realised={"2098/99": docked}, **common)
+    assert len(common["runner"].calls) == calls + 1, (
+        "a changed archive is a different question and must be re-run")
+    assert changed[0]["run_key"] != row["run_key"]
+
+    # and the LEDGER now holds both, which `score_retro` must stop on
+    both = [json.loads(line) for line in ledger.read_text().splitlines() if line.strip()]
+    assert len({r["realised"]["hash"] for r in both}) == 2
+
+
+def test_score_retro_stops_when_one_season_carries_two_truths(tmp_path, monkeypatch):
+    """A6 (a.2): two distinct `realised_hash` values for one season is STOP."""
+    clubs, realised = _clubs_and_realised()
+    runner = _CountingRunner(clubs)
+    kwargs = _v3_kwargs(tmp_path, clubs, realised, runner)
+    rows = simretro.run_retro(**kwargs)
+    scored = [r for r in rows if not r.get("not_applicable")]
+    assert scored, "the fixture must produce rows to mutate"
+
+    report = simretro.score_retro(scored, n_boot=16,
+                                  expected_triples=[
+                                      (r["season"], r["cutoff_label"], r["arm"])
+                                      for r in scored])
+    sanity = report["sanity"]
+    assert sanity["realised_hash_by_season"] == {
+        "2099/00": [realised.realised_hash]}
+    assert sanity["n_mixed_truth_seasons"] == 0
+
+    mixed = [dict(r) for r in scored]
+    mixed[0] = {**mixed[0],
+                "realised": {**mixed[0]["realised"], "hash": "f" * 64}}
+    report = simretro.score_retro(mixed, n_boot=16,
+                                  expected_triples=[
+                                      (r["season"], r["cutoff_label"], r["arm"])
+                                      for r in mixed])
+    sanity = report["sanity"]
+    assert sanity["n_mixed_truth_seasons"] == 1
+    assert sanity["STOP_AND_INSPECT"] is True
+    assert len(sanity["realised_hash_by_season"]["2099/00"]) == 2
+
+
+def test_span_aware_scoring_charges_nothing_for_the_rankers_own_allocation():
+    """A6 (a.3), hand-worked. A realised 17-18 tie is 0.5/0.5 in each of those
+    two ranks, which is exactly what `leaguesim._mass_chunk` allocates for a
+    simulated tie — so a forecast that reproduces it must score ZERO on the
+    affected component, and under v4 it was charged for being right.
+
+    Twenty clubs. Clubs 0..15 finish 1st..16th outright, clubs 16 and 17 share
+    17th over a block of span 2, and clubs 18 and 19 finish 19th and 20th. The
+    forecast is exact everywhere and splits 17/18 exactly as the ranker does —
+    which straddles the relegation boundary, so the affected Brier is fractional
+    on both sides of the subtraction.
+    """
+    n = 20
+    positions = list(range(1, 17)) + [17, 17, 19, 20]
+    spans = [1] * 16 + [2, 2, 1, 1]
+
+    forecast = np.zeros((n, n))
+    for i in range(16):
+        forecast[i, i] = 1.0
+    forecast[16, 16] = forecast[16, 17] = 0.5
+    forecast[17, 16] = forecast[17, 17] = 0.5
+    forecast[18, 18] = forecast[19, 19] = 1.0
+
+    outcome = simmetrics.realised_outcome(positions, n, n, spans=spans)
+    np.testing.assert_allclose(outcome, forecast)
+    # `O` is a table: every row sums to 1 and every column sums to 1.
+    table_mod.check_doubly_stochastic(outcome)
+
+    assert simmetrics.trps(forecast, positions, spans=spans) == 0.0
+    briers = simmetrics.consequence_briers(forecast, positions, spans=spans)
+    assert briers["relegated"] == 0.0
+    assert briers["champion"] == 0.0
+
+    # POSITIVE CONTROL, and the v4 behaviour, computed here rather than called:
+    # v4's realised outcome was the step function `(rank >= position)`, which for
+    # a tie is not a table at all — both clubs turn on at 17 and nothing turns on
+    # at 18, so the column sums are 2 and 0. That is what A6 (a.3) is about, and
+    # it is why the new code REFUSES to build it.
+    step = (np.arange(1, n)[None, :] >= np.array(positions)[:, None]).astype(float)
+    v4 = float(((step - simmetrics.cumulative_forecast(forecast)) ** 2).sum()
+               / (n * (n - 1)))
+    assert v4 > 0.0
+    # The charge is exactly the one boundary the tie straddles: each of the two
+    # clubs is 0.5 where the point mass says 1, at rank 17.
+    assert v4 == pytest.approx(2 * 0.25 / (n * (n - 1)))
+    with pytest.raises(simmetrics.MetricError, match="doubly stochastic"):
+        simmetrics.trps(forecast, positions)
+
+    # AND THROUGH `simretro._score_one`, which is where `ranker.md` #2 points
+    # (`epl/simretro.py:1096`): the stored `span` is read, so the ledger row is
+    # scored zero on TRPS and on the relegation Brier the tie straddles.
+    clubs = [f"club_{i:02d}" for i in range(n)]
+    row = {
+        "clubs": clubs, "matrix": forecast.tolist(), "matrix_se": None,
+        "season": "2098/99", "cutoff_label": "MW28", "cutoff": "2099-04-01",
+        "arm": "dc_native", "is_null": False, "seed": SEED, "n_sims": 64,
+        "run_key": "probe", "envelope_hash": "probe", "points_hist": None,
+        "realised": {
+            "position": dict(zip(clubs, positions)),
+            "span": dict(zip(clubs, spans)),
+            "points": {c: 40 for c in clubs}, "adjustments": {},
+            "n_shared": 2, "hash": "e" * 64},
+    }
+    out = simretro._score_one(row)
+    assert out["trps"] == 0.0
+    assert out["briers"]["relegated"] == 0.0
+    assert out["n_shared_realised"] == 2
+    assert out["realised_hash"] == "e" * 64
+    # v4 read no span at all. Dropping the field reproduces v4's input, and the
+    # new code REFUSES it rather than charging it: with both clubs a point mass
+    # at 17, rank 18's column sums to 0 and rank 17's to 2, which is not a
+    # table. That is a stronger statement than "v4 scored this worse" — v4 was
+    # not scoring against a league table at all.
+    with pytest.raises(simmetrics.MetricError, match="doubly stochastic"):
+        simretro._score_one(
+            dict(row, realised={k: v for k, v in row["realised"].items()
+                                if k != "span"}))
+
+
+def test_the_realised_outcome_matrix_must_be_a_table():
+    """A fractional allocation that is not doubly stochastic is not a table."""
+    with pytest.raises(simmetrics.MetricError):
+        simmetrics.realised_outcome([1, 1, 3, 4], 4, 4, spans=[1, 1, 1, 1])
+    with pytest.raises(simmetrics.MetricError):
+        simmetrics.realised_outcome([1, 2, 3, 4], 4, 4, spans=[2, 1, 1, 1])
+
+
+def test_v5_reduces_to_v4_on_the_published_R1_ledger():
+    """A6 (a.4), measured rather than asserted: no realised tie ever occurred,
+    so span-aware scoring returns the published numbers bit for bit.
+
+    Read off `data/epl/sim/retro_r1.jsonl` as committed. R1 and Addenda A and B
+    are therefore NOT re-scored — the run of record is the run that ran.
+    """
+    path = paths.REPO_ROOT / "data" / "epl" / "sim" / "retro_r1.jsonl"
+    if not path.exists():
+        pytest.skip("the R1 ledger is not present")
+    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    scored = [r for r in rows if not r.get("not_applicable")]
+    assert len(scored) == 190, "the published R1 ledger holds 190 scored rows"
+
+    n_spans = 0
+    n_cells = 0
+    for row in scored:
+        spans = row["realised"]["span"]
+        assert set(spans.values()) == {1}, row["run_key"]
+        assert int(row["realised"].get("n_shared", 0)) == 0
+        n_spans += len(spans)
+
+        # THROUGH THE REAL SCORER, not the metric functions alone: `_score_one`
+        # is the path that turns a stored row into a published number, and it is
+        # where the span is now read. The v4 comparison is the SAME row with the
+        # span dropped — which is exactly what v4 did with it, since v4 never
+        # read the field — so this is v5 against v4 and not v5 against a
+        # restatement of v5.
+        v5 = simretro._score_one(row)
+        as_v4 = dict(row, realised={k: v for k, v in row["realised"].items()
+                                    if k != "span"})
+        v4 = simretro._score_one(as_v4)
+        for name in ("trps", "wtrps", "flat_trps", "trps_se", "briers",
+                     "beats_flat", "champion_logloss", "points"):
+            assert v5[name] == v4[name], f"{row['run_key']}: {name} moved"
+            n_cells += 1
+    assert n_spans == 3800, "190 rows x 20 clubs"
+    assert n_cells == 190 * 8, "eight scored components on each of 190 rows"
+
+    # POSITIVE CONTROL — the equality above must not be vacuous. Take one real
+    # published row, give it a realised 17-18 tie it did not have, and the
+    # scorer moves. So "unchanged" is a fact about the ledger's spans, not a
+    # property of the comparison.
+    probe = scored[0]
+    clubs = list(probe["clubs"])
+    at17 = [c for c in clubs if int(probe["realised"]["position"][c]) == 17][0]
+    at18 = [c for c in clubs if int(probe["realised"]["position"][c]) == 18][0]
+    tied = dict(probe, realised={
+        **probe["realised"],
+        "position": {**probe["realised"]["position"], at18: 17},
+        "span": {**probe["realised"]["span"], at17: 2, at18: 2},
+        "n_shared": 2})
+    moved = simretro._score_one(tied)
+    assert moved["trps"] != simretro._score_one(probe)["trps"]
+    assert moved["n_shared_realised"] == 2
