@@ -1531,3 +1531,106 @@ behaviour is held by seven tests in `epl/tests/test_simretro.py` —
 each of which drives its guard RED on the thing the guard exists to refuse, and
 by `test_the_real_r1_ledger_does_not_certify_itself`, which asserts the four
 rows of the table above against the artifact itself where it is present.
+
+---
+
+## A5 — the 2023/24 points adjustments are attested and verified (2026-08-20)
+
+**Decision amended:** none. D16's scoring gate is unchanged in code and
+unchanged in force; what changes is the state of four DATA rows it reads.
+**Status of the amendment when written:** the flip is authorised and the four
+rows are edited in the same commit as this note; no retrospective run under the
+verified rows exists yet.
+
+*Arithmetic note: this entry quotes four integers that are points deductions and
+four dates. Nothing here is estimated and no score is computed, quoted or
+changed by it.*
+
+### The observation
+
+R1 refused all six cutoffs of 2023/24 with `UnverifiedAdjustment`
+([`epl_sim_retro_v1_1.md`](epl_sim_retro_v1_1.md) §2, Hole 1). The three
+effective rows for that season were seeded `verified: false` by plan v2 D16,
+and D16 and adjudication item 3 both assign the check to a human against
+premierleague.com. R1 correctly declined to flip them, and said so in the
+report: *setting `verified: true` is an attestation … doing it to unblock a run
+would convert the guard into decoration.*
+
+### What was done, and by whom — stated exactly
+
+1. **The assistant did the verification work.** Each of the four rows in
+   `epl/season/points_adjustments.jsonl` was checked against the Premier
+   League's own published statement — the size of the deduction, the date it
+   was known, whether it took effect immediately, and whether it replaced an
+   earlier deduction or added to one. The assistant then presented the owner an
+   evidence table mapping each row to its statement, recommended the flip, and
+   asked for explicit words.
+2. **The owner authorised the flip.** In the transcript of 2026-08-20 the owner
+   replied, verbatim: **"Yes — mark the four 2023/24 deduction rows verified."**
+   That sentence is the authorisation and nothing more is claimed for it: the
+   owner did not personally compare the rows to the published record, and this
+   note must not be read as saying so.
+
+The four rows, with the statement each was checked against:
+
+| id | delta | known_at | supersedes | published statement |
+|---|---|---|---|---|
+| `adj-2324-everton-01` | **−10** | 2023-11-17 | — | [premierleague.com/en/news/3788486](https://www.premierleague.com/en/news/3788486) — 17 Nov 2023, "immediate deduction of 10 points" |
+| `adj-2324-everton-02` | **−6** | 2024-02-26 | `adj-2324-everton-01` | [premierleague.com/en/news/3912574](https://www.premierleague.com/en/news/3912574) — 26 Feb 2024, the Appeal Board "substituted the original points deduction of 10 for six", immediate effect |
+| `adj-2324-nottm-forest-01` | **−4** | 2024-03-18 | — | [premierleague.com/en/news/3936397](https://www.premierleague.com/en/news/3936397) — 18 Mar 2024, four points, immediate |
+| `adj-2324-everton-03` | **−2** | 2024-04-08 | — | [premierleague.com/en/news/3960088](https://www.premierleague.com/en/news/3960088) — 08 Apr 2024, two points, immediate, a separate breach |
+
+Net at the end of the season: **Everton −8** (the −6 that replaced the −10, plus
+the separate −2) and **Nottingham Forest −4**. Everton finish **15th**, Forest
+**17th**.
+
+### What changed in the repository
+
+Only the four rows. `id`, `delta`, `known_at` and `supersedes` are byte-for-byte
+what they were — the attestation records a CHECK, it does not restate the
+ledger — and each row gains three fields that make the flag answerable rather
+than decorative:
+
+* `"verified": true`
+* `"verified_at": "2026-08-19"` — the day the assistant did the checking
+* `"verified_by"` — one sentence naming who checked, against what, and the
+  owner's authorising words quoted in full
+* `"source_url"` — the statement that row was checked against
+
+`epl/season.py`, `epl/simretro.py` and every other module are untouched.
+
+### The guard is still live, and is still driven RED
+
+Flipping the only unverified rows in the repository would have left
+`test_unverified_adjustment_rows_refused_for_scoring` with nothing to refuse —
+a canary that cannot fail, which is the failure mode this project treats as a
+bug rather than a pass. The refusal path is therefore driven on a **synthetic**
+unverified row from here on, in a temporary ledger root, with the real ledger
+appearing only as the control that says the guard is not simply always firing:
+
+* `epl/tests/test_season.py::test_unverified_adjustment_rows_refused_for_scoring`
+  — synthetic row RED, then three positive controls: the same row verified
+  scores, the same row with the gate opted out scores, and the real 2023/24
+  ledger scores.
+* `epl/tests/test_simretro.py::test_2023_24_scores_under_the_verified_gate_after_the_attestation`
+  — the realised 2023/24 table under the DEFAULT gate (Everton −8 and 15th,
+  Forest −4 and 17th), then a synthetic unverified row refusing the same call.
+* `epl/tests/test_season.py::test_the_2023_24_rows_carry_the_attestation_that_verified_them`
+  — the three attestation fields are asserted on all four rows, because a flag
+  with no record of what it was checked against is what D16 exists to refuse.
+* The 2023/24 archive assertions in `epl/tests/test_season.py` and
+  `epl/tests/test_table.py` that had to pass `require_verified=False` to run now
+  run with the gate ON.
+
+### What this does NOT decide
+
+Nothing about any arm. The retrospective's conclusions are not touched by this
+note: it makes a season SCOREABLE that was refused, and the run that scores it —
+and the addendum that reports it — is the commit that follows. Whether
+`dc_native` remains the published arm is an owner ruling, unchanged and still
+open (R1 §10).
+
+### Recording note
+
+Written in the same commit that edits the four rows and the tests, and before
+the 2023/24 run. The evidence table above is the one the owner was shown.

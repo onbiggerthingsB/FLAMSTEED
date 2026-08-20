@@ -368,8 +368,9 @@ def test_table_so_far_covers_home_away_draw_and_adjustment(season_root: Path):
     frame.loc[at_home[:5], ["fthg", "ftag"]] = [3, 1]     # 5 home wins
     frame.loc[at_home[5:7], ["fthg", "ftag"]] = [0, 1]    # 2 home defeats
     frame.loc[away[:4], ["fthg", "ftag"]] = [0, 2]        # 4 away wins
-    archive = season_mod.archive_season_state(
-        frame, "2023/24", "2025-01-01", require_verified_adjustments=False)
+    # The gate is ON: the four 2023/24 rows carry their attestation as of
+    # 2026-08-20, so this call no longer has to opt out of D16 to run.
+    archive = season_mod.archive_season_state(frame, "2023/24", "2025-01-01")
     assert len(archive.played) == 380
 
     ev = archive.table_so_far["everton"]
@@ -696,16 +697,99 @@ def test_2023_24_adjustments_final_state_everton_minus_8_forest_minus_4():
     assert final == {"everton": -8, "nottm_forest": -4}
 
 
-def test_unverified_adjustment_rows_refused_for_scoring():
-    frame = _synthetic_archive("2023/24", "2324", CLUBS_2023_24, "2023-08-11")
-    with pytest.raises(season_mod.UnverifiedAdjustment):
-        season_mod.archive_season_state(frame, "2023/24", "2024-06-30")
+def test_the_2023_24_rows_carry_the_attestation_that_verified_them():
+    """The 2026-08-20 attestation, asserted against the ledger file itself.
 
-    # Positive control: the same call is fine once the operator opts out of the
-    # gate explicitly, and fine for a season with no adjustment rows at all.
-    state = season_mod.archive_season_state(
-        frame, "2023/24", "2024-06-30", require_verified_adjustments=False)
+    Each of the four 2023/24 rows was checked against the Premier League's own
+    published statement, and each carries the three fields that say so:
+    `verified_at`, `verified_by` and a `source_url` pointing at the statement it
+    was checked against. A `verified: true` with no record of what it was
+    checked against is exactly the decoration D16's gate exists to refuse, so
+    the flag alone is not what this asserts.
+    """
+    rows = {r["id"]: r for r in season_mod.load_adjustments()
+            if r["season"] == "2023/24"}
+    assert set(rows) == {"adj-2324-everton-01", "adj-2324-everton-02",
+                         "adj-2324-everton-03", "adj-2324-nottm-forest-01"}
+    for row in rows.values():
+        assert row["verified"] is True
+        assert row["verified_at"] == "2026-08-19"
+        assert "premierleague.com" in row["verified_by"]
+        assert row["source_url"].startswith("https://www.premierleague.com/")
+        assert "UNVERIFIED" not in row["note"]
+
+    # The attestation records a CHECK; it does not restate the ledger. The four
+    # deltas, dates and the supersession are byte-for-byte what they were.
+    assert [(rows[i]["delta"], rows[i]["known_at"], rows[i]["supersedes"])
+            for i in ("adj-2324-everton-01", "adj-2324-everton-02",
+                      "adj-2324-nottm-forest-01", "adj-2324-everton-03")] == [
+        (-10, "2023-11-17", None),
+        (-6, "2024-02-26", "adj-2324-everton-01"),
+        (-4, "2024-03-18", None),
+        (-2, "2024-04-08", None)]
+
+
+def test_the_real_2023_24_ledger_now_scores_under_the_gate():
+    """T3's archive test, un-deferred: the gate is ON and 2023/24 goes through.
+
+    Before the attestation this call raised `UnverifiedAdjustment` and every
+    2023/24 assertion in this file had to pass `require_verified_adjustments=
+    False` to get past it. Nothing is opted out here.
+    """
+    frame = _synthetic_archive("2023/24", "2324", CLUBS_2023_24, "2023-08-11")
+    state = season_mod.archive_season_state(frame, "2023/24", "2024-06-30")
     assert state.adjustments_known == {"everton": -8, "nottm_forest": -4}
+    assert state.table_so_far["everton"].adjustment == -8
+    assert state.table_so_far["nottm_forest"].adjustment == -4
+
+
+def test_unverified_adjustment_rows_refused_for_scoring(tmp_path: Path):
+    """The gate, driven RED on a SYNTHETIC unverified row.
+
+    Until 2026-08-20 this test drove the gate on the real 2023/24 rows, which
+    were seeded `verified: false`. They are verified now, so pointing the guard
+    at them would leave it with nothing to refuse and this test would pass
+    vacuously — a canary that cannot fail is the bug it exists to catch. The
+    unverified row is synthetic from here on; the real ledger appears below
+    only as the control that says the guard is not simply always firing.
+    """
+    frame = _synthetic_archive("2023/24", "2324", CLUBS_2023_24, "2023-08-11")
+    root = tmp_path / "season"
+    root.mkdir()
+    ledger = root / "points_adjustments.jsonl"
+    unverified = {"id": "adj-2324-synthetic-01", "season": "2023/24",
+                  "club_key": "everton", "delta": -10, "known_at": "2023-11-17",
+                  "source": "test", "supersedes": None, "verified": False,
+                  "note": "synthetic: checked against nothing"}
+    _append_jsonl(ledger, [unverified])
+
+    with pytest.raises(season_mod.UnverifiedAdjustment) as caught:
+        season_mod.archive_season_state(frame, "2023/24", "2024-06-30", root=root)
+    assert "adj-2324-synthetic-01" in str(caught.value)
+
+    # POSITIVE CONTROL 1: the same row, verified, scores — so the refusal is
+    # the FLAG and not the row's presence.
+    ledger.write_text("")
+    _append_jsonl(ledger, [dict(unverified, verified=True)])
+    assert season_mod.archive_season_state(
+        frame, "2023/24", "2024-06-30", root=root
+    ).adjustments_known == {"everton": -10}
+
+    # POSITIVE CONTROL 2: the unverified row again, with the operator opting
+    # out of the gate explicitly.
+    ledger.write_text("")
+    _append_jsonl(ledger, [unverified])
+    assert season_mod.archive_season_state(
+        frame, "2023/24", "2024-06-30", root=root,
+        require_verified_adjustments=False
+    ).adjustments_known == {"everton": -10}
+
+    # POSITIVE CONTROL 3: the REAL ledger, gate on, no longer refuses; and a
+    # season with no adjustment rows at all scores under the gate as it always
+    # did.
+    assert season_mod.archive_season_state(
+        frame, "2023/24", "2024-06-30"
+    ).adjustments_known == {"everton": -8, "nottm_forest": -4}
     clean = _synthetic_archive("2021/22", "2122", CLUBS_2023_24, "2021-08-13")
     assert season_mod.archive_season_state(clean, "2021/22", "2022-06-30").adjustments_known == {}
 

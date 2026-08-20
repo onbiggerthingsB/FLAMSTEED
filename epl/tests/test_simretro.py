@@ -360,7 +360,9 @@ def test_cutoff_schedule_rule_mw0_is_opener_mwk_first_cutoff_with_10k_played():
 @needs_archive
 def test_realised_positions_use_final_adjustments():
     matches = baseline.load_matches()
-    realised = simretro.realised_positions(matches, "2023/24", require_verified=False)
+    # The verified gate is ON (the default): the four 2023/24 rows carry their
+    # attestation as of 2026-08-20, so this no longer opts out of D16.
+    realised = simretro.realised_positions(matches, "2023/24")
 
     assert realised.adjustments == {"everton": -8, "nottm_forest": -4}, (
         "the FINAL state of the ledger, not a point-in-time snapshot")
@@ -377,18 +379,53 @@ def test_realised_positions_use_final_adjustments():
     assert mid != realised.adjustments
 
     # POSITIVE CONTROL 2: drop the ledger and Everton finish strictly higher.
-    without = simretro.realised_positions(matches, "2023/24", require_verified=False,
-                                          adjustments={})
+    without = simretro.realised_positions(matches, "2023/24", adjustments={})
     assert without.position["everton"] < realised.position["everton"]
-
-    # the scoring gate: an unverified row refuses to score the season
-    with pytest.raises(season_mod.UnverifiedAdjustment):
-        simretro.realised_positions(matches, "2023/24")
 
     # a season with no adjustment rows scores under the gate without complaint
     clean = simretro.realised_positions(matches, "2024/25")
     assert clean.adjustments == {}
     assert sorted(clean.position.values()) == list(range(1, 21))
+
+
+@needs_archive
+def test_2023_24_scores_under_the_verified_gate_after_the_attestation(monkeypatch):
+    """R1's hole 1, closed — and the guard that made it a hole still bites.
+
+    R1 refused all six cutoffs of 2023/24 with `UnverifiedAdjustment` because
+    the four points-adjustment rows were seeded `verified: false`. They were
+    checked against premierleague.com and the flip was authorised on
+    2026-08-20, so the season scores under the DEFAULT gate. The refusal path
+    is driven below on a synthetic unverified row, because pointing it at the
+    real rows now would be a canary that cannot fail.
+    """
+    matches = baseline.load_matches()
+    realised = simretro.realised_positions(matches, "2023/24")
+
+    assert realised.adjustments == {"everton": -8, "nottm_forest": -4}
+    assert realised.position["everton"] == 15
+    assert realised.position["nottm_forest"] == 17
+    assert sorted(realised.position.values()) == list(range(1, 21))
+    assert realised.n_shared == 0
+
+    # POSITIVE CONTROL: the gate is live. A synthetic unverified row in the
+    # ledger refuses the same call, on the same season, with nothing else
+    # changed — so what scored above is the attestation and not a dead guard.
+    synthetic = [{"id": "adj-2324-synthetic-01", "season": "2023/24",
+                  "club_key": "everton", "delta": -10, "known_at": "2023-11-17",
+                  "source": "test", "supersedes": None, "verified": False,
+                  "note": "synthetic: checked against nothing"}]
+    monkeypatch.setattr(season_mod, "load_adjustments", lambda *a, **k: synthetic)
+    with pytest.raises(season_mod.UnverifiedAdjustment) as caught:
+        simretro.realised_positions(matches, "2023/24")
+    assert "adj-2324-synthetic-01" in str(caught.value)
+
+    # and the same synthetic row, verified, scores — Everton one place lower
+    # than the real -8 leaves them, because -10 is a bigger deduction.
+    synthetic[0]["verified"] = True
+    worse = simretro.realised_positions(matches, "2023/24")
+    assert worse.adjustments == {"everton": -10}
+    assert worse.position["everton"] > realised.position["everton"]
 
 
 # ==========================================================================

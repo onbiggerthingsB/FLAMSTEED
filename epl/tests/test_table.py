@@ -753,7 +753,11 @@ def _archive_2023_24():
 def test_realised_2023_24_positions():
     results = _archive_2023_24()
     rows = season_mod.load_adjustments()
-    adjustments = season_mod.adjustments_at(rows, "2023/24", "2024-06-30")
+    # `require_verified=True`: the four 2023/24 rows carry their attestation as
+    # of 2026-08-20, so this reads the table through D16's scoring gate rather
+    # than around it.
+    adjustments = season_mod.adjustments_at(rows, "2023/24", "2024-06-30",
+                                            require_verified=True)
     assert adjustments == {"everton": -8, "nottm_forest": -4}
 
     placed = table_mod.official_positions_for_realised(
@@ -775,7 +779,8 @@ def test_2023_24_final_table_everton_15th_forest_17th_with_ledger_everton_higher
     it and Everton finish strictly higher while Forest stay 17th."""
     results = _archive_2023_24()
     rows = season_mod.load_adjustments()
-    adjustments = season_mod.adjustments_at(rows, "2023/24", "2024-06-30")
+    adjustments = season_mod.adjustments_at(rows, "2023/24", "2024-06-30",
+                                            require_verified=True)
 
     with_ledger = dict(
         (club, pos) for club, pos, _ in table_mod.official_positions_for_realised(
