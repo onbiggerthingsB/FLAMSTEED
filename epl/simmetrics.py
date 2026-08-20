@@ -58,7 +58,7 @@ import numpy as np
 from epl import leaguesim, table as table_mod
 
 __all__ = [
-    "scored_matrix", "matrix_margin_errors", "trps_se",
+    "scored_matrix", "matrix_margin_errors", "trps_se", "trps_se_cluster",
     "CONSEQUENCE_RANKS", "MetricError", "SCHEMA_VERSION", "TRPS_REFERENCE",
     "boundary_decider_rates", "champion_logloss_floored", "consequence_briers",
     "consequence_weights", "cumulative_forecast", "cumulative_outcome",
@@ -126,7 +126,7 @@ def matrix_margin_errors(matrix) -> tuple[float, float]:
 
 
 def trps_se(matrix, positions, matrix_se) -> float | None:
-    """A Monte-Carlo standard error for TRPS, by the delta method.
+    """The DIAGONAL APPROXIMATION to the delta-method MC variance of TRPS.
 
     A2 (c) relabelled the harness's misnamed `MC SE` column and recorded a TRPS
     Monte-Carlo error as an OPEN ITEM, explicitly out of scope for v2. This
@@ -140,13 +140,27 @@ def trps_se(matrix, positions, matrix_se) -> float | None:
         g[c, k] = 2 / (C (R-1)) * sum_{r >= k} (X[c, r] - O[c, r])
         Var(TRPS) ~= sum_{c, k} g[c, k]^2 * se[c, k]^2
 
-    where `se` is the run's own cluster-by-particle per-cell error. The cells of
-    one club are treated as INDEPENDENT, which they are not: a club's row sums
-    to 1, so its cells are predominantly NEGATIVELY correlated, and ignoring
-    those covariances OVERSTATES the variance. The reported SE is therefore
-    conservative rather than exact, and it is a Monte-Carlo error only — it says
-    nothing about model error, and nothing about the fact that TRPS is proper
-    for the displayed marginals and not for the joint law.
+    where `se` is the run's own cluster-by-particle per-cell error. The exact
+    delta-method variance is the full quadratic form over every PAIR of cells;
+    this keeps only the terms with `(c, k) == (c', k')`.
+
+    WHAT THE APPROXIMATION IS NOT (amendment A2-N4, 2026-08-20). The cross-cell
+    covariance is omitted, and because the TRPS gradient changes sign within a
+    club's row the omitted terms can raise or lower the variance, so the
+    direction of the approximation is not known. What is dropped is
+    `g * g' * Cov`, not `Cov`: a club's cells are predominantly negatively
+    correlated, but `X[c, r] - O[c, r]` is non-negative for ranks below the
+    club's realised position and non-positive at and above it, so a negative
+    covariance multiplied by two gradient components of opposite sign
+    contributes a POSITIVE term. A2-N1 concluded from the negative correlation
+    alone that this figure overstates the variance; that conclusion does not
+    follow and A2-N4 withdraws it. Report the quantity as
+    `TRPS MC SE (diagonal approx.)`.
+
+    It is a Monte-Carlo error only — it says nothing about model error, and
+    nothing about the fact that TRPS is proper for the displayed marginals and
+    not for the joint law. :func:`trps_se_cluster` is the estimator that needs
+    none of these assumptions, for runs that retain per-particle tallies.
 
     Returns None when the run recorded no per-cell error (the nulls do not).
     """
@@ -168,6 +182,62 @@ def trps_se(matrix, positions, matrix_se) -> float | None:
     g = np.zeros((n_clubs, n_ranks), dtype=float)
     g[:, : n_ranks - 1] = 2.0 * tail / (n_clubs * (n_ranks - 1))
     return float(np.sqrt(float((g ** 2 * se ** 2).sum())))
+
+
+def trps_se_cluster(tallies, positions, *, n_boot, seed) -> float:
+    """A Monte-Carlo standard error for TRPS, by cluster-by-particle bootstrap.
+
+    Amendment A2-N4 (3). The delta method above approximates a variance whose
+    direction it cannot sign. This estimator answers the question that
+    approximation was approximating: resample the PARTICLES — the same cluster
+    the stored per-cell `matrix_se` is already built on — with replacement,
+    recompute the position matrix from the resampled tallies, recompute TRPS on
+    each resample, and report the standard deviation of the resampled TRPS
+    values. It needs no independence assumption, no gradient and no covariance
+    matrix, and it is an error ON TRPS rather than one propagated from cells.
+
+    `tallies` is ``[n_particles, n_clubs, n_ranks]``: how often each club
+    finished in each rank, per particle. It is what a run must RETAIN to be able
+    to report this number; R1's ledger stores per-cell errors, not per-particle
+    tallies, which is why A2-N4 states the bootstrap as a requirement on future
+    runs rather than as something the existing ledger can be made to answer.
+
+    `n_boot` and `seed` have NO defaults, deliberately. A2-N4 pre-states that
+    B and the resampling seed "are not chosen here; they are pre-stated in the
+    amendment that accompanies the first run to report the bootstrap SE, before
+    that run." A default here would be that choice, made by this module, after
+    the fact — so the caller must supply both and no run in this repository
+    reports the number yet.
+    """
+    counts = np.asarray(tallies, dtype=float)
+    if counts.ndim != 3:
+        raise MetricError(
+            f"tallies is {counts.shape}, expected [particles, clubs, ranks]")
+    if not np.isfinite(counts).all() or (counts < 0).any():
+        raise MetricError("tallies carries a non-finite or negative entry")
+    n_particles = counts.shape[0]
+    if n_particles < 2:
+        raise MetricError("a bootstrap over one particle resamples nothing")
+    if int(n_boot) < 2:
+        raise MetricError(f"n_boot={n_boot} cannot give a standard deviation")
+    totals = counts.reshape(n_particles, -1).sum(axis=1)
+    if totals[0] <= 0 or not np.allclose(totals, totals[0]):
+        raise MetricError(
+            "the particles carry unequal (or empty) tally totals; this "
+            "resamples EQUAL clusters, as the stored per-cell error already "
+            "does (plan v2 D15), and unequal ones would silently reweight the "
+            "matrix a resample builds")
+
+    rng = np.random.default_rng(int(seed))
+    draws = np.empty(int(n_boot), dtype=float)
+    for b in range(int(n_boot)):
+        picked = rng.integers(0, n_particles, n_particles)
+        total = counts[picked].sum(axis=0)
+        row_sums = total.sum(axis=1, keepdims=True)
+        if (row_sums <= 0).any():
+            raise MetricError("a resampled club has no simulated position")
+        draws[b] = trps(total / row_sums, positions)
+    return float(draws.std(ddof=1))
 
 
 def _as_matrix(matrix) -> np.ndarray:

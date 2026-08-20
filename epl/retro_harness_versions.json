@@ -1,0 +1,24 @@
+{
+  "_what": "Every retrospective harness pair this project has RECORDED, in the order it recorded them. Amendment A4 (iv) states the same list in reports/epl_sim_amendments.md, and epl/tests/test_simretro.py fails if the two diverge. `run_retro` refuses to start under a pair that is not here unless allow_unrecorded_harness=True, which is stamped on every row the run writes and printed in the report; a run that used it is not a citable run.",
+  "_why_a_data_file": "The list cannot live inside epl/simretro.py: appending a version there would change the file's own SHA-256 and invalidate the entry being appended. It lives beside the harness instead, and the harness reads it.",
+  "versions": [
+    {
+      "version": "v1",
+      "simretro_sha256": "2b25ab351710ed140047e56c2463d2cf9cda8996b8bf684732de04143b6cb805",
+      "simmetrics_sha256": "e73f2f70bdb5dfc42572aa7a5c19af4c5843e376a240e4d335c6edd5d451fb9a",
+      "recorded_in": "reports/epl_sim_prereg_retro.md §1 (the preregistration); the harness R1 ran under"
+    },
+    {
+      "version": "v2",
+      "simretro_sha256": "f1744c25172f84875522f134ac73284ddc1ba965f50edc402f4b0677a5763f9f",
+      "simmetrics_sha256": "6756d86143425a2b55785c0c0be49839bf981b10e54857abda9272831217a7a4",
+      "recorded_in": "reports/epl_sim_amendments.md A2-N1; never used for a published run"
+    },
+    {
+      "version": "v2.1",
+      "simretro_sha256": "e449c78d96dffa663b9feccbcbb4f291f63d4452a34081bbdd68306afff91bff",
+      "simmetrics_sha256": "6756d86143425a2b55785c0c0be49839bf981b10e54857abda9272831217a7a4",
+      "recorded_in": "reports/epl_sim_amendments.md A2-N2; never used for a published run"
+    }
+  ]
+}

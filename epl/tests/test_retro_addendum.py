@@ -220,7 +220,13 @@ def test_the_addendum_states_the_method_the_deviation_and_the_body_unchanged():
     assert "epl.simmetrics.trps_se" in text
     assert "not** model error" in text
     assert "between-season spread" in text
-    assert "overstates" in text
+    # A2-N4: the generator must NOT re-emit the withdrawn claim. Regenerating
+    # this section used to restore "Conservative, not exact" and "overstates"
+    # over the report's own relabelling, with the suite green throughout.
+    assert "conservative" not in text.lower()
+    assert "overstates" not in text.lower()
+    assert "can raise or lower the variance" in text
+    assert "the direction of the approximation is not known" in text
     # the pre-statement it departs from is named, not left for a reader to find
     assert "A2-N1" in text
     # every cell carries its error, and the nulls carry `n/a` rather than 0
@@ -232,7 +238,8 @@ def test_the_addendum_states_the_method_the_deviation_and_the_body_unchanged():
 
 def test_the_addendum_reports_a_mean_row_per_cutoff_with_its_season_count():
     text = retro_addendum.addendum_markdown(_cells(), dated="2026-08-19")
-    assert "### Per-cutoff mean TRPS ± MC SE of the mean" in text
+    assert ("### Per-cutoff mean TRPS ± TRPS MC SE (diagonal approx.) "
+            "of the mean") in text
     assert "sqrt(Σ se²) / n" in text
     # two seasons per cutoff in this fixture, and the mean of two identical
     # cells is that cell with sqrt(2 se^2)/2 beside it
@@ -407,3 +414,38 @@ def test_the_amendment_ledger_records_the_addendum_s_deviation():
     reasons = _unrecorded_deviations(retro.read_text(encoding="utf-8"),
                                      ledger.read_text(encoding="utf-8"))
     assert reasons == [], "; ".join(reasons)
+
+
+def test_the_generated_headings_are_the_ones_the_published_report_prints():
+    """The generator and the report it generated must not drift apart.
+
+    Addendum A was edited IN PLACE to carry A2-N4's label while
+    `epl/retro_addendum.py` still emitted the withdrawn wording, and the suite
+    pinned the generator's old string — so regenerating the section would have
+    silently reverted the whole relabelling and restored the "Conservative, not
+    exact" bullet, with CI green from start to finish. A note in a file is not a
+    guard; this is the guard, and it is the same docs/code coupling shape used
+    above to hold A2-N3's note against the report.
+    """
+    report = _REPO_ROOT / "reports" / "epl_sim_retro_v1_1.md"
+    if not report.exists():                                 # pragma: no cover
+        pytest.skip("reports/ is not in this checkout")
+    published = report.read_text(encoding="utf-8")
+    generated = retro_addendum.addendum_markdown(_cells(), dated="2026-08-19")
+
+    headings = [line for line in generated.splitlines()
+                if line.startswith("### ") or line.startswith("## Addendum")]
+    assert headings, "the generator emits headings"
+    for heading in headings:
+        assert heading in published, (
+            f"the generator emits {heading!r}, which Addendum A does not print "
+            "— regenerating the section would rewrite the published report")
+
+    # POSITIVE CONTROL: the check really compares the two texts
+    assert "### Every scored cell — TRPS ± MC SE" not in published
+    assert not any(h in published.replace(
+        "### Every scored cell — TRPS ± TRPS MC SE (diagonal approx.)", "")
+        for h in headings if "Every scored cell" in h)
+
+    # and the withdrawn claim is not what the generator would write back
+    assert "conservative" not in generated.lower()

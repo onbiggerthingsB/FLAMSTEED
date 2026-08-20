@@ -75,11 +75,12 @@ from epl import table as table_mod, walkforward
 
 __all__ = [
     "ARMS", "COMPARISON_CUTOFFS", "CUTOFF_LABELS", "DEFAULT_COMPARISONS",
-    "DEFAULT_N_SIMS", "NULLS", "SANITY_CUTOFFS", "SCHEMA_VERSION", "SEASONS",
-    "SEED", "SMOKE_CUTOFFS", "SMOKE_SEASONS", "ArchiveRunner", "ArmResult",
-    "CutoffResult", "Realised", "RetroError", "cutoff_schedule",
-    "realised_positions", "report", "requested_cells", "run_retro",
-    "score_retro", "weekly_cutoffs",
+    "DEFAULT_N_SIMS", "NULLS", "REFUSAL_KINDS", "SANITY_CUTOFFS",
+    "SCHEMA_VERSION", "SEASONS", "SEED", "SMOKE_CUTOFFS", "SMOKE_SEASONS",
+    "ArchiveRunner", "ArmResult", "CutoffResult", "Realised", "RetroError",
+    "UnrecordedHarness", "cutoff_schedule", "harness_hashes",
+    "realised_positions", "recorded_harness_versions", "report",
+    "requested_cells", "run_retro", "score_retro", "weekly_cutoffs",
 ]
 
 SCHEMA_VERSION = "epl-simretro-1"
@@ -112,9 +113,32 @@ SMOKE_CUTOFFS = ("MW0", "MW10")
 #: provenance hash, so two identical runs on different days agree.
 _VOLATILE = ("wall_seconds", "fit_seconds", "seconds")
 
+#: Amendment A4 (i): the CLOSED set of reasons a cell can be missing on
+#: purpose. A refusal is a fact the RUNNER knows and the scorer does not, so
+#: the runner writes it in a typed field and `score_retro` believes nothing
+#: else — a row with `not_applicable` text and no `refusal_kind` is a hole.
+#: Adding a fifth kind is an amendment, not a code change.
+REFUSAL_KINDS = ("excluded_mass_ceiling",     # D11's 2e-2 hard ceiling (A1)
+                 "unverified_adjustment",     # a deduction the ledger has not
+                                              # checked against the league record
+                 "arm_not_defined",           # no such arm here by rule
+                 "runner_error")              # anything else — marked, then RAISED
+
+#: A4 (iv): the harness pairs this project has recorded, stated in amendment
+#: A4 and held against this file by `epl/tests/test_simretro.py`. The list is a
+#: DATA file rather than a module constant for one reason: appending a version
+#: to `epl/simretro.py` would change this file's own SHA-256 and invalidate the
+#: entry being appended.
+RETRO_HARNESS_VERSIONS_PATH = Path(__file__).resolve().with_name(
+    "retro_harness_versions.json")
+
 
 class RetroError(RuntimeError):
     """The retrospective refuses to produce or score a number."""
+
+
+class UnrecordedHarness(RetroError):
+    """The running harness pair is not one the ledger records (prereg §12)."""
 
 
 # ==========================================================================
@@ -314,11 +338,21 @@ class ArmResult:
 
 @dataclass(frozen=True, eq=False)
 class CutoffResult:
-    """Every arm at one (season, cutoff), plus what produced them."""
+    """Every arm at one (season, cutoff), plus what produced them.
+
+    `refusals` maps an arm the runner DECLINED to a
+    ``(refusal_kind, reason)`` pair from :data:`REFUSAL_KINDS`. A4 (i): an arm
+    that is neither in `arms` nor in `refusals` was LOST, not refused, and
+    `run_retro` writes nothing for it — the accounting then sees an
+    undocumented hole, which is the truth. Under v2.1 the caller manufactured a
+    marker for any absent arm, so an accidentally dropped `flat` was
+    indistinguishable from a null that is undefined by rule.
+    """
 
     clubs: tuple[str, ...]
     arms: dict[str, ArmResult]
     provenance: dict = field(default_factory=dict)
+    refusals: dict[str, tuple[str, str]] = field(default_factory=dict)
 
 
 # ==========================================================================
@@ -386,6 +420,7 @@ class ArchiveRunner:
             bridge = bridge_mod.EmpiricalBridge.fit(self.played, cutoff)
 
         out: dict[str, ArmResult] = {}
+        refusals: dict[str, tuple[str, str]] = {}
         for arm in arms:
             provider = self._provider(arm, book, bridge, state, cutoff)
             run = leaguesim.simulate(arm, state, provider, n_sims, seed,
@@ -400,7 +435,15 @@ class ArchiveRunner:
         for null in nulls:
             matrix = self._null(null, state)
             if matrix is None:
-                continue                     # ppg is undefined before MW3
+                # A4 (i): the runner SAYS it declined, and why. `ppg_pointmass`
+                # is undefined before three complete rounds (prereg §4), which
+                # is a fact this object knows and the scorer cannot infer.
+                refusals[null] = (
+                    "arm_not_defined",
+                    f"{null} is not defined at {cutoff_label}: it needs "
+                    f"{bridge_mod.PPG_MIN_ROUNDS} complete rounds and the "
+                    f"table has fewer")
+                continue
             table_mod.check_doubly_stochastic(matrix)
             out[null] = ArmResult.from_null(matrix, n_sims=n_sims, note=null)
 
@@ -418,7 +461,7 @@ class ArchiveRunner:
             "wall_seconds": round(time.perf_counter() - started, 2),
         }
         return CutoffResult(clubs=tuple(state.clubs), arms=out,
-                            provenance=provenance)
+                            provenance=provenance, refusals=refusals)
 
     # ---- the arms -------------------------------------------------------
     def _provider(self, arm: str, book, bridge, state, cutoff):
@@ -457,6 +500,34 @@ def _sha256_json(obj) -> str:
 
 def _sha256_file(path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def harness_hashes() -> tuple[str, str]:
+    """``(sha256 of epl/simretro.py, sha256 of epl/simmetrics.py)``, right now."""
+    here = Path(__file__).resolve()
+    return (_sha256_file(here), _sha256_file(here.with_name("simmetrics.py")))
+
+
+def recorded_harness_versions() -> tuple[dict, ...]:
+    """Every harness pair this project has RECORDED, oldest first.
+
+    A4 (iv). Prereg §12 and amendments A2-N1 and A2-N2 all say a run whose
+    harness hashes match none of the recorded pairs refuses.
+    :func:`producer_identity` hashed both files and folded the digest into the
+    key — which makes rows from different harnesses non-interchangeable, and is
+    worth having — but it never COMPARED them to the recorded pairs, so a fresh
+    ledger under an arbitrarily modified harness ran to completion and reported
+    nothing unusual. This is the list that sentence is about, and
+    `epl/tests/test_simretro.py` fails if it and amendment A4 diverge.
+    """
+    data = json.loads(RETRO_HARNESS_VERSIONS_PATH.read_text(encoding="utf-8"))
+    versions = tuple(data["versions"])
+    for entry in versions:
+        for key in ("version", "simretro_sha256", "simmetrics_sha256"):
+            if not entry.get(key):
+                raise RetroError(
+                    f"{RETRO_HARNESS_VERSIONS_PATH} has an entry missing {key!r}")
+    return versions
 
 
 @lru_cache(maxsize=1)
@@ -504,9 +575,9 @@ def _stable(mapping) -> dict:
     return {k: v for k, v in (mapping or {}).items() if k not in _VOLATILE}
 
 
-def _not_applicable_row(*, season, cutoff_label, cutoff, arm, n_sims, seed,
-                        reason: str) -> dict:
-    """A claim on a key the runner declined to fill, so a resume stays cheap.
+def _refusal_row(*, season, cutoff_label, cutoff, arm, n_sims, seed,
+                 kind: str, reason: str) -> dict:
+    """A TYPED claim on a key the runner refused, so a resume stays cheap.
 
     ``ppg_pointmass`` is undefined before three complete rounds, so at MW0 there
     is nothing to write. Without this marker the key would stay missing, and
@@ -515,18 +586,32 @@ def _not_applicable_row(*, season, cutoff_label, cutoff, arm, n_sims, seed,
     bookkeeping, not forecasts — and reads them for one other thing: they are
     the only evidence the completeness accounting has that a cell is missing on
     purpose rather than lost. So `run_retro` returns them beside the forecasts,
-    and a caller that wants forecasts alone filters on `not_applicable`.
+    and a caller that wants forecasts alone filters on `refusal_kind`.
+
+    A4 (i): `refusal_kind` is the load-bearing field and it comes from the
+    runner. `not_applicable` is kept beside it, carrying the same text, only so
+    that every existing reader that skips on that key — `score_retro`,
+    `epl.retro_addendum` — keeps skipping these rows; it is no longer what
+    makes a refusal documented, because a v1 ledger has that key and no type.
     """
+    if kind not in REFUSAL_KINDS:
+        raise RetroError(
+            f"{kind!r} is not one of the four refusal kinds A4 fixed "
+            f"({', '.join(REFUSAL_KINDS)}); adding a fifth is an amendment")
     producer = producer_identity()
     key = run_key(season, cutoff_label, cutoff, arm, n_sims, seed, producer)
     return {
         "schema_version": SCHEMA_VERSION,
         "producer": producer,
         "run_key": key,
-        "envelope_hash": _sha256_json({"run_key": key, "not_applicable": reason}),
+        "envelope_hash": _sha256_json({"run_key": key, "refusal_kind": kind,
+                                       "reason": reason}),
         "season": season, "cutoff_label": cutoff_label,
         "cutoff": str(pd.Timestamp(cutoff).normalize().date()),
-        "arm": arm, "is_null": True, "n_sims": int(n_sims), "seed": int(seed),
+        "arm": arm, "is_null": bool(arm in NULLS),
+        "n_sims": int(n_sims), "seed": int(seed),
+        "refusal_kind": kind,
+        "reason": reason,
         "not_applicable": reason,
     }
 
@@ -581,8 +666,9 @@ def _read_ledger(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def _grid(seasons: Sequence[str] | None, cutoffs: Sequence[str] | None, *,
-          smoke: bool) -> tuple[tuple[str, ...], tuple[str, ...]]:
+def _grid(seasons: Sequence[str] | None, cutoffs: Sequence[str] | None,
+          arms: Sequence[str] | None = None, nulls: Sequence[str] | None = None,
+          *, smoke: bool) -> tuple[tuple[str, ...], ...]:
     """What a request resolves to — ONE definition, used by both callers.
 
     :func:`run_retro` and :func:`requested_cells` must not be able to disagree
@@ -597,29 +683,43 @@ def _grid(seasons: Sequence[str] | None, cutoffs: Sequence[str] | None, *,
         cutoffs = SMOKE_CUTOFFS if cutoffs is None else cutoffs
     seasons = tuple(SEASONS if seasons is None else seasons)
     cutoffs = tuple(COMPARISON_CUTOFFS if cutoffs is None else cutoffs)
+    arms = tuple(ARMS if arms is None else arms)
+    nulls = tuple(NULLS if nulls is None else nulls)
     unknown = [c for c in cutoffs if c not in CUTOFF_LABELS]
     if unknown:
         raise RetroError(f"cutoff label(s) {unknown} are not in the fixed schedule")
-    return seasons, cutoffs
+    return seasons, cutoffs, arms, nulls
 
 
 def requested_cells(seasons: Sequence[str] | None = None,
-                    cutoffs: Sequence[str] | None = None, *,
-                    smoke: bool = False) -> tuple[tuple[str, str], ...]:
-    """The (season, cutoff) grid a :func:`run_retro` call would be asked to fill.
+                    cutoffs: Sequence[str] | None = None,
+                    arms: Sequence[str] | None = None,
+                    nulls: Sequence[str] | None = None, *,
+                    smoke: bool = False) -> tuple[tuple[str, str, str], ...]:
+    """The (season, cutoff, ARM) triples a :func:`run_retro` call would fill.
 
-    Pass it to :func:`score_retro` as `expected_cells`. A2 (b) defines
+    Pass it to :func:`score_retro` as `expected_triples`. A2 (b) defines
     `n_expected` as *the requested cells*, which is a fact about the REQUEST and
     cannot be recovered from the answer: a grid read off the rows that came back
     is satisfied by whatever came back. This is the canonical way to state it,
     computed by the same normalisation :func:`run_retro` applies to the same
     arguments, so the two cannot drift apart.
 
-    The whole preregistered grid is ``requested_cells(cutoffs=CUTOFF_LABELS)``
-    (42 cells); the comparison grid alone is ``requested_cells()`` (35).
+    A4 (ii) moves the unit from the cell to the TRIPLE. A cell is "present" as
+    soon as one arm in it scored; the thing that actually gets lost is an arm,
+    and until the unit of the identity is the arm the identity cannot see the
+    loss. A2 (b) chose the cell because the refusals it had in mind were
+    whole-cell refusals — which are now typed and counted too.
+
+    The whole preregistered schedule is
+    ``requested_cells(cutoffs=CUTOFF_LABELS)`` (7 x 6 x 5 = 210 triples); the
+    comparison grid alone is ``requested_cells()`` (7 x 5 x 5 = 175).
     """
-    seasons, cutoffs = _grid(seasons, cutoffs, smoke=smoke)
-    return tuple((season, label) for season in seasons for label in cutoffs)
+    seasons, cutoffs, arms, nulls = _grid(seasons, cutoffs, arms, nulls,
+                                          smoke=smoke)
+    return tuple((season, label, arm)
+                 for season in seasons for label in cutoffs
+                 for arm in (*arms, *nulls))
 
 
 def run_retro(seasons: Sequence[str] | None = None,
@@ -637,6 +737,8 @@ def run_retro(seasons: Sequence[str] | None = None,
               realised: dict[str, Realised] | None = None,
               require_verified_adjustments: bool = True,
               allow_foreign_producer: bool = False,
+              allow_legacy_rows: bool = False,
+              allow_unrecorded_harness: bool = False,
               verbose: bool = True) -> list[dict]:
     """Run every (season, cutoff, arm) that the ledger does not already hold.
 
@@ -644,20 +746,62 @@ def run_retro(seasons: Sequence[str] | None = None,
     ``epl.walkforward.run_walk``: every forecast is a pure function of (season,
     cutoff, arm, n_sims, seed) and the frozen configuration, so a resumed run is
     the same run. Returns the rows for the REQUESTED keys, old and new, in
-    request order, INCLUDING the `not_applicable` markers for keys the runner
-    declined. Those markers used to be filtered out here, which made
-    `score_retro`'s `n_documented_refusals` structurally zero on this path —
+    request order, INCLUDING the TYPED refusal markers for keys the runner
+    refused. Those markers used to be filtered out here, which made
+    `score_retro`'s documented-refusal term structurally zero on this path —
     a cell refused on purpose was then indistinguishable from a cell that was
     lost, and the completeness accounting could not close on a correct run.
     The grid the call requests is :func:`requested_cells` with the same
-    arguments; pass it to :func:`score_retro` as `expected_cells`.
+    arguments; pass it to :func:`score_retro` as `expected_triples`.
+
+    Amendment A4 adds four guards, each of which refuses something this
+    function used to do silently:
+
+    (i) **Refusals are typed and they come from the runner.** A whole-cell
+    failure — season construction, the fit, the simulation — is caught AT THE
+    CELL BOUNDARY and a marker of the matching kind is written for every
+    requested arm of that cell before anything propagates.
+    `excluded_mass_ceiling`, `unverified_adjustment` and `arm_not_defined` are
+    expected: the marker is written and the run continues. `runner_error` is
+    not: the marker is written **and the exception is re-raised**, so an
+    unexplained failure still stops the run. An arm the runner neither returned
+    nor refused gets NOTHING — this function no longer writes the alibi.
+
+    (iii) **A producer-less row refuses the run** unless `allow_legacy_rows`;
+    an absent `producer` is precisely the v1 schema, and it was the one shape
+    the foreign-producer guard exempted.
+
+    (iv) **An unrecorded harness pair refuses the run before any fit** unless
+    `allow_unrecorded_harness`. Development and the test suite necessarily run
+    under unrecorded hashes and pass it explicitly; it is stamped on every row
+    the run writes and printed in the report, and a run that used it is not a
+    citable run.
 
     `runner` is the seam: the default :class:`ArchiveRunner` fits and simulates,
     and a test can substitute a callable with the same keyword signature to
     exercise the ledger without a fit.
     """
-    seasons, cutoffs = _grid(seasons, cutoffs, smoke=smoke)
-    arms, nulls = tuple(arms), tuple(nulls)
+    seasons, cutoffs, arms, nulls = _grid(seasons, cutoffs, arms, nulls,
+                                          smoke=smoke)
+
+    # A4 (iv), before anything else: prereg §12's invalidation condition, in
+    # code rather than in prose. `producer_identity` hashes both harness files
+    # into every key and every row, which makes rows from different harnesses
+    # non-interchangeable — but it never compared them to the recorded list.
+    pair = harness_hashes()
+    recorded = recorded_harness_versions()
+    unrecorded = pair not in {(v["simretro_sha256"], v["simmetrics_sha256"])
+                              for v in recorded}
+    if unrecorded and not allow_unrecorded_harness:
+        raise UnrecordedHarness(
+            f"this harness pair (epl/simretro.py {pair[0][:12]}…, "
+            f"epl/simmetrics.py {pair[1][:12]}…) is not one of the "
+            f"{len(recorded)} pairs recorded in {RETRO_HARNESS_VERSIONS_PATH.name} "
+            f"({', '.join(v['version'] for v in recorded)}). Prereg §12 makes a "
+            "run under an unrecorded harness invalid. Record the pair in that "
+            "file and in amendment A4, or pass allow_unrecorded_harness=True — "
+            "which is recorded on every row this run writes, printed in the "
+            "report, and makes the run uncitable.")
 
     ledger_path = Path(ledger_path or (Path("data/epl/sim") / "retro_ledger.jsonl"))
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
@@ -669,7 +813,10 @@ def run_retro(seasons: Sequence[str] | None = None,
     # ledger nobody can describe. The override is explicit and is recorded.
     me = producer_identity()
     foreign = sorted(key for key, row in have.items()
-                     if row.get("producer") not in (None, me))
+                     if row.get("producer") is not None
+                     and row.get("producer") != me)
+    legacy = sorted(key for key, row in have.items()
+                    if row.get("producer") is None)
     if foreign and not allow_foreign_producer:
         raise RetroError(
             f"{ledger_path} holds {len(foreign)} row(s) written by a different "
@@ -678,6 +825,16 @@ def run_retro(seasons: Sequence[str] | None = None,
             "different code and cannot be compared. Re-run into a fresh ledger, "
             "or pass allow_foreign_producer=True to append deliberately — which "
             "is recorded on every row this run writes.")
+    if legacy and not allow_legacy_rows:
+        raise RetroError(
+            f"{ledger_path} holds {len(legacy)} row(s) with no producer at all; "
+            f"the first are {legacy[:3]}. That is the v1 schema, and it is the "
+            "one shape the foreign-producer guard used to exempt — so a v1 "
+            "ledger was appended to silently by a later harness, and the file "
+            "ended up holding two producers' rows with nothing recording it. "
+            "Re-run into a fresh ledger, or pass allow_legacy_rows=True to "
+            "append deliberately — which is recorded on every row this run "
+            "writes and printed in the report.")
 
     need_archive = schedules is None or realised is None or runner is None
     if need_archive and matches is None:
@@ -687,49 +844,111 @@ def run_retro(seasons: Sequence[str] | None = None,
                                require_verified_adjustments=require_verified_adjustments,
                                verbose=verbose)
 
+    def _append(fh, row: dict) -> None:
+        if row["run_key"] in have:
+            return
+        if allow_foreign_producer and foreign:
+            row["allow_foreign_producer"] = True
+        if allow_legacy_rows and legacy:
+            row["allow_legacy_rows"] = True
+        if allow_unrecorded_harness and unrecorded:
+            row["allow_unrecorded_harness"] = True
+        fh.write(json.dumps(row, default=str) + "\n")
+        have[row["run_key"]] = row
+
+    def _refuse(season: str, triples, kind: str, reason: str) -> None:
+        """Write one typed marker per (label, cutoff, arm) that has no row."""
+        with ledger_path.open("a") as fh:
+            for label, cutoff, arm in triples:
+                _append(fh, _refusal_row(
+                    season=season, cutoff_label=label, cutoff=cutoff, arm=arm,
+                    n_sims=n_sims, seed=seed, kind=kind, reason=reason))
+
+    def _todo(season: str, label: str, cutoff) -> list[str]:
+        return [a for a in (*arms, *nulls)
+                if run_key(season, label, cutoff, a, n_sims, seed, me) not in have]
+
     wanted: list[str] = []
     for season in seasons:
+        # The schedule has to resolve first: a marker's key is built from the
+        # cutoff DATE, so a failure to resolve the schedule itself has no key
+        # to be written under and propagates unmarked. Everything downstream of
+        # it — the realised table, the fit, the simulation — is marked.
         schedule = ((schedules or {}).get(season)
                     or cutoff_schedule(matches, season))
-        outcome = ((realised or {}).get(season)
-                   or realised_positions(
-                       matches, season,
-                       require_verified=require_verified_adjustments))
+        try:
+            outcome = ((realised or {}).get(season)
+                       or realised_positions(
+                           matches, season,
+                           require_verified=require_verified_adjustments))
+            season_refusal = None
+        except Exception as exc:                          # noqa: BLE001 — typed below
+            outcome = None
+            season_refusal = (_refusal_kind(exc), _refusal_reason(exc))
+            # A4 (i): every requested arm of every cutoff of this season is
+            # named in the ledger before anything propagates. R1's 2023/24 —
+            # `UnverifiedAdjustment`, all six cutoffs — is this case exactly,
+            # and it was documented in PROSE by a human because nothing wrote
+            # a marker.
+            _refuse(season, [(label, schedule[label], arm)
+                             for label in cutoffs
+                             for arm in _todo(season, label, schedule[label])],
+                    *season_refusal)
+            if verbose:
+                print(f"[retro] {season} refused ({season_refusal[0]})", flush=True)
+            if season_refusal[0] == "runner_error":
+                raise
+
         for label in cutoffs:
             cutoff = schedule[label]
-            todo = [a for a in (*arms, *nulls)
-                    if run_key(season, label, cutoff, a, n_sims, seed, me)
-                    not in have]
-            if todo:
+            todo = _todo(season, label, cutoff)
+            if todo and season_refusal is None:
                 if verbose:
                     print(f"[retro] {season} {label} ({pd.Timestamp(cutoff).date()}) "
                           f"-> {len(todo)} arm(s)", flush=True)
-                result = runner(season=season, cutoff_label=label, cutoff=cutoff,
-                                arms=tuple(a for a in arms if a in todo),
-                                nulls=tuple(n for n in nulls if n in todo),
-                                n_sims=n_sims, seed=seed)
-                _check_clubs(result, season, label)
-                with ledger_path.open("a") as fh:
-                    for arm in todo:
-                        got = result.arms.get(arm)
-                        if got is None:
-                            # a null the runner declined — claim the key anyway
-                            row = _not_applicable_row(
+                try:
+                    result = runner(season=season, cutoff_label=label,
+                                    cutoff=cutoff,
+                                    arms=tuple(a for a in arms if a in todo),
+                                    nulls=tuple(n for n in nulls if n in todo),
+                                    n_sims=n_sims, seed=seed)
+                    _check_clubs(result, season, label)
+                except Exception as exc:                  # noqa: BLE001 — typed here
+                    kind = _refusal_kind(exc)
+                    _refuse(season, [(label, cutoff, arm) for arm in todo],
+                            kind, _refusal_reason(exc))
+                    if kind == "runner_error":
+                        raise
+                    if verbose:
+                        print(f"[retro] {season} {label} refused ({kind})",
+                              flush=True)
+                    result = None
+
+                if result is not None:
+                    with ledger_path.open("a") as fh:
+                        for arm in todo:
+                            got = result.arms.get(arm)
+                            if got is not None:
+                                _append(fh, _row(
+                                    season=season, cutoff_label=label,
+                                    cutoff=cutoff, arm=arm, result=got,
+                                    clubs=result.clubs, realised=outcome,
+                                    seed=seed, provenance=result.provenance,
+                                    smoke=smoke))
+                                continue
+                            told = (result.refusals or {}).get(arm)
+                            if told is None:
+                                # A4 (i): the runner was not asked whether it
+                                # refused and its silence is not an answer. An
+                                # arm it simply lost leaves its key unclaimed,
+                                # and the accounting reports an undocumented
+                                # hole — which is what happened.
+                                continue
+                            kind, reason = told
+                            _append(fh, _refusal_row(
                                 season=season, cutoff_label=label, cutoff=cutoff,
                                 arm=arm, n_sims=n_sims, seed=seed,
-                                reason=f"{arm} is not defined at {label}")
-                        else:
-                            row = _row(season=season, cutoff_label=label,
-                                       cutoff=cutoff, arm=arm, result=got,
-                                       clubs=result.clubs, realised=outcome,
-                                       seed=seed, provenance=result.provenance,
-                                       smoke=smoke)
-                        if row["run_key"] in have:
-                            continue
-                        if allow_foreign_producer and foreign:
-                            row["allow_foreign_producer"] = True
-                        fh.write(json.dumps(row, default=str) + "\n")
-                        have[row["run_key"]] = row
+                                kind=kind, reason=reason))
 
             for arm in (*arms, *nulls):
                 key = run_key(season, label, cutoff, arm, n_sims, seed, me)
@@ -737,6 +956,19 @@ def run_retro(seasons: Sequence[str] | None = None,
                     wanted.append(key)
 
     return [have[key] for key in wanted]
+
+
+def _refusal_kind(exc: BaseException) -> str:
+    """Which of A4's four kinds an exception is, by type and nothing else."""
+    if isinstance(exc, particles.ExcludedMassTooLarge):
+        return "excluded_mass_ceiling"
+    if isinstance(exc, season_mod.UnverifiedAdjustment):
+        return "unverified_adjustment"
+    return "runner_error"
+
+
+def _refusal_reason(exc: BaseException) -> str:
+    return f"{type(exc).__name__}: {exc}"
 
 
 def _check_clubs(result: CutoffResult, season: str, label: str) -> None:
@@ -780,10 +1012,14 @@ def _score_one(row: dict) -> dict:
         # run's own per-cell cluster SE, and the deviation from that
         # pre-statement is recorded as a dated note under A2.
         "trps_se": simmetrics.trps_se(matrix, positions, row.get("matrix_se")),
-        "trps_se_method": ("delta method on the cluster-by-particle per-cell SE, "
-                           "cells treated as independent (conservative: a club's "
-                           "row sums to 1, so the neglected covariances are "
-                           "predominantly negative)"),
+        "trps_se_method": ("TRPS MC SE (diagonal approx.): the delta method on "
+                           "the cluster-by-particle per-cell SE, keeping only "
+                           "the diagonal of the quadratic form. The cross-cell "
+                           "covariance is omitted, and because the TRPS "
+                           "gradient changes sign within a club's row the "
+                           "omitted terms can raise or lower the variance, so "
+                           "the direction of the approximation is not known "
+                           "(amendment A2-N4)"),
         "matrix_row_max_error": row_error,
         "matrix_col_max_error": col_error,
         "wtrps": simmetrics.wtrps(matrix, positions,
@@ -820,16 +1056,29 @@ def _score_one(row: dict) -> dict:
 
 def score_retro(ledger, *, n_boot: int = N_BOOT,
                 comparisons: Sequence[tuple[str, str]] = DEFAULT_COMPARISONS,
-                expected_cells: Sequence[tuple[str, str]] | None = None,
+                expected_triples: Sequence[tuple[str, str, str]] | None = None,
                 ) -> dict:
     """Every metric in plan v2 §5, per (season, cutoff, arm), plus the pairings.
 
-    `expected_cells` is the (season, cutoff) grid the run was ASKED for —
-    :func:`requested_cells` states it. Without it the completeness identity of
-    amendment A2 (b) cannot be evaluated, and the sanity block says so rather
-    than deriving a grid from the rows it was handed: `n_expected` is `None`,
-    `complete` is `None`, `dc_native_beats_flat_everywhere` is `False` and
-    `STOP_AND_INSPECT` is `True`.
+    `expected_triples` is the (season, cutoff, ARM) grid the run was ASKED
+    for — :func:`requested_cells` states it. A2 (b) named the unit the cell;
+    A4 (ii) makes it the triple, because a cell counts as present as soon as
+    one arm in it scored and the thing that gets lost is an arm.
+
+    **An unstated request is not a licence to certify.** v2.1 answered one with
+    `None` — *not evaluated* — which is not the same as complete and not the
+    same as incomplete. A4 (ii) retires that branch: with no grid supplied this
+    scores against the WHOLE preregistered schedule, every season, every cutoff
+    label, every arm and null. That is the most demanding grid available, so an
+    unstated request can only ever report more missing, never fewer, and a
+    casual `score_retro(rows)` on a partial ledger reads incomplete — correctly,
+    loudly, and with the fix being to state the grid.
+
+    The identity is ``n_scored + n_typed_refusals == n_expected``, over triples,
+    with `n_scored > 0` and zero violations — all three required for `complete`.
+    Only a TYPED marker counts as a refusal (A4 (i)): a row carrying
+    `not_applicable` text and no `refusal_kind` is a hole, which is what a v1
+    ledger's markers are.
 
     Aggregation happens WITHIN a cutoff label and never across labels — an
     opener forecast and a matchweek-19 forecast are different questions and a
@@ -895,58 +1144,65 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
     # violations)` reported True on ANY non-empty subset — one surviving cell of
     # a preregistered twenty-eight — because a missing cell is not a violation,
     # it is simply not counted. The flag now requires the accounting to close.
-    documented = {}
-    for row in ledger:
-        if row.get("not_applicable"):
-            documented[(row["season"], row["cutoff_label"], row["arm"])] = \
-                row["not_applicable"]
+    #
+    # A4 (i): ONLY A TYPED MARKER COUNTS. `not_applicable` text with no
+    # `refusal_kind` is a hole: v1 wrote exactly that shape, and under v2.1 so
+    # did this module's own caller, for any arm the runner failed to return —
+    # including the required `dc_native` and the always-defined `flat`.
+    documented = {
+        (row["season"], row["cutoff_label"], row["arm"]):
+            row.get("reason") or row.get("not_applicable") or ""
+        for row in ledger if row.get("refusal_kind") in REFUSAL_KINDS}
     by_cell: dict[tuple[str, str], set[str]] = {}
     for row in scored:
         by_cell.setdefault((row["season"], row["cutoff_label"]), set()).add(
             row["arm"])
-    # v2.1: and the grid has to be STATED. Deriving it from the rows just
-    # handed in makes the identity self-satisfying — every row present is a cell
-    # expected, so `n_checked == n_expected` holds by construction and any
-    # subset "closes". Scored through that path the real R1 ledger reported
-    # n_expected=34, n_checked=34, complete=True, STOP_AND_INSPECT=False on a
-    # run eight cells short of its preregistered 42. The derived cells are still
-    # worth reporting — an arm missing INSIDE a cell that IS present is a hole
-    # this can see without knowing the grid — but the identity is not evaluated
-    # and the flag cannot be True. :func:`requested_cells` states the grid.
-    stated = expected_cells is not None
-    if stated:
-        cells = {(str(s), str(c)) for s, c in expected_cells}
+    scored_triples = {(row["season"], row["cutoff_label"], row["arm"])
+                      for row in scored}
+
+    # A4 (ii): the grid is the SCHEDULE, on every path. Deriving it from the
+    # rows just handed in makes the identity self-satisfying — every row present
+    # is a cell expected, so it holds by construction and any subset "closes".
+    # Scored through that path the real R1 ledger reported n_expected=34,
+    # n_checked=34, n_missing=0, complete=True on a run eight cells short of its
+    # preregistered 42. v2.1 answered `None`; A4 answers with the whole
+    # preregistered schedule, which cannot flatter a partial ledger.
+    if expected_triples is not None:
+        expected = {(str(s), str(c), str(a)) for s, c, a in expected_triples}
         expected_source = "supplied by the caller"
     else:
-        cells = set(by_cell) | {(s, c) for s, c, _a in documented}
-        expected_source = ("NOT SUPPLIED — the caller did not state the "
-                           "requested grid, so the completeness identity was "
-                           "not evaluated and no cell absent from these rows "
-                           "can have been noticed; pass `expected_cells` "
-                           "(see `requested_cells`) to evaluate it")
+        expected = set(requested_cells(cutoffs=CUTOFF_LABELS))
+        expected_source = (
+            "NOT SUPPLIED — scored against the whole preregistered schedule "
+            f"({len(SEASONS)} seasons x {len(CUTOFF_LABELS)} cutoffs x "
+            f"{len(ARMS) + len(NULLS)} arms), which is the most demanding grid "
+            "available, so an unstated request can only report MORE missing "
+            "and never fewer; pass `expected_triples` (see `requested_cells`) "
+            "to be held against what this run actually asked for")
+
     missing = []
-    for season, label in sorted(cells):
-        present = by_cell.get((season, label), set())
-        for arm in ("dc_native", "flat"):
-            if arm in present:
-                continue
-            reason = documented.get((season, label, arm))
-            missing.append({
-                "season": season, "cutoff_label": label, "arm": arm,
-                "reason": reason or "absent from the ledger",
-                "documented": reason is not None,
-            })
-    documented_refusals = len({(m["season"], m["cutoff_label"]) for m in missing
-                               if m["documented"]})
+    for season, label, arm in sorted(expected - scored_triples):
+        reason = documented.get((season, label, arm))
+        missing.append({
+            "season": season, "cutoff_label": label, "arm": arm,
+            "reason": reason if reason is not None else "absent from the ledger",
+            "documented": reason is not None,
+        })
+    n_scored = len(expected & scored_triples)
+    typed_refusals = {t for t in expected if t in documented}
+    n_typed_refusals = len(typed_refusals)
     undocumented = [m for m in missing if not m["documented"]]
-    # A2 (b)'s identity, evaluated only when there is a request to evaluate it
-    # against. `None` is "not evaluated" and is deliberately not `False`: a
-    # caller who states no grid has not been told its run is incomplete, it has
-    # been told nothing, and the flag below fails closed on that.
-    n_expected = len(cells) if stated else None
-    complete = (bool(checked + documented_refusals == n_expected
-                     and not undocumented) if stated else None)
-    overrides = sum(1 for r in ledger if r.get("allow_foreign_producer"))
+
+    # A4 (ii)'s identity, over triples. It fails short when a triple is a hole
+    # and fails long when one carries both a score and a refusal marker, which
+    # is a contradiction no run should be able to produce.
+    n_expected = len(expected)
+    identity = n_scored + n_typed_refusals == n_expected
+    complete = bool(identity and n_scored > 0 and not violations)
+    foreign_overrides = sum(1 for r in ledger if r.get("allow_foreign_producer"))
+    legacy_overrides = sum(1 for r in ledger if r.get("allow_legacy_rows"))
+    unrecorded_overrides = sum(1 for r in ledger
+                               if r.get("allow_unrecorded_harness"))
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -957,18 +1213,22 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
         "by_cutoff": by_cutoff,
         "comparisons": paired,
         "sanity": {
-            "n_expected": None if n_expected is None else int(n_expected),
+            "n_expected": int(n_expected),
             "n_expected_source": expected_source,
-            "n_checked": int(checked),
+            "n_scored": int(n_scored),
+            "n_cells_compared": int(checked),
             "n_missing": len(missing),
             "missing": missing,
-            "n_documented_refusals": int(documented_refusals),
+            "n_typed_refusals": int(n_typed_refusals),
+            "identity_holds": bool(identity),
             "complete": complete,
-            "n_foreign_producer_overrides": int(overrides),
+            "n_foreign_producer_overrides": int(foreign_overrides),
+            "n_legacy_row_overrides": int(legacy_overrides),
+            "n_unrecorded_harness_overrides": int(unrecorded_overrides),
             "dc_native_beats_flat_everywhere": bool(
-                checked and not violations and complete is True),
+                checked and not violations and complete),
             "violations": violations,
-            "STOP_AND_INSPECT": bool(violations or undocumented or not stated),
+            "STOP_AND_INSPECT": bool(violations or undocumented or not identity),
         },
         "never_averaged_across_cutoffs": True,
         "note": ("TRPS is primary and unweighted; wTRPS on the published "
@@ -989,10 +1249,18 @@ def score_retro(ledger, *, n_boot: int = N_BOOT,
 #: row whose leading number is TRPS and described in the legend as the position
 #: matrix's error. It was neither. It is now named for what it is, its maximum
 #: is printed beside it, and TRPS carries its own SE.
-_COLUMNS = ("cutoff", "season", "arm", "TRPS", "TRPS SE", "flat TRPS", "wTRPS",
+_COLUMNS = ("cutoff", "season", "arm", "TRPS",
+            "TRPS MC SE (diagonal approx.)", "flat TRPS", "wTRPS",
             "Brier champ", "Brier top4", "Brier releg", "champ -ln p",
             "pts CRPS", "pts MAE", "cov50", "cov90",
             "mean cell SE", "max cell SE")
+
+
+#: How many missing triples the report prints in full. Under A4 (ii) an
+#: unstated grid is the whole 210-triple schedule, so a casual scoring of a
+#: partial ledger names hundreds of holes; the count is always exact and the
+#: list is truncated so the sanity block stays readable.
+_MISSING_SHOWN = 20
 
 
 def _fmt(value, digits: int = 4) -> str:
@@ -1022,13 +1290,15 @@ def report(scores: dict) -> str:
         "position matrix's own error (that quantity is `matrix_cluster_se_max` "
         "in the same `mc` block). Under harness v1 the first of them was printed "
         "as `MC SE` beside TRPS and described as the matrix's error, which it "
-        "was not, and TRPS carried no Monte-Carlo error at all. `TRPS SE` is "
-        "that error: the delta method applied to the run's own per-cell "
-        "cluster-by-particle SE, treating a club's cells as independent. They "
-        "are not — a club's row sums to 1, so the neglected covariances are "
-        "predominantly negative — which makes the reported figure conservative "
-        "rather than exact. It is `n/a` for the nulls, which record no per-cell "
-        "error. All of it is Monte-Carlo error only.",
+        "was not, and TRPS carried no Monte-Carlo error at all. "
+        "`TRPS MC SE (diagonal approx.)` is that error: the delta method "
+        "applied to the run's own per-cell cluster-by-particle SE, keeping only "
+        "the diagonal of the quadratic form. The cross-cell covariance is "
+        "omitted, and because the TRPS gradient changes sign within a club's "
+        "row the omitted terms can raise or lower the variance, so the "
+        "direction of the approximation is not known (amendment A2-N4). It is "
+        "`n/a` for the nulls, which record no per-cell error. All of it is "
+        "Monte-Carlo error only.",
         "",
         "| " + " | ".join(_COLUMNS) + " |",
         "|" + "|".join(["---"] * len(_COLUMNS)) + "|",
@@ -1066,25 +1336,37 @@ def report(scores: dict) -> str:
                 f"{cell['n_blocks']} |")
 
     sanity = scores["sanity"]
-    expected = ("a grid that was not stated" if sanity["n_expected"] is None
-                else f"{sanity['n_expected']} expected")
-    closes = ("**NOT EVALUATED** — the requested grid was not stated, so a cell "
-              "absent from these rows cannot have been noticed"
-              if sanity["complete"] is None else f"**{sanity['complete']}**")
     lines += ["", "## Sanity", "",
               f"- dc_native beats the flat null at every EXPECTED "
               f"(season, cutoff): **{sanity['dc_native_beats_flat_everywhere']}** "
-              f"— {sanity['n_checked']} checked + "
-              f"{sanity['n_documented_refusals']} documented refusal(s) against "
-              f"{expected} ({sanity['n_expected_source']}); "
-              f"the accounting closes: {closes}"]
+              f"— {sanity['n_scored']} scored + "
+              f"{sanity['n_typed_refusals']} typed refusal(s) against "
+              f"{sanity['n_expected']} expected (season, cutoff, arm) triples "
+              f"({sanity['n_expected_source']}); "
+              f"{sanity['n_cells_compared']} cell(s) had both required arms; "
+              f"the accounting closes: **{sanity['complete']}**"]
     if sanity["n_missing"]:
-        lines.append("- missing cells: " + json.dumps(sanity["missing"]))
+        shown = sanity["missing"][:_MISSING_SHOWN]
+        rest = sanity["n_missing"] - len(shown)
+        lines.append(f"- {sanity['n_missing']} missing triple(s): "
+                     + json.dumps(shown)
+                     + (f" … and {rest} more" if rest else ""))
     if sanity["n_foreign_producer_overrides"]:
         lines.append(
             f"- **{sanity['n_foreign_producer_overrides']} row(s) were appended "
             "under an explicit foreign-producer override**: this ledger mixes "
             "rows computed by different harness code, on purpose and on record.")
+    if sanity["n_legacy_row_overrides"]:
+        lines.append(
+            f"- **{sanity['n_legacy_row_overrides']} row(s) were appended under "
+            "an explicit legacy-rows override**: this ledger already held rows "
+            "with no producer at all — the v1 schema — and was appended to "
+            "anyway, on purpose and on record.")
+    if sanity["n_unrecorded_harness_overrides"]:
+        lines.append(
+            f"- **{sanity['n_unrecorded_harness_overrides']} row(s) were "
+            "produced under an UNRECORDED harness pair**, by explicit override. "
+            "Prereg §12 makes such a run invalid: this is **not a citable run**.")
     if sanity["STOP_AND_INSPECT"]:
         lines.append("- **STOP AND INSPECT** — violations: "
                      + json.dumps(sanity["violations"]))
@@ -1111,6 +1393,13 @@ def _cli(argv: Iterable[str] | None = None) -> None:
     ap.add_argument("--seed", type=int, default=SEED)
     ap.add_argument("--ledger", default="data/epl/sim/retro_smoke.jsonl")
     ap.add_argument("--out", default="data/epl/sim/retro_smoke.md")
+    ap.add_argument("--allow-legacy-rows", action="store_true",
+                    help="append to a ledger that holds producer-less (v1) "
+                         "rows; recorded on every row and printed (A4 (iii))")
+    ap.add_argument("--allow-unrecorded-harness", action="store_true",
+                    help="run under a harness pair the ledger does not record; "
+                         "recorded on every row and printed, and the run is "
+                         "NOT citable (A4 (iv))")
     args = ap.parse_args(list(argv) if argv is not None else None)
 
     if not args.smoke:
@@ -1120,19 +1409,21 @@ def _cli(argv: Iterable[str] | None = None) -> None:
 
     # The grid is stated by the caller, from the same normalisation the run
     # used, so `score_retro` closes its accounting against what was ASKED for.
-    cells = requested_cells(smoke=True)
+    triples = requested_cells(smoke=True)
     rows = run_retro(smoke=True, n_sims=args.n_sims, seed=args.seed,
-                     ledger_path=args.ledger, verbose=True)
-    scores = score_retro(rows, expected_cells=cells)
+                     ledger_path=args.ledger, verbose=True,
+                     allow_legacy_rows=args.allow_legacy_rows,
+                     allow_unrecorded_harness=args.allow_unrecorded_harness)
+    scores = score_retro(rows, expected_triples=triples)
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report(scores))
     print(f"[retro] {len(rows)} rows -> {out}")
     print(f"[retro] dc_native beats flat everywhere: "
           f"{scores['sanity']['dc_native_beats_flat_everywhere']} "
-          f"({scores['sanity']['n_checked']} checked + "
-          f"{scores['sanity']['n_documented_refusals']} documented refusal(s) "
-          f"of {scores['sanity']['n_expected']} requested cells; "
+          f"({scores['sanity']['n_scored']} scored + "
+          f"{scores['sanity']['n_typed_refusals']} typed refusal(s) "
+          f"of {scores['sanity']['n_expected']} requested triples; "
           f"the accounting closes: {scores['sanity']['complete']})")
 
 

@@ -22,10 +22,12 @@ would move if the same forecast were re-simulated at another seed. It says
 nothing about model error, nothing about the fact that TRPS is proper for the
 displayed marginals rather than for the joint law, and nothing about how much a
 different SEASON might have disagreed — that last one is what R1's season-block
-bootstrap reports, and the two must not be read as versions of each other. The
-per-cell errors are treated as independent, which they are not: a club's row
-sums to 1, so the neglected covariances are predominantly negative and the
-result OVERSTATES the variance. Conservative, and stated.
+bootstrap reports, and the two must not be read as versions of each other. It is
+the DIAGONAL APPROXIMATION to the delta-method variance: the cross-cell
+covariance is omitted, and because the TRPS gradient changes sign within a
+club's row the omitted terms can raise or lower the variance, so the direction
+of the approximation is not known (amendment A2-N4, which withdraws the earlier
+claim that it errs on the safe side).
 
 The nulls record no per-cell error, so their TRPS carries none here. `flat` is
 closed-form and has no Monte-Carlo error to report; `ppg_pointmass` is a point
@@ -214,10 +216,16 @@ def addendum_markdown(cells: Sequence[dict], *, ledger_path=DEFAULT_LEDGER,
         "have disagreed is what §4's season-block bootstrap reports, and it is "
         "one to two orders of magnitude larger. These two numbers are not "
         "versions of each other and must not be read as if they were.")
-    add("- **Conservative, not exact.** The cells of one club are treated as "
-        "independent. They are not — a club's row sums to 1, so the neglected "
-        "covariances are predominantly negative — and ignoring them "
-        "**overstates** the variance.")
+    add("- **Direction unknown.** This is the DIAGONAL approximation to the "
+        "delta-method variance: the cross-cell covariance is omitted, and "
+        "because the TRPS gradient changes sign within a club's row the "
+        "omitted terms can raise or lower the variance, so the direction of "
+        "the approximation is not known. What is dropped is "
+        "`g · g' · Cov(·, ·)`, not `Cov(·, ·)`; a club's cells are indeed "
+        "predominantly negatively correlated, but a negative covariance "
+        "multiplied by two gradient components of opposite sign contributes a "
+        "**positive** term. Recorded as amendment **A2-N4**, which withdraws "
+        "the claim that this figure errs on the safe side.")
     add("- **`n/a` for the nulls.** `flat` is closed-form and `ppg_pointmass` "
         "is a point mass; neither records a per-cell Monte-Carlo error, so "
         "neither gets an invented one.")
@@ -235,7 +243,7 @@ def addendum_markdown(cells: Sequence[dict], *, ledger_path=DEFAULT_LEDGER,
         "errors — an addendum, not a revision.")
     add("")
 
-    add("### Every scored cell — TRPS ± MC SE")
+    add("### Every scored cell — TRPS ± TRPS MC SE (diagonal approx.)")
     add("")
     add("Comparison cutoffs first, then the MW28 sanity cutoff, which is in no "
         "comparison (§7). `±` is the Monte-Carlo standard error described "
@@ -262,7 +270,7 @@ def addendum_markdown(cells: Sequence[dict], *, ledger_path=DEFAULT_LEDGER,
                 add(f"| {cutoff} | {season} | {body} |")
         add("")
 
-    add("### Per-cutoff mean TRPS ± MC SE of the mean")
+    add("### Per-cutoff mean TRPS ± TRPS MC SE (diagonal approx.) of the mean")
     add("")
     add("Means are taken **within** a cutoff and never across cutoffs, and the "
         "season count is on every row because it is not the same at every "
