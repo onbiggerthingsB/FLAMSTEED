@@ -1625,3 +1625,169 @@ def test_ingest_results_records_a_moved_kickoff_from_the_refreshed_source(tmp_pa
     simcli.ingest_results(season=SEASON, root=root2, openfootball_file=vendored,
                           write=True, observed_at="2026-08-20T09:00", verbose=False)
     assert (root2 / "2026_27" / "kickoff_amendments.jsonl").read_text() == ""
+
+
+# ==========================================================================
+# G2 — `observed_by` binds the WHOLE forecast (A6 (c); every review's P0:
+# `engine-pricing.md` #1, `gate-retro.md` #1, `live-forecast.md` #1,
+# `live-ingest.md` #1)
+#
+# The bound reached the season state and the training frame and was then
+# dropped when the DC fit built its Elo covariates and when the Elo arm was
+# built. `gate-retro.md` #1's probe is reproduced here: C = 2026-08-26,
+# O = 2026-08-22, one result played 2026-08-24 and filed as observed
+# 2026-08-25. The state sees zero results; at HEAD the anchor saw the match.
+# ==========================================================================
+
+PROBE_CUTOFF = "2026-08-26"
+PROBE_OBSERVED_BY = "2026-08-22"
+PROBE_FIXTURE = "2627:arsenal:coventry"
+
+
+@pytest.fixture(scope="module")
+def leaked_season(tmp_path_factory) -> season_mod.Season:
+    """The real season with ONE result filed after the knowledge bound."""
+    root = tmp_path_factory.mktemp("probe") / "season"
+    shutil.copytree(season_mod.SEASON_ROOT, root)
+    (root / "2026_27" / "results_ledger.jsonl").write_text(json.dumps({
+        "fixture_id": PROBE_FIXTURE, "date_played": "2026-08-24",
+        "hg": 5, "ag": 0, "source": "manual",
+        "observed_at": "2026-08-25T09:00:00", "note": "the probe"}) + "\n")
+    return season_mod.Season.load(SEASON, root=root)
+
+
+@pytest.fixture(scope="module")
+def leaked_anchor(live_anchor, leaked_season):
+    from epl import freeze
+
+    _, archive = live_anchor
+    return liveanchor.LiveAnchor(archive, leaked_season.results,
+                                 leaked_season.manifest,
+                                 freeze.frozen_elo_config())
+
+
+def test_a_result_observed_after_the_bound_does_not_move_the_anchor(
+        live_anchor, leaked_anchor, season_obj):
+    """The DC fit's Elo covariates are built under the run's knowledge bound.
+
+    `dcfit.fit_epl` re-entered the anchor with the cutoff alone, so a result
+    filed between O and C moved `elo_z` while being absent from the declared
+    snapshot — and the persisted bundle reproduced the leak, so `check` passed
+    it.
+    """
+    from epl import dcfit
+
+    anchor, _ = live_anchor                      # the repo ledger is empty
+    teams = list(season_obj.manifest.clubs)
+
+    bounded = dcfit.anchor_state_at(leaked_anchor, PROBE_CUTOFF, teams,
+                                    observed_by=PROBE_OBSERVED_BY)
+    clean = dcfit.anchor_state_at(anchor, PROBE_CUTOFF, teams,
+                                  observed_by=PROBE_OBSERVED_BY)
+    assert bounded.ratings == clean.ratings
+    np.testing.assert_array_equal(bounded.elo_z(teams), clean.elo_z(teams))
+
+    # POSITIVE CONTROL — the row is really there and really does move the
+    # anchor. Drop the bound, which is what HEAD did, and Arsenal moves.
+    unbounded = dcfit.anchor_state_at(leaked_anchor, PROBE_CUTOFF, teams)
+    assert unbounded.ratings["arsenal"] != clean.ratings["arsenal"]
+    assert not np.array_equal(unbounded.elo_z(teams), clean.elo_z(teams))
+
+
+def test_live_fit_hands_the_knowledge_bound_to_the_dc_fit(
+        live_anchor, season_obj, monkeypatch):
+    """`live_fit` forwards `observed_by`; it does not stop at the frame.
+
+    Exercised, not read: the fit is replaced by a recorder, so what is asserted
+    is the argument the real `live_fit` body actually passes.
+    """
+    from epl import dcfit
+
+    class _Stop(RuntimeError):
+        pass
+
+    seen: dict = {}
+
+    def _recorder(cutoff, store, anchor, cfg, **kw):
+        seen["cutoff"] = cutoff
+        seen["observed_by"] = kw.get("observed_by", "<not passed>")
+        raise _Stop
+
+    monkeypatch.setattr(dcfit, "fit_epl", _recorder)
+    monkeypatch.setattr(simcli, "_fitted_teams",
+                        lambda cutoff, store, cfg: list(season_obj.manifest.clubs))
+    _, archive = live_anchor
+    with pytest.raises(_Stop):
+        simcli.live_fit(season_obj, PROBE_CUTOFF, matches=archive,
+                        store=object(), observed_by=PROBE_OBSERVED_BY,
+                        verbose=False)
+    assert seen["cutoff"] == PROBE_CUTOFF
+    assert seen["observed_by"] == PROBE_OBSERVED_BY
+
+
+def test_the_elo_arm_is_built_under_the_forecasts_knowledge_bound(
+        live_anchor, leaked_anchor, leaked_season, book):
+    """The Elo arm's anchor state AND its history frame respect the bound.
+
+    Two surfaces, and both were unbounded: `fit.anchor.state(cutoff, clubs)` and
+    `fit.anchor.history_frame(cutoff)`. The ratings feed the fixture edges and
+    the history feeds the ordered logit, so a result filed after O changed the
+    arm's prices twice over.
+    """
+    anchor, archive = live_anchor
+    state = leaked_season.at(PROBE_CUTOFF, PROBE_OBSERVED_BY)
+    assert state.played == {}, "the state itself already excludes the probe row"
+
+    bridge = bridge_mod.EmpiricalBridge.fit(archive, PROBE_CUTOFF)
+    fixtures = [state.fixtures[fid] for fid in sorted(state.fixtures)]
+
+    def provider(anchor_obj):
+        return simcli._provider(
+            "elo_wdl_bridge",
+            simcli.FitBundle(post=None, book=book, anchor=anchor_obj,
+                             matches=archive, training=archive),
+            bridge, state, PROBE_CUTOFF, N_PARTICLES)
+
+    assert provider(leaked_anchor).content_hash() == provider(anchor).content_hash()
+
+    # POSITIVE CONTROL — exactly what HEAD built: the anchor state and the
+    # history frame taken at the cutoff with no knowledge bound at all.
+    head = bridge_mod.EloOutcomeProvider.fit(
+        leaked_anchor.state(PROBE_CUTOFF, list(state.clubs)),
+        leaked_anchor.history_frame(PROBE_CUTOFF), fixtures, bridge,
+        n_particles=N_PARTICLES)
+    clean = provider(anchor)
+    assert head.content_hash() != clean.content_hash()
+    assert head.ratings["arsenal"] != clean.ratings["arsenal"]
+    assert head.n_fit_rows != clean.n_fit_rows, (
+        "the ordered logit's own fitting frame must be bounded too")
+
+
+def test_an_archive_anchor_takes_no_knowledge_bound_and_is_not_refused(
+        live_anchor):
+    """A completed record has no known-at dimension, and says so by its signature.
+
+    `epl.anchor.Anchor` is the archive's own snapshot table: there is nothing a
+    later observation could reveal about a season that finished, so it takes no
+    `observed_by` and needs none. Which of the two anchors we hold is read off
+    the signature rather than guessed, and an object that answers to neither
+    call is refused rather than quietly re-entered without the bound.
+    """
+    from epl import anchor as anchor_mod, dcfit, freeze
+
+    _, archive = live_anchor
+    arch = anchor_mod.Anchor(archive, freeze.frozen_elo_config())
+    # Clubs the ARCHIVE holds: a promoted side has no archive rating, which is
+    # the cold-start path and a different question from this one.
+    teams = ["arsenal", "chelsea", "everton"]
+    got = dcfit.anchor_state_at(arch, "2026-05-01", teams,
+                                observed_by="2026-04-01")
+    assert got.ratings == arch.state("2026-05-01", teams).ratings
+
+    class _Opaque:
+        def state(self, cutoff, teams):
+            raise AssertionError("must not be called")
+
+    with pytest.raises(season_mod.SeasonError, match="knowledge bound"):
+        dcfit.anchor_state_at(_Opaque(), "2026-05-01", teams,
+                              observed_by="2026-04-01")

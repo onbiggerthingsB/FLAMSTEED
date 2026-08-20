@@ -2293,3 +2293,49 @@ particular **D4 is kept exactly as written**.
 
 Nothing above touches a number in any issued forecast, the retrospective, or the
 committed opener bundle. `src/` and `scripts/` are unchanged.
+
+### What landed for A6 (c) — the knowledge bound (recorded 2026-08-20, with the G2 Fix commit)
+
+A6 (c) pre-stated that `observed_by` binds the whole forecast and named the five
+surfaces. Four of them already respected it or now do; the fifth is stated as a
+limit rather than claimed.
+
+* the season **state** and the **training frame** — already, unchanged;
+* the **DC fit's Elo covariates** — `fit_epl` takes `observed_by` and builds
+  `elo_z` through `epl.anchor.anchor_state_at`, which passes the bound to an
+  anchor that has a known-at dimension and refuses an object that can state no
+  bound at all. An `epl.anchor.Anchor` is the archive's own snapshot table, a
+  closed record with nothing a later observation could reveal, so it takes no
+  such argument and needs none — and which of the two is in hand is read off the
+  SIGNATURE rather than discovered by catching `TypeError`, because a
+  `TypeError` raised inside a replay would otherwise be swallowed and silently
+  downgraded into the unbounded call this exists to prevent;
+* the **Elo arm's anchor state and history frame** — both now carry the bound,
+  taken from the `SeasonState`, which is where this run's knowledge clock is
+  decided. Taking it from anywhere else is how two clocks get into one run;
+* the **bridge's fitting frame** — the live path already fits the bridge on
+  `fit.training`, which `live_training_frame` bounds by both clocks (D18, and
+  the test that pins it predates this round). `EmpiricalBridge.fit`'s own
+  `date < cutoff` filter is the PLAY clock and is correct as it stands.
+
+**What is NOT done, and why.** A6 (c) also says a provider that cannot state its
+bound is refused. `epl/leaguesim.py`'s backstop still accepts a provider with no
+usable `describe()`, and `ParticleBook` still carries no fit cutoff or
+`observed_by`. Closing that would change `ParticleBook.content_hash()` — hence
+`effective_posterior_hash` — or the provider `describe()` blocks that land in
+each arm's envelope, and both are anchored in the COMMITTED opener issuance's
+`digests` and `provider_hashes`. Making the engine refuse what it cannot verify
+would therefore require re-issuing the published opener, which this round is
+explicitly not doing. It is recorded here as an open item for the first issuance
+written under `epl-issuance-4`, where the record can carry the provenance without
+re-basing a published one.
+
+The probe A6 (c) pre-states is now a test: at `cutoff = 2026-08-26`,
+`observed_by = 2026-08-22`, with one result played 2026-08-24 and filed as
+observed 2026-08-25, the anchor's ratings and `elo_z` and the Elo arm's content
+hash are identical to the same run against a ledger without the row — and the
+positive control drops the bound and watches Arsenal move, which is what HEAD
+did. The committed opener's own ledger is empty, so no number in it moves:
+`dc_native` still reproduces and still reports `digest_matches: true`, and the two
+bridge arms are REFUSED there for the reason they always were, its bundle carrying
+no sidecars.

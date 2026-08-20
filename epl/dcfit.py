@@ -86,7 +86,7 @@ from typing import Any, Iterable, Sequence
 import numpy as np
 import pandas as pd
 
-from epl.anchor import Anchor, AnchorState
+from epl.anchor import Anchor, AnchorState, anchor_state_at
 
 # --- READ-ONLY imports from the attested package ---------------------------
 from wcmodel.data import features as wc_features
@@ -97,8 +97,8 @@ from wcmodel.model.inference import sample
 from wcmodel.model.volatility_diagnostic import count_volatility_arm
 from wcmodel.model.widening import likelihood_weight
 
-__all__ = ["ColdStartPosterior", "cold_start_clubs", "fit_epl", "EplFit",
-           "EPL_COVARIATES"]
+__all__ = ["ColdStartPosterior", "anchor_state_at", "cold_start_clubs",
+           "fit_epl", "EplFit", "EPL_COVARIATES"]
 
 #: The covariates that mean anything on a one-country league. ``rest_days`` is
 #: the only one ``features.build`` actually populates here (1.3% NaN at a
@@ -216,7 +216,8 @@ class EplFit:
 def fit_epl(cutoff, store, anchor: Anchor, cfg: dict,
             matches: pd.DataFrame | None = None,
             cold_start: Iterable[str] | None = None,
-            feature_cache_dir=None) -> tuple[ColdStartPosterior, EplFit]:
+            feature_cache_dir=None,
+            observed_by=None) -> tuple[ColdStartPosterior, EplFit]:
     """``wcmodel``'s Dixon-Coles fit, anchored on this package's Elo.
 
     Step for step this is ``wcmodel.model.scoreline.fit`` — the same panel, the
@@ -258,7 +259,8 @@ def fit_epl(cutoff, store, anchor: Anchor, cfg: dict,
     cov, cov_mask, cov_transforms = _build_covariates(
         mp, cfg["model"]["covariates"])
     teams = sorted(set(mp["home_team"]) | set(mp["away_team"]))
-    state = anchor.state(cutoff, teams)
+    # A6 (c): the knowledge bound reaches the covariates, not only the frame.
+    state = anchor_state_at(anchor, cutoff, teams, observed_by)
     elo_z = state.elo_z(teams)
 
     d = build_design(mp, cov=cov, cov_mask=cov_mask, elo_z=elo_z)

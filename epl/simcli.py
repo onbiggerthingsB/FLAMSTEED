@@ -42,8 +42,9 @@ from typing import Any, Iterable, Sequence
 import numpy as np
 import pandas as pd
 
-from epl import (bridge as bridge_mod, leaguesim, particles, paths,
-                 season as season_mod, simbundle, simcanary, table as table_mod)
+from epl import (anchor as anchor_mod, bridge as bridge_mod, leaguesim,
+                 particles, paths, season as season_mod, simbundle, simcanary,
+                 table as table_mod)
 
 # ==========================================================================
 # constants
@@ -228,9 +229,14 @@ def live_fit(season_obj: season_mod.Season, cutoff, *, matches=None, store=None,
         if verbose:
             print(f"[forecast] fitting at {cutoff}: {len(teams)} fitted teams, "
                   f"cold start {cold}", flush=True)
+        # A6 (c): the knowledge bound is the RUN's, so it goes to the fit as
+        # well as to the frame. `fit_epl` re-enters the anchor to build `elo_z`,
+        # and an anchor re-entered with the cutoff alone reads results the
+        # declared snapshot cannot see.
         post, info = dcfit.fit_epl(cutoff, store, anchor, cfg, matches=train,
                                    cold_start=cold,
-                                   feature_cache_dir=paths.FIT_CACHE_DIR)
+                                   feature_cache_dir=paths.FIT_CACHE_DIR,
+                                   observed_by=observed_by)
 
     book = particles.ParticleBook.from_posterior(post)
     return FitBundle(
@@ -483,8 +489,18 @@ def _provider(arm: str, fit: FitBundle, bridge, state, cutoff, n_particles: int)
             raise CliError(
                 "the Elo arm needs the anchor the fit was built on; none was "
                 "supplied with the fit bundle")
-        anchor_state = fit.anchor.state(cutoff, list(state.clubs))
-        history = (fit.anchor.history_frame(cutoff)
+        # A6 (c). BOTH of this arm's inputs carry the run's knowledge bound: the
+        # ratings that set each fixture's edge, and the history frame the ordered
+        # logit is fitted on. Taking either at the cutoff alone let a result
+        # filed after `observed_by` change the arm's prices twice over, in a run
+        # whose declared snapshot does not contain it. The bound is read off the
+        # SeasonState because that object is where this forecast's knowledge
+        # clock is decided — `observed_by` defaults to the cutoff there, and
+        # taking it from anywhere else is how two clocks get into one run.
+        observed_by = getattr(state, "observed_by", None)
+        anchor_state = anchor_mod.anchor_state_at(
+            fit.anchor, cutoff, list(state.clubs), observed_by)
+        history = (fit.anchor.history_frame(cutoff, observed_by=observed_by)
                    if hasattr(fit.anchor, "history_frame")
                    else fit.anchor.history)
         return bridge_mod.EloOutcomeProvider.fit(

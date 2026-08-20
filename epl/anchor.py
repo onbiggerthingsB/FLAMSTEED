@@ -70,6 +70,7 @@ guarantee ``epl.walk`` gives the baseline, enforced by the same code.
 from __future__ import annotations
 
 import copy
+import inspect
 from dataclasses import dataclass
 from typing import Any, Sequence
 
@@ -78,9 +79,10 @@ import pandas as pd
 
 from epl import elo as epl_elo, walk
 from epl.schema import sort_for_walk_forward
+from epl.season import SeasonError
 
-__all__ = ["Anchor", "AnchorState", "wcmodel_config", "mean_mov_multiplier",
-           "TOURNAMENT_LABEL", "MATCH_TYPE"]
+__all__ = ["Anchor", "AnchorState", "anchor_state_at", "wcmodel_config",
+           "mean_mov_multiplier", "TOURNAMENT_LABEL", "MATCH_TYPE"]
 
 #: The ``tournament`` string every EPL row carries into the store.
 TOURNAMENT_LABEL = "Premier League"
@@ -295,3 +297,44 @@ def wcmodel_config(base: dict, config: epl_elo.EloConfig,
 def _match_type(tournament: str) -> str:
     from wcmodel.data import tiers as wc_tiers
     return wc_tiers.match_type(tournament)
+
+
+def anchor_state_at(anchor, cutoff, teams: Sequence[str],
+                    observed_by=None) -> AnchorState:
+    """``anchor.state``, with the knowledge bound given to anchors that HAVE one.
+
+    A6 (c): ``observed_by`` bounds the whole forecast, the DC fit's Elo
+    covariates included. Two anchors reach this function and only one of them
+    has a known-at dimension:
+
+    * :class:`epl.liveanchor.LiveAnchor` replays a bitemporal results ledger, so
+      a result filed after ``observed_by`` must not reach the ratings. Dropping
+      the bound here is the leak all five final-state reviews report as their
+      P0: the state saw no results and the anchor saw one.
+    * :class:`epl.anchor.Anchor` is the archive's own snapshot table. A completed
+      season is a closed record with nothing a later observation could reveal,
+      so it takes no such argument and needs none.
+
+    Which of the two we hold is read off the SIGNATURE, not guessed from the
+    type and not discovered by catching :class:`TypeError` — a ``TypeError``
+    raised deep inside a replay would otherwise be swallowed and silently
+    downgraded into an unbounded call, which is the failure this exists to stop.
+    An object that is neither is REFUSED: an anchor that cannot state the
+    knowledge bound it was built under is not trusted to have respected one.
+    """
+    if observed_by is None:
+        return anchor.state(cutoff, teams)
+    state = getattr(anchor, "state", None)
+    if state is None:
+        raise SeasonError(f"{type(anchor).__name__} is not an anchor: it has no state()")
+    if "observed_by" in inspect.signature(state).parameters:
+        return state(cutoff, teams, observed_by=observed_by)
+    if isinstance(anchor, Anchor):
+        # The archive branch: no known-at dimension, so the bound is satisfied
+        # by construction rather than ignored.
+        return state(cutoff, teams)
+    raise SeasonError(
+        f"{type(anchor).__name__}.state() takes no knowledge bound, and this "
+        f"forecast declares observed_by={observed_by}. An anchor that cannot "
+        "state the bound it was built under is refused rather than re-entered "
+        "without one (amendment A6 (c)).")
