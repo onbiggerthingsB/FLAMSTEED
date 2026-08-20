@@ -9,6 +9,211 @@ This is the execution of the preregistration. It reports what the harness produc
 
 ---
 
+## Addendum B — 2026-08-20 — 2023/24 added after the owner-authorised adjustment attestation
+
+**Read this before §1.** The R1 body below is a **six-season** result and says so throughout. It is unchanged: not one number, count, hash or interval in §1–§10 or in Addendum A has moved. What this addendum adds is the **seventh season**, 2023/24 — the season R1 refused entirely at §2 Hole 1 — scored on 2026-08-20 under **harness v3** into the same ledger, and every per-cutoff aggregate recomputed over the enlarged set. Where a number below disagrees with the same number in §3–§8, **this addendum is the current one and the body is the R1-as-run record**; both are kept, because R1 is the run the preregistration preregistered and a report that quietly restated itself would not be that record.
+
+Monte-Carlo standard error is beside every simulated headline and **is not model error**. Scores are per (season, cutoff) and are never averaged across cutoffs. There is no pass rule, here or anywhere in this report; nothing below decides the published-arm question, which remains the open owner ruling of §10. The standing disclaimers at the head of this report apply to everything in this addendum, unchanged and in full.
+
+### B.1 The attestation that made the season scoreable
+
+R1 refused all six cutoffs of 2023/24 with `UnverifiedAdjustment` because the four points-adjustment rows in `epl/season/points_adjustments.jsonl` were seeded `verified: false`, and R1 declined to flip them: *"setting `verified: true` is an attestation that a human compared the row to the published record, and doing it to unblock a run would convert the guard into decoration."*
+
+**What was done, stated exactly.** The **assistant** checked each of the four rows against the Premier League's own published statement — the size of the deduction, the date it was known, whether it took effect immediately, and whether it replaced an earlier deduction or added to one — then presented the owner an evidence table mapping each row to its statement, recommended the flip, and asked for explicit words. On 2026-08-20 the owner replied, verbatim:
+
+> **"Yes — mark the four 2023/24 deduction rows verified."**
+
+That sentence is the authorisation and nothing more is claimed for it. **The owner did not personally compare the rows to the published record; the verification work was the assistant's.** The rows now carry `verified_at` (2026-08-19, the day the checking was done), a `verified_by` sentence naming who checked against what and quoting the owner's words in full, and a per-row `source_url`. `id`, `delta`, `known_at` and `supersedes` are byte-for-byte what they were. Recorded as amendment **A5** in [`epl_sim_amendments.md`](epl_sim_amendments.md), which carries the evidence table.
+
+| id | delta | known_at | supersedes | statement |
+|---|---|---|---|---|
+| `adj-2324-everton-01` | **−10** | 2023-11-17 | — | [news/3788486](https://www.premierleague.com/en/news/3788486) — immediate deduction of 10 points |
+| `adj-2324-everton-02` | **−6** | 2024-02-26 | `adj-2324-everton-01` | [news/3912574](https://www.premierleague.com/en/news/3912574) — Appeal Board substituted the original deduction of 10 for six, immediate |
+| `adj-2324-nottm-forest-01` | **−4** | 2024-03-18 | — | [news/3936397](https://www.premierleague.com/en/news/3936397) — four points, immediate |
+| `adj-2324-everton-03` | **−2** | 2024-04-08 | — | [news/3960088](https://www.premierleague.com/en/news/3960088) — two points, immediate, separate breach |
+
+The realised table the season is scored against is the ledger's **final** state — Everton **−8** and **15th**, Nottingham Forest **−4** and **17th**, no shared position. The *forecasts* saw the ledger point-in-time, and the run's own provenance shows the two clocks doing different work:
+
+| cutoff | date | results behind it | deductions KNOWN at the cutoff |
+|---|---|---|---|
+| MW0 | 2023-08-11 | 0 | none |
+| MW3 | 2023-09-16 | (refused — see B.3) | none |
+| MW6 | 2023-10-02 | 68 | none |
+| MW10 | 2023-11-04 | 100 | none — the −10 lands 13 days later |
+| MW19 | 2024-01-01 | 196 | `everton −10` |
+| MW28 | 2024-03-30 | 283 | `everton −6`, `nottm_forest −4` |
+
+### B.2 The run, and what it wrote
+
+| | |
+|---|---|
+| Run | 2026-08-20, branch `epl-probe`, at commit `1571d56` (the attestation commit) |
+| Harness | **v3** — `epl/simretro.py` `6fc293dfc6ab…`, `epl/simmetrics.py` `6f5390092b2c…`; checked at run time against `epl/retro_harness_versions.json` and **recorded**, so `allow_unrecorded_harness` was not used and is `False` on every row |
+| Season / cutoffs | 2023/24 only; all **6** cutoffs including the MW28 sanity cutoff |
+| N / S / seed | **20,000** simulated seasons per arm per cutoff · **1,000** particles · seed **20260611** — the harness's own values, unchanged |
+| Bootstrap | **10,000** resamples, percentile CI, resampling seed **20260814**, blocks = seasons |
+| Ledger | `data/epl/sim/retro_r1.jsonl`, **appended**: 170 rows → **200** |
+| Rows written | **30** = 6 cutoffs × 5 series: **24 forecasts** + **6 typed refusal markers** |
+| Legacy-row override | `allow_legacy_rows=True`, **recorded on all 30 new rows** (`n_legacy_row_overrides = 30`) — see B.8 |
+| Wall time | **47.7 s** total; per-cutoff 7.7–9.4 s, of which 5.3–6.3 s is the fit |
+| Threads | `OMP/OPENBLAS/MKL/VECLIB/NUMEXPR_NUM_THREADS=1`, serial, one process |
+| Verified adjustments required | yes (`require_verified_adjustments=True`) — the gate was ON and the season passed it |
+
+**The 170 pre-existing rows are byte-identical.** Every line of the ledger was SHA-256'd line by line before the run and again after; the first 170 hashes are unchanged and the run appended 30 rows, all of them 2023/24. Nothing was rewritten, and the append-only claim is a measurement rather than an assurance.
+
+### B.3 MW0 did **not** trip the ceiling — MW3 did
+
+This is the run's most substantive finding and it runs against what R1 wrote.
+
+**MW0 passed.** Worst fixture `man_city v luton`, particle-mean excluded mass **0.0135**, under the 2e-2 ceiling A1 pre-stated (and over the 5e-3 flag, which is a report and not a stop). One fixture of 380 over the flag; mean 1.53e-4, 90th percentile 1.79e-4. All four defined series were written at MW0; `ppg_pointmass` is undefined at the opener and carries its usual `arm_not_defined` marker.
+
+**MW3 refused, as a typed `excluded_mass_ceiling` for all five series.** Same fixture, `man_city v luton`, particle-mean excluded mass **0.0328** — 64% over the ceiling. The whole cell is refused, and the marker is written for every requested series before anything propagates, which is exactly the behaviour A4 (i) added and the first time it has fired on a real run.
+
+| cutoff | worst fixture | particle-mean excluded mass | over 5e-3 flag | ceiling (2e-2) |
+|---|---|---|---|---|
+| MW0 | `man_city v luton` | **0.0135** | 1 of 380 | passed |
+| MW3 | `man_city v luton` | **0.0328** | 5 of 341 | **REFUSED** |
+| MW6 | `man_city v luton` | 0.0115 | 3 of 312 | passed |
+| MW10 | `man_city v luton` | 0.0101 | 2 of 280 | passed |
+| MW19 | `man_city v luton` | 0.0041 | 0 of 184 | passed |
+| MW28 | `liverpool v sheffield_united` | 0.0044 | 0 of 97 | passed |
+
+**This qualifies A1's forecast rather than confirming it.** A1 predicted, and R1's §2 Hole 2 reported as holding out of sample, that *the tail collapses once the club has fitted rows* — the two openers R1 refused both passed three matchweeks later. Here the opposite happens first: Luton is cold-start at MW0 and the mass is 0.0135; three matchweeks of Luton rows **raise** it to 0.0328, and only by MW6 does it fall back to 0.0115 and then decay monotonically. A promoted club's first handful of rows can be worse than the prior draw they replace, and the excluded-mass ceiling can therefore bite at a **non-opener** cutoff. Every previous refusal in this project was at MW0.
+
+The reading R1 gave still stands in its stronger form: this is **not** evidence about which arm is better, it is evidence that the published `dc_native` arm cannot always produce a forecast for a season containing a newly promoted club — and the window in which it cannot is wider than "the opener". **Nothing was touched to get past it.** The refusal is recorded, typed, and the cell stays empty.
+
+### B.4 Updated per-cutoff mean TRPS ± TRPS MC SE (diagonal approx.)
+
+Means are taken **within** a cutoff and never across cutoffs. The season count is on every row because it is not the same at every cutoff, and it is now not the same for the reason it was in R1 **plus** the MW3 refusal above. `±` is the diagonal approximation to the delta-method Monte-Carlo variance of TRPS — cross-cell covariance omitted, direction of the omission unknown (amendment A2-N4); it is **not** the between-season spread, which is what §4's bootstrap reports and is one to two orders of magnitude larger. The nulls record no per-cell Monte-Carlo error and are given none.
+
+| cutoff | seasons | `dc_native` | `dc_wdl_bridge` | `elo_wdl_bridge` | `flat` | `ppg_pointmass` |
+|---|---|---|---|---|---|---|
+| MW0 | **5** | 0.1166 ± 0.00024 | 0.1164 ± 0.00024 | 0.1204 ± 0.00018 | 0.1750 ± n/a | — |
+| MW3 | **6** | 0.1049 ± 0.00019 | 0.1047 ± 0.00019 | 0.1083 ± 0.00015 | 0.1750 ± n/a | 0.2059 ± n/a |
+| MW6 | **7** | 0.0954 ± 0.00017 | 0.0952 ± 0.00017 | 0.0989 ± 0.00013 | 0.1750 ± n/a | 0.1729 ± n/a |
+| MW10 | **7** | 0.0811 ± 0.00014 | 0.0809 ± 0.00014 | 0.0833 ± 0.00011 | 0.1750 ± n/a | 0.1383 ± n/a |
+| MW19 | **7** | 0.0564 ± 0.00009 | 0.0563 ± 0.00009 | 0.0556 ± 0.00007 | 0.1750 ± n/a | 0.0857 ± n/a |
+| MW28 (sanity, in no comparison) | **7** | 0.0439 ± 0.00007 | 0.0438 ± 0.00007 | 0.0436 ± 0.00006 | 0.1750 ± n/a | 0.0699 ± n/a |
+
+Season counts, and why each is what it is: **MW0 = 5** (2019/20 and 2020/21 still refused under the D11 ceiling, §2 Hole 2 — unchanged); **MW3 = 6** (2023/24 refused, B.3 — the same six seasons R1 had, so **every MW3 figure above is identical to R1's**, which is the internal check that the enlargement did not perturb a cutoff it could not reach); **MW6 onwards = 7**, the full preregistered set for the first time.
+
+**2023/24's own cells**, the rows this run added:
+
+| cutoff | season | `dc_native` | `dc_wdl_bridge` | `elo_wdl_bridge` | `flat` | `ppg_pointmass` |
+|---|---|---|---|---|---|---|
+| MW0 | 2023/24 | 0.0825 ± 0.00040 | 0.0826 ± 0.00040 | 0.0977 ± 0.00035 | 0.1750 ± n/a | — |
+| MW3 | 2023/24 | REFUSED | REFUSED | REFUSED | REFUSED | REFUSED |
+| MW6 | 2023/24 | 0.0666 ± 0.00029 | 0.0663 ± 0.00029 | 0.0756 ± 0.00022 | 0.1750 ± n/a | 0.1263 ± n/a |
+| MW10 | 2023/24 | 0.0665 ± 0.00031 | 0.0661 ± 0.00031 | 0.0734 ± 0.00024 | 0.1750 ± n/a | 0.0947 ± n/a |
+| MW19 | 2023/24 | 0.0463 ± 0.00018 | 0.0463 ± 0.00018 | 0.0498 ± 0.00015 | 0.1750 ± n/a | 0.0684 ± n/a |
+| MW28 | 2023/24 | 0.0448 ± 0.00017 | 0.0446 ± 0.00017 | 0.0464 ± 0.00016 | 0.1750 ± n/a | 0.0842 ± n/a |
+
+2023/24 is a comparatively **easy** season for all three arms — its MW0 `dc_native` TRPS of 0.0825 is lower than any MW0 cell R1 scored, and its MW6–MW19 figures sit at or below the six-season means. That is a property of the season (a champion and a bottom three that were largely settled by the model's own priors), not a property of the attestation, and it is why the enlarged MW6/MW10 means fall relative to R1's.
+
+### B.5 Updated paired differences (TRPS), per cutoff
+
+Paired within an occasion (same season, same cutoff, same fit, same fixtures, same random slots), season-block bootstrap, 10,000 resamples, percentile CI, resampling seed 20260814. TRPS is a **loss**, so a **positive** mean means `dc_native` scored **worse**. Blocks are **7** where the season is filled and fewer where it is not.
+
+> **There is still no pass rule.** No interval here, at any cutoff, in either direction, is by itself a decision (prereg §7 and §11). A wider set of blocks does not turn a diagnostic into a test.
+
+| cutoff | pair | n | blocks | mean | sd | CI95 low | CI95 high |
+|---|---|---|---|---|---|---|---|
+| MW0 | `dc_native-dc_wdl_bridge` | 5 | 5 | **0.00016** | 0.00045 | -0.00019 | 0.00051 |
+| MW0 | `dc_native-elo_wdl_bridge` | 5 | 5 | **-0.00384** | 0.01137 | -0.01248 | 0.00491 |
+| MW3 | `dc_native-dc_wdl_bridge` | 6 | 6 | **0.00023** | 0.00032 | 0.00001 | 0.00047 |
+| MW3 | `dc_native-elo_wdl_bridge` | 6 | 6 | **-0.00337** | 0.00811 | -0.00860 | 0.00293 |
+| MW6 | `dc_native-dc_wdl_bridge` | 7 | 7 | **0.00020** | 0.00034 | -0.00005 | 0.00043 |
+| MW6 | `dc_native-elo_wdl_bridge` | 7 | 7 | **-0.00348** | 0.00989 | -0.00954 | 0.00385 |
+| MW10 | `dc_native-dc_wdl_bridge` | 7 | 7 | **0.00023** | 0.00030 | 0.00001 | 0.00042 |
+| MW10 | `dc_native-elo_wdl_bridge` | 7 | 7 | **-0.00218** | 0.00943 | -0.00806 | 0.00475 |
+| MW19 | `dc_native-dc_wdl_bridge` | 7 | 7 | **0.00009** | 0.00010 | 0.00002 | 0.00016 |
+| MW19 | `dc_native-elo_wdl_bridge` | 7 | 7 | **0.00079** | 0.00328 | -0.00134 | 0.00311 |
+
+- **`dc_native − elo_wdl_bridge`: every interval still spans zero**, at all five cutoffs, exactly as in R1. The pairing that bears on the published-arm question is unchanged in that respect by the seventh season. Two means moved by more than their own width — MW0 from −0.00101 to **−0.00384** and MW19 from +0.00151 to **+0.00079** — and neither crosses anything, because there is nothing to cross.
+- **`dc_native − dc_wdl_bridge`: the interval excludes zero at MW3, MW10 and MW19**, where in R1 it did so at MW3 and MW19. MW10 moved from `[-0.00004, 0.00041]` to `[0.00001, 0.00042]`. **This is not a pass**, prereg §11 pre-states that "the interval excluded zero" is not on its own a sufficient rationale for changing anything, and the magnitude is ~2e-4 on a TRPS of order 0.08 — two parts in a thousand, in a comparison of the model against **its own** 1X2 pushed through the empirical bridge, not against a rival.
+
+The additional, **not preregistered** pairing R1 reported in §5, recomputed on the enlarged set:
+
+| cutoff | pair | n | blocks | mean | sd | CI95 low | CI95 high |
+|---|---|---|---|---|---|---|---|
+| MW0 | `elo_wdl_bridge-flat` | 5 | 5 | **-0.05459** | 0.02353 | -0.07243 | -0.03674 |
+| MW3 | `elo_wdl_bridge-flat` | 6 | 6 | **-0.06669** | 0.01970 | -0.08023 | -0.05211 |
+| MW6 | `elo_wdl_bridge-flat` | 7 | 7 | **-0.07610** | 0.01587 | -0.08683 | -0.06536 |
+| MW10 | `elo_wdl_bridge-flat` | 7 | 7 | **-0.09171** | 0.01193 | -0.09897 | -0.08273 |
+| MW19 | `elo_wdl_bridge-flat` | 7 | 7 | **-0.11941** | 0.01159 | -0.12572 | -0.11065 |
+
+### B.6 Updated seasons-won counts
+
+Which arm scored the better (lower) TRPS, and in how many of the scored seasons. **These are counts, not tests.** No pass rule attaches to them, a count says nothing about the size of a difference, and seven seasons of one league is seven observations however lopsided the tally.
+
+| cutoff | seasons | `dc_native` better than `elo_wdl_bridge` | `dc_native` better than `dc_wdl_bridge` | mean TRPS `dc_native` | mean TRPS `elo_wdl_bridge` | mean TRPS `dc_wdl_bridge` |
+|---|---|---|---|---|---|---|
+| MW0 | 5 | **3 of 5** | **3 of 5** | 0.1166 | 0.1204 | 0.1164 |
+| MW3 | 6 | **5 of 6** | **2 of 6** | 0.1049 | 0.1083 | 0.1047 |
+| MW6 | 7 | **5 of 7** | **1 of 7** | 0.0954 | 0.0989 | 0.0952 |
+| MW10 | 7 | **5 of 7** | **2 of 7** | 0.0811 | 0.0833 | 0.0809 |
+| MW19 | 7 | **2 of 7** | **1 of 7** | 0.0564 | 0.0556 | 0.0563 |
+
+2023/24 is a `dc_native` season at every cutoff it was scored at: `dc_native` beat `elo_wdl_bridge` at MW0, MW6, MW10 and MW19 (and at the MW28 sanity cutoff, which is in no comparison). Every count in the table therefore gains a `dc_native` season where 2023/24 was scored — MW0 2-of-4 → 3-of-5, MW6 4-of-6 → 5-of-7, MW10 4-of-6 → 5-of-7, MW19 1-of-6 → 2-of-7 — and MW3, where the season refused, is unchanged at 5-of-6. The shape R1 described is unchanged: `dc_native` ahead on the count in the middle of the season, behind at MW19, and the counts are not tests.
+
+### B.7 The hard checks, re-run under v3 on the whole 200-row ledger
+
+**Check 1 — `dc_native` beats the flat null at every (season, cutoff).**
+
+| grid | cells compared | violations |
+|---|---|---|
+| comparison cutoffs | **32** (R1: 28) | **0** |
+| MW28 sanity, reported separately | **7** (R1: 6) | **0** |
+
+**Check 2 — coherence.** Every stored matrix in the 200-row ledger was read back and re-checked independently of the run: **190** matrices, **0** failures, worst row-sum deviation from 1 `2.220e-16`, worst column-sum deviation `4.441e-16`.
+
+**Completeness, under A4's triple-level identity, against the whole preregistered 210-triple schedule:**
+
+| | |
+|---|---|
+| `n_expected` | **210** (7 seasons × 6 cutoffs × 5 series), supplied by the caller |
+| `n_scored` | **190** |
+| `n_typed_refusals` | **6** |
+| `n_missing` | **20** — of which **6** are typed and **14** are holes |
+| `identity_holds` (`n_scored + n_typed_refusals == n_expected`) | **False** |
+| `complete` | **False** |
+| `dc_native_beats_flat_everywhere` | **False** — the flag requires `complete`, not just zero violations; violations are **0** |
+| `n_legacy_row_overrides` | **30** |
+| `n_foreign_producer_overrides` / `n_unrecorded_harness_overrides` | **0** / **0** |
+| `STOP_AND_INSPECT` | **True** |
+
+The six **typed** refusals, all of them 2023/24 and all written by this run:
+
+| season | cutoff | series | kind |
+|---|---|---|---|
+| 2023/24 | MW0 | `ppg_pointmass` | `arm_not_defined` |
+| 2023/24 | MW3 | `dc_native`, `dc_wdl_bridge`, `elo_wdl_bridge`, `flat`, `ppg_pointmass` | `excluded_mass_ceiling` |
+
+The fourteen **holes** are entirely v1-era and none of them is new: the ten triples of 2019/20 MW0 and 2020/21 MW0, which R1's `ExcludedMassTooLarge` refusals cost before any marker existed to record them, and the four `ppg_pointmass`-at-MW0 markers R1 wrote with `not_applicable` text and no `refusal_kind`. A4 (i) predicted exactly this reading, and A4's own re-read of the 170-row ledger recorded it in advance. **`STOP_AND_INSPECT = True` is therefore not a new alarm**: it is the same v1 accounting gap A4 documented, and closing it would mean re-running 2019/20 and 2020/21 at MW0 under v3 — which this run deliberately did not do, because the task was 2023/24 and re-running a cell that R1 published would change a published number.
+
+### B.8 Producers, versions, and why the two halves are comparable
+
+The ledger now holds rows from two producers, and the file records which is which.
+
+* **166 forecasts + 4 untyped markers** were written by **harness v1** on 2026-08-19. v1 wrote no `producer` field at all — that is its schema — so under A4 (iii) they are *legacy rows* and the run refused to append to them until `allow_legacy_rows=True` was passed. It was passed deliberately, and it is **stamped on all 30 rows this run wrote** and reported above as `n_legacy_row_overrides = 30`. A reader of the ledger alone can tell the halves apart.
+* **24 forecasts + 6 typed markers** were written by **harness v3** on 2026-08-20, carrying `producer` `40f192daf7da…` and the v3 pair hashes.
+
+**The scoring arithmetic is unchanged across the versions**, which is what makes one mean over both halves legitimate. Amendment A2 changed what the harness *records* and what it *refuses* — a TRPS standard error, producer identity, the completeness identity, typed refusals — and did not change TRPS, wTRPS, Brier, CRPS, coverage or the ranker. Three independent checks were run rather than asserting it:
+
+1. **The 170 v1 lines are byte-identical**, SHA-256 per line, before and after the run.
+2. **All 166 previously scored cells are byte-identical after scoring.** Each cell's full `score_retro` output was canonicalised and compared between a v3 scoring of the 170-row ledger alone and a v3 scoring of the 200-row ledger: **166 of 166 identical**. Adding a season perturbed no earlier cell.
+3. **The published R1 tables re-score exactly.** Every TRPS figure printed in §3 and §7 — **166** of them — was parsed back out of this report and compared to a fresh v3 computation: **0 mismatches**. Every `TRPS ± TRPS MC SE` figure in Addendum A — **166** cells, of which 102 carry a numeric `±` — was re-checked through `epl.retro_addendum`, a different code path from `score_retro` that calls `epl.simmetrics.trps` and `trps_se` directly: **0 mismatches**.
+
+### B.9 What stands, and what this decides
+
+**The R1 body (§1–§10) and Addendum A stand unchanged**, as records of the run they describe. Their numbers are six-season numbers and are still correct as such; §2's Hole 1 remains the correct account of why R1 was a six-season run, and the remedy it named — *"an operator verifies those three rows against the league's published record, sets `verified: true`, and reruns R1 … the rerun costs the six cutoffs of 2023/24 and nothing else — roughly a minute of compute"* — is substantially what happened, at 47.7 seconds. One detail of it did not: R1 wrote *an operator verifies*, and what actually happened is that **the assistant did the verifying and the owner authorised the flip** (B.1). Whether that satisfies D16 is a question about D16, and it is recorded plainly here and in A5 rather than folded into the word "operator".
+
+**This decides nothing.** There is no pass rule. `dc_native − elo_wdl_bridge` spans zero at every cutoff on seven seasons exactly as it did on six; the published-arm question is an owner ruling made after these tables exist and is still open (§10). What the seventh season buys is a completed grid where the model could produce a forecast, one more season of blocks in every bootstrap, and a documented capability gap that is wider than R1 thought it was (B.3).
+
+*2023/24 run and the whole ledger re-scored 2026-08-20 from `data/epl/sim/retro_r1.jsonl` (200 rows). Harness v3 / metrics `epl-simmetrics-1`, hashes checked against `epl/retro_harness_versions.json` at run time.*
+
+---
+
 ## 1. Provenance
 
 **Harness hashes, checked at run time against the preregistration (§1 of the prereg). Both match; R1 is the run that document preregisters.**

@@ -1072,18 +1072,28 @@ needs_r1_ledger = pytest.mark.skipif(
 def test_the_real_r1_ledger_does_not_certify_itself(tmp_path):
     """The artifact the defect was found on, held against the fixed harness.
 
-    The R1 ledger is 170 rows covering 34 of the 42 preregistered
-    (season, cutoff) cells: 2023/24 refused entirely (`UnverifiedAdjustment`,
-    six cutoffs) and two openers refused under the D11 ceiling. Scored through
-    the DEFAULT path it used to report n_expected=34, n_checked=34, n_missing=0,
-    complete=True, dc_native_beats_flat_everywhere=True, STOP_AND_INSPECT=False.
+    The v1 half of the R1 ledger is 170 rows covering 34 of the 42
+    preregistered (season, cutoff) cells: 2023/24 refused entirely
+    (`UnverifiedAdjustment`, six cutoffs) and two openers refused under the D11
+    ceiling. Scored through the DEFAULT path it used to report n_expected=34,
+    n_checked=34, n_missing=0, complete=True,
+    dc_native_beats_flat_everywhere=True, STOP_AND_INSPECT=False.
+
+    Since 2026-08-20 the same FILE also holds 2023/24, run under v3 after the
+    points-adjustment attestation (amendment A5, Addendum B). The two halves are
+    told apart by `producer`, which v1 never wrote, rather than by a row count —
+    a length assertion would have to be edited every time the ledger grows, and
+    an assertion that has to be edited to stay true is not an assertion. The v1
+    half is what the first four blocks below are about; the fifth holds the
+    whole file against the same accounting.
 
     Gitignored, so this skips on a clean checkout; where the file exists it is
     the only test here whose rows were produced by real fits.
     """
-    rows = [json.loads(line) for line in R1_LEDGER.read_text().splitlines()
-            if line.strip()]
-    assert len(rows) == 170
+    everything = [json.loads(line) for line in R1_LEDGER.read_text().splitlines()
+                  if line.strip()]
+    rows = [r for r in everything if r.get("producer") is None]
+    assert len(rows) == 170, "the v1 half is the 170 producer-less rows"
     assert not any(r.get("refusal_kind") for r in rows), (
         "v1 wrote no typed markers — that is the point of this test")
 
@@ -1146,6 +1156,56 @@ def test_the_real_r1_ledger_does_not_certify_itself(tmp_path):
     assert closed["complete"] is True
     assert closed["dc_native_beats_flat_everywhere"] is True
     assert closed["STOP_AND_INSPECT"] is False
+
+    # 5. the WHOLE file, v1 half plus the v3 2023/24 run (Addendum B). The
+    #    seventh season is scored and its two refusals are TYPED, so they enter
+    #    the accounting as refusals rather than as holes — which is the whole
+    #    of what A4 (i) bought. What still does not close is the v1 half, and
+    #    only the v1 half.
+    if len(everything) == len(rows):
+        return                                  # 2023/24 not run in this checkout
+    whole_file = simretro.score_retro(everything, n_boot=20,
+                                      expected_triples=whole)["sanity"]
+    assert whole_file["n_expected"] == 210
+    assert whole_file["n_scored"] == 190, "166 v1 + 24 v3"
+    assert whole_file["n_typed_refusals"] == 6, "2023/24 MW3 x5, plus MW0 ppg"
+    assert whole_file["violations"] == [], "dc_native still beats flat in every cell"
+    assert whole_file["n_legacy_row_overrides"] == 30, (
+        "A4 (iii): the override is stamped on every row the v3 run wrote")
+    assert whole_file["n_foreign_producer_overrides"] == 0
+    assert whole_file["n_unrecorded_harness_overrides"] == 0, (
+        "the v3 run was under a RECORDED pair, so it is citable")
+    assert whole_file["complete"] is False, "the fourteen v1 holes are still holes"
+
+    typed = {(r["season"], r["cutoff_label"], r["arm"]): r["refusal_kind"]
+             for r in everything if r.get("refusal_kind")}
+    assert set(typed.values()) == {"excluded_mass_ceiling", "arm_not_defined"}
+    assert {k[0] for k in typed} == {"2023/24"}
+    assert {k[1] for k in typed if typed[k] == "excluded_mass_ceiling"} == {"MW3"}
+
+    holes = {(m["season"], m["cutoff_label"], m["arm"])
+             for m in whole_file["missing"] if not m["documented"]}
+    assert len(holes) == 14
+    assert {(s, c) for s, c, _ in holes} == {
+        ("2019/20", "MW0"), ("2020/21", "MW0"), ("2021/22", "MW0"),
+        ("2022/23", "MW0"), ("2024/25", "MW0"), ("2025/26", "MW0")}, (
+        "every remaining hole is a v1-era MW0 — ten from the two D11 refusals "
+        "and four untyped ppg_pointmass markers")
+
+    # POSITIVE CONTROL: take the fourteen v1 holes out of the grid and the
+    # accounting CLOSES on the enlarged ledger, hard check and all. So it is
+    # those holes moving the flag and not the seventh season, and the typed
+    # markers the v3 run wrote really do count as documented refusals.
+    admissible_v3 = [t for t in whole if t not in holes]
+    assert len(admissible_v3) == 196
+    closed_v3 = simretro.score_retro(everything, n_boot=20,
+                                     expected_triples=admissible_v3)["sanity"]
+    assert closed_v3["n_expected"] == 196
+    assert closed_v3["n_scored"] == 190 and closed_v3["n_typed_refusals"] == 6
+    assert closed_v3["identity_holds"] is True
+    assert closed_v3["complete"] is True
+    assert closed_v3["dc_native_beats_flat_everywhere"] is True
+    assert closed_v3["STOP_AND_INSPECT"] is False
 
 
 # ==========================================================================
