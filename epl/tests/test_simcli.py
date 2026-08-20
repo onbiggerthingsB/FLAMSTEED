@@ -1487,3 +1487,141 @@ def _run_with_flagged_fixture(run):
     out = copy.copy(run)
     out.envelope = envelope
     return out
+
+
+# ==========================================================================
+# G1 — manual corrections and statuses, integral goals, and the kickoff move
+# the refreshed source carries (`live-ingest.md` #2 #3, `live-forecast.md` #2)
+# ==========================================================================
+
+def _season_copy(tmp_path) -> Path:
+    root = tmp_path / "season"
+    shutil.copytree(season_mod.SEASON_ROOT, root)
+    return root
+
+
+def _manual_file(tmp_path, name: str, *rows: dict) -> Path:
+    path = tmp_path / name
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    return path
+
+
+def test_manual_ingest_refuses_a_non_integral_goal_at_WRITE_time(tmp_path):
+    """`hg: 1.9` is refused, not silently stored as 1.
+
+    `int()` on a JSON float is a coercion that cannot be undone: read-time
+    validation sees an integer and passes it, so the ledger ends up holding a
+    scoreline nobody ever reported. The refusal has to happen before the byte
+    is written.
+    """
+    root = _season_copy(tmp_path)
+    ledger = root / "2026_27" / "results_ledger.jsonl"
+    before = ledger.read_text()
+    bad = _manual_file(tmp_path, "bad.jsonl", {
+        "fixture_id": "2627:arsenal:coventry", "date_played": "2026-08-21",
+        "hg": 1.9, "ag": 0})
+    with pytest.raises(season_mod.SeasonError, match="integral|goal count"):
+        simcli.ingest_results(season=SEASON, root=root, manual_file=bad,
+                              write=True, observed_at=INGEST_CLOCK, verbose=False)
+    assert ledger.read_text() == before
+
+    # POSITIVE CONTROL: the same row with an exact score writes.
+    good = _manual_file(tmp_path, "good.jsonl", {
+        "fixture_id": "2627:arsenal:coventry", "date_played": "2026-08-21",
+        "hg": 2, "ag": 0})
+    assert len(simcli.ingest_results(
+        season=SEASON, root=root, manual_file=good, write=True,
+        observed_at=INGEST_CLOCK, verbose=False)) == 1
+
+
+def test_manual_ingest_accepts_a_status_row_and_a_marked_correction(tmp_path):
+    """The hand overlay can do what the ledger's resolution already supports.
+
+    A postponement and a correction are the two things a human operator needs to
+    file when the source is wrong or the league moves a match, and neither was
+    expressible: `_manual_rows` demanded integer goals from every row and
+    refused any score that disagreed with the ledger.
+    """
+    root = _season_copy(tmp_path)
+    fid = "2627:arsenal:coventry"
+    first = _manual_file(tmp_path, "first.jsonl", {
+        "fixture_id": fid, "date_played": "2026-08-21", "hg": 2, "ag": 1})
+    simcli.ingest_results(season=SEASON, root=root, manual_file=first, write=True,
+                          observed_at="2026-08-22T09:00", verbose=False)
+
+    # An unmarked disagreement is still a conflict: a typo must not rewrite history.
+    typo = _manual_file(tmp_path, "typo.jsonl", {
+        "fixture_id": fid, "date_played": "2026-08-21", "hg": 3, "ag": 1})
+    with pytest.raises(season_mod.ResultConflict):
+        simcli.ingest_results(season=SEASON, root=root, manual_file=typo, write=True,
+                              observed_at="2026-08-23T09:00", verbose=False)
+
+    fixed = _manual_file(tmp_path, "fixed.jsonl", {
+        "fixture_id": fid, "date_played": "2026-08-21", "hg": 3, "ag": 1,
+        "correction": True, "note": "league confirmed"})
+    rows = simcli.ingest_results(season=SEASON, root=root, manual_file=fixed,
+                                 write=True, observed_at="2026-08-23T09:00",
+                                 verbose=False)
+    assert (rows[0]["hg"], rows[0]["ag"]) == (3, 1)
+    assert season_mod.Season.load(SEASON, root=root).at("2026-08-25").played[fid] \
+        == (3, 1)
+
+    status = _manual_file(tmp_path, "status.jsonl", {
+        "fixture_id": fid, "status": "postponed", "note": "waterlogged"})
+    rows = simcli.ingest_results(season=SEASON, root=root, manual_file=status,
+                                 write=True, observed_at="2026-08-24T09:00",
+                                 verbose=False)
+    assert rows[0]["status"] == "postponed" and "hg" not in rows[0]
+    reread = season_mod.Season.load(SEASON, root=root).at("2026-08-25")
+    assert fid not in reread.played and reread.statuses[fid] == "postponed"
+
+    # Both write-time refusals: a status v1 does not model, and a status row
+    # that also carries goals (which of the two is the row saying?).
+    for bad_row in ({"fixture_id": fid, "status": "awarded"},
+                    {"fixture_id": fid, "status": "postponed", "hg": 1, "ag": 0}):
+        bad = _manual_file(tmp_path, "badstatus.jsonl", bad_row)
+        with pytest.raises(season_mod.SeasonError):
+            simcli.ingest_results(season=SEASON, root=root, manual_file=bad,
+                                  write=True, observed_at="2026-08-25T09:00",
+                                  verbose=False)
+
+
+def test_ingest_results_records_a_moved_kickoff_from_the_refreshed_source(tmp_path):
+    """A refreshed source that moved a fixture appends a kickoff amendment.
+
+    `detect_kickoff_amendments` existed and nothing called it, so a moved
+    kickoff left the old date in place — and a fixture whose old date has passed
+    reads as `unresolved`, and past two days sets `results_lag`. The ingest is
+    the only place that sees a fresh parse, so it is the place that must diff.
+    """
+    root = _season_copy(tmp_path)
+    fid = "2627:arsenal:coventry"
+    moved = ("▪ Matchday 1\n  Sat Aug 22 2026\n"
+             "    17:30  Arsenal FC  v Coventry City FC\n")
+    path = tmp_path / "refreshed.txt"
+    path.write_text(moved, encoding="utf-8")
+
+    simcli.ingest_results(season=SEASON, root=root, openfootball_file=path,
+                          write=True, observed_at="2026-08-20T09:00", verbose=False)
+
+    reloaded = season_mod.Season.load(SEASON, root=root)
+    assert reloaded.at("2026-08-25").kickoffs_known[fid] == (
+        pd.Timestamp("2026-08-22").date(), "17:30")
+    # known_at is the INGEST time, so a snapshot taken before it still reads the
+    # date the league had published then.
+    assert reloaded.at("2026-08-25", observed_by="2026-08-19").kickoffs_known[fid] \
+        == (pd.Timestamp("2026-08-21").date(), "20:00")
+
+    # Idempotent: re-ingesting the same refreshed file appends no second row.
+    amendments = root / "2026_27" / "kickoff_amendments.jsonl"
+    before = amendments.read_text()
+    simcli.ingest_results(season=SEASON, root=root, openfootball_file=path,
+                          write=True, observed_at="2026-08-21T09:00", verbose=False)
+    assert amendments.read_text() == before
+
+    # POSITIVE CONTROL: the vendored file itself moves nothing.
+    root2 = _season_copy(tmp_path / "second")
+    vendored = season_mod.SEASON_ROOT / "2026_27" / "fixtures_openfootball_2026-27.txt"
+    simcli.ingest_results(season=SEASON, root=root2, openfootball_file=vendored,
+                          write=True, observed_at="2026-08-20T09:00", verbose=False)
+    assert (root2 / "2026_27" / "kickoff_amendments.jsonl").read_text() == ""

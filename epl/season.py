@@ -73,10 +73,12 @@ from __future__ import annotations
 import datetime as _dt
 import hashlib
 import json
+import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from wcmodel.data.features import valid_played_results
@@ -675,9 +677,11 @@ class Season:
     # --- ingest ----------------------------------------------------------
 
     def ingest_openfootball_results(self, text: str, observed_at, source_id: str,
-                                    *, write: bool = False) -> list[dict]:
+                                    *, write: bool = False,
+                                    allow_revisions: bool = False) -> list[dict]:
         return ingest_openfootball_results(
-            self, text, observed_at=observed_at, source_id=source_id, write=write)
+            self, text, observed_at=observed_at, source_id=source_id, write=write,
+            allow_revisions=allow_revisions)
 
 
 def _build_fixtures(rows: list[FixtureRow], manifest: Manifest) -> tuple[Fixture, ...]:
@@ -760,6 +764,43 @@ def _kickoffs_known(fixtures, amendments, cutoff: pd.Timestamp
                 if row.get("date") else out[fid][0])
         out[fid] = (date, row.get("time", out[fid][1]))
     return out
+
+
+def goal_count(value, label: str) -> int:
+    """`value` as a goal count, or :class:`SeasonError`. NEVER a coercion.
+
+    `int(1.9)` is `1`, and a ledger that stores `1` for a source that said `1.9`
+    holds a scoreline nobody ever reported — read-time validation then sees a
+    perfectly good integer and passes it. So the check happens where the value
+    arrives: an exact integer (`2` or `2.0` or `"2"`) is a goal count, and
+    anything else — `1.9`, `nan`, `inf`, `True`, a negative, a word — is
+    refused before a byte is written.
+
+    `valid_played_results` stays THE definition (finite, non-negative,
+    integral); this is that definition applied one value at a time, at write
+    time, where a bad value can still be rejected rather than dropped.
+    """
+    if isinstance(value, bool):
+        raise SeasonError(f"{label}: {value!r} is not a goal count")
+    if isinstance(value, (int, np.integer)):
+        n = int(value)
+    elif isinstance(value, (float, np.floating)):
+        if not math.isfinite(float(value)) or not float(value).is_integer():
+            raise SeasonError(
+                f"{label}: {value!r} is not an integral goal count — it is not "
+                "rounded, it is refused")
+        n = int(value)
+    elif isinstance(value, str):
+        try:
+            n = int(value.strip())
+        except (TypeError, ValueError) as exc:
+            raise SeasonError(
+                f"{label}: {value!r} is not an integral goal count") from exc
+    else:
+        raise SeasonError(f"{label}: {value!r} is not a goal count")
+    if n < 0:
+        raise SeasonError(f"{label}: {value!r} is negative")
+    return n
 
 
 def _validate_scores(rows: list[dict]) -> None:
@@ -1042,53 +1083,171 @@ def _state(*, season, season_code_, clubs, fixtures, amendments, results, adjust
 # ingest
 # --------------------------------------------------------------------------
 
-def ingest_openfootball_results(season: Season, text: str, observed_at, source_id: str,
-                                *, write: bool = False) -> list[dict]:
-    """Turn the scored lines of an openfootball file into new ledger rows.
+def source_family(source) -> str:
+    """`"openfootball@<sha>"` -> `"openfootball"`; `"manual"` -> `"manual"`.
 
-    Idempotent: a row whose scoreline already sits in the ledger is skipped. A
-    row that CONTRADICTS the ledger raises `ResultConflict` — when a manual entry
-    and openfootball disagree, the run stops and a human decides (plan v2 D4).
-    Nothing is written unless `write=True`.
+    A source id names a source AND the exact bytes it came from, so two fetches
+    of the same file a week apart are two ids. The FAMILY is what decides whether
+    an ingest is revising its own earlier statement or overruling somebody
+    else's, which is the distinction plan v2 D4 turns on.
     """
-    existing: dict[str, tuple[int, int]] = {}
-    for row in season.results:
-        if row.get("status") is None and row.get("hg") is not None:
-            existing[row["fixture_id"]] = (int(row["hg"]), int(row["ag"]))
+    return str(source or "").split("@", 1)[0]
 
-    observed = _require_stamp(observed_at, "observed_at").isoformat()
+
+def current_ledger_view(season: Season) -> LedgerView:
+    """The season's ledger resolved with NO bounds — what it says right now.
+
+    The ingest has to know the ledger's CURRENT reading of a fixture, not
+    "some row somewhere carries a score for it": a result that a later status row
+    has already withdrawn is not a result, and treating it as one made a
+    re-ingest of the replayed match a silent no-op.
+    """
+    return resolve_ledger(
+        season.results,
+        identify=_fixture_registry_identity({f.fixture_id: f for f in season.fixtures}))
+
+
+def _refuse_a_stale_revision(fid: str, winner: dict, observed: pd.Timestamp) -> None:
+    """A row that cannot win the resolution is not written at all.
+
+    The ledger is append-only. A "correction" stamped at or before the row it
+    corrects is a permanent no-op that reads like a correction in the file, and
+    the only moment it can still be refused is before it is written.
+    """
+    was = _require_stamp(winner.get("observed_at"), f"{fid} observed_at")
+    if observed <= was:
+        raise SeasonError(
+            f"{fid}: the row being superseded was observed at {was.isoformat()} and "
+            f"this one at {observed.isoformat()}. A correction observed no later "
+            "than the row it corrects never wins the resolution, so writing it "
+            "would append a line that changes nothing.")
+
+
+def ingest_openfootball_results(season: Season, text: str, observed_at, source_id: str,
+                                *, write: bool = False,
+                                allow_revisions: bool = False) -> list[dict]:
+    """Turn a refreshed openfootball file into new ledger rows.
+
+    Three kinds of row can come out of one file, and all three are APPENDED —
+    the ledger is never edited, and the latest-observation resolution in
+    :func:`resolve_ledger` is what makes the newest row win:
+
+    * a **new result**, as before;
+    * a **correction**, when the source now reports a different scoreline for a
+      fixture it already reported. This needs ``allow_revisions``;
+    * a **withdrawal**, when a fixture the source previously scored is carried
+      unscored in the refreshed file. That appends a ``postponed`` STATUS row, so
+      the fixture reads as unplayed from the new observation on. This needs
+      ``allow_revisions`` too, because it takes a result away.
+
+    Plan v2 D4 is kept exactly, and is the reason ``allow_revisions`` is not a
+    licence to overwrite anything: a source may revise its OWN earlier statement,
+    and may never overrule another's. openfootball meeting a hand-entered row it
+    disagrees with still STOPs with :class:`ResultConflict`, and the remedy is a
+    deliberate manual correction row — the human deciding, which is what D4 asks
+    for. The same rule is what stops a source that has simply not caught up from
+    "withdrawing" the round an operator entered by hand.
+
+    Residual, stated rather than hidden: a fixture the ledger reads as
+    ``abandoned`` is revived by a later score only under ``allow_revisions``,
+    while one it reads as ``postponed`` is revived by any ingest. A postponement
+    says "not played yet", so the result of the rearranged match is new
+    information; an abandonment is a deliberate strike, so overturning it is a
+    revision. Idempotent throughout: a file that agrees with the ledger appends
+    nothing. Nothing is written unless ``write=True``.
+    """
+    view = current_ledger_view(season)
+    winners = view.winners
+    family = source_family(source_id)
+
+    stamp = _require_stamp(observed_at, "observed_at")
+    observed = stamp.isoformat()
     fixtures_by_id = {f.fixture_id: f for f in season.fixtures}
     new: list[dict] = []
     seen: set[str] = set()
+    unscored: set[str] = set()
 
     for row in parse_openfootball(text):
-        if row.hg is None or row.ag is None:
-            continue
         fid = fixture_id(season.season_code, teams.team_key(row.home_raw),
                          teams.team_key(row.away_raw))
+        if row.hg is None or row.ag is None:
+            # A fixture line, not a result. It cannot be an unknown-fixture
+            # error — a refreshed file may legitimately list a match this
+            # season's registry does not hold — but for a fixture we DO hold it
+            # is how a withdrawal announces itself.
+            if fid in fixtures_by_id:
+                unscored.add(fid)
+            continue
         if fid not in fixtures_by_id:
             raise SeasonError(f"{season.season}: ingested result for unknown fixture {fid!r}")
         if fid in seen:
             raise ResultConflict(f"{fid}: the ingested file holds it twice")
         seen.add(fid)
-        if fid in existing:
-            if existing[fid] != (row.hg, row.ag):
-                raise ResultConflict(
-                    f"{fid}: ledger holds {existing[fid][0]}-{existing[fid][1]}, "
-                    f"{source_id} says {row.hg}-{row.ag}. STOP: check which is right and "
-                    f"correct the ledger deliberately.")
-            continue
         if row.date is None:
             raise SeasonError(f"{fid}: ingested result has no date")
+        hg, ag = goal_count(row.hg, f"{fid} hg"), goal_count(row.ag, f"{fid} ag")
+
+        winner = winners.get(fid)
+        note = ""
+        if winner is not None:
+            status = winner.get("status")
+            if status is None:
+                have = (goal_count(winner.get("hg"), f"{fid} hg"),
+                        goal_count(winner.get("ag"), f"{fid} ag"))
+                if have == (hg, ag):
+                    continue                                # idempotent
+                if source_family(winner.get("source")) != family:
+                    raise ResultConflict(
+                        f"{fid}: ledger holds {have[0]}-{have[1]} from "
+                        f"{winner.get('source')!r}, {source_id} says {hg}-{ag}. A "
+                        "source may revise its own earlier statement; it may not "
+                        "overrule another's (plan v2 D4). STOP: file a manual "
+                        "correction row deliberately.")
+                if not allow_revisions:
+                    raise ResultConflict(
+                        f"{fid}: ledger holds {have[0]}-{have[1]}, {source_id} says "
+                        f"{hg}-{ag}. STOP: check which is right, then re-run with "
+                        "allow_revisions to append the correction.")
+                _refuse_a_stale_revision(fid, winner, stamp)
+                note = (f"correction: supersedes {have[0]}-{have[1]} observed "
+                        f"{winner.get('observed_at')}")
+            elif status == STATUS_ABANDONED and not allow_revisions:
+                continue
+            else:
+                _refuse_a_stale_revision(fid, winner, stamp)
+                note = (f"supersedes {status} observed "
+                        f"{winner.get('observed_at')}")
+
         new.append({
             "fixture_id": fid,
             "date_played": row.date.isoformat(),
-            "hg": int(row.hg),
-            "ag": int(row.ag),
+            "hg": hg,
+            "ag": ag,
             "source": source_id,
             "observed_at": observed,
-            "note": "",
+            "note": note,
         })
+
+    if allow_revisions:
+        for fid in sorted(unscored):
+            winner = winners.get(fid)
+            if winner is None or winner.get("status") is not None:
+                continue
+            if source_family(winner.get("source")) != family:
+                # Not a withdrawal: a source with nothing to say about a row it
+                # never filed. Treating it as one would empty the ledger of every
+                # hand-entered round the moment the cron next ran.
+                continue
+            _refuse_a_stale_revision(fid, winner, stamp)
+            new.append({
+                "fixture_id": fid,
+                "status": STATUS_POSTPONED,
+                "source": source_id,
+                "observed_at": observed,
+                "note": (f"withdrawn upstream: supersedes "
+                         f"{winner.get('hg')}-{winner.get('ag')} observed "
+                         f"{winner.get('observed_at')}"),
+            })
 
     new.sort(key=lambda r: r["fixture_id"])
     if write and new:
@@ -1165,8 +1324,9 @@ __all__ = [
     "Manifest", "OrientationSuspect", "ParseError", "ResultConflict", "Season",
     "SeasonError", "SeasonState", "TableRow", "UnsupportedResultStatus",
     "UnverifiedAdjustment",
-    "adjustments_at", "archive_season_state", "detect_kickoff_amendments",
-    "fixture_id", "ingest_openfootball_results", "load_adjustments", "load_manifest",
+    "adjustments_at", "archive_season_state", "current_ledger_view",
+    "detect_kickoff_amendments", "fixture_id", "goal_count",
+    "ingest_openfootball_results", "load_adjustments", "load_manifest",
     "openfootball_source_id", "parse_openfootball", "resolve_ledger", "season_code",
-    "season_dir_name",
+    "season_dir_name", "source_family",
 ]

@@ -1410,7 +1410,7 @@ def _check_arm(arm: str, directory: Path, record: dict, season_obj, state, book,
 def ingest_results(*, season: str = DEFAULT_SEASON, root=season_mod.SEASON_ROOT,
                    from_openfootball: bool = False,
                    openfootball_file=None, openfootball_text: str | None = None,
-                   manual_file=None, observed_at=None,
+                   manual_file=None, observed_at=None, allow_revisions: bool = False,
                    write: bool = False, verbose: bool = True) -> list[dict]:
     """Append results to the season ledger. Idempotent; a conflict STOPs.
 
@@ -1418,6 +1418,19 @@ def ingest_results(*, season: str = DEFAULT_SEASON, root=season_mod.SEASON_ROOT,
     openfootball's own format (``openfootball_file`` / ``openfootball_text`` —
     the same parser and the same conflict rule, without the fetch), or a JSONL
     file of hand-entered ledger rows (``manual_file``).
+
+    An openfootball ingest ALSO diffs the refreshed file's kickoffs against the
+    ones the season currently knows and appends any move to
+    ``kickoff_amendments.jsonl`` with ``known_at`` = the ingest time.
+    :func:`epl.season.detect_kickoff_amendments` has existed since T2 and
+    nothing called it, so a moved kickoff left the old date in place — and a
+    fixture whose stale date has passed reads as ``unresolved`` and, past two
+    days, raises ``results_lag``. The ingest is the only step that sees a fresh
+    parse of the source, so it is the only step that can notice.
+
+    ``allow_revisions`` is passed through to
+    :func:`epl.season.ingest_openfootball_results` and does not affect the
+    kickoff diff, which appends new knowledge rather than superseding a result.
     """
     season_obj = season_mod.Season.load(season, root=root)
     chosen = [bool(from_openfootball), openfootball_file is not None,
@@ -1448,29 +1461,82 @@ def ingest_results(*, season: str = DEFAULT_SEASON, root=season_mod.SEASON_ROOT,
         text = openfootball_text
 
     source_id = season_mod.openfootball_source_id(text)
+    moves = new_kickoff_amendments(season_obj, text, known_at=observed_at,
+                                   source_id=source_id)
+    if write and moves:
+        season_mod._append_jsonl(
+            Path(root) / season_mod.season_dir_name(season)
+            / season_mod.AMENDMENTS_FILENAME, moves)
     rows = season_obj.ingest_openfootball_results(
-        text, observed_at=observed_at, source_id=source_id, write=write)
+        text, observed_at=observed_at, source_id=source_id, write=write,
+        allow_revisions=allow_revisions)
     if verbose:
-        print(f"[ingest] {len(rows)} row(s) from {source_id}"
+        print(f"[ingest] {len(rows)} row(s) and {len(moves)} kickoff amendment(s) "
+              f"from {source_id}"
               f"{' written' if write else ' (dry run)'}", flush=True)
     return rows
 
 
+def new_kickoff_amendments(season_obj, text: str, *, known_at,
+                           source_id: str) -> list[dict]:
+    """Kickoff moves the refreshed source carries that are not already recorded.
+
+    Two filters, and both matter. :func:`epl.season.detect_kickoff_amendments`
+    diffs the refreshed parse against the VENDORED bytes, which never change, so
+    on its own it would re-report the same move at every ingest until the end of
+    the season — noise in an append-only overlay. The second filter holds each
+    candidate against the kickoff the season KNOWS at the ingest time (base plus
+    every amendment already on file) and keeps only the ones that actually move
+    it.
+    """
+    stamp = season_mod._require_stamp(known_at, "known_at")
+    candidates = season_mod.detect_kickoff_amendments(
+        season_mod.parse_openfootball(season_obj.fixtures_text),
+        season_mod.parse_openfootball(text),
+        stamp, source_id, season_code=season_obj.season_code)
+    known = season_mod._kickoffs_known(season_obj.fixtures, season_obj.amendments,
+                                       stamp)
+    out: list[dict] = []
+    for row in candidates:
+        current = known.get(row["fixture_id"])
+        if current is None:
+            continue
+        date = (pd.Timestamp(row["date"]).date() if row.get("date")
+                else current[0])
+        if (date, row.get("time")) == current:
+            continue
+        out.append(row)
+    return out
+
+
 def _manual_rows(path: Path, season_obj, observed_at) -> list[dict]:
-    """Validate hand-entered ledger rows against the fixture list."""
+    """Validate hand-entered ledger rows against the fixture list.
+
+    The hand overlay writes all three kinds of row the ledger's resolution
+    already understands, and validates every one of them at WRITE time:
+
+    * a **result** — `{fixture_id, date_played, hg, ag}`;
+    * a **status** — `{fixture_id, status: "postponed"|"abandoned"}`, carrying no
+      goals, which makes the fixture unplayed from this observation on;
+    * a **correction** — a result that disagrees with what the ledger currently
+      says, which must set `"correction": true`. Without the marker a
+      disagreement is still :class:`ResultConflict`, because the overwhelmingly
+      likelier explanation for one is a typo, and the append-only ledger has no
+      undo. The marker is a directive to this reader and is not written to the
+      ledger; the row's note records what it supersedes.
+
+    Everything here is refused before a byte reaches the file. `_timestamp` maps
+    `None`, `""`, `nan` and the string `"NaT"` to `NaT` rather than raising, so a
+    malformed stamp used to be committed to an append-only ledger and only
+    refused the next time anything read it — by which point every later snapshot
+    fails closed on a row that is never meant to be edited. Goals go through
+    :func:`epl.season.goal_count` for the same reason in the other direction:
+    `int(1.9)` is `1`, and read-time validation cannot tell that `1` was never
+    reported by anybody.
+    """
     fixtures = {f.fixture_id for f in season_obj.fixtures}
-    existing = {r["fixture_id"]: (int(r["hg"]), int(r["ag"]))
-                for r in season_obj.results
-                if r.get("status") is None and r.get("hg") is not None}
-    # WRITE TIME, not read time. `_timestamp` maps `None`, `""`, `nan` and the
-    # string `"NaT"` to `NaT` rather than raising, so a malformed stamp used to
-    # be committed to an append-only ledger and only refused the next time
-    # anything read it — by which point the bad row is in the file, every later
-    # snapshot fails closed on it, and the fix is an edit to a ledger whose
-    # whole point is that it is never edited. The stamp is checked before a byte
-    # is written, at both levels: the run-wide `observed_at` here, and the
-    # per-row override below.
-    observed = season_mod._require_stamp(observed_at, "observed_at").isoformat()
+    winners = season_mod.current_ledger_view(season_obj).winners
+    observed = season_mod._require_stamp(observed_at, "observed_at")
 
     out: list[dict] = []
     seen: set[str] = set()
@@ -1479,46 +1545,77 @@ def _manual_rows(path: Path, season_obj, observed_at) -> list[dict]:
         if not line:
             continue
         row = json.loads(line)
+        where = f"{path}:{lineno}"
         fid = str(row.get("fixture_id", ""))
         if fid not in fixtures:
             raise season_mod.SeasonError(
-                f"{path}:{lineno}: {fid!r} is not a fixture of "
-                f"{season_obj.season}")
+                f"{where}: {fid!r} is not a fixture of {season_obj.season}")
         if fid in seen:
             raise season_mod.ResultConflict(f"{path}: {fid} appears twice")
         seen.add(fid)
-        try:
-            hg, ag = int(row["hg"]), int(row["ag"])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise season_mod.SeasonError(
-                f"{path}:{lineno}: {fid} has no integer hg/ag") from exc
-        if hg < 0 or ag < 0:
-            raise season_mod.SeasonError(f"{path}:{lineno}: {fid} has negative goals")
-        if fid in existing:
-            if existing[fid] != (hg, ag):
-                raise season_mod.ResultConflict(
-                    f"{fid}: ledger holds {existing[fid][0]}-{existing[fid][1]}, "
-                    f"{path} says {hg}-{ag}. STOP: check which is right and "
-                    "correct the ledger deliberately.")
-            continue
-        if not row.get("date_played"):
-            raise season_mod.SeasonError(f"{path}:{lineno}: {fid} has no date_played")
-        # Both point-in-time stamps parsed before the row is accepted. A row
-        # whose own `observed_at` is `"NaT"` or unparseable is refused here
-        # rather than stored: `NaT` compares False against every bound, so the
-        # row it stamps would be visible at EVERY cutoff.
-        season_mod._require_stamp(row["date_played"],
-                                  f"{path}:{lineno}: {fid} date_played")
+
+        stamp = observed
         if row.get("observed_at") is not None:
-            season_mod._require_stamp(row["observed_at"],
-                                      f"{path}:{lineno}: {fid} observed_at")
+            stamp = season_mod._require_stamp(row["observed_at"],
+                                              f"{where}: {fid} observed_at")
+        winner = winners.get(fid)
+
+        if row.get("status") is not None:
+            status = str(row["status"])
+            if status not in season_mod._LEDGER_STATUSES:
+                raise season_mod.UnsupportedResultStatus(
+                    f"{where}: {fid} status {status!r} is out of v1 scope (only "
+                    f"{sorted(season_mod._LEDGER_STATUSES)} are modelled)")
+            if row.get("hg") is not None or row.get("ag") is not None:
+                raise season_mod.SeasonError(
+                    f"{where}: {fid} carries both a {status!r} status and a "
+                    "scoreline. One row says one thing.")
+            if winner is not None:
+                season_mod._refuse_a_stale_revision(fid, winner, stamp)
+            out.append({
+                "fixture_id": fid,
+                "status": status,
+                "source": "manual",
+                "observed_at": stamp.isoformat(),
+                "note": str(row.get("note", "")),
+            })
+            continue
+
+        if "hg" not in row or "ag" not in row:
+            raise season_mod.SeasonError(
+                f"{where}: {fid} carries neither a scoreline nor a status")
+        hg = season_mod.goal_count(row["hg"], f"{where}: {fid} hg")
+        ag = season_mod.goal_count(row["ag"], f"{where}: {fid} ag")
+        note = str(row.get("note", ""))
+
+        if winner is not None and winner.get("status") is None:
+            have = (season_mod.goal_count(winner.get("hg"), f"{fid} hg"),
+                    season_mod.goal_count(winner.get("ag"), f"{fid} ag"))
+            if have == (hg, ag):
+                continue
+            if row.get("correction") is not True:
+                raise season_mod.ResultConflict(
+                    f"{fid}: ledger holds {have[0]}-{have[1]}, {path} says "
+                    f"{hg}-{ag}. STOP: check which is right, then re-file the row "
+                    'with "correction": true to append the correction.')
+            season_mod._refuse_a_stale_revision(fid, winner, stamp)
+            note = (note + "; " if note else "") + (
+                f"correction: supersedes {have[0]}-{have[1]} observed "
+                f"{winner.get('observed_at')}")
+        elif winner is not None:
+            season_mod._refuse_a_stale_revision(fid, winner, stamp)
+
+        if not row.get("date_played"):
+            raise season_mod.SeasonError(f"{where}: {fid} has no date_played")
+        season_mod._require_stamp(row["date_played"],
+                                  f"{where}: {fid} date_played")
         out.append({
             "fixture_id": fid,
             "date_played": str(row["date_played"]),
             "hg": hg, "ag": ag,
             "source": "manual",
-            "observed_at": str(row.get("observed_at") or observed),
-            "note": str(row.get("note", "")),
+            "observed_at": stamp.isoformat(),
+            "note": note,
         })
     out.sort(key=lambda r: r["fixture_id"])
     return out
@@ -1677,6 +1774,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "same conflict rule as --from-openfootball, no network)")
     i.add_argument("--manual", default=None, help="JSONL of hand-entered rows")
     i.add_argument("--observed-at", default=None)
+    i.add_argument("--allow-revisions", action="store_true",
+                   help="let the source revise its OWN earlier statement: a "
+                        "changed scoreline appends a correction row, and a "
+                        "fixture the refreshed file no longer scores appends a "
+                        "postponed status row. It never overrules another "
+                        "source's row (plan v2 D4) — that stays a STOP, and its "
+                        "remedy is a --manual correction.")
     i.add_argument("--write", action="store_true")
 
     r = sub.add_parser("retro", help="the preregistered retrospective (smoke)")
@@ -1744,7 +1848,8 @@ def _cmd_ingest(args) -> int:
         season=args.season, root=Path(args.root),
         from_openfootball=args.from_openfootball,
         openfootball_file=args.openfootball_file, manual_file=args.manual,
-        observed_at=args.observed_at, write=args.write, verbose=True)
+        observed_at=args.observed_at, allow_revisions=args.allow_revisions,
+        write=args.write, verbose=True)
     for row in rows:
         print(leaguesim.canonical_json(row))
     return 0

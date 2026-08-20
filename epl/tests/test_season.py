@@ -1036,3 +1036,190 @@ def test_observed_by_is_the_knowledge_clock_for_all_three_ledgers(
     rerun = loaded.at("2026-09-30", observed_by="2026-08-24")
     assert rerun.played == {} and rerun.adjustments_known == {}
     assert rerun.kickoffs_known[fid][0] == pd.Timestamp("2026-08-21").date()
+
+
+# ==========================================================================
+# G1 — the ingest can revise, withdraw, and carry a kickoff move
+#
+# `~/Desktop/codex-reviews/final-state/live-ingest.md` #2 and #3 and
+# `live-forecast.md` #2: the advertised ingest treats any historical score as
+# final, so an upstream correction STOPs the run and an upstream WITHDRAWAL is
+# a no-op that leaves the match played. Neither is accepted by the amendment
+# ledger; A6's table records both as "not ruled here", so the fix keeps D4
+# exactly — a source may revise its OWN earlier statement, and may never
+# overrule another's — and puts the revision behind a deliberate flag.
+# ==========================================================================
+
+def _openfootball(*lines: str) -> str:
+    """A minimal refreshed source file the real parser accepts."""
+    return "▪ Matchday 1\n" + "\n".join(lines) + "\n"
+
+
+def test_goal_count_refuses_a_non_integral_score():
+    """1.9 goals is not 1 goal. It is refused, at the moment it is offered."""
+    assert season_mod.goal_count(3, "hg") == 3
+    assert season_mod.goal_count(2.0, "hg") == 2, "an exact float is a goal count"
+    for bad in (1.9, "1.9", float("nan"), float("inf"), None, True, -1, "x"):
+        with pytest.raises(season_mod.SeasonError):
+            season_mod.goal_count(bad, "hg")
+
+
+def test_ingest_revision_appends_a_correction_row_the_later_observation_wins(
+        season_root: Path):
+    """A changed upstream score is appended as a correction, not refused.
+
+    The resolution already handles supersession — the correction wins because it
+    was observed later, and a snapshot bounded before it still reads the row it
+    corrects. What was missing was any way to GET the correction into the ledger.
+    """
+    loaded = season_mod.Season.load(SEASON, root=season_root)
+    fid = "2627:arsenal:coventry"
+    first = _openfootball("  Fri Aug 21 2026",
+                          "    20:00  Arsenal FC  2-1 (1-0)  Coventry City FC")
+    src = season_mod.openfootball_source_id(first)
+    assert len(loaded.ingest_openfootball_results(
+        first, observed_at="2026-08-22T09:00", source_id=src, write=True)) == 1
+
+    revised = first.replace("2-1", "3-1")
+    loaded = season_mod.Season.load(SEASON, root=season_root)
+
+    # Default: unchanged behaviour, and the ledger is untouched.
+    ledger = season_root / "2026_27" / "results_ledger.jsonl"
+    before = ledger.read_text()
+    with pytest.raises(season_mod.ResultConflict):
+        loaded.ingest_openfootball_results(
+            revised, observed_at="2026-08-23T09:00",
+            source_id=season_mod.openfootball_source_id(revised), write=True)
+    assert ledger.read_text() == before
+
+    rows = loaded.ingest_openfootball_results(
+        revised, observed_at="2026-08-23T09:00",
+        source_id=season_mod.openfootball_source_id(revised),
+        write=True, allow_revisions=True)
+    assert [r["fixture_id"] for r in rows] == [fid]
+    assert (rows[0]["hg"], rows[0]["ag"]) == (3, 1)
+    assert "2-1" in rows[0]["note"], "the row must name what it supersedes"
+
+    replayed = season_mod.Season.load(SEASON, root=season_root)
+    assert replayed.at("2026-08-25").played[fid] == (3, 1)
+    assert replayed.at("2026-08-25", observed_by="2026-08-22T12:00").played[fid] == (2, 1)
+
+
+def test_ingest_never_overrules_another_source_even_with_revisions_allowed(
+        season_root: Path):
+    """D4, kept exactly: a manual row and openfootball disagreeing STOPs.
+
+    The flag lets a source correct ITSELF. It is not a licence to let the weekly
+    cron quietly overwrite what a human entered by hand — that case is what D4
+    names, and its remedy is a deliberate manual correction row.
+    """
+    ledger = season_root / "2026_27" / "results_ledger.jsonl"
+    fid = "2627:arsenal:coventry"
+    _append_jsonl(ledger, [_result_row(fid, "2026-08-21", 2, 1, "2026-08-22T09:00")])
+    loaded = season_mod.Season.load(SEASON, root=season_root)
+    text = _openfootball("  Fri Aug 21 2026",
+                         "    20:00  Arsenal FC  3-1 (1-0)  Coventry City FC")
+    before = ledger.read_text()
+    with pytest.raises(season_mod.ResultConflict, match="manual"):
+        loaded.ingest_openfootball_results(
+            text, observed_at="2026-08-23T09:00",
+            source_id=season_mod.openfootball_source_id(text),
+            write=True, allow_revisions=True)
+    assert ledger.read_text() == before
+
+
+def test_the_score_postponed_rescheduled_lifecycle_through_season_at(
+        season_root: Path):
+    """END TO END: score -> upstream withdrawal -> replayed score.
+
+    Three observations of one fixture, each appended by the ingest itself, read
+    back at three `observed_by` points through `Season.at`. The middle reading
+    is the one the reviews say is unreachable today: a result the source has
+    taken away must make the fixture UNPLAYED again, and must not leave a table
+    with three points nobody can find a match for.
+    """
+    fid = "2627:arsenal:coventry"
+    played = _openfootball("  Fri Aug 21 2026",
+                           "    20:00  Arsenal FC  2-1 (1-0)  Coventry City FC")
+    withdrawn = _openfootball("  Fri Aug 21 2026",
+                              "    20:00  Arsenal FC  v Coventry City FC")
+    replayed = _openfootball("  Wed Sep 16 2026",
+                             "    19:45  Arsenal FC  1-0 (0-0)  Coventry City FC")
+
+    season_mod.Season.load(SEASON, root=season_root).ingest_openfootball_results(
+        played, observed_at="2026-08-21T22:00",
+        source_id=season_mod.openfootball_source_id(played), write=True)
+
+    struck = season_mod.Season.load(SEASON, root=season_root).ingest_openfootball_results(
+        withdrawn, observed_at="2026-08-24T09:00",
+        source_id=season_mod.openfootball_source_id(withdrawn),
+        write=True, allow_revisions=True)
+    assert [r["status"] for r in struck] == ["postponed"]
+
+    back = season_mod.Season.load(SEASON, root=season_root).ingest_openfootball_results(
+        replayed, observed_at="2026-09-17T09:00",
+        source_id=season_mod.openfootball_source_id(replayed), write=True)
+    assert [(r["hg"], r["ag"]) for r in back] == [(1, 0)]
+
+    final = season_mod.Season.load(SEASON, root=season_root)
+
+    early = final.at("2026-09-30", observed_by="2026-08-22")
+    assert early.played[fid] == (2, 1)
+    assert early.statuses[fid] == "played"
+    assert early.table_so_far["arsenal"].pts == 3
+
+    middle = final.at("2026-09-30", observed_by="2026-08-25")
+    assert fid not in middle.played
+    assert middle.statuses[fid] == "postponed"
+    assert middle.table_so_far["arsenal"] == season_mod.TableRow()
+    assert fid not in middle.unresolved, "a withdrawn fixture is postponed, not lost"
+
+    late = final.at("2026-09-30", observed_by="2026-09-18")
+    assert late.played[fid] == (1, 0)
+    assert late.statuses[fid] == "played"
+    assert late.table_so_far["arsenal"].pts == 3
+    assert late.table_so_far["arsenal"].gf == 1
+
+
+def test_a_withdrawal_only_retracts_the_sources_OWN_row(season_root: Path):
+    """The cron must never delete the round a human entered by hand.
+
+    An upstream file that has not caught up carries the fixture unscored. That
+    is not a withdrawal of a MANUAL result — it is a source with nothing to say
+    — and treating it as one would silently empty the ledger every Monday.
+    """
+    ledger = season_root / "2026_27" / "results_ledger.jsonl"
+    fid = "2627:arsenal:coventry"
+    _append_jsonl(ledger, [_result_row(fid, "2026-08-21", 2, 1, "2026-08-22T09:00")])
+    loaded = season_mod.Season.load(SEASON, root=season_root)
+    silent = _openfootball("  Fri Aug 21 2026",
+                           "    20:00  Arsenal FC  v Coventry City FC")
+    assert loaded.ingest_openfootball_results(
+        silent, observed_at="2026-08-23T09:00",
+        source_id=season_mod.openfootball_source_id(silent),
+        write=True, allow_revisions=True) == []
+    assert season_mod.Season.load(SEASON, root=season_root).at(
+        "2026-08-25").played[fid] == (2, 1)
+
+
+def test_a_correction_observed_before_the_row_it_corrects_is_refused(
+        season_root: Path):
+    """A correction that cannot win the resolution is not written at all.
+
+    The ledger is append-only, so a row stamped earlier than the row it means to
+    correct is a permanent no-op that LOOKS like a correction in the file. It is
+    refused at write time, which is the only time it can still be refused.
+    """
+    ledger = season_root / "2026_27" / "results_ledger.jsonl"
+    fid = "2627:arsenal:coventry"
+    _append_jsonl(ledger, [_result_row(
+        fid, "2026-08-21", 2, 1, "2026-08-23T09:00", source="openfootball@abc")])
+    loaded = season_mod.Season.load(SEASON, root=season_root)
+    text = _openfootball("  Fri Aug 21 2026",
+                         "    20:00  Arsenal FC  3-1 (1-0)  Coventry City FC")
+    before = ledger.read_text()
+    with pytest.raises(season_mod.SeasonError, match="observed"):
+        loaded.ingest_openfootball_results(
+            text, observed_at="2026-08-22T09:00", source_id="openfootball@def",
+            write=True, allow_revisions=True)
+    assert ledger.read_text() == before

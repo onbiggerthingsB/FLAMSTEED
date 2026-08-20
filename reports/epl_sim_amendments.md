@@ -2234,3 +2234,62 @@ are untouched, and every count and digest quoted in (a.4) and (b.5) was recomput
 from those files exactly as they stand committed. The full suite — 508 tests — is
 green at this commit, which changes no code. The commit that implements any of
 this follows this one.
+
+### What landed for findings 10 and 11 — the ingest (recorded 2026-08-20, with the G1 Fix commit)
+
+A6's table records findings 10 (silent non-integral goals) and 11 (an ingest that
+cannot revise, and a kickoff move nothing acts on) and rules on neither. They are
+implemented here, and this note says what the code now does so the behaviour is
+dated rather than discovered. **No preregistered decision changes**, and in
+particular **D4 is kept exactly as written**.
+
+1. **A goal count is never coerced.** `epl.season.goal_count` accepts an exact
+   integer — `2`, `2.0`, `"2"` — and refuses `1.9`, `nan`, `inf`, `True`, a
+   negative and a word, at the moment the value is offered. `int(1.9)` is `1`,
+   and a ledger holding `1` for a source that said `1.9` presents read-time
+   validation with a perfectly good integer. Both writers use it: the manual
+   overlay and the openfootball adapter.
+
+2. **The ingest can revise, behind an explicit flag.** `--allow-revisions` lets a
+   source revise its OWN earlier statement — a changed scoreline appends a
+   correction row, and a fixture the refreshed file carries unscored appends a
+   `postponed` status row, so the fixture reads as unplayed from that observation
+   on. Both are appends; the latest-observation resolution that already exists is
+   what makes them win, and a snapshot bounded before them still reads what the
+   ledger said then.
+
+   **D4's case is untouched.** A source may not overrule another's row: openfootball
+   meeting a hand-entered result it disagrees with still STOPs with
+   `ResultConflict`, whatever the flag says, and the remedy is a deliberate manual
+   correction — the human deciding, which is what D4 asks for. The same rule is
+   what stops a source that has merely not caught up from "withdrawing" a round
+   the operator entered by hand: an unscored line in a file that never filed the
+   result is a source with nothing to say, not a retraction.
+
+   Two write-time refusals guard the append-only file: a correction stamped no
+   later than the row it corrects is refused rather than written (it could never
+   win the resolution, so the line would change nothing while reading like a
+   correction), and a fixture the ledger reads as `abandoned` is revived by a
+   later score only under the flag, while one it reads as `postponed` is revived
+   by any ingest — a postponement says "not played yet", an abandonment is a
+   deliberate strike.
+
+3. **The manual overlay writes statuses and marked corrections.** A row may carry
+   `status: "postponed"|"abandoned"` and no goals, or a scoreline with
+   `"correction": true`. An UNMARKED disagreement is still `ResultConflict`: the
+   likelier explanation for one is a typo, and an append-only ledger has no undo.
+   The marker is a directive to the reader and is not written to the ledger; the
+   row's note records what it supersedes.
+
+4. **`detect_kickoff_amendments` is wired to the ingest.** An openfootball ingest
+   diffs the refreshed parse against the vendored bytes, keeps only the moves that
+   actually change the kickoff the season already knows, and appends them to
+   `kickoff_amendments.jsonl` with `known_at` = the ingest time. The function has
+   existed since T2 with no caller, so a moved kickoff left the old date in place
+   — and a fixture whose stale date has passed reads as `unresolved`, and past two
+   days sets `results_lag`. The second filter is what keeps a re-fetch from
+   re-appending the same move every week: the vendored bytes never change, so the
+   raw diff alone repeats itself for the rest of the season.
+
+Nothing above touches a number in any issued forecast, the retrospective, or the
+committed opener bundle. `src/` and `scripts/` are unchanged.
