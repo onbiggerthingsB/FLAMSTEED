@@ -1,0 +1,42 @@
+{
+  "_what": "Every retrospective harness pair this project has RECORDED, in the order it recorded them. Amendment A4 (iv) states the same list in reports/epl_sim_amendments.md, and epl/tests/test_simretro.py fails if the two diverge. `run_retro` refuses to start under a pair that is not here unless allow_unrecorded_harness=True, which is stamped on every row the run writes and printed in the report; a run that used it is not a citable run.",
+  "_why_a_data_file": "The list cannot live inside epl/simretro.py: appending a version there would change the file's own SHA-256 and invalidate the entry being appended. It lives beside the harness instead, and the harness reads it.",
+  "versions": [
+    {
+      "version": "v1",
+      "simretro_sha256": "2b25ab351710ed140047e56c2463d2cf9cda8996b8bf684732de04143b6cb805",
+      "simmetrics_sha256": "e73f2f70bdb5dfc42572aa7a5c19af4c5843e376a240e4d335c6edd5d451fb9a",
+      "recorded_in": "reports/epl_sim_prereg_retro.md §1 (the preregistration); the harness R1 ran under"
+    },
+    {
+      "version": "v2",
+      "simretro_sha256": "f1744c25172f84875522f134ac73284ddc1ba965f50edc402f4b0677a5763f9f",
+      "simmetrics_sha256": "6756d86143425a2b55785c0c0be49839bf981b10e54857abda9272831217a7a4",
+      "recorded_in": "reports/epl_sim_amendments.md A2-N1; never used for a published run"
+    },
+    {
+      "version": "v2.1",
+      "simretro_sha256": "e449c78d96dffa663b9feccbcbb4f291f63d4452a34081bbdd68306afff91bff",
+      "simmetrics_sha256": "6756d86143425a2b55785c0c0be49839bf981b10e54857abda9272831217a7a4",
+      "recorded_in": "reports/epl_sim_amendments.md A2-N2; never used for a published run"
+    },
+    {
+      "version": "v3",
+      "simretro_sha256": "6fc293dfc6abb463f3345bd0894ad0c02ba61e7613cb62b5bb5fba38abaa0576",
+      "simmetrics_sha256": "6f5390092b2cef3a92d2dcedb6ec954545a2e9a891011414c79fc68d0bb0189b",
+      "recorded_in": "reports/epl_sim_amendments.md A4, dated note 'The v3 hashes, and what landed'; the first harness after v1 that may produce a published retrospective number"
+    },
+    {
+      "version": "v4",
+      "simretro_sha256": "7aabbd7822c29f4628c03012cf3fad1df4bcd9a2e37b5e770cdaff680880d321",
+      "simmetrics_sha256": "53c11eb14ff93e156595bfd69991250d820731926d2073c7047a8e7d21cde58d",
+      "recorded_in": "reports/epl_sim_amendments.md A4, dated note 'The v4 hashes — set-identity completeness, marker legality, sealed overrides' (2026-08-20); never used for a published run"
+    },
+    {
+      "version": "v5",
+      "simretro_sha256": "d64bef11ea3cefa32f585eb2e6749465a9acbbb6de54981ddf96f52dcf7eea1d",
+      "simmetrics_sha256": "b03d4fbcda4b4f6405ee165acc8a2786e79f0ef37111e6369f199d7dca32c5a4",
+      "recorded_in": "reports/epl_sim_amendments.md A4, dated note 'The v5 hashes — a validated, identified, span-aware truth' (2026-08-20), ruled in A6 (a); never used for a published run"
+    }
+  ]
+}
