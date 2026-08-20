@@ -239,6 +239,14 @@ Reported only so the owner can see the surface — arm run in 0.8 s, whole issua
 percentage points for probabilities and in points for E[points]. It is
 Monte-Carlo error only and says nothing about model error.
 
+**2026-08-20 correction note (Codex review of ce82484 #2).** The sentence above
+was ADDED to this report after it was issued — the `±` column existed and was
+unlabelled — and was not marked as a post-issuance edit at the time, unlike the
+dated arithmetic corrections elsewhere in this file. No number in the table
+below changed: the edit names what the existing column already was. Recorded so
+that the rule holds without exception — every edit to an issued report is dated
+in the report itself.
+
 | Club | P(champion) | P(top 4) | E[points] |
 |---|---:|---:|---:|
 | arsenal | 58.3% ± 0.35 | 98.6% ± 0.08 | 80.9 ± 0.05 |

@@ -102,6 +102,20 @@ near-miss. It is nevertheless the first number to watch on the next issuance,
 because a criterion this close to its own noise floor has little room to absorb a
 real defect.
 
+**[SE-1] — 2026-08-20 correction note (Codex review of ce82484 #2).** The two
+`±` figures marked above — the 90.03% ± 0.37 title-race concentration and the
+11.34% ± 0.25 / 4.42% ± 0.15 boundary shares — were ADDED to this report after
+it was issued, in the commit that corrected the arithmetic elsewhere on this
+page, and were not marked as post-issuance edits at the time. The arithmetic
+corrections on this page carry dated notes and these insertions did not, which
+weakens the audit trail this file exists to provide. Recorded here rather than
+silently: nothing that was published was changed by them — each is a
+Monte-Carlo standard error attached to a probability that was already in the
+report, computed from the same 20,000 retained rows and 1,000 particles as
+every other figure, and no probability, verdict or gate outcome moved. The rule
+this note restores is that every edit to an ISSUED report is dated in the report
+itself.
+
 **2026-08-19 correction.** This paragraph previously gave that quantity as
 **about 3.98** and drew from it the further conclusion that 3.98 is "the honest
 reading of why the criterion is set at 4σ". Both are wrong. 3.9753 is
@@ -113,10 +127,27 @@ calibrated at this m. At m = 14,225 the two-sided normal tail at 4σ is 6.334e-0
 which is 0.9010 expected exceedances and
 
 ```
-P(at least one cell beyond 4σ) = 1 − (1 − 6.334e-05)^14225 = 0.5939
+P(at least one cell beyond 4σ) = 1 − (1 − 6.334e-05)^14225 = 0.5939   [IID REFERENCE]
 ```
 
-— **a correct sampler fails criterion 3 about three runs in five.** That is the
+**2026-08-20 relabelling (Codex review of ce82484 #1).** 0.5939 is the IID
+REFERENCE for m = 14,225 cells, and is **not** the established failure
+probability of a correct sampler under this gate. The product form assumes the
+cells are independent, and `epl/simcanary.py` documents that they are not:
+within a fixture the scoreline cells are multinomial, the home/draw/away triple
+is a linear combination of cells already counted, and every `Z` divides by an
+ESTIMATED, floored `max(cluster, binomial)` standard error rather than by a
+known one — so the marginal normality the tail assumes is itself an
+approximation. Under dependence the true exceedance probability can sit either
+side of 0.5939, and it has not been computed. The sentence below is therefore a
+statement about the iid arithmetic, not a measurement of the sampler; the same
+relabelling is recorded as the ledger entry **A3-N1**, which also demotes A3's
+leg 2 to an uncalibrated diagnostic. The 0.9010 expected-exceedance figure above
+is exact under marginal normality (an expectation is linear and needs no
+independence) and is not relabelled.
+
+— under that iid reference, **a correct sampler would fail criterion 3 about
+three runs in five.** That is the
 subject of amendment **A3** (`reports/epl_sim_amendments.md`), which replaces the
 fixed per-cell 4σ with a family-wise `z* = Φ⁻¹(1 − α/(2m))` at α = 0.01 (`z* =
 4.9605` at this m) plus a global χ² leg, and which was recorded before the code
@@ -239,7 +270,7 @@ a question the retrospective has not yet been asked.
 
 *Concentration.* Arsenal 49.46% ± 0.79 and Man City 40.57% ± 0.77 is a two-club
 title race carrying **90.03% ± 0.37** of the mass (percentage points, one
-cluster-by-particle Monte-Carlo standard error). The sum's error is SMALLER than
+cluster-by-particle Monte-Carlo standard error).<sup>[SE-1]</sup> The sum's error is SMALLER than
 either club's, not the quadrature sum of the two: the pair are strongly negatively
 correlated by construction, since a season in which one of them is champion is a
 season in which the other is not. The DC arm is visibly **less** concentrated
@@ -403,7 +434,7 @@ times as often as at the title: **11.34% ± 0.25** of relegation boundaries and
 **4.42% ± 0.15** of title boundaries are decided by something a points-only model
 cannot see (percentage points, one cluster-by-particle Monte-Carlo standard error,
 computed over the same 20,000 retained rows and 1,000 particles as every other
-figure in this report). That is
+figure in this report).<sup>[SE-1]</sup> That is
 the direct answer to "does simulating scorelines rather than results earn its
 cost" for this season. The mass the rulebook genuinely does not decide is 3e-5 per
 club — four orders of magnitude below a headline probability of 0.5, and it is

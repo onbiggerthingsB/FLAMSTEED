@@ -442,9 +442,11 @@ Var(TRPS) ≈ Σ_{c, k} g[c, k]² · se[c, k]²
 
 **2026-08-20 — the "Conservative, not exact" bullet above is WITHDRAWN.** The premise stands and the conclusion does not follow. What the diagonal estimator drops is `g[c, k] · g[c', k'] · Cov(·, ·)`, not `Cov(·, ·)`, and the TRPS gradient changes sign **within a club's row**: `X[c, r] − O[c, r]` is non-negative for ranks below the club's realised position and non-positive at and above it, so a negative covariance multiplied by two gradient components of opposite sign contributes a **positive** term. The omitted total is of undetermined sign, and this estimator can over- **or** under-state the variance it approximates. The quantity is relabelled **`TRPS MC SE (diagonal approx.)`** — the diagonal approximation to the delta-method Monte-Carlo variance, cross-cell covariance omitted, direction unknown. **No number in this addendum changes:** the arithmetic behind every `±` figure below is unchanged and remains correct as the diagonal approximation it is; only the claim about which way it errs is withdrawn. Runs that retain per-season rows report a cluster-by-particle bootstrap of TRPS itself instead, which needs no independence assumption and no gradient. Recorded, with the reviews that found it, as amendment **A2-N4** in [`reports/epl_sim_amendments.md`](epl_sim_amendments.md); the bullet above stays where it was written, unedited, for the reason A1-C1 gives. The generator that produced this section (`epl/retro_addendum.py`) still emits the withdrawn wording as this note is written — changing it, and the harness text that repeats it, is the commit that follows A2-N4.
 
-### Every scored cell — TRPS ± MC SE
+### Every scored cell — TRPS ± TRPS MC SE (diagonal approx.)
 
 Comparison cutoffs first, then the MW28 sanity cutoff, which is in no comparison (§7). `±` is the Monte-Carlo standard error described above.
+
+**2026-08-20 relabelling (amendment A2-N4; Codex reviews of 97ab5d0 #3 and e5ec1cc #3).** These headings read `MC SE` when this addendum was written. They now read **TRPS MC SE (diagonal approx.)**, which is what the number is: the diagonal approximation to the delta-method Monte-Carlo variance of TRPS, cross-cell covariance omitted, direction of the omission unknown. Not one of the 102 `±` figures below changes — the arithmetic is unchanged and remains correct as the diagonal approximation it is, and only the label and the withdrawn claim about which way it errs are corrected. The withdrawal itself is the note above.
 
 #### Comparison cutoffs
 
@@ -490,7 +492,7 @@ Comparison cutoffs first, then the MW28 sanity cutoff, which is in no comparison
 | MW28 | 2024/25 | 0.0395 ± 0.00019 | 0.0393 ± 0.00019 | 0.0385 ± 0.00014 | 0.1750 ± n/a | 0.0737 ± n/a |
 | MW28 | 2025/26 | 0.0543 ± 0.00021 | 0.0542 ± 0.00021 | 0.0520 ± 0.00018 | 0.1750 ± n/a | 0.0789 ± n/a |
 
-### Per-cutoff mean TRPS ± MC SE of the mean
+### Per-cutoff mean TRPS ± TRPS MC SE (diagonal approx.) of the mean
 
 Means are taken **within** a cutoff and never across cutoffs, and the season count is on every row because it is not the same at every cutoff (§2). The error is the Monte-Carlo error of the mean, `sqrt(Σ se²) / n` over the seasons in that cell — again not the between-season spread.
 
