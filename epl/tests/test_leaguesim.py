@@ -116,6 +116,45 @@ class _Shifted:
         return self._inner.describe()
 
 
+class _Recording:
+    """`DCNativeProvider` that records the particle index it was CALLED with.
+
+    Codex review of 90cb962. Every assertion about `retained_rows.particle`
+    compares the recorded column with `particle_index(N, S)` — with its own
+    definition — and the mutant that matters is an engine that RECORDS `i mod S`
+    while PRICING with something else. `_Shifted` shows that a permuted pricing
+    changes the scorelines, but it cannot show that the recorded column is the
+    one used: seed `simulate_chunk` to pass `(pidx + 1) % S` to `provider.sample`
+    and the baseline becomes shift +1, `_Shifted` becomes +2, both columns still
+    read `i mod S`, and the scorelines still differ. This provider closes that
+    by keeping the argument itself.
+    """
+
+    name = "dc_native"
+
+    def __init__(self, book):
+        self._inner = leaguesim.DCNativeProvider(book)
+        self.book = book
+        self.called: list[np.ndarray] = []
+
+    @property
+    def n_particles(self):
+        return self._inner.n_particles
+
+    def sample(self, fixture, particle_idx, u):
+        self.called.append(np.asarray(particle_idx).copy())
+        return self._inner.sample(fixture, particle_idx, u)
+
+    def excluded_mass_for(self, fixture):
+        return self._inner.excluded_mass_for(fixture)
+
+    def content_hash(self):
+        return self._inner.content_hash()
+
+    def describe(self):
+        return self._inner.describe()
+
+
 def _with_played(state, played: dict):
     """The same state with `played` results added (statuses kept consistent)."""
     merged = dict(state.played)
@@ -384,6 +423,42 @@ def test_retained_particle_assignment_is_the_stratified_index(state):
         "a permuted particle assignment produced identical scorelines: the "
         "engine is not pricing through the particle column at all")
 
+    # ...AND THE RECORDED COLUMN IS THE ONE THE PROVIDER WAS HANDED (Codex
+    # review of 90cb962). Everything above is satisfied by an engine that
+    # prices through SOME bijection of the column while recording `i mod S`:
+    # seed `simulate_chunk` to pass `(pidx + 1) % S` to `provider.sample` and
+    # the baseline shifts by one, `_Shifted` by two, the scorelines still
+    # differ and both columns still read `i mod S`. The only thing that can
+    # tell those apart is the argument itself, so the argument is kept.
+    recorder = _Recording(book)
+    recorded_run = leaguesim.simulate("dc_native", state, recorder, n_sims,
+                                      SEED, 128)
+    assert recorded_run.retained_rows.particle.tolist() == expected.tolist()
+    n_unplayed = len(recorded_run.plan.unplayed_positions)
+    assert n_unplayed > 0
+    assert len(recorder.called) == recorded_run.plan.n_chunks * n_unplayed, (
+        "one sample() call per (chunk, unplayed fixture), or the walk below "
+        "is not walking what it thinks it is")
+    for chunk in range(recorded_run.plan.n_chunks):
+        lo, hi = recorded_run.plan.chunk_bounds(chunk)
+        want = recorded_run.retained_rows.particle[lo:hi].tolist()
+        for call in recorder.called[chunk * n_unplayed:(chunk + 1) * n_unplayed]:
+            assert call.tolist() == want, (
+                f"chunk {chunk}: the engine priced with a column that is not "
+                "the one it recorded for those rows")
+
+    # POSITIVE CONTROL: the walk is falsifiable. Feed it the column an engine
+    # that priced with `(i + 1) mod S` would have handed the provider, and the
+    # same comparison must reject it — otherwise the loop above is asserting
+    # nothing about which draw priced the season.
+    rolled = [((call.astype(np.int64) + 1) % n_particles).astype(np.int16)
+              for call in recorder.called]
+    lo, hi = recorded_run.plan.chunk_bounds(0)
+    want = recorded_run.retained_rows.particle[lo:hi].tolist()
+    assert any(call.tolist() != want for call in rolled[:n_unplayed]), (
+        "the comparison accepted a shifted pricing column, so it cannot see "
+        "the mutant it exists for")
+
 
 def test_run_refuses_an_unequal_or_single_particle_grid(state):
     """`N % S != 0` and `S < 2` are refused: both break the published SE.
@@ -436,6 +511,22 @@ def test_run_refuses_an_unequal_or_single_particle_grid(state):
     ok = leaguesim.simulate("dc_native", state, book, 256, SEED, 128)
     assert ok.plan.n_sims == 256
     assert float(ok.mc["cluster_se_max"]) > 0.0
+
+    # AND THE BOUNDARY ITSELF IS PINNED FROM ABOVE (Codex review of 90cb962).
+    # Everything above refuses N == S and then succeeds at N == 16S, so
+    # `n_sims < 2 * n_particles` could be tightened to `<=` — rejecting the
+    # N/S == 2 the docstring promises — with every assertion still green. The
+    # promise is `N/S >= 2`, so exactly 2 must RUN, through `simulate` and
+    # through the plan, and it must produce the within-cluster leg that N == S
+    # could not.
+    boundary = leaguesim.simulate("dc_native", state, book, 32, SEED, 16)
+    assert boundary.plan.n_sims == 32 and boundary.plan.n_particles == 16
+    assert boundary.plan.n_sims == 2 * boundary.plan.n_particles
+    assert leaguesim.SimPlan.from_state(state, n_sims=32, n_particles=16,
+                                        seed=SEED, chunk_size=16).n_sims == 32
+    assert bool(boundary.mc["within_particle_variance_defined"]) is True, (
+        "at two simulations per particle the match-randomness leg is defined, "
+        "which is the whole reason N/S == 2 is the boundary and not N == S")
 
 
 # ==========================================================================
