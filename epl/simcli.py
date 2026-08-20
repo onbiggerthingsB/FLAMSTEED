@@ -109,6 +109,19 @@ LIMITATIONS_PHRASES = (
     "Tiebreak rule id",
 )
 
+#: Phrases the note may NOT carry when the envelope flags a fixture. Every other
+#: check here is a presence check over the whole document, and presence cannot
+#: see a contradiction: a note that listed all five flagged ids AND said "no
+#: fixture exceeds the flag threshold" satisfied every one of them, because the
+#: required strings were all there and so was their denial. These are the
+#: sentences `epl.leaguesim._truncation_section` emits when nothing is flagged,
+#: so their appearance beside a flag is the note disagreeing with the run.
+LIMITATIONS_TRUNCATION_DENIALS = (
+    "no fixture exceeds the flag threshold",
+    "every fixture is played at this cutoff",
+    "there is no truncation tail to measure",
+)
+
 #: Bumped to -2 when `output_digests` and `provider_hashes` were added to the
 #: record (round-2 Codex review of d6a1a91): `check` now holds the FILE a reader
 #: downloads against the run it claims to describe, and refuses a provider that
@@ -715,11 +728,22 @@ def check_limitations(text: str, run: leaguesim.SimRun) -> dict:
     # ... and nothing may be listed as flagged that the envelope does not flag.
     listed = set(re.findall(r"`(\d{4}:[a-z0-9_]+:[a-z0-9_]+)`", text))
     extra = sorted(listed - set(flagged_ids))
+    # ... and nothing may CLAIM there is nothing to flag when there is. Every
+    # check above is a presence check over the whole document, so a note that
+    # listed all five flagged ids AND said "no fixture exceeds the flag
+    # threshold" satisfied every one of them: the required strings were all
+    # there, and so was their contradiction. Presence cannot see a false
+    # statement, so the false statement is named.
+    denials = sorted(
+        phrase for phrase in LIMITATIONS_TRUNCATION_DENIALS
+        if flagged_ids and phrase in text)
 
-    return _ok("limitations", not missing and not absent and not extra, {
+    return _ok("limitations",
+               not missing and not absent and not extra and not denials, {
         "missing_sections": missing,
         "numbers_not_found": absent,
         "flagged_in_note_not_in_envelope": extra,
+        "denies_its_own_flags": denials,
         "flagged_fixtures": flagged_ids,
         "excluded_mass": {k: block.get(k) for k in
                           ("measured", "n_fixtures", "max", "mean", "p90")},
@@ -733,13 +757,34 @@ def _provider_identity_gap(provider, run) -> dict:
     """Where the provider's identity disagrees with the run's own envelope.
 
     The envelope records the identity of the provider that produced the run —
-    `effective_posterior_hash`, `bridge_hash`, `widening_mode`, `max_goals`, and
-    the arm's name. A provider that differs in any of them is not the thing the
-    run was made with, whatever else it reproduces. Empty dict means agreement.
+    `provider_hash` above all, and beside it `effective_posterior_hash`,
+    `bridge_hash`, `widening_mode`, `max_goals`, and the arm's name. A provider
+    that differs in any of them is not the thing the run was made with, whatever
+    else it reproduces. Empty dict means agreement.
+
+    `provider_hash` IS THE IDENTITY, and it was the one thing not compared. The
+    described fields are a partial view — a `describe()` that raises, or a
+    provider carrying none of those keys, matched everything by matching
+    nothing, and the reproduction leg could then come back `None` (a different
+    `repro_n_sims` or chunk size makes the direct digest comparison
+    inapplicable) leaving a DIFFERENT bridge or Elo provider to self-reproduce
+    and pass. `content_hash()` covers the whole provider by construction, so it
+    is compared exactly, and a provider that cannot produce one is a gap rather
+    than a pass.
     """
     gap: dict = {}
     if getattr(provider, "name", run.arm) != run.arm:
         gap["arm"] = [getattr(provider, "name", None), run.arm]
+
+    recorded = run.envelope.get("provider_hash")
+    if recorded is not None:
+        try:
+            mine = provider.content_hash()
+        except Exception as exc:                            # pragma: no cover
+            mine = f"unavailable: {type(exc).__name__}: {exc}"
+        if mine != recorded:
+            gap["provider_hash"] = [mine, recorded]
+
     describe = getattr(provider, "describe", None)
     described = {}
     if describe is not None:
@@ -1204,6 +1249,21 @@ def _check_arm(arm: str, directory: Path, record: dict, season_obj, state, book,
     # A provider that is not the one the issuance recorded cannot answer for
     # this arm, however well it reproduces itself.
     recorded_provider = (record.get("provider_hashes") or {}).get(arm)
+    # LEGACY LENIENCY IS CONDITIONED ON THE SCHEMA, STRICTLY.
+    # `output_digests` and `provider_hashes` arrived with `epl-issuance-2` and
+    # are mandatory from there on. Treating "absent" as "no anchor to hold this
+    # against" regardless of version meant a schema-2 or -3 record stripped of
+    # both mandatory anchors passed exactly as an honest schema-1 record does:
+    # the leniency that exists for records written before the fields existed was
+    # extended to records that are missing them. Only `epl-issuance-1` may lack
+    # them; anything else must carry them or FAIL.
+    schema = str(record.get("schema_version") or "")
+    legacy = schema == "epl-issuance-1"
+    missing_anchors = [] if legacy else sorted(
+        name for name, value in (
+            ("provider_hashes", recorded_provider),
+            ("output_digests", (record.get("output_digests") or {}).get(arm)))
+        if value is None)
     # Which recorded hashes this arm's REBUILD was held against. An arm whose
     # record carried no anchor was checked against its own bundle only, and
     # saying which is the difference between a check and a claim. Computed
@@ -1289,12 +1349,16 @@ def _check_arm(arm: str, directory: Path, record: dict, season_obj, state, book,
 
     passed = bool(matches and coherence["PASS"] and parity["PASS"]
                   and output_matches is not False
-                  and provider_matches is not False)
+                  and provider_matches is not False
+                  and not missing_anchors)
     return {
         "arm": arm,
         "status": "PASS" if passed else "FAIL",
         "PASS": passed,
         "detail": {
+            "schema_version": schema or None,
+            "legacy_schema_leniency": legacy,
+            "missing_mandatory_anchors": missing_anchors,
             "digest_matches": bool(matches),
             "recorded_digest": expected,
             "recomputed_digest": digest,

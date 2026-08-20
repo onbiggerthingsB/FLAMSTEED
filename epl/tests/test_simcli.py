@@ -1120,6 +1120,31 @@ def test_check_refuses_a_provider_hash_that_is_not_the_recorded_one(issuance,
     legacy = simcli.check_issuance(older, verbose=False)
     assert legacy["PASS"] is True
     assert legacy["arms"]["dc_native"]["detail"]["provider_hash_matches"] is None
+    assert legacy["arms"]["dc_native"]["detail"]["legacy_schema_leniency"] is True
+    assert legacy["arms"]["dc_native"]["detail"]["missing_mandatory_anchors"] == []
+
+    # ...AND THE LENIENCY IS THE SCHEMA'S, NOT THE ABSENCE'S. `output_digests`
+    # and `provider_hashes` arrived with `epl-issuance-2` and are mandatory from
+    # there on, but "absent" was read as "no anchor to hold this against"
+    # whatever the version said — so a schema-2 or -3 record stripped of both
+    # mandatory anchors passed exactly as an honest schema-1 record does.
+    for dropped in (("provider_hashes",), ("output_digests",),
+                    ("provider_hashes", "output_digests")):
+        stripped = directory.parent / ("stripped_" + "_".join(dropped))
+        shutil.copytree(directory, stripped)
+        record = json.loads((stripped / "issuance.json").read_text())
+        assert record["schema_version"] != "epl-issuance-1"
+        for key in dropped:
+            record.pop(key)
+        (stripped / "issuance.json").write_text(json.dumps(record))
+
+        report = simcli.check_issuance(stripped, verbose=False)
+        cell = report["arms"]["dc_native"]
+        assert report["PASS"] is False, dropped
+        assert cell["detail"]["legacy_schema_leniency"] is False
+        assert cell["detail"]["missing_mandatory_anchors"] == sorted(dropped)
+        # every other leg still holds, so the FAIL is the missing anchor alone
+        assert cell["detail"]["digest_matches"] is True, dropped
 
 
 def test_gate_refuses_a_provider_that_is_not_the_one_that_made_the_run(
@@ -1150,6 +1175,50 @@ def test_gate_refuses_a_provider_that_is_not_the_one_that_made_the_run(
     assert cell["PASS"] is False
     assert "effective_posterior_hash" in cell["detail"]["provider_identity_gap"]
     assert cell["detail"]["reproduces_the_gated_run"] is False
+
+    # THE ENVELOPE'S OWN `provider_hash`, compared exactly. The described-field
+    # comparison is partial: a provider whose `describe()` carries none of those
+    # keys (or raises) matched everything by matching nothing, and the
+    # reproduction leg comes back `None` whenever the gate re-runs at a
+    # different N or chunk size — so a DIFFERENT provider could self-reproduce
+    # and pass. `content_hash()` covers the whole provider by construction.
+    class _Mute:
+        """The other book, with nothing to say about itself."""
+
+        name = "dc_native"
+
+        def __init__(self, inner):
+            self._inner = leaguesim.DCNativeProvider(inner)
+            self.book = inner
+
+        @property
+        def n_particles(self):
+            return self._inner.n_particles
+
+        def sample(self, fixture, particle_idx, u):
+            return self._inner.sample(fixture, particle_idx, u)
+
+        def excluded_mass_for(self, fixture):
+            return self._inner.excluded_mass_for(fixture)
+
+        def content_hash(self):
+            return self._inner.content_hash()
+
+        def describe(self):
+            return {}                       # says nothing, so matches nothing
+
+    mute = _Mute(other)
+    assert mute.content_hash() != run.envelope["provider_hash"]
+    gap = simcli._provider_identity_gap(mute, run)
+    assert "provider_hash" in gap, (
+        "a provider that describes nothing matched everything: the identity "
+        "check was reading `describe()` and never the envelope's own hash")
+    assert gap["provider_hash"] == [mute.content_hash(),
+                                    run.envelope["provider_hash"]]
+    # POSITIVE CONTROL: the provider that DID make the run has no gap, through
+    # the same door, so the key is not simply always present.
+    assert "provider_hash" not in simcli._provider_identity_gap(
+        leaguesim.DCNativeProvider(book), run)
 
 
 def test_check_reproducibility_requires_the_parallel_leg_to_have_run(state, book,
@@ -1281,8 +1350,56 @@ def test_check_limitations_validates_the_truncation_record(issuance):
     assert report["detail"]["flagged_in_note_not_in_envelope"] == \
         ["2627:arsenal:coventry"]
 
+    # (c) THE OTHER DIRECTION: a note that lists the flagged fixtures AND says
+    #     there are none. Every check above is a presence check over the whole
+    #     document, so a note keeping every required id and statistic while also
+    #     claiming "no fixture exceeds the flag threshold" satisfied all of them
+    #     — the required strings were there, and so was their denial. Presence
+    #     cannot see a contradiction.
+    flagged_run = _run_with_flagged_fixture(run)
+    flagged_block = flagged_run.envelope["excluded_mass"]
+    assert flagged_block["flagged"], "the fixture must really be flagged"
+    honest = leaguesim.limitations_markdown(flagged_run)
+    assert simcli.check_limitations(honest, flagged_run)["PASS"] is True
+
+    denying = honest.replace(
+        "## Monte-Carlo error",
+        "* **none** — no fixture exceeds the flag threshold.\n\n"
+        "## Monte-Carlo error")
+    assert denying != honest
+    report = simcli.check_limitations(denying, flagged_run)
+    assert report["PASS"] is False
+    assert report["detail"]["denies_its_own_flags"] == [
+        "no fixture exceeds the flag threshold"]
+    # ... and every OTHER leg still passes, so the failure is the denial alone
+    assert report["detail"]["numbers_not_found"] == []
+    assert report["detail"]["flagged_in_note_not_in_envelope"] == []
+
     # POSITIVE CONTROL: the note the run itself writes carries every number the
-    # envelope holds, so (a) and (b) are corruptions and not a stricter reading.
+    # envelope holds, so (a), (b) and (c) are corruptions and not a stricter
+    # reading — and an UNFLAGGED run may still say "none" without failing.
     assert simcli.check_limitations(text, run)["detail"]["numbers_not_found"] == []
     assert simcli.check_limitations(text, run)["detail"][
         "flagged_in_note_not_in_envelope"] == []
+    assert simcli.check_limitations(text, run)["detail"][
+        "denies_its_own_flags"] == []
+
+
+def _run_with_flagged_fixture(run):
+    """The same run with one fixture flagged in its envelope and report.
+
+    The gate reads the envelope, so the flag is put there rather than re-fitting
+    a hot book: what is under test is whether the NOTE may contradict the
+    record, not how the record came to hold a flag.
+    """
+    flagged = {"fixture": run.plan.fixtures[0].fixture_id, "mean": 0.0061,
+               "median": 0.00019, "worst": 0.44, "n_over_1pct": 21}
+    envelope = dict(run.envelope)
+    block = dict(envelope["excluded_mass"])
+    block["flagged"] = [flagged]
+    block["n_flagged"] = 1
+    block["max"] = max(float(block["max"]), flagged["worst"])
+    envelope["excluded_mass"] = block
+    out = copy.copy(run)
+    out.envelope = envelope
+    return out
