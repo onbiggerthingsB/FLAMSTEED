@@ -2339,3 +2339,68 @@ did. The committed opener's own ledger is empty, so no number in it moves:
 `dc_native` still reproduces and still reports `digest_matches: true`, and the two
 bridge arms are REFUSED there for the reason they always were, its bundle carrying
 no sidecars.
+
+### What landed for A6 (b) — `check` semantics (recorded 2026-08-20, with the G3 Fix commit)
+
+`epl-issuance-4` is live, the fourth verdict exists, and the committed opener was
+re-checked under the new code on 2026-08-20. It reports exactly what (b.5)
+pre-stated:
+
+```
+PASS (5 criteria unanchored: pre-A6 record)   fully_anchored: false
+record_digest                             UNANCHORED (pre-A6 record)
+acceptance_digest                         UNANCHORED (pre-A6 record)
+retained_rows_anchored                    UNANCHORED (pre-A6 record)
+truncation_sidecar_anchored               UNANCHORED (pre-A6 record)
+parity_reference_is_production_grid       UNANCHORED (pre-A6 record)
+published_output_full_digest              PASS
+envelope_agrees_with_record               PASS
+acceptance_verdict                        PASS
+truncation_sidecar_consistent             PASS
+retained_rows_reproduce                   PASS   <- the one A6 did not assert
+```
+
+`retained_rows_reproduce` is the criterion (b.5) declined to predict — a
+re-derivation available on every schema. Measured now that the code exists: it
+PASSES for the committed opener's `dc_native` arm, all ten arrays element for
+element. `dc_native` still reports `digest_matches: true`; the two bridge arms
+are REFUSED there for the reason they always were, that bundle carrying no
+sidecars.
+
+Three points where the implementation had to decide something (b) does not
+spell out, each decided the strict way and stated here:
+
+1. **Absent versus present-and-null.** A `-4` record with one of the four new
+   keys ABSENT FAILs the criterion it anchors, naming the field — that is
+   (b)'s rule, and it is what stops the leniency becoming the hole
+   `epl-issuance-2` already made once. A key PRESENT and `null` is different and
+   is not tampering: it is the issuer saying there was nothing to pin. A run made
+   from a book with no posterior pins no training frame, and a run issued with no
+   gate has no gate bytes to hash. Both report UNANCHORED with a note that says
+   which, so they are not passes either.
+
+2. **`training_frame_sha256` is written only when there is a fit to identify** —
+   `fit.post is not None`. Claiming an anchor for a run that had no posterior
+   would be the record anchoring itself after the fact.
+
+3. **Reconstruction is offered, not performed.** `check_issuance` takes a `post`
+   argument and uses `draw_api.production_grid` when
+   `ParticleBook.from_posterior(post).content_hash()` equals the record's
+   `effective_posterior_hash`, exactly as (b.4) requires. It does not itself
+   re-fit: a check has no store and a fit is minutes. A `-4` record checked
+   without a reproducing posterior therefore reports REFUSED, which is not a
+   pass and leaves the arm not a pass — the honest state, and the one (b.4)
+   asks for.
+
+Also landed here, from `live-forecast.md` #4 (recorded by A6 and not ruled on):
+the issuance is written to a staging directory OUTSIDE the season's issuance
+folder and moved into place in one step, with `summary.md` before
+`issuance.json` and `issuance.json` last. `_last_issuance` additionally requires
+a directory named for a cutoff DAY, so a half-written run is not a candidate on
+either count. Tested by interrupting a re-issue and asserting the previous
+issuance is still selected, byte for byte, with nothing else in the folder.
+
+Every test issuance in the suite runs no gate or the fast gate, so none of them
+can `check` PASS any more — which is finding 7 working. Those tests now assert
+what is true: every arm reproduces, and the only thing standing between the
+bundle and a pass is the gate it cannot show.

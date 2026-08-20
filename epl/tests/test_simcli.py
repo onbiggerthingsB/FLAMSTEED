@@ -567,9 +567,50 @@ def test_acceptance_gate_names_every_criterion_and_fails_when_one_fails(
 # ==========================================================================
 # 5. `check` re-runs the last issuance and must reproduce it
 # ==========================================================================
+def _blocked_only_by_the_gate(report: dict) -> bool:
+    """Everything reproduced; the only thing not shown is the acceptance gate.
+
+    A6 (b.3) makes a bundle that cannot show it passed its gate not-a-pass, and
+    every fast test issuance here either runs no gate at all or runs the fast
+    gate, which SKIPs two criteria and therefore does not pass. That is the new
+    rule working, so these tests assert it explicitly rather than asserting a
+    top-level PASS the rule no longer allows.
+    """
+    return (report["PASS"] is False
+            and not report["failed"] and not report["refused"]
+            and set(report["record_failed"]) <= {"acceptance_verdict"}
+            and set(report["record_refused"]) <= {"acceptance_verdict"})
+
+
+def _as_older_schema(record: dict, schema: str) -> dict:
+    """The record as an OLDER schema really was — without the fields it lacked.
+
+    A record edited into the past while still carrying `epl-issuance-4`'s
+    anchors is not a legacy record, it is a tampered one, and `record_digest`
+    says so. Dropping them is what makes the leniency test about the leniency.
+    """
+    record = dict(record)
+    record["schema_version"] = schema
+    for name in simcli.A6_RECORD_FIELDS:
+        record.pop(name, None)
+    return record
+
+
+def _restamp(record: dict) -> dict:
+    """Re-digest an edited record, so exactly ONE thing about it is wrong.
+
+    A6 (b.1) is explicit that a self-carried digest is a checksum against
+    accident and not a seal against an editor who updates every copy. These
+    tests are that editor on purpose: the point of each is the OTHER anchor.
+    """
+    record = dict(record)
+    record[simcli.RECORD_DIGEST_FIELD] = simcli.record_digest(record)
+    return record
+
+
 def test_cli_check_reproduces_the_last_issuance(issuance, book):
     report = simcli.check_issuance(issuance["directory"], verbose=False)
-    assert report["PASS"] is True
+    assert _blocked_only_by_the_gate(report)
     assert report["detail"]["digest_matches"] is True
     assert report["coherence"]["PASS"] is True
 
@@ -834,7 +875,7 @@ def test_check_reproduces_every_arm_from_its_own_bundle(three_arm_issuance):
         assert cell["detail"]["recomputed_digest"] == \
             three_arm_issuance["numbers_digests"][arm]
         assert cell["coherence"]["PASS"] is True, arm
-    assert report["PASS"] is True
+    assert _blocked_only_by_the_gate(report)
 
     # per-fixture parity is a DC-native question and is NOT claimed for an arm
     # that samples another law on purpose
@@ -966,9 +1007,9 @@ def test_a_v3_record_stripped_of_the_manifest_anchor_fails_and_names_it(
     stripped = _copy(three_arm_issuance, "no_manifest_anchor")
     path = stripped / "issuance.json"
     record = json.loads(path.read_text())
-    assert record["schema_version"] == "epl-issuance-3"
+    assert record["schema_version"] == simcli.ISSUANCE_SCHEMA_VERSION
     assert record.pop("arms_manifest_hash")
-    path.write_text(json.dumps(record))
+    path.write_text(json.dumps(_restamp(record)))
 
     report = simcli.check_issuance(stripped, verbose=False)
     assert report["PASS"] is False
@@ -988,12 +1029,12 @@ def test_a_v3_record_stripped_of_the_manifest_anchor_fails_and_names_it(
     # reported as unanchored, because that leniency is what it exists for
     older = _copy(three_arm_issuance, "schema_2_no_manifest_anchor")
     path = older / "issuance.json"
-    record = json.loads(path.read_text())
-    record["schema_version"] = "epl-issuance-2"
+    record = _as_older_schema(json.loads(path.read_text()), "epl-issuance-2")
     del record["arms_manifest_hash"]
     path.write_text(json.dumps(record))
     lenient = simcli.check_issuance(older, verbose=False)
-    assert lenient["PASS"] is True
+    assert _blocked_only_by_the_gate(lenient)
+    assert lenient["failed"] == [] and lenient["refused"] == []
     for arm in ("dc_wdl_bridge", "elo_wdl_bridge"):
         anchors = lenient["arms"][arm]["detail"]["sidecar_anchors"]
         assert "arms_manifest_hash" not in anchors, arm
@@ -1058,7 +1099,7 @@ def test_a_missing_sidecar_makes_check_refuse_that_arm_and_not_pass(
 
     # ...and narrowing to the arm that CAN be rebuilt is an explicit act
     narrowed = simcli.check_issuance(stripped, arms=("dc_native",), verbose=False)
-    assert narrowed["PASS"] is True
+    assert _blocked_only_by_the_gate(narrowed)
     assert set(narrowed["arms"]) == {"dc_native"}
 
 
@@ -1076,7 +1117,7 @@ def test_check_of_a_bridge_published_arm_no_longer_refuses_outright(
     assert issued["published_arm"] == "dc_wdl_bridge"
 
     report = simcli.check_issuance(issued["directory"], verbose=False)
-    assert report["PASS"] is True
+    assert _blocked_only_by_the_gate(report)
     assert report["arm"] == "dc_wdl_bridge"
     assert report["detail"]["digest_matches"] is True
 
@@ -1156,10 +1197,11 @@ def test_check_reads_the_published_output_file_back(issuance):
     """
     directory = Path(issuance["directory"])
     record = json.loads((directory / "issuance.json").read_text())
-    assert record["schema_version"] == "epl-issuance-3"
+    assert record["schema_version"] == simcli.ISSUANCE_SCHEMA_VERSION
     assert set(record["output_digests"]) == set(record["arms"])
     assert set(record["provider_hashes"]) == set(record["arms"])
-    assert simcli.check_issuance(directory, verbose=False)["PASS"] is True
+    assert _blocked_only_by_the_gate(
+        simcli.check_issuance(directory, verbose=False))
 
     edited = directory.parent / "edited_output"
     shutil.copytree(directory, edited)
@@ -1186,7 +1228,7 @@ def test_check_refuses_a_provider_hash_that_is_not_the_recorded_one(issuance,
     shutil.copytree(directory, swapped)
     record = json.loads((swapped / "issuance.json").read_text())
     record["provider_hashes"]["dc_native"] = "not-the-provider-that-made-it"
-    (swapped / "issuance.json").write_text(json.dumps(record))
+    (swapped / "issuance.json").write_text(json.dumps(_restamp(record)))
 
     report = simcli.check_issuance(swapped, verbose=False)
     assert report["PASS"] is False
@@ -1196,13 +1238,15 @@ def test_check_refuses_a_provider_hash_that_is_not_the_recorded_one(issuance,
     # all, and a missing record is reported as unrecorded rather than failed.
     older = directory.parent / "older_schema"
     shutil.copytree(directory, older)
-    record = json.loads((older / "issuance.json").read_text())
+    record = _as_older_schema(json.loads((older / "issuance.json").read_text()),
+                              "epl-issuance-1")
     record.pop("provider_hashes")
     record.pop("output_digests")
-    record["schema_version"] = "epl-issuance-1"
     (older / "issuance.json").write_text(json.dumps(record))
     legacy = simcli.check_issuance(older, verbose=False)
-    assert legacy["PASS"] is True
+    assert _blocked_only_by_the_gate(legacy)
+    # ...and a pre-A6 record can never claim to be fully anchored.
+    assert legacy["fully_anchored"] is False
     assert legacy["arms"]["dc_native"]["detail"]["provider_hash_matches"] is None
     assert legacy["arms"]["dc_native"]["detail"]["legacy_schema_leniency"] is True
     assert legacy["arms"]["dc_native"]["detail"]["missing_mandatory_anchors"] == []
@@ -1220,7 +1264,7 @@ def test_check_refuses_a_provider_hash_that_is_not_the_recorded_one(issuance,
         assert record["schema_version"] != "epl-issuance-1"
         for key in dropped:
             record.pop(key)
-        (stripped / "issuance.json").write_text(json.dumps(record))
+        (stripped / "issuance.json").write_text(json.dumps(_restamp(record)))
 
         report = simcli.check_issuance(stripped, verbose=False)
         cell = report["arms"]["dc_native"]
@@ -1791,3 +1835,254 @@ def test_an_archive_anchor_takes_no_knowledge_bound_and_is_not_refused(
     with pytest.raises(season_mod.SeasonError, match="knowledge bound"):
         dcfit.anchor_state_at(_Opaque(), "2026-05-01", teams,
                               observed_by="2026-04-01")
+
+
+# ==========================================================================
+# G3 — what a `check` PASS is allowed to mean (amendment A6 (b);
+# `gate-retro.md` #3 #4, `engine-pricing.md` #4, `live-forecast.md` #3 #4)
+#
+# Six coats on one defect: a check whose inputs are chosen by the thing being
+# checked. The record's full digest was carried and never read, the two sidecars
+# were written and never hashed, the gate report was never consulted, parity
+# compared the sampler to a reference derived from the sampler's own book, and
+# the issuance was written in place with `issuance.json` first.
+# ==========================================================================
+
+COMMITTED_OPENER = Path("data/epl/sim/issuances/2026_27/2026-08-21")
+
+
+def _edit_json(path: Path, mutate) -> None:
+    payload = json.loads(path.read_text())
+    mutate(payload)
+    path.write_text(leaguesim.canonical_json(payload) + "\n")
+
+
+def test_check_reads_the_full_record_digest_and_an_edited_observed_by_FAILS(
+        three_arm_issuance):
+    """`gate-retro.md` #3: an edited `observed_by` left every check passing.
+
+    `output_numbers_digest` covers the NUMBERS and excludes the envelope on
+    purpose, so provenance — `observed_by`, `git_commit`, the results snapshot —
+    was outside every comparison. The record already carried a digest over the
+    whole payload; nothing read it.
+    """
+    directory = _copy(three_arm_issuance, "full_digest")
+    clean = simcli.check_issuance(directory, verbose=False)
+    cell = clean["arms"]["dc_native"]
+    assert _criterion(cell, "published_output_full_digest")["status"] == "PASS"
+
+    _edit_json(directory / "output_dc_native.json",
+               lambda p: p["envelope"].__setitem__("observed_by", "2099-01-01"))
+    tampered = simcli.check_issuance(directory, verbose=False)
+    cell = tampered["arms"]["dc_native"]
+    assert _criterion(cell, "published_output_full_digest")["status"] == "FAIL"
+    assert _criterion(cell, "envelope_agrees_with_record")["status"] == "FAIL"
+    assert tampered["PASS"] is False
+    assert "dc_native" in tampered["failed"]
+
+
+def _criterion(cell: dict, name: str) -> dict:
+    for row in cell["criteria"]:
+        if row["name"] == name:
+            return row
+    raise AssertionError(f"{name} is not among {[r['name'] for r in cell['criteria']]}")
+
+
+def test_check_anchors_both_sidecars_and_recomputes_the_truncation_vector(
+        three_arm_issuance):
+    """`engine-pricing.md` #4: the retained rows and the full truncation vector
+    were written and then excluded from the digest and the check.
+
+    Two independent legs, exactly as A6 (b.2) states: the anchored bytes
+    (`sidecar_digests`, new in `epl-issuance-4`), and a re-derivation that works
+    on every schema. The residual — a doctored per-fixture vector that preserves
+    every statistic the envelope carries — is what the anchor exists for.
+    """
+    directory = _copy(three_arm_issuance, "sidecars")
+    record = json.loads((directory / "issuance.json").read_text())
+    assert set(record["sidecar_digests"]) == set(simcli.ARMS)
+    assert set(record["sidecar_digests"]["dc_native"]) == {"rows", "excluded_mass"}
+
+    clean = simcli.check_issuance(directory, verbose=False)["arms"]["dc_native"]
+    for name in ("retained_rows_anchored", "retained_rows_reproduce",
+                 "truncation_sidecar_anchored", "truncation_sidecar_consistent"):
+        assert _criterion(clean, name)["status"] == "PASS", name
+
+    # (a) the retained rows: one flipped scoreline byte
+    rows_path = directory / "rows_dc_native.npz"
+    arrays = {k: v.copy() for k, v in np.load(rows_path).items()}
+    arrays["scorelines"][0, 0, 0] += 1
+    np.savez_compressed(rows_path, **arrays)
+    broken = simcli.check_issuance(directory, verbose=False)["arms"]["dc_native"]
+    assert _criterion(broken, "retained_rows_anchored")["status"] == "FAIL"
+    assert _criterion(broken, "retained_rows_reproduce")["status"] == "FAIL"
+
+    # (b) the truncation sidecar: a summary that no longer matches its vector
+    directory = _copy(three_arm_issuance, "sidecars_b")
+    _edit_json(directory / "excluded_mass_dc_native.json",
+               lambda p: p["summary"].__setitem__("n_flagged", 99))
+    broken = simcli.check_issuance(directory, verbose=False)["arms"]["dc_native"]
+    assert _criterion(broken, "truncation_sidecar_anchored")["status"] == "FAIL"
+    assert _criterion(broken, "truncation_sidecar_consistent")["status"] == "FAIL"
+
+
+def test_check_refuses_a_bundle_that_cannot_show_it_passed_its_gate(
+        three_arm_issuance, issuance):
+    """`live-forecast.md` #3: a `--skip-oracle` issuance exits 3 on a failed gate
+    and then `check`ed PASS afterwards, because `check` never read the gate.
+
+    Three states, all of them not-a-pass: no gate report at all (REFUSED), a
+    report whose own verdict is false (FAIL), and a report that disagrees with
+    the record (FAIL).
+    """
+    # (a) `gate=False`: nothing to show. A refusal is not a pass.
+    directory = _copy(three_arm_issuance, "no_gate")
+    report = simcli.check_issuance(directory, verbose=False)
+    verdict = _record_criterion(report, "acceptance_verdict")
+    assert verdict["status"] == "REFUSED"
+    assert report["PASS"] is False
+
+    # (b) a gate that ran and did not pass — the fast gate SKIPs two criteria,
+    #     and a SKIPPED criterion is not a passing one.
+    directory = _copy(issuance, "failed_gate")
+    assert json.loads((directory / "acceptance.json").read_text())["PASS"] is False
+    report = simcli.check_issuance(directory, verbose=False)
+    assert _record_criterion(report, "acceptance_verdict")["status"] == "FAIL"
+    assert report["PASS"] is False
+
+    # (c) a gate report edited to claim a pass the record does not record
+    _edit_json(directory / "acceptance.json", lambda p: p.__setitem__("PASS", True))
+    report = simcli.check_issuance(directory, verbose=False)
+    assert _record_criterion(report, "acceptance_verdict")["status"] == "FAIL"
+
+    # (d) POSITIVE CONTROL: agreeing and true.
+    _edit_json(directory / "issuance.json", lambda p: p.__setitem__("gate_PASS", True))
+    report = simcli.check_issuance(directory, verbose=False)
+    assert _record_criterion(report, "acceptance_verdict")["status"] == "PASS"
+
+
+def _record_criterion(report: dict, name: str) -> dict:
+    for row in report["criteria"]:
+        if row["name"] == name:
+            return row
+    raise AssertionError(f"{name} is not among {[r['name'] for r in report['criteria']]}")
+
+
+def test_check_time_parity_uses_the_production_grid_or_refuses(three_arm_issuance):
+    """`gate-retro.md` #4: parity passed `post=None`, so the reference was the
+    book's own mixture and the production adapter was never called at check time.
+
+    A `-4` record that names a training frame but cannot be handed a posterior
+    reproducing its anchored book REFUSES; hand it that posterior and the
+    criterion is evaluated against `draw_api.production_grid`.
+    """
+    directory = _copy(three_arm_issuance, "parity")
+    record = json.loads((directory / "issuance.json").read_text())
+    assert record["schema_version"] == "epl-issuance-4"
+    # This issuance was made from a synthetic book with no posterior, so the
+    # record pins no training frame and the criterion has nothing to hold it to.
+    assert record["training_frame_sha256"] is None
+    cell = simcli.check_issuance(directory, verbose=False)["arms"]["dc_native"]
+    assert _criterion(cell, "parity_reference_is_production_grid")["status"] \
+        == "UNANCHORED"
+
+    # A record that DOES pin one, with no posterior available: REFUSED, which is
+    # not a pass, and the arm is not a pass.
+    _edit_json(directory / "issuance.json",
+               lambda p: p.__setitem__("training_frame_sha256", "0" * 64))
+    report = simcli.check_issuance(directory, verbose=False)
+    cell = report["arms"]["dc_native"]
+    assert _criterion(cell, "parity_reference_is_production_grid")["status"] \
+        == "REFUSED"
+    assert cell["PASS"] is False
+
+
+def test_an_interrupted_issuance_leaves_no_selectable_partial(book, tmp_path,
+                                                              monkeypatch):
+    """`live-forecast.md` #4: writes were in place and `issuance.json` came
+    first, so an interruption left a stale or missing `summary.md` beside a
+    record that `_last_issuance` still selected.
+
+    Everything is written to a staging directory OUTSIDE the season's issuance
+    folder and moved into place in one step, with `issuance.json` written last.
+    """
+    out_root = tmp_path / "issuances"
+    good = simcli.forecast(
+        season=SEASON, cutoff=OPENER, arms=("dc_native",), n_sims=N_SIMS,
+        seed=SEED, chunk_size=CHUNK, n_particles=N_PARTICLES, out_root=out_root,
+        gate=False, verbose=False, fit=simcli.FitBundle(post=None, book=book))
+    before = (Path(good["directory"]) / "issuance.json").read_text()
+
+    boom = RuntimeError("the machine went away mid-issuance")
+
+    def _explode(*args, **kwargs):
+        raise boom
+
+    monkeypatch.setattr(simcli, "summary_markdown", _explode)
+    with pytest.raises(RuntimeError):
+        simcli.forecast(
+            season=SEASON, cutoff=OPENER, arms=("dc_native",), n_sims=N_SIMS,
+            seed=SEED + 1, chunk_size=CHUNK, n_particles=N_PARTICLES,
+            out_root=out_root, gate=False, verbose=False,
+            fit=simcli.FitBundle(post=None, book=book))
+
+    # The last issuance is still the one that completed, byte for byte.
+    selected = simcli._last_issuance(SEASON, out_root)
+    assert (selected / "issuance.json").read_text() == before
+    # ...and nothing half-written is sitting in the season's folder.
+    season_dir = out_root / season_mod.season_dir_name(SEASON)
+    assert sorted(p.name for p in season_dir.iterdir()) == [
+        pd.Timestamp(OPENER).date().isoformat()]
+
+
+def test_the_record_digest_is_written_in_both_copies_and_checked(
+        three_arm_issuance):
+    """A6 (b.1): the record's own fields — `published_arm`, `arms`, `files`,
+    `gate_PASS` — are covered by `record_digest`, written into `issuance.json`
+    and printed in `summary.md`, and `check` requires both copies to agree.
+
+    A6 states the limit rather than overselling it: a digest a file carries about
+    itself is a checksum against accident, not a seal against an editor who
+    updates every copy. The repository history is what catches that.
+    """
+    directory = _copy(three_arm_issuance, "record_digest")
+    report = simcli.check_issuance(directory, verbose=False)
+    assert _record_criterion(report, "record_digest")["status"] == "PASS"
+    record = json.loads((directory / "issuance.json").read_text())
+    assert record["record_digest"] in (directory / "summary.md").read_text()
+
+    # Edit one field the digest covers and leave both copies of the digest alone.
+    _edit_json(directory / "issuance.json",
+               lambda p: p.__setitem__("published_arm", "elo_wdl_bridge"))
+    report = simcli.check_issuance(directory, verbose=False)
+    assert _record_criterion(report, "record_digest")["status"] == "FAIL"
+    assert report["PASS"] is False
+
+
+@pytest.mark.skipif(not COMMITTED_OPENER.exists(),
+                    reason="the committed opener bundle is not present")
+def test_the_committed_opener_reports_exactly_the_pre_A6_criteria_unanchored():
+    """A6 (b.5), pre-stated by criterion, held against the bundle as committed.
+
+    The published issuance is `epl-issuance-1`. It is not re-issued, not re-run
+    and not edited: it stays verifiable for exactly what its record can support,
+    and it can never report `fully_anchored`.
+    """
+    report = simcli.check_issuance(COMMITTED_OPENER, arms=("dc_native",),
+                                   verbose=False)
+    assert report["fully_anchored"] is False
+    assert set(report["unanchored"]) == {
+        "record_digest", "acceptance_digest",
+        "dc_native.retained_rows_anchored",
+        "dc_native.truncation_sidecar_anchored",
+        "dc_native.parity_reference_is_production_grid"}
+    for row in report["criteria"]:
+        if row["status"] == "UNANCHORED":
+            assert row["note"] == simcli.PRE_A6_NOTE
+
+    cell = report["arms"]["dc_native"]
+    assert cell["detail"]["digest_matches"] is True
+    for name in ("published_output_full_digest", "envelope_agrees_with_record",
+                 "truncation_sidecar_consistent", "retained_rows_reproduce"):
+        assert _criterion(cell, name)["status"] == "PASS", name
+    assert _record_criterion(report, "acceptance_verdict")["status"] == "PASS"

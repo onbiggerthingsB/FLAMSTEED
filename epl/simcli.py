@@ -31,9 +31,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
+import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -141,7 +145,32 @@ LIMITATIONS_TRUNCATION_DENIALS = (
 #: itself — the file an editor rewrites to make a doctored bridge look coherent
 #: — and `check` still returned PASS. A -1 or -2 record predates the field and
 #: keeps the leniency that exists for exactly that.
-ISSUANCE_SCHEMA_VERSION = "epl-issuance-3"
+ISSUANCE_SCHEMA_VERSION = "epl-issuance-4"
+
+#: The fourth verdict (amendment A6 (b)). An UNANCHORED criterion did not run,
+#: claims nothing, and neither passes nor fails the record: it is the truthful
+#: answer when the record predates the field the criterion is held against.
+#: It is NOT a pass — `check` reports `fully_anchored: False` while one stands.
+UNANCHORED = "UNANCHORED"
+PRE_A6_NOTE = "unanchored (pre-A6 record)"
+
+#: The record field that digests the record. Excluded from its own digest.
+RECORD_DIGEST_FIELD = "record_digest"
+
+#: The four fields `epl-issuance-4` adds. Mandatory from `-4` on; a `-4` record
+#: with one ABSENT FAILs the criterion it anchors, naming the field. Present and
+#: `null` is different and is not tampering: it is the issuer saying there was
+#: nothing to pin — a run made from a book with no posterior pins no training
+#: frame, and a run issued with no gate has no gate report to hash.
+A6_RECORD_FIELDS = ("record_digest", "sidecar_digests", "acceptance_digest",
+                    "training_frame_sha256")
+
+#: The ten fields an arm's envelope and the issuance record BOTH carry. Holding
+#: them against each other is evaluable on every schema, since it compares two
+#: things a bundle already has.
+SHARED_ENVELOPE_FIELDS = ("season", "arm", "cutoff", "observed_by", "seed",
+                          "n_sims", "n_particles", "chunk_size", "n_played",
+                          "results_lag")
 
 
 class CliError(RuntimeError):
@@ -310,6 +339,87 @@ def issuance_dir(season: str, cutoff, root=None) -> Path:
     return root / season_mod.season_dir_name(season) / day
 
 
+def sha256_file(path) -> str | None:
+    """The file's bytes, or ``None`` when there is no file to hash."""
+    path = Path(path)
+    if not path.exists():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def output_full_digest(payload: dict) -> str:
+    """The digest of a published ``output_<arm>.json``, ENVELOPE INCLUDED.
+
+    Exactly :meth:`epl.leaguesim.SimRun.digest` — the whole payload with only
+    :data:`epl.leaguesim.NON_REPRODUCIBLE_FIELDS` dropped from the envelope —
+    recomputed from the FILE rather than from a live run. Every record ever
+    written already carries this under ``digests``; nothing read it, which is
+    why `gate-retro.md` #3 could rewrite a published `observed_by` to
+    `2099-01-01` and watch every check pass. `output_numbers_digest` cannot
+    catch that: it excludes the envelope on purpose, so provenance — the
+    knowledge bound, the git commit, the results snapshot — sat outside every
+    comparison in the repository.
+    """
+    payload = dict(payload)
+    envelope = payload.get("envelope") or {}
+    payload["envelope"] = {k: v for k, v in envelope.items()
+                           if k not in leaguesim.NON_REPRODUCIBLE_FIELDS}
+    return hashlib.sha256(
+        leaguesim.canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def record_digest(record: dict) -> str:
+    """SHA-256 of the record with exactly one field removed: its own digest.
+
+    Covers what no output file carries — ``published_arm``, ``arms``, ``files``,
+    ``gate_PASS``. A6 (b.1) states the limit rather than overselling it: a digest
+    a file carries about itself is a checksum against accident, not a seal
+    against an editor, and an editor who updates every copy in the directory is
+    caught by the repository history and by nothing in the bundle.
+    """
+    payload = {k: v for k, v in record.items() if k != RECORD_DIGEST_FIELD}
+    return hashlib.sha256(
+        leaguesim.canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def training_frame_digest(frame) -> str | None:
+    """A stable digest of the frame the fit trained on, or ``None``.
+
+    ``None`` when there is no fit to identify — a run made from a book with no
+    posterior (a synthetic book in a test) pins no training frame, and saying so
+    is what makes `parity_reference_is_production_grid` report UNANCHORED rather
+    than pretend to an anchor it does not have.
+    """
+    if frame is None:
+        return None
+    hashed = pd.util.hash_pandas_object(frame, index=False).to_numpy()
+    return hashlib.sha256(np.ascontiguousarray(hashed).tobytes()).hexdigest()
+
+
+def _criterion(name: str, status: str, detail: dict | None = None,
+               note: str = "") -> dict:
+    if status not in ("PASS", "FAIL", "REFUSED", UNANCHORED):
+        raise CliError(f"{name}: {status!r} is not a verdict")
+    return {"name": name, "status": status, "PASS": status == "PASS",
+            "detail": dict(detail or {}), "note": note}
+
+
+def _unanchored(name: str, field: str, schema: str) -> dict:
+    """The A6 (b) leniency, conditioned on the schema — strictly.
+
+    Only a record written BEFORE `epl-issuance-4` may lack one of the fields
+    that version added. A `-4` record with the key absent is a record that has
+    been edited, and it FAILs naming the field: making the new criteria pass — or
+    report unanchored — on a record that ought to carry them turns the leniency
+    into the hole it was written to avoid, which is the mistake
+    `epl-issuance-2` already made once.
+    """
+    if schema == ISSUANCE_SCHEMA_VERSION:
+        return _criterion(name, "FAIL", {"missing_field": field},
+                          f"an {schema} record must carry {field!r}")
+    return _criterion(name, UNANCHORED, {"missing_field": field}, PRE_A6_NOTE)
+
+
 def forecast(*, season: str = DEFAULT_SEASON, cutoff,
              arms: Sequence[str] = (PUBLISHED_ARM,),
              n_sims: int = DEFAULT_N_SIMS, seed: int = DEFAULT_SEED,
@@ -379,12 +489,8 @@ def forecast(*, season: str = DEFAULT_SEASON, cutoff,
     if needs_bridge:
         bridge = bridge_mod.EmpiricalBridge.fit(archive, cutoff)
 
-    directory = issuance_dir(season, cutoff, out_root)
-    directory.mkdir(parents=True, exist_ok=True)
-
     runs: dict[str, leaguesim.SimRun] = {}
     providers: dict[str, Any] = {}
-    written: dict[str, list[str]] = {}
     for arm in arms:
         provider = providers[arm] = _provider(arm, fit, bridge, state, cutoff,
                                               n_particles)
@@ -397,6 +503,45 @@ def forecast(*, season: str = DEFAULT_SEASON, cutoff,
         runs[arm] = run
         if verbose:
             print(f"[forecast] {arm}: {run.envelope['wall_seconds']:.1f}s", flush=True)
+
+    # STAGED, then moved into place in one step (`live-forecast.md` #4). Writing
+    # in place with `issuance.json` first meant an interruption between the
+    # record and `summary.md` left a directory that `_last_issuance` still
+    # selected, carrying a record with no summary or — on a re-issue — the
+    # PREVIOUS run's summary beside the new numbers. The staging directory lives
+    # OUTSIDE the season's issuance folder, so a half-written run is not even a
+    # candidate; `issuance.json` is still written last, so a crash inside the
+    # staging directory leaves nothing that looks like a record either.
+    final_dir = issuance_dir(season, cutoff, out_root)
+    final_dir.parent.mkdir(parents=True, exist_ok=True)
+    staging_root = final_dir.parent.parent
+    staging_root.mkdir(parents=True, exist_ok=True)
+    directory = Path(tempfile.mkdtemp(prefix=f".issuing-{final_dir.name}-",
+                                      dir=staging_root))
+    try:
+        return _write_issuance(
+            directory=directory, final_dir=final_dir, season=season, state=state,
+            arms=arms, runs=runs, providers=providers, published_arm=published_arm,
+            book=book, bridge=bridge, fit=fit, season_obj=season_obj,
+            n_sims=n_sims, n_particles=n_particles, seed=seed,
+            chunk_size=chunk_size, gate=gate, gate_kwargs=gate_kwargs,
+            witness_states=witness_states, started=started, verbose=verbose)
+    except BaseException:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
+
+
+def _write_issuance(*, directory: Path, final_dir: Path, season, state, arms, runs,
+                    providers, published_arm, book, bridge, fit, season_obj,
+                    n_sims, n_particles, seed, chunk_size, gate, gate_kwargs,
+                    witness_states, started, verbose) -> dict:
+    """Write every artefact into `directory`, then move it to `final_dir`.
+
+    Split out of :func:`forecast` so the staging directory has exactly one
+    owner: everything below writes to `directory` and nothing knows where the
+    issuance will finally live until the rename at the end.
+    """
+    written: dict[str, list[str]] = {}
 
     # Per-arm outputs first, then the published arm's envelope and limitations
     # LAST and explicitly — so which arm the issuance speaks for is a decision,
@@ -466,15 +611,48 @@ def forecast(*, season: str = DEFAULT_SEASON, cutoff,
                             for arm, provider in providers.items()},
         "files": written,
         "gate_PASS": None if gate_report is None else bool(gate_report["PASS"]),
+        # --- epl-issuance-4 (amendment A6 (b)) ----------------------------
+        # The two sidecars, hashed AS WRITTEN. `engine-pricing.md` #4: both were
+        # written and then excluded from the digest and the check, so altering
+        # or deleting either left `check` passing. The re-derivation below is the
+        # other leg and works on every schema; this one catches the residual the
+        # re-derivation cannot see — a doctored per-fixture vector that preserves
+        # every statistic the envelope carries.
+        "sidecar_digests": {
+            arm: {"rows": sha256_file(directory / f"rows_{arm}.npz"),
+                  "excluded_mass": sha256_file(
+                      directory / f"excluded_mass_{arm}.json")}
+            for arm in runs},
+        "acceptance_digest": sha256_file(directory / "acceptance.json"),
+        # The fit's frame, so a later check can say WHICH posterior this issuance
+        # published from. `None` when the run came from a book with no posterior:
+        # there is no fit to identify, and claiming an anchor here would be the
+        # record anchoring itself after the fact.
+        "training_frame_sha256": (
+            None if fit.post is None
+            else training_frame_digest(
+                fit.matches if fit.training is None else fit.training)),
         "wall_seconds": round(time.perf_counter() - started, 2),
     }
-    (directory / "issuance.json").write_text(
-        leaguesim.canonical_json(record) + "\n")
+    # The record digests itself LAST of its own fields, and `summary.md` prints
+    # the same value, so the two copies can be held against each other and
+    # against a recomputation.
+    record[RECORD_DIGEST_FIELD] = record_digest(record)
 
     summary = summary_markdown(record, runs, gate_report)
     (directory / "summary.md").write_text(summary)
+    # `issuance.json` LAST: it is what makes a directory a selectable issuance,
+    # so it must be the last thing that exists.
+    (directory / "issuance.json").write_text(
+        leaguesim.canonical_json(record) + "\n")
 
-    return {**record, "directory": str(directory), "runs": runs,
+    # One step. A crash before this leaves a staging directory outside the
+    # season's folder; a crash after it leaves a complete issuance.
+    if final_dir.exists():
+        shutil.rmtree(final_dir)
+    os.replace(directory, final_dir)
+
+    return {**record, "directory": str(final_dir), "runs": runs,
             "gate": gate_report, "state": state, "summary": summary}
 
 
@@ -1191,8 +1369,95 @@ def _cutoff_table(state, witness_states) -> dict:
 # 4. re-checking a written issuance
 # ==========================================================================
 
+def _same(left, right) -> bool:
+    """Envelope-vs-record equality that survives the two carrying it differently.
+
+    `cutoff` is `"2026-08-21"` in one and `"2026-08-21 00:00:00"` in the other;
+    counts are ints on both sides but arrive through JSON. Normalise, then
+    compare — a comparison that reports a disagreement because two spellings of
+    the same moment differ is a criterion nobody will believe when it fires.
+    """
+    if isinstance(left, bool) or isinstance(right, bool):
+        return bool(left) == bool(right)
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return float(left) == float(right)
+    try:
+        return pd.Timestamp(left) == pd.Timestamp(right)
+    except (ValueError, TypeError):
+        return left == right
+
+
+def _check_record_digest(directory: Path, record: dict, schema: str) -> dict:
+    """A6 (b.1): the record's own fields, and BOTH copies of the digest."""
+    name = "record_digest"
+    if RECORD_DIGEST_FIELD not in record:
+        return _unanchored(name, RECORD_DIGEST_FIELD, schema)
+    recorded = record[RECORD_DIGEST_FIELD]
+    recomputed = record_digest(record)
+    summary = (directory / "summary.md")
+    in_summary = summary.exists() and recorded in summary.read_text()
+    detail = {"recorded": recorded, "recomputed": recomputed,
+              "printed_in_summary": bool(in_summary)}
+    if recorded != recomputed:
+        return _criterion(name, "FAIL", detail,
+                          "issuance.json does not digest to the value it carries")
+    if not in_summary:
+        return _criterion(name, "FAIL", detail,
+                          "summary.md does not carry the record digest")
+    return _criterion(name, "PASS", detail,
+                      "a checksum against accident, not a seal against an editor "
+                      "who updates both copies (A6 (b.1))")
+
+
+def _check_acceptance(directory: Path, record: dict) -> dict:
+    """A6 (b.3): a bundle that cannot show it passed its gate has not shown it.
+
+    `live-forecast.md` #3: `forecast --skip-oracle` exits 3 on a failed gate, and
+    the `check` that followed never read `acceptance.json` or `gate_PASS`, so it
+    could return PASS/0 for an issuance the gate had refused.
+    """
+    name = "acceptance_verdict"
+    path = directory / "acceptance.json"
+    recorded = record.get("gate_PASS")
+    if not path.exists():
+        return _criterion(name, "REFUSED", {"gate_PASS": recorded},
+                          "no acceptance.json: this bundle cannot show it passed "
+                          "its gate, and a refusal is not a pass")
+    if recorded is None:
+        return _criterion(name, "REFUSED", {"gate_PASS": None},
+                          "the record does not say whether the gate passed")
+    try:
+        report = json.loads(path.read_text())
+    except ValueError as exc:
+        return _criterion(name, "FAIL", {"error": str(exc)},
+                          "acceptance.json is unreadable")
+    reported = bool(report.get("PASS"))
+    detail = {"gate_PASS": bool(recorded), "acceptance_PASS": reported,
+              "failed": report.get("failed"), "skipped": report.get("skipped")}
+    if not reported:
+        return _criterion(name, "FAIL", detail, "the gate did not pass")
+    if bool(recorded) != reported:
+        return _criterion(name, "FAIL", detail,
+                          "the gate report and the record disagree")
+    return _criterion(name, "PASS", detail)
+
+
+def _check_acceptance_digest(directory: Path, record: dict, schema: str) -> dict:
+    name = "acceptance_digest"
+    if "acceptance_digest" not in record:
+        return _unanchored(name, "acceptance_digest", schema)
+    recorded = record["acceptance_digest"]
+    if recorded is None:
+        return _criterion(name, UNANCHORED, {"recorded": None},
+                          "this issuance ran no gate, so there are no gate bytes "
+                          "to anchor")
+    recomputed = sha256_file(directory / "acceptance.json")
+    detail = {"recorded": recorded, "recomputed": recomputed}
+    return _criterion(name, "PASS" if recorded == recomputed else "FAIL", detail)
+
+
 def check_issuance(directory, *, arms: Sequence[str] | None = None,
-                   verbose: bool = True) -> dict:
+                   post=None, verbose: bool = True) -> dict:
     """Re-run a written issuance from its own bundle and demand it reproduces.
 
     EVERY arm the issuance carries, not only the published one (v1.1 R2). The
@@ -1246,16 +1511,45 @@ def check_issuance(directory, *, arms: Sequence[str] | None = None,
     state = season_obj.at(record["cutoff"], record["observed_by"])
     book = particles.ParticleBook.load(directory / "particles.npz")
 
+    schema = str(record.get("schema_version") or "")
+    criteria = [
+        _check_record_digest(directory, record, schema),
+        _check_acceptance(directory, record),
+        _check_acceptance_digest(directory, record, schema),
+    ]
+
     results = {arm: _check_arm(arm, directory, record, season_obj, state, book,
-                               verbose=verbose)
+                               post=post, verbose=verbose)
                for arm in requested}
     failed = [a for a, r in results.items() if r["status"] == "FAIL"]
     refused = [a for a, r in results.items() if r["status"] == "REFUSED"]
     published = record["published_arm"]
     headline = results.get(published, results[requested[0]])
 
+    record_failed = [c["name"] for c in criteria if c["status"] == "FAIL"]
+    record_refused = [c["name"] for c in criteria if c["status"] == "REFUSED"]
+    unanchored = [c["name"] for c in criteria if c["status"] == UNANCHORED]
+    unanchored += [f"{arm}.{c['name']}"
+                   for arm, r in results.items()
+                   for c in r["criteria"] if c["status"] == UNANCHORED]
+
+    passed = not (failed or refused or record_failed or record_refused)
+    fully_anchored = not unanchored
+    verdict = "PASS" if passed else "FAIL"
+    if passed and not fully_anchored:
+        verdict = f"PASS ({len(unanchored)} criteria unanchored: pre-A6 record)"
+
     return {
-        "PASS": not failed and not refused,
+        "PASS": passed,
+        "headline": verdict,
+        # A6 (b): an UNANCHORED criterion is NOT a pass. The boolean cannot be
+        # read without the qualification, which is why the headline carries the
+        # count and why this key exists beside `PASS` rather than inside it.
+        "fully_anchored": fully_anchored,
+        "unanchored": sorted(unanchored),
+        "criteria": criteria,
+        "record_failed": record_failed,
+        "record_refused": record_refused,
         "directory": str(directory),
         "arm": headline["arm"],
         "arms": results,
@@ -1263,7 +1557,9 @@ def check_issuance(directory, *, arms: Sequence[str] | None = None,
         "refused": refused,
         "note": ("A REFUSED arm is not a passing arm: an issuance whose bridge "
                  "sidecars are absent cannot be shown to reproduce, and saying "
-                 "so is the check working."),
+                 "so is the check working. An UNANCHORED criterion is not one "
+                 "either: it had nothing to hold this record against, which is "
+                 "why `fully_anchored` goes false and stays false."),
         # the published arm's view, kept at the top level so a caller that only
         # ever asked about one arm still reads the same keys
         "detail": headline["detail"],
@@ -1272,8 +1568,178 @@ def check_issuance(directory, *, arms: Sequence[str] | None = None,
     }
 
 
+def _arm_static_criteria(arm: str, directory: Path, record: dict,
+                         schema: str) -> tuple[list[dict], dict | None]:
+    """Every criterion that reads only the BUNDLE, plus the payload it read.
+
+    Computed before the rebuild so an arm that cannot be rebuilt at all still
+    reports them: a REFUSED arm is exactly the case where a reader most wants to
+    know whether the published file still hashes to what the record says.
+    """
+    criteria: list[dict] = []
+    output_path = directory / f"output_{arm}.json"
+    payload: dict | None = None
+    try:
+        payload = json.loads(output_path.read_text())
+    except (OSError, ValueError) as exc:
+        criteria.append(_criterion(
+            "published_output_full_digest", "FAIL",
+            {"error": f"{type(exc).__name__}: {exc}"},
+            f"output_{arm}.json is unreadable"))
+        criteria.append(_criterion("envelope_agrees_with_record", "FAIL", {},
+                                   "no envelope to read"))
+        return criteria, None
+
+    # (b.1) the FULL digest, envelope included. Every record ever written
+    # carries it; nothing read it, which is why an edited `observed_by` inside a
+    # published output left every check in the repository passing.
+    recorded_full = (record.get("digests") or {}).get(arm)
+    recomputed_full = output_full_digest(payload)
+    detail = {"recorded": recorded_full, "recomputed": recomputed_full}
+    if recorded_full is None:
+        criteria.append(_criterion("published_output_full_digest", "FAIL", detail,
+                                   "the record carries no full digest for this arm"))
+    else:
+        criteria.append(_criterion(
+            "published_output_full_digest",
+            "PASS" if recorded_full == recomputed_full else "FAIL", detail))
+
+    # The ten fields the envelope and the record BOTH carry — evaluable on every
+    # schema, because it compares two things a bundle already has.
+    envelope = payload.get("envelope") or {}
+    disagree = []
+    for field_name in SHARED_ENVELOPE_FIELDS:
+        if field_name == "arm":
+            if envelope.get("arm") != arm or arm not in (record.get("arms") or []):
+                disagree.append("arm")
+            continue
+        if not _same(envelope.get(field_name), record.get(field_name)):
+            disagree.append(field_name)
+    criteria.append(_criterion(
+        "envelope_agrees_with_record", "PASS" if not disagree else "FAIL",
+        {"disagreeing_fields": disagree}))
+
+    # (b.2) the two sidecars: the anchored bytes...
+    recorded_sidecars = record.get("sidecar_digests")
+    for label, key, filename in (
+            ("retained_rows_anchored", "rows", f"rows_{arm}.npz"),
+            ("truncation_sidecar_anchored", "excluded_mass",
+             f"excluded_mass_{arm}.json")):
+        if recorded_sidecars is None:
+            criteria.append(_unanchored(label, "sidecar_digests", schema))
+            continue
+        recorded = (recorded_sidecars.get(arm) or {}).get(key)
+        if recorded is None:
+            criteria.append(_criterion(label, "FAIL", {"recorded": None},
+                                       f"the record pins no digest for {filename}"))
+            continue
+        recomputed = sha256_file(directory / filename)
+        criteria.append(_criterion(
+            label, "PASS" if recorded == recomputed else "FAIL",
+            {"recorded": recorded, "recomputed": recomputed, "file": filename}))
+
+    # ...and the re-derivation, which works on every schema.
+    criteria.append(_check_truncation_sidecar(arm, directory, envelope))
+    return criteria, payload
+
+
+def _check_truncation_sidecar(arm: str, directory: Path, envelope: dict) -> dict:
+    """A6 (b.2): the truncation sidecar must be internally AND externally consistent.
+
+    Externally: its `summary` is the `excluded_mass` block the envelope carries,
+    which `digests[arm]` anchors. Internally: every statistic recomputes exactly
+    from its own `per_fixture` vector. The residual is stated rather than hidden
+    — a doctored vector that preserves every statistic is invisible here and is
+    caught only by `sidecar_digests`, which is why that field exists.
+    """
+    name = "truncation_sidecar_consistent"
+    path = directory / f"excluded_mass_{arm}.json"
+    try:
+        sidecar = json.loads(path.read_text())
+    except (OSError, ValueError) as exc:
+        return _criterion(name, "FAIL", {"error": f"{type(exc).__name__}: {exc}"},
+                          f"{path.name} is unreadable")
+    summary = sidecar.get("summary") or {}
+    per_fixture = sidecar.get("per_fixture") or []
+    problems: list[str] = []
+    if summary != (envelope.get("excluded_mass") or {}):
+        problems.append("summary != envelope.excluded_mass")
+    if not summary.get("measured"):
+        if per_fixture:
+            problems.append("measured is false but per_fixture is not empty")
+        return _criterion(name, "PASS" if not problems else "FAIL",
+                          {"problems": problems, "n_fixtures": len(per_fixture)})
+
+    means = np.array([row["mean"] for row in per_fixture], dtype=float)
+    flagged = sorted(row["fixture"] for row in per_fixture if row.get("flagged"))
+    expected = {
+        "n_fixtures": len(per_fixture),
+        "max": float(means.max()) if means.size else None,
+        "mean": float(means.mean()) if means.size else None,
+        "p90": float(np.quantile(means, 0.90)) if means.size else None,
+        "n_flagged": len(flagged),
+    }
+    for key, want in expected.items():
+        got = summary.get(key)
+        if want is None or got is None:
+            if want is not got:
+                problems.append(key)
+            continue
+        if not math.isclose(float(got), float(want), rel_tol=1e-12, abs_tol=1e-15):
+            problems.append(key)
+    if sorted(row["fixture"] for row in (summary.get("flagged") or [])) != flagged:
+        problems.append("flagged set")
+    return _criterion(name, "PASS" if not problems else "FAIL",
+                      {"problems": problems, **expected})
+
+
+def _check_retained_rows(arm: str, directory: Path, run) -> dict:
+    """The npz beside the issuance IS the run's retained rows, array by array."""
+    name = "retained_rows_reproduce"
+    path = directory / f"rows_{arm}.npz"
+    try:
+        stored = dict(np.load(path))
+    except (OSError, ValueError) as exc:
+        return _criterion(name, "FAIL", {"error": f"{type(exc).__name__}: {exc}"},
+                          f"{path.name} is unreadable")
+    expected = run.retained_rows.arrays()
+    if set(stored) != set(expected):
+        return _criterion(name, "FAIL",
+                          {"stored": sorted(stored), "expected": sorted(expected)},
+                          "the npz does not carry the ten retained-row arrays")
+    differ = sorted(k for k, v in expected.items()
+                    if not np.array_equal(stored[k], v))
+    return _criterion(name, "PASS" if not differ else "FAIL",
+                      {"n_arrays": len(expected), "differing_arrays": differ})
+
+
+def _check_parity_reference(record: dict, schema: str, reconstructable: bool,
+                            parity: dict) -> dict:
+    """A6 (b.4): which reference the check-time parity rerun actually used."""
+    name = "parity_reference_is_production_grid"
+    if "training_frame_sha256" not in record:
+        return _unanchored(name, "training_frame_sha256", schema)
+    if record["training_frame_sha256"] is None:
+        return _criterion(
+            name, UNANCHORED, {"training_frame_sha256": None},
+            "this issuance pins no training frame — it was made from a book with "
+            "no posterior — so the posterior it published from cannot be "
+            "identified and the production adapter cannot be shown to have run")
+    if not reconstructable:
+        return _criterion(
+            name, "REFUSED",
+            {"training_frame_sha256": record["training_frame_sha256"],
+             "reference": "book_mixture"},
+            "no posterior reproducing this record's effective_posterior_hash was "
+            "available at check time, so the production adapter was not "
+            "exercised. A refusal is not a pass.")
+    return _criterion(name, "PASS" if parity.get("PASS") else "FAIL",
+                      {"reference": "production_grid",
+                       "n_cells_compared": parity.get("n_cells_compared")})
+
+
 def _check_arm(arm: str, directory: Path, record: dict, season_obj, state, book,
-               *, verbose: bool) -> dict:
+               *, post=None, verbose: bool) -> dict:
     """One arm, rebuilt from the bundle and re-run. Never raises."""
     # A provider that is not the one the issuance recorded cannot answer for
     # this arm, however well it reproduces itself.
@@ -1316,7 +1782,12 @@ def _check_arm(arm: str, directory: Path, record: dict, season_obj, state, book,
             ("arms_manifest_hash", record.get("arms_manifest_hash")),
             ("provider_hash", recorded_provider))
         if value is not None))
+    # A6 (b): the criteria that read only the bundle, computed BEFORE the
+    # rebuild so a REFUSED arm still reports whether its published file hashes
+    # to what the record says.
+    static_criteria, payload = _arm_static_criteria(arm, directory, record, schema)
     blank = {"arm": arm, "detail": {"sidecar_anchors": anchored},
+             "criteria": static_criteria,
              "coherence": {"PASS": False}, "marginal_parity": {"PASS": False}}
 
     why = simbundle.refusal(arm, directory)
@@ -1362,7 +1833,8 @@ def _check_arm(arm: str, directory: Path, record: dict, season_obj, state, book,
     file_digest = recorded_output = None
     output_matches: bool | None = None
     try:
-        payload = json.loads(output_path.read_text())
+        if payload is None:
+            payload = json.loads(output_path.read_text())
         file_digest = output_numbers_digest(payload)
         rerun_digest = output_numbers_digest(run.to_json())
         recorded_output = (record.get("output_digests") or {}).get(arm)
@@ -1376,12 +1848,33 @@ def _check_arm(arm: str, directory: Path, record: dict, season_obj, state, book,
     provider_matches = (None if recorded_provider is None
                         else provider.content_hash() == recorded_provider)
 
+    criteria = list(static_criteria)
+    criteria.append(_check_retained_rows(arm, directory, run))
+
     coherence = simcanary.coherence(run)
     if arm == "dc_native":
+        # A6 (b.4). The reference is `draw_api.production_grid(post, ...)` when
+        # the posterior this issuance published from can be identified, and
+        # nothing weaker counts: a posterior that does not reproduce the anchored
+        # book is not that posterior, and using it would measure a different law.
+        # `post=None` — what every check in the repository did — makes the
+        # reference the BOOK'S OWN MIXTURE, so the production adapter is never
+        # called and adapter drift is invisible.
+        reconstructable = False
+        if post is not None:
+            try:
+                reconstructable = (
+                    particles.ParticleBook.from_posterior(post).content_hash()
+                    == record.get("effective_posterior_hash"))
+            except Exception:                               # pragma: no cover
+                reconstructable = False
         try:
-            parity = simcanary.marginal_parity(book, None, run)
+            parity = simcanary.marginal_parity(
+                book, post if reconstructable else None, run)
         except Exception as exc:
             parity = {"PASS": False, "error": f"{type(exc).__name__}: {exc}"}
+        criteria.append(_check_parity_reference(record, schema, reconstructable,
+                                                parity))
     else:
         parity = {"PASS": True, "status": "NOT_APPLICABLE", "note": (
             f"{arm} samples the empirical bridge's conditional on purpose, so "
@@ -1389,14 +1882,24 @@ def _check_arm(arm: str, directory: Path, record: dict, season_obj, state, book,
             "comparing them would measure the arm's definition, not its "
             "reproduction. Its evidence here is the numbers digest.")}
 
+    criterion_failed = [c["name"] for c in criteria if c["status"] == "FAIL"]
+    criterion_refused = [c["name"] for c in criteria if c["status"] == "REFUSED"]
     passed = bool(matches and coherence["PASS"] and parity["PASS"]
                   and output_matches is not False
                   and provider_matches is not False
-                  and not missing_anchors)
+                  and not missing_anchors
+                  and not criterion_failed and not criterion_refused)
+    status = "PASS" if passed else "FAIL"
+    if not criterion_failed and criterion_refused and matches:
+        # Refused, not failed: nothing disagreed, something could not be shown.
+        status = "REFUSED"
     return {
         "arm": arm,
-        "status": "PASS" if passed else "FAIL",
+        "status": status,
         "PASS": passed,
+        "criteria": criteria,
+        "criterion_failed": criterion_failed,
+        "criterion_refused": criterion_refused,
         "detail": {
             "schema_version": schema or None,
             "legacy_schema_leniency": legacy,
@@ -1679,6 +2182,13 @@ def summary_markdown(record: dict, runs: dict, gate: dict | None) -> str:
         f"seasons over S = {record['n_particles']:,} posterior draws, "
         f"seed {record['seed']}.",
         "",
+        f"Record digest (`record_digest`, A6 (b.1)): "
+        f"`{record.get('record_digest', 'not recorded')}`. It covers this "
+        "record with only itself removed, and `check` requires this copy and "
+        "the one in `issuance.json` to agree with a recomputation. It is a "
+        "checksum against accident, not a seal against an editor who updates "
+        "both copies; the repository history is what catches that.",
+        "",
         f"Fixtures played and conditioned on: **{record['n_played']}**; "
         f"simulated: **{record['n_unplayed']}**; unresolved: "
         f"**{record['n_unresolved']}**; results-lag flag: "
@@ -1894,6 +2404,15 @@ def _cmd_check(args) -> int:
         print(f"[check] {arm}: {cell['status']}"
               + (f" — {cell['detail']['error']}" if cell["status"] != "PASS"
                  and cell["detail"].get("error") else ""), file=sys.stderr)
+    for row in report["criteria"]:
+        if row["status"] != "PASS":
+            print(f"[check] {row['name']}: {row['status']}"
+                  + (f" — {row['note']}" if row["note"] else ""), file=sys.stderr)
+    # The boolean cannot be read without the qualification (A6 (b)).
+    print(f"[check] {report['headline']}"
+          + ("" if report["fully_anchored"]
+             else f"; unanchored: {', '.join(report['unanchored'])}"),
+          file=sys.stderr)
     return 0 if report["PASS"] else 4
 
 
@@ -1902,10 +2421,23 @@ def _last_issuance(season: str, out_root=None, cutoff=None) -> Path:
         / season_mod.season_dir_name(season)
     if cutoff:
         return root / pd.Timestamp(cutoff).normalize().date().isoformat()
-    candidates = sorted(p for p in root.glob("*") if (p / "issuance.json").exists())
+    # An issuance directory is named for its cutoff DAY and carries a record.
+    # Both conditions, not just the second: a staging directory is written
+    # outside this folder precisely so it can never be a candidate, and this is
+    # the belt to that brace — a directory whose name is not a date is not an
+    # issuance whatever it happens to contain.
+    candidates = sorted(p for p in root.glob("*")
+                        if _is_issuance_day(p.name) and (p / "issuance.json").exists())
     if not candidates:
         raise CliError(f"no issuance under {root}")
     return candidates[-1]
+
+
+def _is_issuance_day(name: str) -> bool:
+    try:
+        return pd.Timestamp(name).date().isoformat() == name
+    except (ValueError, TypeError):
+        return False
 
 
 if __name__ == "__main__":                                  # pragma: no cover
