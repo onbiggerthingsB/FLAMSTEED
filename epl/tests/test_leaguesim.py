@@ -975,7 +975,7 @@ def test_limitations_renders_when_every_fixture_is_played(season, tmp_path):
     assert "max **" in leaguesim._truncation_section(normal.envelope)
 
 
-def test_limitations_note_is_byte_identical_across_runs(state, tmp_path):
+def test_limitations_note_is_byte_identical_across_runs(state, tmp_path, monkeypatch):
     """(b) `limitations.md` embeds no wall-clock date — same spec, same bytes."""
     book = _book(state.clubs, provisional=("coventry",))
     first = leaguesim.simulate("dc_native", state, book, 320, SEED, 128)
@@ -984,8 +984,35 @@ def test_limitations_note_is_byte_identical_across_runs(state, tmp_path):
     a = leaguesim.limitations_markdown(first)
     b = leaguesim.limitations_markdown(second)
     assert a == b, "the note must depend on the run, not on the day it was written"
-    assert dt.date.today().isoformat() not in a, \
-        "today's date in the note makes every issuance unreproducible tomorrow"
+
+    # Wall-clock independence, tested by MOVING THE CLOCK rather than by looking for
+    # today's date in the text. The string test cannot work: the note legitimately
+    # names the run's own cutoff, so on any day the cutoff equals the wall clock the
+    # two are indistinguishable — a bare "today not in note" reds the suite on that
+    # day (it did, on 2026-08-21, this fixture's own cutoff), and stripping the
+    # cutoff first goes blind to a real leak on exactly that day. Moving the clock
+    # has neither failure mode: if the note ever reads a clock, the bytes change.
+    class _FrozenClock:
+        @staticmethod
+        def time():
+            return 0.0
+        @staticmethod
+        def monotonic():
+            return 0.0
+        @staticmethod
+        def perf_counter():
+            return 0.0
+
+    monkeypatch.setattr(leaguesim, "time", _FrozenClock)
+    under_a_different_clock = leaguesim.limitations_markdown(first)
+    monkeypatch.undo()
+    assert under_a_different_clock == a, (
+        "the note changed when the clock moved — it is reading a wall clock, so "
+        "the same issuance would not reproduce tomorrow")
+
+    # ...and the guard is not vacuous: the note does still name its cutoff.
+    assert state.cutoff.date().isoformat() in a, \
+        "the note no longer names its cutoff — the check above proves nothing"
 
     wa = leaguesim.write_outputs(first, tmp_path / "a")
     wb = leaguesim.write_outputs(second, tmp_path / "b")
