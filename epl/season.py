@@ -219,6 +219,9 @@ _RESULT_END_RE = re.compile(
     r"^(?P<home>\S.*?)\s+v(?:s|\.)?\s+(?P<away>\S.*?)\s\s+(?P<hg>\d{1,2})\s*-\s*(?P<ag>\d{1,2})"
     r"(?:\s*\(\s*\d{1,2}\s*-\s*\d{1,2}\s*\))?\s*$")
 _FIXTURE_RE = re.compile(r"^(?P<home>\S.*?)\s+v(?:s|\.)?\s+(?P<away>\S.*?)$")
+# Any score-shaped token, used only to decide whether a `v`-separated line is
+# claiming to be a result at all. Deliberately looser than the result regexes.
+_SCORE_TOKEN_RE = re.compile(r"\d{1,2}\s*-\s*\d{1,2}")
 
 
 @dataclass(frozen=True)
@@ -318,6 +321,19 @@ def parse_openfootball(text: str) -> list[FixtureRow]:
         if date is None:
             raise ParseError(
                 f"line {lineno}: match line before any day header in round {matchday}: {line!r}")
+
+        # A `v`-separated line that carries a score MUST parse as the END layout.
+        # If it does not, we cannot tell where the away name stops and the score
+        # starts, and both fallbacks below would invent an answer: `_RESULT_RE`
+        # returns home="Arsenal FC v Chelsea FC" / away="(1-0)", and `_FIXTURE_RE`
+        # returns away="Chelsea FC 2-0 (1-0)". Refuse instead. This catches the
+        # one-space boundary (openfootball's spec requires two) and the Football.TXT
+        # forms this parser does not model, e.g. "1-1 aet (1-1, 0-0) 3-4 pen".
+        if (_SCORE_TOKEN_RE.search(body) and _FIXTURE_RE.match(body)
+                and not _RESULT_END_RE.match(body)):
+            raise ParseError(
+                f"line {lineno}: a 'v'-separated result this parser cannot split "
+                f"unambiguously: {line!r}")
 
         m = _RESULT_END_RE.match(body) or _RESULT_RE.match(body)
         if m:

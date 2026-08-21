@@ -9,6 +9,7 @@ So 543 green tests agreed with each other and with nothing upstream.
 The fixture here is the real 2025/26 Premier League file at openfootball/england
 commit 097ab4fe — a complete 380-match season in the END layout, CC0-1.0.
 """
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,32 @@ from epl import season as S
 
 FIXTURE = Path(__file__).parent / "fixtures" / "openfootball_2025-26_end_layout.txt"
 REAL = FIXTURE.read_text(encoding="utf-8")
+
+# openfootball/england @ 097ab4fe, 2025-26/1-premierleague.txt, CC0-1.0.
+# Pinned because the row/score counts alone do not identify a real season: a corpus
+# of 353 copies of one fabricated result plus 27 copies of one fabricated draw
+# satisfies every count below. The hash and the topology assertions together are
+# what make "real upstream bytes" a fact rather than a claim.
+FIXTURE_SHA256 = "380ca97719718deaef324c32c0d7d0a79134cb17323432af76b29c7d4b843c57"
+
+
+def test_the_fixture_is_the_pinned_upstream_bytes():
+    got = hashlib.sha256(FIXTURE.read_bytes()).hexdigest()
+    assert got == FIXTURE_SHA256, (
+        "the vendored corpus is not the pinned openfootball file; re-fetch it from "
+        "openfootball/england @ 097ab4fe rather than editing the hash")
+
+
+def test_the_corpus_has_the_topology_of_a_real_league_season():
+    rows = S.parse_openfootball(REAL)
+    teams = {r.home_raw for r in rows} | {r.away_raw for r in rows}
+    pairs = {(r.home_raw, r.away_raw) for r in rows}
+    assert len(teams) == 20, f"expected 20 clubs, got {len(teams)}"
+    assert len(pairs) == 380, f"expected 380 distinct ordered pairs, got {len(pairs)}"
+    for t in teams:
+        home = sum(1 for r in rows if r.home_raw == t)
+        away = sum(1 for r in rows if r.away_raw == t)
+        assert home == 19 and away == 19, f"{t}: {home} home / {away} away, expected 19/19"
 
 
 def test_the_real_end_layout_season_parses_as_380_played_matches():
@@ -58,3 +85,16 @@ def test_both_score_placements_parse(line, home, away, hg, ag):
     hdr = "= English Premier League 2026/27\n\n▪ Matchday 1\n  Fri Aug 21 2026\n"
     r = S.parse_openfootball(hdr + line + "\n")[0]
     assert (r.home_raw, r.away_raw, r.hg, r.ag) == (home, away, hg, ag)
+
+
+@pytest.mark.parametrize("line,why", [
+    ("  20:00  Arsenal FC v Chelsea FC 2-0 (1-0)",
+     "single-space result boundary: openfootball's spec requires two, so the split "
+     "point is ambiguous and must not be guessed"),
+    ("  20:00  Arsenal FC              v Chelsea FC  1-1 aet (1-1, 0-0) 3-4 pen",
+     "extra-time / penalties: a Football.TXT form this parser does not model"),
+])
+def test_an_ambiguous_v_separated_result_refuses_instead_of_fabricating(line, why):
+    hdr = "= English Premier League 2026/27\n\n▪ Matchday 1\n  Fri Aug 21 2026\n"
+    with pytest.raises(S.ParseError):
+        S.parse_openfootball(hdr + line + "\n")
