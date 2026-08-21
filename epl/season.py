@@ -201,6 +201,23 @@ _TIME_RE = re.compile(r"^(?P<time>\d{1,2}:\d{2})\s+(?P<rest>.+)$")
 _RESULT_RE = re.compile(
     r"^(?P<home>\S.*?)\s\s*(?P<hg>\d{1,2})\s*-\s*(?P<ag>\d{1,2})"
     r"(?:\s*\(\s*\d{1,2}\s*-\s*\d{1,2}\s*\))?\s\s*(?P<away>\S.*?)$")
+# openfootball writes the score in TWO places and the layout tracks the fixture
+# separator. A `v`-separated line gets the score APPENDED:
+#     "Liverpool FC            v AFC Bournemouth          4-2 (1-0)"
+# while the archival regeneration puts it in the MIDDLE:
+#     "Liverpool FC            4-2 (1-0)  AFC Bournemouth"
+# Only the middle form was ever handled, and every result fixture in the suite was
+# hand-written in it, so 543 green tests never saw real upstream result bytes. On the
+# END layout `_RESULT_RE` swallows " v Away" into the home name and hands back the
+# half-time bracket as the away team, which dies at team resolution.
+# The discriminator is the column gap: openfootball aligns the score at least two
+# spaces clear of the away name, while the `v` separator can be a single space
+# ("Brighton & Hove Albion FC v Fulham FC"). END is tried first because `_RESULT_RE`
+# would otherwise match these lines and mis-split them.
+# The half-time bracket is absent on a goalless draw, hence the optional group.
+_RESULT_END_RE = re.compile(
+    r"^(?P<home>\S.*?)\s+v(?:s|\.)?\s+(?P<away>\S.*?)\s\s+(?P<hg>\d{1,2})\s*-\s*(?P<ag>\d{1,2})"
+    r"(?:\s*\(\s*\d{1,2}\s*-\s*\d{1,2}\s*\))?\s*$")
 _FIXTURE_RE = re.compile(r"^(?P<home>\S.*?)\s+v(?:s|\.)?\s+(?P<away>\S.*?)$")
 
 
@@ -302,7 +319,7 @@ def parse_openfootball(text: str) -> list[FixtureRow]:
             raise ParseError(
                 f"line {lineno}: match line before any day header in round {matchday}: {line!r}")
 
-        m = _RESULT_RE.match(body)
+        m = _RESULT_END_RE.match(body) or _RESULT_RE.match(body)
         if m:
             rows.append(FixtureRow(
                 matchday=matchday, date=date, time=time,
