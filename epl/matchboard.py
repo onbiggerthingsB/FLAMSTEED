@@ -659,13 +659,60 @@ def outcome_of(home_goals: int, away_goals: int) -> str:
     return "draw"
 
 
-def score(board: Mapping[str, Any], results: Iterable[Mapping[str, Any]]
-          ) -> list[dict]:
+def season_ledger(board: Mapping[str, Any], *, season=None,
+                  season_root=None) -> season_mod.LedgerView:
+    """The season's results ledger, resolved by the SEASON'S OWN machinery.
+
+    :func:`epl.season.current_ledger_view` — the same
+    :func:`epl.season.resolve_ledger` the league table reads through, with no
+    bounds, which is what the ledger says right now. Bitemporal resolution and
+    the conflict rules that go with it (a score withdrawn by a later
+    ``abandoned`` is not a result; a postponement corrected by the replayed
+    match is) live there and are not restated here: two implementations of
+    "what was played" is exactly the shape of defect this project spent A6 on.
+    """
+    if season is None:
+        season = season_mod.Season.load(
+            board["season"],
+            root=season_mod.SEASON_ROOT if season_root is None else season_root)
+    return season_mod.current_ledger_view(season)
+
+
+def _goals(result: Mapping[str, Any], key: str, fid: str) -> int:
+    """One goal count, through :func:`epl.season.goal_count` and never around it.
+
+    That function is THE definition in this codebase — finite, non-negative,
+    integral, and a coercion nowhere — so a scorecard applies it rather than
+    spelling a second, weaker one. `int(result["home_goals"])` was the weaker
+    one: it accepted `-7` and rounded `1.9` to `1`.
+    """
+    try:
+        return season_mod.goal_count(result.get(key), f"{fid} {key}")
+    except season_mod.SeasonError as exc:
+        # the label already opens with the fixture id; prefixing again would
+        # print it twice
+        raise MatchboardError(str(exc)) from exc
+
+
+def score(board: Mapping[str, Any], results: Iterable[Mapping[str, Any]], *,
+          ledger: season_mod.LedgerView | None = None,
+          season_root=None) -> list[dict]:
     """Scorecard rows for results that have entered the season ledger.
 
     `board` is a :func:`derive` document — it is what carries the provenance
     each ledger row must cite, which is why the whole document is the argument
     and not a bare list of rows.
+
+    **THE SEASON LEDGER IS THE SOURCE OF TRUTH** (Codex r7 #4). A results file
+    handed to this function is a REQUEST to score rows the ledger already
+    carries, never a way for a result to enter the record: each row must name a
+    fixture the resolved ledger reports as played, with the scoreline the ledger
+    resolved to. Before this rule, a fabricated `99-(-7)` for a fixture nine
+    months away scored cleanly against an EMPTY ledger, twice, and produced
+    scorecard rows indistinguishable from real ones. The resolution is
+    :func:`season_ledger`'s and the conflict rules are
+    :func:`epl.season.resolve_ledger`'s; `ledger` overrides the lookup for
+    callers holding a view already (and for tests of a synthetic season).
 
     **No pass rule, and no benchmark column.** This ledger reports; it decides
     nothing, triggers nothing and gates nothing (A7 (e), (f)).
@@ -680,6 +727,10 @@ def score(board: Mapping[str, Any], results: Iterable[Mapping[str, Any]]
     by_id = {row["fixture_id"]: row for row in (board.get("rows") or [])}
     cutoff = pd.Timestamp(board["cutoff"])
     observed_by = pd.Timestamp(board["observed_by"])
+    if ledger is None:
+        ledger = season_ledger(board, season_root=season_root)
+    played = ledger.played_rows
+    statuses = ledger.statuses
 
     out: list[dict] = []
     for result in results:
@@ -700,14 +751,41 @@ def score(board: Mapping[str, Any], results: Iterable[Mapping[str, Any]]
         # and the ingest that supplied the result. A row filed with neither
         # cannot do what a per-matchweek append-only ledger is for, so it is
         # refused at the door rather than written with two nulls in it.
+        #
+        # EMPTY IS ABSENT. `""` is what a hand-written results file carries when
+        # a column was left blank, and a row stamped with two empty strings
+        # answers "which matchweek, which ingest" exactly as poorly as two
+        # nulls do.
         for required in ("matchweek", "ingest"):
-            if result.get(required) is None:
+            value = result.get(required)
+            if value is None or (isinstance(value, str) and not value.strip()):
                 raise MatchboardError(
                     f"{fid}: this result records no {required!r}, and an "
                     "append-only ledger row that cannot say which matchweek it "
                     "belongs to or which ingest supplied it is not auditable")
-        home_goals = int(result["home_goals"])
-        away_goals = int(result["away_goals"])
+        home_goals = _goals(result, "home_goals", fid)
+        away_goals = _goals(result, "away_goals", fid)
+        # ...and THEN the ledger, which is what decides whether this match was
+        # played at all and what its score was.
+        entry = played.get(fid)
+        if entry is None:
+            status = statuses.get(fid)
+            raise MatchboardError(
+                f"{fid}: the season's results ledger resolves no result for "
+                f"this fixture"
+                + (f" — its winning ledger row is {status!r}" if status else "")
+                + ". The ledger is the source of truth for what was played, and "
+                "a scorecard row is a reading of it rather than a second door a "
+                "result can come through")
+        ledger_home = _goals({"hg": entry.get("hg")}, "hg", fid)
+        ledger_away = _goals({"ag": entry.get("ag")}, "ag", fid)
+        if (ledger_home, ledger_away) != (home_goals, away_goals):
+            raise MatchboardError(
+                f"{fid}: this result scores {home_goals}-{away_goals} and the "
+                f"season's results ledger resolves to "
+                f"{ledger_home}-{ledger_away}. The ledger is the source of "
+                "truth, and a scorecard row that disagrees with it is refused "
+                "rather than filed beside it")
         outcome = outcome_of(home_goals, away_goals)
         out.append({
             "fixture_id": fid,
@@ -749,5 +827,5 @@ __all__ = [
     "MatchboardError", "fixture_facts", "derive_rows", "derive",
     "derived_filename", "is_derived_name", "derived_artifacts_in", "as_derived",
     "render_markdown", "write", "rps", "uniform_rps", "outcome_of",
-    "law_provenance", "score",
+    "law_provenance", "season_ledger", "score",
 ]

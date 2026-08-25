@@ -41,7 +41,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -2698,7 +2698,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     m.add_argument("--score", default=None,
                    help="a JSONL of results (fixture_id, home_goals, "
                         "away_goals, matchweek, ingest) to append as scorecard "
-                        "rows. Reports; decides, triggers and gates nothing.")
+                        "rows. Every row must already be IN the season's "
+                        "results ledger, which is the source of truth for what "
+                        "was played. Reports; decides, triggers and gates "
+                        "nothing.")
+    m.add_argument("--season-root", default=None,
+                   help="where the season ledger `--score` reads lives "
+                        f"(default {season_mod.SEASON_ROOT}).")
 
     args = parser.parse_args(list(argv) if argv is not None else None)
 
@@ -2904,7 +2910,8 @@ def _git_lines(root: Path, *args: str) -> list[str]:
 
 
 def derive_matchboard(directory, out_dir=None, *, results_file=None,
-                      derived_at=None, verbose: bool = True) -> dict:
+                      derived_at=None, season_root=None,
+                      verbose: bool = True) -> dict:
     """Derive a LABELLED matchboard from an existing bundle, outside the bundle.
 
     A7 (c): the committed opener is never retrofitted — not re-issued, not
@@ -2964,31 +2971,97 @@ def derive_matchboard(directory, out_dir=None, *, results_file=None,
         md_name=matchboard.derived_filename(season, cutoff, "md"))
 
     scored: list[dict] = []
+    tally = {"appended": 0, "repeated": 0}
     if results_file is not None:
         rows = [json.loads(line) for line in
                 Path(results_file).read_text().splitlines() if line.strip()]
-        scored = matchboard.score(stamped, rows)
-        with (out_dir / SCORECARD_FILENAME).open("a", encoding="utf-8") as fh:
-            for row in scored:
-                fh.write(leaguesim.canonical_json(row) + "\n")
+        # A7 (e) + Codex r7 #4: every row is scored against the SEASON LEDGER
+        # before anything is written, so a results file that carries one bad row
+        # appends none of them.
+        scored = matchboard.score(stamped, rows, season_root=season_root)
+        tally = append_scorecard(out_dir / SCORECARD_FILENAME, scored)
 
     if verbose:
         print(f"[matchboard] {json_path}", flush=True)
         print(f"[matchboard] {md_path}", flush=True)
         if scored:
-            print(f"[matchboard] appended {len(scored)} scorecard row(s) to "
-                  f"{out_dir / SCORECARD_FILENAME}", flush=True)
+            print(f"[matchboard] appended {tally['appended']} scorecard row(s) "
+                  f"to {out_dir / SCORECARD_FILENAME}"
+                  + (f"; {tally['repeated']} already filed, unchanged"
+                     if tally["repeated"] else ""), flush=True)
     return {"document": stamped, "json": str(json_path), "md": str(md_path),
-            "scored": scored,
+            "scored": scored, **tally,
             "digests": {"matchboard": sha256_file(json_path),
                         "matchboard_md": sha256_file(md_path)}}
+
+
+def scorecard_key(row: Mapping[str, Any]) -> tuple[str, str]:
+    """What makes a scorecard row THE row for one fixture: (fixture, issuance).
+
+    The issuance is identified by `run_digest` — the record's own
+    `digests[dc_native]`, which is what says WHICH RUN priced the forecast the
+    row scores. Two issuances may legitimately both score one fixture (a
+    re-issue at a later cutoff prices it again), and those are two rows; the
+    same issuance scoring one fixture twice is one row filed twice.
+    """
+    return (str(row.get("fixture_id")), str(row.get("run_digest")))
+
+
+def append_scorecard(path, rows: Sequence[Mapping[str, Any]]) -> dict:
+    """Append scorecard rows ONCE per (fixture, issuance). Idempotent; conflicts
+    REFUSE.
+
+    The ledger is append-only and the operator runs this weekly, by hand, on a
+    Monday — so re-running the same command must not double every row, and a
+    results file whose content has QUIETLY CHANGED must not file a second,
+    disagreeing answer beside the first. An append-only ledger holding two
+    different rows for one fixture is worse than one that refused the second:
+    nothing downstream can say which of them the record means.
+
+    Nothing is written unless every row passes: the file is opened once, after
+    the whole batch has been checked.
+    """
+    path = Path(path)
+    existing: dict[tuple[str, str], str] = {}
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            existing[scorecard_key(row)] = leaguesim.canonical_json(row)
+
+    fresh: list[str] = []
+    repeated = 0
+    for row in rows:
+        key = scorecard_key(row)
+        text = leaguesim.canonical_json(row)
+        already = existing.get(key)
+        if already is not None:
+            if already == text:
+                repeated += 1
+                continue
+            raise CliError(
+                f"{key[0]}: this scorecard ledger already carries a row for "
+                f"this fixture under run digest {key[1]}, and the new row "
+                f"disagrees with it. The ledger is append-only and a fixture "
+                f"gets one row per issuance, so the conflicting row is refused "
+                f"rather than filed beside the first one.\n  on file: "
+                f"{already}\n  offered: {text}")
+        existing[key] = text
+        fresh.append(text)
+
+    if fresh:
+        with path.open("a", encoding="utf-8") as fh:
+            for text in fresh:
+                fh.write(text + "\n")
+    return {"appended": len(fresh), "repeated": repeated}
 
 
 def _cmd_matchboard(args) -> int:
     directory = (Path(args.directory) if args.directory
                  else _last_issuance(args.season, args.out_root, args.cutoff))
     derive_matchboard(directory, args.out, results_file=args.score,
-                      verbose=True)
+                      season_root=args.season_root, verbose=True)
     return 0
 
 

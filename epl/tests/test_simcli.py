@@ -2781,12 +2781,31 @@ def test_the_matchboard_subcommand_derives_from_a_bundle_without_touching_it(
         json.loads((directory / matchboard.JSON_FILENAME).read_text())["rows"]]
 
 
+def _season_carrying(tmp_path, fixture_id: str, date_played: str, hg: int,
+                     ag: int) -> Path:
+    """A season copy whose RESULTS LEDGER actually carries this result.
+
+    Written through the season's own manual ingest, so the row in the ledger is
+    a row the ledger's own validation accepted — a scorecard that reads the
+    ledger has to be tested against a real one.
+    """
+    root = _season_copy(tmp_path)
+    manual = _manual_file(
+        tmp_path, f"manual_{fixture_id.replace(':', '_')}.jsonl",
+        {"fixture_id": fixture_id, "date_played": date_played,
+         "hg": hg, "ag": ag})
+    simcli.ingest_results(season=SEASON, root=root, manual_file=manual,
+                          write=True, observed_at=INGEST_CLOCK, verbose=False)
+    return root
+
+
 def test_the_matchboard_subcommand_scores_results_into_ledger_rows(
         issuance, tmp_path):
     """`--score <results.jsonl>` — A7 (e), which reports and decides nothing."""
     directory = Path(issuance["directory"])
     board = json.loads((directory / matchboard.JSON_FILENAME).read_text())
     first = board["rows"][0]
+    root = _season_carrying(tmp_path, first["fixture_id"], first["date"], 2, 1)
 
     results = tmp_path / "results.jsonl"
     results.write_text(json.dumps({
@@ -2795,7 +2814,8 @@ def test_the_matchboard_subcommand_scores_results_into_ledger_rows(
 
     out = tmp_path / "scored"
     assert simcli.main(["matchboard", "--directory", str(directory),
-                        "--out", str(out), "--score", str(results)]) == 0
+                        "--out", str(out), "--score", str(results),
+                        "--season-root", str(root)]) == 0
     rows = [json.loads(line) for line in
             (out / "matchboard_scorecard.jsonl").read_text().splitlines()]
     assert len(rows) == 1
@@ -2811,6 +2831,78 @@ def test_the_matchboard_subcommand_scores_results_into_ledger_rows(
     assert row["run_digest"] == board["run_digest"]
     # (f): no benchmark column anywhere on this surface
     assert not [k for k in row if "benchmark" in k]
+
+
+def test_a_fabricated_result_never_reaches_the_scorecard(issuance, tmp_path):
+    """Codex r7 #4, END TO END: the live scored record is the ONE surface that
+    can earn an accuracy claim, so a row must not be able to enter it by being
+    written into a results file.
+
+    Before this, `--score` on a file naming a fixture nine months away, with
+    `99` and `-7` goals and empty matchweek/ingest, appended TWO scorecard rows
+    while the season's results ledger was empty — exit 0 and no complaint.
+    """
+    directory = Path(issuance["directory"])
+    board = json.loads((directory / matchboard.JSON_FILENAME).read_text())
+    future = next(r for r in board["rows"] if r["date"] == "2027-05-30")
+    fabricated = {"fixture_id": future["fixture_id"], "home_goals": 99,
+                  "away_goals": -7, "matchweek": "", "ingest": ""}
+
+    results = tmp_path / "fabricated.jsonl"
+    results.write_text(json.dumps(fabricated) + "\n" + json.dumps(fabricated)
+                       + "\n")
+    out = tmp_path / "scored"
+    with pytest.raises(matchboard.MatchboardError) as exc:
+        simcli.derive_matchboard(directory, out, results_file=results,
+                                 verbose=False)
+    assert future["fixture_id"] in str(exc.value)
+    assert not (out / simcli.SCORECARD_FILENAME).exists()
+
+
+def test_the_scorecard_append_is_idempotent_by_fixture_and_issuance(
+        issuance, tmp_path):
+    """A7 (e)'s ledger is append-only, and a weekly operator re-runs commands.
+
+    So the SAME row for the same (fixture, issuance) appends once and is a
+    no-op afterwards, and a row that CONFLICTS with one already filed is
+    refused rather than appended beside it — an append-only ledger holding two
+    different answers for one fixture is worse than one that refused the
+    second.
+    """
+    directory = Path(issuance["directory"])
+    board = json.loads((directory / matchboard.JSON_FILENAME).read_text())
+    first = board["rows"][0]
+    root = _season_carrying(tmp_path, first["fixture_id"], first["date"], 2, 1)
+
+    results = _manual_file(
+        tmp_path, "results.jsonl",
+        {"fixture_id": first["fixture_id"], "home_goals": 2, "away_goals": 1,
+         "matchweek": 1, "ingest": "manual/day1"})
+    out = tmp_path / "scored"
+    ledger = out / simcli.SCORECARD_FILENAME
+
+    run = lambda f: simcli.derive_matchboard(          # noqa: E731
+        directory, out, results_file=f, season_root=root, verbose=False)
+    first_run = run(results)
+    assert first_run["appended"] == 1 and first_run["repeated"] == 0
+    once = ledger.read_bytes()
+    assert len(once.decode().splitlines()) == 1
+
+    # the same command again: a no-op, byte for byte
+    again = run(results)
+    assert again["appended"] == 0 and again["repeated"] == 1
+    assert ledger.read_bytes() == once
+
+    # ...and a row that says something DIFFERENT about the same fixture and the
+    # same issuance is refused, with the ledger untouched
+    conflicting = _manual_file(
+        tmp_path, "conflicting.jsonl",
+        {"fixture_id": first["fixture_id"], "home_goals": 2, "away_goals": 1,
+         "matchweek": 2, "ingest": "manual/day9"})
+    with pytest.raises(simcli.CliError) as exc:
+        run(conflicting)
+    assert first["fixture_id"] in str(exc.value)
+    assert ledger.read_bytes() == once
 
 
 def test_the_schema_bump_did_not_downgrade_the_round_before_it():

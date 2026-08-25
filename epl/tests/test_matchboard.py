@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from epl import leaguesim, matchboard
+from epl import leaguesim, matchboard, season as season_mod
 
 #: The preserved MW0 bundle. Present on the machine that issued it and nowhere
 #: else, so every test that reads it is guarded.
@@ -380,11 +380,31 @@ def _scored_board():
     return _document(rows)
 
 
+def _ledger(*rows):
+    """A results ledger for the synthetic season, resolved by SEASON'S OWN code.
+
+    :func:`epl.season.resolve_ledger` is the one implementation of this
+    project's bitemporal resolution — the same call the league table makes — so
+    a scorecard built against this view is built against the same conflict
+    rules, not against a second set written for the tests.
+    """
+    return season_mod.resolve_ledger(
+        [{"observed_at": "2026-08-22T09:00:00",
+          "date_played": FACTS[row["fixture_id"]]["date"], **row}
+         for row in rows],
+        identify=lambda row: str(row["fixture_id"]))
+
+
+def _played(fixture_id="2627:alpha:bravo", hg=2, ag=0, **extra):
+    return {"fixture_id": fixture_id, "hg": hg, "ag": ag, **extra}
+
+
 def test_a_scorecard_row_carries_the_forecast_the_result_and_the_bundle():
     board = _scored_board()
     ledger = matchboard.score(board, [{"fixture_id": "2627:alpha:bravo",
                                        "home_goals": 2, "away_goals": 0,
-                                       "matchweek": 1, "ingest": "manual/day1"}])
+                                       "matchweek": 1, "ingest": "manual/day1"}],
+                              ledger=_ledger(_played(hg=2, ag=0)))
     assert len(ledger) == 1
     row = ledger[0]
     assert row["fixture_id"] == "2627:alpha:bravo"
@@ -412,7 +432,8 @@ def test_a_draw_scores_against_the_middle_outcome_and_a_zero_margin():
     board = _scored_board()
     row = matchboard.score(board, [{"fixture_id": "2627:alpha:bravo",
                                     "home_goals": 1, "away_goals": 1,
-                                    "matchweek": 1, "ingest": "x"}])[0]
+                                    "matchweek": 1, "ingest": "x"}],
+                           ledger=_ledger(_played(hg=1, ag=1)))[0]
     assert row["outcome"] == "draw"
     assert row["realized_margin"] == 0
     assert row["rps_uniform"] == pytest.approx(1 / 9, abs=1e-12)
@@ -428,19 +449,21 @@ def test_a_forecast_that_did_not_precede_the_kickoff_is_refused():
     late = dict(board, observed_by="2026-08-25 00:00:00")   # kickoff 2026-08-21
     result = [{"fixture_id": "2627:alpha:bravo", "home_goals": 1,
                "away_goals": 0, "matchweek": 1, "ingest": "x"}]
+    view = _ledger(_played(hg=1, ag=0))
     with pytest.raises(matchboard.MatchboardError) as exc:
-        matchboard.score(late, result)
+        matchboard.score(late, result, ledger=view)
     assert "2627:alpha:bravo" in str(exc.value)
     assert "observed_by" in str(exc.value)
 
     # the CUTOFF is held to the same rule, on its own
     late_cutoff = dict(board, cutoff="2026-08-25 00:00:00")
     with pytest.raises(matchboard.MatchboardError):
-        matchboard.score(late_cutoff, result)
+        matchboard.score(late_cutoff, result, ledger=view)
 
     # POSITIVE CONTROL: the same result on the same day the season had the
     # kickoff is admissible, so the refusal above is about the ordering.
-    assert matchboard.score(board, result)[0]["date"] == "2026-08-21"
+    assert matchboard.score(board, result,
+                            ledger=view)[0]["date"] == "2026-08-21"
 
 
 def test_a_result_for_a_fixture_the_matchboard_never_priced_is_refused():
@@ -448,8 +471,84 @@ def test_a_result_for_a_fixture_the_matchboard_never_priced_is_refused():
     with pytest.raises(matchboard.MatchboardError) as exc:
         matchboard.score(board, [{"fixture_id": "2627:not:a_fixture",
                                   "home_goals": 0, "away_goals": 0,
-                                  "matchweek": 1, "ingest": "x"}])
+                                  "matchweek": 1, "ingest": "x"}],
+                         ledger=_ledger())
     assert "2627:not:a_fixture" in str(exc.value)
+
+
+def test_a_result_the_season_ledger_does_not_carry_is_refused():
+    """THE LEDGER IS THE SOURCE OF TRUTH for what was played (Codex r7 #4).
+
+    Before this, `score` read the scoreline off the results file it was handed
+    and checked only that the matchboard priced the fixture. So a fabricated
+    result for a fixture nine months in the future — `99-(-7)`, matchweek and
+    ingest both the empty string — became a scorecard row while the season's
+    results ledger was still EMPTY, and the row it produced looked exactly like
+    a real one. A scorecard is a READING of the ledger; it is never a second
+    door a result can come through.
+    """
+    board = _scored_board()
+    fabricated = {"fixture_id": "2627:alpha:bravo", "home_goals": 99,
+                  "away_goals": -7, "matchweek": "", "ingest": ""}
+    with pytest.raises(matchboard.MatchboardError) as exc:
+        matchboard.score(board, [fabricated], ledger=_ledger())
+    assert "2627:alpha:bravo" in str(exc.value)
+
+    # ...and a well-formed result for a fixture the ledger has not reached is
+    # refused for the same reason, naming the ledger.
+    with pytest.raises(matchboard.MatchboardError) as exc:
+        matchboard.score(board, [{"fixture_id": "2627:alpha:bravo",
+                                  "home_goals": 2, "away_goals": 0,
+                                  "matchweek": 1, "ingest": "manual/day1"}],
+                         ledger=_ledger())
+    assert "ledger" in str(exc.value)
+
+
+def test_a_scorecard_row_that_disagrees_with_the_ledger_is_refused():
+    """The ledger resolves; the scorecard reads. A row that scores a different
+    scoreline than the season resolved is refused rather than filed beside it."""
+    board = _scored_board()
+    view = _ledger(_played(hg=2, ag=0))
+    with pytest.raises(matchboard.MatchboardError) as exc:
+        matchboard.score(board, [{"fixture_id": "2627:alpha:bravo",
+                                  "home_goals": 3, "away_goals": 0,
+                                  "matchweek": 1, "ingest": "x"}], ledger=view)
+    assert "3-0" in str(exc.value) and "2-0" in str(exc.value)
+
+    # POSITIVE CONTROL: the same row, agreeing, is admissible.
+    assert matchboard.score(board, [{"fixture_id": "2627:alpha:bravo",
+                                     "home_goals": 2, "away_goals": 0,
+                                     "matchweek": 1, "ingest": "x"}],
+                            ledger=view)[0]["realized_margin"] == 2
+
+
+def test_a_result_the_ledger_has_since_withdrawn_is_not_scored():
+    """`resolve_ledger`'s own conflict rule, not a second one written here: a
+    score followed by a later `abandoned` is NOT a result, and the scorecard
+    inherits that answer from the season rather than deciding it again."""
+    board = _scored_board()
+    view = _ledger(_played(hg=2, ag=0),
+                   {"fixture_id": "2627:alpha:bravo", "status": "abandoned",
+                    "observed_at": "2026-08-23T09:00:00"})
+    with pytest.raises(matchboard.MatchboardError) as exc:
+        matchboard.score(board, [{"fixture_id": "2627:alpha:bravo",
+                                  "home_goals": 2, "away_goals": 0,
+                                  "matchweek": 1, "ingest": "x"}], ledger=view)
+    assert "abandoned" in str(exc.value)
+
+
+def test_a_goal_count_that_is_not_one_is_refused_at_the_door():
+    """`epl.season.goal_count` is THE definition (finite, non-negative,
+    integral), applied here rather than re-spelled."""
+    board = _scored_board()
+    view = _ledger(_played(hg=2, ag=0))
+    good = {"fixture_id": "2627:alpha:bravo", "home_goals": 2, "away_goals": 0,
+            "matchweek": 1, "ingest": "x"}
+    for bad in ({"away_goals": -7}, {"home_goals": 1.9}, {"home_goals": "two"},
+                {"home_goals": float("nan")}, {"away_goals": None}):
+        with pytest.raises(matchboard.MatchboardError) as exc:
+            matchboard.score(board, [{**good, **bad}], ledger=view)
+        assert "2627:alpha:bravo" in str(exc.value), bad
 
 
 # ==========================================================================
@@ -650,7 +749,8 @@ def test_a_scorecard_row_citing_a_derived_board_records_both_provenances():
     board = _derived(_law_anchor(True))
     row = matchboard.score(board, [{"fixture_id": "2627:alpha:bravo",
                                     "home_goals": 3, "away_goals": 0,
-                                    "matchweek": 1, "ingest": "manual/day1"}])[0]
+                                    "matchweek": 1, "ingest": "manual/day1"}],
+                           ledger=_ledger(_played(hg=3, ag=0)))[0]
     assert row["rows_provenance"] == "reproduction"
     assert row["law_provenance"] == "anchored-pre-kickoff"
     assert row["source_bundle"] == "/bundle"
@@ -658,7 +758,8 @@ def test_a_scorecard_row_citing_a_derived_board_records_both_provenances():
     late = _derived(_law_anchor(False))
     row = matchboard.score(late, [{"fixture_id": "2627:alpha:bravo",
                                    "home_goals": 3, "away_goals": 0,
-                                   "matchweek": 1, "ingest": "x"}])[0]
+                                   "matchweek": 1, "ingest": "x"}],
+                           ledger=_ledger(_played(hg=3, ag=0)))[0]
     assert row["law_provenance"] == "not-shown-anchored"
 
 
@@ -701,17 +802,25 @@ def test_a_result_with_no_matchweek_or_no_ingest_is_refused():
     board = _scored_board()
     good = {"fixture_id": "2627:alpha:bravo", "home_goals": 1, "away_goals": 0,
             "matchweek": 1, "ingest": "manual/day1"}
-    assert matchboard.score(board, [good])[0]["matchweek"] == 1
+    view = _ledger(_played(hg=1, ag=0))
+    assert matchboard.score(board, [good], ledger=view)[0]["matchweek"] == 1
 
     for missing in ("matchweek", "ingest"):
         holed = {k: v for k, v in good.items() if k != missing}
         with pytest.raises(matchboard.MatchboardError) as exc:
-            matchboard.score(board, [holed])
+            matchboard.score(board, [holed], ledger=view)
         assert missing in str(exc.value), missing
         assert "2627:alpha:bravo" in str(exc.value)
         # ...and present-but-null is the same absence wearing a value
         with pytest.raises(matchboard.MatchboardError):
-            matchboard.score(board, [{**good, missing: None}])
+            matchboard.score(board, [{**good, missing: None}], ledger=view)
+        # ...as is present-but-EMPTY, which is what a hand-written results file
+        # produces when a column was left blank
+        with pytest.raises(matchboard.MatchboardError) as exc:
+            matchboard.score(board, [{**good, missing: ""}], ledger=view)
+        assert missing in str(exc.value), missing
+        with pytest.raises(matchboard.MatchboardError):
+            matchboard.score(board, [{**good, missing: "   "}], ledger=view)
 
 
 def test_no_market_vocabulary_reaches_the_render_or_the_scorecard():
@@ -721,7 +830,8 @@ def test_no_market_vocabulary_reaches_the_render_or_the_scorecard():
     text = matchboard.render_markdown(board).lower()
     row = matchboard.score(board, [{"fixture_id": "2627:alpha:bravo",
                                     "home_goals": 1, "away_goals": 0,
-                                    "matchweek": 1, "ingest": "x"}])[0]
+                                    "matchweek": 1, "ingest": "x"}],
+                           ledger=_ledger(_played(hg=1, ag=0)))[0]
     banned = ("odds", "payout", "stake", "bookmaker", "handicap",
               "correct score", "both teams to score", "btts", "benchmark",
               "total goals", "over/under")
