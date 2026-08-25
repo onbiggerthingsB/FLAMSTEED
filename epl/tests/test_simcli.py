@@ -3472,3 +3472,34 @@ def test_a_matchboard_score_refusal_is_a_STOP_not_a_traceback(issuance,
     assert code == 2, f"exit {code}; a typed refusal exits 2, a crash exits 1"
     assert "STOP: MatchboardError" in err
     assert "Traceback" not in err
+
+
+def test_the_forecast_cli_can_state_its_own_knowledge_clock(monkeypatch):
+    """MW1's live cycle found the gap: the library takes `observed_by` but the
+    CLI never exposed it, so the first real reissue was driven from a stdin
+    heredoc — and on macOS, spawn cannot re-import a `<stdin>` __main__, which
+    killed the gate's parallel leg with BrokenProcessPool. The permanent fix is
+    that the module invocation can say everything the library can: cutoff is
+    the fit's date boundary, --observed-by is the knowledge clock, and the two
+    are different clocks on purpose (results ingested at 12:55 must be visible
+    to an afternoon issuance whose training boundary is that midnight).
+    """
+    seen = {}
+
+    def _capture(**kwargs):
+        seen.update(kwargs)
+        return {"directory": "/dev/null", "gate": None}
+
+    monkeypatch.setattr(simcli, "forecast", _capture)
+    code = simcli.main(["forecast", "--season", SEASON,
+                        "--cutoff", "2026-08-25",
+                        "--observed-by", "2026-08-25 14:00:00"])
+    assert code == 0
+    assert seen["cutoff"] == "2026-08-25"
+    assert seen["observed_by"] == "2026-08-25 14:00:00"
+
+    seen.clear()
+    assert simcli.main(["forecast", "--season", SEASON,
+                        "--cutoff", "2026-08-25"]) == 0
+    assert seen["observed_by"] is None, \
+        "without the flag the library default (the cutoff) must rule"

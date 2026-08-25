@@ -2837,6 +2837,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                         f"refused; use --all-arms to run a bridge arm beside "
                         f"it.")
     f.add_argument("--all-arms", action="store_true")
+    f.add_argument("--observed-by", default=None,
+                   help="the knowledge clock: results observed after this "
+                        "instant are invisible to the fit. Defaults to the "
+                        "cutoff, which is the fit's DATE boundary — two "
+                        "different clocks on purpose: an afternoon issuance "
+                        "whose training boundary is last midnight still needs "
+                        "to see the morning's ingest.")
     f.add_argument("--n-sims", type=int, default=DEFAULT_N_SIMS)
     f.add_argument("--seed", type=int, default=DEFAULT_SEED)
     f.add_argument("--chunk-size", type=int, default=leaguesim.DEFAULT_CHUNK_SIZE)
@@ -2939,6 +2946,7 @@ def _cmd_forecast(args) -> int:
 
     gate_kwargs = {"tiebreak_oracle": not args.skip_oracle}
     issue = forecast(season=args.season, cutoff=args.cutoff, arms=arms,
+                     observed_by=args.observed_by,
                      n_sims=args.n_sims, seed=args.seed,
                      chunk_size=args.chunk_size, out_root=args.out_root,
                      gate=not args.no_gate, gate_kwargs=gate_kwargs,
