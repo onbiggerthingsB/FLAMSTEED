@@ -2849,26 +2849,32 @@ def law_anchor(record: dict, *, pathspec: str = LAW_ANCHOR_PATHSPEC,
             path = line.split(":", 1)[-1]
             try:
                 introduced = _git_lines(
-                    root, "log", "--format=%H%x09%aI", "--reverse",
+                    root, "log", "--format=%H%x09%aI%x09%cI", "--reverse",
                     f"-S{digest}", "--", path)
             except (OSError, subprocess.SubprocessError):
                 continue
             if not introduced:
                 continue
-            commit, _, when = introduced[0].partition("\t")
-            stamp = pd.Timestamp(when)
+            commit, authored, committed = introduced[0].split("\t")
+            # the anchor is only as old as the NEWER of git's two stamps: the
+            # author date survives rebase and amend and is trivially settable,
+            # so on its own it anchors nothing.
+            stamp = max(pd.Timestamp(authored), pd.Timestamp(committed))
             if earliest is None or stamp < earliest[2]:
-                earliest = (path, commit, stamp, when)
+                earliest = (path, commit, stamp, authored, committed)
         if earliest is None:
             rows.append({"name": name, "hash": digest, "file": None,
-                         "commit": None, "committed_at": None})
+                         "commit": None, "committed_at": None,
+                         "committer_at": None})
         else:
-            path, commit, _, when = earliest
+            path, commit, _, authored, committed = earliest
             rows.append({"name": name, "hash": digest, "file": path,
-                         "commit": commit, "committed_at": when})
+                         "commit": commit, "committed_at": authored,
+                         "committer_at": committed})
 
     pre_kickoff = bool(rows) and all(
-        _committed_by(row["committed_at"], cutoff) for row in rows)
+        _committed_by(row["committed_at"], cutoff)
+        and _committed_by(row["committer_at"], cutoff) for row in rows)
     return {"cutoff": str(record["cutoff"]), "pre_kickoff": pre_kickoff,
             "hashes": rows}
 

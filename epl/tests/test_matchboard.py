@@ -744,3 +744,123 @@ def test_two_columns_claiming_one_fixture_are_refused():
         matchboard.derive_rows(arrays, fixture_ids=SEASON_IDS, facts=FACTS)
     assert "2" in str(exc.value)
     assert "2627:echo:foxtrot" in str(exc.value)
+
+
+def test_the_matchboard_reads_no_clock_and_moving_the_clock_proves_it(monkeypatch):
+    """The verifier's one surviving seed: a wall-clock read planted in the
+    renderer left every test green. Same disease `test_limitations_note_is_
+    byte_identical_across_runs` had, one file over, and the same cure: do not
+    string-match today's date (that guard false-alarms the day a kickoff equals
+    the wall clock) — MOVE the clock and require identical bytes.
+
+    The swap goes through ``sys.modules`` as well as the module attribute, so a
+    function-local ``import time`` — which a module-attribute monkeypatch never
+    sees — is intercepted too. ``derived_at`` is an INPUT here; the boundary
+    (the CLI) may read a clock, the library may not.
+    """
+    import datetime as real_datetime
+    import sys
+    import time as real_time
+
+    doc = _derived(_law_anchor(True))
+    before_md = matchboard.render_markdown(doc)
+    before_js = leaguesim.canonical_json(doc)
+
+    class _FrozenTime:
+        @staticmethod
+        def time():
+            return 0.0
+
+        @staticmethod
+        def monotonic():
+            return 0.0
+
+        @staticmethod
+        def perf_counter():
+            return 0.0
+
+        @staticmethod
+        def strftime(fmt, t=None):
+            return "FROZEN"
+
+        @staticmethod
+        def gmtime(secs=None):
+            return real_time.gmtime(0)
+
+        @staticmethod
+        def localtime(secs=None):
+            return real_time.localtime(0)
+
+    class _FrozenDatetime:
+        timezone = real_datetime.timezone
+        timedelta = real_datetime.timedelta
+
+        class datetime(real_datetime.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(1970, 1, 1)
+
+            @classmethod
+            def utcnow(cls):
+                return cls(1970, 1, 1)
+
+        class date(real_datetime.date):
+            @classmethod
+            def today(cls):
+                return cls(1970, 1, 1)
+
+    monkeypatch.setitem(sys.modules, "time", _FrozenTime)
+    monkeypatch.setitem(sys.modules, "datetime", _FrozenDatetime)
+    monkeypatch.setattr(matchboard, "time", _FrozenTime, raising=False)
+    monkeypatch.setattr(matchboard, "datetime", _FrozenDatetime, raising=False)
+
+    assert matchboard.render_markdown(doc) == before_md, (
+        "matchboard.md changed when the clock moved — the renderer is reading "
+        "a wall clock, so the same derivation would not reproduce tomorrow")
+    assert leaguesim.canonical_json(doc) == before_js
+
+
+def test_a_backdated_author_date_cannot_anchor_a_hash_pre_kickoff(tmp_path):
+    """A7 (d)'s anchor is only as strong as the weaker of git's two dates.
+
+    ``GIT_AUTHOR_DATE`` survives rebase and amend and is trivially settable, so
+    a hash introduced AFTER the cutoff can wear a pre-cutoff author date at one
+    keystroke. The committer date is rewritten by every history edit, which is
+    exactly why it must ALSO be at or before the cutoff: an anchor may only be
+    as old as the NEWER of the two stamps. Neither is cryptographic — the
+    ledger says so — but the check must use the stronger of what git has.
+    """
+    import subprocess
+
+    from epl import simcli
+
+    posterior, run_digest = "ab" * 32, "cd" * 32
+    root = tmp_path / "repo"
+    (root / "reports").mkdir(parents=True)
+    (root / "reports" / "x.md").write_text(
+        f"posterior {posterior}\nrun {run_digest}\n")
+
+    def _git(*args, **env_extra):
+        env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+               "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+               "HOME": str(tmp_path), **env_extra}
+        subprocess.run(["git", *args], cwd=root, check=True,
+                       capture_output=True, env={**__import__("os").environ,
+                                                 **env})
+
+    _git("init", "-q")
+    _git("add", "reports/x.md")
+    # authored BEFORE the cutoff, committed AFTER it: the forgeable stamp says
+    # pre-kickoff, the history-honest one says otherwise.
+    _git("commit", "-q", "-m", "x",
+         GIT_AUTHOR_DATE="2026-08-19T12:00:00+08:00",
+         GIT_COMMITTER_DATE="2026-09-01T12:00:00+08:00")
+
+    record = {"cutoff": "2026-08-21 00:00:00",
+              "effective_posterior_hash": posterior,
+              "digests": {"dc_native": run_digest}}
+    anchor = simcli.law_anchor(record, repo_root=root, pathspec="reports")
+    assert anchor is not None
+    assert anchor["pre_kickoff"] is False, (
+        "a post-cutoff committer date must refuse the anchor no matter what "
+        "the author date claims")
