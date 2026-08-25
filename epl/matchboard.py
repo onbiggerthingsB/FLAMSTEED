@@ -681,6 +681,16 @@ def score(board: Mapping[str, Any], results: Iterable[Mapping[str, Any]]
                     f"{fid}: the issuance's {name} ({stamp}) is after the "
                     f"kickoff the season knew ({row['date']}); the forecast did "
                     "not precede the match and the row is not admissible")
+        # A7 (e): the ledger is append-only and each row records the matchweek
+        # and the ingest that supplied the result. A row filed with neither
+        # cannot do what a per-matchweek append-only ledger is for, so it is
+        # refused at the door rather than written with two nulls in it.
+        for required in ("matchweek", "ingest"):
+            if result.get(required) is None:
+                raise MatchboardError(
+                    f"{fid}: this result records no {required!r}, and an "
+                    "append-only ledger row that cannot say which matchweek it "
+                    "belongs to or which ingest supplied it is not auditable")
         home_goals = int(result["home_goals"])
         away_goals = int(result["away_goals"])
         outcome = outcome_of(home_goals, away_goals)

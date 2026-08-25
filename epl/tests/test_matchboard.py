@@ -687,3 +687,46 @@ def test_the_MW0_law_anchor_is_the_commit_the_ledger_entered():
         assert entry["file"] == "reports/epl_sim_issuance_2026-08-21.md", entry
         assert entry["committed_at"].startswith("2026-08-19"), entry
     assert anchor["cutoff"] == record["cutoff"]
+
+
+def test_a_result_with_no_matchweek_or_no_ingest_is_refused():
+    """A7 (e): *the ledger is append-only, and each row records the matchweek and
+    the ingest that supplied the result.*
+
+    A row filed with neither cannot do what a per-matchweek append-only ledger
+    is for — nobody can say which matchweek it belongs to or which ingest put it
+    there — so it is refused at the door rather than written with two nulls in
+    it and discovered later.
+    """
+    board = _scored_board()
+    good = {"fixture_id": "2627:alpha:bravo", "home_goals": 1, "away_goals": 0,
+            "matchweek": 1, "ingest": "manual/day1"}
+    assert matchboard.score(board, [good])[0]["matchweek"] == 1
+
+    for missing in ("matchweek", "ingest"):
+        holed = {k: v for k, v in good.items() if k != missing}
+        with pytest.raises(matchboard.MatchboardError) as exc:
+            matchboard.score(board, [holed])
+        assert missing in str(exc.value), missing
+        assert "2627:alpha:bravo" in str(exc.value)
+        # ...and present-but-null is the same absence wearing a value
+        with pytest.raises(matchboard.MatchboardError):
+            matchboard.score(board, [{**good, missing: None}])
+
+
+def test_no_market_vocabulary_reaches_the_render_or_the_scorecard():
+    """A7 (f) and the product line's standing rule, checked mechanically on the
+    two surfaces a reader actually sees rather than promised in a docstring."""
+    board = _scored_board()
+    text = matchboard.render_markdown(board).lower()
+    row = matchboard.score(board, [{"fixture_id": "2627:alpha:bravo",
+                                    "home_goals": 1, "away_goals": 0,
+                                    "matchweek": 1, "ingest": "x"}])[0]
+    banned = ("odds", "payout", "stake", "bookmaker", "handicap",
+              "correct score", "both teams to score", "btts", "benchmark",
+              "total goals", "over/under")
+    for word in banned:
+        assert word not in text, word
+        assert word not in " ".join(sorted(row)).lower().replace("_", " "), word
+    # POSITIVE CONTROL: the scan is not vacuous — it finds a word that IS there.
+    assert "margin" in text
