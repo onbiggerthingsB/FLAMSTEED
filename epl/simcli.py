@@ -47,8 +47,8 @@ import numpy as np
 import pandas as pd
 
 from epl import (anchor as anchor_mod, bridge as bridge_mod, leaguesim,
-                 particles, paths, season as season_mod, simbundle, simcanary,
-                 table as table_mod)
+                 matchboard, particles, paths, season as season_mod, simbundle,
+                 simcanary, table as table_mod)
 
 # ==========================================================================
 # constants
@@ -176,7 +176,24 @@ LIMITATIONS_TRUNCATION_DENIALS = (
 #: itself — the file an editor rewrites to make a doctored bridge look coherent
 #: — and `check` still returned PASS. A -1 or -2 record predates the field and
 #: keeps the leniency that exists for exactly that.
-ISSUANCE_SCHEMA_VERSION = "epl-issuance-4"
+#: Bumped to -5 by amendment A7 (b.4): `sidecar_digests[arm]` gains `matchboard`
+#: and `matchboard_md` for the published native arm, and `files[arm]` names both
+#: files so `record_digest` covers that they were published at all. Mandatory
+#: from -5 on, on A6 (b)'s own pattern — and A6's absent-versus-present-and-null
+#: leniency does NOT extend here: `null` is the issuer saying there was nothing
+#: to pin, and for `dc_native` there is always something to pin. A season with no
+#: unplayed fixtures writes `n_fixtures: 0` and an empty row array, which is
+#: present.
+ISSUANCE_SCHEMA_VERSION = "epl-issuance-5"
+
+#: Which schema version first REQUIRED each round's fields. The comparison is on
+#: the ordinal and not on string equality with the current version: when -5
+#: arrived, `schema == ISSUANCE_SCHEMA_VERSION` would have quietly sent every -4
+#: record back to the leniency A6 wrote for records that predate its fields, and
+#: the strictest anchor in the bundle would have become downgradeable by bumping
+#: a version string.
+A6_SCHEMA_ORDINAL = 4
+A7_SCHEMA_ORDINAL = 5
 
 #: The fourth verdict (amendment A6 (b)). An UNANCHORED criterion did not run,
 #: claims nothing, and neither passes nor fails the record: it is the truthful
@@ -184,6 +201,14 @@ ISSUANCE_SCHEMA_VERSION = "epl-issuance-4"
 #: It is NOT a pass — `check` reports `fully_anchored: False` while one stands.
 UNANCHORED = "UNANCHORED"
 PRE_A6_NOTE = "unanchored (pre-A6 record)"
+#: A7 (c). Distinct from PRE_A6_NOTE, because a record can predate both rounds
+#: and a reader is owed which criterion had nothing to hold it against and why.
+PRE_A7_NOTE = "unanchored (pre-A7 record)"
+
+#: `unanchored (<reason>)` — the headline's parenthetical is built from the
+#: entries' own notes, so a new round's note reaches the headline without
+#: anything being taught about it.
+_UNANCHORED_REASON = re.compile(r"^unanchored \((.+)\)$")
 
 #: The record field that digests the record. Excluded from its own digest.
 RECORD_DIGEST_FIELD = "record_digest"
@@ -435,20 +460,42 @@ def _criterion(name: str, status: str, detail: dict | None = None,
             "detail": dict(detail or {}), "note": note}
 
 
-def _unanchored(name: str, field: str, schema: str) -> dict:
+def schema_ordinal(schema) -> int:
+    """The `N` of `epl-issuance-N`, and a STRICT answer for anything else.
+
+    An unparseable version string is treated as the newest schema there is, not
+    the oldest. Every leniency in this file is conditioned on the record being
+    OLDER than the field it lacks, so "I do not recognise this version" must
+    resolve to "no leniency" — otherwise writing nonsense into `schema_version`
+    would be a way to opt out of the checks the record is held to.
+    """
+    match = re.fullmatch(r"epl-issuance-(\d+)", str(schema or ""))
+    return int(match.group(1)) if match else 10 ** 9
+
+
+def _unanchored(name: str, field: str, schema: str,
+                since: int = A6_SCHEMA_ORDINAL, note: str = PRE_A6_NOTE) -> dict:
     """The A6 (b) leniency, conditioned on the schema — strictly.
 
-    Only a record written BEFORE `epl-issuance-4` may lack one of the fields
-    that version added. A `-4` record with the key absent is a record that has
-    been edited, and it FAILs naming the field: making the new criteria pass — or
-    report unanchored — on a record that ought to carry them turns the leniency
-    into the hole it was written to avoid, which is the mistake
+    Only a record written BEFORE the version that added a field may lack it. A
+    record at or after that version with the key absent is a record that has
+    been edited, and it FAILs naming the field: making the new criteria pass —
+    or report unanchored — on a record that ought to carry them turns the
+    leniency into the hole it was written to avoid, which is the mistake
     `epl-issuance-2` already made once.
     """
-    if schema == ISSUANCE_SCHEMA_VERSION:
+    if schema_ordinal(schema) >= since:
         return _criterion(name, "FAIL", {"missing_field": field},
                           f"an {schema} record must carry {field!r}")
-    return _criterion(name, UNANCHORED, {"missing_field": field}, PRE_A6_NOTE)
+    return _criterion(name, UNANCHORED, {"missing_field": field}, note)
+
+
+def _unanchored_reason(note) -> str:
+    """The reason inside `unanchored (<reason>)`, for the PASS headline."""
+    match = _UNANCHORED_REASON.match(str(note or ""))
+    if match:
+        return match.group(1)
+    return str(note or "") or "no reason recorded"
 
 
 def forecast(*, season: str = DEFAULT_SEASON, cutoff,
@@ -665,6 +712,31 @@ def _write_issuance(*, directory: Path, final_dir: Path, season, state, arms, ru
                 fit.matches if fit.training is None else fit.training)),
         "wall_seconds": round(time.perf_counter() - started, 2),
     }
+    # --- epl-issuance-5 (amendment A7 (a), (b.1), (b.2)) ------------------
+    # THE MATCHBOARD, derived from the rows this run has just written into this
+    # staging directory and from nothing else. It is written here — after the
+    # record's own numbers exist, so it can carry them, and BEFORE `summary.md`
+    # and well before `issuance.json` — on the staged path the A6 (b) note
+    # installs, so a half-written matchboard is never a candidate for anything.
+    # A failure to write it aborts the issuance: A7 makes it required, and a
+    # bundle silently missing one sidecar is the shape of defect A6 spent six
+    # findings on.
+    #
+    # `dc_native` ONLY (A6 (d)). A bridge arm's 1X2 is that fixture's own law
+    # but its SCORELINES are the bridge's league-wide conditional wearing the
+    # fixture's name, and every margin field is computed from scorelines.
+    if matchboard.ARM in runs:
+        board = matchboard.derive(directory, record=record, state=state)
+        board_path, board_md = matchboard.write(board, directory)
+        record["sidecar_digests"][matchboard.ARM]["matchboard"] = \
+            sha256_file(board_path)
+        record["sidecar_digests"][matchboard.ARM]["matchboard_md"] = \
+            sha256_file(board_md)
+        # named in `files` so `record_digest` covers that they were published
+        written[matchboard.ARM] = list(written[matchboard.ARM]) + [
+            board_path.name, board_md.name]
+        record["files"] = written
+
     # The record digests itself LAST of its own fields, and `summary.md` prints
     # the same value, so the two copies can be held against each other and
     # against a recomputation.
@@ -1571,16 +1643,23 @@ def check_issuance(directory, *, arms: Sequence[str] | None = None,
 
     record_failed = [c["name"] for c in criteria if c["status"] == "FAIL"]
     record_refused = [c["name"] for c in criteria if c["status"] == "REFUSED"]
-    unanchored = [c["name"] for c in criteria if c["status"] == UNANCHORED]
-    unanchored += [f"{arm}.{c['name']}"
-                   for arm, r in results.items()
-                   for c in r["criteria"] if c["status"] == UNANCHORED]
+    # Name AND note, together: A7 makes the headline's parenthetical the sorted
+    # distinct set of the entries' own reasons, so a record that predates two
+    # rounds says so instead of naming whichever round was hardcoded here.
+    unanchored_rows = [(c["name"], c["note"]) for c in criteria
+                       if c["status"] == UNANCHORED]
+    unanchored_rows += [(f"{arm}.{c['name']}", c["note"])
+                        for arm, r in results.items()
+                        for c in r["criteria"] if c["status"] == UNANCHORED]
+    unanchored = [name for name, _ in unanchored_rows]
 
     passed = not (failed or refused or record_failed or record_refused)
     fully_anchored = not unanchored
     verdict = "PASS" if passed else "FAIL"
     if passed and not fully_anchored:
-        verdict = f"PASS ({len(unanchored)} criteria unanchored: pre-A6 record)"
+        reasons = sorted({_unanchored_reason(note) for _, note in unanchored_rows})
+        verdict = (f"PASS ({len(unanchored)} criteria unanchored: "
+                   f"{', '.join(reasons)})")
 
     return {
         "PASS": passed,
@@ -1612,7 +1691,7 @@ def check_issuance(directory, *, arms: Sequence[str] | None = None,
 
 
 def _arm_static_criteria(arm: str, directory: Path, record: dict,
-                         schema: str) -> tuple[list[dict], dict | None]:
+                         schema: str, state) -> tuple[list[dict], dict | None]:
     """Every criterion that reads only the BUNDLE, plus the payload it read.
 
     Computed before the rebuild so an arm that cannot be rebuilt at all still
@@ -1683,7 +1762,177 @@ def _arm_static_criteria(arm: str, directory: Path, record: dict,
 
     # ...and the re-derivation, which works on every schema.
     criteria.append(_check_truncation_sidecar(arm, directory, envelope))
+
+    # A7 (b.3): EXACTLY TWO matchboard criteria, and only for the arm that has
+    # a matchboard. `check` never namespaces one to a bridge arm, which is
+    # (a)'s `dc_native`-only rule showing up in the output rather than being
+    # promised in a docstring.
+    if arm == matchboard.ARM:
+        criteria.append(_check_matchboard_anchored(directory, record, schema))
+        criteria.append(_check_matchboard_reproduces(directory, record, schema,
+                                                     state))
     return criteria, payload
+
+
+def _check_matchboard_anchored(directory: Path, record: dict,
+                               schema: str) -> dict:
+    """A7 (b.3), the BIT-LEVEL leg: the two files hash to what the record pins.
+
+    This is the only leg that can catch a doctored file which preserves every
+    quantity a recomputation would check — a reordered or re-indented JSON, an
+    edited sentence in the render — and it is why the digests exist at all.
+
+    It also carries A7 (c)'s refusal, on EVERY schema: a bundle directory that
+    contains a file named like a DERIVED artifact is FAILed outright, so a
+    derivation can never drift into a bundle and be mistaken for a sidecar the
+    record anchors.
+    """
+    name = "matchboard_anchored"
+    stray = matchboard.derived_artifacts_in(directory)
+    if stray:
+        return _criterion(
+            name, "FAIL", {"derived_artifacts": stray},
+            f"this bundle contains {', '.join(stray)}, which is the DERIVED "
+            "naming convention: a derivation is written OUTSIDE every bundle "
+            "directory and is not part of any record (A7 (c))")
+
+    if schema_ordinal(schema) < A7_SCHEMA_ORDINAL:
+        return _criterion(name, UNANCHORED,
+                          {"missing_field": "sidecar_digests.matchboard",
+                           "schema_version": schema}, PRE_A7_NOTE)
+
+    pinned = ((record.get("sidecar_digests") or {}).get(matchboard.ARM) or {})
+    files: dict = {}
+    # Same detail shape as `retained_rows_anchored`: `recorded`, `recomputed`
+    # and `file` at the top level naming the file the verdict is ABOUT, with
+    # both files' hashes beside them under `files`.
+    for key, filename in (("matchboard", matchboard.JSON_FILENAME),
+                          ("matchboard_md", matchboard.MD_FILENAME)):
+        recorded = pinned.get(key)
+        if recorded is None:
+            return _criterion(
+                name, "FAIL",
+                {"missing_field": f"sidecar_digests.{matchboard.ARM}.{key}",
+                 "file": filename, "files": files},
+                f"an {schema} record must pin a digest for {filename}; A6's "
+                "absent-versus-present-and-null leniency does not reach here, "
+                "because for this arm there is always something to pin")
+        recomputed = sha256_file(directory / filename)
+        cell = {"recorded": recorded, "recomputed": recomputed,
+                "file": filename}
+        files[key] = cell
+        if recomputed is None:
+            return _criterion(name, "FAIL", {**cell, "files": files},
+                              f"{filename} is missing from this bundle and an "
+                              f"{schema} record requires it")
+        if recorded != recomputed:
+            return _criterion(name, "FAIL", {**cell, "files": files},
+                              f"{filename} does not hash to what the record pins")
+    return _criterion(name, "PASS", {**files["matchboard"], "files": files})
+
+
+def _check_matchboard_reproduces(directory: Path, record: dict, schema: str,
+                                 state) -> dict:
+    """A7 (b.3), the SEMANTIC leg: every row re-derived from the rows npz.
+
+    Ids, ordinals, dates, club keys and counts must be EQUAL; the floating-point
+    quantities must agree to 1e-12 absolute. A tolerance rather than bit
+    equality, and the reason is stated rather than left as slack: the
+    re-derivation may sum in a different order under a different numpy build,
+    and `matchboard_anchored` is where bit-level identity is asserted. This leg
+    is what makes a matchboard *of these rows* rather than *shipped beside them*.
+    """
+    name = "matchboard_reproduces"
+    if schema_ordinal(schema) < A7_SCHEMA_ORDINAL:
+        return _criterion(name, UNANCHORED, {"schema_version": schema},
+                          PRE_A7_NOTE)
+    path = directory / matchboard.JSON_FILENAME
+    try:
+        stored = json.loads(path.read_text())
+    except (OSError, ValueError) as exc:
+        return _criterion(name, "FAIL",
+                          {"error": f"{type(exc).__name__}: {exc}"},
+                          f"{matchboard.JSON_FILENAME} is missing or unreadable, "
+                          "so there is nothing to hold the rows against")
+    try:
+        rederived = matchboard.derive(directory, record=record, state=state)
+    except (matchboard.MatchboardError, season_mod.SeasonError, OSError,
+            ValueError, KeyError) as exc:
+        return _criterion(name, "FAIL",
+                          {"error": f"{type(exc).__name__}: {exc}"},
+                          "the matchboard could not be re-derived from this "
+                          "bundle's retained rows")
+    differences = _matchboard_differences(stored, rederived)
+    passed = not (differences["header_fields"] or differences["differing_rows"])
+    return _criterion(name, "PASS" if passed else "FAIL",
+                      {"n_rows": len(rederived["rows"]), **differences})
+
+
+#: A7 (b.3): the floats compare to this, ABSOLUTE, and the equalities compare
+#: exactly. Stated as a constant so the two callers cannot drift.
+MATCHBOARD_FLOAT_TOLERANCE = 1e-12
+
+
+def _matchboard_differences(stored: dict, rederived: dict) -> dict:
+    """What a re-derivation disagrees with the published matchboard about."""
+    # EXACT equality, not `_same`. Both sides are produced by one function from
+    # one record, so there is no second spelling of a moment to forgive here —
+    # and `_same` normalises through `pd.Timestamp`, where `None` becomes `NaT`
+    # and two `NaT`s are not equal, so a header field that is legitimately null
+    # on both sides (`n_provisional` for an issuance that ran no gate) would be
+    # reported as a disagreement.
+    header: list[str] = []
+    for key in sorted((set(stored) | set(rederived)) - {"rows"}):
+        if stored.get(key) != rederived.get(key):
+            header.append(key)
+
+    stored_rows = stored.get("rows")
+    stored_rows = list(stored_rows) if isinstance(stored_rows, list) else []
+    rows = rederived["rows"]
+    if len(stored_rows) != len(rows):
+        header.append(f"n_rows({len(stored_rows)}!={len(rows)})")
+        return {"header_fields": header, "differing_rows": []}
+
+    differing = []
+    for left, right in zip(stored_rows, rows):
+        fields = _matchboard_row_differences(left, right)
+        if fields:
+            differing.append({"fixture_id": right["fixture_id"],
+                              "fields": fields})
+    return {"header_fields": header, "differing_rows": differing}
+
+
+def _matchboard_row_differences(left: dict, right: dict) -> list[str]:
+    fields: list[str] = []
+    if set(left) != set(right):
+        fields.append(f"keys({sorted(set(left) ^ set(right))})")
+    # A7 (b.3): ids, ordinals, dates, club keys and counts must be EQUAL. Only
+    # the floating-point quantities below get a tolerance, and the reason they
+    # get one is stated where it is applied.
+    for key in ("fixture_id", "fixture_ordinal", "date", "home", "away",
+                "n_sims", "n_particles"):
+        if left.get(key) != right.get(key):
+            fields.append(key)
+    for path in matchboard.ROW_FLOAT_FIELDS:
+        a, b = _dig(left, path), _dig(right, path)
+        if a is None or b is None:
+            fields.append(path)
+            continue
+        try:
+            moved = abs(float(a) - float(b)) > MATCHBOARD_FLOAT_TOLERANCE
+        except (TypeError, ValueError):
+            moved = True
+        if moved:
+            fields.append(path)
+    return fields
+
+
+def _dig(payload, path: str):
+    for part in path.split("."):
+        if not isinstance(payload, dict):
+            return None
+        payload = payload.get(part)
+    return payload
 
 
 def _check_truncation_sidecar(arm: str, directory: Path, envelope: dict) -> dict:
@@ -1828,7 +2077,8 @@ def _check_arm(arm: str, directory: Path, record: dict, season_obj, state, book,
     # A6 (b): the criteria that read only the bundle, computed BEFORE the
     # rebuild so a REFUSED arm still reports whether its published file hashes
     # to what the record says.
-    static_criteria, payload = _arm_static_criteria(arm, directory, record, schema)
+    static_criteria, payload = _arm_static_criteria(arm, directory, record,
+                                                    schema, state)
     blank = {"arm": arm, "detail": {"sidecar_anchors": anchored},
              "criteria": static_criteria,
              "coherence": {"PASS": False}, "marginal_parity": {"PASS": False}}
@@ -2312,8 +2562,24 @@ def summary_markdown(record: dict, runs: dict, gate: dict | None) -> str:
               f"- digests: " + ", ".join(f"`{a}`={d[:12]}"
                                          for a, d in record["digests"].items()),
               f"- wall: {record['wall_seconds']}s",
-              "",
-              "See `limitations.md` beside this file. Nothing here has been "
+              ""]
+
+    # A7 (a): `marginal_parity` prints "simulated per-fixture marginals ARE the
+    # published per-fixture forecast" a few lines above this, and until A7 there
+    # was no such published object for the sentence to be about. Name where it
+    # is, in the file that carries the sentence.
+    board = ((record.get("sidecar_digests") or {}).get(matchboard.ARM)
+             or {}).get("matchboard")
+    if board:
+        lines += [f"The published per-fixture forecast that sentence names is "
+                  f"`{matchboard.JSON_FILENAME}` (schema "
+                  f"`{matchboard.SCHEMA_VERSION}`, sha256 `{board}`), rendered "
+                  f"beside it as `{matchboard.MD_FILENAME}`. It is derived from "
+                  f"`rows_{matchboard.ARM}.npz` and from nothing else, and "
+                  f"`check` re-derives it.",
+                  ""]
+
+    lines += ["See `limitations.md` beside this file. Nothing here has been "
               "scored against the preregistered retrospective; until it has, "
               "this is a demonstration of the pipeline, not an accuracy claim.",
               ""]
@@ -2396,6 +2662,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "written before the bridge sidecars existed is checked "
                         "for the arms it CAN account for.")
 
+    m = sub.add_parser("matchboard",
+                       help="derive a LABELLED matchboard from a written bundle")
+    m.add_argument("--directory", default=None)
+    m.add_argument("--season", default=DEFAULT_SEASON)
+    m.add_argument("--cutoff", default=None)
+    m.add_argument("--out-root", default=None)
+    m.add_argument("--out", default=None,
+                   help=f"where the derived artifact goes (default "
+                        f"{DERIVED_ROOT}). It is written OUTSIDE every bundle "
+                        f"directory: a matchboard filed inside a bundle it was "
+                        f"not issued with would be the record anchoring itself "
+                        f"after the fact (A7 (c)).")
+    m.add_argument("--score", default=None,
+                   help="a JSONL of results (fixture_id, home_goals, "
+                        "away_goals, matchweek, ingest) to append as scorecard "
+                        "rows. Reports; decides, triggers and gates nothing.")
+
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     try:
@@ -2407,6 +2690,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_retro(args)
         if args.command == "check":
             return _cmd_check(args)
+        if args.command == "matchboard":
+            return _cmd_matchboard(args)
     except (CliError, season_mod.SeasonError, leaguesim.SimError,
             particles.ParticleError, simcanary.CanaryError) as exc:
         print(f"STOP: {type(exc).__name__}: {exc}", file=sys.stderr)
@@ -2485,6 +2770,98 @@ def _cmd_check(args) -> int:
              else f"; unanchored: {', '.join(report['unanchored'])}"),
           file=sys.stderr)
     return 0 if report["PASS"] else 4
+
+
+#: Where a labelled derivation goes when `--out` is not given. A7 (c) names the
+#: convention: OUTSIDE every bundle directory, so it can never drift into one.
+DERIVED_ROOT = paths.REPO_ROOT / "reports"
+
+#: The scorecard ledger `--score` appends to (A7 (e)). Append-only: rows are
+#: added per matchweek, after the results have entered the season ledger.
+SCORECARD_FILENAME = "matchboard_scorecard.jsonl"
+
+
+def derive_matchboard(directory, out_dir=None, *, results_file=None,
+                      derived_at=None, verbose: bool = True) -> dict:
+    """Derive a LABELLED matchboard from an existing bundle, outside the bundle.
+
+    A7 (c): the committed opener is never retrofitted — not re-issued, not
+    re-run, not edited, and no matchboard is written into it. Computing one now
+    and filing it inside the bundle would be the record anchoring itself after
+    the fact, which is the one thing the amendment ledger exists to prevent.
+
+    So this writes `epl_matchboard_<season>_<cutoff>_derived.{json,md}` into
+    `out_dir`, carrying `derived`, the source bundle path, `derived_at` and the
+    source bundle's RECORDED hashes — copied from its record rather than
+    recomputed, because a hash computed today is not a hash that record made
+    when it was written. The `.md` says on its first line that it is derived
+    after the fact and is not part of that bundle's record.
+
+    A7 (d): the document also carries `rows_provenance`, which is `anchored`
+    only when the source record actually pins the rows' bytes. For the preserved
+    MW0 bundle it is `reproduction`, and the render says so in those words — the
+    law is anchored pre-kickoff and the rows are not, and the two are never
+    collapsed into one.
+    """
+    directory = Path(directory)
+    record = json.loads((directory / "issuance.json").read_text())
+    out_dir = DERIVED_ROOT if out_dir is None else Path(out_dir)
+    if (out_dir / "issuance.json").exists():
+        raise CliError(
+            f"{out_dir} is an issuance bundle; a derived matchboard is written "
+            "OUTSIDE every bundle directory (A7 (c)) and `check` FAILs any "
+            "bundle that contains one")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    board = matchboard.derive(directory, record=record)
+    stamped = matchboard.as_derived(
+        board, source_bundle=str(directory),
+        derived_at=(str(pd.Timestamp.now("UTC").floor("s")) if derived_at is None
+                    else str(derived_at)),
+        recorded_hashes={
+            "schema_version": record.get("schema_version"),
+            "effective_posterior_hash": record.get("effective_posterior_hash"),
+            "bridge_hash": record.get("bridge_hash"),
+            "digests": record.get("digests"),
+            "numbers_digests": record.get("numbers_digests"),
+            "output_digests": record.get("output_digests"),
+            "sidecar_digests": record.get("sidecar_digests"),
+            "record_digest": record.get(RECORD_DIGEST_FIELD)})
+
+    season = record["season"]
+    cutoff = record["cutoff"]
+    json_path, md_path = matchboard.write(
+        stamped, out_dir,
+        json_name=matchboard.derived_filename(season, cutoff, "json"),
+        md_name=matchboard.derived_filename(season, cutoff, "md"))
+
+    scored: list[dict] = []
+    if results_file is not None:
+        rows = [json.loads(line) for line in
+                Path(results_file).read_text().splitlines() if line.strip()]
+        scored = matchboard.score(stamped, rows)
+        with (out_dir / SCORECARD_FILENAME).open("a", encoding="utf-8") as fh:
+            for row in scored:
+                fh.write(leaguesim.canonical_json(row) + "\n")
+
+    if verbose:
+        print(f"[matchboard] {json_path}", flush=True)
+        print(f"[matchboard] {md_path}", flush=True)
+        if scored:
+            print(f"[matchboard] appended {len(scored)} scorecard row(s) to "
+                  f"{out_dir / SCORECARD_FILENAME}", flush=True)
+    return {"document": stamped, "json": str(json_path), "md": str(md_path),
+            "scored": scored,
+            "digests": {"matchboard": sha256_file(json_path),
+                        "matchboard_md": sha256_file(md_path)}}
+
+
+def _cmd_matchboard(args) -> int:
+    directory = (Path(args.directory) if args.directory
+                 else _last_issuance(args.season, args.out_root, args.cutoff))
+    derive_matchboard(directory, args.out, results_file=args.score,
+                      verbose=True)
+    return 0
 
 
 def _last_issuance(season: str, out_root=None, cutoff=None) -> Path:

@@ -20,8 +20,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from epl import bridge as bridge_mod, leaguesim, liveanchor, particles
-from epl import season as season_mod, simcli
+from epl import bridge as bridge_mod, leaguesim, liveanchor, matchboard
+from epl import particles, season as season_mod, simcli
 # The T6 acceptance run's league-shaped book: one definition, reused, so the
 # smoke path here and the canary path there cannot drift apart.
 from epl.simcanary import _synthetic_book as synthetic_book
@@ -1902,7 +1902,13 @@ def test_check_anchors_both_sidecars_and_recomputes_the_truncation_vector(
     directory = _copy(three_arm_issuance, "sidecars")
     record = json.loads((directory / "issuance.json").read_text())
     assert set(record["sidecar_digests"]) == set(simcli.ARMS)
-    assert set(record["sidecar_digests"]["dc_native"]) == {"rows", "excluded_mass"}
+    # A6 (b.2) pinned two sidecars per arm; A7 (b.1) adds the matchboard's two
+    # to the PUBLISHED NATIVE ARM and to no other, which is (a)'s dc_native-only
+    # rule showing up in the record rather than only in the check.
+    assert set(record["sidecar_digests"]["dc_native"]) == {
+        "rows", "excluded_mass", "matchboard", "matchboard_md"}
+    for arm in ("dc_wdl_bridge", "elo_wdl_bridge"):
+        assert set(record["sidecar_digests"][arm]) == {"rows", "excluded_mass"}
 
     clean = simcli.check_issuance(directory, verbose=False)["arms"]["dc_native"]
     for name in ("retained_rows_anchored", "retained_rows_reproduce",
@@ -1973,13 +1979,16 @@ def test_check_time_parity_uses_the_production_grid_or_refuses(three_arm_issuanc
     """`gate-retro.md` #4: parity passed `post=None`, so the reference was the
     book's own mixture and the production adapter was never called at check time.
 
-    A `-4` record that names a training frame but cannot be handed a posterior
-    reproducing its anchored book REFUSES; hand it that posterior and the
-    criterion is evaluated against `draw_api.production_grid`.
+    A CURRENT record that names a training frame but cannot be handed a
+    posterior reproducing its anchored book REFUSES; hand it that posterior and
+    the criterion is evaluated against `draw_api.production_grid`.
     """
     directory = _copy(three_arm_issuance, "parity")
     record = json.loads((directory / "issuance.json").read_text())
-    assert record["schema_version"] == "epl-issuance-4"
+    # the version this criterion arrived with was `-4`; it is read from the
+    # constant so a later bump moves the test rather than breaking it
+    assert record["schema_version"] == simcli.ISSUANCE_SCHEMA_VERSION
+    assert simcli.schema_ordinal(record["schema_version"]) >= 4
     # This issuance was made from a synthetic book with no posterior, so the
     # record pins no training frame and the criterion has nothing to hold it to.
     assert record["training_frame_sha256"] is None
@@ -2076,10 +2085,25 @@ def test_the_committed_opener_reports_exactly_the_pre_A6_criteria_unanchored():
         "record_digest", "acceptance_digest",
         "dc_native.retained_rows_anchored",
         "dc_native.truncation_sidecar_anchored",
-        "dc_native.parity_reference_is_production_grid"}
-    for row in report["criteria"]:
-        if row["status"] == "UNANCHORED":
-            assert row["note"] == simcli.PRE_A6_NOTE
+        "dc_native.parity_reference_is_production_grid",
+        "dc_native.matchboard_anchored",
+        "dc_native.matchboard_reproduces"}
+
+    # A7: the record predates TWO rounds now, so a blanket
+    # `note == PRE_A6_NOTE` is no longer true and "one of the two notes" is not
+    # an acceptable replacement — that is the shape of check that stops being
+    # able to fail. Every UNANCHORED entry is named, with the note it must
+    # carry, and the two matchboard entries carry PRE_A7_NOTE specifically.
+    assert _unanchored_notes(report) == {
+        "record_digest": simcli.PRE_A6_NOTE,
+        "acceptance_digest": simcli.PRE_A6_NOTE,
+        "dc_native.retained_rows_anchored": simcli.PRE_A6_NOTE,
+        "dc_native.truncation_sidecar_anchored": simcli.PRE_A6_NOTE,
+        "dc_native.parity_reference_is_production_grid": simcli.PRE_A6_NOTE,
+        "dc_native.matchboard_anchored": simcli.PRE_A7_NOTE,
+        "dc_native.matchboard_reproduces": simcli.PRE_A7_NOTE,
+    }
+    assert simcli.PRE_A7_NOTE != simcli.PRE_A6_NOTE
 
     cell = report["arms"]["dc_native"]
     assert cell["detail"]["digest_matches"] is True
@@ -2093,12 +2117,18 @@ def test_the_committed_opener_reports_exactly_the_pre_A6_criteria_unanchored():
 #: opener. A6 (b.5) pre-stated five criterion NAMES; the landed code reports
 #: those five names as NINE per-arm entries. The deviation is recorded in the
 #: ledger's "What landed for A6 (b)" note and pinned by the test below.
+#:
+#: A7 pre-stated the move from nine to ELEVEN: two additions, both namespaced to
+#: `dc_native` and neither to a bridge arm, which is (a)'s `dc_native`-only rule
+#: showing up in the output. The `--arm dc_native` run goes from five to seven.
 COMMITTED_OPENER_UNANCHORED = {
     "record_digest",
     "acceptance_digest",
     "dc_native.retained_rows_anchored",
     "dc_native.truncation_sidecar_anchored",
     "dc_native.parity_reference_is_production_grid",
+    "dc_native.matchboard_anchored",
+    "dc_native.matchboard_reproduces",
     "dc_wdl_bridge.retained_rows_anchored",
     "dc_wdl_bridge.truncation_sidecar_anchored",
     "elo_wdl_bridge.retained_rows_anchored",
@@ -2106,14 +2136,36 @@ COMMITTED_OPENER_UNANCHORED = {
 }
 
 
-def _a6_b_note() -> str:
-    """The amendment ledger's `What landed for A6 (b)` section, alone."""
+def _unanchored_notes(report: dict) -> dict[str, str]:
+    """Every UNANCHORED entry the report carries, mapped to its own note.
+
+    Record-level entries keep their bare name and arm-level entries are
+    namespaced `<arm>.<criterion>`, exactly as `check` writes them into
+    `report["unanchored"]` — so a test written against this map is written
+    against the strings a reader sees.
+    """
+    notes = {row["name"]: row["note"] for row in report["criteria"]
+             if row["status"] == simcli.UNANCHORED}
+    notes.update({f"{arm}.{row['name']}": row["note"]
+                  for arm, cell in report["arms"].items()
+                  for row in cell["criteria"]
+                  if row["status"] == simcli.UNANCHORED})
+    return notes
+
+
+def _ledger_section(head: str) -> str:
+    """One `###` section of the amendment ledger, alone.
+
+    The window ends at the next heading of either level, which is why A7's own
+    sections must stay at the END of the file: a `## A7` heading dropped inside
+    the A6 (b) window would truncate that note at the heading and the
+    ledger-coupled tests below would be quoting half a transcript.
+    """
     path = (Path(simcli.__file__).resolve().parents[1] / "reports"
             / "epl_sim_amendments.md")
     if not path.exists():                                   # pragma: no cover
         pytest.skip("reports/ is not in this checkout")
     text = path.read_text(encoding="utf-8")
-    head = "### What landed for A6 (b) — `check` semantics"
     start = text.find(head)
     assert start != -1, f"{path} carries no {head!r} section"
     rest = text[start + len(head):]
@@ -2122,6 +2174,21 @@ def _a6_b_note() -> str:
         if cut != -1:
             rest = rest[:cut]
     return rest
+
+
+#: The A6 (b) landed note — the record of what `check` emitted on 2026-08-20,
+#: under the code as it then stood. A1-C1's rule applies to it: it is not edited
+#: when the output moves. A7 appends a NEW dated note instead.
+A6_B_HEAD = "### What landed for A6 (b) — `check` semantics"
+A7_HEAD = "### What landed for A7 — `check` under the matchboard"
+
+
+def _a6_b_note() -> str:
+    return _ledger_section(A6_B_HEAD)
+
+
+def _a7_note() -> str:
+    return _ledger_section(A7_HEAD)
 
 
 def _check_stderr_lines(report: dict) -> list[str]:
@@ -2162,6 +2229,16 @@ def test_the_committed_opener_whole_bundle_check_is_FAIL_and_the_ledger_says_so(
     the narrowed test could not catch because it narrows the same way. So this
     measures both runs and holds every line of the note's two fenced blocks
     against them.
+
+    **A7 moved the output and NOT A6's record of it.** Two criteria that report
+    UNANCHORED on this pre-A7 record take the whole-bundle list from nine
+    entries to eleven and the narrowed list from five to seven, and the
+    narrowed headline's parenthetical now names two rounds. A6 (b)'s fenced
+    blocks are what the command emitted on 2026-08-20 under the code as it then
+    stood, and A1-C1 says a superseded statement stays where it was written. So
+    the ledger source here moves to a NEW dated note under A7, and
+    `test_the_A6_b_transcripts_are_present_and_unedited` holds A6's blocks in
+    place — the A2-N3 pattern.
     """
     whole = simcli.check_issuance(COMMITTED_OPENER, verbose=False)
     narrowed = simcli.check_issuance(COMMITTED_OPENER, arms=("dc_native",),
@@ -2179,25 +2256,34 @@ def test_the_committed_opener_whole_bundle_check_is_FAIL_and_the_ledger_says_so(
     assert whole["arms"]["dc_native"]["status"] == "PASS"
     assert whole["arms"]["dc_native"]["detail"]["digest_matches"] is True
 
-    # 2. FIVE NAMES, NINE ENTRIES — the deviation from (b.5), which counted
-    #    criteria where `check` counts and namespaces per-arm entries.
+    # 2. SEVEN NAMES, ELEVEN ENTRIES — A6 (b.5)'s deviation (criteria counted,
+    #    entries reported) carried forward, with A7's two additions namespaced
+    #    to `dc_native` and to no bridge arm.
     assert set(whole["unanchored"]) == COMMITTED_OPENER_UNANCHORED
+    assert len(COMMITTED_OPENER_UNANCHORED) == 11
     assert {entry.rsplit(".", 1)[-1]
             for entry in COMMITTED_OPENER_UNANCHORED} == {
         "record_digest", "acceptance_digest", "retained_rows_anchored",
-        "truncation_sidecar_anchored", "parity_reference_is_production_grid"}
+        "truncation_sidecar_anchored", "parity_reference_is_production_grid",
+        "matchboard_anchored", "matchboard_reproduces"}
+    assert {e for e in whole["unanchored"] if "matchboard" in e} == {
+        "dc_native.matchboard_anchored", "dc_native.matchboard_reproduces"}
 
     # 3. The narrowed run reports a strict subset of them, under a PASS
-    #    headline that belongs to it and not to the bundle.
+    #    headline that belongs to it and not to the bundle. The parenthetical
+    #    is the sorted distinct set of the entries' own reasons, so it names
+    #    both rounds this record predates.
     assert narrowed["PASS"] is True
-    assert narrowed["headline"] == "PASS (5 criteria unanchored: pre-A6 record)"
+    assert narrowed["headline"] == \
+        "PASS (7 criteria unanchored: pre-A6 record, pre-A7 record)"
     assert set(narrowed["unanchored"]) < COMMITTED_OPENER_UNANCHORED
+    assert len(narrowed["unanchored"]) == 7
 
     # 4. THE LEDGER QUOTES BOTH RUNS, LINE FOR LINE, AND NAMES THE NARROWING.
-    note = _a6_b_note()
+    note = _a7_note()
     for report in (whole, narrowed):
         for line in _check_stderr_lines(report):
-            assert line in note, f"the A6 (b) note does not carry: {line}"
+            assert line in note, f"the A7 note does not carry: {line}"
     record = json.loads((COMMITTED_OPENER / "issuance.json").read_text())
     assert (f"[check] re-running dc_native at {record['cutoff']} "
             f"(N={record['n_sims']}, seed={record['seed']})") in note
@@ -2224,6 +2310,45 @@ def test_the_committed_opener_whole_bundle_check_is_FAIL_and_the_ledger_says_so(
         "a drifted entry name must break the quotation this test checks"
     assert whole_headline.replace("FAIL", "PASS") not in note, \
         "the whole-bundle line must be quoted with the headline the code emits"
+
+
+def test_the_A6_b_transcripts_are_present_and_unedited():
+    """A1-C1 and the A2-N3 pattern: a superseded statement stays where it was
+    written and is superseded rather than erased.
+
+    A7 changed what `check` emits for the committed opener, and the honest way
+    to record that is a new dated note — not a quiet edit to the block that says
+    what the command emitted on 2026-08-20. So A6 (b)'s two blocks are held
+    here, exactly as they stood: nine entries, the five pre-A6 names, and the
+    narrowed headline naming one round. Every one of those strings is now FALSE
+    of the running code, which is precisely why nothing may rewrite them.
+    """
+    note = _a6_b_note()
+    blocks = [b for i, b in enumerate(note.split("```")) if i % 2 == 1]
+    assert len(blocks) == 2, f"the note carries {len(blocks)} fenced blocks, not 2"
+
+    # the 2026-08-20 whole-bundle list: NINE entries, and no matchboard among them
+    assert ("[check] FAIL; unanchored: acceptance_digest, "
+            "dc_native.parity_reference_is_production_grid, "
+            "dc_native.retained_rows_anchored, "
+            "dc_native.truncation_sidecar_anchored, "
+            "dc_wdl_bridge.retained_rows_anchored, "
+            "dc_wdl_bridge.truncation_sidecar_anchored, "
+            "elo_wdl_bridge.retained_rows_anchored, "
+            "elo_wdl_bridge.truncation_sidecar_anchored, "
+            "record_digest") in blocks[0]
+    # the 2026-08-20 narrowed headline: FIVE, one round named
+    assert "PASS (5 criteria unanchored: pre-A6 record)" in blocks[1]
+    assert "matchboard" not in note
+    assert "five names, nine entries" in note
+
+    # POSITIVE CONTROL, and it needs no bundle: those strings are STALE. The
+    # live entry set is eleven and names A7's two criteria, and the note that
+    # quotes nine knows nothing about the note A7 added — which is what makes
+    # this an unedited record rather than a maintained one.
+    assert len(COMMITTED_OPENER_UNANCHORED) == 11
+    assert simcli.PRE_A7_NOTE not in note
+    assert simcli.PRE_A6_NOTE in note
 
 
 # ==========================================================================
@@ -2309,3 +2434,435 @@ def test_the_summary_cut_line_table_states_its_monte_carlo_method():
     assert "exchangeable" in method
     assert "cluster-robust" in method
     assert "model error" in method
+
+
+# ==========================================================================
+# A7 — the matchboard is published, anchored, and re-derived by `check`
+# ==========================================================================
+#
+# The matchboard is exactly the kind of file A6 found six coats of one defect
+# on: a derived, human-readable artefact that no digest covers and that a reader
+# trusts because it looks like output. So it arrives with both legs at once —
+# its bytes under `sidecar_digests`, and a re-derivation from the rows on the
+# way in — and each test below pairs the leg with the tampering only that leg
+# can catch.
+
+def test_forecast_publishes_the_matchboard_and_the_record_anchors_it(issuance):
+    """A7 (a) + (b.1): a required sidecar, hashed AS WRITTEN, and named in
+    `files` so `record_digest` covers that it was published at all."""
+    directory = Path(issuance["directory"])
+    board_path = directory / matchboard.JSON_FILENAME
+    md_path = directory / matchboard.MD_FILENAME
+    assert board_path.exists() and md_path.exists()
+
+    record = json.loads((directory / "issuance.json").read_text())
+    assert record["schema_version"] == "epl-issuance-5"
+    sidecars = record["sidecar_digests"]["dc_native"]
+    assert sidecars["matchboard"] == simcli.sha256_file(board_path)
+    assert sidecars["matchboard_md"] == simcli.sha256_file(md_path)
+    assert matchboard.JSON_FILENAME in record["files"]["dc_native"]
+    assert matchboard.MD_FILENAME in record["files"]["dc_native"]
+
+    board = json.loads(board_path.read_text())
+    assert board["schema_version"] == matchboard.SCHEMA_VERSION
+    assert board["arm"] == "dc_native"
+    # A7 (a): a matchboard that prices a different number of fixtures than the
+    # run had is not the run's matchboard.
+    assert board["n_fixtures"] == record["n_unplayed"] == len(board["rows"])
+    assert board["n_sims"] == record["n_sims"] == N_SIMS
+    assert board["n_particles"] == record["n_particles"] == N_PARTICLES
+    assert board["run_digest"] == record["digests"]["dc_native"]
+    assert board["effective_posterior_hash"] == \
+        record["effective_posterior_hash"]
+    # the rows ARE anchored for a post-A7 record, and the render says the right
+    # one of A7 (d)'s two sentences
+    assert board["rows_provenance"] == "anchored"
+    assert matchboard.ROWS_ANCHORED_NOTE in md_path.read_text()
+
+    # POSITIVE CONTROL for every tamper test below: untampered, both criteria
+    # PASS and nothing about the matchboard is unanchored.
+    report = simcli.check_issuance(directory, verbose=False)
+    cell = report["arms"]["dc_native"]
+    for name in ("matchboard_anchored", "matchboard_reproduces"):
+        assert _criterion(cell, name)["status"] == "PASS", name
+    assert [e for e in report["unanchored"] if "matchboard" in e] == []
+    assert _blocked_only_by_the_gate(report)
+
+
+def test_a_matchboard_whose_numbers_moved_fails_both_legs(issuance):
+    """A7 (b.3): tampering that touches a number fails the re-derivation as well
+    as the bytes."""
+    directory = _copy(issuance, "matchboard_number")
+    _edit_json(directory / matchboard.JSON_FILENAME,
+               lambda p: p["rows"][0]["probs"].__setitem__("home", 0.99))
+    report = simcli.check_issuance(directory, verbose=False)
+    cell = report["arms"]["dc_native"]
+    assert _criterion(cell, "matchboard_anchored")["status"] == "FAIL"
+    reproduces = _criterion(cell, "matchboard_reproduces")
+    assert reproduces["status"] == "FAIL"
+    assert reproduces["detail"]["differing_rows"], \
+        "the re-derivation must name what moved, not merely disagree"
+    assert report["PASS"] is False
+    assert "dc_native" in report["failed"]
+
+
+def test_a_matchboard_doctored_to_preserve_every_number_still_fails(issuance):
+    """A7 (b.3): the bit-level leg is *the only one that catches a doctored file
+    preserving every recomputable quantity*.
+
+    Rewritten with different bytes and identical content — pretty-printed rather
+    than canonical. Every number a re-derivation could check is still exactly
+    right, and the file is still not the file the record published.
+    """
+    directory = _copy(issuance, "matchboard_bytes")
+    path = directory / matchboard.JSON_FILENAME
+    payload = json.loads(path.read_text())
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+    report = simcli.check_issuance(directory, verbose=False)
+    cell = report["arms"]["dc_native"]
+    anchored = _criterion(cell, "matchboard_anchored")
+    assert anchored["status"] == "FAIL"
+    assert anchored["detail"]["recorded"] != anchored["detail"]["recomputed"]
+    # ...and the semantic leg is untroubled, which is the point of having two
+    assert _criterion(cell, "matchboard_reproduces")["status"] == "PASS"
+    assert report["PASS"] is False
+
+
+def test_an_edited_matchboard_render_fails_the_anchor(issuance):
+    """`matchboard_md` is anchored too: the human-readable half is the half a
+    reader quotes."""
+    directory = _copy(issuance, "matchboard_md")
+    path = directory / matchboard.MD_FILENAME
+    path.write_text(path.read_text().replace(matchboard.NO_CLAIM,
+                                             "these numbers are accurate"))
+    report = simcli.check_issuance(directory, verbose=False)
+    cell = report["arms"]["dc_native"]
+    anchored = _criterion(cell, "matchboard_anchored")
+    assert anchored["status"] == "FAIL"
+    assert matchboard.MD_FILENAME in anchored["note"]
+    # the JSON is untouched, so the re-derivation has nothing to complain about
+    assert _criterion(cell, "matchboard_reproduces")["status"] == "PASS"
+
+
+def test_a_deleted_matchboard_on_a_post_A7_record_fails_naming_the_file(issuance):
+    """A7 (b.3): a deleted sidecar on a record whose schema requires one is a
+    FAIL naming the missing file — never a silent pass and never UNANCHORED."""
+    directory = _copy(issuance, "matchboard_gone")
+    (directory / matchboard.JSON_FILENAME).unlink()
+    report = simcli.check_issuance(directory, verbose=False)
+    cell = report["arms"]["dc_native"]
+    anchored = _criterion(cell, "matchboard_anchored")
+    assert anchored["status"] == "FAIL"
+    assert matchboard.JSON_FILENAME in anchored["note"]
+    assert _criterion(cell, "matchboard_reproduces")["status"] == "FAIL"
+    assert [e for e in report["unanchored"] if "matchboard" in e] == []
+    assert report["PASS"] is False
+
+
+def test_a_post_A7_record_carrying_a_null_matchboard_digest_fails(issuance):
+    """A7 (b.4): A6's absent-vs-present-and-null leniency does NOT apply here.
+
+    `null` is the issuer saying there was nothing to pin, and for `dc_native`
+    there is always something to pin — a season with no unplayed fixtures writes
+    `n_fixtures: 0` and an empty row array, which is present.
+    """
+    for label, mutate in (
+            ("matchboard_null",
+             lambda p: p["sidecar_digests"]["dc_native"].__setitem__(
+                 "matchboard", None)),
+            ("matchboard_absent",
+             lambda p: p["sidecar_digests"]["dc_native"].pop("matchboard")),
+            ("matchboard_md_null",
+             lambda p: p["sidecar_digests"]["dc_native"].__setitem__(
+                 "matchboard_md", None))):
+        directory = _copy(issuance, label)
+        path = directory / "issuance.json"
+        record = json.loads(path.read_text())
+        mutate(record)
+        path.write_text(json.dumps(_restamp(record)))
+
+        report = simcli.check_issuance(directory, verbose=False)
+        cell = report["arms"]["dc_native"]
+        anchored = _criterion(cell, "matchboard_anchored")
+        assert anchored["status"] == "FAIL", label
+        assert "sidecar_digests" in anchored["note"] or \
+            "matchboard" in anchored["note"], label
+        assert report["PASS"] is False, label
+
+
+def test_a_pre_A7_record_reports_the_matchboard_criteria_unanchored(issuance):
+    """A7 (c): a pre-A7 record has no matchboard BY CONSTRUCTION, and `check`
+    says exactly that. Never FAIL, and never a pass either."""
+    directory = _copy(issuance, "pre_a7")
+    path = directory / "issuance.json"
+    record = json.loads(path.read_text())
+    record["schema_version"] = "epl-issuance-4"
+    for key in ("matchboard", "matchboard_md"):
+        record["sidecar_digests"]["dc_native"].pop(key)
+    record["files"]["dc_native"] = [
+        n for n in record["files"]["dc_native"] if "matchboard" not in n]
+    path.write_text(json.dumps(_restamp(record)))
+    (directory / matchboard.JSON_FILENAME).unlink()
+    (directory / matchboard.MD_FILENAME).unlink()
+
+    report = simcli.check_issuance(directory, verbose=False)
+    cell = report["arms"]["dc_native"]
+    for name in ("matchboard_anchored", "matchboard_reproduces"):
+        row = _criterion(cell, name)
+        assert row["status"] == simcli.UNANCHORED, name
+        assert row["note"] == simcli.PRE_A7_NOTE, name
+    assert simcli.PRE_A7_NOTE == "unanchored (pre-A7 record)"
+    assert report["fully_anchored"] is False
+    assert {"dc_native.matchboard_anchored",
+            "dc_native.matchboard_reproduces"} <= set(report["unanchored"])
+    # UNANCHORED is not FAIL: the record predates the field, and saying the
+    # published issuance is wrong for lacking it would be false.
+    assert report["failed"] == []
+    assert "matchboard_anchored" not in str(report["record_failed"])
+
+    # ...and the A6 fields on the same -4 record are still MANDATORY, so the
+    # schema bump did not downgrade the round before this one.
+    stripped = _copy(issuance, "pre_a7_no_sidecars")
+    path = stripped / "issuance.json"
+    record = json.loads(path.read_text())
+    record["schema_version"] = "epl-issuance-4"
+    record.pop("sidecar_digests")
+    path.write_text(json.dumps(_restamp(record)))
+    downgraded = simcli.check_issuance(stripped, verbose=False)
+    rows = downgraded["arms"]["dc_native"]["criteria"]
+    assert _criterion({"criteria": rows}, "retained_rows_anchored")["status"] \
+        == "FAIL"
+
+
+def test_a_derived_artifact_inside_a_bundle_is_refused(issuance):
+    """A7 (c): a derived artifact can never drift into a bundle and be mistaken
+    for a sidecar the record anchors."""
+    directory = _copy(issuance, "derived_inside")
+    stray = matchboard.derived_filename(SEASON, OPENER, "json")
+    (directory / stray).write_text("{}")
+    report = simcli.check_issuance(directory, verbose=False)
+    anchored = _criterion(report["arms"]["dc_native"], "matchboard_anchored")
+    assert anchored["status"] == "FAIL"
+    assert stray in anchored["note"]
+    assert anchored["detail"]["derived_artifacts"] == [stray]
+    assert report["PASS"] is False
+
+
+def test_check_never_namespaces_a_matchboard_criterion_to_a_bridge_arm(
+        three_arm_issuance):
+    """A7 (a), on A6 (d): a bridge arm's SCORELINES are the bridge's league-wide
+    conditional wearing a fixture's name, and every margin field is computed
+    from scorelines. So there is no bridge matchboard and no bridge criterion —
+    not a partial surface with three meaningful columns and four decorative
+    ones."""
+    directory = Path(three_arm_issuance["directory"])
+    assert {p.name for p in directory.glob("matchboard*")} == {
+        matchboard.JSON_FILENAME, matchboard.MD_FILENAME}
+
+    record = json.loads((directory / "issuance.json").read_text())
+    for arm in ("dc_wdl_bridge", "elo_wdl_bridge"):
+        assert set(record["sidecar_digests"][arm]) == {"rows", "excluded_mass"}, arm
+
+    report = simcli.check_issuance(directory, verbose=False)
+    for arm in ("dc_wdl_bridge", "elo_wdl_bridge"):
+        names = [row["name"] for row in report["arms"][arm]["criteria"]]
+        assert [n for n in names if "matchboard" in n] == [], arm
+    assert [n for n in (row["name"] for row in
+                        report["arms"]["dc_native"]["criteria"])
+            if "matchboard" in n] == ["matchboard_anchored",
+                                      "matchboard_reproduces"]
+
+
+def test_the_matchboard_is_byte_identical_when_derived_from_the_bundle_again(
+        issuance):
+    """Determinism, on the file that was actually published: `check`'s
+    re-derivation is only a check if deriving twice gives the same answer."""
+    directory = Path(issuance["directory"])
+    published = (directory / matchboard.JSON_FILENAME).read_bytes()
+    for _ in range(2):
+        again = (leaguesim.canonical_json(matchboard.derive(directory))
+                 + "\n").encode("utf-8")
+        assert again == published
+
+
+def test_a_failure_to_write_the_matchboard_aborts_the_whole_issuance(
+        book, tmp_path, monkeypatch):
+    """A7 (a): the matchboard is REQUIRED, and (b.2) puts it on the staged path.
+
+    So a matchboard that cannot be written leaves no issuance at all — not a
+    bundle missing one sidecar, and not a half-written file in the season's
+    folder. The previous issuance stays selectable, byte for byte.
+    """
+    out_root = tmp_path / "issuances"
+    good = simcli.forecast(
+        season=SEASON, cutoff=OPENER, arms=("dc_native",), n_sims=N_SIMS,
+        seed=SEED, chunk_size=CHUNK, n_particles=N_PARTICLES, out_root=out_root,
+        gate=False, verbose=False, fit=simcli.FitBundle(post=None, book=book))
+    directory = Path(good["directory"])
+    before = {p.name: p.read_bytes() for p in directory.iterdir()}
+    assert matchboard.JSON_FILENAME in before
+
+    def _explode(*args, **kwargs):
+        raise RuntimeError("the matchboard could not be rendered")
+
+    monkeypatch.setattr(matchboard, "render_markdown", _explode)
+    with pytest.raises(RuntimeError):
+        simcli.forecast(
+            season=SEASON, cutoff=OPENER, arms=("dc_native",), n_sims=N_SIMS,
+            seed=SEED + 1, chunk_size=CHUNK, n_particles=N_PARTICLES,
+            out_root=out_root, gate=False, verbose=False,
+            fit=simcli.FitBundle(post=None, book=book))
+
+    season_dir = out_root / season_mod.season_dir_name(SEASON)
+    assert sorted(p.name for p in season_dir.iterdir()) == [
+        pd.Timestamp(OPENER).date().isoformat()]
+    assert {p.name: p.read_bytes() for p in directory.iterdir()} == before
+
+
+def test_the_matchboard_subcommand_derives_from_a_bundle_without_touching_it(
+        issuance, tmp_path):
+    """`simcli matchboard --directory <bundle> --out <dir>`.
+
+    A post-A7 bundle already carries its own, so the derivation goes to `--out`
+    under the derived name and the bundle is not written to at all.
+    """
+    directory = Path(issuance["directory"])
+    before = {p.name: p.read_bytes() for p in directory.iterdir()}
+    out = tmp_path / "derived"
+    code = simcli.main(["matchboard", "--directory", str(directory),
+                        "--out", str(out)])
+    assert code == 0
+    assert {p.name: p.read_bytes() for p in directory.iterdir()} == before
+
+    name = matchboard.derived_filename(SEASON, OPENER, "json")
+    payload = json.loads((out / name).read_text())
+    assert payload["derived"] is True
+    assert payload["source_bundle"] == str(directory)
+    assert payload["derived_at"]
+    record = json.loads((directory / "issuance.json").read_text())
+    # the source bundle's RECORDED hashes, copied from its record rather than
+    # recomputed here: a hash this run computes today is not a hash that record
+    # made when it was written
+    assert payload["source_recorded_hashes"]["digests"]["dc_native"] == \
+        record["digests"]["dc_native"]
+    assert payload["source_recorded_hashes"]["effective_posterior_hash"] == \
+        record["effective_posterior_hash"]
+
+    md = (out / matchboard.derived_filename(SEASON, OPENER, "md")).read_text()
+    first = md.splitlines()[0]
+    assert "derived" in first.lower() and "not part of" in first.lower()
+
+    # the rows of a DERIVED artifact are the rows of the bundle it came from
+    assert [r["fixture_id"] for r in payload["rows"]] == [
+        r["fixture_id"] for r in
+        json.loads((directory / matchboard.JSON_FILENAME).read_text())["rows"]]
+
+
+def test_the_matchboard_subcommand_scores_results_into_ledger_rows(
+        issuance, tmp_path):
+    """`--score <results.jsonl>` — A7 (e), which reports and decides nothing."""
+    directory = Path(issuance["directory"])
+    board = json.loads((directory / matchboard.JSON_FILENAME).read_text())
+    first = board["rows"][0]
+
+    results = tmp_path / "results.jsonl"
+    results.write_text(json.dumps({
+        "fixture_id": first["fixture_id"], "home_goals": 2, "away_goals": 1,
+        "matchweek": 1, "ingest": "manual/day1"}) + "\n")
+
+    out = tmp_path / "scored"
+    assert simcli.main(["matchboard", "--directory", str(directory),
+                        "--out", str(out), "--score", str(results)]) == 0
+    rows = [json.loads(line) for line in
+            (out / "matchboard_scorecard.jsonl").read_text().splitlines()]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["fixture_id"] == first["fixture_id"]
+    assert row["outcome"] == "home" and row["realized_margin"] == 1
+    assert row["probs"] == first["probs"]
+    assert row["rps"] == pytest.approx(
+        matchboard.rps(first["probs"], "home"), abs=1e-12)
+    assert row["rps_uniform"] == pytest.approx(5 / 18, abs=1e-12)
+    assert row["cutoff"] == board["cutoff"]
+    assert row["observed_by"] == board["observed_by"]
+    assert row["run_digest"] == board["run_digest"]
+    # (f): no benchmark column anywhere on this surface
+    assert not [k for k in row if "benchmark" in k]
+
+
+def test_the_schema_bump_did_not_downgrade_the_round_before_it():
+    """A7 bumps `ISSUANCE_SCHEMA_VERSION` to `-5`, and the A6 leniency was
+    decided by `schema == ISSUANCE_SCHEMA_VERSION`.
+
+    Left alone, that one line would have sent every `-4` record back to the
+    leniency A6 wrote for records that PREDATE its fields — the fail-closed
+    anchor becoming downgradeable by a version bump, which is exactly the defect
+    the Codex review of `04b26a2` closed one round earlier. The comparison is on
+    the ordinal, and an unparseable version is the NEWEST schema there is and
+    not the oldest, so writing nonsense into `schema_version` is not a way out
+    of a check.
+    """
+    assert simcli.schema_ordinal("epl-issuance-1") == 1
+    assert simcli.schema_ordinal("epl-issuance-4") == simcli.A6_SCHEMA_ORDINAL
+    assert simcli.schema_ordinal(simcli.ISSUANCE_SCHEMA_VERSION) == \
+        simcli.A7_SCHEMA_ORDINAL
+    for hostile in ("", None, "epl-issuance-", "epl-issuance-4x", "banana"):
+        assert simcli.schema_ordinal(hostile) > simcli.A7_SCHEMA_ORDINAL, hostile
+
+    # A -4 record missing an A6 field FAILs naming it, on the schema that is no
+    # longer the current one...
+    stale = simcli._unanchored("retained_rows_anchored", "sidecar_digests",
+                               "epl-issuance-4")
+    assert stale["status"] == "FAIL"
+    assert stale["detail"]["missing_field"] == "sidecar_digests"
+    # ...and so does a -5 one, and an unrecognised one.
+    for schema in (simcli.ISSUANCE_SCHEMA_VERSION, "banana"):
+        assert simcli._unanchored("x", "sidecar_digests", schema)["status"] \
+            == "FAIL", schema
+
+    # ...while a record that genuinely predates the field keeps the leniency
+    # that exists for exactly that, under the note of ITS round.
+    for schema in ("epl-issuance-1", "epl-issuance-2", "epl-issuance-3"):
+        lenient = simcli._unanchored("x", "sidecar_digests", schema)
+        assert lenient["status"] == simcli.UNANCHORED, schema
+        assert lenient["note"] == simcli.PRE_A6_NOTE, schema
+    a7 = simcli._unanchored("x", "sidecar_digests.matchboard", "epl-issuance-4",
+                            since=simcli.A7_SCHEMA_ORDINAL,
+                            note=simcli.PRE_A7_NOTE)
+    assert a7["status"] == simcli.UNANCHORED and a7["note"] == simcli.PRE_A7_NOTE
+
+
+def test_the_pass_headline_names_the_reasons_the_entries_carry():
+    """A7 pre-stated the shape: `PASS (<n> criteria unanchored: <reasons>)`,
+    where `<reasons>` is the sorted distinct set of the entries' own notes.
+
+    Hardcoding "pre-A6 record" is what made the old headline wrong the moment a
+    second round existed, so the reasons are read off the entries.
+    """
+    assert simcli._unanchored_reason(simcli.PRE_A6_NOTE) == "pre-A6 record"
+    assert simcli._unanchored_reason(simcli.PRE_A7_NOTE) == "pre-A7 record"
+    # a note that is not in the `unanchored (...)` shape is carried whole rather
+    # than mangled into something shorter and wrong
+    other = "this issuance ran no gate, so there are no gate bytes to anchor"
+    assert simcli._unanchored_reason(other) == other
+    assert simcli._unanchored_reason("") == "no reason recorded"
+
+
+def test_the_summary_names_where_the_published_per_fixture_forecast_is(issuance):
+    """A7 (a): the gate's `marginal_parity` sentence in `summary.md` claimed a
+    published per-fixture forecast the bundle did not contain.
+
+    It contains one now, so the file that carries the sentence names the file
+    that answers it — and names its digest, so a reader who quotes the sentence
+    can check the object it is about.
+    """
+    directory = Path(issuance["directory"])
+    summary = (directory / "summary.md").read_text()
+    assert "ARE the published per-fixture forecast" in summary, \
+        "the sentence A7 is about is not in this summary"
+    assert matchboard.JSON_FILENAME in summary
+    assert matchboard.MD_FILENAME in summary
+    assert matchboard.SCHEMA_VERSION in summary
+    record = json.loads((directory / "issuance.json").read_text())
+    assert record["sidecar_digests"]["dc_native"]["matchboard"] in summary

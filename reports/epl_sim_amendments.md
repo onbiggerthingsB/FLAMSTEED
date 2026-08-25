@@ -3103,3 +3103,127 @@ this entry was committed and before any code was written. The working tree at
 `89d3d58` carried no change but this entry, and
 `git diff --stat 89d3d58 -- src scripts site tools .github epl` is empty. **The
 commit that records this entry precedes every commit that implements any of it.**
+
+### What landed for A7 — `check` under the matchboard (recorded 2026-08-25)
+
+`epl-issuance-5` is live, `matchboard_dc_native.json` and `matchboard.md` are
+required sidecars of every issuance written from here on, and the committed
+opener is untouched: it was not re-issued, not re-run and not edited, and no
+matchboard was written into it. What follows is what the two documented commands
+emit against that bundle under the new code. The JSON report goes to stdout and
+is elided; these are the stderr lines and the exit code.
+
+```
+$ PYTHONPATH=src:. .venv/bin/python -m epl.simcli check \
+      --directory data/epl/sim/issuances/2026_27/2026-08-21
+[check] re-running dc_native at 2026-08-21 00:00:00 (N=20000, seed=20260611)
+[check] dc_native: PASS
+[check] dc_wdl_bridge: REFUSED — dc_wdl_bridge cannot be re-derived from this issuance: arms.json, bridge.json are missing. An issuance written before the arm sidecars existed carries no record of the fitted bridge or the Elo head, and a check that cannot rebuild the arm is not a passing check.
+[check] elo_wdl_bridge: REFUSED — elo_wdl_bridge cannot be re-derived from this issuance: arms.json, bridge.json, elo_arm.json are missing. An issuance written before the arm sidecars existed carries no record of the fitted bridge or the Elo head, and a check that cannot rebuild the arm is not a passing check.
+[check] record_digest: UNANCHORED — unanchored (pre-A6 record)
+[check] acceptance_digest: UNANCHORED — unanchored (pre-A6 record)
+[check] FAIL; unanchored: acceptance_digest, dc_native.matchboard_anchored, dc_native.matchboard_reproduces, dc_native.parity_reference_is_production_grid, dc_native.retained_rows_anchored, dc_native.truncation_sidecar_anchored, dc_wdl_bridge.retained_rows_anchored, dc_wdl_bridge.truncation_sidecar_anchored, elo_wdl_bridge.retained_rows_anchored, elo_wdl_bridge.truncation_sidecar_anchored, record_digest
+$ echo $?
+4
+```
+
+**Narrowed to the published arm**, which is the question A7's pre-statement 4 is
+written about:
+
+```
+$ PYTHONPATH=src:. .venv/bin/python -m epl.simcli check \
+      --directory data/epl/sim/issuances/2026_27/2026-08-21 --arm dc_native
+[check] re-running dc_native at 2026-08-21 00:00:00 (N=20000, seed=20260611)
+[check] dc_native: PASS
+[check] record_digest: UNANCHORED — unanchored (pre-A6 record)
+[check] acceptance_digest: UNANCHORED — unanchored (pre-A6 record)
+[check] PASS (7 criteria unanchored: pre-A6 record, pre-A7 record); unanchored: acceptance_digest, dc_native.matchboard_anchored, dc_native.matchboard_reproduces, dc_native.parity_reference_is_production_grid, dc_native.retained_rows_anchored, dc_native.truncation_sidecar_anchored, record_digest
+$ echo $?
+0
+```
+
+*Arithmetic note: the two transcripts above quote verdicts, criterion names and
+exit codes. Nothing in them is estimated, so nothing in them carries a
+Monte-Carlo error. The float tolerance and the field count named below are
+exact.*
+
+**Pre-statement 4 landed exactly.** The whole-bundle run went from nine entries
+to **eleven**; the `--arm dc_native` run from five to **seven**; the two
+additions are `dc_native.matchboard_anchored` and
+`dc_native.matchboard_reproduces` and nothing is namespaced to a bridge arm;
+neither headline changed in kind — the bundle is still FAIL with exit 4 for its
+two REFUSED bridge arms, the narrowed run still PASS with exit 0; and the
+narrowed parenthetical is `PASS (7 criteria unanchored: pre-A6 record, pre-A7
+record)`, character for character what A7 pre-stated. There is no deviation to
+record on any of those.
+
+**A6 (b)'s two fenced blocks are NOT edited.** They record what the command
+emitted on 2026-08-20 under the code as it then stood, and every string in them
+— nine entries, five names, `PASS (5 criteria unanchored: pre-A6 record)` — is
+now false of the running code. A1-C1 is why they stay: a superseded statement
+stays where it was written and is superseded rather than erased.
+`test_the_committed_opener_whole_bundle_check_is_FAIL_and_the_ledger_says_so`
+now holds every line of the two blocks **above** against live output, and
+`test_the_A6_b_transcripts_are_present_and_unedited` holds A6's blocks in place
+and asserts they carry no mention of the matchboard — the A2-N3 pattern.
+
+**Where the landed code DEVIATES from A7, recorded rather than smoothed over.**
+
+1. **Eleven floats pre-stated, FOURTEEN implemented.** A7 (b.3) says
+   `matchboard_reproduces` compares "the eleven floating-point quantities per
+   row" to 1e-12. The field table in A7 (a) that it is written beside names
+   **fourteen**: `probs` (3), `probs_se` (3), `e_margin`, `e_margin_se`,
+   `p_marg_ge2/3/4` (3) and `p_marg_ge2_se/ge3_se/ge4_se` (3). Eleven is the
+   table with the three margin standard errors left out of the count. The code
+   implements the **table** and compares all fourteen, because comparing fewer
+   would leave three published quantities outside the criterion that exists to
+   catch a moved number, and dropping the three fields to make the count read
+   eleven would delete columns the ruling names. `epl.matchboard.ROW_FLOAT_FIELDS`
+   is the enumeration and a test asserts its length is 14.
+
+2. **The schema-version comparison moved from equality to an ORDINAL.**
+   `_unanchored` decided the A6 leniency with `schema == ISSUANCE_SCHEMA_VERSION`.
+   Bumping that constant to `epl-issuance-5` would have silently returned every
+   `-4` record to the leniency A6 wrote for records that predate its fields — the
+   fail-closed anchor becoming downgradeable by a version bump, which is the
+   exact defect the Codex review of `04b26a2` closed one round earlier. The
+   comparison is now `schema_ordinal(schema) >= A6_SCHEMA_ORDINAL`, and an
+   unparseable version string resolves to the newest schema there is rather than
+   the oldest, so writing nonsense into `schema_version` is not a way out of a
+   check. A7 rules nothing about this; it is recorded because a strictness that
+   is preserved by an edit nobody wrote down is a strictness the next edit will
+   drop.
+
+3. **The derived-artifact refusal lives inside `matchboard_anchored`.** A7 (b.3)
+   says *exactly two* criteria and A7 (c) says `check` FAILs any bundle
+   containing a file named like a derived artifact. Both hold: the refusal is the
+   first thing `matchboard_anchored` evaluates, on **every** schema, so a stray
+   derived file FAILs a pre-A7 bundle too — and no third criterion was added, so
+   the entry counts above are the pre-stated ones.
+
+Three points the implementation had to decide and A7 does not spell out, each
+decided the strict way:
+
+1. **A failure to write the matchboard aborts the whole issuance.** It is
+   required, it is derived after the record's own numbers exist so it can carry
+   them, and it is written into the staging directory before `summary.md` and
+   well before `issuance.json`. A bundle silently missing one sidecar is the
+   shape of defect A6 spent six findings on, so there is no partial-write path:
+   the staging directory is discarded and no issuance appears.
+
+2. **`n_provisional` is read from the gate's own count, and is `None` when no
+   gate ran.** The render then says the count was not measured rather than
+   printing a zero nobody counted.
+
+3. **The scorecard ledger REFUSES an inadmissible row rather than dropping it.**
+   A7 (e) makes a row admissible only if `cutoff` and `observed_by` are both at
+   or before the fixture's kickoff as the season knew it. `epl.matchboard.score`
+   raises naming the fixture and the offending stamp. A ledger that silently
+   omitted the row it could not justify would be a ledger nobody can audit, and
+   the omission would be invisible in the append-only file.
+
+**What did not move.** No number in R1, in Addendum A or B, in the opener bundle
+or in any published report. `epl/simretro.py` and `epl/simmetrics.py` are
+untouched and still hash to the **v5** pair, so there is no harness v6 and no new
+hash pair to record. `src/`, `scripts/`, `site/`, `tools/` and `.github/` are
+untouched.
