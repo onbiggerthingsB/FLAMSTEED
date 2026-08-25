@@ -2961,3 +2961,20 @@ def test_a_derived_artifact_is_refused_inside_a_PRE_A7_bundle_too(issuance):
     assert anchored["status"] == "FAIL"
     assert anchored["detail"]["derived_artifacts"] == [stray]
     assert report["PASS"] is False
+
+
+def test_the_matchboard_subcommand_refuses_to_write_into_a_bundle(issuance):
+    """A7 (c): a derivation is written OUTSIDE every bundle directory.
+
+    `--out <the bundle itself>` is the one keystroke between "a labelled
+    derivation" and "the record anchoring itself after the fact", so it is
+    refused by name rather than by convention — and `check` would FAIL the
+    bundle afterwards, which is a worse place to find out.
+    """
+    directory = Path(issuance["directory"])
+    before = {p.name: p.read_bytes() for p in directory.iterdir()}
+    with pytest.raises(simcli.CliError) as exc:
+        simcli.derive_matchboard(directory, directory, verbose=False)
+    assert "outside" in str(exc.value).lower()
+    assert {p.name: p.read_bytes() for p in directory.iterdir()} == before
+    assert matchboard.derived_artifacts_in(directory) == []
