@@ -3471,3 +3471,664 @@ The same re-verification's second minor is fixed in code beside this note:
 `STOP: MatchboardError: ...` and exits 2 like every other typed refusal,
 instead of surfacing as a raw traceback with exit 1. A refusal an operator
 cannot tell from a crash teaches them to ignore crashes.
+
+---
+
+## A8 — `dc_1x2_recal`: a match-only shadow challenger, and the arm that was not built (2026-08-25)
+
+**Decisions amended:** none of the published surfaces, and that is the ruling
+rather than an omission. A8 adds a **shadow layer** beside the record: a second
+set of per-fixture numbers, scored against the same results, that no published
+arm reads and no gate consults. It amends the *design* only in the sense that
+plan v2 pre-registered one match-level law and this entry authorises a second one
+to be computed and scored without being published as a forecast.
+**Explicitly NOT amended, and pinned here so a later commit can be held to it:**
+`ISSUANCE_SCHEMA_VERSION` stays **`epl-issuance-5`**; the matchboard's schema
+stays **`epl-matchboard-1`**; the A7 scorecard `reports/matchboard_scorecard.jsonl`
+and `epl/matchboard.py`'s schema are not modified; `dc_native`'s published
+numbers never change; the retrospective harness is untouched.
+**Status of the amendment when written:** not a line of `epl/` has changed under
+this ruling and **no `dc_1x2_recal` row exists anywhere in this repository** — not
+in `reports/`, not in a bundle, not in a branch. `epl/simretro.py` and
+`epl/simmetrics.py` still hash to the **v5** pair (`d64bef11…`, `b03d4fbc…`).
+`reports/matchboard_scorecard.jsonl` holds exactly its ten MW1 rows. The working
+tree at `fa9fe4d` carried nothing but this entry when it was written.
+
+*Arithmetic note. Every figure in the sections **The fit, re-derived for this
+entry**, **What is pre-stated** and the two tables of ruling (b) was computed
+**by this entry**, on 2026-08-25, from the pinned corpus on disk: they are exact
+double-precision evaluations of a closed-form objective over 2,280 fixed rows —
+no simulation, no Monte-Carlo error of their own, and reproducible from the file
+whose sha256 is recorded below. The validation figures in ruling (e) — the LOSO
+and forward numbers, the calibration slopes, the p-value, the weekly-refit
+figure, the effective-sample figures and the 0.558pp application-point
+discrepancy — are **quoted from the grounding session that measured them** and are
+**not re-derived here**; they carry whatever error that session recorded beside
+them, and where this entry has re-derived one it says so on the line. The ten
+MW1 raw scores are read from `reports/matchboard_scorecard.jsonl` as published
+and are not recomputed. Every hash, count and date is exact.*
+
+### The observation
+
+#### (a) The ask, and what grounding actually found
+
+The owner asked for a model that **evolves in-season** rather than one frozen at
+the opener. Grounding went looking for the levers that would deliver that, and
+came back with a shorter list than the question implies.
+
+**Freshness is already spent.** The Dixon-Coles likelihood is already
+time-weighted — `wcmodel.model.widening.likelihood_weight`, in the locked `src/`
+tree — at a half-life of one year, `0.5^(age/365)`. Grounding measured the
+weighted sample that produces: **≈506 effective matches**, of which **49%** are
+last season's. A model that already discounts a two-year-old match to a quarter
+of a recent one is not a model that has been ignoring recency. The one measured
+*resolvable* lever is freshness, and most of it is already taken.
+
+**The one measured fixable defect is overconfidence.** On the pinned corpus the
+published law's calibration slope is **0.9035** under this project's own
+no-intercept exponent test, **p = 0.023** — a slope below one is a law whose
+extremes are too extreme. That is a defect of *shape*, not of *recency*, and it
+is the only one grounding found that a cheap, closed transform can address.
+
+So the honest answer to *make it evolve in-season* is: the freshness half of the
+question is largely answered already, and what is left on the table is a
+recalibration. That is a smaller answer than the question wanted, and it is the
+one the measurements support.
+
+#### (b) The first design was a full recalibrated ARM, and it was KILLED on its own merits
+
+The first design put the transform in the published pipeline: a fourth arm,
+`dc_recal`, with its own table, its own matchboard and its own consequence
+matrix. An independent reviewer killed it, and the ledger should show the arm
+that was **not** built and why, because a design that dies quietly leaves a later
+reader thinking nobody considered it.
+
+**A 1X2 temperature defines no scoreline law.** The transform's whole domain is a
+three-cell vector. The table engine does not consume three-cell vectors; it
+consumes *scorelines*, simulated per particle per season, and every downstream
+quantity — points, goal difference, the position matrix, the consequence state,
+`e_margin`, `p_marg_ge2/3/4` — is a functional of those scorelines. Sharpening
+or flattening H/D/A says nothing about which 2-1 becomes which 3-0.
+
+**And the ambiguity that creates is larger than the effect it would deliver.**
+There is no single place to apply it. Applied **per particle**, before
+aggregation, the transform reshapes each particle's own three-cell law and the
+league table is simulated from the result. Applied **post-aggregation**, to the
+published per-fixture marginals, it reshapes the aggregate and touches no
+particle. The reviewer measured the two application points against each other
+and found published probabilities differing by up to **0.558 percentage points**
+on the same fixture.
+
+Two numbers, in two different units, and this entry does **not** subtract them.
+The transform's entire in-sample effect on the pinned corpus is a mean-RPS
+reduction of **0.00026980732131501** (re-derived below). The application-point
+ambiguity is **0.00558 in probability**. What the pairing establishes is not an
+inequality but a proportion: a choice the design does not determine moves a
+*published probability* by more than half a percentage point, while the transform
+that choice implements is worth a fraction of a thousandth of an RPS. A quantity
+whose value depends that strongly on an arbitrary implementation decision is not
+ready to be published as a forecast, and an arm built on it would have been
+publishing the decision rather than the model.
+
+**A6 (d) already ruled this shape of thing once**, against a bridge arm whose 1X2
+is that fixture's own law and whose scorelines are a league-wide conditional
+wearing that fixture's name; A7 (a) then refused that arm a matchboard rather
+than give it three meaningful columns and four decorative ones. The same
+objection retires `dc_recal`: a table built from a scoreline law the transform
+never defined would be a table wearing the transform's name.
+
+### The ruling (owner, 2026-08-25) — pre-stated before the code
+
+#### (a) A match-only shadow challenger, named `dc_1x2_recal`
+
+The transform is applied to the **published per-fixture marginals** — the
+matchboard's `probs`, the aggregate over retained simulated seasons, which is
+exactly the object the corpus measured — and to nothing else.
+
+**What it produces:** a second three-cell vector per fixture, filed in a shadow
+ledger, scored against the same result. **What it does not produce:** no table,
+no position matrix, no consequence state, no cut lines, no matchboard, no
+`e_margin`, no margin tail, no arm in any issuance, no change to any published
+number of any kind. It is not a forecast this project publishes; it is a
+challenger this project scores.
+
+Applying it **post-aggregation is not a compromise, it is the only defensible
+point**, and the reason is the corpus rather than convenience: the pinned corpus's
+`dc_home/dc_draw/dc_away` **are** aggregated per-match 1X2 vectors. Fitting on
+aggregates and applying to particles would be applying a constant somewhere it
+was never measured. Observation (b)'s 0.558pp is the size of that mistake.
+
+#### (b) THE FROZEN OBJECT IS THE RULE
+
+Not the number alone. What is frozen, in full, is everything a later reader needs
+to obtain the number again.
+
+**The transform class, closed at one parameter.** For a three-cell vector
+`p = (p_home, p_draw, p_away)` and one real `a > 0`:
+
+```
+q_i = p_i^a / (p_home^a + p_draw^a + p_away^a)
+```
+
+Closed at one parameter means exactly that: **no intercept, no per-outcome
+parameter, no covariate, no second exponent.** `a = 1` is the identity. Adding a
+parameter is a new amendment, not an implementation detail — the same boundary
+A7 (f) draws around the four margin fields.
+
+**The corpus, by sha256.** `data/epl/fit/walkforward_predictions.parquet`,
+sha256 **`f31580073eb3a7f0deca59b45d1576fb262272efc6d1893ce8c9931b9eff451a`**,
+recomputed from the file on disk on 2026-08-25 for this entry. **2,280 rows**,
+**six seasons** — 2019/20 through 2024/25, exactly 380 rows each. Columns used:
+`dc_home`, `dc_draw`, `dc_away` (the aggregated per-match 1X2), `y`, `block`,
+`season`, `date`. `y` encodes the ordered outcome as `0 = home`, `1 = draw`,
+`2 = away`; the corpus's counts are 993 / 525 / 762. **2025/26 is not in it** —
+`epl/config_frozen.json` lists it under `excluded_seasons`, which is what makes
+the forward check of ruling (e) a genuinely out-of-corpus season rather than a
+re-read of the fit.
+
+**The objective, pinned to one.** Mean **RPS** over the corpus, by this project's
+own literal (`epl/matchboard.py:674`), `r = 3`, ordered `(home, draw, away)`:
+
+```
+RPS = (1 / (r − 1)) · Σ_{i=1..r−1} (CP_i − CO_i)²
+```
+
+`a` is the argmin of the mean of that over all 2,280 rows, unweighted. **One
+objective is pinned, and the reason is well-definedness rather than
+superiority** — see the two tables below, which is where the pinning stops being
+a formality.
+
+**The deterministic procedure.** Not a minimiser of the objective — a **root-find
+of its analytic first derivative**:
+
+```
+dq_i/da = q_i · (ln p_i − Σ_j q_j ln p_j)
+d(RPS)/da = mean over rows of  Σ_{i=1,2} (CP_i − CO_i) · dCP_i/da
+```
+
+solved by `scipy.optimize.brentq` on that derivative, bracket **[0.5, 2.0]**,
+`xtol = 1e-15`, `rtol = 8.881784197001252e-16` (scipy's floor, `4·eps`). Not a
+minimiser, because the objective is flat and a minimiser's answer depends on
+which minimiser: the derivative has a **non-zero slope at its root**
+(`f'' ≈ 0.0649`), so the root-find is well conditioned where the minimisation is
+not. Measured for this entry: five different brackets — `[0.5, 2.0]`, `[0.1,
+3.0]`, `[0.5, 1.5]`, `[0.8, 1.0]`, `[0.0001, 5.0]` — return the **identical
+double**, `0.9063507710098762`, in 7 to 12 iterations.
+
+**This season's frozen constant.**
+
+```
+a = 0.906350797598            (equivalently T = 1/a = 1.103325558547)
+```
+
+recorded to **twelve decimals**, as a **literal**, and it is the number every
+`probs_recal` in the shadow ledger is derived from and every verification
+compares against. The two constants are consistent reciprocals to the precision
+they are written at: `1/0.906350797598 = 1.1033255585477368`, which truncates at
+twelve decimals to `1.103325558547`, and `|1/a − T| = 7.37e-13`.
+
+**The schedule.** An **annual expanding-window refit**, run **before each
+season's first issuance** and at no other time. The refit corpus is the pinned
+parquet **plus** the shadow ledger's own rows that are admissible at that cutoff
+under ruling (c). The constant is then frozen for that season and recorded in a
+new amendment, with the same six things this ruling records.
+
+**The invalidation clause.** Any change to decay, widening, inference or
+scoreline-model semantics **invalidates `a`** until it is revalidated — because
+each of them changes the law whose aggregate the transform was fitted to, and a
+constant fitted to a law that no longer exists is a constant fitted to nothing.
+
+**The drift trigger: NONE, explicitly.** There is no in-season condition that
+re-fits `a`, no monitoring rule that re-opens it, no threshold on live RPS that
+fires anything. Recorded as an explicit choice rather than an omission.
+
+**Weekly in-season transform updating is REFUSED.** Grounding measured it at
+**−0.0000056** mean RPS. It is **not built**, and it is not built at a
+measurement that small precisely because a lever worth five millionths of an RPS
+would buy this project a weekly re-fitting mechanism, a weekly decision, and a
+weekly opportunity to explain a number away.
+
+##### The fit, re-derived for this entry — and what it says about twelve decimals
+
+Re-derived on 2026-08-25 from the pinned corpus, before any code and before any
+shadow row exists:
+
+| quantity | value |
+|---|---:|
+| mean RPS at `a = 1` (the published law, untransformed) | **0.20194241064214688** |
+| mean RPS at the pinned procedure's root | **0.20167260332083187** |
+| the transform's entire in-sample gain | **0.00026980732131501** |
+| the pinned procedure's root, five brackets, identical double | **0.9063507710098762** |
+| **the frozen literal** | **0.906350797598** |
+| literal − root | **+2.65881238137311e-08** |
+| mean RPS at the frozen literal | **0.20167260332083187** — the same double, to the last bit |
+| one ulp of the objective at that value | 2.7755575615628914e-17 |
+
+The `a = 1` figure is the published law's own score and it **matches
+[`reports/epl_walkforward.md`](epl_walkforward.md)'s 0.201942 for this
+architecture**, which is the check that the corpus this entry pins is the corpus
+that report measured.
+
+**The frozen literal is NOT the argmin at twelve decimals, and this entry says so
+rather than implying otherwise.** It sits `2.66e-8` above the root; the
+derivative there is `1.727e-9` rather than zero. The objective cannot tell the
+two apart — both evaluate to `0.20167260332083187`, identical doubles — but *the
+procedure does*, and a pre-statement that the two are equal would be false.
+
+**Why no minimiser reproduces a twelve-decimal constant here.** Also re-derived
+for this entry, on the same corpus: fourteen `scipy.optimize.minimize_scalar`
+calls — `brent`, `golden` and `bounded`, at several brackets and both at
+`tol/xatol = 1e-12` and at library defaults — span
+
+```
+0.9063507414537845  …  0.9063509360367881          range 1.946e-07
+```
+
+and every one of them reports the same objective to within a few ulps. Three
+general minimisers (Nelder-Mead, Powell, L-BFGS-B) land as far out as
+`0.9063977779346506`. **A pre-statement of the form "the re-fit equals the
+recorded constant exactly" is therefore not satisfiable by any minimiser, on any
+build**, and ruling (d) replaces it with two legs that *can* fail rather than one
+that cannot pass.
+
+**And the corpus does not determine twelve decimals of anything.** Six
+leave-one-season-out refits by the pinned procedure:
+
+| season dropped | `a` |
+|---|---:|
+| 2019/20 | 0.9095328926808198 |
+| 2020/21 | 0.9310986807857933 |
+| 2021/22 | 0.8936709290045554 |
+| 2022/23 | 0.9162032153073032 |
+| 2023/24 | 0.8740293537351703 |
+| 2024/25 | 0.9124201196131918 |
+
+a range of **5.707e-02**. So the data resolve `a` to roughly **±0.03**, and about
+ten of the twelve recorded decimals are **bookkeeping, not information**. They
+are recorded to twelve places for one reason and it is stated plainly: so that
+`probs_recal` is a bit-reproducible function of `probs_raw`. **Nothing in this
+entry claims the corpus knows `a` to twelve decimals, and no future report may
+claim it either.**
+
+**The pinned objective does discriminate — on the objective, not on the
+parameter.** Fitting the same class by NLL instead, same procedure, gives
+`a_nll = 0.9063511680814477`: `3.97e-07` above the RPS root, which is the
+7th-decimal difference grounding reported, confirmed here. Its mean RPS is
+`0.20167260332083697` — **184 ulps worse** than the RPS root's. So an NLL-fitted
+constant is *invisible* to any tolerance on `a` loose enough to admit an honest
+re-fit, and *visible* on the objective. That asymmetry is what ruling (d)'s two
+legs are shaped around, and it is the concrete reason one objective is pinned.
+
+#### (c) A self-contained shadow ledger
+
+**`reports/epl_recal_shadow.jsonl`** — in `reports/`, **append-only**, one JSON
+object per line, written **per matchweek, after the results have entered the
+season ledger** and never before. `schema_version` is **`epl-recal-shadow-1`**.
+
+It is **self-contained**: every row carries what a reader needs to check it
+without opening the bundle it came from, and without this ledger's prose.
+
+| field | what it is |
+|---|---|
+| `arm` | `"dc_1x2_recal"` — the challenger's name, on every row |
+| `fixture_id`, `date`, `home`, `away` | the fixture, in the matchboard's own terms |
+| `season`, `cutoff`, `observed_by` | the source issuance's clocks |
+| `run_digest` | the source issuance's `digests["dc_native"]` |
+| `source_bundle` | the path the row was derived from |
+| `probs_raw` | `{home, draw, away}` **as published** — copied, never re-priced |
+| `probs_recal` | `{home, draw, away}` — the transform applied to `probs_raw` |
+| `a` | the constant this row used, as a literal |
+| `rule_version` | **`dc-1x2-recal-1`** |
+| `corpus_sha256` | the corpus `a` was fitted on |
+| `outcome` | `home` / `draw` / `away`, from the season ledger |
+| `rps_raw`, `rps_recal`, `rps_uniform` | the three scores, below |
+| `matchweek`, `ingest` | which week, and which ingest supplied the result |
+
+**The three scores, pre-stated as arithmetic the implementation must reproduce.**
+All three by the project's literal, `r = 3`, ordered `(home, draw, away)`.
+`rps_raw` scores `probs_raw`; `rps_recal` scores `probs_recal`; `rps_uniform`
+scores `(1/3, 1/3, 1/3)` and is therefore exactly **5/18 = 0.277778** for a home
+or away result and **1/9 = 0.111111** for a draw — the same two literals A7 (e)
+pre-states, and the same values `epl/matchboard.py:162` already carries.
+
+**Admissibility, per A7 (e), unchanged and restated because this is a second
+surface reading the same rule.** A row is admissible only if the source
+issuance's `cutoff` **and** `observed_by` are **both at or before the fixture's
+kickoff as the season knew it**. All three stamps are recorded on the row so a
+reader checks the ordering rather than trusting it. Per the A7 landed note's
+third point, an inadmissible row is **REFUSED, naming the fixture and the
+offending stamp — never dropped.** A ledger that silently omits the row it cannot
+justify is a ledger nobody can audit, and in an append-only file the omission is
+invisible.
+
+**Results come from the season ledger and from nowhere else.** Resolution is
+through `epl.season.current_ledger_view`, goals through `epl.season.goal_count` —
+the same path A7's fourth Codex finding forced on the scorecard, for the same
+reason: a results file is a **request** to score rows the ledger already carries
+and never a second door a result can come through.
+
+**Idempotent by `(fixture_id, run_digest)`.** The same row filed twice is a
+no-op. A row that **disagrees** with one already filed is **refused**, naming
+both values. Nothing is written unless every row in the request passes.
+
+**No pass rule. None.** This ledger reports; it decides nothing, triggers
+nothing, gates nothing, and no acceptance criterion reads it. A7 (e) gives the
+reason and it applies here with more force, because a challenger is exactly the
+kind of number somebody eventually wants to promote on.
+
+**No render is authorised by this entry.** The shadow ledger is a data surface.
+A reader-facing page for a challenger that carries no accuracy claim is a
+separate decision and a later amendment, not an implementation detail of this
+one.
+
+**Nothing is written into any bundle.** Per the decider's ruling the issuance
+schema is untouched at `epl-issuance-5`: the shadow layer anchors itself, by
+carrying the source run's digests and clocks on every row, and `dc_native`'s
+published numbers never change. A bundle records nothing about the challenger,
+and `check` gains no criterion.
+
+#### (d) Verification — a standalone re-derivation that can fail
+
+A standalone command, **`epl/recal.py`**, invoked as
+`PYTHONPATH=src:. .venv/bin/python -m epl.recal verify`. It re-derives rather
+than re-reads, in this order, and stops at the first refusal.
+
+**1. The corpus, before any fit.** The file must exist and its sha256 must equal
+the frozen `f3158007…`. A missing corpus is **`CorpusMissing`**; a differing one
+is **`CorpusDigestMismatch`**, printing both digests. **A typed refusal, not a
+skip** — a verification that quietly declines to verify is worse than one that
+was never run, because it prints something.
+
+**2. The re-fit, by the pinned procedure**, reported in full: the root, the
+frozen literal, their difference, and the objective at each. Two legs, and
+**both must hold**:
+
+* **Leg 1 — the parameter.** `|a_ledger − a_refit| ≤ 1e-6`, else
+  **`RefitOutOfBounds`**. The threshold is fixed here with its justification and
+  **not** from the observed gap: at `|Δa| = 1e-6` the objective moves
+  `½·f''·Δa² ≈ 3.2e-14`, which is `1.6e-13` of its own value; and the corpus
+  itself resolves `a` only to `±0.03` (the LOSO range above), so the window is
+  **5.7e4 times tighter than the data's own resolution.** It admits any faithful
+  implementation — all fourteen scalar minimisers above sit inside it — and
+  refuses a different corpus, a different transform class, or a bug.
+* **Leg 2 — the objective, with no tolerance to choose.** The mean RPS at
+  `a_ledger` must not exceed the mean RPS at `a_refit` by more than **one unit in
+  the last place** (`numpy.nextafter`), else **`ObjectiveInferior`**. One ulp is
+  the smallest representable slack, so it is not a number anything was tuned to.
+  Measured for this entry: the frozen literal **passes with equality** — the two
+  objectives are the same double — and the NLL-fitted constant **fails by 184
+  ulps.** Leg 2 is what makes the pinned objective load-bearing; leg 1 cannot see
+  the difference and is not asked to.
+
+**Leg 1 is a bound and not an equality, and that is a DEVIATION from the design
+this entry was asked to record.** The design pre-stated that the command
+*"compares to the ledger's `a` EXACTLY (the recorded constant)"*. It is not
+satisfiable: the constant is not the output of any procedure this entry could
+pin, fourteen minimisers span `1.95e-7` around it, and the pinned root-find lands
+`2.66e-8` away. The exactness is kept where exactness is achievable — step 3 —
+and the fit leg becomes two tests that can actually fail. Recorded here, before
+the code, rather than discovered by an implementer and quietly softened.
+
+**3. Every row's `probs_recal`, re-derived — this is the exact leg.** For every
+row in the shadow ledger: recompute `q` from that row's own `probs_raw` and that
+row's own `a` by the formula in (b), and require agreement to **1e-12 absolute**
+on all three cells, else **`RecalMismatch`**, naming the fixture and the cell.
+This comparison needs no optimiser and no corpus — it is arithmetic — which is
+exactly why it is the one held to a tolerance twelve orders down.
+
+**4. Every row's frozen-rule fields.** `rule_version`, `corpus_sha256` and `a`
+must equal the frozen rule's, else **`SchemaMismatch`**. A row fitted under one
+rule and filed under another's name is the failure this catches.
+
+**5. Every row's admissibility and arithmetic.** The A7 (e) ordering
+(**`RowInadmissible`**), the three RPS values recomputed from the row's own
+probabilities and outcome, and `Σ q = 1` within `1e-9`.
+
+All refusals derive from one **`RecalError`**, which `main()` catches so a
+refusal prints `STOP: <TypeName>: …` and exits **2**, like every other typed
+refusal in this project — the correction the A7 round already had to make once,
+applied on the way in rather than after. **A refusal an operator cannot tell from
+a crash teaches them to ignore crashes.**
+
+**CI has no `data/`.** The command **refuses** there, correctly and loudly — that
+is its job. The **tests** are the ones that must stay CI-safe: mechanics tests
+build synthetic corpora and synthetic rows, and any test that touches the real
+parquet or a live bundle uses the repo's existing skip-guard. A test that quietly
+passed in CI because the corpus was absent would be the same defect as a
+verification that skips.
+
+#### (e) The validation evidence, its uncertainty, and the language rule
+
+**Recorded verbatim as grounding measured it, and not re-derived here.** Positive
+means the transform scored better — a reduction in mean RPS.
+
+| | |
+|---|---|
+| Calibration slope, published law, pinned no-intercept exponent test | **0.9035**, **p = 0.023** |
+| LOSO slope after the transform | **0.9035 → 1.0008** |
+| LOSO mean-RPS difference | **+0.000153**, 95% CI **[−0.000353, +0.000646]**, better in **4 of 6** seasons |
+| Forward, 2025/26 (out of corpus by `config_frozen.json`) | **+0.000667**, CI **crossing zero** |
+| Forward slope | **0.810 → 0.899** |
+| Weekly in-season refitting | **−0.0000056** — refused, not built |
+
+**Both intervals cross zero. That is the finding, not a footnote to it.** The
+LOSO interval spans `−0.000353` to `+0.000646`; the forward interval crosses zero
+as well. Four of six seasons improved, which is two short of six. The slope
+evidence is the more direct half — a slope that moves from 0.9035 to 1.0008 out
+of sample is the defect being corrected on the axis it was diagnosed on — and it
+is still one statistic on six seasons.
+
+**REJECTED variants, by name, so nobody re-proposes them as new:** **Platt
+scaling**, **vector scaling** and **affine (intercept-carrying) recalibration**
+were each measured **worse out of sample** and are rejected. They are not
+alternatives awaiting a second look; they were looked at.
+
+**The language rule, binding on every surface this project writes.**
+
+* `dc_1x2_recal` is **"a low-cost calibration challenger with forward-supportive
+  evidence"**. It is **never** "an established improvement", and never anything
+  that reads as one.
+* The published law is **"historically recalibrated under the pinned criterion"**.
+  It is **never** "calibrated by construction" — that phrase asserts a property
+  of the model that no fit to six seasons establishes.
+* The standing product-line vocabulary rule stands unchanged and A7 (f)'s
+  narrowing applies here in full: **no prices or returns of any kind, no
+  total-goals or threshold fields, no both-teams-to-score, no correct-score list,
+  and no benchmark comparison column.** The internal accuracy benchmark belongs to
+  [`reports/epl_walkforward.md`](epl_walkforward.md) and stays there.
+
+**No arm switch this season.** `dc_native` remains the published arm through
+2026/27 whatever the shadow ledger accumulates. A switch is a new amendment,
+written before the switch, in this file.
+
+**Quarterly reports decide nothing.** The shadow ledger may be summarised
+quarterly. Such a report has **no pass rule, no trigger and no threshold**; it
+reports and it stops. A quarterly summary that could fire something is a rule
+that gets explained away the first time it fires.
+
+### The rationale
+
+**The redesign is the entry's most useful content, so it is recorded rather than
+tidied.** A ledger that only ever shows the design that shipped teaches a later
+reader that the first idea is always the right one. The first idea here was a
+full recalibrated arm; it was killed by a reviewer for a reason that had nothing
+to do with whether the transform helps, and everything to do with what the
+transform *is* — a map on three-cell vectors, asked to feed an engine that eats
+scorelines. The shadow challenger is what survives that objection: it lives
+exactly where the transform is defined, and nowhere else.
+
+**Freezing the rule rather than the number is the whole of ruling (b).** A
+constant on its own is a number somebody wrote down. The corpus by digest, the
+class closed at one parameter, the single objective, the procedure with its
+bracket and tolerance, the annual schedule, the invalidation clause and the
+explicit absence of a drift trigger are what turn it into something a later
+reader can obtain again — and, more importantly, something a later reader can
+find *wrong*. The invalidation clause is the sharpest of the seven: it says out
+loud that a change to widening or inference silently invalidates a constant that
+would otherwise keep being applied, which is precisely the kind of decay nobody
+notices.
+
+**Discovering that the constant is not re-derivable to twelve decimals is a
+finding, not an inconvenience.** It would have been easy to pre-state an exact
+comparison, ship code that compares the literal to itself, and print a passing
+verification forever. The measurement says three things instead, and all three
+are in the entry: the objective is flat enough that fourteen standard minimisers
+disagree at `2e-7`; the corpus resolves `a` only to about `±0.03`, so most of the
+recorded decimals are bookkeeping; and the way to make the fit checkable anyway is
+to root-find the derivative, where the conditioning is good, and to test the
+literal on the **objective**, where the pinned criterion actually bites. The
+twelve decimals stay because `probs_recal` must be bit-reproducible from
+`probs_raw` — that is a real requirement and it is the only one they serve.
+
+**The two legs are shaped by which failure each can see.** Leg 1 is loose in
+parameter space on purpose: at `1e-6` the objective has not moved in any sense
+this project measures, and a tighter window would start refusing honest
+implementations for the crime of using a different scipy build. Leg 2 has no
+tolerance to argue about, and it is the one that catches the failure that
+matters — a constant fitted to a *different objective*, which leg 1 provably
+cannot see, because the RPS and NLL optima are `4e-7` apart and both sit inside
+any usable parameter window.
+
+**No pass rule, for the third time in this ledger, and the reason gets stronger
+each time.** A7 (e) refused one for the scorecard. This surface is a
+*challenger*: its entire purpose is to accumulate evidence about whether a
+different law would have scored better, which makes it the single most
+promotable number this project will produce. The temptation is not hypothetical
+and it is not distant. The defence is that no rule exists to fire, that the
+switch requires an amendment written in advance, and that the language rule
+forbids the sentence somebody would otherwise write in the meantime.
+
+**And the honest size of the claim is small.** Two intervals crossing zero, four
+seasons of six, one slope moving the right way, on an effect worth `0.00027` mean
+RPS in sample. That is a challenger worth scoring and not a result worth
+announcing, and the language rule exists so that the distance between those two
+sentences survives contact with a good quarter.
+
+### What is pre-stated
+
+This section **is** ruling (f). Everything in it is fixed before the code exists
+and before a single `dc_1x2_recal` row exists anywhere.
+
+**1. The corpus.** `data/epl/fit/walkforward_predictions.parquet`, sha256
+**`f31580073eb3a7f0deca59b45d1576fb262272efc6d1893ce8c9931b9eff451a`**, 2,280
+rows, six seasons 2019/20–2024/25, 380 each. Checked **before any fit**; absent
+or differing is a typed refusal, never a skip.
+
+**2. The constant, to twelve decimals.**
+
+```
+a = 0.906350797598          T = 1/a = 1.103325558547
+rule_version = dc-1x2-recal-1
+```
+
+and, recorded beside it because it is the honest statement of what it is: the
+pinned procedure's root is **`0.9063507710098762`**, the literal is
+**`+2.66e-08`** away from it, both give mean RPS **`0.20167260332083187`** — the
+same double — and the corpus resolves `a` to about **`±0.03`**.
+
+**3. The transformed Arsenal–Coventry MW0 row.** From the **published**
+marginals of `2627:arsenal:coventry` — `H 0.763900 / D 0.161750 / A 0.074350`,
+which are A7's exact counts `15278 / 3235 / 1487` over 20,000 and are the
+`probs` object `reports/matchboard_scorecard.jsonl` already carries — at the
+frozen `a`:
+
+```
+q_home = 0.732099900325    q_draw = 0.179273332146    q_away = 0.088626767529
+```
+
+**to 4dp: `0.7321 / 0.1793 / 0.0886`**, with `Σq − 1 = −1.11e-16`. Derived
+scores for the same fixture, which finished `3–0` (**home**): `rps_raw =
+0.030635566250` — equal to the scorecard's published `0.03063556624999999` — and
+`rps_recal = 0.039812583664`, a **change of `+0.009177017414`**.
+
+**That the transform scored WORSE on this fixture is stated deliberately.** It is
+one fixture, it is arithmetic and not evidence, and this entry pre-states **no
+expectation about the sign of any live difference**. A control chosen because it
+flatters would be the rationalisation this file exists to catch.
+
+**4. A7's rounding trap, generalised — because it would otherwise be built into a
+test.** The rendered four-decimal triple `0.7639 / 0.1618 / 0.0743` gives
+`q = 0.732102678534 / 0.179324238981 / 0.088573082485`. **Its 4dp rendering is
+the same — `0.7321 / 0.1793 / 0.0886` — and it differs from the correct answer at
+the sixth decimal.** So a 4dp control cannot tell the two inputs apart and a
+1e-9 control can. **The rule: derive from the file's own probabilities, and
+assert on the values to 1e-9 or better — never on a rendered four-decimal
+string.** A7 pre-stated this for its own counts; it is restated here because A8
+is the first surface to consume A7's rendered output.
+
+**5. Invariants on every row, every matchweek.**
+
+* `q_home + q_draw + q_away = 1` within **1e-9**.
+* `probs_recal` re-derives from `probs_raw` and the row's `a` within **1e-12**.
+* `a`, `rule_version` and `corpus_sha256` equal the frozen rule's.
+* `rps_uniform` is exactly **5/18** for a home or away result and **1/9** for a
+  draw.
+* `cutoff` and `observed_by` are both at or before kickoff; otherwise **refused**,
+  naming the fixture and the stamp — never dropped.
+* The same `(fixture_id, run_digest)` twice is a no-op; a disagreeing re-file is
+  refused; nothing is written unless every row passes.
+
+**6. The MW1 backfill, as an exact control.** Run against the ten scored MW1
+fixtures, the backfill must produce **exactly ten rows**, and each row's
+`rps_raw` must **equal** the `rps` that `reports/matchboard_scorecard.jsonl`
+already publishes for the same `fixture_id`:
+
+| fixture | outcome | `rps_raw` must equal |
+|---|---|---:|
+| `2627:arsenal:coventry` | home | 0.03063556624999999 |
+| `2627:hull:man_united` | home | 0.46783417 |
+| `2627:everton:crystal_palace` | home | 0.21597243625 |
+| `2627:ipswich:sunderland` | home | 0.41405435125 |
+| `2627:nottm_forest:leeds` | away | 0.36245983625 |
+| `2627:brentford:tottenham` | home | 0.14991586250000002 |
+| `2627:brighton:aston_villa` | home | 0.24751432 |
+| `2627:man_city:bournemouth` | home | 0.06109514000000002 |
+| `2627:newcastle:liverpool` | draw | 0.14881300625000002 |
+| `2627:fulham:chelsea` | away | 0.25631418125000005 |
+
+This is an **identity, not an approximation**: the shadow ledger copies
+`probs_raw` from the published matchboard rather than re-pricing it, and scores
+it by the same literal, so any difference at all is a defect in the copy or in
+the score. Their mean is **0.235461** and the uniform baseline's is **0.261111**,
+both read from the published file. **No `rps_recal` aggregate is pre-stated**,
+for MW1 or for any week: that is a **result**, and it belongs in the shadow
+ledger when the code produces it, not in the entry that authorises the code.
+
+**7. The verification legs.** `|a_ledger − a_refit| ≤ 1e-6`; mean RPS at
+`a_ledger` no worse than at `a_refit` by more than **one ulp**; `probs_recal` to
+**1e-12**. Typed refusals, by name: **`CorpusMissing`**,
+**`CorpusDigestMismatch`**, **`RefitOutOfBounds`**, **`ObjectiveInferior`**,
+**`RecalMismatch`**, **`SchemaMismatch`**, **`RowInadmissible`**,
+**`RowConflict`** — all deriving from **`RecalError`**, caught by `main()`, which
+prints `STOP: …` and exits **2**.
+
+**8. What A8 does NOT decide.** Nothing about the retrospective harness — there
+is no v6 and no new hash pair. Nothing about the arms, the nulls, the acceptance
+criteria, D11's thresholds, the gate, or which arm is published. No number in R1,
+in Addendum A or B, in the opener bundle, in the matchboard, in
+`reports/matchboard_scorecard.jsonl` or in any published report moves.
+`ISSUANCE_SCHEMA_VERSION` stays `epl-issuance-5` and `check` gains no criterion.
+`epl/matchboard.py`'s schema is not modified. `src/`, `scripts/`, `site/`,
+`tools/` and `.github/` are not touched.
+
+**Nothing above was chosen after seeing a result under it**, because no
+`dc_1x2_recal` row exists to have produced one. The figures re-derived by this
+entry are properties of a corpus that was frozen before this session and of a
+transform this entry defines; the MW1 raw scores are read from a file published
+four days after the forecast that produced them and before this entry was
+conceived; and the one derived quantity that could have been chosen to flatter —
+the Arsenal–Coventry `rps_recal` — went the other way and is recorded going the
+other way.
+
+### Recording note
+
+Written **before any line of `dc_1x2_recal` exists**: no `epl/recal.py`, no
+`reports/epl_recal_shadow.jsonl`, no row, no test. The corpus was re-hashed at
+the moment of writing and matches the frozen digest; `epl/simretro.py` and
+`epl/simmetrics.py` were re-hashed and still match the v5 pair;
+`ISSUANCE_SCHEMA_VERSION` was read from `epl/simcli.py:188` and is
+`epl-issuance-5`. Every number in *The fit, re-derived for this entry* and in
+*What is pre-stated* items 2, 3 and 4 was computed on 2026-08-25, from those
+files, **before this entry was committed and before any code was written**. The
+working tree at `fa9fe4d` carried no change but this entry. **The commit that
+records this entry precedes every commit that implements any of it.**
