@@ -2828,7 +2828,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     f = sub.add_parser("forecast", help="issue one forecast")
     f.add_argument("--season", default=DEFAULT_SEASON)
     f.add_argument("--cutoff", required=True)
-    f.add_argument("--arm", default=PUBLISHED_ARM, choices=list(ARMS))
+    f.add_argument("--arm", default=PUBLISHED_ARM, choices=list(ARMS),
+                   help=f"which arm to run (default {PUBLISHED_ARM}). "
+                        f"{matchboard.ARM!r} is MANDATORY for an "
+                        f"{ISSUANCE_SCHEMA_VERSION} issuance — A7 (a) makes the "
+                        f"matchboard a required sidecar and gives it to no "
+                        f"other arm — so a single-arm run of a bridge arm is "
+                        f"refused; use --all-arms to run a bridge arm beside "
+                        f"it.")
     f.add_argument("--all-arms", action="store_true")
     f.add_argument("--n-sims", type=int, default=DEFAULT_N_SIMS)
     f.add_argument("--seed", type=int, default=DEFAULT_SEED)
