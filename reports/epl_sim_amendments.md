@@ -3309,3 +3309,146 @@ now false of the running code, and A1-C1 is why they stay: a superseded
 statement stays where it was written and is superseded rather than erased. The
 transcript-coupled test reads THIS note; two further tests hold the older two
 blocks in place unedited.
+
+**THE SEVEN, and what each one was.** Every finding below was reproduced first,
+against the code as it stood, and the wrong output quoted into the commit that
+fixed it. One claim did not reproduce and is recorded as refuted rather than
+fixed blind.
+
+1. **A required gate an option could switch off (blocking).** `forecast --arm
+   dc_wdl_bridge` wrote a well-formed `epl-issuance-5` record with no matchboard
+   in it — the sidecar is derived from `rows_dc_native.npz` and A7 (a) gives it
+   to no other arm — and `check --arm dc_wdl_bridge` on a bundle with BOTH
+   matchboard files deleted installed zero matchboard criteria and called the
+   arm clean. Fixed in both places: `dc_native` is now MANDATORY for a `-5`
+   forecast, refused up front with a typed error naming A7 (the *published* arm
+   may still be a bridge arm), and the two criteria are RECORD-level, reachable
+   by no `--arm` selection. Their entries lose the `dc_native.` prefix; the
+   counts A7 pre-stated do not move.
+
+2. **A doctored reader surface that passed both criteria (blocking).** Four
+   doctorings reproduced, each with the record re-pinned over the new bytes so
+   that `matchboard_anchored` had nothing to say. A `NaN` probability is the
+   sharpest — `abs(nan - x) > tol` is False, so a tolerance comparator reports
+   "no difference" for every field and a `NaN` reproduces perfectly against
+   anything, and `json.loads` accepts the literal. `matchboard.md` was hashed
+   and never regenerated or held against the JSON beside it, so the half a
+   reader quotes could say anything at all. An extra `probs.odds` — market
+   vocabulary A7 (f) closes the set against, arriving through the one door
+   nothing watched — and an arbitrary null header field were both invisible to
+   a comparator that looked up only the fields it expected. Fixed: non-finite
+   values are refused before any comparison, naming the path to the field; the
+   comparison is over the WHOLE document, with exact key sets at every level,
+   header fields equal with no tolerance and row floats to 1e-12; and the render
+   is re-rendered FROM THE RE-DERIVED DOCUMENT and byte-compared. That last one
+   also closes the tolerance's blind spot, which is real: `0.07435` renders
+   `0.0743`, `0.0743500000001` renders `0.0744`, and the 1e-13 between them is
+   inside 1e-12 — a number could move on the page while every comparator in the
+   repository reported no difference.
+
+3. **A schema downgrade that failed open (blocking).** `_predates_a7` tested
+   truthy digest VALUES, so a `-5` record edited to say `-4` with both pins
+   nulled reported UNANCHORED (pre-A7) while `files.dc_native` still named both
+   filenames and both files still sat in the bundle. The leniency now belongs to
+   ONE shape: a pre-A7 claim with no trace of A7 in any of the three places
+   `check` looks — the `sidecar_digests` KEYS (present-and-null is a marker,
+   because A7's own rule is that null means there was nothing to pin and for
+   this arm there is always something), the `files` map, and the bundle
+   directory. A claim plus a marker is an inauthentic pre-A7 shape and a FAIL.
+
+4. **A live scored record that accepted fabricated results (blocking), and the
+   one that guarded the next live operation.** `--score` appended whatever a
+   results file said: a row naming a fixture nine months away, with `99` and
+   `-7` goals and matchweek and ingest both the empty string, was accepted
+   TWICE while the season's results ledger was EMPTY. The live scored record is
+   the only surface on this project that can earn an accuracy claim, so a
+   results file is now a REQUEST to score rows the ledger already carries and
+   never a second door a result can come through. `score` resolves through
+   `epl.season.current_ledger_view` — the same `resolve_ledger` the league table
+   reads, so a score a later `abandoned` row withdrew is not a result here
+   either and no conflict rule is written twice. Goals go through
+   `epl.season.goal_count`, which is THE definition in this codebase; matchweek
+   and ingest are refused empty as well as null. The append is idempotent by
+   `(fixture_id, run_digest)`: the same row twice is a no-op, a row that
+   DISAGREES with one already filed is refused, and nothing is written unless
+   every row passes.
+
+5. **Containment and provenance that were assertions (blocking).** `--out
+   <bundle>/nested-derived` wrote a labelled derivation INSIDE the bundle it
+   derives from — the one thing A7 (c) exists to prevent — because the guard
+   tested `<out>/issuance.json` and nothing else; and `check` could not see it
+   either, because the scan read only a directory's immediate children. The
+   guard now resolves the path and walks every ancestor to the filesystem root,
+   so a relative hop and a symlink pointing back into a bundle both land where
+   they really land; the scan is recursive and names the path it found.
+   Separately, `rows_provenance` tested the pin's PRESENCE, so a record carrying
+   sixty-four zeros where `rows_dc_native.npz`'s digest belongs produced a page
+   saying *the bytes this surface was derived from are the bytes the issuance
+   recorded* — a claim about a hash nobody had recomputed. The pin is
+   recomputed, and a mismatch REFUSES the derivation rather than downgrading it
+   to `reproduction`: the weaker word would be a second false claim, because a
+   bundle whose rows are not the rows its record pins is not a bundle whose
+   halves came from one run.
+
+6. **An anchor a timezone could move (important).** `_committed_by` dropped the
+   git stamp's UTC offset and compared the two local times as if they were one
+   clock. `2026-08-20T23:59:00-12:00` is `2026-08-21T11:59Z`, nearly thirteen
+   hours AFTER a `2026-08-21 00:00:00` cutoff, and it passed;
+   `2026-08-21T00:01:00+14:00` is `2026-08-20T10:01Z`, thirteen hours before it,
+   and it was refused. Both are reachable: `TZ` is whatever the committing
+   machine says it is, and `git commit --date` sets the author stamp to any
+   offset. **The season's wall clock is UK time**, and the cutoff is now
+   resolved through `ZoneInfo("Europe/London")` — named as
+   `epl.simcli.SEASON_TIMEZONE` and documented in `_committed_by`'s docstring —
+   with both sides compared as instants. It is named rather than assumed
+   because the old code chose a zone too, silently, and the zone it chose was
+   the committer's laptop. A season cutoff is a midnight and UK transitions
+   happen at 01:00, so no DST policy is invented for an input this project does
+   not produce. **The MW0 anchor still holds**: both of the opener's stamps are
+   `2026-08-19T16:15:58+08:00`, which is `2026-08-19T08:15:58Z` against a
+   `2026-08-20T23:00Z` bound, and `9478e711` remains the anchor under either
+   reading. The end-to-end test that asserts it is untouched.
+
+7. **A particle grid the engine would refuse (minor).** A derivation does not
+   re-run the rows, so nothing asked whether they could have come out of a
+   `SimPlan` at all — while every ± on the surface was computed as if they had.
+   One particle with mixed rows, one season per particle, and N not a multiple
+   of S: the engine refuses all three and `derive_rows` accepted all three. The
+   single-particle case is the one that matters, because `cluster_se` returns
+   exactly `0.0` for one cluster and the board would publish a full table of
+   probabilities with a stated Monte-Carlo error of ZERO in every cell.
+   `epl.leaguesim.check_particle_grid` is now a public name for the engine's own
+   rule, called rather than restated. Equal per-particle counts are checked in
+   the matchboard and only there: the engine gets them free from the stratified
+   `i mod S` and so never looks, and D15's decomposition is the equal-cluster
+   form.
+
+**ONE CLAIM REFUTED, with the evidence.** Finding 2 lists `header n_particles
+1000->9999` among the doctorings that pass. It did not: `_matchboard_differences`
+returned `header_fields: ['n_particles']` on the untouched code, because the
+header comparison A7 shipped covers every key of the union. The claim is
+recorded as refuted rather than fixed blind, and a test now pins the behaviour
+so the next reader does not have to re-derive the answer.
+
+**WHAT THIS ROUND DID NOT DO, restated because it is the thing most easily
+overclaimed.** A6 (b.1)'s limit stands exactly where it was: **a self-carried
+digest is a checksum, not a seal.** Every check above is defeated by an editor
+who updates every copy — the sidecar digests, `record_digest`, the file and the
+record together — and four of the seven probes here are precisely that editor.
+These fixes make the checks STRICT: they close the shapes that passed while
+leaving one copy inconsistent with another, and they refuse claims (`anchored`,
+`pre-kickoff`, a scored row) that nothing had recomputed. They do not make the
+digest a seal and nothing here should be read as saying they do. **The history
+is the witness** — a hash in a tracked, committed file, checkable by whoever
+reads it — which is why `law_anchor` computes its verdict from git rather than
+from the record, and why the correction in finding 6 matters more than its
+severity label suggests.
+
+**What did not move.** No number in R1, in Addendum A or B, in the opener
+bundle, or in any published report. The preserved MW0 bundle was not re-issued,
+re-run or edited, and no matchboard was written into it; its `check` verdict is
+FAIL with exit 4 for its two REFUSED bridge arms, exactly as before.
+`epl/simretro.py` and `epl/simmetrics.py` are untouched and still hash to the
+**v5** pair, so there is no harness v6 and no new hash pair to record. `src/`,
+`scripts/`, `site/`, `tools/` and `.github/` are untouched, and the lock chain
+was re-verified after every commit of this round.
