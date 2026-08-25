@@ -3249,3 +3249,63 @@ entry, which is what makes the claim checkable by whoever reads it. A bundle's
 own sidecar carries no law-anchor claim at all: it was written by the run that
 issued it and has no history to appeal to, and silence is better than a sentence
 nobody checked.
+
+### What landed for the Codex review of 2026-08-25 — seven findings on A7's surfaces (recorded 2026-08-25)
+
+An independent review (GPT-5.6, max effort) of `89d3d58..6a4bf24` returned
+**seven** findings: five blocking, one important, one minor. Every one of them
+reproduced exactly as described, against the code as it stood; none was
+refuted. What follows records the round.
+
+**`check`'s output moved again, and A7's record of it is NOT edited.** Two
+criteria that were namespaced `dc_native.*` are now record-level, so the
+committed opener's entries lose that prefix. The counts A7 pre-stated do not
+move — eleven whole-bundle entries, seven narrowed — and neither headline
+changes in kind. What follows is what the two documented commands emit under
+the current code; the JSON report goes to stdout and is elided.
+
+```
+$ PYTHONPATH=src:. .venv/bin/python -m epl.simcli check \
+      --directory data/epl/sim/issuances/2026_27/2026-08-21
+[check] re-running dc_native at 2026-08-21 00:00:00 (N=20000, seed=20260611)
+[check] dc_native: PASS
+[check] dc_wdl_bridge: REFUSED — dc_wdl_bridge cannot be re-derived from this issuance: arms.json, bridge.json are missing. An issuance written before the arm sidecars existed carries no record of the fitted bridge or the Elo head, and a check that cannot rebuild the arm is not a passing check.
+[check] elo_wdl_bridge: REFUSED — elo_wdl_bridge cannot be re-derived from this issuance: arms.json, bridge.json, elo_arm.json are missing. An issuance written before the arm sidecars existed carries no record of the fitted bridge or the Elo head, and a check that cannot rebuild the arm is not a passing check.
+[check] record_digest: UNANCHORED — unanchored (pre-A6 record)
+[check] acceptance_digest: UNANCHORED — unanchored (pre-A6 record)
+[check] matchboard_anchored: UNANCHORED — unanchored (pre-A7 record)
+[check] matchboard_reproduces: UNANCHORED — unanchored (pre-A7 record)
+[check] FAIL; unanchored: acceptance_digest, dc_native.parity_reference_is_production_grid, dc_native.retained_rows_anchored, dc_native.truncation_sidecar_anchored, dc_wdl_bridge.retained_rows_anchored, dc_wdl_bridge.truncation_sidecar_anchored, elo_wdl_bridge.retained_rows_anchored, elo_wdl_bridge.truncation_sidecar_anchored, matchboard_anchored, matchboard_reproduces, record_digest
+$ echo $?
+4
+```
+
+**Narrowed to the published arm** — the run A7's pre-statement 4 is written
+about, and the run that no longer decides whether the matchboard is checked:
+
+```
+$ PYTHONPATH=src:. .venv/bin/python -m epl.simcli check \
+      --directory data/epl/sim/issuances/2026_27/2026-08-21 --arm dc_native
+[check] re-running dc_native at 2026-08-21 00:00:00 (N=20000, seed=20260611)
+[check] dc_native: PASS
+[check] record_digest: UNANCHORED — unanchored (pre-A6 record)
+[check] acceptance_digest: UNANCHORED — unanchored (pre-A6 record)
+[check] matchboard_anchored: UNANCHORED — unanchored (pre-A7 record)
+[check] matchboard_reproduces: UNANCHORED — unanchored (pre-A7 record)
+[check] PASS (7 criteria unanchored: pre-A6 record, pre-A7 record); unanchored: acceptance_digest, dc_native.parity_reference_is_production_grid, dc_native.retained_rows_anchored, dc_native.truncation_sidecar_anchored, matchboard_anchored, matchboard_reproduces, record_digest
+$ echo $?
+0
+```
+
+*Arithmetic note: the two transcripts above quote verdicts, criterion names and
+exit codes. Nothing in them is estimated, so nothing in them carries a
+Monte-Carlo error.*
+
+**A7's own fenced blocks are NOT edited, and neither are A6 (b)'s.** A7's block
+records what the command emitted on 2026-08-25 under the code as it then stood,
+with both matchboard entries namespaced `dc_native.*`; A6 (b)'s records
+2026-08-20, with nine entries and no matchboard at all. Every string in both is
+now false of the running code, and A1-C1 is why they stay: a superseded
+statement stays where it was written and is superseded rather than erased. The
+transcript-coupled test reads THIS note; two further tests hold the older two
+blocks in place unedited.

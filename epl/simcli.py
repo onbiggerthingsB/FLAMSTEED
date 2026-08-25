@@ -522,6 +522,22 @@ def forecast(*, season: str = DEFAULT_SEASON, cutoff,
         raise CliError(f"unknown arm(s) {unknown}; the arms are {list(ARMS)}")
     if not arms:
         raise CliError("no arms requested")
+    # A7 (a) + Codex r7 #1: `dc_native` is MANDATORY for an `epl-issuance-5`.
+    # The matchboard is a required sidecar of the record, it is derived from
+    # `rows_dc_native.npz` and A7 (a) gives it to no other arm — so `--arm
+    # dc_wdl_bridge` alone wrote a -5 record with no matchboard in it and no
+    # criterion able to notice, which is the required gate made optional by an
+    # option. The published arm may still be a bridge arm; what is refused is a
+    # -5 issuance that carries no `dc_native` run at all.
+    if matchboard.ARM not in arms:
+        raise CliError(
+            f"an {ISSUANCE_SCHEMA_VERSION} forecast must run the "
+            f"{matchboard.ARM!r} arm: A7 (a) makes "
+            f"{matchboard.JSON_FILENAME} a required sidecar of the record and "
+            f"gives a matchboard to no other arm, so an issuance without it "
+            f"could not be written and could not be checked. Requested "
+            f"{list(arms)}; add {matchboard.ARM!r} (it may still be published "
+            f"beside another arm via `published_arm`).")
     if published_arm not in arms:
         published_arm = arms[0]
 
@@ -1627,10 +1643,20 @@ def check_issuance(directory, *, arms: Sequence[str] | None = None,
     book = particles.ParticleBook.load(directory / "particles.npz")
 
     schema = str(record.get("schema_version") or "")
+    # A7 (b.3), RECORD-LEVEL (Codex r7 #1). The matchboard is a property of the
+    # ISSUANCE and not of an arm a caller happened to ask about: it is one file
+    # per bundle, pinned in the record, and A7 (a) gives it to `dc_native`
+    # alone. Namespaced under that arm, `check --arm dc_wdl_bridge` installed
+    # ZERO matchboard criteria and reported a bundle with both sidecars deleted
+    # as clean — the strictest check on the newest file switched off by an
+    # option. Here it cannot be narrowed away; the entries lose their `dc_native.`
+    # prefix, which is the rule showing up in the output.
     criteria = [
         _check_record_digest(directory, record, schema),
         _check_acceptance(directory, record),
         _check_acceptance_digest(directory, record, schema),
+        _check_matchboard_anchored(directory, record, schema),
+        _check_matchboard_reproduces(directory, record, schema, state),
     ]
 
     results = {arm: _check_arm(arm, directory, record, season_obj, state, book,
@@ -1763,19 +1789,53 @@ def _arm_static_criteria(arm: str, directory: Path, record: dict,
     # ...and the re-derivation, which works on every schema.
     criteria.append(_check_truncation_sidecar(arm, directory, envelope))
 
-    # A7 (b.3): EXACTLY TWO matchboard criteria, and only for the arm that has
-    # a matchboard. `check` never namespaces one to a bridge arm, which is
-    # (a)'s `dc_native`-only rule showing up in the output rather than being
-    # promised in a docstring.
-    if arm == matchboard.ARM:
-        criteria.append(_check_matchboard_anchored(directory, record, schema))
-        criteria.append(_check_matchboard_reproduces(directory, record, schema,
-                                                     state))
+    # The two matchboard criteria are NOT here. A7 (b.3) says exactly two, and
+    # they are RECORD-LEVEL (see `check_issuance`): one matchboard per bundle,
+    # unavoidable by `--arm`, and namespaced to no arm at all rather than to
+    # `dc_native`.
     return criteria, payload
 
 
-def _predates_a7(record: dict, schema: str) -> bool:
-    """Is this record older than the field the matchboard criteria hold it to?
+#: The three standings a record can have against A7's fields.
+A7_CURRENT = "current"          #: held to A7 in full
+A7_PREDATES = "predates"        #: genuinely older — the criteria go UNANCHORED
+A7_INAUTHENTIC = "inauthentic"  #: claims older, carries A7's marks — FAIL
+
+
+def _a7_markers(directory: Path, record: dict) -> list[str]:
+    """Every trace of A7 this bundle carries, whatever version it claims.
+
+    THREE PLACES, and the first of them is why (Codex r7 #3). Testing only
+    truthy digest VALUES made the leniency reachable by nulling them: a -5
+    record edited to say `-4`, with `sidecar_digests.dc_native.matchboard` set
+    to `null` and `matchboard_md` removed, while `files.dc_native` still named
+    both filenames and both files still sat in the bundle, reported UNANCHORED
+    (pre-A7) — the strictest check on the newest file switched off by deleting
+    a value. A key that is PRESENT is a marker even when its value is null,
+    because A7's own rule is that null means "there was nothing to pin" and for
+    this arm there is always something.
+    """
+    markers: list[str] = []
+    pinned = ((record.get("sidecar_digests") or {}).get(matchboard.ARM) or {})
+    for key in ("matchboard", "matchboard_md"):
+        if key in pinned:
+            markers.append(f"sidecar_digests.{matchboard.ARM}.{key}"
+                           + ("" if pinned[key] else " (null)"))
+    files = (record.get("files") or {}).get(matchboard.ARM) or []
+    markers += [f"files.{matchboard.ARM} names {name}" for name in
+                (matchboard.JSON_FILENAME, matchboard.MD_FILENAME)
+                if name in files]
+    if directory is not None and Path(directory).is_dir():
+        markers += [f"{name} is in the bundle" for name in
+                    (matchboard.JSON_FILENAME, matchboard.MD_FILENAME)
+                    if (Path(directory) / name).exists()]
+    return markers
+
+
+def _a7_standing(directory: Path, record: dict,
+                 schema: str) -> tuple[str, list[str]]:
+    """Where this record stands against the field the matchboard criteria hold
+    it to, and the evidence.
 
     NOT the schema string alone. Deciding leniency purely on the version makes
     the criterion DOWNGRADEABLE — edit `schema_version` back to `-4` and the
@@ -1783,16 +1843,29 @@ def _predates_a7(record: dict, schema: str) -> bool:
     review of `04b26a2` closed for `arms_manifest_hash` one round earlier.
     `record_digest` covers `schema_version`, but A6 (b.1) is explicit that a
     self-carried digest is a checksum against accident and not a seal against an
-    editor who updates every copy.
+    editor who updates every copy: the history is the witness, and these checks
+    are STRICT rather than sealed.
 
-    So a record that PINS a matchboard is held to it whatever version it claims,
-    and only a record that pins nothing gets the leniency that exists for
-    records written before the field.
+    So the leniency is available to ONE shape and one only — a record that
+    claims a pre-A7 version AND carries no trace of A7 anywhere. A record
+    claiming `-4` while its bundle, its `files` map or its `sidecar_digests`
+    keys show A7's marks is not an old record; it is a current one wearing an
+    old version string, and that is a FAIL rather than an absence.
     """
-    pinned = ((record.get("sidecar_digests") or {}).get(matchboard.ARM) or {})
-    if pinned.get("matchboard") or pinned.get("matchboard_md"):
-        return False
-    return schema_ordinal(schema) < A7_SCHEMA_ORDINAL
+    markers = _a7_markers(directory, record)
+    if schema_ordinal(schema) >= A7_SCHEMA_ORDINAL:
+        return A7_CURRENT, markers
+    if markers:
+        return A7_INAUTHENTIC, markers
+    return A7_PREDATES, markers
+
+
+def _inauthentic_pre_a7(name: str, schema: str, markers: list[str]) -> dict:
+    return _criterion(
+        name, "FAIL", {"schema_version": schema, "a7_markers": markers},
+        f"this record claims {schema} and carries A7: {'; '.join(markers)}. A "
+        "record that predates the matchboard has none of those; one that has "
+        "them is held to A7 whatever version string it carries")
 
 
 def _check_matchboard_anchored(directory: Path, record: dict,
@@ -1817,7 +1890,10 @@ def _check_matchboard_anchored(directory: Path, record: dict,
             "naming convention: a derivation is written OUTSIDE every bundle "
             "directory and is not part of any record (A7 (c))")
 
-    if _predates_a7(record, schema):
+    standing, markers = _a7_standing(directory, record, schema)
+    if standing == A7_INAUTHENTIC:
+        return _inauthentic_pre_a7(name, schema, markers)
+    if standing == A7_PREDATES:
         return _criterion(name, UNANCHORED,
                           {"missing_field": "sidecar_digests.matchboard",
                            "schema_version": schema}, PRE_A7_NOTE)
@@ -1864,7 +1940,10 @@ def _check_matchboard_reproduces(directory: Path, record: dict, schema: str,
     is what makes a matchboard *of these rows* rather than *shipped beside them*.
     """
     name = "matchboard_reproduces"
-    if _predates_a7(record, schema):
+    standing, markers = _a7_standing(directory, record, schema)
+    if standing == A7_INAUTHENTIC:
+        return _inauthentic_pre_a7(name, schema, markers)
+    if standing == A7_PREDATES:
         return _criterion(name, UNANCHORED, {"schema_version": schema},
                           PRE_A7_NOTE)
     path = directory / matchboard.JSON_FILENAME
