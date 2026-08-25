@@ -3442,3 +3442,33 @@ def test_the_matchboard_subcommand_refuses_to_write_into_a_bundle(issuance):
     assert "outside" in str(exc.value).lower()
     assert {p.name: p.read_bytes() for p in directory.iterdir()} == before
     assert matchboard.derived_artifacts_in(directory) == []
+
+
+def test_a_matchboard_score_refusal_is_a_STOP_not_a_traceback(issuance,
+                                                              tmp_path,
+                                                              capsys):
+    """The verifier's minor: MatchboardError was missing from main()'s caught
+    tuple, so every --score refusal — the fabricated result, the ledger
+    disagreement, the withdrawn fixture — surfaced as a raw traceback with
+    exit 1 instead of the 'STOP: <TypedError>: ...' line with exit 2 that
+    every other typed refusal gets. A refusal the operator cannot tell from a
+    crash teaches them to ignore crashes.
+    """
+    directory = Path(issuance["directory"])
+    board = json.loads((directory / matchboard.JSON_FILENAME).read_text())
+    first = board["rows"][0]
+    root = _season_carrying(tmp_path, first["fixture_id"], first["date"], 2, 1)
+
+    results = tmp_path / "results.jsonl"
+    results.write_text(json.dumps({
+        "fixture_id": first["fixture_id"], "home_goals": 99,
+        "away_goals": -7, "matchweek": "", "ingest": ""}) + "\n")
+
+    code = simcli.main(["matchboard", "--directory", str(directory),
+                        "--out", str(tmp_path / "scored"),
+                        "--score", str(results),
+                        "--season-root", str(root)])
+    err = capsys.readouterr().err
+    assert code == 2, f"exit {code}; a typed refusal exits 2, a crash exits 1"
+    assert "STOP: MatchboardError" in err
+    assert "Traceback" not in err

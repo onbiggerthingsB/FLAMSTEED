@@ -3452,3 +3452,22 @@ FAIL with exit 4 for its two REFUSED bridge arms, exactly as before.
 **v5** pair, so there is no harness v6 and no new hash pair to record. `src/`,
 `scripts/`, `site/`, `tools/` and `.github/` are untouched, and the lock chain
 was re-verified after every commit of this round.
+
+### Correction, 2026-08-25 — the Codex-round intro miscounts its own refutations
+
+The section "What landed for the Codex review of 2026-08-25" opens by saying
+all seven findings "reproduced exactly as described, against the code as it
+stood; none was refuted". Its own closing note, and the fix range's commits,
+record otherwise: finding 2's specific claim that a doctored header
+(`n_particles` 1000→9999) went uncaught was REFUTED — `6a4bf24`'s
+`_matchboard_differences` already compared header fields, and the adversarial
+re-verification of `d7cf4dd..0241c7a` confirmed the refutation statically and
+by probe. Six findings reproduced; one sub-claim was refuted; the fixes stand
+on their own probes either way. The intro above is left as written — this
+ledger corrects by dated note, not by edit.
+
+The same re-verification's second minor is fixed in code beside this note:
+`MatchboardError` joins `main()`'s caught tuple, so a `--score` refusal prints
+`STOP: MatchboardError: ...` and exits 2 like every other typed refusal,
+instead of surfacing as a raw traceback with exit 1. A refusal an operator
+cannot tell from a crash teaches them to ignore crashes.

@@ -2920,7 +2920,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "matchboard":
             return _cmd_matchboard(args)
     except (CliError, season_mod.SeasonError, leaguesim.SimError,
-            particles.ParticleError, simcanary.CanaryError) as exc:
+            particles.ParticleError, simcanary.CanaryError,
+            matchboard.MatchboardError) as exc:
         print(f"STOP: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
     return 1                                                # pragma: no cover
