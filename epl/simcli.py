@@ -1930,14 +1930,40 @@ def _check_matchboard_anchored(directory: Path, record: dict,
 
 def _check_matchboard_reproduces(directory: Path, record: dict, schema: str,
                                  state) -> dict:
-    """A7 (b.3), the SEMANTIC leg: every row re-derived from the rows npz.
+    """A7 (b.3), the SEMANTIC leg: the WHOLE published document re-derived.
 
-    Ids, ordinals, dates, club keys and counts must be EQUAL; the floating-point
-    quantities must agree to 1e-12 absolute. A tolerance rather than bit
-    equality, and the reason is stated rather than left as slack: the
-    re-derivation may sum in a different order under a different numpy build,
-    and `matchboard_anchored` is where bit-level identity is asserted. This leg
-    is what makes a matchboard *of these rows* rather than *shipped beside them*.
+    THE RE-DERIVED DOCUMENT IS THE TRUTH, and the published pair is held to it
+    in full (Codex r7 #2). Three things that leg has to do, and each of them was
+    a way through it:
+
+    1. **No non-finite value anywhere.** `NaN` defeats a tolerance comparator by
+       construction — `abs(nan - x) > tol` is False, so every comparison reports
+       "no difference" and a probability of `NaN` reproduced perfectly. It is
+       refused before anything is compared, naming the path to the field.
+
+    2. **Exact key sets at every level.** An extra `probs.odds` and an arbitrary
+       null header field were both invisible to a comparator that only looked up
+       the fields it expected. A7 (f) closes the set of published quantities;
+       this is the check that the file's set is that set.
+
+    3. **The render is re-rendered and byte-compared.** `matchboard.md` was
+       hashed and never once held against the JSON beside it, so the
+       human-readable half — the half a reader quotes — could say anything at
+       all provided its digest was re-pinned. It is a pure function of the
+       document, so it is checked as one.
+
+    The floats keep their 1e-12 absolute tolerance, and the reason is stated
+    rather than left as slack: a re-derivation may sum in a different order
+    under a different numpy build, and `matchboard_anchored` is where bit-level
+    identity is asserted. HEADER fields get no tolerance; they are counts,
+    hashes and stamps, and two spellings of one of those is a disagreement.
+
+    The render check makes the tolerance's blind spot visible rather than
+    closing it: `0.07435` renders `0.0743` and `0.0743500000001` renders
+    `0.0744`, and the nudge between them is inside 1e-12. If a genuine
+    re-derivation ever lands within 1e-12 of a rendering boundary and falls the
+    other way, this FAILs — correctly, because the two surfaces then show a
+    reader different numbers.
     """
     name = "matchboard_reproduces"
     standing, markers = _a7_standing(directory, record, schema)
@@ -1954,6 +1980,15 @@ def _check_matchboard_reproduces(directory: Path, record: dict, schema: str,
                           {"error": f"{type(exc).__name__}: {exc}"},
                           f"{matchboard.JSON_FILENAME} is missing or unreadable, "
                           "so there is nothing to hold the rows against")
+    # BEFORE any comparison: `json.loads` accepts `NaN` and `Infinity`, and a
+    # tolerance comparator cannot see either.
+    non_finite = _non_finite_paths(stored)
+    if non_finite:
+        return _criterion(
+            name, "FAIL", {"non_finite": non_finite},
+            f"{matchboard.JSON_FILENAME} carries a non-finite value at "
+            f"{', '.join(non_finite)}; a NaN compares False against everything, "
+            "so it would reproduce perfectly against any re-derivation")
     try:
         rederived = matchboard.derive(directory, record=record, state=state)
     except (matchboard.MatchboardError, season_mod.SeasonError, OSError,
@@ -1963,9 +1998,17 @@ def _check_matchboard_reproduces(directory: Path, record: dict, schema: str,
                           "the matchboard could not be re-derived from this "
                           "bundle's retained rows")
     differences = _matchboard_differences(stored, rederived)
-    passed = not (differences["header_fields"] or differences["differing_rows"])
-    return _criterion(name, "PASS" if passed else "FAIL",
-                      {"n_rows": len(rederived["rows"]), **differences})
+    render = _matchboard_render_gap(directory, rederived)
+    detail = {"n_rows": len(rederived["rows"]), "non_finite": [],
+              **differences, **render}
+    passed = not (differences["header_fields"] or differences["differing_rows"]
+                  or render["render_differs"])
+    note = ""
+    if render["render_differs"] and not (differences["header_fields"]
+                                         or differences["differing_rows"]):
+        note = (f"{matchboard.MD_FILENAME} is not a re-render of the document "
+                f"this bundle's rows produce: {render['render_first_gap']}")
+    return _criterion(name, "PASS" if passed else "FAIL", detail, note)
 
 
 #: A7 (b.3): the floats compare to this, ABSOLUTE, and the equalities compare
@@ -1973,18 +2016,92 @@ def _check_matchboard_reproduces(directory: Path, record: dict, schema: str,
 MATCHBOARD_FLOAT_TOLERANCE = 1e-12
 
 
+def _non_finite_paths(payload, path: str = "") -> list[str]:
+    """Every `NaN` or infinity in this document, as a dotted path.
+
+    `json.loads` accepts the literals `NaN`, `Infinity` and `-Infinity` by
+    default, so this is a shape a published file can actually arrive in — and it
+    is the one shape a tolerance comparator is blind to by construction.
+    """
+    out: list[str] = []
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            out += _non_finite_paths(value, f"{path}.{key}" if path else str(key))
+    elif isinstance(payload, list):
+        for index, value in enumerate(payload):
+            out += _non_finite_paths(value, f"{path}[{index}]")
+    elif isinstance(payload, float) and not math.isfinite(payload):
+        out.append(f"{path or '<root>'} = {payload!r}")
+    return out
+
+
+def _value_gaps(stored, rederived, path: str, *, tolerant: bool) -> list[str]:
+    """Every place these two values disagree, as dotted paths under `path`.
+
+    EXACT KEY SETS at every level: a field the re-derivation does not produce is
+    a difference wherever it sits, and so is one it produces that the file
+    lacks. Only that rule catches an extra `probs.odds` or a header field
+    invented by an editor, because a comparator that looks up the fields it
+    expects can only ever find the fields it expects.
+
+    `tolerant` is the 1e-12 float comparison and it applies to the ROWS. Header
+    fields are counts, hashes and stamps; two spellings of one of those is a
+    disagreement and not a rounding difference.
+    """
+    if isinstance(stored, dict) or isinstance(rederived, dict):
+        if not (isinstance(stored, dict) and isinstance(rederived, dict)):
+            return [path or "<root>"]
+        gaps: list[str] = []
+        only = sorted(set(stored) ^ set(rederived))
+        if only:
+            gaps.append(f"{path}.keys({only})" if path else f"keys({only})")
+        for key in sorted(set(stored) & set(rederived)):
+            gaps += _value_gaps(stored[key], rederived[key],
+                                f"{path}.{key}" if path else str(key),
+                                tolerant=tolerant)
+        return gaps
+    if isinstance(stored, list) or isinstance(rederived, list):
+        if not (isinstance(stored, list) and isinstance(rederived, list)):
+            return [path or "<root>"]
+        if len(stored) != len(rederived):
+            return [f"{path}(len {len(stored)}!={len(rederived)})"]
+        gaps = []
+        for index, (left, right) in enumerate(zip(stored, rederived)):
+            gaps += _value_gaps(left, right, f"{path}[{index}]",
+                                tolerant=tolerant)
+        return gaps
+    # `True == 1` in Python, so booleans are compared by identity or a flag
+    # would reproduce against the number beside it.
+    if isinstance(stored, bool) or isinstance(rederived, bool):
+        return [] if stored is rederived else [path]
+    if isinstance(stored, (int, float)) and isinstance(rederived, (int, float)):
+        if tolerant and (isinstance(stored, float)
+                         or isinstance(rederived, float)):
+            if not (math.isfinite(stored) and math.isfinite(rederived)):
+                return [path]
+            moved = abs(float(stored) - float(rederived)) > \
+                MATCHBOARD_FLOAT_TOLERANCE
+            return [path] if moved else []
+        return [] if stored == rederived else [path]
+    return [] if stored == rederived else [path]
+
+
 def _matchboard_differences(stored: dict, rederived: dict) -> dict:
-    """What a re-derivation disagrees with the published matchboard about."""
-    # EXACT equality, not `_same`. Both sides are produced by one function from
-    # one record, so there is no second spelling of a moment to forgive here —
-    # and `_same` normalises through `pd.Timestamp`, where `None` becomes `NaT`
-    # and two `NaT`s are not equal, so a header field that is legitimately null
-    # on both sides (`n_provisional` for an issuance that ran no gate) would be
-    # reported as a disagreement.
+    """What a re-derivation disagrees with the published matchboard about.
+
+    EXACT equality on the header, not `_same`. Both sides are produced by one
+    function from one record, so there is no second spelling of a moment to
+    forgive here — and `_same` normalises through `pd.Timestamp`, where `None`
+    becomes `NaT` and two `NaT`s are not equal, so a header field that is
+    legitimately null on both sides (`n_provisional` for an issuance that ran no
+    gate) would be reported as a disagreement.
+    """
     header: list[str] = []
-    for key in sorted((set(stored) | set(rederived)) - {"rows"}):
-        if stored.get(key) != rederived.get(key):
-            header.append(key)
+    only = sorted((set(stored) ^ set(rederived)) - {"rows"})
+    if only:
+        header.append(f"keys({only})")
+    for key in sorted((set(stored) & set(rederived)) - {"rows"}):
+        header += _value_gaps(stored[key], rederived[key], key, tolerant=False)
 
     stored_rows = stored.get("rows")
     stored_rows = list(stored_rows) if isinstance(stored_rows, list) else []
@@ -1995,44 +2112,40 @@ def _matchboard_differences(stored: dict, rederived: dict) -> dict:
 
     differing = []
     for left, right in zip(stored_rows, rows):
-        fields = _matchboard_row_differences(left, right)
+        fields = _value_gaps(left, right, "", tolerant=True)
         if fields:
             differing.append({"fixture_id": right["fixture_id"],
                               "fields": fields})
     return {"header_fields": header, "differing_rows": differing}
 
 
-def _matchboard_row_differences(left: dict, right: dict) -> list[str]:
-    fields: list[str] = []
-    if set(left) != set(right):
-        fields.append(f"keys({sorted(set(left) ^ set(right))})")
-    # A7 (b.3): ids, ordinals, dates, club keys and counts must be EQUAL. Only
-    # the floating-point quantities below get a tolerance, and the reason they
-    # get one is stated where it is applied.
-    for key in ("fixture_id", "fixture_ordinal", "date", "home", "away",
-                "n_sims", "n_particles"):
-        if left.get(key) != right.get(key):
-            fields.append(key)
-    for path in matchboard.ROW_FLOAT_FIELDS:
-        a, b = _dig(left, path), _dig(right, path)
-        if a is None or b is None:
-            fields.append(path)
-            continue
-        try:
-            moved = abs(float(a) - float(b)) > MATCHBOARD_FLOAT_TOLERANCE
-        except (TypeError, ValueError):
-            moved = True
-        if moved:
-            fields.append(path)
-    return fields
+def _matchboard_render_gap(directory: Path, rederived: dict) -> dict:
+    """`matchboard.md` on disk against a re-render of the re-derived document.
 
-
-def _dig(payload, path: str):
-    for part in path.split("."):
-        if not isinstance(payload, dict):
-            return None
-        payload = payload.get(part)
-    return payload
+    The render is a pure function of the document (`epl.matchboard.write` calls
+    `render_markdown` and writes exactly what it returns), so the honest check
+    is byte equality. Before this, the render was hashed and never regenerated:
+    an editor who re-pinned the digest could publish any table at all beside a
+    JSON that contradicted it, and A6 (b.1) is explicit that a self-carried
+    digest is a checksum against accident and not a seal against that editor.
+    """
+    path = directory / matchboard.MD_FILENAME
+    try:
+        published = path.read_bytes()
+    except OSError as exc:
+        return {"render_differs": True,
+                "render_first_gap": f"{type(exc).__name__}: {exc}"}
+    expected = matchboard.render_markdown(rederived).encode("utf-8")
+    if published == expected:
+        return {"render_differs": False, "render_first_gap": None}
+    left = published.decode("utf-8", "replace").splitlines()
+    right = expected.decode("utf-8", "replace").splitlines()
+    gap = f"the file has {len(left)} lines and the re-render {len(right)}"
+    for number, (a, b) in enumerate(zip(left, right), start=1):
+        if a != b:
+            gap = f"line {number}: published {a!r}, re-rendered {b!r}"
+            break
+    return {"render_differs": True, "render_first_gap": gap}
 
 
 def _check_truncation_sidecar(arm: str, directory: Path, envelope: dict) -> dict:

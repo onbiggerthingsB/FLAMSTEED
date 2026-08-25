@@ -2628,7 +2628,13 @@ def test_a_matchboard_doctored_to_preserve_every_number_still_fails(issuance):
 
 def test_an_edited_matchboard_render_fails_the_anchor(issuance):
     """`matchboard_md` is anchored too: the human-readable half is the half a
-    reader quotes."""
+    reader quotes.
+
+    Codex r7 #2 added the second leg. The render is a pure function of the
+    document, so an edit that leaves the JSON alone is now caught TWICE — by
+    the bytes, and by a re-render of the re-derivation. It was caught once, and
+    only by the digest an editor could re-pin.
+    """
     directory = _copy(issuance, "matchboard_md")
     path = directory / matchboard.MD_FILENAME
     path.write_text(path.read_text().replace(matchboard.NO_CLAIM,
@@ -2637,8 +2643,149 @@ def test_an_edited_matchboard_render_fails_the_anchor(issuance):
     anchored = _record_criterion(report, "matchboard_anchored")
     assert anchored["status"] == "FAIL"
     assert matchboard.MD_FILENAME in anchored["note"]
-    # the JSON is untouched, so the re-derivation has nothing to complain about
-    assert _record_criterion(report, "matchboard_reproduces")["status"] == "PASS"
+    reproduces = _record_criterion(report, "matchboard_reproduces")
+    assert reproduces["status"] == "FAIL"
+    assert reproduces["detail"]["render_differs"] is True
+    # the JSON is untouched, so the numbers themselves are not what moved
+    assert reproduces["detail"]["header_fields"] == []
+    assert reproduces["detail"]["differing_rows"] == []
+
+
+def _repinned(issuance, label: str, mutate=None, *, md=None) -> Path:
+    """A doctored bundle whose record has been RE-PINNED over the new bytes.
+
+    A6 (b.1) is explicit that a self-carried digest is a checksum against
+    accident and not a seal against an editor who updates every copy, so every
+    test of the SEMANTIC leg has to be that editor: re-hash both sidecars into
+    `sidecar_digests` and re-stamp `record_digest`. Otherwise
+    `matchboard_anchored` fails on the bytes and nothing is learnt about whether
+    the re-derivation would have noticed.
+    """
+    directory = _copy(issuance, label)
+    if mutate is not None:
+        path = directory / matchboard.JSON_FILENAME
+        payload = json.loads(path.read_text())
+        mutate(payload)
+        path.write_text(json.dumps(payload))
+    if md is not None:
+        md_path = directory / matchboard.MD_FILENAME
+        md_path.write_text(md(md_path.read_text()))
+
+    record_path = directory / "issuance.json"
+    record = json.loads(record_path.read_text())
+    record["sidecar_digests"]["dc_native"]["matchboard"] = simcli.sha256_file(
+        directory / matchboard.JSON_FILENAME)
+    record["sidecar_digests"]["dc_native"]["matchboard_md"] = simcli.sha256_file(
+        directory / matchboard.MD_FILENAME)
+    record_path.write_text(json.dumps(_restamp(record)))
+    return directory
+
+
+def test_a_doctored_reader_surface_does_not_reproduce(issuance):
+    """Codex r7 #2: FOUR doctorings that passed BOTH criteria.
+
+    Each one re-pins the record, so `matchboard_anchored` has nothing to say and
+    the whole question is what the re-derivation notices. Before this it noticed
+    none of them:
+
+    * a `NaN` probability — the one value that defeats a tolerance comparator by
+      construction, since `abs(nan - x) > tol` is False and every comparison
+      reports "no difference";
+    * an edited `matchboard.md`, which was hashed and never once compared with
+      the JSON beside it — so the human-readable half, the half a reader quotes,
+      could say anything at all;
+    * an extra nested field (`probs.odds` — market vocabulary A7 (f) closes the
+      set against, arriving through the one door nothing watched);
+    * an arbitrary null header field.
+    """
+    for label, kwargs in (
+            ("nan_prob", {"mutate": lambda p: p["rows"][0]["probs"].__setitem__(
+                "home", float("nan"))}),
+            ("md_edited", {"md": lambda text: text.replace(
+                matchboard.NO_CLAIM, "these numbers are accurate")}),
+            ("extra_nested", {"mutate": lambda p: p["rows"][0][
+                "probs"].__setitem__("odds", 2.5)}),
+            ("null_header", {"mutate": lambda p: p.__setitem__(
+                "vendor_note", None)})):
+        directory = _repinned(issuance, label, **kwargs)
+        report = simcli.check_issuance(directory, verbose=False)
+        assert _record_criterion(report, "matchboard_anchored")["status"] \
+            == "PASS", f"{label}: the bytes were re-pinned, so this leg passes"
+        reproduces = _record_criterion(report, "matchboard_reproduces")
+        assert reproduces["status"] == "FAIL", label
+        assert report["PASS"] is False, label
+
+    # ...and each names WHAT it caught, so the report is readable
+    nan = _record_criterion(
+        simcli.check_issuance(_repinned(
+            issuance, "nan_named",
+            mutate=lambda p: p["rows"][0]["probs"].__setitem__(
+                "away", float("inf"))), verbose=False),
+        "matchboard_reproduces")
+    assert nan["detail"]["non_finite"], "the path to the field must be named"
+    assert "probs" in nan["detail"]["non_finite"][0]
+
+
+def test_the_render_is_compared_against_a_re_render_of_the_re_derivation(
+        issuance):
+    """Codex r7 #2, the sharpest of it: `matchboard.md` is a pure function of the
+    document, and until now nothing held it to that.
+
+    A 1e-13 nudge is inside the 1e-12 tolerance the re-derivation compares to —
+    the tolerance exists because a re-derivation may sum in a different order —
+    but `0.07435` renders `0.0743` and `0.0743500000001` renders `0.0744`. So a
+    number can move on the page a reader reads while every comparator in the
+    repository reports no difference. The render is now re-rendered from the
+    RE-DERIVED document and byte-compared.
+    """
+    # the arithmetic, first, so the test is about a real boundary
+    assert f"{0.07435:.4f}" == "0.0743"
+    assert f"{0.0743500000001:.4f}" == "0.0744"
+    assert abs(0.0743500000001 - 0.07435) < simcli.MATCHBOARD_FLOAT_TOLERANCE
+
+    directory = Path(issuance["directory"])
+    board = json.loads((directory / matchboard.JSON_FILENAME).read_text())
+    published = (directory / matchboard.MD_FILENAME).read_text()
+    # POSITIVE CONTROL: the published render IS a re-render of the document.
+    assert matchboard.render_markdown(board) == published
+
+    # the nudge, at the level it lives: no difference to the comparator, a
+    # different digit on the page
+    base = copy.deepcopy(board)
+    base["rows"] = base["rows"][:1]
+    base["rows"][0]["p_marg_ge2"] = 0.07435
+    nudged = copy.deepcopy(base)
+    nudged["rows"][0]["p_marg_ge2"] = 0.0743500000001
+    gaps = simcli._matchboard_differences(nudged, base)
+    assert not gaps["header_fields"] and not gaps["differing_rows"], \
+        "1e-13 is inside the tolerance, which is the premise"
+    assert matchboard.render_markdown(nudged) != \
+        matchboard.render_markdown(base), "...and the reader sees a difference"
+
+    # and end to end: an md that is not the re-render FAILs, re-pinned or not
+    doctored = _repinned(issuance, "md_re_render",
+                         md=lambda text: text.replace("0.", "1.", 1))
+    reproduces = _record_criterion(
+        simcli.check_issuance(doctored, verbose=False), "matchboard_reproduces")
+    assert reproduces["status"] == "FAIL"
+    assert reproduces["detail"]["render_differs"] is True
+    assert reproduces["detail"]["render_first_gap"]
+
+
+def test_the_header_of_a_matchboard_is_compared_field_for_field(issuance):
+    """Not every claim survived the probe. Codex r7 #2 lists `n_particles
+    1000->9999` as uncaught; it was caught, by the header comparison that has
+    been there since A7. The test that proves it stays, because the header
+    comparison is now written differently and a claim once made about it should
+    not have to be re-derived by the next reader.
+    """
+    directory = Path(issuance["directory"])
+    board = json.loads((directory / matchboard.JSON_FILENAME).read_text())
+    doctored = copy.deepcopy(board)
+    doctored["n_particles"] = 9999
+    gaps = simcli._matchboard_differences(doctored, board)
+    assert "n_particles" in gaps["header_fields"]
+    assert gaps["differing_rows"] == []
 
 
 def test_a_deleted_matchboard_on_a_post_A7_record_fails_naming_the_file(issuance):
