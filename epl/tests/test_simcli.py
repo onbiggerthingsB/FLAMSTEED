@@ -2925,3 +2925,39 @@ def test_the_matchboard_criteria_cannot_be_switched_off_by_a_version_string(
     assert _criterion(cell, "matchboard_anchored")["status"] == "FAIL"
     assert _criterion(cell, "matchboard_reproduces")["status"] == "FAIL"
     assert report["PASS"] is False
+
+
+def test_a_derived_artifact_is_refused_inside_a_PRE_A7_bundle_too(issuance):
+    """A7 (c) is unconditional: *`check` FAILs any bundle directory that
+    contains a file matching the derived naming convention.*
+
+    A pre-A7 record is the case where it matters most. Those two criteria report
+    UNANCHORED there, and a refusal that only ran on records new enough to be
+    checked anyway would leave the oldest bundles — the ones a derivation is
+    most likely to be made FROM — the only place a derived file could quietly
+    sit and be mistaken for a sidecar.
+    """
+    directory = _copy(issuance, "derived_inside_pre_a7")
+    path = directory / "issuance.json"
+    record = json.loads(path.read_text())
+    record["schema_version"] = "epl-issuance-1"
+    for name in simcli.A6_RECORD_FIELDS:
+        record.pop(name, None)
+    path.write_text(json.dumps(record))
+    (directory / matchboard.JSON_FILENAME).unlink()
+    (directory / matchboard.MD_FILENAME).unlink()
+
+    # without the stray file: UNANCHORED, not FAIL — the leniency still works
+    clean = simcli.check_issuance(directory, verbose=False)
+    cell = clean["arms"]["dc_native"]
+    assert _criterion(cell, "matchboard_anchored")["status"] == simcli.UNANCHORED
+    assert _criterion(cell, "matchboard_anchored")["note"] == simcli.PRE_A7_NOTE
+
+    # with it: FAIL, on the oldest schema there is
+    stray = matchboard.derived_filename(SEASON, OPENER, "md")
+    (directory / stray).write_text("# not part of any record\n")
+    report = simcli.check_issuance(directory, verbose=False)
+    anchored = _criterion(report["arms"]["dc_native"], "matchboard_anchored")
+    assert anchored["status"] == "FAIL"
+    assert anchored["detail"]["derived_artifacts"] == [stray]
+    assert report["PASS"] is False
