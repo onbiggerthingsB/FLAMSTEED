@@ -230,6 +230,21 @@ def derive_rows(arrays: Mapping[str, Any], *, fixture_ids: Sequence[str],
 
     n_sims = int(particle.size)
     n_particles = int(np.unique(particle).size)
+    # A repeated ordinal is a corrupt rows file, and the row COUNT cannot see
+    # it: 380 columns with one ordinal twice and another missing still prices
+    # 380 fixtures. Two rows for one fixture is the visible half of that; the
+    # half that matters is the fixture the run priced and the board never
+    # mentions.
+    values, counts = np.unique(ordinals, return_counts=True)
+    repeated = values[counts > 1]
+    if repeated.size:
+        named = [f"{int(o)} ({fixture_ids[int(o)]})"
+                 if 0 <= int(o) < len(fixture_ids) else str(int(o))
+                 for o in repeated]
+        raise MatchboardError(
+            f"the rows repeat fixture ordinal(s) {', '.join(named)}: one column "
+            "per unplayed fixture is the npz contract, and a repeat means some "
+            "fixture the run priced has no row at all")
     order = np.argsort(ordinals, kind="stable")
 
     rows: list[dict] = []

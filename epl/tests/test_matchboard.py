@@ -730,3 +730,17 @@ def test_no_market_vocabulary_reaches_the_render_or_the_scorecard():
         assert word not in " ".join(sorted(row)).lower().replace("_", " "), word
     # POSITIVE CONTROL: the scan is not vacuous — it finds a word that IS there.
     assert "margin" in text
+
+
+def test_two_columns_claiming_one_fixture_are_refused():
+    """A rows file whose ordinals repeat is corrupt, and the count check cannot
+    see it: 380 columns with one ordinal twice and another missing still prices
+    380 fixtures. Two rows for one fixture is the visible half; a fixture the
+    run priced and the board never mentions is the half that matters.
+    """
+    scorelines = np.zeros((4, 3, 2), np.int8)
+    arrays = _arrays(scorelines, [0, 0, 1, 1], [0, 2, 2])
+    with pytest.raises(matchboard.MatchboardError) as exc:
+        matchboard.derive_rows(arrays, fixture_ids=SEASON_IDS, facts=FACTS)
+    assert "2" in str(exc.value)
+    assert "2627:echo:foxtrot" in str(exc.value)

@@ -2888,3 +2888,40 @@ def test_the_summary_names_where_the_published_per_fixture_forecast_is(issuance)
     assert matchboard.SCHEMA_VERSION in summary
     record = json.loads((directory / "issuance.json").read_text())
     assert record["sidecar_digests"]["dc_native"]["matchboard"] in summary
+
+
+def test_the_matchboard_criteria_cannot_be_switched_off_by_a_version_string(
+        issuance):
+    """The `04b26a2` lesson, applied to A7's two criteria before it can bite.
+
+    Reporting a criterion UNANCHORED purely on the schema string makes it
+    DOWNGRADEABLE: edit `schema_version` back to `-4` and the strongest check on
+    the file goes quiet. `record_digest` covers `schema_version`, but A6 (b.1)
+    is explicit that a self-carried digest is a checksum against accident and
+    not a seal against an editor who updates every copy — so the criteria look
+    at whether the record PINS a matchboard, not only at what version it claims
+    to be. A record that pins one is held to it whatever it says its version is.
+    """
+    directory = _copy(issuance, "matchboard_downgrade")
+    path = directory / "issuance.json"
+    record = json.loads(path.read_text())
+    assert record["sidecar_digests"]["dc_native"]["matchboard"]
+    record["schema_version"] = "epl-issuance-4"
+    path.write_text(json.dumps(_restamp(record)))
+
+    # untampered: still CHECKED, and still passing — the criteria did not go
+    # quiet and did not start failing honest files either
+    report = simcli.check_issuance(directory, verbose=False)
+    cell = report["arms"]["dc_native"]
+    for name in ("matchboard_anchored", "matchboard_reproduces"):
+        assert _criterion(cell, name)["status"] == "PASS", name
+    assert [e for e in report["unanchored"] if "matchboard" in e] == []
+
+    # ...and a tamper under the downgraded version is still caught
+    _edit_json(directory / matchboard.JSON_FILENAME,
+               lambda p: p["rows"][0]["probs"].__setitem__("home", 0.99))
+    report = simcli.check_issuance(directory, verbose=False)
+    cell = report["arms"]["dc_native"]
+    assert _criterion(cell, "matchboard_anchored")["status"] == "FAIL"
+    assert _criterion(cell, "matchboard_reproduces")["status"] == "FAIL"
+    assert report["PASS"] is False

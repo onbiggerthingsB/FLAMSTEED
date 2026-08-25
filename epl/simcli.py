@@ -1774,6 +1774,27 @@ def _arm_static_criteria(arm: str, directory: Path, record: dict,
     return criteria, payload
 
 
+def _predates_a7(record: dict, schema: str) -> bool:
+    """Is this record older than the field the matchboard criteria hold it to?
+
+    NOT the schema string alone. Deciding leniency purely on the version makes
+    the criterion DOWNGRADEABLE — edit `schema_version` back to `-4` and the
+    strongest check on the file goes quiet — which is the defect the Codex
+    review of `04b26a2` closed for `arms_manifest_hash` one round earlier.
+    `record_digest` covers `schema_version`, but A6 (b.1) is explicit that a
+    self-carried digest is a checksum against accident and not a seal against an
+    editor who updates every copy.
+
+    So a record that PINS a matchboard is held to it whatever version it claims,
+    and only a record that pins nothing gets the leniency that exists for
+    records written before the field.
+    """
+    pinned = ((record.get("sidecar_digests") or {}).get(matchboard.ARM) or {})
+    if pinned.get("matchboard") or pinned.get("matchboard_md"):
+        return False
+    return schema_ordinal(schema) < A7_SCHEMA_ORDINAL
+
+
 def _check_matchboard_anchored(directory: Path, record: dict,
                                schema: str) -> dict:
     """A7 (b.3), the BIT-LEVEL leg: the two files hash to what the record pins.
@@ -1796,7 +1817,7 @@ def _check_matchboard_anchored(directory: Path, record: dict,
             "naming convention: a derivation is written OUTSIDE every bundle "
             "directory and is not part of any record (A7 (c))")
 
-    if schema_ordinal(schema) < A7_SCHEMA_ORDINAL:
+    if _predates_a7(record, schema):
         return _criterion(name, UNANCHORED,
                           {"missing_field": "sidecar_digests.matchboard",
                            "schema_version": schema}, PRE_A7_NOTE)
@@ -1843,7 +1864,7 @@ def _check_matchboard_reproduces(directory: Path, record: dict, schema: str,
     is what makes a matchboard *of these rows* rather than *shipped beside them*.
     """
     name = "matchboard_reproduces"
-    if schema_ordinal(schema) < A7_SCHEMA_ORDINAL:
+    if _predates_a7(record, schema):
         return _criterion(name, UNANCHORED, {"schema_version": schema},
                           PRE_A7_NOTE)
     path = directory / matchboard.JSON_FILENAME
