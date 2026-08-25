@@ -172,8 +172,7 @@ def _openfootball_line(home: str, away: str, hg: int, ag: int) -> str:
 
 
 def test_cli_refuses_dirty_ledger_conflict(tmp_path):
-    root = tmp_path / "season"
-    shutil.copytree(season_mod.SEASON_ROOT, root)
+    root = _season_copy(tmp_path)
     ledger = root / "2026_27" / "results_ledger.jsonl"
     ledger.write_text(json.dumps({
         "fixture_id": "2627:arsenal:coventry", "date_played": "2026-08-21",
@@ -227,8 +226,7 @@ def test_cli_refuses_dirty_ledger_conflict(tmp_path):
     # ... and the whole appended line is byte-reproducible, which is what a
     # controlled clock buys: a second identical ingest into a fresh ledger
     # writes the same bytes.
-    again = tmp_path / "season2"
-    shutil.copytree(season_mod.SEASON_ROOT, again)
+    again = _season_copy(tmp_path, "season2")
     (again / "2026_27" / "results_ledger.jsonl").write_text(before)
     assert simcli.main(["ingest-results", "--season", SEASON, "--root", str(again),
                         "--openfootball-file", str(fresh), "--write",
@@ -238,8 +236,7 @@ def test_cli_refuses_dirty_ledger_conflict(tmp_path):
 
 
 def test_ingest_manual_rows_validate_and_append(tmp_path):
-    root = tmp_path / "season"
-    shutil.copytree(season_mod.SEASON_ROOT, root)
+    root = _season_copy(tmp_path)
     ledger = root / "2026_27" / "results_ledger.jsonl"
 
     good = tmp_path / "manual.jsonl"
@@ -277,8 +274,7 @@ def test_manual_ingest_refuses_a_bad_stamp_at_WRITE_time(tmp_path):
 
     Both levels: the run-wide `--observed-at`, and a row's own override.
     """
-    root = tmp_path / "season"
-    shutil.copytree(season_mod.SEASON_ROOT, root)
+    root = _season_copy(tmp_path)
     ledger = root / "2026_27" / "results_ledger.jsonl"
     before = ledger.read_text()
 
@@ -1587,9 +1583,24 @@ def _run_with_flagged_fixture(run):
 # the refreshed source carries (`live-ingest.md` #2 #3, `live-forecast.md` #2)
 # ==========================================================================
 
-def _season_copy(tmp_path) -> Path:
-    root = tmp_path / "season"
+def _season_copy(tmp_path, name: str = "season") -> Path:
+    """A writable copy of `epl/season/` with its LIVE ledgers reset to empty.
+
+    Isolation runs both ways. The copy protects the repo from the tests;
+    resetting the ledgers protects the tests from the repo — these tests were
+    written against a virgin season, and when MW1's real results entered the
+    tracked ledger (2026-08-25) every synthetic row collided with a real one.
+    A season that fills up weekly for nine months must not be able to break a
+    test about ingest mechanics.
+    """
+    root = tmp_path / name
     shutil.copytree(season_mod.SEASON_ROOT, root)
+    for season_dir in root.iterdir():
+        if season_dir.is_dir():
+            for ledger in ("results_ledger.jsonl", "kickoff_amendments.jsonl"):
+                path = season_dir / ledger
+                if path.exists():
+                    path.write_text("")
     return root
 
 
@@ -1740,8 +1751,7 @@ PROBE_FIXTURE = "2627:arsenal:coventry"
 @pytest.fixture(scope="module")
 def leaked_season(tmp_path_factory) -> season_mod.Season:
     """The real season with ONE result filed after the knowledge bound."""
-    root = tmp_path_factory.mktemp("probe") / "season"
-    shutil.copytree(season_mod.SEASON_ROOT, root)
+    root = _season_copy(tmp_path_factory.mktemp("probe"))
     (root / "2026_27" / "results_ledger.jsonl").write_text(json.dumps({
         "fixture_id": PROBE_FIXTURE, "date_played": "2026-08-24",
         "hg": 5, "ag": 0, "source": "manual",

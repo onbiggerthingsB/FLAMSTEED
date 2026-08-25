@@ -86,9 +86,23 @@ def _vendored_path() -> Path:
 
 @pytest.fixture()
 def season_root(tmp_path: Path) -> Path:
-    """A writable copy of `epl/season/`, so ledger tests never touch the repo."""
+    """A writable copy of `epl/season/` with its LIVE ledgers reset to empty.
+
+    Isolation has to run both ways. The copy protects the repo from the tests;
+    resetting the ledgers protects the tests from the repo — these tests were
+    written against a virgin season, and once MW1's real results entered the
+    tracked ledger (2026-08-25), every synthetic row here collided with a real
+    one (`ledger holds 3-0, ... says 2-1`). A season that fills up weekly for
+    nine months must not be able to break a test about ingest mechanics.
+    """
     dst = tmp_path / "season"
     shutil.copytree(season_mod.SEASON_ROOT, dst)
+    for season_dir in dst.iterdir():
+        if season_dir.is_dir():
+            for ledger in ("results_ledger.jsonl", "kickoff_amendments.jsonl"):
+                path = season_dir / ledger
+                if path.exists():
+                    path.write_text("")
     return dst
 
 
