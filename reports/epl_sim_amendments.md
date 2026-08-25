@@ -2562,3 +2562,544 @@ Every test issuance in the suite runs no gate or the fast gate, so none of them
 can `check` PASS any more — which is finding 7 working. Those tests now assert
 what is true: every arm reproduces, and the only thing standing between the
 bundle and a pass is the gate it cannot show.
+
+---
+
+## A7 — the per-fixture matchboard: the published forecast the record already named (2026-08-25)
+
+**Decisions amended:** two, both named.
+(i) the published surface set of plan v2 — what an issuance bundle *contains*, and
+what `check` holds it to — as that stands at `epl-issuance-4` after A6 (b);
+(ii) the sentence acceptance criterion 3 prints on PASS (`epl/simcli.py:1358`),
+which names a *published per-fixture forecast* this project does not publish.
+**(f) amends nothing.** It draws a boundary around a field set rather than moving
+one, and is written down for the reason A6 (c) gives: a rule stated nowhere is a
+rule a later commit cannot be held to.
+**Status of the amendment when written:** not a line of `epl/` has changed under
+this ruling, and **no matchboard exists anywhere in this repository** — not in a
+bundle, not in `reports/`, not in a branch. `epl/simretro.py` and
+`epl/simmetrics.py` still hash to the **v5** pair (`d64bef11…`, `b03d4fbc…`), the
+last pair `epl/retro_harness_versions.json` records and the pair the running files
+produce. `ISSUANCE_SCHEMA_VERSION` is `epl-issuance-4`. The opener bundle at
+`data/epl/sim/issuances/2026_27/2026-08-21/` is untouched: its three per-arm run
+digests were recomputed from the files on disk on 2026-08-25 and equal the
+record's `digests` map (`3a40110c…`, `5d3dad2d…`, `04bda8e4…`). The working tree
+at `89d3d58` carried nothing but this entry when it was written.
+
+*Arithmetic note: every probability in this entry is an exact ratio of counts over
+one fixed sample of 20,000 retained simulated seasons — a count divided by 20,000,
+not an estimate re-drawn here — and every standard error beside one is the
+project's cluster-by-particle formula (plan v2 D15) evaluated on that same sample.
+Those SEs are Monte-Carlo error and nothing else; they say nothing about model
+error. The scores quoted in observation (c) are quoted from
+[`reports/epl_walkforward.md`](epl_walkforward.md) and from `site/market-test.html`
+and carry whatever error those documents record beside them; none is recomputed
+here. Every hash, count and date is exact.*
+
+### The observation
+
+#### (a) The record's own sentence names a surface that does not exist
+
+On PASS, `marginal_parity` prints (`epl/simcli.py:1358`):
+
+> simulated per-fixture marginals ARE the published per-fixture forecast
+
+and the shipped opener carries that sentence, verbatim, in its own `summary.md`
+(line 53), beside **PASS** and **14,225** compared cells over **380** fixtures,
+worst cell `3.865σ`. The criterion is sound and the sentence is the strongest
+claim the acceptance gate makes — A3 says so in as many words: it is what
+distinguishes *the marginals **are** the forecast* from *they resemble it*.
+
+The trouble is the object at the end of it. **There is no published per-fixture
+forecast.** What an issuance publishes is `output_<arm>.json` — a 20×20 position
+matrix, the consequence state, the cut lines, the `mc` block — plus `envelope.json`,
+`limitations.md`, `rows_<arm>.npz` and `excluded_mass_<arm>.json`. The per-fixture
+law the criterion compares against is production's own grid, computed at check
+time and never written down for a reader. So the sentence is true of an internal
+comparison and false as a description of the bundle, and it has stood in the
+shipped `summary.md` since that file was written on 2026-08-19.
+
+The gap was found by the 2026-08-21 final-state reviews — the round A6 rules on —
+and it was **left unruled**: A6's table records fifteen findings and rules on the
+four the owner asked for, and this one is not among the fifteen. It has therefore
+been sitting in the record for four days as a sentence nobody has either made true
+or withdrawn.
+
+#### (b) The bar moved, and the instruction is explicit
+
+On **2026-08-22** the owner redefined what would satisfy this project: **accuracy
+parity with the World Cup edition**, and explicitly **not** beating the internal
+accuracy benchmark. In this session the owner instructed, verbatim: *"build the
+per match surface for epl"*, in the World Cup style.
+
+Those two sentences settle the shape of the answer and not merely that there
+should be one. The World Cup edition already published a per-match surface —
+`reports/live_scorecard_final.json`, 104 rows, one per match, rendered by
+`tools/gen_plate1.py` as one mark per match — and "parity" is only checkable
+against a surface built to the same specification.
+
+#### (c) The measured record this surface would stand on
+
+[`reports/epl_walkforward.md`](epl_walkforward.md), 2,280 matches over six
+seasons, priced weekly at a frozen configuration chosen before any of them were
+seen:
+
+| | mean normalised RPS |
+|---|---:|
+| Dixon-Coles, this architecture | **0.201942** |
+| walk-forward Elo + ordered logit | **0.203114** |
+| the internal accuracy benchmark | **0.195418** |
+
+The preregistered pass rule is **NOT MET** and the verdict is **INCONCLUSIVE
+(precise null)**: Δ = −0.001172 against Elo, 95% block-bootstrap
+[−0.002809, +0.000466], where PASS required Δ ≤ −0.0034 and hi < 0. The distance
+behind the benchmark is **+0.006525** [+0.004099, +0.008982]. The benchmark column
+is what that report defines as an internal accuracy benchmark and states is never
+displayed publicly, never turned into a signal and never sized; §11 of it is the
+citation for every figure in this table.
+
+The World Cup edition's published distance is **about 0.010** — `site/market-test.html`
+carries it as its headline figure, with `0.01018` in the body.
+
+**So the EPL edition is at or inside the World Cup edition's published distance,
+on 2,280 matches against the World Cup's 217.** That is the entire strength of the
+case for building this surface, and it is a *retrospective* strength: it is a
+walk-forward record over finished seasons, not a live scored one, and it licenses
+publishing a forecast, not believing it. Which is what makes (a) urgent rather
+than tidy — the sentence already claims a surface, the bar now asks for one, and
+the honest order is the surface first and the claim afterwards, earned.
+
+### The ruling (owner, 2026-08-25) — pre-stated before the code
+
+#### (a) The matchboard sidecar
+
+**Every issuance written from here on publishes `matchboard_dc_native.json`**, a
+required sidecar, derived **deterministically from `rows_dc_native.npz` of the
+same bundle** and from nothing else. It is **never re-priced**: not from the
+particles, not from a fresh grid, not from `draw_api.production_grid`. The 38 of
+380 opener fixtures that carried provisional widening (`n_provisional: 38` in the
+opener's own acceptance record) are the standing proof of why — the widening is in
+the retained rows and in no grid a later reader can rebuild, so a re-priced
+matchboard would silently publish a different law from the one the run issued.
+
+**`dc_native` only.** A6 (d) records that a bridge arm inverts `u[0]` against a
+three-cell H/D/A CDF and then draws its **scoreline** from the bridge's
+conditional (`epl/bridge.py:454`, `:607`). Its 1X2 is that fixture's own law; its
+scorelines are a league-wide conditional wearing that fixture's name, and every
+margin field below is computed from scorelines. A surface with three meaningful
+columns and four decorative ones is worse than no surface, so the bridge arms get
+no matchboard at all rather than a partial one. There is no `matchboard_<arm>.json`
+for any arm but the published native arm, and `check` never namespaces a matchboard
+criterion to a bridge arm.
+
+**One row per unplayed fixture**, in `fixture_ordinal` order, each carrying:
+
+| field | what it is |
+|---|---|
+| `fixture_id` | the stable date-free id (`epl/season.py:171`), e.g. `2627:arsenal:coventry` |
+| `fixture_ordinal` | the rank of that id among the season's 380 **sorted** fixture ids — the npz column contract (`epl/leaguesim.py:37`) made readable |
+| `date` | the kickoff DAY the season knew at `observed_by`, after `kickoff_amendments`; the same field name the World Cup row uses |
+| `home`, `away` | the two club keys, in the fixture's own orientation |
+| `probs` | `{"home", "draw", "away"}` — the WC row's own object, so a WC-shaped reader needs no translation |
+| `probs_se` | `{"home", "draw", "away"}`, cluster-by-particle |
+| `e_margin`, `e_margin_se` | see the semantics below |
+| `p_marg_ge2`, `p_marg_ge3`, `p_marg_ge4` | see the semantics below |
+| `p_marg_ge2_se`, `p_marg_ge3_se`, `p_marg_ge4_se` | cluster-by-particle |
+| `n_sims`, `n_particles` | the counts **this row** was computed from — a per-row count is what makes a short or truncated row detectable |
+
+**The World Cup semantics, stated here because the code that defined them is no
+longer importable.** `scripts/live_scorecard_final.py` imports `score_fixtures`,
+`grid_to_1x2`, `grid_margin_stats` and `favorite_band_reliability` from
+`wcmodel.model.calibration`; **none of the four is in that module at HEAD**
+(`from wcmodel.model.calibration import score_fixtures` raises `ImportError`,
+checked 2026-08-25). An implementer told to "match the World Cup" therefore cannot
+run the World Cup's code. The semantics are pinned instead from the generator as
+git records it at **`f374841`** and from the published artifact
+`reports/live_scorecard_final.json`, and they are:
+
+* **`margin` is UNSIGNED: `|home_goals − away_goals|`.** A draw has margin 0. The
+  quantity names no side and is not the winner's margin signed by who won.
+  Verified against the published artifact: all 24 drawn matches of the 104 carry
+  `realized_margin == 0` and no row is negative.
+* **`e_margin = E|home − away|`.** In the World Cup it is `Σ_{i,j} |i−j| · p[i,j]`
+  over the scoreline grid — an exact sum over a grid. **On the matchboard it is
+  the mean of `|hg − ag|` over that fixture's retained simulated scorelines** —
+  the same functional, estimated from the rows rather than integrated over a
+  grid. That is why the matchboard's carries an MC SE and the World Cup's did not,
+  and the difference is stated rather than papered over.
+* **`p_marg_ge_k = P(|home − away| ≥ k)`** for k = 2, 3, 4 — in the World Cup the
+  grid mass on cells with `|i−j| ≥ k`; on the matchboard the fraction of that
+  fixture's retained scorelines with `|hg − ag| ≥ k`. The three events are
+  **nested**, so the chain is monotone by construction on any one sample.
+* **`realized_margin = |hg − ag|`** — the scorecard's realised column, not a
+  matchboard field; it belongs to (e).
+
+**Every SE is cluster-by-particle** (plan v2 D15):
+`sqrt(Σ_s (m_s − p)² / (S(S−1)))` over the S per-particle means, where a particle's
+`m_s` is the statistic over that particle's own simulated seasons. A binomial SE
+computed as if 20,000 seasons were 20,000 independent draws is **not** this
+project's SE and is a FAIL of the derivation, not a rounding difference: the
+opener's rows are 1,000 particles used exactly 20 times each, and the clustering
+is the whole reason the number is honest.
+
+**A header block** on the same file, naming the run the rows came from: `season`,
+`arm`, `cutoff`, `observed_by`, `seed`, `chunk_size`, `n_sims`, `n_particles`,
+`n_fixtures`, the source npz filename, `effective_posterior_hash`, the record's
+`digests["dc_native"]`, and the three provenance digests the envelope already
+carries and which anchor the names and dates this surface prints —
+`manifest_sha256`, `fixtures_base_sha256`, `kickoff_amendments_sha256`.
+`n_fixtures` **must equal the record's `n_unplayed`**, and a disagreement is a
+FAIL: a matchboard that prices a different number of fixtures than the run had is
+not the run's matchboard. `schema_version` is `epl-matchboard-1`.
+
+**A companion `matchboard.md`** renders it in the house voice and carries the
+standing limitations language, in these terms and not softer ones: *these numbers
+carry no accuracy claim; the claim is earned by the live scored record or not at
+all.* It also states, on the same page, that the law is one arm's, that scorelines
+are truncated at 10 goals under D11 v1.0.1 (A1) with the tail discarded, and how
+many of the fixtures carried provisional widening.
+
+#### (b) Anchoring — the matchboard joins the G3 regime
+
+The matchboard is a sidecar and is held exactly as A6 (b.2) holds the other two.
+
+1. **Its digest enters the record.** `sidecar_digests["dc_native"]` gains
+   `"matchboard"` (the SHA-256 of `matchboard_dc_native.json` as written) and
+   `"matchboard_md"` (the same for `matchboard.md`), beside the existing `rows`
+   and `excluded_mass`. `files["dc_native"]` gains both filenames, so
+   `record_digest` covers the fact that they were published at all.
+2. **It is written through the staged path.** Both files are written into the
+   staging directory outside the season's issuance folder and moved into place in
+   the one step the A6 (b) landed note installs, before `summary.md` and well
+   before `issuance.json`. A half-written matchboard is never a candidate for
+   anything.
+3. **`check` re-derives it from the rows.** Two criteria, and exactly two:
+   * **`matchboard_anchored`** — recomputes both SHA-256s from the files on disk
+     and requires them to equal `sidecar_digests["dc_native"]["matchboard"]` and
+     `["matchboard_md"]`. This is the bit-level statement, and it is the only leg
+     that can catch a doctored file which preserves every quantity a
+     recomputation would check.
+   * **`matchboard_reproduces`** — reads `rows_dc_native.npz`, re-derives every
+     row and every field of the matchboard from it, and compares. Ids, ordinals,
+     dates, club keys and counts must be **equal**; the eleven floating-point
+     quantities per row must agree to **1e-12 absolute**. A tolerance rather than
+     bit equality, and the reason is stated rather than left as slack: the
+     re-derivation may sum in a different order under a different numpy build,
+     and `matchboard_anchored` is where bit-level identity is asserted. This leg
+     is the semantic one — it is what makes a matchboard *of these rows* rather
+     than *shipped beside them*.
+
+   A **tampered** matchboard fails `matchboard_anchored`, and fails
+   `matchboard_reproduces` too whenever the tampering touched a number. A
+   **deleted** matchboard on a record whose schema requires one is a **FAIL**
+   naming the missing file — never a silent pass and never an `UNANCHORED`.
+4. **Mandatory from `epl-issuance-5`.** The matchboard fields arrive with the
+   schema bump, on A6 (b)'s own pattern: mandatory from `-5` on, and a `-5` record
+   missing one **FAILs** the criterion it anchors, naming the field. Nothing is
+   renamed and nothing is removed. A6's landed distinction between *absent* and
+   *present-and-`null`* does **not** rescue anything here: `null` is the issuer
+   saying there was nothing to pin, and for `dc_native` there is always something
+   to pin — an issuance whose season has no unplayed fixtures left writes a
+   matchboard with `n_fixtures: 0` and an empty row array, which is present. A
+   `-5` record carrying `matchboard: null` is a **FAIL**.
+
+#### (c) Pre-A7 records, and the one derivation that is allowed
+
+**A pre-A7 record has no matchboard by construction**, and `check` says exactly
+that: `matchboard_anchored` and `matchboard_reproduces` both report
+**`UNANCHORED`** with a **new** note, `PRE_A7_NOTE = "unanchored (pre-A7 record)"`,
+distinct from `PRE_A6_NOTE`. Never FAIL. This is A6 (b)'s fourth verdict used for
+the thing it was built for — *the record predates the field this criterion is held
+against* — and it carries A6's consequences unchanged: an `UNANCHORED` criterion
+is not a passing criterion, and it forces `fully_anchored` false.
+
+**The opener is never retrofitted.** `data/epl/sim/issuances/2026_27/2026-08-21/`
+is not re-issued, not re-run, not edited, and no matchboard is written into it.
+Computing one now and filing it inside the bundle would be the record anchoring
+itself after the fact, which is the one thing this ledger exists to prevent.
+
+**A derivation from a preserved pre-A7 bundle is permitted, as a labelled DERIVED
+artifact and not as part of the record.** It is written **outside** every bundle
+directory — `reports/epl_matchboard_<season>_<cutoff>_derived.json` and `.md` —
+and it must carry `"derived": true`, the source bundle path, `"derived_at"`, and
+the source bundle's **recorded** hashes copied from its record. Its `.md` states
+on its first line that it is derived after the fact from a preserved bundle and is
+not part of that bundle's record. **`check` FAILs any bundle directory that
+contains a file matching the derived naming convention**, so a derived artifact
+can never drift into a bundle and be mistaken for a sidecar.
+
+#### (d) What the MW0 derivation actually inherits — provenance, stated exactly
+
+A matchboard derived today from the opener bundle inherits **two different kinds
+of provenance**, and A7 names both rather than collapsing them into one word.
+
+**What is anchored pre-kickoff.** Four content hashes were recorded in a tracked
+file before a ball was kicked: `effective_posterior_hash`
+`b87c4a17cd4ce867a6e92447d214ba3454dcc3376c2da85b85dbc09862cb1b61`, the bridge
+hash `cb1597ee…`, the `dc_native` numbers digest `922040b2…` and the `dc_native`
+run digest `3a40110c…`. They stand in
+[`reports/epl_sim_issuance_2026-08-21.md`](epl_sim_issuance_2026-08-21.md), first
+committed at **`9478e71`** on **2026-08-19 16:15:58 +0800** — two days before the
+2026-08-21 cutoff and before any 2026/27 result existed (`n_played: 0`). That
+commit is the checkable pre-kickoff anchor, and it is checkable because the file
+is in git. Re-verified 2026-08-25: all three per-arm run digests recompute from
+the bundle on disk and equal the record's `digests` map.
+
+**What is NOT anchored, and must not be described as if it were.**
+`rows_dc_native.npz` — the file a matchboard is derived from — **is covered by no
+hash recorded before kickoff.** `data/` is gitignored, so the bundle is not in
+this repository's history at all; the record is `epl-issuance-1` and carries no
+`sidecar_digests`; and A6 (b.5) pre-stated, and the G3 landed note then measured,
+`dc_native.retained_rows_anchored → UNANCHORED (pre-A6 record)`. What the rows
+have instead is **reproduction**: `retained_rows_reproduce` re-runs the arm and
+compares all ten arrays element for element, and the A6 (b) landed note records it
+passing for this bundle. So the derivation inherits **pre-kickoff provenance for
+the law** (the posterior hash and run digest recorded at `9478e71`) and
+**reproduction-based provenance for the rows**. A derived artifact's own text, and
+any scorecard row that cites it, must say both — and must not call the rows
+anchored.
+
+**For the record and explicitly not as an anchor:** `sha256(rows_dc_native.npz)`
+as the file stands on 2026-08-25 is
+`c6906778cd8eacf564d35a1a00e59adec85881bb64f04eed7ee6cb9bb27c42f8`. It is written
+here so a later reader can tell whether the file moved after this entry. It is
+being recorded **after** kickoff and does not become a pre-kickoff anchor by
+appearing in this ledger.
+
+**One claim is refused entry.** It was put to this entry that the four hashes were
+also vault-pushed at commit `426eed7`. **That object is not in this repository** —
+`git log --all` finds no such commit and no vault checkout is present here — so it
+is not entered into the record. `9478e71` is, because it can be checked from this
+history by anyone who reads this line.
+
+#### (e) Scoring — the matchboard scorecard ledger
+
+**A matchboard scorecard ledger accumulates the live scored record**, appended
+**per matchweek, after the results have entered the season ledger** and never
+before. One row per scored fixture, carrying the forecast, the realised outcome,
+and enough provenance to find the bundle that priced it: `fixture_id`, `date`,
+`home`, `away`, the `probs` as issued, the issuance's `season`, `cutoff`,
+`observed_by` and `digests["dc_native"]`, the realised `outcome` and
+`realized_margin` (`|hg − ag|`, as in (a)), the matchweek, and the RPS columns
+below. Joined with its matchboard row it is field-for-field a World Cup scorecard
+row.
+
+* **Per-fixture RPS** against the realised outcome, over the ordered outcomes
+  `(home, draw, away)`, by this project's own literal:
+  `RPS = (1/(r−1)) Σ_{i=1..r−1} (CP_i − CO_i)²` with `r = 3`.
+* **A uniform-baseline column** beside it: the same RPS for `(1/3, 1/3, 1/3)`.
+  Exactly, and pre-stated as arithmetic the implementation must reproduce:
+  **5/18 = 0.277778** for a home or away result and **1/9 = 0.111111** for a draw.
+* **No pass rule.** None. This ledger reports; it decides nothing, triggers
+  nothing and gates nothing. A live record that is allowed to fire a rule is a
+  rule that will be explained away the first time it fires.
+* **No benchmark column on this surface**, per (f).
+* **A row is admissible only if the forecast preceded the kickoff.** The
+  issuance's `cutoff` and `observed_by` must both be at or before the fixture's
+  kickoff as the season knew it, and the row records all three so a reader can
+  check the ordering rather than trust it. This is the World Cup edition's own PIT
+  discipline restated for a league season.
+* **The margin fields are reported as reliability, not as a score**: predicted
+  mean against realised frequency, in the shape the World Cup's own blowout-tails
+  table used, and labelled as a comparison rather than a proper score — because
+  that is what it is.
+* The ledger is **append-only**, and each row records the matchweek and the ingest
+  that supplied the result.
+
+#### (f) The margin-quantity boundary
+
+`e_margin`, `p_marg_ge2`, `p_marg_ge3` and `p_marg_ge4` are published on the
+matchboard as **World-Cup-parity fields**, under the owner's 2026-08-22
+instruction, and for no other reason. **They are a closed set of four.** Adding a
+fifth quantity is a new amendment, not an implementation detail.
+
+The product line's standing vocabulary rule otherwise stands, and this ruling
+narrows rather than loosens it. Not permitted on the matchboard, its render, its
+scorecard ledger, or any surface derived from them: prices or returns of any kind;
+total-goals or threshold fields; both-teams-to-score; a correct-score list; and
+**no benchmark comparison column** — the accuracy benchmark of observation (c)
+belongs to the internal walk-forward record and stays there, exactly as
+[`reports/epl_walkforward.md`](epl_walkforward.md) says it does.
+
+### The rationale
+
+**The sentence came first, and that is the defect.** `marginal_parity` has been
+telling every reader of a published `summary.md` that the simulated per-fixture
+marginals *are* the published per-fixture forecast, while the bundle published no
+such thing. There were two honest repairs — publish the surface, or withdraw the
+sentence — and one dishonest one, which is to leave it. The owner's instruction
+picks the first, and picking it changes the sentence from a claim about a missing
+object into a claim about a file `check` can re-derive.
+
+**Deriving from the rows is not a convenience, it is the only correct source.**
+The engine already retains every simulated scoreline; the 38 provisionally widened
+opener fixtures exist only in those rows; and A1 records that production truncates
+at 10 goals and discards the tail. Re-pricing from particles or from a fresh grid
+would publish a law nobody issued, and it would do it invisibly, because the two
+laws agree almost everywhere. The rows are the run. Anything else is a
+reconstruction wearing the run's name — which is exactly the objection A6 (d)
+raises against putting a bridge arm's scorelines on a per-fixture surface, and the
+same objection is why (a) is `dc_native` only.
+
+**The anchoring is A6's argument applied to one more file.** A6 found six coats on
+one defect: *a check whose inputs are chosen by the thing being checked.* A
+matchboard is precisely the kind of file that invites the seventh coat — a
+derived, human-readable artifact that no digest covers and that a reader trusts
+because it looks like output. Putting it under `sidecar_digests` and under a
+re-derivation on the way in costs one schema bump and closes it before it opens.
+
+**`UNANCHORED` for pre-A7 records, for A6's reasons verbatim.** Passing the new
+criteria vacuously on old records turns the leniency into the hole it exists to
+avoid; failing old records for lacking a file that did not exist when they were
+written says the published issuance is wrong, and it is not. The third answer —
+*this criterion had nothing to hold this record against* — is the true one, and
+A6 already built the verdict that says it.
+
+**Naming what the MW0 rows do and do not inherit is the whole point of (d).** It
+would have been easy, and wrong, to write that a matchboard derived from the
+opener "inherits pre-kickoff provenance through the hash chain". Part of it does:
+the law is anchored, in git, two days early, and that is a real and unusual
+guarantee. The rows are not, because `data/` is not in git and the record predates
+`sidecar_digests` — they are *reproducible*, which is a different and weaker
+statement that this project can make honestly and should make in those words. An
+entry that blurred the two would have been the ledger manufacturing an anchor for
+a file the record explicitly reports as unanchored.
+
+**No pass rule on the live ledger, deliberately.** The satisfaction bar is
+accuracy parity with the World Cup edition. A live per-fixture record is how that
+is eventually answered, and the temptation, once a number exists, is to let it
+decide something. The World Cup edition's own scorecard leads with the honesty
+rule — n = 104 gives wide intervals, the scorecard informs a decision and never
+triggers one — and a Premier League matchweek is ten matches. Parity of surface
+here means parity of restraint too.
+
+### What is pre-stated
+
+Fixed here, before the code exists and before any matchboard exists anywhere.
+
+**1. The MW0 control, as exact counts.** Recomputed a **third** time on
+2026-08-25, independently, from `rows_dc_native.npz` of the opener bundle:
+`fixture_ordinals` column **5**, which is the rank of `2627:arsenal:coventry`
+among the season's 380 sorted fixture ids. Over **n = 20,000** retained simulated
+seasons (**1,000** particles, each used exactly **20** times, min = max = 20):
+
+| outcome | count | probability | exact | cluster-by-particle SE |
+|---|---:|---:|---:|---:|
+| home | **15,278** | **0.763900** | 7639/10000 | 0.003511 |
+| draw | **3,235** | **0.161750** | 647/4000 | 0.002800 |
+| away | **1,487** | **0.074350** | 1487/20000 | 0.002006 |
+
+The three counts sum to 20,000 exactly.
+
+**A rounding trap, recorded because it would otherwise be built into a test.**
+This session's two earlier pre-kickoff computations are carried into this entry as
+**H 0.7639 / D 0.1618 / A 0.0743**. The first two are those probabilities rounded
+to four places; **the third is `0.074350` truncated, not rounded** — round-half-up
+gives **0.0744**. And the draw cell sits *exactly* on the four-place boundary
+(`0.161750`). The three computations do not disagree about any number; they
+disagree about how one of them is printed. **So the control is asserted on the
+counts, or on the probabilities to 1e-9 — never on a rendered four-decimal
+string.** A test that string-matched `0.0743` would have failed correct code, and
+a test that string-matched `0.0744` would have contradicted this ledger.
+
+**Margin fields for the same fixture**, same sample, same SE formula:
+
+| field | value | exact | SE |
+|---|---:|---:|---:|
+| `e_margin` | **2.642600** | — | 0.020452 |
+| `p_marg_ge2` | **0.612750** | 2451/4000 | 0.004215 |
+| `p_marg_ge3` | **0.430550** | 8611/20000 | 0.004351 |
+| `p_marg_ge4` | **0.291900** | 2919/10000 | 0.004036 |
+
+**2. Invariants every matchboard must satisfy, on every fixture.**
+
+* `p_home + p_draw + p_away == 1` to within **1e-9**.
+* `p_marg_ge2 >= p_marg_ge3 >= p_marg_ge4`. The events are nested on one sample,
+  so this is monotone **by construction** — a violation is a defect in the
+  derivation, never a sampling accident, and the test must say so.
+* `0 <= e_margin`, and `e_margin >= p_marg_ge2 + p_marg_ge3 + p_marg_ge4` is
+  **not** asserted; nothing here needs it and an invented inequality is a future
+  false failure.
+* Every row's `n_sims` equals the header's, and the header's equals the record's
+  `n_sims`; `n_fixtures` equals the record's `n_unplayed`.
+* **Every SE clusters by particle.** The positive control is the one the project
+  already uses: recomputing an SE as a binomial over `n_sims` gives a materially
+  different number, and the test must show the derivation rejecting it rather than
+  merely producing something.
+
+**3. What `check` does, in both directions.**
+
+* On a post-A7 (`epl-issuance-5`) bundle with a **bit-flipped** matchboard:
+  **FAIL**. On the same bundle untampered: PASS — the positive control, without
+  which the first half proves nothing.
+* On a post-A7 bundle with the matchboard **deleted**: **FAIL**, naming the file.
+* On a **pre-A7** bundle with no matchboard: the **`UNANCHORED`** line with
+  `PRE_A7_NOTE`, **not FAIL**, and `fully_anchored` false.
+
+**4. What A7 does to the committed opener's `check` output — pre-stated, because
+it is pinned by tests and by A6's own transcript.** Adding two criteria that
+report `UNANCHORED` on a pre-A7 record changes the opener's unanchored list.
+Pre-stated:
+
+* the **whole-bundle** run goes from **9 entries to 11** — the two additions are
+  `dc_native.matchboard_anchored` and `dc_native.matchboard_reproduces`, and
+  nothing is namespaced to a bridge arm, which is (a)'s `dc_native`-only rule
+  showing up in the output;
+* the **`--arm dc_native`** run goes from **5 entries to 7**;
+* **neither headline changes in kind**: the whole bundle is still **FAIL**, exit
+  **4**, for the reason A6 (b)'s landed note gives — its two bridge arms are
+  REFUSED for want of arm sidecars, and that was true before A7 existed. The
+  narrowed run is still **PASS**, exit **0**.
+* the headline's parenthetical stops naming one round. Its shape becomes
+  `PASS (<n> criteria unanchored: <reasons>)`, where `<reasons>` is the sorted
+  distinct set of the unanchored entries' own notes. For the opener under `--arm
+  dc_native` that is **`PASS (7 criteria unanchored: pre-A6 record, pre-A7
+  record)`**. If the landed string differs, that is a **deviation** and is
+  recorded in a dated note under A7 — the A6 (b.5) pattern — never smoothed over.
+
+**Three tests must move in the same commit, and how they move is ruled here, not
+left to the implementer.** `epl/tests/test_simcli.py` pins the old list in
+`COMMITTED_OPENER_UNANCHORED`, pins the narrowed headline string, and asserts that
+**every** `UNANCHORED` row carries `PRE_A6_NOTE`
+(`test_the_committed_opener_reports_exactly_the_pre_A6_criteria_unanchored`); and
+`test_the_committed_opener_whole_bundle_check_is_FAIL_and_the_ledger_says_so`
+holds **every line of A6 (b)'s two fenced transcripts against live output**.
+
+* The note-equality assertion becomes: each `UNANCHORED` row carries `PRE_A6_NOTE`
+  **or** `PRE_A7_NOTE`, and the two matchboard entries carry `PRE_A7_NOTE`
+  specifically. A weaker assertion — "one of the notes" with no per-entry
+  expectation — is not acceptable: it is the shape of check that stops being able
+  to fail.
+* **A6 (b)'s fenced blocks are NOT edited.** They are the record of what the
+  command emitted on 2026-08-20 under the code as it then stood, and A1-C1's rule
+  applies to them. The commit appends a **new dated transcript note under A7**
+  carrying the current output, and the test's ledger source moves to that note.
+  A6's blocks stay in place and a test continues to assert they are **present and
+  unedited** — the A2-N3 pattern, where a superseded statement stays where it was
+  written and is superseded rather than erased.
+
+**5. What A7 does not decide.** Nothing about the harness, the retrospective, the
+arms, the nulls, the gate criteria, D11's thresholds, or which arm is published.
+No number in R1, in Addendum A or B, in the opener bundle or in any published
+report moves. `epl/simretro.py` and `epl/simmetrics.py` are not touched, so there
+is no harness v6 and no new hash pair to record. `src/`, `scripts/`, `site/`,
+`tools/` and `.github/` are not touched.
+
+No threshold, count, field name or verdict above was chosen after seeing a result
+under it, because no matchboard exists to have produced one. The single control
+that is quoted from existing work — the `arsenal:coventry` row — is quoted as
+counts recomputed here for the third time, from a bundle whose law was hash-anchored
+in git before kickoff, and it is a control the code must reproduce rather than a
+threshold anything was tuned to.
+
+### Recording note
+
+Written **before any line of the matchboard exists**: no `matchboard_dc_native.json`,
+no `matchboard.md`, no derived artifact, no criterion, no test. The opener bundle
+was re-verified at the moment of writing — three per-arm run digests recomputed
+from the files on disk and equal to the record's `digests` map — and the control
+in *What is pre-stated* was computed from those same files, on 2026-08-25, before
+this entry was committed and before any code was written. The working tree at
+`89d3d58` carried no change but this entry, and
+`git diff --stat 89d3d58 -- src scripts site tools .github epl` is empty. **The
+commit that records this entry precedes every commit that implements any of it.**
