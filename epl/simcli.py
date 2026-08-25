@@ -41,6 +41,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
@@ -3077,20 +3078,52 @@ def law_anchor(record: dict, *, pathspec: str = LAW_ANCHOR_PATHSPEC,
             "hashes": rows}
 
 
-def _committed_by(committed_at, cutoff) -> bool:
-    """Was this commit authored at or before the cutoff?
+#: THE SEASON'S WALL CLOCK (Codex r7 #6). A cutoff in this project is a naive
+#: timestamp — `2026-08-21 00:00:00` — because it is written in the terms the
+#: competition is written in: an English league's kickoff days are UK local
+#: dates, and `Europe/London` is the zone that resolves one to an instant. It
+#: is named here rather than assumed, because a comparison between a naive
+#: cutoff and an offset-aware git stamp has to choose a zone whether or not
+#: anybody writes it down, and the choice `tz_localize(None)` made silently was
+#: "whatever zone the committer's laptop was in".
+SEASON_TIMEZONE = ZoneInfo("Europe/London")
 
-    The cutoff is a naive local timestamp in the season's own terms and a git
-    author date is offset-aware, so the comparison is on the commit's own wall
-    clock: `tz_localize(None)` drops the offset and keeps the local time the
-    commit was authored at. A hash with no commit anchors nothing and is False.
+
+def _committed_by(committed_at, cutoff, *, tz=SEASON_TIMEZONE) -> bool:
+    """Was this commit made at or before the cutoff, AS AN INSTANT?
+
+    Both sides are resolved to a moment and then compared (Codex r7 #6). The
+    old form dropped the git stamp's offset and compared the two wall clocks as
+    if they were one, which is not a comparison at all:
+
+    * `2026-08-20T23:59:00-12:00` is `2026-08-21T11:59Z`, nearly thirteen hours
+      AFTER a `2026-08-21 00:00:00` London cutoff — and it passed.
+    * `2026-08-21T00:01:00+14:00` is `2026-08-20T10:01Z`, thirteen hours
+      BEFORE it — and it was refused.
+
+    Both are reachable: `TZ` is whatever the committing machine says it is, and
+    `git commit --date` sets the author stamp to any offset you like. An anchor
+    that a timezone can move is not an anchor.
+
+    A naive `committed_at` is read on the same clock as the cutoff. Git always
+    writes an offset, so that path is for callers, not for `git log`.
+    A hash with no commit anchors nothing and is False.
+
+    A season cutoff is a MIDNIGHT, and UK DST transitions happen at 01:00, so
+    localising one is never ambiguous and never lands in the spring gap. That
+    is why no `ambiguous=`/`nonexistent=` policy is chosen here: there is no
+    case to choose for, and picking one would be inventing a rule for an input
+    this project does not produce.
     """
     if committed_at is None:
         return False
     stamp = pd.Timestamp(committed_at)
-    if stamp.tz is not None:
-        stamp = stamp.tz_localize(None)
-    return stamp <= pd.Timestamp(cutoff)
+    if stamp.tz is None:
+        stamp = stamp.tz_localize(tz)
+    bound = pd.Timestamp(cutoff)
+    if bound.tz is None:
+        bound = bound.tz_localize(tz)
+    return stamp <= bound
 
 
 def _git_lines(root: Path, *args: str) -> list[str]:

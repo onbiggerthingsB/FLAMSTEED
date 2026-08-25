@@ -229,7 +229,36 @@ def derive_rows(arrays: Mapping[str, Any], *, fixture_ids: Sequence[str],
             f"{ordinals.size} fixture ordinals for {scorelines.shape[1]} columns")
 
     n_sims = int(particle.size)
-    n_particles = int(np.unique(particle).size)
+    labels, per_particle = np.unique(particle, return_counts=True)
+    n_particles = int(labels.size)
+    # THE GRID THE ENGINE WOULD HAVE REFUSED (Codex r7 #7). These rows are not
+    # re-run here, so nothing else on this path asks whether they could have
+    # come out of a `SimPlan` at all — and every standard error on the surface
+    # is computed as if they had. `check_particle_grid` is the engine's own
+    # rule, called rather than restated: at least two particles, at least two
+    # simulations each, and N a multiple of S.
+    #
+    # A SINGLE PARTICLE is the one that matters. `cluster_se` returns exactly
+    # `0.0` for one cluster, so a matchboard derived from such a file publishes
+    # a table of probabilities with a stated Monte-Carlo error of ZERO — the
+    # one value that cannot be right, printed in the ± column of every cell.
+    try:
+        leaguesim.check_particle_grid(n_sims, n_particles)
+    except leaguesim.SimError as exc:
+        raise MatchboardError(f"the retained rows are not a grid this engine "
+                              f"could have produced: {exc}") from exc
+    # ...and EQUAL COUNTS, which the engine gets for free from the stratified
+    # `i mod S` and therefore never checks. `_cluster_stats` is written for
+    # equal clusters; under unequal ones the outer/inner split stops summing to
+    # the cluster variance and the published SE is a different estimator
+    # wearing this one's name.
+    if int(per_particle.min()) != int(per_particle.max()):
+        raise MatchboardError(
+            f"the retained rows use their {n_particles} particles unequally "
+            f"({int(per_particle.min())} to {int(per_particle.max())} seasons "
+            "each): the engine stratifies `i mod S`, so equal counts are a "
+            "property of every run it produces, and the cluster-by-particle "
+            "error (D15) is the equal-cluster form")
     # A repeated ordinal is a corrupt rows file, and the row COUNT cannot see
     # it: 380 columns with one ordinal twice and another missing still prices
     # 380 fixtures. Two rows for one fixture is the visible half of that; the

@@ -20,6 +20,7 @@ import re
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from epl import leaguesim, matchboard, season as season_mod
@@ -113,7 +114,7 @@ def test_the_ordinal_is_resolved_as_a_rank_among_the_sorted_fixture_ids():
 def test_an_ordinal_the_season_cannot_resolve_is_refused():
     """A rows file whose ordinals do not index this season's ids is not this
     season's rows, and naming a fixture out of it would be a guess."""
-    arrays = _arrays(np.zeros((2, 1, 2), np.int8), [0, 1], [99])
+    arrays = _arrays(np.zeros((4, 1, 2), np.int8), [0, 0, 1, 1], [99])
     with pytest.raises(matchboard.MatchboardError) as exc:
         matchboard.derive_rows(arrays, fixture_ids=SEASON_IDS, facts=FACTS)
     assert "99" in str(exc.value)
@@ -121,7 +122,7 @@ def test_an_ordinal_the_season_cannot_resolve_is_refused():
 
 def test_a_fixture_id_with_no_facts_is_refused_rather_than_left_blank():
     holed = {k: v for k, v in FACTS.items() if k != "2627:alpha:bravo"}
-    arrays = _arrays(np.zeros((2, 1, 2), np.int8), [0, 1], [0])
+    arrays = _arrays(np.zeros((4, 1, 2), np.int8), [0, 0, 1, 1], [0])
     with pytest.raises(matchboard.MatchboardError) as exc:
         matchboard.derive_rows(arrays, fixture_ids=SEASON_IDS, facts=holed)
     assert "2627:alpha:bravo" in str(exc.value)
@@ -784,6 +785,49 @@ def test_a_scorecard_row_citing_a_derived_board_records_both_provenances():
     assert row["law_provenance"] == "not-shown-anchored"
 
 
+def test_the_law_anchor_compares_instants_and_not_two_wall_clocks():
+    """Codex r7 #6: `_committed_by` dropped the git stamp's offset and compared
+    the two local times as if they were one clock.
+
+    That is not a comparison. A commit made nearly thirteen hours AFTER the
+    cutoff passed, and one made thirteen hours BEFORE it was refused — and both
+    are reachable, because `TZ` is whatever the committing machine says it is
+    and `git commit --date` sets the author stamp to any offset you like. An
+    anchor a timezone can move is not an anchor.
+
+    The cutoff is a naive timestamp written in the terms the competition is
+    written in — an English league's kickoff days are UK local dates — so it is
+    resolved through `Europe/London`, named in `simcli.SEASON_TIMEZONE` rather
+    than assumed. `2026-08-21 00:00:00` London is `2026-08-20T23:00Z`, August
+    being BST.
+    """
+    from zoneinfo import ZoneInfo
+
+    from epl import simcli
+
+    assert simcli.SEASON_TIMEZONE == ZoneInfo("Europe/London")
+    cutoff = "2026-08-21 00:00:00"
+    bound = pd.Timestamp(cutoff).tz_localize(simcli.SEASON_TIMEZONE)
+    assert str(bound.tz_convert("UTC")) == "2026-08-20 23:00:00+00:00"
+
+    # Codex's two probes, each with the instant it really is
+    late = "2026-08-20T23:59:00-12:00"                  # 2026-08-21T11:59Z
+    early = "2026-08-21T00:01:00+14:00"                 # 2026-08-20T10:01Z
+    assert pd.Timestamp(late) > bound and pd.Timestamp(early) < bound
+    assert simcli._committed_by(late, cutoff) is False
+    assert simcli._committed_by(early, cutoff) is True
+
+    # the MW0 stamp — both of the opener's are this one — still anchors
+    assert simcli._committed_by("2026-08-19T16:15:58+08:00", cutoff) is True
+    # ...and a hash with no commit anchors nothing
+    assert simcli._committed_by(None, cutoff) is False
+
+    # a naive stamp is read on the season's clock, which is the only reading
+    # that makes the two sides comparable at all
+    assert simcli._committed_by("2026-08-21 00:00:00", cutoff) is True
+    assert simcli._committed_by("2026-08-21 00:00:01", cutoff) is False
+
+
 @pytest.mark.skipif(not COMMITTED_OPENER.exists(),
                     reason="the preserved opener bundle is not present")
 def test_the_MW0_law_anchor_is_the_commit_the_ledger_entered():
@@ -861,6 +905,51 @@ def test_no_market_vocabulary_reaches_the_render_or_the_scorecard():
         assert word not in " ".join(sorted(row)).lower().replace("_", " "), word
     # POSITIVE CONTROL: the scan is not vacuous — it finds a word that IS there.
     assert "margin" in text
+
+
+def test_a_particle_grid_the_ENGINE_would_refuse_is_refused_here_too():
+    """Codex r7 #7: the rows are not re-run, so nothing else asks whether they
+    could have come out of a `SimPlan` at all — and every ± on the surface is
+    computed as if they had.
+
+    `epl.leaguesim.check_particle_grid` is the engine's own rule, called rather
+    than restated. The single-particle case is the one that matters:
+    `cluster_se` returns exactly `0.0` for one cluster, so the board would
+    publish a full table of probabilities with a stated Monte-Carlo error of
+    ZERO in every cell — the one value that cannot be right.
+    """
+    def arrays(particle):
+        n = len(particle)
+        scorelines = np.zeros((n, 1, 2), np.int8)
+        scorelines[:n // 2] = (2, 0)
+        return _arrays(scorelines, particle, [0])
+
+    ids, facts = ("2627:alpha:bravo",), {
+        "2627:alpha:bravo": FACTS["2627:alpha:bravo"]}
+
+    # what the ENGINE refuses, named by what it says
+    for label, particle in (("one particle", [0, 0, 0, 0]),
+                            ("N not a multiple of S", [0, 0, 1, 1, 2]),
+                            ("one season per particle", [0, 1])):
+        with pytest.raises(leaguesim.SimError):
+            leaguesim.check_particle_grid(len(particle), len(set(particle)))
+        with pytest.raises(matchboard.MatchboardError) as exc:
+            matchboard.derive_rows(arrays(particle), fixture_ids=ids, facts=facts)
+        assert "grid" in str(exc.value), label
+
+    # ...and UNEQUAL COUNTS, which the engine gets for free from the stratified
+    # `i mod S` and therefore never checks, so this one is only checked here.
+    assert leaguesim.check_particle_grid(4, 2) is None
+    with pytest.raises(matchboard.MatchboardError) as exc:
+        matchboard.derive_rows(arrays([0, 0, 0, 1]), fixture_ids=ids, facts=facts)
+    assert "unequally" in str(exc.value)
+
+    # POSITIVE CONTROL: the grid the engine DOES produce derives, and its
+    # standard error is not zero — which is what the refusals are protecting.
+    rows = matchboard.derive_rows(arrays([0, 0, 1, 1]), fixture_ids=ids,
+                                  facts=facts)
+    assert rows[0]["n_particles"] == 2
+    assert rows[0]["probs_se"]["home"] > 0.0
 
 
 def test_two_columns_claiming_one_fixture_are_refused():

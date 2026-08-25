@@ -120,7 +120,8 @@ __all__ = [
     "OUTPUT_SCHEMA_VERSION", "SCHEMA_VERSION", "STREAM_MAPPING", "ChunkRows",
     "DCNativeProvider", "FixturePlan", "ProviderError", "RetainedRows",
     "ScorelineProvider", "SimError", "SimPlan", "SimRun", "canonical_json",
-    "cluster_se", "cut_line_bounds", "cut_lines", "CUT_LINE_INTERVAL_METHOD",
+    "check_particle_grid", "cluster_se", "cut_line_bounds", "cut_lines",
+    "CUT_LINE_INTERVAL_METHOD",
     "envelope", "excluded_mass_report",
     "limitations_markdown",
     "market_slices", "particle_index", "resolve_provider", "sha256_file",
@@ -275,6 +276,13 @@ def _check_particle_grid(n_sims: int, n_particles: int) -> None:
             "sum to the cluster variance. Preregistered runs are divisible; "
             "choose an N that is, rather than reporting an SE this file cannot "
             "compute correctly")
+
+
+#: The public name for the grid rule above. `epl.matchboard` derives a surface
+#: from a run's RETAINED ROWS rather than from the run, so it must be able to
+#: ask the same question of the same code: a rows file that no `SimPlan` could
+#: have produced is not a rows file this project's estimators are written for.
+check_particle_grid = _check_particle_grid
 
 
 def sum_by_particle(values: np.ndarray, lo: int, n_particles: int) -> np.ndarray:
