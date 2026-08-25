@@ -1186,7 +1186,13 @@ def test_the_committed_shadow_ledger_is_this_schema_and_nothing_else():
     rows = recalshadow.read_shadow(SHADOW_LEDGER)
     assert rows, "the committed shadow ledger is empty"
     for row in rows:
-        assert tuple(row) == recalshadow.ROW_FIELDS
+        # SORTED, not ordered. The file is `leaguesim.canonical_json`, which
+        # sorts keys so the bytes do not depend on the order a dict happened to
+        # be built in — so a row read back off disk carries A8's fields in
+        # alphabetical order, and asserting `tuple(row) == ROW_FIELDS` here
+        # would be asserting a property the format deliberately does not have.
+        # The ORDER is asserted where it exists, on the row `score()` returns.
+        assert sorted(row) == sorted(recalshadow.ROW_FIELDS)
         assert row["schema_version"] == recalshadow.SCHEMA_VERSION
         assert row["arm"] == recalfit.ARM
         assert row["rule_version"] == recalfit.RULE_VERSION
