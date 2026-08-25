@@ -555,6 +555,27 @@ def test_a_goal_count_that_is_not_one_is_refused_at_the_door():
 # 7. the derived-artifact naming convention (A7 (c))
 # ==========================================================================
 
+def test_a_derived_artifact_is_found_however_deep_it_is_buried(tmp_path):
+    """Codex r7 #5(a): the scan read only a directory's IMMEDIATE children.
+
+    A7 (c) FAILs a bundle that CONTAINS a derived artifact, and "contains" is
+    not "lists": one subdirectory was enough to make a derivation inside a
+    bundle invisible to the refusal that exists to find it.
+    """
+    bundle = tmp_path / "bundle"
+    (bundle / "nested-derived" / "deeper").mkdir(parents=True)
+    top = matchboard.derived_filename("2026/27", "2026-08-21", "json")
+    buried = matchboard.derived_filename("2026/27", "2026-08-21", "md")
+    (bundle / top).write_text("{}")
+    (bundle / "nested-derived" / "deeper" / buried).write_text("# derived\n")
+    (bundle / "rows_dc_native.npz").write_text("not really an npz")
+
+    found = matchboard.derived_artifacts_in(bundle)
+    assert found == [top, f"nested-derived/deeper/{buried}"]
+    # POSITIVE CONTROL: it is not simply listing everything under the bundle
+    assert "rows_dc_native.npz" not in found
+
+
 def test_the_derived_naming_convention_is_recognised_in_both_directions():
     assert matchboard.derived_filename("2026/27", "2026-08-21", "json") == \
         "epl_matchboard_2026_27_2026-08-21_derived.json"

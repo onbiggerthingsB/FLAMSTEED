@@ -3332,6 +3332,101 @@ def test_a_derived_artifact_is_refused_inside_a_PRE_A7_bundle_too(issuance):
     assert report["PASS"] is False
 
 
+def test_a_derivation_cannot_be_written_anywhere_under_a_bundle(issuance,
+                                                                tmp_path):
+    """Codex r7 #5(a): the guard checked `<out>/issuance.json` and nothing else.
+
+    So `--out <bundle>/nested-derived` wrote a labelled derivation INSIDE the
+    bundle it derives from — the one thing A7 (c) exists to prevent — and
+    `check`'s refusal could not see it either, because that scan read only the
+    directory's immediate children. Between them, the record could anchor itself
+    after the fact and no criterion in the repository would say so.
+
+    The guard resolves the path and walks every ancestor to the filesystem root,
+    so a relative hop and a symlink both land where they really land.
+    """
+    directory = Path(issuance["directory"])
+    before = {p.relative_to(directory): p.read_bytes()
+              for p in directory.rglob("*") if p.is_file()}
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "link").symlink_to(directory / "laundered", target_is_directory=True)
+    for label, out in (("nested", directory / "nested-derived"),
+                       ("deeper", directory / "a" / "b" / "c"),
+                       ("relative", directory / "sub" / ".." / "sneaky"),
+                       ("symlinked", outside / "link")):
+        with pytest.raises(simcli.CliError) as exc:
+            simcli.derive_matchboard(directory, out, verbose=False)
+        assert "outside" in str(exc.value).lower(), label
+        assert {p.relative_to(directory): p.read_bytes()
+                for p in directory.rglob("*") if p.is_file()} == before, label
+
+    # POSITIVE CONTROL: a directory that really is outside still works.
+    result = simcli.derive_matchboard(directory, tmp_path / "elsewhere",
+                                      verbose=False)
+    assert Path(result["json"]).exists()
+
+
+def test_check_finds_a_derived_artifact_buried_in_a_subdirectory(issuance):
+    """The other half of Codex r7 #5(a): `check` scans the bundle recursively.
+
+    A refusal that reads only the top level is a refusal one `mkdir` defeats.
+    """
+    directory = _copy(issuance, "derived_buried")
+    stray = matchboard.derived_filename(SEASON, OPENER, "json")
+    (directory / "nested-derived").mkdir()
+    (directory / "nested-derived" / stray).write_text("{}")
+
+    report = simcli.check_issuance(directory, verbose=False)
+    anchored = _record_criterion(report, "matchboard_anchored")
+    assert anchored["status"] == "FAIL"
+    assert anchored["detail"]["derived_artifacts"] == [f"nested-derived/{stray}"]
+    assert report["PASS"] is False
+
+
+def test_a_bundle_that_disagrees_with_its_own_rows_pin_is_not_a_source(
+        issuance, tmp_path):
+    """Codex r7 #5(b): `rows_provenance` tested the pin's PRESENCE.
+
+    So a record carrying sixty-four zeros where `rows_dc_native.npz`'s digest
+    belongs produced a document — and a rendered page — saying *the bytes this
+    surface was derived from are the bytes the issuance recorded*, which is a
+    claim about a hash nobody had recomputed. A7 (d)'s whole point is that the
+    two kinds of provenance are never collapsed, and an anchored word earned by
+    a hash that was never checked collapses them by other means.
+
+    The pin is recomputed, and a mismatch refuses the derivation outright rather
+    than quietly downgrading it: a bundle that disagrees with its own record is
+    not a source for anything.
+    """
+    directory = _copy(issuance, "rows_pin_is_a_lie")
+    path = directory / "issuance.json"
+    record = json.loads(path.read_text())
+    actual = simcli.sha256_file(directory / "rows_dc_native.npz")
+    record["sidecar_digests"]["dc_native"]["rows"] = "0" * 64
+    path.write_text(json.dumps(_restamp(record)))
+
+    with pytest.raises(matchboard.MatchboardError) as exc:
+        simcli.derive_matchboard(directory, tmp_path / "derived", verbose=False)
+    assert "0" * 64 in str(exc.value) and actual in str(exc.value)
+    assert not list((tmp_path / "derived").glob("*")) \
+        if (tmp_path / "derived").exists() else True
+
+    # ...and `check` says so too, rather than reporting a matchboard it could
+    # not honestly derive
+    report = simcli.check_issuance(directory, verbose=False)
+    assert _record_criterion(report, "matchboard_reproduces")["status"] == "FAIL"
+    assert report["PASS"] is False
+
+    # POSITIVE CONTROL: the untouched bundle really does say `anchored`, so the
+    # refusal above is about the mismatch and not about the word.
+    good = simcli.derive_matchboard(Path(issuance["directory"]),
+                                    tmp_path / "honest", verbose=False)
+    assert good["document"]["rows_provenance"] == "anchored"
+    assert matchboard.ROWS_ANCHORED_NOTE in Path(good["md"]).read_text()
+
+
 def test_the_matchboard_subcommand_refuses_to_write_into_a_bundle(issuance):
     """A7 (c): a derivation is written OUTSIDE every bundle directory.
 

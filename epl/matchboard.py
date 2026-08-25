@@ -379,15 +379,39 @@ def derive(directory, *, record: dict | None = None, state=None,
         # what the render is required to state (A7 (a))
         "max_goals": envelope.get("max_goals"),
         "n_provisional": _provisional_count(directory),
-        "rows_provenance": _rows_provenance(record),
+        "rows_provenance": _rows_provenance(directory, record),
         "rows": rows,
     }
 
 
-def _rows_provenance(record: Mapping[str, Any]) -> str:
-    """A7 (d): ``anchored`` only when the record actually pins the rows' bytes."""
+def _rows_provenance(directory: Path, record: Mapping[str, Any]) -> str:
+    """A7 (d): ``anchored`` only when the record's pin over the rows is TRUE.
+
+    PRESENCE WAS NOT ENOUGH (Codex r7 #5). A record carrying sixty-four zeros
+    where ``rows_dc_native.npz``'s digest belongs produced a document — and a
+    rendered page — saying *the bytes this surface was derived from are the
+    bytes the issuance recorded*, which was a claim about a hash nobody had
+    recomputed. A7 (d)'s whole point is that the two kinds of provenance are
+    never collapsed, and an anchored word earned by an unchecked hash collapses
+    them by other means.
+
+    A mismatch REFUSES the derivation rather than downgrading it to
+    ``reproduction``. The weaker word would be a second false claim: a bundle
+    whose rows are not the rows its record pins is not a bundle whose halves
+    came from one run, and it is not a source for anything.
+    """
     pinned = ((record.get("sidecar_digests") or {}).get(ARM) or {}).get("rows")
-    return "anchored" if pinned else "reproduction"
+    if not pinned:
+        return "reproduction"
+    rows = Path(directory) / f"rows_{ARM}.npz"
+    actual = leaguesim.sha256_file(rows)
+    if actual != pinned:
+        raise MatchboardError(
+            f"{rows}: the record pins {pinned} over this file and it hashes to "
+            f"{actual}. A bundle that disagrees with its own record is not a "
+            "source: the derivation is refused rather than published under a "
+            "provenance word neither half of the bundle supports")
+    return "anchored"
 
 
 def _provisional_count(directory: Path) -> int | None:
@@ -424,16 +448,24 @@ def is_derived_name(name: str) -> bool:
 
 
 def derived_artifacts_in(directory) -> list[str]:
-    """Every file in `directory` named like a derived artifact.
+    """Every file ANYWHERE under `directory` named like a derived artifact.
 
     A7 (c): a derived artifact is written OUTSIDE every bundle directory, and
     `check` FAILs a bundle that contains one — so a derivation can never drift
     into a bundle and be mistaken for a sidecar the record anchors.
+
+    RECURSIVE (Codex r7 #5). The scan read only a directory's immediate
+    children, and "contains" is not "lists": one `mkdir` was enough to make a
+    derivation inside a bundle invisible to the refusal that exists to find it.
+    Paths are returned relative to `directory`, so the FAIL names where the file
+    actually is.
     """
     directory = Path(directory)
     if not directory.is_dir():
         return []
-    return sorted(p.name for p in directory.iterdir() if is_derived_name(p.name))
+    return sorted(p.relative_to(directory).as_posix()
+                  for p in directory.rglob("*")
+                  if p.is_file() and is_derived_name(p.name))
 
 
 def as_derived(document: Mapping[str, Any], *, source_bundle: str,

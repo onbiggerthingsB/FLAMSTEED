@@ -123,7 +123,8 @@ __all__ = [
     "cluster_se", "cut_line_bounds", "cut_lines", "CUT_LINE_INTERVAL_METHOD",
     "envelope", "excluded_mass_report",
     "limitations_markdown",
-    "market_slices", "particle_index", "resolve_provider", "simulate",
+    "market_slices", "particle_index", "resolve_provider", "sha256_file",
+    "simulate",
     "simulate_chunk", "streams", "sum_by_particle", "variance_components",
     "write_outputs",
 ]
@@ -1486,6 +1487,13 @@ def _sha256_file(path) -> str | None:
         for block in iter(lambda: handle.read(1 << 20), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+#: The public name for the streamed file digest. `epl.matchboard` recomputes a
+#: record's `sidecar_digests` pin over `rows_<arm>.npz` and must not import the
+#: CLI to do it, and a second spelling of "hash a file" is how two answers to
+#: one question start.
+sha256_file = _sha256_file
 
 
 def _sha256_json(obj) -> str:

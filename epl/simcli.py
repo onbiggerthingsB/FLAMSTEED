@@ -3127,11 +3127,7 @@ def derive_matchboard(directory, out_dir=None, *, results_file=None,
     directory = Path(directory)
     record = json.loads((directory / "issuance.json").read_text())
     out_dir = DERIVED_ROOT if out_dir is None else Path(out_dir)
-    if (out_dir / "issuance.json").exists():
-        raise CliError(
-            f"{out_dir} is an issuance bundle; a derived matchboard is written "
-            "OUTSIDE every bundle directory (A7 (c)) and `check` FAILs any "
-            "bundle that contains one")
+    _refuse_a_bundle_descendant(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     board = matchboard.derive(directory, record=record)
@@ -3247,6 +3243,32 @@ def append_scorecard(path, rows: Sequence[Mapping[str, Any]]) -> dict:
             for text in fresh:
                 fh.write(text + "\n")
     return {"appended": len(fresh), "repeated": repeated}
+
+
+def _refuse_a_bundle_descendant(out_dir) -> None:
+    """A7 (c): a derived artifact is written OUTSIDE every bundle directory.
+
+    RESOLVED, AND EVERY ANCESTOR (Codex r7 #5). The guard looked for
+    `issuance.json` in `out_dir` itself, so `--out <bundle>/nested-derived`
+    wrote a labelled derivation INSIDE the bundle it derives from — and
+    `check`'s refusal could not see it either, because that scan read only the
+    directory's immediate children. Between them the record could anchor itself
+    after the fact with no criterion in the repository able to say so.
+
+    `resolve(strict=False)` is what makes this a check about the filesystem
+    rather than about the string a caller typed: `<bundle>/sub/../x` and a
+    symlink pointing back into a bundle both land inside one, and neither looks
+    like it from the path.
+    """
+    resolved = Path(out_dir).resolve(strict=False)
+    for candidate in (resolved, *resolved.parents):
+        if (candidate / "issuance.json").exists():
+            where = ("is an issuance bundle" if candidate == resolved
+                     else f"is inside the issuance bundle {candidate}")
+            raise CliError(
+                f"{out_dir} {where}; a derived matchboard is written OUTSIDE "
+                "every bundle directory (A7 (c)) and `check` FAILs any bundle "
+                f"that contains one, at any depth. Resolved to {resolved}.")
 
 
 def _cmd_matchboard(args) -> int:
