@@ -129,6 +129,19 @@ SE_METHOD = ("Every ± on this page is a Monte-Carlo standard error computed "
 #: A7 (d) — TWO KINDS OF PROVENANCE, NEVER COLLAPSED. Which of these a rendered
 #: matchboard carries is decided by the record it was derived from, not by the
 #: writer's confidence.
+LAW_ANCHORED_NOTE = (
+    "**The law is anchored before kickoff.** The hashes that identify what this "
+    "surface was priced under were written into a TRACKED file, and committed, "
+    "before the cutoff — which is checkable rather than asserted, because the "
+    "file is in this repository's history. Each is listed below with the file, "
+    "the commit that introduced it and when that commit was authored.")
+LAW_UNANCHORED_NOTE = (
+    "**The law is NOT shown to be anchored before kickoff.** The hashes that "
+    "identify what this surface was priced under were not found in a tracked "
+    "file committed at or before the cutoff, so nothing here is claimed about "
+    "when they were first written down. That is a statement about this "
+    "repository's history and not about the forecast.")
+
 ROWS_ANCHORED_NOTE = (
     "**The rows are anchored.** The record pins `sidecar_digests` over "
     "`rows_dc_native.npz`, so the bytes this surface was derived from are the "
@@ -510,6 +523,28 @@ def render_markdown(document: Mapping[str, Any]) -> str:
               f"`{document.get('fixtures_base_sha256')}` / "
               f"`{document.get('kickoff_amendments_sha256')}`",
               ""]
+    # A7 (d) — TWO KINDS, NEVER COLLAPSED. The LAW and the ROWS get separate
+    # paragraphs and separate words, because part of a derivation's provenance
+    # can be anchored while the other part is only reproducible, and one word
+    # covering both would be the ledger manufacturing an anchor for a file the
+    # record explicitly reports as unanchored.
+    #
+    # A bundle sidecar makes no law claim at all: it was written by the run that
+    # issued it and has no git history to appeal to, and silence is better than
+    # a sentence nobody checked.
+    anchor = document.get("law_anchor")
+    if anchor is not None:
+        lines += [LAW_ANCHORED_NOTE if anchor.get("pre_kickoff")
+                  else LAW_UNANCHORED_NOTE, ""]
+        for entry in anchor.get("hashes") or []:
+            lines.append(
+                f"- `{entry.get('name')}` = `{entry.get('hash')}` — "
+                + (f"`{entry['file']}`, commit `{entry['commit']}`, authored "
+                   f"{entry['committed_at']}" if entry.get("commit")
+                   else "not found in any tracked file"))
+        lines += ["",
+                  f"...against a cutoff of `{anchor.get('cutoff')}`.", ""]
+
     lines += [ROWS_ANCHORED_NOTE if document.get("rows_provenance") == "anchored"
               else ROWS_REPRODUCTION_NOTE, ""]
 
@@ -587,6 +622,20 @@ def uniform_rps(outcome: str) -> float:
     return UNIFORM_RPS[outcome]
 
 
+def law_provenance(document: Mapping[str, Any]) -> str | None:
+    """What a scorecard row may say about the LAW that priced its forecast.
+
+    ``None`` when no anchor was computed — a bundle sidecar has no git history
+    to appeal to, and inventing a verdict for it would be the collapse A7 (d)
+    forbids.
+    """
+    anchor = document.get("law_anchor")
+    if anchor is None:
+        return None
+    return "anchored-pre-kickoff" if anchor.get("pre_kickoff") \
+        else "not-shown-anchored"
+
+
 def outcome_of(home_goals: int, away_goals: int) -> str:
     if int(home_goals) > int(away_goals):
         return "home"
@@ -649,9 +698,11 @@ def score(board: Mapping[str, Any], results: Iterable[Mapping[str, Any]]
             "cutoff": str(board["cutoff"]),
             "observed_by": str(board["observed_by"]),
             "run_digest": board.get("run_digest"),
-            # A7 (d): a row citing the MW0 derivation says what its rows have
-            # and does not call them anchored
+            # A7 (d): a row citing the MW0 derivation says BOTH kinds of
+            # provenance in the words that are true of each, and does not call
+            # the rows anchored.
             "rows_provenance": board.get("rows_provenance"),
+            "law_provenance": law_provenance(board),
             "source_bundle": board.get("source_bundle"),
             "outcome": outcome,
             "realized_margin": abs(home_goals - away_goals),
@@ -668,8 +719,10 @@ def score(board: Mapping[str, Any], results: Iterable[Mapping[str, Any]]
 __all__ = [
     "ARM", "SCHEMA_VERSION", "JSON_FILENAME", "MD_FILENAME", "OUTCOMES",
     "MARGIN_THRESHOLDS", "ROW_FIELDS", "ROW_FLOAT_FIELDS", "NO_CLAIM",
-    "SE_METHOD", "ROWS_ANCHORED_NOTE", "ROWS_REPRODUCTION_NOTE", "UNIFORM_RPS",
+    "SE_METHOD", "ROWS_ANCHORED_NOTE", "ROWS_REPRODUCTION_NOTE",
+    "LAW_ANCHORED_NOTE", "LAW_UNANCHORED_NOTE", "UNIFORM_RPS",
     "MatchboardError", "fixture_facts", "derive_rows", "derive",
     "derived_filename", "is_derived_name", "derived_artifacts_in", "as_derived",
-    "render_markdown", "write", "rps", "uniform_rps", "outcome_of", "score",
+    "render_markdown", "write", "rps", "uniform_rps", "outcome_of",
+    "law_provenance", "score",
 ]

@@ -570,3 +570,120 @@ def test_the_MW0_rows_are_reported_as_reproducible_and_never_as_anchored():
     text = matchboard.render_markdown(board)
     assert matchboard.ROWS_REPRODUCTION_NOTE in text
     assert matchboard.ROWS_ANCHORED_NOTE not in text
+
+
+# ==========================================================================
+# 9. A7 (d) — TWO KINDS OF PROVENANCE, AND THE TEXT SAYS BOTH
+# ==========================================================================
+
+def _law_anchor(pre_kickoff=True):
+    return {
+        "cutoff": "2026-08-21 00:00:00",
+        "pre_kickoff": bool(pre_kickoff),
+        "hashes": [
+            {"name": "effective_posterior_hash", "hash": "b8" * 32,
+             "file": "reports/epl_sim_issuance_2026-08-21.md",
+             "commit": "9478e7111a0f2e473deef2496b1e273834d51d6f",
+             "committed_at": ("2026-08-19T16:15:58+08:00" if pre_kickoff
+                              else "2026-09-01T10:00:00+08:00")},
+            {"name": "run_digest", "hash": "3a" * 32,
+             "file": "reports/epl_sim_issuance_2026-08-21.md",
+             "commit": "9478e7111a0f2e473deef2496b1e273834d51d6f",
+             "committed_at": ("2026-08-19T16:15:58+08:00" if pre_kickoff
+                              else "2026-09-01T10:00:00+08:00")},
+        ],
+    }
+
+
+def _derived(law_anchor):
+    rows = matchboard.derive_rows(_spread_rows(), fixture_ids=SEASON_IDS,
+                                  facts=FACTS)
+    doc = dict(_document(rows), law_anchor=law_anchor)
+    return matchboard.as_derived(doc, source_bundle="/bundle",
+                                 derived_at="2026-08-25T10:00:00",
+                                 recorded_hashes={})
+
+
+def test_a_derived_render_says_the_law_is_anchored_and_the_rows_are_not():
+    """A7 (d): *A derived artifact's own text, and any scorecard row that cites
+    it, must say both — and must not call the rows anchored.*
+
+    It would have been easy, and wrong, to write that the derivation "inherits
+    pre-kickoff provenance through the hash chain". Part of it does. The rows do
+    not, and the two get different words.
+    """
+    text = matchboard.render_markdown(_derived(_law_anchor(True)))
+    assert matchboard.LAW_ANCHORED_NOTE in text
+    assert matchboard.LAW_UNANCHORED_NOTE not in text
+    # the rows keep their own, weaker sentence, in the same document
+    assert matchboard.ROWS_REPRODUCTION_NOTE in text
+    assert matchboard.ROWS_ANCHORED_NOTE not in text
+    # and the anchor is CHECKABLE: which file, which commit, when
+    assert "9478e7111a0f2e473deef2496b1e273834d51d6f" in text
+    assert "reports/epl_sim_issuance_2026-08-21.md" in text
+    assert "2026-08-19T16:15:58+08:00" in text
+
+
+def test_a_law_recorded_only_after_the_cutoff_is_not_called_pre_kickoff():
+    """The positive control: the anchored sentence is not decoration. A hash
+    first written into a tracked file AFTER the cutoff anchors nothing about a
+    forecast made before it."""
+    text = matchboard.render_markdown(_derived(_law_anchor(False)))
+    assert matchboard.LAW_UNANCHORED_NOTE in text
+    assert matchboard.LAW_ANCHORED_NOTE not in text
+    assert matchboard.ROWS_REPRODUCTION_NOTE in text
+
+
+def test_a_bundle_matchboard_makes_no_law_anchor_claim_at_all():
+    """A sidecar written by the run that issued it has no git history to appeal
+    to, so it claims neither — silence rather than a sentence nobody checked."""
+    rows = matchboard.derive_rows(_spread_rows(), fixture_ids=SEASON_IDS,
+                                  facts=FACTS)
+    text = matchboard.render_markdown(_document(rows))
+    assert matchboard.LAW_ANCHORED_NOTE not in text
+    assert matchboard.LAW_UNANCHORED_NOTE not in text
+
+
+def test_a_scorecard_row_citing_a_derived_board_records_both_provenances():
+    """A7 (e): the row records enough for a reader to check the ordering rather
+    than trust it — and it says what the ROWS have, in the word that is true."""
+    board = _derived(_law_anchor(True))
+    row = matchboard.score(board, [{"fixture_id": "2627:alpha:bravo",
+                                    "home_goals": 3, "away_goals": 0,
+                                    "matchweek": 1, "ingest": "manual/day1"}])[0]
+    assert row["rows_provenance"] == "reproduction"
+    assert row["law_provenance"] == "anchored-pre-kickoff"
+    assert row["source_bundle"] == "/bundle"
+
+    late = _derived(_law_anchor(False))
+    row = matchboard.score(late, [{"fixture_id": "2627:alpha:bravo",
+                                   "home_goals": 3, "away_goals": 0,
+                                   "matchweek": 1, "ingest": "x"}])[0]
+    assert row["law_provenance"] == "not-shown-anchored"
+
+
+@pytest.mark.skipif(not COMMITTED_OPENER.exists(),
+                    reason="the preserved opener bundle is not present")
+def test_the_MW0_law_anchor_is_the_commit_the_ledger_entered():
+    """A7 (d) entered `9478e71` and REFUSED `426eed7` — an object that is not in
+    this repository. The anchor is computed from this history, so the claim is
+    checkable by whoever reads it.
+
+    The amendment ledger ALSO carries the posterior hash, at `5201eac` on
+    2026-08-25 — four days after the cutoff. The earliest introducing commit is
+    the anchor; a later mention of the same hash cannot become one.
+    """
+    from epl import simcli
+
+    record = json.loads((COMMITTED_OPENER / "issuance.json").read_text())
+    anchor = simcli.law_anchor(record)
+    if anchor is None:                                      # pragma: no cover
+        pytest.skip("this checkout has no git history for reports/")
+    assert anchor["pre_kickoff"] is True
+    assert {h["name"] for h in anchor["hashes"]} == {
+        "effective_posterior_hash", "run_digest"}
+    for entry in anchor["hashes"]:
+        assert entry["commit"].startswith("9478e711"), entry
+        assert entry["file"] == "reports/epl_sim_issuance_2026-08-21.md", entry
+        assert entry["committed_at"].startswith("2026-08-19"), entry
+    assert anchor["cutoff"] == record["cutoff"]

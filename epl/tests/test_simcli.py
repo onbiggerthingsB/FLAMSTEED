@@ -2753,6 +2753,28 @@ def test_the_matchboard_subcommand_derives_from_a_bundle_without_touching_it(
     first = md.splitlines()[0]
     assert "derived" in first.lower() and "not part of" in first.lower()
 
+    # A7 (d): TWO kinds of provenance, and the text says BOTH. The law's kind is
+    # computed from this repository's history rather than asserted; the rows'
+    # kind comes out of the record. A post-A7 bundle pins its own rows, so this
+    # one says so — and the two sentences are never the same sentence.
+    anchor = payload["law_anchor"]
+    assert {h["name"] for h in anchor["hashes"]} == {
+        "effective_posterior_hash", "run_digest"}
+    assert anchor["cutoff"] == record["cutoff"]
+    assert payload["rows_provenance"] == "anchored"
+    assert matchboard.ROWS_ANCHORED_NOTE in md
+    assert matchboard.ROWS_REPRODUCTION_NOTE not in md
+    note = (matchboard.LAW_ANCHORED_NOTE if anchor["pre_kickoff"]
+            else matchboard.LAW_UNANCHORED_NOTE)
+    assert note in md
+    other = (matchboard.LAW_UNANCHORED_NOTE if anchor["pre_kickoff"]
+             else matchboard.LAW_ANCHORED_NOTE)
+    assert other not in md
+    # a test bundle's hashes are in no tracked file, so this one anchors nothing
+    # — which is the honest answer and the one that makes the MW0 answer mean
+    # something
+    assert anchor["pre_kickoff"] is False
+
     # the rows of a DERIVED artifact are the rows of the bundle it came from
     assert [r["fixture_id"] for r in payload["rows"]] == [
         r["fixture_id"] for r in

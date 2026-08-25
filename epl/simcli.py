@@ -2781,6 +2781,101 @@ DERIVED_ROOT = paths.REPO_ROOT / "reports"
 SCORECARD_FILENAME = "matchboard_scorecard.jsonl"
 
 
+#: Where a pre-kickoff anchor may be found. Tracked, human-readable, and in git
+#: — the three properties that make "recorded before the cutoff" checkable by a
+#: reader rather than asserted by the writer.
+LAW_ANCHOR_PATHSPEC = "reports/"
+
+
+def law_anchor(record: dict, *, pathspec: str = LAW_ANCHOR_PATHSPEC,
+               repo_root=None) -> dict | None:
+    """When the LAW this bundle published was first written into a tracked file.
+
+    A7 (d) names two kinds of provenance and refuses to collapse them. This
+    computes the first: for each hash that identifies what the run was priced
+    under, the EARLIEST commit that introduced that string into a tracked file,
+    and whether that commit is at or before the cutoff.
+
+    Earliest, and not merely "a commit that contains it": the amendment ledger
+    also carries the opener's posterior hash, at `5201eac` four days AFTER the
+    cutoff, and a later mention of a hash cannot become an earlier anchor. `-S`
+    finds the commits that change the number of occurrences of the string, so
+    the first is when it was introduced.
+
+    Returns ``None`` when git cannot answer at all — no repository, no history.
+    A hash that is in no tracked file gets a row with `commit: None`, and
+    `pre_kickoff` is False unless EVERY hash was introduced in time.
+    """
+    root = Path(paths.REPO_ROOT if repo_root is None else repo_root)
+    cutoff = pd.Timestamp(record["cutoff"])
+    wanted = [("effective_posterior_hash",
+               record.get("effective_posterior_hash")),
+              ("run_digest", (record.get("digests") or {}).get(matchboard.ARM))]
+
+    rows: list[dict] = []
+    for name, digest in wanted:
+        if not digest:
+            rows.append({"name": name, "hash": digest, "file": None,
+                         "commit": None, "committed_at": None})
+            continue
+        try:
+            found = _git_lines(root, "grep", "-l", digest, "HEAD", "--",
+                               pathspec)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        earliest = None
+        for line in found:
+            path = line.split(":", 1)[-1]
+            try:
+                introduced = _git_lines(
+                    root, "log", "--format=%H%x09%aI", "--reverse",
+                    f"-S{digest}", "--", path)
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if not introduced:
+                continue
+            commit, _, when = introduced[0].partition("\t")
+            stamp = pd.Timestamp(when)
+            if earliest is None or stamp < earliest[2]:
+                earliest = (path, commit, stamp, when)
+        if earliest is None:
+            rows.append({"name": name, "hash": digest, "file": None,
+                         "commit": None, "committed_at": None})
+        else:
+            path, commit, _, when = earliest
+            rows.append({"name": name, "hash": digest, "file": path,
+                         "commit": commit, "committed_at": when})
+
+    pre_kickoff = bool(rows) and all(
+        _committed_by(row["committed_at"], cutoff) for row in rows)
+    return {"cutoff": str(record["cutoff"]), "pre_kickoff": pre_kickoff,
+            "hashes": rows}
+
+
+def _committed_by(committed_at, cutoff) -> bool:
+    """Was this commit authored at or before the cutoff?
+
+    The cutoff is a naive local timestamp in the season's own terms and a git
+    author date is offset-aware, so the comparison is on the commit's own wall
+    clock: `tz_localize(None)` drops the offset and keeps the local time the
+    commit was authored at. A hash with no commit anchors nothing and is False.
+    """
+    if committed_at is None:
+        return False
+    stamp = pd.Timestamp(committed_at)
+    if stamp.tz is not None:
+        stamp = stamp.tz_localize(None)
+    return stamp <= pd.Timestamp(cutoff)
+
+
+def _git_lines(root: Path, *args: str) -> list[str]:
+    out = subprocess.run(["git", *args], cwd=root, capture_output=True,
+                         text=True, timeout=60)
+    if out.returncode not in (0, 1):                        # 1 == "no match"
+        raise subprocess.SubprocessError(out.stderr.strip()[:200])
+    return [line for line in out.stdout.splitlines() if line.strip()]
+
+
 def derive_matchboard(directory, out_dir=None, *, results_file=None,
                       derived_at=None, verbose: bool = True) -> dict:
     """Derive a LABELLED matchboard from an existing bundle, outside the bundle.
@@ -2814,6 +2909,12 @@ def derive_matchboard(directory, out_dir=None, *, results_file=None,
     out_dir.mkdir(parents=True, exist_ok=True)
 
     board = matchboard.derive(directory, record=record)
+    # A7 (d): the derivation's own text must say BOTH kinds of provenance. The
+    # rows' kind comes out of the record; the law's is a fact about this
+    # repository's history, so it is computed from git rather than asserted.
+    anchor = law_anchor(record)
+    if anchor is not None:
+        board = {**board, "law_anchor": anchor}
     stamped = matchboard.as_derived(
         board, source_bundle=str(directory),
         derived_at=(str(pd.Timestamp.now("UTC").floor("s")) if derived_at is None

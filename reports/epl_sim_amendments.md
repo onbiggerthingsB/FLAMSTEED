@@ -3227,3 +3227,25 @@ or in any published report. `epl/simretro.py` and `epl/simmetrics.py` are
 untouched and still hash to the **v5** pair, so there is no harness v6 and no new
 hash pair to record. `src/`, `scripts/`, `site/`, `tools/` and `.github/` are
 untouched.
+
+**A7 (d)'s two kinds, made checkable rather than asserted.** The ruling requires
+a derived artifact's own text — and any scorecard row citing it — to say **both**
+that the law is anchored pre-kickoff and that the rows are not, without
+collapsing the two into one word. The rows' half comes out of the record:
+`rows_provenance` is `anchored` only when `sidecar_digests[arm]["rows"]` is
+actually pinned, and `reproduction` otherwise, which for the preserved MW0 bundle
+is `reproduction`. The law's half is a fact about **this repository's history**,
+so `epl.simcli.law_anchor` computes it from git rather than restating the ledger:
+for each of `effective_posterior_hash` and `digests["dc_native"]` it finds the
+EARLIEST commit that introduced that string into a tracked file under `reports/`,
+and reports `pre_kickoff` only if every one of them is at or before the cutoff.
+Earliest and not merely *a commit containing it*, because this very ledger
+carries the opener's posterior hash at `5201eac`, four days AFTER the cutoff, and
+a later mention of a hash cannot become an earlier anchor. Run against the
+preserved bundle it returns `9478e7111a0f2e473deef2496b1e273834d51d6f`, authored
+`2026-08-19T16:15:58+08:00`, in `reports/epl_sim_issuance_2026-08-21.md` — the
+commit A7 (d) entered, recovered from the history rather than copied from the
+entry, which is what makes the claim checkable by whoever reads it. A bundle's
+own sidecar carries no law-anchor claim at all: it was written by the run that
+issued it and has no history to appeal to, and silence is better than a sentence
+nobody checked.
