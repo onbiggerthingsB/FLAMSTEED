@@ -48,8 +48,9 @@ import numpy as np
 import pandas as pd
 
 from epl import (anchor as anchor_mod, bridge as bridge_mod, leaguesim,
-                 matchboard, particles, paths, season as season_mod, simbundle,
-                 simcanary, table as table_mod)
+                 matchboard, particles, paths, recalfit, recalshadow,
+                 season as season_mod, simbundle, simcanary,
+                 table as table_mod)
 
 # ==========================================================================
 # constants
@@ -2913,6 +2914,47 @@ def main(argv: Sequence[str] | None = None) -> int:
                    help="where the season ledger `--score` reads lives "
                         f"(default {season_mod.SEASON_ROOT}).")
 
+    # A8 — the shadow challenger. A SEPARATE SURFACE: it never writes the A7
+    # scorecard, never touches a bundle, and `check` gains no criterion for it.
+    rc = sub.add_parser("recal",
+                        help="the dc_1x2_recal shadow challenger (A8): derive "
+                             "rows from a bundle, score them, verify the ledger")
+    rc.add_argument("--directory", default=None)
+    rc.add_argument("--season", default=DEFAULT_SEASON)
+    rc.add_argument("--cutoff", default=None)
+    rc.add_argument("--out-root", default=None)
+    rc.add_argument("--out", default=None,
+                    help=f"where the shadow ledger and any derived document go "
+                         f"(default {DERIVED_ROOT}). OUTSIDE every bundle "
+                         f"directory: `matchboard.is_derived_name` does not "
+                         f"match this file's name and A8 gives `check` no new "
+                         f"criterion, so this guard is the whole defence "
+                         f"against a challenger anchoring itself inside a "
+                         f"record (A7 (c)).")
+    rc.add_argument("--derive", action="store_true",
+                    help="write the per-fixture shadow document for this "
+                         "bundle: every priced fixture's published marginals "
+                         "and their recalibration, with no result and no score.")
+    rc.add_argument("--score", default=None,
+                    help="a JSONL of results (fixture_id, home_goals, "
+                         "away_goals, matchweek, ingest) to score and append. "
+                         "Every row must already be IN the season's results "
+                         "ledger, which is the source of truth for what was "
+                         "played. Reports; decides, triggers and gates nothing.")
+    rc.add_argument("--verify", action="store_true",
+                    help="re-derive the constant from the pinned corpus and "
+                         "re-derive every row on the ledger (A8 (d)). Refuses "
+                         "when the corpus is absent — that is its job.")
+    rc.add_argument("--ledger", default=None,
+                    help=f"the shadow ledger (default "
+                         f"<out>/{recalshadow.SHADOW_FILENAME}).")
+    rc.add_argument("--corpus", default=None,
+                    help=f"the pinned corpus (default {recalfit.CORPUS_PATH}), "
+                         "checked by sha256 before anything reads it.")
+    rc.add_argument("--season-root", default=None,
+                    help="where the season ledger `--score` reads lives "
+                         f"(default {season_mod.SEASON_ROOT}).")
+
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     try:
@@ -2926,9 +2968,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_check(args)
         if args.command == "matchboard":
             return _cmd_matchboard(args)
+        if args.command == "recal":
+            return _cmd_recal(args)
     except (CliError, season_mod.SeasonError, leaguesim.SimError,
             particles.ParticleError, simcanary.CanaryError,
-            matchboard.MatchboardError) as exc:
+            matchboard.MatchboardError, recalfit.RecalError) as exc:
         print(f"STOP: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
     return 1                                                # pragma: no cover
@@ -3325,6 +3369,116 @@ def _cmd_matchboard(args) -> int:
                  else _last_issuance(args.season, args.out_root, args.cutoff))
     derive_matchboard(directory, args.out, results_file=args.score,
                       season_root=args.season_root, verbose=True)
+    return 0
+
+
+# ==========================================================================
+# A8 — the shadow challenger's command
+# ==========================================================================
+
+def recal_derived_filename(season: str, cutoff) -> str:
+    """The `--derive` document's name. Deliberately NOT a matchboard name.
+
+    `matchboard.is_derived_name` matches `epl_matchboard_*_derived.*`, and A8
+    item 8 forbids giving `check` a criterion for anything — so this file is
+    invisible to the scan that keeps derivations out of bundles, and naming it
+    as if it were a matchboard would make it invisible AND misread. The
+    containment guard below is what keeps it outside a bundle instead.
+    """
+    return (f"epl_recal_{season_mod.season_dir_name(season)}_"
+            f"{pd.Timestamp(cutoff).date().isoformat()}_derived.json")
+
+
+def recal_shadow(directory=None, out_dir=None, *, derive: bool = False,
+                 results_file=None, verify: bool = False, ledger_path=None,
+                 season_root=None, corpus=None, verbose: bool = True) -> dict:
+    """A8's three modes over one bundle and one append-only ledger.
+
+    **A SEPARATE SURFACE.** This never writes `matchboard_scorecard.jsonl`,
+    never writes into a bundle, and changes no published number: A8 (c) makes
+    the shadow layer anchor itself by carrying the source run's digest and
+    clocks on every row, precisely so the issuance schema can stay
+    `epl-issuance-5` and `check` can gain no criterion.
+
+    **The out-dir guard is not a formality here.** A7 (c)'s discipline is
+    enforced for the matchboard by two things — this guard AND `check`'s
+    recursive scan for `epl_matchboard_*_derived.*`. A recal document matches
+    neither that name nor any criterion A8 authorises, so for this surface the
+    guard is the whole defence, and it is applied to the ledger's directory as
+    well as to `out_dir`.
+
+    Nothing is written unless every row passes: `--score` derives, scores the
+    whole batch and only then opens the file (:func:`epl.recalshadow.score_bundle`).
+    """
+    if not (derive or results_file or verify):
+        raise CliError(
+            "recal does nothing by default: pass --derive to write the shadow "
+            "document for a bundle, --score <results.jsonl> to score results "
+            "the season ledger already carries, or --verify to re-derive the "
+            "constant and every row. A command that silently did the least "
+            "surprising thing is a command whose output nobody reads")
+
+    out_dir = DERIVED_ROOT if out_dir is None else Path(out_dir)
+    _refuse_a_bundle_descendant(out_dir)
+    ledger = Path(out_dir / recalshadow.SHADOW_FILENAME if ledger_path is None
+                  else ledger_path)
+    _refuse_a_bundle_descendant(ledger.parent)
+
+    result: dict[str, Any] = {"ledger": str(ledger), "document": None,
+                              "rows": [], "appended": 0, "repeated": 0,
+                              "verification": None}
+
+    if derive or results_file:
+        if directory is None:
+            raise CliError("--derive and --score read a bundle: pass "
+                           "--directory, or --season/--cutoff to locate one")
+    if derive:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        board = recalshadow.board_from(directory, season_root=season_root)
+        document = recalshadow.forecast_document(board)
+        path = out_dir / recal_derived_filename(document["season"],
+                                                document["cutoff"])
+        path.write_text(leaguesim.canonical_json(document) + "\n")
+        result["document"] = str(path)
+        if verbose:
+            print(f"[recal] {path}", flush=True)
+
+    if results_file:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        scored = recalshadow.score_bundle(directory, results_file,
+                                          ledger_path=ledger,
+                                          season_root=season_root)
+        result.update({"rows": scored["rows"], "appended": scored["appended"],
+                       "repeated": scored["repeated"]})
+        if verbose:
+            print(f"[recal] appended {scored['appended']} shadow row(s) to "
+                  f"{ledger}"
+                  + (f"; {scored['repeated']} already filed, unchanged"
+                     if scored["repeated"] else ""), flush=True)
+
+    if verify:
+        report = recalshadow.verify(ledger, corpus=corpus)
+        result["verification"] = report
+        if verbose:
+            fit = report["fit"]
+            print(f"[recal] corpus {fit['sha256']}: a_ledger "
+                  f"{fit['a_ledger']!r} vs a_refit {fit['a_refit']!r}, gap "
+                  f"{fit['gap']!r}", flush=True)
+            print(f"[recal] {ledger}: {report['n_rows']} row(s) re-derived",
+                  flush=True)
+    return result
+
+
+def _cmd_recal(args) -> int:
+    directory = None
+    if args.derive or args.score:
+        directory = (Path(args.directory) if args.directory
+                     else _last_issuance(args.season, args.out_root,
+                                         args.cutoff))
+    recal_shadow(directory, args.out, derive=args.derive,
+                 results_file=args.score, verify=args.verify,
+                 ledger_path=args.ledger, season_root=args.season_root,
+                 corpus=args.corpus, verbose=True)
     return 0
 
 

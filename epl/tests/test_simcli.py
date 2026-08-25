@@ -21,7 +21,7 @@ import pandas as pd
 import pytest
 
 from epl import bridge as bridge_mod, leaguesim, liveanchor, matchboard
-from epl import particles, season as season_mod, simcli
+from epl import particles, recalfit, season as season_mod, simcli
 # The T6 acceptance run's league-shaped book: one definition, reused, so the
 # smoke path here and the canary path there cannot drift apart.
 from epl.simcanary import _synthetic_book as synthetic_book
@@ -3513,3 +3513,156 @@ def test_the_forecast_cli_can_state_its_own_knowledge_clock(monkeypatch):
                         "--cutoff", "2026-08-25"]) == 0
     assert seen["observed_by"] is None, \
         "without the flag the library default (the cutoff) must rule"
+
+
+# ==========================================================================
+# 22. A8 — `simcli recal`, the shadow challenger's three modes
+# ==========================================================================
+
+def test_the_recal_subcommand_derives_a_shadow_document_without_touching_it(
+        issuance, tmp_path):
+    """`simcli recal --directory <bundle> --derive --out <dir>`.
+
+    The shadow layer writes NOTHING into a bundle (A8 (c)): the issuance schema
+    is untouched at `epl-issuance-5`, `check` gains no criterion, and the layer
+    anchors itself by carrying the source run's digest and clocks on every row.
+    """
+    directory = Path(issuance["directory"])
+    before = {p.name: p.read_bytes() for p in directory.iterdir()}
+    out = tmp_path / "shadow"
+    assert simcli.main(["recal", "--directory", str(directory), "--derive",
+                        "--out", str(out)]) == 0
+    assert {p.name: p.read_bytes() for p in directory.iterdir()} == before
+
+    name = simcli.recal_derived_filename(SEASON, OPENER)
+    doc = json.loads((out / name).read_text())
+    assert doc["schema_version"] == "epl-recal-shadow-1"
+    assert doc["arm"] == "dc_1x2_recal"
+    assert doc["rule_version"] == "dc-1x2-recal-1"
+    assert doc["a"] == recalfit.A
+    assert doc["corpus_sha256"] == recalfit.CORPUS_SHA256
+    assert doc["source_bundle"]
+
+    board = json.loads((directory / matchboard.JSON_FILENAME).read_text())
+    assert doc["run_digest"] == board["run_digest"]
+    assert doc["n_fixtures"] == len(board["rows"]) == len(doc["rows"])
+    first = doc["rows"][0]
+    published = board["rows"][0]["probs"]
+    assert first["probs_raw"] == published        # copied, never re-priced
+    assert first["probs_recal"] == recalfit.transform(published, recalfit.A)
+    # A DERIVED DOCUMENT WITH NO CLOCK IN IT. The matchboard's own derivation
+    # takes `derived_at` as an input; this one has no such claim to make and
+    # carries no stamp at all, so it is reproducible from the bundle and the
+    # constant.
+    assert "derived_at" not in doc
+
+
+def test_the_recal_subcommand_scores_rows_into_the_shadow_ledger(issuance,
+                                                                 tmp_path):
+    """A8 item 6's identity, ACROSS THE TWO SURFACES, on a real bundle.
+
+    The A7 scorecard and the shadow ledger are scored from the same bundle
+    against the same season ledger, and `rps_raw` must be the SAME DOUBLE as
+    the scorecard's `rps` — not close to it. That is only true because
+    `probs_raw` is the published object copied rather than re-priced.
+    """
+    directory = Path(issuance["directory"])
+    board = json.loads((directory / matchboard.JSON_FILENAME).read_text())
+    first = board["rows"][0]
+    root = _season_carrying(tmp_path, first["fixture_id"], first["date"], 2, 1)
+
+    results = tmp_path / "results.jsonl"
+    results.write_text(json.dumps({
+        "fixture_id": first["fixture_id"], "home_goals": 2, "away_goals": 1,
+        "matchweek": 1, "ingest": "manual/day1"}) + "\n")
+
+    out = tmp_path / "shadow"
+    for _ in range(2):                       # A8 (c): idempotent by construction
+        assert simcli.main(["recal", "--directory", str(directory),
+                            "--out", str(out), "--score", str(results),
+                            "--season-root", str(root)]) == 0
+    rows = [json.loads(line) for line in
+            (out / "epl_recal_shadow.jsonl").read_text().splitlines()]
+    assert len(rows) == 1, "a second run must not double the row"
+    row = rows[0]
+
+    scored = matchboard.score(board, [{
+        "fixture_id": first["fixture_id"], "home_goals": 2, "away_goals": 1,
+        "matchweek": 1, "ingest": "manual/day1"}], season_root=root)[0]
+    assert row["rps_raw"] == scored["rps"]                   # the same double
+    assert row["rps_uniform"] == scored["rps_uniform"]
+    assert row["outcome"] == scored["outcome"] == "home"
+    assert row["run_digest"] == board["run_digest"]
+    assert row["cutoff"] == board["cutoff"]
+    assert row["observed_by"] == board["observed_by"]
+    # A7 (f), in full on this surface too
+    assert not [k for k in row if "benchmark" in k]
+    # the A7 scorecard is a SEPARATE surface and this command never writes it
+    assert not (out / simcli.SCORECARD_FILENAME).exists()
+
+
+def test_the_recal_subcommand_refuses_to_write_into_a_bundle(issuance):
+    """A7 (c)'s discipline, applied to an artifact `check` cannot see.
+
+    `matchboard.is_derived_name` matches `epl_matchboard_*_derived.*` and
+    nothing else, and A8 item 8 forbids giving `check` a new criterion — so a
+    stray `epl_recal_*_derived.json` inside a bundle would be invisible to the
+    scan that exists to find derivations. THE OUT-DIR GUARD IS THEREFORE THE
+    ONLY THING STANDING BETWEEN `--out <bundle>` AND A BUNDLE ANCHORING A
+    CHALLENGER AFTER THE FACT, and it is asserted here rather than assumed.
+    """
+    directory = Path(issuance["directory"])
+    before = {p.name: p.read_bytes() for p in directory.iterdir()}
+    for out in (directory, directory / "nested" / "deeper"):
+        with pytest.raises(simcli.CliError) as exc:
+            simcli.recal_shadow(directory, out, derive=True, verbose=False)
+        assert "outside" in str(exc.value).lower()
+    assert {p.name: p.read_bytes() for p in directory.iterdir()} == before
+    # and the reason the guard has to be the whole defence
+    assert matchboard.is_derived_name(
+        simcli.recal_derived_filename(SEASON, OPENER)) is False
+
+
+def test_a_recal_refusal_is_a_STOP_not_a_traceback(issuance, tmp_path, capsys):
+    """A8 (d): every refusal derives from `RecalError`, `main()` catches it,
+    prints `STOP: <TypeName>: …` and exits 2.
+
+    A refusal an operator cannot tell from a crash teaches them to ignore
+    crashes — the correction the A7 round had to make once, applied here on the
+    way in rather than after.
+    """
+    code = simcli.main(["recal", "--verify", "--out", str(tmp_path),
+                        "--corpus", str(tmp_path / "not-a-corpus.parquet")])
+    err = capsys.readouterr().err
+    assert code == 2, f"exit {code}; a typed refusal exits 2, a crash exits 1"
+    assert "STOP: CorpusMissing" in err
+    assert "Traceback" not in err
+
+    # ...and a refusal that comes from the season half is a STOP too
+    directory = Path(issuance["directory"])
+    board = json.loads((directory / matchboard.JSON_FILENAME).read_text())
+    first = board["rows"][0]
+    results = tmp_path / "fabricated.jsonl"
+    results.write_text(json.dumps({
+        "fixture_id": first["fixture_id"], "home_goals": 99, "away_goals": 0,
+        "matchweek": 1, "ingest": "x"}) + "\n")
+    code = simcli.main(["recal", "--directory", str(directory),
+                        "--out", str(tmp_path / "shadow2"),
+                        "--score", str(results),
+                        "--season-root", str(_season_copy(tmp_path))])
+    err = capsys.readouterr().err
+    assert code == 2 and "STOP: MatchboardError" in err
+    assert "Traceback" not in err
+    assert not (tmp_path / "shadow2" / "epl_recal_shadow.jsonl").exists()
+
+
+def test_the_recal_subcommand_needs_a_mode_and_says_so(issuance, tmp_path,
+                                                       capsys):
+    """Three modes, and none of them the default. A command that silently did
+    the least surprising thing would be a command whose output nobody reads."""
+    code = simcli.main(["recal", "--directory", str(issuance["directory"]),
+                        "--out", str(tmp_path)])
+    err = capsys.readouterr().err
+    assert code == 2 and "STOP: CliError" in err
+    for mode in ("--derive", "--score", "--verify"):
+        assert mode in err
