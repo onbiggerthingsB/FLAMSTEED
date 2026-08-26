@@ -126,6 +126,8 @@ __all__ = [
     "knowledge_clock", "latest_stamp", "cross_check", "parse_check_report",
     "append_journal", "headline_moves", "issuance_days", "prior_issuance_for",
     "refuse_an_unsafe_launch", "run_cycle", "main",
+    "JournalTampered", "JOURNAL_GENESIS", "journal_link",
+    "verify_journal_chain", "unscored_fixtures",
 ]
 
 
@@ -139,6 +141,10 @@ class LiveCycleError(RuntimeError):
 
 class SourceUnreachable(LiveCycleError):
     """A result source could not be fetched. Never a silent skip."""
+
+
+class JournalTampered(LiveCycleError):
+    """A journal line on file is not the line that was written."""
 
 
 class SourceMalformed(LiveCycleError):
@@ -644,19 +650,140 @@ def parse_check_report(report: Mapping[str, Any]) -> dict[str, Any]:
 # 5. the flight log
 # ==========================================================================
 
+#: The chain's anchor. The first CHAINED line carries this literal, so a file
+#: that begins mid-chain is distinguishable from one that begins at the start.
+JOURNAL_GENESIS = "genesis:epl-livecycle-journal-1"
+
+
+def journal_link(line: str) -> str:
+    """The SHA-256 a following line must carry to claim this one as its parent."""
+    return hashlib.sha256(line.encode("utf-8")).hexdigest()
+
+
+def _journal_lines(path) -> list[str]:
+    path = Path(path)
+    if not path.exists():
+        return []
+    return [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+
+def verify_journal_chain(path) -> int:
+    """Verify every chained line links to the one before it. Returns the count.
+
+    APPEND-ONLY IS A CLAIM UNTIL SOMETHING CHECKS IT. Nothing polled this file,
+    so a line rewritten after the fact — by a bad merge, a stray editor, or a
+    hand that wanted a STOP to read `no-op` — was indistinguishable from the
+    line the run actually wrote. Each line carries `chain`: the digest of the
+    PREVIOUS line's exact bytes. Changing any past line breaks every link after
+    it, and the next cycle refuses rather than appending beside the edit.
+
+    MIGRATION, NOT REWRITING. The committed journal has lines written before
+    the chain existed. They carry no `chain` and are TOLERATED at the head of
+    the file — history is not rewritten to give them one. The first chained
+    line anchors to the last pre-chain line's bytes, so the seam is covered
+    rather than being a free place to edit. A pre-chain line appearing AFTER a
+    chained one is not a migration, it is a deletion or a splice, and refuses.
+
+    THE TIP IS NOT PROTECTED, and saying so is part of the guarantee. Each line
+    commits to its PARENT, so the newest line has nothing after it to vouch for
+    it; editing it alone leaves a file that still verifies. The next run closes
+    that window by chaining to whatever bytes are then there. The tip's real
+    anchor is outside this file: the journal is committed, so git holds it.
+    """
+    lines = _journal_lines(path)
+    chained = False
+    for i, line in enumerate(lines):
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise JournalTampered(
+                f"line {i + 1} of {paths.rel(Path(path))} is not JSON ({exc}). "
+                "STOP: the flight log is append-only and a line that will not "
+                "parse is a line something rewrote.") from exc
+        chain = row.get("chain") if isinstance(row, dict) else None
+        if chain is None:
+            if chained:
+                raise JournalTampered(
+                    f"line {i + 1} of {paths.rel(Path(path))} carries no chain "
+                    "but a chained line precedes it. STOP: pre-chain lines are "
+                    "tolerated only at the head of the file, so this is a "
+                    "deletion or a splice, not the migration.")
+            continue
+        chained = True
+        want = JOURNAL_GENESIS if i == 0 else journal_link(lines[i - 1])
+        if str(chain) != want:
+            raise JournalTampered(
+                f"line {i + 1} of {paths.rel(Path(path))} claims a parent it "
+                f"does not have: chain is {str(chain)[:16]}…, the line before "
+                f"it hashes to {want[:16]}…. STOP: a line already on file has "
+                "been changed, removed or reordered. The flight log is "
+                "evidence; read it before writing anything else to it.")
+    return len(lines)
+
+
 def append_journal(path, entry: Mapping[str, Any]) -> str:
     """Append ONE canonical-JSON line. Returns the line, without its newline.
 
     Canonical because the log is compared across runs and machines: sorted
     keys, no incidental whitespace, no NaN. Append-only because it is a flight
-    log — the run that went wrong is the one worth keeping.
+    log — the run that went wrong is the one worth keeping. And self-verifying:
+    the whole chain is checked BEFORE the append, so a tampered log is refused
+    rather than extended.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    line = leaguesim.canonical_json(entry)
+    verify_journal_chain(path)
+    previous = _journal_lines(path)
+    chain = (JOURNAL_GENESIS if not previous
+             else journal_link(previous[-1]))
+    line = leaguesim.canonical_json({**dict(entry), "chain": chain})
     with path.open("a", encoding="utf-8") as fh:
         fh.write(line + "\n")
     return line
+
+
+def _scored_fixture_ids(path) -> set[str]:
+    """Every `fixture_id` a scoring ledger already carries."""
+    path = Path(path)
+    if not path.exists():
+        return set()
+    out: set[str] = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        fid = row.get("fixture_id") if isinstance(row, dict) else None
+        if fid is not None:
+            out.add(str(fid))
+    return out
+
+
+def unscored_fixtures(resolved: Iterable[str], *, scorecard, shadow) -> list[str]:
+    """Resolved fixtures that either scoring ledger does not yet carry.
+
+    THE WORK IS READ FROM THE LEDGERS, NOT FROM THIS RUN'S WRITTEN LIST. The
+    ingest writes at step 4 and the scoring runs at steps 7-8, so every refusal
+    in between — `GateNotPassed` most of all, which is a DESIGNED refusal on a
+    bundle that failed its acceptance gate — used to leave results on the
+    season ledger that nothing ever scored. Scoring took its work from
+    `ingestable`, and the next run's `ingestable` is empty precisely because
+    the ledger already resolves those fixtures: the orphans were permanent.
+
+    Asking the ledgers instead makes the backlog self-clearing. Both appends
+    are idempotent on `(fixture_id, run_digest)`, so re-offering a scored
+    fixture costs a `repeated` and changes nothing — the failure this guards
+    against is scoring too LITTLE, and it errs toward too much.
+
+    A fixture missing from EITHER ledger counts: the matchboard scorecard and
+    the A8 shadow ledger are written by two separate steps, and a refusal
+    between them leaves exactly one of them short.
+    """
+    board, shad = _scored_fixture_ids(scorecard), _scored_fixture_ids(shadow)
+    return sorted(fid for fid in {str(f) for f in resolved}
+                  if fid not in board or fid not in shad)
 
 
 # ==========================================================================
@@ -778,7 +905,7 @@ def _count_lines(path) -> int:
 def prior_issuance_for(fixture_ids: Sequence[str], *, season, kickoffs,
                        out_root=None, exclude: Sequence[Path] = (),
                        board_reader: Callable[[Path], dict] | None = None,
-                       ) -> dict[str, Path]:
+                       strict: bool = True) -> dict[str, Path]:
     """fixture id -> the issuance whose matchboard may score it.
 
     THE FRESHEST FORECAST THAT STILL PRECEDED THE MATCH. Newest first, and the
@@ -823,7 +950,14 @@ def prior_issuance_for(fixture_ids: Sequence[str], *, season, kickoffs,
         else:
             unplaced.append(fid)
 
-    if unplaced:
+    # `strict=False` is for the BACKLOG only. A fixture this run just ingested
+    # that no bundle priced is a STOP — that is the contract, and it catches a
+    # cycle scoring against a forecast made after the fact. But a fixture
+    # resolved long ago and never scored may simply predate the issuance tree:
+    # MW1 was hand-entered before any bundle existed. Those are UNSCOREABLE,
+    # not overdue, and refusing forever over them would wedge every future
+    # cycle. They are returned to the caller to be reported, not raised over.
+    if unplaced and strict:
         raise ScorecardMismatch(
             "no issuance priced these fixtures before they kicked off, so "
             "there is no forecast for them to score against:\n"
@@ -1008,6 +1142,14 @@ def run_cycle(*, now=None, season: str = simcli.DEFAULT_SEASON, root=None,
         "shadow": None,
         "digests": {},
     }
+
+    # THE FLIGHT LOG IS READ BEFORE IT IS WRITTEN. Verified here, before any
+    # source is fetched and long before anything is ingested: an edited log is
+    # evidence that something is wrong with this machine's record, and the
+    # cycle should stop and be looked at rather than append a true line under a
+    # false one. Raised OUTSIDE the try below on purpose — this refusal cannot
+    # be journalled, because the journal is what failed.
+    verify_journal_chain(journal)
 
     try:
         result = _run(entry, now=now, observed_at=observed_at, cutoff=cutoff,
@@ -1223,13 +1365,46 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
             entry["check"] = parse_check_report(steps["check"](
                 directory, verbose=verbose))
 
-    # --- 7 + 8. score the forecasts that priced what was just ingested ----
-    if written:
+    # --- 7 + 8. score every resolved fixture the scorecards do not carry --
+    # NOT `if written`. A refusal between the ingest write (step 4) and here
+    # leaves results on the ledger that nothing ever scores, because the next
+    # run has nothing in `ingestable` — the ledger already resolves them. The
+    # work is the LEDGER's state, so a backlog clears on the next clean cycle.
+    # A dry run still writes nothing: it has not ingested, and it must not
+    # score.
+    scorecard_path = Path(derived_root) / simcli.SCORECARD_FILENAME
+    work: list[str] = []
+    unscoreable: list[str] = []
+    kickoffs: dict[str, Any] = {}
+    if not dry_run:
+        # `resolved` is filled only when this run wrote. On a run that wrote
+        # nothing it is empty and the ledger has to be read — which is the
+        # whole point: the backlog lives there, not here.
+        if not resolved:
+            resolved = season_mod.current_ledger_view(season_obj).played_rows
         kickoffs = season_mod._kickoffs_known(
             season_obj.fixtures, season_obj.amendments, observed_at)
-        chosen = prior_issuance_for(
-            sorted(ingestable), season=season, kickoffs=kickoffs,
-            out_root=out_root, exclude=[today], board_reader=board_reader)
+        work = [fid for fid in unscored_fixtures(
+            resolved, scorecard=scorecard_path, shadow=shadow_ledger)
+            if fid in kickoffs]
+    if work:
+        # Two populations, two strictnesses. What THIS run ingested must find a
+        # bundle that preceded it or the cycle STOPs — unchanged. What was
+        # resolved earlier and never scored is scored where a bundle exists and
+        # REPORTED where none does.
+        fresh = sorted(set(work) & set(ingestable))
+        overdue = sorted(set(work) - set(ingestable))
+        chosen: dict[str, Path] = {}
+        if fresh:
+            chosen.update(prior_issuance_for(
+                fresh, season=season, kickoffs=kickoffs, out_root=out_root,
+                exclude=[today], board_reader=board_reader))
+        if overdue:
+            placed = prior_issuance_for(
+                overdue, season=season, kickoffs=kickoffs, out_root=out_root,
+                exclude=[today], board_reader=board_reader, strict=False)
+            chosen.update(placed)
+            unscoreable = sorted(set(overdue) - set(placed))
         groups: dict[Path, list[str]] = {}
         for fid, bundle in sorted(chosen.items()):
             groups.setdefault(bundle, []).append(fid)
@@ -1261,6 +1436,8 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
                     tally["appended"] += int(got.get("appended", 0))
                     tally["repeated"] += int(got.get("repeated", 0))
                     tally["bundles"].append(paths.rel(bundle))
+        board_tally["backlog"] = sorted(set(chosen) - set(ingestable))
+        board_tally["unscoreable"] = unscoreable
         entry["scorecard"] = board_tally
         entry["shadow"] = shadow_tally
         entry["digests"]["matchboard_scorecard"] = simcli.sha256_file(

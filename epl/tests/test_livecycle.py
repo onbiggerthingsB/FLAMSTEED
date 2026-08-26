@@ -588,7 +588,8 @@ def test_the_journal_is_one_canonical_line_per_run_and_append_only(tmp_path):
     lines = path.read_text().splitlines()
     assert len(lines) == 2
     assert lines[0] == first == leaguesim.canonical_json(
-        {"a": 2, "at": "2026-08-25T18:20:31", "b": 1, "outcome": "no-op"})
+        {"a": 2, "at": "2026-08-25T18:20:31", "b": 1, "outcome": "no-op",
+         "chain": livecycle.JOURNAL_GENESIS})
     assert json.loads(lines[1])["outcome"] == "ran"
     # append-only: the first line is byte-identical after the second write
     assert lines[0] == first
@@ -730,6 +731,20 @@ def _cycle(tmp_path, *, of_scores=None, e0_scores=None, ledger=None,
     return out
 
 
+def _prescored(tmp_path, fixtures=MW1_META, derived: str = "derived"):
+    """File scorecard and shadow rows for `fixtures`, so the cycle has NO
+    backlog. Without this a hand-ingested round is outstanding work and a
+    "no-op" day correctly scores it — which is the whole point of the backlog
+    fix, and makes "nothing was scored" a claim a test has to earn."""
+    root = tmp_path / derived
+    root.mkdir(parents=True, exist_ok=True)
+    for name in (simcli.SCORECARD_FILENAME, "shadow.jsonl"):
+        (root / name).write_text("".join(
+            json.dumps({"fixture_id": fid, "run_digest": "a" * 64}) + "\n"
+            for fid in fixtures), encoding="utf-8")
+    return root
+
+
 def _odds_csv() -> bytes:
     head = "Div,Date,HomeTeam,AwayTeam,AvgH,AvgD,AvgA"
     row = "E0,28/08/2026,Crystal Palace,Man City,2.10,3.40,3.20"
@@ -758,6 +773,7 @@ def test_no_new_results_and_a_fresh_issuance_is_a_clean_no_op(tmp_path):
     fresh.mkdir(parents=True)
     (fresh / "issuance.json").write_text(json.dumps({"season": SEASON}))
 
+    _prescored(tmp_path)
     result = _cycle(tmp_path, ledger=MW1_SCORES)
     assert result["outcome"] == "no-op"
     assert result["ingested"]["fixtures"] == []
@@ -905,11 +921,35 @@ def test_a_result_no_issuance_priced_before_kickoff_is_refused(tmp_path):
     assert "2627:arsenal:coventry" in str(exc.value)
 
 
-def test_nothing_is_scored_when_nothing_was_ingested(tmp_path):
+def test_nothing_is_scored_when_the_ledger_carries_no_backlog(tmp_path):
+    """Nothing ingested AND nothing outstanding is the cheap day.
+
+    Scoring is driven by the LEDGER's state, not by this run's written list,
+    so "nothing was ingested" is no longer sufficient on its own: a round that
+    is resolved but unscored is work regardless of who ingested it. Both
+    scorecards already carry MW1 here, so there is genuinely nothing to do.
+    """
+    _prescored(tmp_path)
     result = _cycle(tmp_path, ledger=MW1_SCORES)
     assert result["_steps"].named("matchboard") == []
     assert result["_steps"].named("shadow") == []
     assert result["scorecard"] is None and result["shadow"] is None
+
+
+def test_a_hand_ingested_round_is_scored_even_though_no_cycle_ingested_it(tmp_path):
+    """The other half of the same rule, and the reason it is the right one.
+
+    MW1 was entered by hand before this cycle existed. Under the old rule —
+    score what THIS run ingested — no cycle would ever have scored it, because
+    no cycle ever ingested it. It is resolved, a bundle priced it before
+    kickoff, and it belongs on the scorecard."""
+    result = _cycle(tmp_path, ledger=MW1_SCORES)
+    assert result["ingested"]["written"] is False
+    scored = {r["fixture_id"] for call in result["_steps"].named("matchboard")
+              for r in call["rows"]}
+    assert scored == set(MW1_META)
+    assert result["scorecard"]["backlog"] == sorted(MW1_META)
+    assert result["scorecard"]["unscoreable"] == []
 
 
 # --- the odds snapshot ----------------------------------------------------
@@ -1086,7 +1126,15 @@ def test_moving_the_wall_clock_changes_nothing_the_cycle_computes(tmp_path):
         assert real_time.time() > 0 and real_datetime.date.today().year > 1970
 
     lines = journal.read_text().splitlines()
-    assert lines[0] == lines[1], (
+    # The chain field is EXPECTED to differ: line 2 commits to line 1's bytes,
+    # so two consecutive lines are never byte-identical and that is the chain
+    # working. Everything the cycle COMPUTED must still be identical.
+    stripped = [leaguesim.canonical_json(
+        {k: v for k, v in json.loads(ln).items() if k != "chain"})
+        for ln in lines]
+    assert json.loads(lines[0])["chain"] != json.loads(lines[1])["chain"]
+    assert json.loads(lines[1])["chain"] == livecycle.journal_link(lines[0])
+    assert stripped[0] == stripped[1], (
         "the cycle's own record moved when the wall clock did — something in "
         "it is reading a clock that is not `now`")
     assert before["outcome"] == after["outcome"] == "no-op"
@@ -1612,3 +1660,250 @@ def test_re_running_the_same_day_ingests_nothing_a_second_time(tmp_path):
     assert second["already_resolved"]["n"] == len(MW1_SCORES) + len(MW2_SCORES)
     # the issuance for this cutoff now exists, so the second run is a no-op
     assert second["outcome"] == "no-op"
+
+
+# ==========================================================================
+# 14. the flight log verifies itself (L1)
+# ==========================================================================
+#: An append-only log is only evidence if a past line cannot be quietly
+#: rewritten. Nothing polled this file, so a line edited after the fact — by a
+#: bad merge, a stray editor, or a hand that wanted a STOP to read `no-op` —
+#: was indistinguishable from the line the run actually wrote. Each line now
+#: carries `chain`: the SHA-256 of the PREVIOUS line's canonical form, genesis
+#: constant for the first. Every run verifies the whole chain before it
+#: appends, so tampering is caught by the next cycle rather than by nobody.
+
+def _journal_lines(path) -> list[dict]:
+    return [json.loads(line) for line in Path(path).read_text().splitlines()
+            if line.strip()]
+
+
+def test_the_chain_links_each_line_to_the_one_before_it(tmp_path):
+    journal = tmp_path / "j.jsonl"
+    first = livecycle.append_journal(journal, {"outcome": "no-op", "n": 1})
+    second = livecycle.append_journal(journal, {"outcome": "ran", "n": 2})
+
+    rows = _journal_lines(journal)
+    assert rows[0]["chain"] == livecycle.JOURNAL_GENESIS
+    assert rows[1]["chain"] == livecycle.journal_link(first)
+    assert livecycle.journal_link(first) != livecycle.journal_link(second)
+    # and the whole file verifies
+    assert livecycle.verify_journal_chain(journal) == 2
+
+
+def test_a_tampered_past_line_is_a_typed_stop(tmp_path):
+    """THE POINT OF THE CHAIN. Rewrite a line that is already on file and the
+    next run must refuse, by name, rather than append beside it."""
+    journal = tmp_path / "j.jsonl"
+    livecycle.append_journal(journal, {"outcome": "STOP", "n": 1})
+    livecycle.append_journal(journal, {"outcome": "ran", "n": 2})
+    assert livecycle.verify_journal_chain(journal) == 2
+
+    rows = _journal_lines(journal)
+    rows[0]["outcome"] = "no-op"                 # the lie a chain exists to catch
+    journal.write_text("".join(leaguesim.canonical_json(r) + "\n" for r in rows),
+                       encoding="utf-8")
+
+    with pytest.raises(livecycle.JournalTampered) as exc:
+        livecycle.verify_journal_chain(journal)
+    assert "line 2" in str(exc.value)
+    # and appending is refused too — the verification is not advisory
+    with pytest.raises(livecycle.JournalTampered):
+        livecycle.append_journal(journal, {"outcome": "ran", "n": 3})
+
+
+def test_a_deleted_line_is_caught_too(tmp_path):
+    journal = tmp_path / "j.jsonl"
+    for i in range(3):
+        livecycle.append_journal(journal, {"outcome": "ran", "n": i})
+    rows = _journal_lines(journal)
+    del rows[1]
+    journal.write_text("".join(leaguesim.canonical_json(r) + "\n" for r in rows),
+                       encoding="utf-8")
+    with pytest.raises(livecycle.JournalTampered):
+        livecycle.verify_journal_chain(journal)
+
+
+def test_the_two_pre_chain_lines_migrate_by_genesis_note_not_by_rewrite(tmp_path):
+    """The committed journal has two lines written before the chain existed.
+    History is not rewritten to give them one: a line carrying no `chain` at
+    all is PRE-CHAIN and is accepted, and the chain begins at the first line
+    that has one."""
+    journal = tmp_path / "j.jsonl"
+    legacy = [{"outcome": "planned", "n": 1}, {"outcome": "planned", "n": 2}]
+    journal.write_text("".join(leaguesim.canonical_json(r) + "\n" for r in legacy),
+                       encoding="utf-8")
+    assert livecycle.verify_journal_chain(journal) == 2       # tolerated
+
+    livecycle.append_journal(journal, {"outcome": "ran", "n": 3})
+    rows = _journal_lines(journal)
+    assert "chain" not in rows[0] and "chain" not in rows[1]
+    # the first CHAINED line anchors to the last pre-chain line, so the
+    # migration point is itself covered rather than being a free seam
+    assert rows[2]["chain"] == livecycle.journal_link(
+        leaguesim.canonical_json(legacy[1]))
+    assert livecycle.verify_journal_chain(journal) == 3
+
+    # …and tampering with a pre-chain line is now caught, because the first
+    # chained line commits to it
+    rows[1]["outcome"] = "ran"
+    journal.write_text("".join(leaguesim.canonical_json(r) + "\n" for r in rows),
+                       encoding="utf-8")
+    with pytest.raises(livecycle.JournalTampered):
+        livecycle.verify_journal_chain(journal)
+
+
+def test_the_cycle_verifies_the_chain_before_it_runs(tmp_path):
+    """A tampered journal stops the CYCLE, not merely the append."""
+    journal = tmp_path / "journal.jsonl"
+    livecycle.append_journal(journal, {"outcome": "ran", "n": 1})
+    livecycle.append_journal(journal, {"outcome": "ran", "n": 2})
+    rows = _journal_lines(journal)
+    rows[0]["outcome"] = "STOP"                  # a PAST line, not the tip
+    journal.write_text("".join(leaguesim.canonical_json(r) + "\n" for r in rows),
+                       encoding="utf-8")
+    with pytest.raises(livecycle.JournalTampered):
+        _cycle(tmp_path, journal=journal)
+
+
+def test_the_tip_is_the_one_line_the_chain_cannot_protect(tmp_path):
+    """STATED, NOT HIDDEN. A hash chain commits each line to its PARENT, so
+    the newest line has nothing after it to vouch for it: edit the tip alone
+    and the file still verifies. The protection arrives with the next run,
+    which chains to whatever the tip's bytes then are. The tip's real anchor
+    is outside this file — the journal is committed, so git holds it."""
+    journal = tmp_path / "j.jsonl"
+    livecycle.append_journal(journal, {"outcome": "ran", "n": 1})
+    livecycle.append_journal(journal, {"outcome": "STOP", "n": 2})
+    rows = _journal_lines(journal)
+    rows[-1]["outcome"] = "no-op"
+    journal.write_text("".join(leaguesim.canonical_json(r) + "\n" for r in rows),
+                       encoding="utf-8")
+    assert livecycle.verify_journal_chain(journal) == 2      # not detected
+
+    # but every EARLIER line is protected, which is what the chain is for
+    rows[0]["outcome"] = "no-op"
+    journal.write_text("".join(leaguesim.canonical_json(r) + "\n" for r in rows),
+                       encoding="utf-8")
+    with pytest.raises(livecycle.JournalTampered):
+        livecycle.verify_journal_chain(journal)
+
+
+# ==========================================================================
+# 15. a late refusal leaves work, and the next run picks it up (L2)
+# ==========================================================================
+#: The ingest writes at step 4 and the scoring runs at steps 7-8, so every
+#: refusal in between — `GateNotPassed` above all, which is a DESIGNED refusal
+#: on a bundle that failed its acceptance gate — leaves results on the ledger
+#: that were never scored. Scoring used to take its work from `ingestable`,
+#: THIS RUN's written list, and the next run's `ingestable` is empty because
+#: the ledger already resolves those fixtures. Nothing ever came back for them.
+#: The work is now read from the LEDGER STATE — resolved but absent from the
+#: scorecards — so a backlog clears itself on the next successful cycle.
+
+class _ScoringSteps(_Steps):
+    """`_Steps`, but the scoring stubs actually file rows, so "already scored"
+    is a fact on disk rather than a fact in a list."""
+
+    def __init__(self, *, scorecard: Path, shadow: Path, **kw):
+        super().__init__(**kw)
+        self.scorecard, self.shadow_path = Path(scorecard), Path(shadow)
+
+    def _file(self, path, rows, digest):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            for row in rows:
+                fh.write(json.dumps({"fixture_id": row["fixture_id"],
+                                     "run_digest": digest}) + "\n")
+
+    def matchboard(self, **kw):
+        out = super().matchboard(**kw)
+        self._file(self.scorecard, _results_rows(kw["results_file"]), "a" * 64)
+        return out
+
+    def shadow(self, **kw):
+        out = super().shadow(**kw)
+        self._file(self.shadow_path, _results_rows(kw["results_file"]), "a" * 64)
+        return out
+
+
+def test_a_refusal_after_the_ingest_write_leaves_a_backlog_the_next_run_clears(tmp_path):
+    root = _season_copy(tmp_path, "backlog")
+    derived = tmp_path / "derived"
+    scorecard = derived / simcli.SCORECARD_FILENAME
+    shadow = derived / "shadow.jsonl"
+
+    # --- run 1: the ingest writes, then the gate refuses ------------------
+    failing = _ScoringSteps(scorecard=scorecard, shadow=shadow, gate_pass=False)
+    with pytest.raises(livecycle.GateNotPassed):
+        _cycle(tmp_path, root=root, steps=failing,
+               derived_root=derived, shadow_ledger=shadow)
+
+    assert not failing.named("matchboard"), "nothing should have been scored"
+    written_ids = {r["fixture_id"] for r in _results_rows(
+        Path(root) / season_mod.season_dir_name(SEASON)
+        / season_mod.RESULTS_FILENAME)}
+    assert written_ids, "the ingest must have written before the refusal"
+    assert not scorecard.exists()
+
+    # --- run 2: a clean cycle. The sources carry the SAME round, which the
+    # ledger already resolves, so this run writes nothing at all. ----------
+    clean = _ScoringSteps(scorecard=scorecard, shadow=shadow)
+    out = _cycle(tmp_path, root=root, steps=clean,
+                 derived_root=derived, shadow_ledger=shadow)
+    assert out["ingested"]["written"] is False       # nothing new was written
+
+    scored = {r["fixture_id"] for call in clean.named("matchboard")
+              for r in call["rows"]}
+    assert scored == written_ids, (
+        "the orphaned fixtures were never scored by any run")
+    assert {r["fixture_id"] for r in _results_rows(scorecard)} == written_ids
+
+    # --- run 3: nothing is left, so nothing is re-scored -------------------
+    third = _ScoringSteps(scorecard=scorecard, shadow=shadow)
+    _cycle(tmp_path, root=root, steps=third,
+           derived_root=derived, shadow_ledger=shadow)
+    assert not third.named("matchboard"), "a cleared backlog must stay cleared"
+
+
+def test_the_backlog_is_read_from_the_ledger_not_from_this_runs_list(tmp_path):
+    """The unit the fix turns on, tested directly."""
+    scorecard = tmp_path / "scorecard.jsonl"
+    shadow = tmp_path / "shadow.jsonl"
+    scorecard.write_text(json.dumps({"fixture_id": "a", "run_digest": "d"}) + "\n")
+    shadow.write_text(json.dumps({"fixture_id": "a", "run_digest": "d"}) + "\n")
+
+    assert livecycle.unscored_fixtures(
+        ["a", "b", "c"], scorecard=scorecard, shadow=shadow) == ["b", "c"]
+    # scored on one ledger but not the other is still unscored
+    shadow.write_text("")
+    assert livecycle.unscored_fixtures(
+        ["a"], scorecard=scorecard, shadow=shadow) == ["a"]
+    # absent files mean nothing has been scored yet
+    assert livecycle.unscored_fixtures(
+        ["a"], scorecard=tmp_path / "nope.jsonl",
+        shadow=tmp_path / "nope2.jsonl") == ["a"]
+
+
+def test_the_committed_journal_verifies_and_its_history_was_not_rewritten():
+    """The real flight log, held to its own chain.
+
+    The two lines that predate the chain keep their exact bytes — no `chain`
+    key was added to them — and the dated `chain-genesis` line that follows
+    anchors to line 2, so the migration seam is covered rather than being a
+    free place to edit."""
+    path = livecycle.JOURNAL_PATH
+    assert path.exists(), "the flight log is committed; it should be here"
+    lines = [ln for ln in path.read_text(encoding="utf-8").splitlines()
+             if ln.strip()]
+    assert livecycle.verify_journal_chain(path) == len(lines)
+
+    rows = [json.loads(ln) for ln in lines]
+    pre = [r for r in rows if "chain" not in r]
+    assert len(pre) == 2, "the two pre-chain lines must keep their bytes"
+    assert rows[:2] == pre, "pre-chain lines belong at the head, unedited"
+
+    genesis = rows[2]
+    assert genesis["outcome"] == "chain-genesis"
+    assert genesis["pre_chain_lines"] == 2
+    assert genesis["chain"] == livecycle.journal_link(lines[1])
