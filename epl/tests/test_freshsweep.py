@@ -327,17 +327,57 @@ def test_one_row_per_fixture_carrying_both_arms_and_their_provenance(tmp_path):
                                          abs=1e-15)
 
 
+#: §5.2's list, transcribed from `reports/epl_freshness_prereg.md` and not from
+#: the module: "`cutoff` (ISO date) · `seed` (20260611) · `config_sha256` (of
+#: `epl/config_frozen.json`) · `realised_config_sha256` … · `n_training_matches`
+#: · `n_teams` · `wall_seconds` · `match_ids` · `probs` (8 dp) ·
+#: `cold_start_teams` · `provisional_teams` · `anchor_spec` · `warnings` ·
+#: `unpriceable` · `health` · `harness_sha256` · `archive_rows` and
+#: `archive_sha256` … · `blas_threads` · `shard_id`."
+#: The value is where the row keeps it — `probs` is Arm A's `probs_fresh`, and
+#: `shard_id` is on the row rather than in its `fit` block.
+PREREG_5_2 = {
+    "cutoff": "fit", "seed": "fit", "config_sha256": "fit",
+    "realised_config_sha256": "fit", "n_training_matches": "fit",
+    "n_teams": "fit", "wall_seconds": "fit", "match_ids": "fit",
+    "cold_start_teams": "fit", "provisional_teams": "fit",
+    "anchor_spec": "fit", "warnings": "fit", "unpriceable": "fit",
+    "health": "fit", "harness_sha256": "fit", "archive_rows": "fit",
+    "archive_sha256": "fit", "blas_threads": "fit",
+    "probs_fresh": "row", "shard_id": "row",
+}
+
+
 def test_every_prereg_field_is_on_every_row(tmp_path):
     """§5.2 names what a fit row records. A field nobody wrote is a field
-    nobody can check afterwards."""
+    nobody can check afterwards.
+
+    The list is transcribed from the document, not read off the module: a test
+    that asserted `REQUIRED_FIT_FIELDS` against itself would go green on a
+    schema that had quietly dropped one of §5.2's fields, which is the only
+    failure this test exists to catch.
+    """
     corpus = _corpus()
     _run(tmp_path, corpus, fs.fit_points(corpus, check=False))
     rows = fs.load_ledger(tmp_path / "shard_00_of_01.jsonl")
+    assert rows
     for row in rows:
+        for field, where in PREREG_5_2.items():
+            holder = row if where == "row" else row["fit"]
+            assert field in holder, f"§5.2's {field!r} is not on the {where}"
+        assert row["fit"]["seed"] == 20260611
+        assert len(row["probs_fresh"]) == 3
+        assert all(round(v, 8) == v for v in row["probs_fresh"])
         for field in fs.REQUIRED_ROW_FIELDS:
             assert field in row, field
         for field in fs.REQUIRED_FIT_FIELDS:
             assert field in row["fit"], field
+
+    # ...and the schema the loader enforces must not be narrower than §5.2.
+    named = {f for f, w in PREREG_5_2.items() if w == "fit"}
+    assert named <= set(fs.REQUIRED_FIT_FIELDS)
+    assert {f for f, w in PREREG_5_2.items() if w == "row"} <= \
+        set(fs.REQUIRED_ROW_FIELDS)
 
 
 def test_a_row_missing_a_required_field_is_a_schema_mismatch(tmp_path):
