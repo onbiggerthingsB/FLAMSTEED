@@ -4378,3 +4378,24 @@ own median — with `eta = 0.3558`, inside the pre-stated band.
 3. The §6 harness-hash freeze lands only **after** this entry, in the commit
    that follows it; any later change to a hashed file requires a further
    amendment here first, per §6 step 4.
+
+### Owner ruling under freshness-prereg §4.5 — matchday cadence adopted (2026-08-26)
+
+The sweep's adoption rule was NOT met: estimand −0.000216 against a bar of
+−0.00030, 95% CI [−0.000463, +0.000024] including zero. §4.5 reserved adoption
+as an owner ruling, and the owner has now made it, in his own words: he wants
+matchday freshness bound into the live model, accepts that the measured benefit
+may be zero, and accepts the costs — which are operational, not computational
+(a fit is seconds; the commitment is running the ingest→fit→issue cycle every
+matchday rather than weekly). Ruling, as given after the miss was stated to him
+twice: adopt.
+
+Recorded with the record straight: the test did not pass its bar, and this
+entry does not claim it did. The cadence changes by ownership, not by evidence.
+
+Effective when, not if: the switch happens the week the automated one-command
+cycle runs green — adopting a daily manual chore for a solo operator was the
+cost the bar existed to price, and automation is what the owner is buying it
+down with. Until then the live cadence stays weekly. The switch date will be
+recorded here as a dated note when it happens. Nothing else changes: no model
+change, no decay change, and the freshness result (f87e69e) stands as published.
