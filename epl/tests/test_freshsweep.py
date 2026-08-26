@@ -20,11 +20,18 @@ the four ways this particular run could produce a number nobody should believe:
   §5.4 pre-states, and tested by interrupting one.
 * **Arithmetic nobody checked.** The estimand and its bootstrap are tested
   against values computed by hand here, not against the harness's own output.
+* **A run whose preconditions nobody checked.** §5.3's canary and §3.2's
+  control are refusals, not documentation, and the tests are what make them so:
+  the merge is held to both, and `--run` is held to them before it builds an
+  engine.
 
-CI HAS NO `data/`. Every test below builds its own corpus, its own fit points
-and its own rows, and injects a deterministic stub fitter — nothing here runs
-an ADVI fit or imports `wcmodel`. The handful of tests that read the pinned
-parquet or the committed prereg are guarded on the file's existence and skip.
+CI HAS NO `data/`. Every test that needs a corpus builds its own — two seasons,
+four blocks, openings and matchdays — and injects a deterministic stub fitter,
+so **nothing here runs an ADVI fit**. (`wcmodel` IS imported, transitively:
+`epl.freshsweep` reads A8's corpus pins from `epl.recalfit`, which imports it.
+Nothing in this file calls its sampler.) The handful of tests that read the
+pinned parquet or the committed prereg are guarded on the file's existence and
+skip.
 """
 from __future__ import annotations
 
