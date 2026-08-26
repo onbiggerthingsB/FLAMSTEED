@@ -1311,3 +1311,106 @@ def test_leaving_a_season_out_must_leave_something_out():
     with pytest.raises(mp.FoldLeak) as exc:
         mp.select_w(rows, seasons=["2099/00"])
     assert "leaves nothing out" in str(exc.value)
+
+
+# ==========================================================================
+# 13. the archive digest — the one that binds the scores it names
+# ==========================================================================
+def _archive_frame() -> pd.DataFrame:
+    return pd.DataFrame({
+        "match_id": ["a", "b", "c"],
+        "date": pd.to_datetime(["2019-08-05", "2019-08-06", "2019-08-07"]),
+        "home_key": ["h1", "h2", "h3"], "away_key": ["a1", "a2", "a3"],
+        "fthg": [2, 1, 0], "ftag": [1, 1, 3],
+        "ftr": ["H", "D", "A"], "played": [True, True, True],
+    })
+
+
+def test_the_archive_digest_binds_the_scores_it_is_asked_to_bind():
+    """A changed score MUST change the digest.
+
+    `archive_sha256` is on every ledger row to answer *was the archive the
+    same object when this fit ran?* The first implementation named
+    `home_score`/`away_score` — columns this schema has never had
+    (`epl/schema.py`: `fthg`/`ftag`) — and the `if c in ...columns` filter
+    dropped both silently, so the digest bound ids and dates and every score
+    could change under it without moving a hex digit.
+    """
+    played = _archive_frame()
+    before = mp.archive_digest(played)
+
+    moved = played.copy()
+    moved.loc[0, "fthg"] = 3
+    assert mp.archive_digest(moved) != before
+
+    moved_away = played.copy()
+    moved_away.loc[2, "ftag"] = 4
+    assert mp.archive_digest(moved_away) != before
+
+    assert mp.archive_digest(_archive_frame()) == before
+
+
+def test_the_archive_digest_refuses_a_frame_missing_the_fields_it_names():
+    """The defect was a SILENT drop. A missing column is now a refusal."""
+    with pytest.raises(mp.SchemaMismatch, match="ftag"):
+        mp.archive_digest(_archive_frame().drop(columns=["ftag"]))
+
+
+# ==========================================================================
+# 14. w = 0 is a selection, not a disappearance
+# ==========================================================================
+def test_a_season_selected_at_w_zero_still_emits_its_predictions_rows(tmp_path):
+    """§2.6's predictions file carries every corpus fixture, w = 0 included.
+
+    `w = 0.00` is on §2.4's grid and costs no fits — `z_blend(0)` IS `elo_z`,
+    so Arm A is Arm B and the corpus already holds the row. The ledger
+    therefore has NO `w = 0.00` rows at all. `estimand()` knows that and
+    synthesises the pair; the predictions writer's call site filtered
+    `float(r["w"]) == selected[season]` against the same ledger and silently
+    emitted NOTHING for such a season. The 2026-08-26 run selected `w = 0` in
+    no fold, so the defect never fired — it was latent, not absent.
+    """
+    corpus = _corpus()
+    points = mp.grid_points(corpus, check=False)
+    _run(tmp_path, corpus, points)
+    rows = mp.load_ledger(tmp_path / "shard_00_of_01.jsonl")
+    assert 0.0 not in {float(r["w"]) for r in rows}      # the premise
+
+    zero_season = "2019/20"
+    selection = {"selected": {s: (0.0 if s == zero_season else 1.0)
+                              for s in sorted(corpus["season"].unique())}}
+
+    picked = mp.pick_at_selected_weights(rows, selection)
+    assert len(picked) == len(corpus)
+    assert {str(r["match_id"]) for r in picked} == set(corpus["match_id"])
+
+    zeros = [r for r in picked if str(r["season"]) == zero_season]
+    assert zeros, "the w = 0 season vanished from the predictions set"
+    assert len(zeros) == int((corpus["season"] == zero_season).sum())
+    for r in zeros:
+        assert float(r["w"]) == 0.0
+        assert r["probs_market_prior"] == r["probs_native"]
+        assert float(r["rps_market_prior"]) == float(r["rps_native"])
+        assert float(r["delta"]) == 0.0
+
+    out = mp.write_predictions(picked, tmp_path / "predictions.parquet")
+    assert out["rows"] == len(corpus)
+    frame = pd.read_parquet(tmp_path / "predictions.parquet")
+    assert sorted(frame["match_id"]) == sorted(corpus["match_id"].astype(str))
+    assert set(frame.loc[frame["season"] == zero_season, "delta"]) == {0.0}
+
+
+def test_the_estimand_and_the_predictions_file_price_the_same_rows(tmp_path):
+    """The two used to pick independently; one knew about w = 0 and one did
+    not. They share the picker now, so they cannot diverge again."""
+    corpus = _corpus()
+    points = mp.grid_points(corpus, check=False)
+    _run(tmp_path, corpus, points)
+    rows = mp.load_ledger(tmp_path / "shard_00_of_01.jsonl")
+    seasons = sorted(corpus["season"].unique())
+    selection = {"selected": {s: (0.0 if i % 2 == 0 else 0.5)
+                              for i, s in enumerate(seasons)}}
+    picked = mp.pick_at_selected_weights(rows, selection)
+    est = mp.estimand(rows, selection, n_boot=50,
+                      expected_fixtures=len(corpus))
+    assert est["n"] == len(picked) == len(corpus)

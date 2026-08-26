@@ -837,6 +837,36 @@ def assert_blas_pinned(where: str) -> dict[str, Any]:
     return threads
 
 
+#: The archive fields the digest binds. `epl/schema.py` names the scores
+#: `fthg`/`ftag`; the first implementation asked for `home_score`/`away_score`
+#: and filtered the absent columns away, so the digest bound ids and dates and
+#: NOTHING ELSE — every score in the archive could change under it without
+#: moving a hex digit. A digest that silently narrows to the columns it happens
+#: to find is not a digest, so the fields are named and their absence refuses.
+ARCHIVE_DIGEST_COLUMNS = ("match_id", "date", "fthg", "ftag")
+
+
+def archive_digest(played: "pd.DataFrame") -> str:
+    """SHA-256 over the archive rows that decide a fit: ids, dates, SCORES.
+
+    `archive_sha256` sits on every ledger row to answer one question — *was
+    the results archive the same object when this fit ran?* An archive whose
+    2-1 became a 3-1 trains a different model, so it must produce a different
+    digest or the field is decoration.
+    """
+    missing = [c for c in ARCHIVE_DIGEST_COLUMNS if c not in played.columns]
+    if missing:
+        raise SchemaMismatch(
+            f"the results archive lacks {missing}, which "
+            f"{list(ARCHIVE_DIGEST_COLUMNS)} names: the digest binds the "
+            "scores a fit trains on, and a column filter that quietly drops "
+            "them would bind ids and dates and nothing else.")
+    frame = played[list(ARCHIVE_DIGEST_COLUMNS)].astype(str)
+    frame = frame.sort_values("match_id")
+    return hashlib.sha256(
+        frame.to_csv(index=False).encode("utf-8")).hexdigest()
+
+
 class Engine:
     """The walk-forward's own machinery, built once and reused per fit.
 
@@ -887,11 +917,7 @@ class Engine:
                 "archive does not carry, and §2 forbids dropping one")
 
     def _archive_digest(self) -> str:
-        cols = [c for c in ("match_id", "date", "home_score", "away_score")
-                if c in self.played.columns]
-        frame = self.played[cols].astype(str).sort_values("match_id")
-        return hashlib.sha256(
-            frame.to_csv(index=False).encode("utf-8")).hexdigest()
+        return archive_digest(self.played)
 
     def __enter__(self) -> "Engine":
         self._ctx = self._epl_fit.config_read_once(self.cfg)

@@ -1349,3 +1349,48 @@ def test_an_audit_directory_of_its_own_is_not_refused(tmp_path, monkeypatch,
                         lambda **k: {"PASS": True, "path": str(k.get("path"))})
     assert fs.main(["--canary", "--dir", str(tmp_path)]) == 0
     assert "PASS" in capsys.readouterr().out
+
+
+# ==========================================================================
+# 12. the archive digest — the one that binds the scores it names
+# ==========================================================================
+#: `archive_sha256` sits on every ledger row to answer one question: *was the
+#: results archive the same object when this fit ran?* Row-3 of that answer is
+#: the SCORES — an archive whose 2-1 became a 3-1 trains a different model and
+#: must produce a different digest, or the field is decoration. The first
+#: implementation asked for `home_score`/`away_score`, which this schema has
+#: never had (`epl/schema.py`: `fthg`/`ftag`), and the column filter silently
+#: dropped both — so the digest bound ids and dates and nothing else, and every
+#: score in the archive could change under it without moving a hex digit.
+def _archive_frame() -> pd.DataFrame:
+    return pd.DataFrame({
+        "match_id": ["a", "b", "c"],
+        "date": pd.to_datetime(["2019-08-05", "2019-08-06", "2019-08-07"]),
+        "home_key": ["h1", "h2", "h3"], "away_key": ["a1", "a2", "a3"],
+        "fthg": [2, 1, 0], "ftag": [1, 1, 3],
+        "ftr": ["H", "D", "A"], "played": [True, True, True],
+    })
+
+
+def test_the_archive_digest_binds_the_scores_it_is_asked_to_bind():
+    """A changed score MUST change the digest."""
+    played = _archive_frame()
+    before = fs.archive_digest(played)
+
+    moved = played.copy()
+    moved.loc[0, "fthg"] = 3            # 2-1 becomes 3-1: a different archive
+    assert fs.archive_digest(moved) != before
+
+    moved_away = played.copy()
+    moved_away.loc[2, "ftag"] = 4       # 0-3 becomes 0-4
+    assert fs.archive_digest(moved_away) != before
+
+    # and it is still stable under a re-read that changes nothing
+    assert fs.archive_digest(_archive_frame()) == before
+
+
+def test_the_archive_digest_refuses_a_frame_missing_the_fields_it_names():
+    """The defect was a SILENT drop. A missing column is now a refusal."""
+    played = _archive_frame().drop(columns=["ftag"])
+    with pytest.raises(fs.SchemaMismatch, match="ftag"):
+        fs.archive_digest(played)

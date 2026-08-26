@@ -789,3 +789,63 @@ document preregisters.** Any change to a hashed file after this commit requires
 an amendment in `reports/epl_sim_amendments.md` **before** the change, with the
 hashes reissued alongside it (§6 step 4). §6 step 3 now applies: only after
 this commit does the first fit run.
+
+---
+
+## §6 step 4 — dated re-freeze: the archive digest bound nothing (2026-08-26)
+
+**Appended, not edited.** Everything above stands as written and as committed;
+this note corrects it by addition, in the house pattern.
+
+**The defect.** `Engine._archive_digest` asked for the columns
+`("match_id", "date", "home_score", "away_score")` and kept only those it found
+in the frame. This schema has never had `home_score`/`away_score` —
+`epl/schema.py` names the scores **`fthg`/`ftag`** — so the filter dropped both
+silently and the digest was computed over **`match_id` and `date` alone**.
+`archive_sha256` sits on all 1,699 ledger rows to answer *"was the results
+archive the same object when this fit ran?"*, and for the score half of that
+question it answered nothing: every result in the archive could have been
+different under an identical digest. Proven rather than asserted — the old
+expression, over a three-row frame whose first match moves from 2-1 to 3-1:
+
+    columns actually digested: ['match_id', 'date']
+    before = 1df0eaf34c449165…   after = 1df0eaf34c449165…   UNCHANGED = True
+
+**What this does and does not put in doubt.** It does **not** reopen the
+published estimand. The archive was pinned by other means that did bind the
+results — `archive_rows` (4,560) on every row, the §3.2 control's exact
+8-decimal equality against the pinned corpus, and the corpus digest
+`f31580073e…` itself — and the control is what would have caught archive drift.
+What was missing was the *independent* per-row witness this field was supposed
+to be. The published numbers are unchanged; the field's evidentiary value was
+overstated, and is now real.
+
+**The fix.** The digest moves to a module-level `archive_digest(played)` over
+`ARCHIVE_DIGEST_COLUMNS = ("match_id", "date", "fthg", "ftag")`, and a missing
+column now raises `SchemaMismatch` instead of narrowing the digest in silence —
+a digest that quietly binds less than it names is the defect itself, so absence
+refuses. Tests, RED before the change:
+`test_the_archive_digest_binds_the_scores_it_is_asked_to_bind` (a changed
+`fthg`, and separately a changed `ftag`, must move the digest; a re-read must
+not) and `test_the_archive_digest_refuses_a_frame_missing_the_fields_it_names`.
+
+**Consequence for the ledger.** Rows written by the 2026-08-26 run carry
+`archive_sha256 = ce7e4255…`, which is the OLD (ids-and-dates) digest. Those
+rows are historical and are not rewritten; a future run under this harness will
+record a different — and this time score-binding — value for the same archive.
+That discontinuity is expected and is recorded here so nobody reads it as drift.
+
+**The bytes are reissued (§6 step 4).** The run this document preregisters is
+complete; the freeze is re-cut for whatever runs next, not retroactively
+loosened for what already ran.
+
+| File | Lines | SHA-256 |
+|---|---:|---|
+| `epl/freshsweep.py` | 1932 | `ae23340f3d6b08ad74491790e42cde21863be076045b4bae843572d0fe55907b` |
+| `epl/tests/test_freshsweep.py` | 1396 | `b165557454bc8b43a6cec4b6e9d9f5041764bca103fdf6025d38fcc8c0fb0e97` |
+
+Superseded: `441e917b98…` / `cabdf81c2d…`. Verify with
+
+    shasum -a 256 epl/freshsweep.py epl/tests/test_freshsweep.py
+
+Any further change to a hashed file requires a further note here before it.

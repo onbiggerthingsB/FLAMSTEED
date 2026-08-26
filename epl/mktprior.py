@@ -1811,6 +1811,36 @@ def assert_panel_in_time(match_panel: pd.DataFrame, cutoff) -> str:
     return str(pd.Timestamp(latest).date()) if pd.notna(latest) else ""
 
 
+#: The archive fields the digest binds. `epl/schema.py` names the scores
+#: `fthg`/`ftag`; the first implementation asked for `home_score`/`away_score`
+#: and filtered the absent columns away, so the digest bound ids and dates and
+#: NOTHING ELSE — every score in the archive could change under it without
+#: moving a hex digit. A digest that silently narrows to the columns it happens
+#: to find is not a digest, so the fields are named and their absence refuses.
+ARCHIVE_DIGEST_COLUMNS = ("match_id", "date", "fthg", "ftag")
+
+
+def archive_digest(played: "pd.DataFrame") -> str:
+    """SHA-256 over the archive rows that decide a fit: ids, dates, SCORES.
+
+    `archive_sha256` sits on every ledger row to answer one question — *was
+    the results archive the same object when this fit ran?* An archive whose
+    2-1 became a 3-1 trains a different model, so it must produce a different
+    digest or the field is decoration.
+    """
+    missing = [c for c in ARCHIVE_DIGEST_COLUMNS if c not in played.columns]
+    if missing:
+        raise SchemaMismatch(
+            f"the results archive lacks {missing}, which "
+            f"{list(ARCHIVE_DIGEST_COLUMNS)} names: the digest binds the "
+            "scores a fit trains on, and a column filter that quietly drops "
+            "them would bind ids and dates and nothing else.")
+    frame = played[list(ARCHIVE_DIGEST_COLUMNS)].astype(str)
+    frame = frame.sort_values("match_id")
+    return hashlib.sha256(
+        frame.to_csv(index=False).encode("utf-8")).hexdigest()
+
+
 # ==========================================================================
 # 12. the engine — the walk's own machinery, one market prior substituted
 # ==========================================================================
@@ -1875,11 +1905,7 @@ class Engine:
                 "archive does not carry, and §2.6 forbids dropping one")
 
     def _archive_digest(self) -> str:
-        cols = [c for c in ("match_id", "date", "home_score", "away_score")
-                if c in self.played.columns]
-        frame = self.played[cols].astype(str).sort_values("match_id")
-        return hashlib.sha256(
-            frame.to_csv(index=False).encode("utf-8")).hexdigest()
+        return archive_digest(self.played)
 
     def __enter__(self) -> "Engine":
         self._ctx = self._epl_fit.config_read_once(self.cfg)
@@ -2691,6 +2717,44 @@ def _saturation_diagnostic(rows: Sequence[dict[str, Any]],
     return out
 
 
+def pick_at_selected_weights(rows: Sequence[dict[str, Any]],
+                             selection: dict[str, Any]) -> list[dict[str, Any]]:
+    """One row per fixture, at ITS OWN season's selected ``w`` — w = 0 included.
+
+    THE ONE PLACE THE SELECTED SET IS BUILT. §2.6's estimand and §2.6's
+    predictions file are the same set of fixtures priced the same way, and
+    they used to compute it separately: the estimand synthesised the ``w = 0``
+    pair, the predictions writer filtered `float(r["w"]) == selected[season]`
+    against a ledger that has no ``w = 0`` rows, and a season the selection
+    priced at zero vanished from the file without a word. Sharing the picker
+    is what makes the two provably the same set rather than two readings that
+    happened to agree in the one run where no fold chose zero.
+
+    A season priced at ``w = 0.00`` has no fitted rows of its own, because
+    ``z_blend(0)`` IS ``elo_z`` and §2.4 spends no fits on a specification the
+    corpus already contains. Its pair is the corpus's row against itself:
+    Arm A's probabilities ARE Arm B's and the delta is exactly ``0.0``. That
+    is not a missing row — it is the selection saying *no market term*, and
+    §2.5 rules that it publishes.
+    """
+    selected = {str(k): float(v) for k, v in selection["selected"].items()}
+    by_fixture: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        season, mid = str(r["season"]), str(r["match_id"])
+        if season not in selected:
+            raise FoldLeak(f"season {season} has no selected weight")
+        if float(r["w"]) == selected[season]:
+            by_fixture[mid] = r
+    for r in rows:
+        mid, season = str(r["match_id"]), str(r["season"])
+        if mid not in by_fixture and selected[season] == 0.0:
+            by_fixture[mid] = {**r, "w": 0.0,
+                               "probs_market_prior": list(r["probs_native"]),
+                               "rps_market_prior": float(r["rps_native"]),
+                               "delta": 0.0}
+    return sorted(by_fixture.values(), key=lambda r: str(r["match_id"]))
+
+
 def estimand(rows: Sequence[dict[str, Any]], selection: dict[str, Any], *,
              n_boot: int = N_BOOT, seed: int = BOOTSTRAP_SEED,
              expected_fixtures: int | None = None,
@@ -2706,24 +2770,7 @@ def estimand(rows: Sequence[dict[str, Any]], selection: dict[str, Any], *,
     saying *no market term*, and §2.5 rules that it publishes.
     """
     selected = {str(k): float(v) for k, v in selection["selected"].items()}
-    by_fixture: dict[str, dict[str, Any]] = {}
-    for r in rows:
-        season, mid = str(r["season"]), str(r["match_id"])
-        if season not in selected:
-            raise FoldLeak(f"season {season} has no selected weight")
-        if float(r["w"]) == selected[season]:
-            by_fixture[mid] = r
-    # A season priced at w = 0 has no fitted rows of its own: Arm A is Arm B,
-    # and the pair is the corpus's row against itself.
-    for r in rows:
-        mid, season = str(r["match_id"]), str(r["season"])
-        if mid not in by_fixture and selected[season] == 0.0:
-            by_fixture[mid] = {**r, "w": 0.0,
-                               "probs_market_prior": list(r["probs_native"]),
-                               "rps_market_prior": float(r["rps_native"]),
-                               "delta": 0.0}
-
-    picked = sorted(by_fixture.values(), key=lambda r: str(r["match_id"]))
+    picked = pick_at_selected_weights(rows, selection)
     if expected_fixtures is not None and len(picked) != int(expected_fixtures):
         raise MergeIncomplete(
             f"{len(picked)} paired fixtures at the selected weights, not the "
@@ -3050,9 +3097,8 @@ def merge(shards: int = 1, *, directory: Path | str | None = None,
     })
 
     if write:
-        selected = {str(k): float(v) for k, v in selection["selected"].items()}
-        scored = [r for r in rows if float(r["w"]) == selected[str(r["season"])]]
-        result["predictions"] = write_predictions(scored)
+        result["predictions"] = write_predictions(
+            pick_at_selected_weights(rows, selection))
         ANCHORING_JSON.parent.mkdir(parents=True, exist_ok=True)
         ANCHORING_JSON.write_text(json.dumps(result, indent=2, default=str)
                                   + "\n")

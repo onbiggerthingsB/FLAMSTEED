@@ -1454,3 +1454,82 @@ file's format, with the hashes reissued alongside it (§6 step 4). §6 step 3 no
 applies: only after this commit does the first fit run — and the run itself
 queues behind the freshness sweep's compute, per the standing machine
 constraint.
+
+---
+
+## §6 step 4 — dated re-freeze: two code defects, one latent (2026-08-26)
+
+**Appended, not edited.** Everything above stands as written and as committed;
+this note corrects it by addition.
+
+### (a) The archive digest bound nothing
+
+`Engine._archive_digest` asked for `("match_id", "date", "home_score",
+"away_score")` and kept only the columns it found. This schema names the scores
+**`fthg`/`ftag`** (`epl/schema.py`), so both were dropped silently and the
+digest covered **`match_id` and `date` alone**. `archive_sha256` is on all
+11,400 ledger rows to witness *"was the results archive the same object when
+this fit ran?"*, and about the scores it witnessed nothing. Demonstrated on a
+three-row frame whose first match moves from 2-1 to 3-1:
+
+    columns actually digested: ['match_id', 'date']
+    before = 1df0eaf34c449165…   after = 1df0eaf34c449165…   UNCHANGED = True
+
+This does **not** reopen the estimand: `archive_rows` (4,560) rode every row,
+§3.2's `w = 0` control held exact 8-decimal equality against the pinned corpus,
+and the corpus digest `f31580073e…` binds the fixtures. What was absent was the
+independent per-row witness the field advertised. Fixed as a module-level
+`archive_digest(played)` over `ARCHIVE_DIGEST_COLUMNS = ("match_id", "date",
+"fthg", "ftag")`, with a missing column now raising `SchemaMismatch` rather
+than narrowing the digest in silence. Rows already written carry the old
+`ce7e4255…`; they are historical and are not rewritten.
+
+### (b) `w = 0` was a disappearance, not a selection — latent, and it never fired
+
+§2.4 puts `w = 0.00` on the grid and spends **no fits** on it, because
+`z_blend(0)` IS `elo_z` and the corpus already holds that row. So the ledger
+contains **no `w = 0.00` rows at all** — 11,400 = 2,280 × the five *fitted*
+weights. `estimand()` knew this and synthesised the pair (Arm A is Arm B, delta
+exactly `0.0`). The **predictions writer's call site did not**: it filtered
+`float(r["w"]) == selected[season]` against that same ledger, so a season the
+selection priced at zero contributed **nothing** to
+`dc_market_prior_predictions.parquet` — no row, no warning, no refusal.
+
+Proven on a synthetic six-season corpus with one season selected at `w = 0`:
+
+    corpus fixtures                : 24
+    LEGACY predictions rows written: 20
+    fixtures of the w=0 season     : 4
+    of those, present in LEGACY    : 0
+    RED PROOF: predictions silently short by 4 rows
+
+**It never fired in the run this document preregisters.** `anchoring.json`
+records `n_folds_at_zero: 0` and `folds_at_zero: []` — no fold chose zero, so
+all 2,280 fixtures are present in the committed parquet (`da685cf4…`, 2,280
+rows). The defect was latent. It is reported because a latent defect in the
+file §2.6 names is still a defect in the file §2.6 names, and the next run's
+selection is not this run's.
+
+**The fix removes the duplication that caused it.** The selected set is now
+built in exactly one place — `pick_at_selected_weights(rows, selection)` —
+which both `estimand()` and the predictions writer call, so the estimand's
+population and the predictions file's population are the same object by
+construction rather than by coincidence. Tests, RED before the change:
+`test_a_season_selected_at_w_zero_still_emits_its_predictions_rows` and
+`test_the_estimand_and_the_predictions_file_price_the_same_rows`.
+
+### The bytes are reissued (§6 step 4)
+
+The run this document preregisters is complete; the freeze is re-cut for
+whatever runs next, not retroactively loosened for what already ran.
+
+| File | Lines | SHA-256 |
+|---|---:|---|
+| `epl/mktprior.py` | 3276 | `edfcd9842bbd7b877e973f9ba0b0d666e6ea0e70d231afde2ab20ca9cedbeda4` |
+| `epl/tests/test_mktprior.py` | 1416 | `2b1dd4d4db1c02c0a1395181076331693eecf466005b9502bdb96bc5c70e8646` |
+
+Superseded: `8f214d16bd…` / `923d5fb390…`. Verify with
+
+    shasum -a 256 epl/mktprior.py epl/tests/test_mktprior.py
+
+Any further change to a hashed file requires a further note here before it.
