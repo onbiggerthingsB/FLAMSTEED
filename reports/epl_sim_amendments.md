@@ -4185,3 +4185,63 @@ depends on the discrepancy — but a figure that motivated a design and cannot b
 reproduced is recorded before the run rather than after it. If the review's
 recipe is later supplied and reproduces 0.00153, that is a dated note and
 changes nothing.
+
+## A9 — the market rules, repealed by the owner (2026-08-26)
+
+**Observation.** Three standing rules kept market information out of this
+product line: the plan's owner rule ("No betting content, no odds, no market
+benchmarks anywhere in this product line"), A7 (f)'s narrowing as applied
+through A8's language rule ("NO benchmark comparison column"), and — adjacent,
+not identical — the lock-v10 closure of the World Cup odds-anchoring program.
+The rules had a measured cost, and it was put in front of the owner rather than
+around him. The largest single accuracy lever ever measured in this repository
+is market anchoring: the closed OA program's dev diagnostic improved by a mean
+**0.0102** under it. The model is roster-blind — a summer transfer window is
+invisible to it until results accumulate under a one-year decay half-life —
+and every non-market cure is measured dead (shorter decay: monotonically
+worse), licence-walled (transfer valuations), or priced below the detection
+floor (the player-value layer, per the availability research of 2026-08-26).
+The one cure that works sat behind the rule. The independent design review of
+2026-08-25 separately found that the shadow challenger's most informative
+context — its distance behind the de-vigged close — was unpublishable under
+the same rule.
+
+**Ruling (the owner's, in his own words: "then get rid off the no market
+rules", 2026-08-26, after the cost and the trade-off were stated to him).**
+
+* (a) Market data MAY enter this product line's models as an input — under a
+  preregistered design, through the same gates as everything else: recorded
+  before code, walk-forward tested, adopted only on a pre-stated rule. Nothing
+  is exempted from the ablation discipline by this repeal.
+* (b) Market benchmarks MAY appear on reports and scorecards. The A8 language
+  clause "NO benchmark comparison column" is superseded PROSPECTIVELY: surfaces
+  written from today may carry the de-vigged market column beside the model's;
+  committed artifacts are not edited (this ledger corrects by note, not by
+  edit).
+* (c) The lock-v10 closure of the World Cup OA program STANDS as a historical
+  ruling about that program. It closed a specific preregistration; it is not
+  re-run, and nothing published about it is retracted. New market-anchored
+  work is NEW work under NEW preregistration.
+* (d) This repeal opens inputs and benchmarks. It does not create a betting
+  product: no surface of this product line gives betting advice, prices, or
+  recommendations, and none is planned. If one is ever proposed, that is its
+  own owner decision, separately recorded.
+
+**What is pre-stated.**
+1. First use of (b): the shadow challenger's quarterly reports and any future
+   scorecard render may carry the de-vigged close as context. No committed row
+   changes.
+2. First use of (a), in order: a weekly capture of the pre-closing odds file
+   for the EPL (football-data fixtures file — overwritten weekly at the
+   source, so every uncaptured week is unrecoverable; capture begins the day
+   this entry is recorded; files stay local per the standing football-data
+   ruling, mirrored to the private vault, never redistributed), followed by a
+   preregistered market-anchoring design for the EPL model (its own document,
+   its own adoption rule, in the mold of the freshness preregistration). No
+   anchoring code exists at recording time, and none lands before its prereg.
+3. The vocabulary rule OTHER than the benchmark clause stands unchanged: no
+   odds-shaped product fields, no betting language on published surfaces.
+
+**Recording note.** Recorded before any market-using code. The plan document's
+rule line is superseded by this entry; the plan file is local and unversioned,
+and this ledger is the record.
