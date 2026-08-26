@@ -1171,14 +1171,18 @@ def test_the_canary_artifact_is_inside_the_directory_the_run_writes():
     assert fs.CANARY_JSON in fs.WRITES
 
 
-def test_main_prints_a_typed_stop_and_exits_two(monkeypatch, capsys):
+def test_main_prints_a_typed_stop_and_exits_two(monkeypatch, capsys, tmp_path):
     """§5.1: 'main() prints "STOP: …" naming the type and the offending key,
-    and exits 2 — the convention A8's `RecalError` set.'"""
+    and exits 2 — the convention A8's `RecalError` set.'
+
+    Run against an audit directory, because the preregistered one refuses
+    before the corpus is even read while §6's freeze commit is outstanding.
+    """
     def boom(*a, **kw):
         raise fs.CorpusMissing("the pinned parquet is not on disk")
 
     monkeypatch.setattr(fs, "load_corpus", boom)
-    code = fs.main(["--control"])
+    code = fs.main(["--control", "--dir", str(tmp_path)])
     out = capsys.readouterr().out
     assert code == 2
     assert out.startswith("STOP: CorpusMissing: ")
@@ -1235,3 +1239,38 @@ def test_a_control_that_will_run_real_fits_refuses_an_unpinned_process(monkeypat
     with pytest.raises(fs.FreshnessError) as e:
         fs.run_control(dates=dates, corpus=corpus, verbose=False)
     assert "BLAS thread" in str(e.value)
+
+
+def test_the_preregistered_directory_is_closed_to_a_pre_freeze_audit(
+        monkeypatch, capsys):
+    """§6 step 3 is "only then does the first fit run", and the canary and the
+    control ARE fits — 4 and 20 of them. The ledger was guarded from the start;
+    its two siblings were not, and a pre-freeze `control.json` left in the run
+    directory is exactly what a later `--run` reads as *the control passed*."""
+    monkeypatch.setattr(fs, "harness_freeze_status",
+                        lambda *a, **k: {"frozen": False, "why": "no table",
+                                         "files": {}, "where": None,
+                                         "missing": list(fs.HARNESS_FILES)})
+    monkeypatch.setattr(fs, "run_canary", lambda *a, **k: pytest.fail(
+        "the canary ran before the directory was checked"))
+    monkeypatch.setattr(fs, "load_corpus", lambda *a, **k: pytest.fail(
+        "the control loaded a corpus before the directory was checked"))
+
+    for argv in (["--canary"], ["--control"]):
+        assert fs.main(argv) == 2
+        out = capsys.readouterr().out
+        assert out.startswith("STOP: FreshnessError: refusing to write ")
+        assert "--dir" in out
+
+
+def test_an_audit_directory_of_its_own_is_not_refused(tmp_path, monkeypatch,
+                                                      capsys):
+    """The other half of the rule: an audit is legitimate and expected."""
+    monkeypatch.setattr(fs, "harness_freeze_status",
+                        lambda *a, **k: {"frozen": False, "why": "no table",
+                                         "files": {}, "where": None,
+                                         "missing": list(fs.HARNESS_FILES)})
+    monkeypatch.setattr(fs, "run_canary",
+                        lambda **k: {"PASS": True, "path": str(k.get("path"))})
+    assert fs.main(["--canary", "--dir", str(tmp_path)]) == 0
+    assert "PASS" in capsys.readouterr().out

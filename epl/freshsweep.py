@@ -1124,23 +1124,33 @@ def run_fits(points: Sequence[FitPoint], ledger_path: Path | str,
             "harness_frozen": bool(harness_frozen)}
 
 
-def _guard_ledger_location(ledger_path: Path, harness_frozen: bool) -> None:
-    """The preregistered ledger is off limits until §6's freeze commit exists."""
+def _guard_ledger_location(path: Path, harness_frozen: bool) -> None:
+    """The preregistered run directory is closed until §6's freeze commit.
+
+    Not only the ledger. The canary and the control are fits too — 4 and 20 of
+    them — and §6 step 3 is "only then does the first fit run". More to the
+    point, a pre-freeze `control.json` left in the run directory is exactly
+    what a later `--run` reads as *the control passed*: the record does not
+    carry the harness bytes it was produced under, so the directory has to.
+
+    An audit is legitimate and expected; it runs to a scratch ``--dir``, where
+    every ledger row is stamped ``harness_frozen: false`` and the merge will
+    not score it.
+    """
     if harness_frozen:
         return
     try:
-        inside = ledger_path.resolve().is_relative_to(FRESHNESS_DIR.resolve())
+        inside = path.resolve().is_relative_to(FRESHNESS_DIR.resolve())
     except (OSError, ValueError):
         inside = False
     if inside:
         raise FreshnessError(
-            f"refusing to write {paths.rel(ledger_path)} before §6's "
-            "harness-hash freeze commit exists. §7: 'A fit runs before the "
-            "harness-hash commit of §6 exists' invalidates the "
-            "preregistration. Audit fits are legitimate — run them to a "
-            "scratch ledger outside "
-            f"{paths.rel(FRESHNESS_DIR)}, where every row is stamped "
-            "harness_frozen: false and the merge will not score them.")
+            f"refusing to write {paths.rel(path)} before §6's harness-hash "
+            "freeze commit exists. §7: 'A fit runs before the harness-hash "
+            "commit of §6 exists' invalidates the preregistration. Audit runs "
+            f"are legitimate — give them their own directory outside "
+            f"{paths.rel(FRESHNESS_DIR)} with --dir, where every row is "
+            "stamped harness_frozen: false and the merge will not score them.")
 
 
 def _fixture_row(point: FitPoint, match_id: str, probs: np.ndarray,
@@ -1786,6 +1796,11 @@ def _plan(corpus: pd.DataFrame, shards: int,
     }
 
 
+def _frozen_now() -> bool:
+    """Has §6's freeze commit landed for THESE bytes? One place, one answer."""
+    return bool(harness_freeze_status()["frozen"])
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--plan", action="store_true",
@@ -1828,10 +1843,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                                    directory), indent=2, default=str))
 
         if args.canary:
+            _guard_ledger_location(directory / CANARY_NAME, _frozen_now())
             out = run_canary(path=directory / CANARY_NAME)
             print(json.dumps(out, indent=2, default=str))
 
         if args.control:
+            _guard_ledger_location(directory / CONTROL_NAME, _frozen_now())
             corpus = load_corpus()
             check_corpus_scores(corpus)
             require_canary(directory / CANARY_NAME)     # RUN_ORDER, enforced
