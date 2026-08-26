@@ -925,6 +925,29 @@ def test_the_seed_is_one_constant_and_not_derived_per_cutoff():
     assert len(keys) == 3
 
 
+def test_the_resampling_constants_are_transcribed_from_the_document():
+    """§2 prints B = 10,000, alpha = 0.05 and resampling seed 20260814; §3.2's
+    recipe is `default_rng(20260826).choice(212, size=20, replace=False)`; §0.1
+    prints the schedule counts and the 56 control fixtures; §4.1 the threshold.
+
+    The literals here are the DOCUMENT'S, not the module's: every other
+    assertion about the bootstrap compares against `fs.BOOTSTRAP_SEED` itself,
+    so a drifted constant would re-derive those assertions from its own new
+    value and go green (the 827fcf7 pattern, and the audit's e2 mutation:
+    `BOOTSTRAP_SEED = 20260815` passed the whole file). §7 names "a second
+    bootstrap seed" as an invalidation; this is the line that enforces it."""
+    assert fs.BOOTSTRAP_SEED == 20260814
+    assert fs.N_BOOT == 10_000
+    assert fs.ALPHA == 0.05
+    assert fs.CONTROL_SEED == 20260826
+    assert fs.N_CONTROL_DATES == 20
+    assert fs.ADOPT_DELTA == -0.00030
+    assert fs.MAX_STALENESS_DAYS == 6
+    assert (fs.EXPECTED_BLOCKS, fs.EXPECTED_DATES, fs.EXPECTED_FIT_DATES,
+            fs.EXPECTED_STALE, fs.EXPECTED_FRESH,
+            fs.EXPECTED_CONTROL_FIXTURES) == (212, 719, 507, 1699, 581, 56)
+
+
 @pytest.mark.skipif(not Path("epl/config_frozen.json").exists(),
                     reason="no frozen config in this checkout")
 def test_a_config_that_is_not_the_frozen_one_is_a_typed_refusal(tmp_path):
@@ -1232,8 +1255,20 @@ def test_main_refuses_a_matchday_fit_with_no_preconditions(monkeypatch, capsys,
                                                            tmp_path):
     """The CLI is where the order actually has to hold: `--run` reads the two
     records before it builds an engine, because building one costs real time
-    and a run that is going to be refused should be refused before it pays."""
+    and a run that is going to be refused should be refused before it pays.
+
+    Pinned to the PRE-FREEZE branch of `--run`, the way the two directory-guard
+    tests below pin the same function: once §6's freeze note lands in the real
+    prereg, the frozen branch demands §3.2's twenty control dates by name, and
+    `control_dates` on this ten-fixture corpus is a typed refusal of its own —
+    the subject here is the order, not the freeze state, and a test that read
+    the repository's freeze status would fail on the commit that freezes it.
+    """
     corpus = _corpus()
+    monkeypatch.setattr(fs, "harness_freeze_status",
+                        lambda *a, **k: {"frozen": False, "why": "no table",
+                                         "files": {}, "where": None,
+                                         "missing": list(fs.HARNESS_FILES)})
     monkeypatch.setattr(fs, "load_corpus", lambda *a, **kw: corpus)
     monkeypatch.setattr(fs, "check_corpus_scores", lambda *a, **kw: {})
     monkeypatch.setattr(fs, "fit_points", lambda *a, **kw: [])
