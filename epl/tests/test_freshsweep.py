@@ -549,8 +549,10 @@ def test_a_corpus_rps_that_does_not_re_derive_is_a_score_mismatch():
 # 6. the merge — every shard, no poison, the pre-stated key set
 # ==========================================================================
 
-def _write_shards(tmp_path, corpus, *, shards=2, **kw):
+def _write_shards(tmp_path, corpus, *, shards=2, preconditions=True, **kw):
     points = fs.fit_points(corpus, check=False)
+    if preconditions:                      # §5.3 and §3.2, on the record
+        _preconditions(tmp_path)
     for i in range(shards):
         part = fs.shard_points(points, i, shards)
         _run(tmp_path, corpus, part, shard_id=f"{i}/{shards}",
@@ -594,6 +596,7 @@ def test_a_short_shard_refuses_the_merge(tmp_path):
     keys exactly — not a superset, not a subset."""
     corpus = _corpus()
     points = fs.fit_points(corpus, check=False)
+    _preconditions(tmp_path)
     for i in range(2):
         part = fs.shard_points(points, i, 2)
         _run(tmp_path, corpus, part[:1] if i == 0 else part,
@@ -631,6 +634,7 @@ def test_a_row_produced_before_the_freeze_cannot_be_merged_after_it(tmp_path):
     during the audit is stamped `harness_frozen: false` and stays out."""
     corpus = _corpus()
     points = fs.fit_points(corpus, check=False)
+    _preconditions(tmp_path)
     for i in range(2):
         _run(tmp_path, corpus, fs.shard_points(points, i, 2),
              shard_id=f"{i}/2", ledger=tmp_path / fs.shard_name(i, 2),
@@ -658,12 +662,13 @@ def _rows(deltas, blocks, seasons=None, staleness=None):
 
 
 def test_the_estimand_is_the_pooled_mean_of_the_paired_deltas():
-    """Mean of (-0.001, +0.003, -0.002, 0.0) = 0.0000/4 = 0.0.
+    """§2: 'the mean over all 1,699 deltas, pooled over matches (not a mean of
+    block means)'.
 
-    Pooled over matches, not a mean of block means: the two blocks here have
-    sizes 3 and 1, and a mean of block means would give
-    (0.0/3 + 0.0/1)/2 — the same by construction, so the deltas are chosen so
-    the two answers differ: pooled = 0.00025, block-mean = 0.0005.
+    (-0.001 + 0.003 - 0.001 + 0.0) / 4 = **0.00025**, and the two blocks here
+    have sizes 3 and 1 so the other reading is visibly different: block A's
+    mean is 0.001/3 and block B's is 0.0, giving (0.000333 + 0.0) / 2 =
+    **0.000167**. The assertion is the pooled one.
     """
     rows = _rows([-0.001, 0.003, -0.001, 0.0], ["A", "A", "A", "B"])
     out = fs.estimand(rows, n_boot=200)
@@ -801,12 +806,21 @@ def test_the_control_refuses_a_difference_in_the_eighth_decimal():
         or "0.00000001" in str(e.value)
 
 
-def test_the_control_runs_before_any_matchday_fit():
+def test_the_control_runs_before_any_matchday_fit(tmp_path):
     """§3.2: 'The control runs FIRST; not one matchday fit is run until it
-    passes.' The CLI's own ordering is the thing being asserted."""
+    passes.'
+
+    Asserted as a REFUSAL rather than as a constant. `RUN_ORDER` now opens with
+    §5.3's canary, so the old form of this test ("control" in RUN_ORDER[0])
+    would have gone green on a harness that declared the order and enforced
+    nothing — which is what it was doing.
+    """
     assert fs.CONTROL_RUNS_FIRST is True
-    assert "control" in fs.RUN_ORDER[0]
     assert fs.RUN_ORDER.index("control") < fs.RUN_ORDER.index("run")
+    fs.run_canary(runner=lambda: _canary_record(True),
+                  path=tmp_path / "canary.json")
+    with pytest.raises(fs.ControlMismatch):
+        fs.require_run_preconditions(directory=tmp_path)
 
 
 # ==========================================================================
@@ -939,3 +953,278 @@ def test_no_betting_vocabulary_anywhere_in_the_harness():
     for word in ("wager", "bankroll", "punter", "bookmaker", "accumulator",
                  "edge over the market", "market_home", "market_rps"):
         assert word not in text, word
+
+
+# ==========================================================================
+# 11. the preconditions — the canary, and the control that runs first
+# ==========================================================================
+
+def _canary_record(ok: bool = True) -> dict:
+    """The shape `epl.walkforward.point_in_time_canary` actually returns."""
+    return {"cutoff": "2022-01-01", "later": "2023-01-01",
+            "n_rewritten": 900, "n_fixtures_compared": 10,
+            "forecasts_bit_identical_before_cutoff": ok,
+            "positive_control_forecasts_moved_after_cutoff": True,
+            "max_abs_diff_before_cutoff": 0.0 if ok else 0.3149,
+            "max_abs_diff_positive_control": 0.812, "PASS": ok}
+
+
+def _preconditions(tmp_path, *, control_pass=True, dates=None,
+                   canary_pass=True) -> None:
+    """Both §5 preconditions on the record, where the merge reads them."""
+    (tmp_path / "canary.json").write_text(
+        json.dumps(_canary_record(canary_pass)) + "\n")
+    (tmp_path / "control.json").write_text(json.dumps({
+        "schema": fs.SCHEMA_ID, "PASS": control_pass,
+        "dates": list(dates or ["2019-08-05"]),
+        "max_abs_prob_diff": 0.0, "n_probabilities": 18}) + "\n")
+
+
+def test_the_canary_is_run_as_a_precondition_and_written_to_the_record(tmp_path):
+    """§5.3: 'run once as a precondition, at its default cutoff, and its full
+    dict is written into the run artifact'."""
+    path = tmp_path / "canary.json"
+    out = fs.run_canary(runner=lambda: _canary_record(True), path=path)
+    assert out["PASS"] is True
+    written = json.loads(path.read_text())
+    assert written["max_abs_diff_positive_control"] == 0.812
+    assert written["max_abs_diff_before_cutoff"] == 0.0
+    assert fs.require_canary(path)["PASS"] is True
+
+
+def test_a_canary_that_does_not_pass_stops_the_run_before_a_single_fit(tmp_path):
+    """§5.1: `PASS: false` is `CanaryFailed` and the run does not start. The
+    failing dict still lands on the record — a refusal is reported, not hidden."""
+    path = tmp_path / "canary.json"
+    with pytest.raises(fs.CanaryFailed) as e:
+        fs.run_canary(runner=lambda: _canary_record(False), path=path)
+    assert "0.3149" in str(e.value)
+    assert json.loads(path.read_text())["PASS"] is False
+
+
+def test_a_missing_canary_is_a_refusal_and_not_a_default(tmp_path):
+    with pytest.raises(fs.CanaryFailed) as e:
+        fs.require_canary(tmp_path / "nowhere.json")
+    assert "canary" in str(e.value).lower()
+
+
+def test_a_failed_canary_on_the_record_refuses_every_later_process(tmp_path):
+    """The canary runs once, in one process, and the shards read its record.
+    A record that says FAIL has to refuse them — otherwise 'run once' would
+    mean 'checked by whoever happened to run it'."""
+    path = tmp_path / "canary.json"
+    path.write_text(json.dumps(_canary_record(False)) + "\n")
+    with pytest.raises(fs.CanaryFailed) as e:
+        fs.require_canary(path)
+    assert "0.3149" in str(e.value)
+
+    path.write_text("{not json")
+    with pytest.raises(fs.CanaryFailed) as e:
+        fs.require_canary(path)
+    assert "not readable JSON" in str(e.value)
+
+
+def test_no_matchday_fit_starts_until_the_control_has_passed(tmp_path):
+    """§3.2: 'The control runs FIRST; not one matchday fit is run until it
+    passes.' Declaring the order in a constant is not enforcing it."""
+    canary = tmp_path / "canary.json"
+    fs.run_canary(runner=lambda: _canary_record(True), path=canary)
+    control = tmp_path / "control.json"
+
+    with pytest.raises(fs.ControlMismatch) as e:
+        fs.require_run_preconditions(canary_path=canary, control_path=control)
+    assert "has not run" in str(e.value)
+
+    control.write_text(json.dumps({"PASS": False, "dates": ["2019-08-05"],
+                                   "max_abs_prob_diff": 1e-8}) + "\n")
+    with pytest.raises(fs.ControlMismatch):
+        fs.require_run_preconditions(canary_path=canary, control_path=control)
+
+    control.write_text(json.dumps({"PASS": True, "dates": ["2019-08-05"],
+                                   "max_abs_prob_diff": 0.0}) + "\n")
+    ok = fs.require_run_preconditions(canary_path=canary, control_path=control)
+    assert ok["control"]["PASS"] is True and ok["canary"]["PASS"] is True
+
+
+def test_a_control_that_covers_fewer_dates_than_demanded_is_refused(tmp_path):
+    """A three-date smoke control is not the twenty §3.2 pre-states, and the
+    preregistered run demands all of them by name."""
+    canary = tmp_path / "canary.json"
+    fs.run_canary(runner=lambda: _canary_record(True), path=canary)
+    control = tmp_path / "control.json"
+    control.write_text(json.dumps({"PASS": True, "dates": ["2019-08-05"]}) + "\n")
+    with pytest.raises(fs.ControlMismatch) as e:
+        fs.require_run_preconditions(canary_path=canary, control_path=control,
+                                     dates=["2019-08-05", "2019-08-12"])
+    assert "2019-08-12" in str(e.value)
+
+
+def test_the_canary_is_the_first_precondition_and_the_control_the_second():
+    """§5.3 makes the canary a precondition of the run; §3.2 makes the control
+    the first thing that fits. Both come before a matchday fit."""
+    assert fs.RUN_ORDER == ("canary", "control", "run", "merge")
+    assert fs.RUN_ORDER.index("control") < fs.RUN_ORDER.index("run")
+    assert fs.CONTROL_RUNS_FIRST is True
+
+
+def test_the_merge_refuses_a_run_whose_preconditions_are_not_on_the_record(tmp_path):
+    """§5.1's refusals are preconditions of the NUMBER, not of the wall clock:
+    a merge that scored fits taken without a passing canary and a passing
+    control would publish an estimand nobody checked."""
+    corpus = _corpus()
+    points = _write_shards(tmp_path, corpus, preconditions=False)
+
+    with pytest.raises(fs.CanaryFailed):
+        _do_merge(tmp_path, corpus, points)
+
+    _preconditions(tmp_path, control_pass=False)
+    with pytest.raises(fs.ControlMismatch):
+        _do_merge(tmp_path, corpus, points)
+
+    _preconditions(tmp_path)
+    out = _do_merge(tmp_path, corpus, points)
+    assert out["canary"]["PASS"] is True
+    assert out["control"]["PASS"] is True
+
+
+def _pin(monkeypatch) -> None:
+    """§3.2's other pre-stated condition, declared by the test that needs it:
+    a control that will run real fits refuses an unpinned process."""
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+        monkeypatch.setenv(var, "1")
+
+
+def test_the_control_enters_the_fast_panel_context_it_pre_states(monkeypatch):
+    """§3.2's pre-stated condition is `fast_panel=True`. An engine that is
+    built and never entered runs the control outside the context the document
+    fixed — and pays ~50 s a fit for the privilege."""
+    _pin(monkeypatch)
+    corpus = _corpus()
+    by_id = corpus.set_index("match_id")
+    entered: list[str] = []
+
+    class FakeEngine:
+        def __init__(self, *a, **kw):
+            entered.append("built")
+
+        def __enter__(self):
+            entered.append("enter")
+            return self
+
+        def __exit__(self, *exc):
+            entered.append("exit")
+            return False
+
+        def fit(self, point):
+            return {**_stub_fitter(corpus)(point),
+                    "probs": [[by_id.loc[m, "dc_home"], by_id.loc[m, "dc_draw"],
+                               by_id.loc[m, "dc_away"]]
+                              for m in point.match_ids]}
+
+    monkeypatch.setattr(fs, "Engine", FakeEngine)
+    dates = [p.cutoff for p in fs.fit_points(corpus, kind="opening",
+                                             check=False)]
+    out = fs.run_control(dates=dates, corpus=corpus, verbose=False)
+    assert out["PASS"] is True
+    assert entered == ["built", "enter", "exit"]
+
+
+def test_an_engine_the_caller_owns_is_not_entered_twice(monkeypatch):
+    """`main --run` opens the context itself and passes the engine in; entering
+    it again here would nest `config_read_once` inside itself."""
+    _pin(monkeypatch)
+    corpus = _corpus()
+    by_id = corpus.set_index("match_id")
+    entered: list[str] = []
+
+    class Owned:
+        def __enter__(self):
+            entered.append("enter")
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def fit(self, point):
+            return {**_stub_fitter(corpus)(point),
+                    "probs": [[by_id.loc[m, "dc_home"], by_id.loc[m, "dc_draw"],
+                               by_id.loc[m, "dc_away"]]
+                              for m in point.match_ids]}
+
+    dates = [p.cutoff for p in fs.fit_points(corpus, kind="opening",
+                                             check=False)][:1]
+    out = fs.run_control(dates=dates, corpus=corpus, engine=Owned(),
+                         verbose=False)
+    assert out["PASS"] is True
+    assert entered == []
+
+
+def test_the_canary_artifact_is_inside_the_directory_the_run_writes():
+    assert fs.CANARY_JSON.parent == fs.FRESHNESS_DIR
+    assert fs.CANARY_JSON in fs.WRITES
+
+
+def test_main_prints_a_typed_stop_and_exits_two(monkeypatch, capsys):
+    """§5.1: 'main() prints "STOP: …" naming the type and the offending key,
+    and exits 2 — the convention A8's `RecalError` set.'"""
+    def boom(*a, **kw):
+        raise fs.CorpusMissing("the pinned parquet is not on disk")
+
+    monkeypatch.setattr(fs, "load_corpus", boom)
+    code = fs.main(["--control"])
+    out = capsys.readouterr().out
+    assert code == 2
+    assert out.startswith("STOP: CorpusMissing: ")
+
+
+def test_main_refuses_a_matchday_fit_with_no_preconditions(monkeypatch, capsys,
+                                                           tmp_path):
+    """The CLI is where the order actually has to hold: `--run` reads the two
+    records before it builds an engine, because building one costs real time
+    and a run that is going to be refused should be refused before it pays."""
+    corpus = _corpus()
+    monkeypatch.setattr(fs, "load_corpus", lambda *a, **kw: corpus)
+    monkeypatch.setattr(fs, "check_corpus_scores", lambda *a, **kw: {})
+    monkeypatch.setattr(fs, "fit_points", lambda *a, **kw: [])
+    monkeypatch.setattr(fs, "Engine", lambda *a, **kw: pytest.fail(
+        "an engine was built before the preconditions were checked"))
+
+    code = fs.main(["--run", "--dir", str(tmp_path)])
+    assert code == 2
+    assert capsys.readouterr().out.startswith("STOP: CanaryFailed: ")
+
+
+# ==========================================================================
+# 12. the BLAS pin — a property of the worker, not of every importer
+# ==========================================================================
+
+def test_importing_the_harness_does_not_repin_the_process(monkeypatch):
+    """The pin belongs to `python -m epl.freshsweep`, which sets it before
+    numpy loads. A module that rewrote the environment on IMPORT would change
+    the behaviour of every library imported after it in a process that never
+    asked — this test suite among them — and would not reach the BLAS pool it
+    was aimed at anyway, because that pool is already loaded by then."""
+    monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
+    threads = fs.blas_threads()
+    assert threads["entry_point"] is False
+    assert threads["pinned_before_numpy"] is False
+    assert threads["OMP_NUM_THREADS"] is None
+
+    with pytest.raises(fs.FreshnessError) as e:
+        fs.assert_blas_pinned("a worker")
+    assert "OMP_NUM_THREADS" in str(e.value)
+
+    _pin(monkeypatch)
+    assert fs.assert_blas_pinned("a worker")["OMP_NUM_THREADS"] == "1"
+
+
+def test_a_control_that_will_run_real_fits_refuses_an_unpinned_process(monkeypatch):
+    """§3.2's condition, checked where the fits are: 'the control runs ... with
+    OMP_NUM_THREADS=OPENBLAS_NUM_THREADS=MKL_NUM_THREADS=1 per worker'."""
+    monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
+    corpus = _corpus()
+    dates = [p.cutoff for p in fs.fit_points(corpus, kind="opening",
+                                             check=False)][:1]
+    with pytest.raises(fs.FreshnessError) as e:
+        fs.run_control(dates=dates, corpus=corpus, verbose=False)
+    assert "BLAS thread" in str(e.value)

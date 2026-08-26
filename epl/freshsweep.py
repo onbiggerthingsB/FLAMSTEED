@@ -58,13 +58,25 @@ neither the estimand, nor a stratum, nor the movement diagnostic touches them.
 from __future__ import annotations
 
 # --------------------------------------------------------------------------
-# BLAS FIRST. OpenBLAS reads its thread count when it is loaded, which happens
-# on `import numpy` — so a pin applied afterwards is a pin that did nothing.
-# The house rule from the sharded OA runs is one thread per worker: an N-way
-# shard on a machine whose BLAS also wants N threads thrashes at a fraction of
-# the CPU each. This is set unconditionally rather than with `setdefault`,
-# because "the runner pins its own threads" is a property the ledger records
-# per row and a run inheriting 8 from a shell is not that run.
+# BLAS FIRST, AND ONLY AT THE ENTRY POINT. OpenBLAS reads its thread count when
+# it is loaded, which happens on `import numpy` — so a pin applied afterwards
+# is a pin that did nothing to the pool that is already running, while still
+# reconfiguring every library imported LATER in that process. The house rule
+# from the sharded OA runs is one thread per worker: an N-way shard on a
+# machine whose BLAS also wants N threads thrashes at a fraction of the CPU
+# each — so `python -m epl.freshsweep` pins, unconditionally and before numpy,
+# because a shard inheriting 8 from a shell is not the run this experiment
+# preregistered.
+#
+# Importing this module does NOT pin. A library that rewrites the process
+# environment on import is a library that changes the behaviour of code it
+# knows nothing about — the test suite imports this module, and single-
+# threading everything that imports pytensor after it would be a side effect
+# nobody asked for and nobody could see. What replaces the mutation is
+# evidence: :func:`blas_threads` records what the process ACTUALLY has on every
+# ledger row (§5.2), and :func:`run_control` refuses to run real fits in a
+# process that is not pinned (§3.2's pre-stated condition). Visible rather than
+# silent, which is what the preregistration asked for.
 # --------------------------------------------------------------------------
 import os as _os
 import sys as _sys
@@ -72,12 +84,15 @@ import sys as _sys
 BLAS_VARS = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
              "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS")
 _NUMPY_ALREADY_IMPORTED = "numpy" in _sys.modules
-for _var in BLAS_VARS:
-    _os.environ[_var] = "1"
+_IS_ENTRY_POINT = __name__ == "__main__"
+if _IS_ENTRY_POINT:
+    for _var in BLAS_VARS:
+        _os.environ[_var] = "1"
 
 import argparse                                                   # noqa: E402
 import hashlib                                                    # noqa: E402
 import json                                                       # noqa: E402
+from contextlib import ExitStack as _ExitStack                    # noqa: E402
 import re                                                         # noqa: E402
 import socket                                                     # noqa: E402
 import time                                                       # noqa: E402
@@ -96,7 +111,9 @@ __all__ = [
     "ADOPT_DELTA", "RUN_ORDER", "load_corpus", "block_openings", "fit_points",
     "control_dates", "shard_points", "shard_name", "fit_key", "canonical",
     "run_digest", "load_ledger", "visible_training_frame",
-    "assert_cutoff_clean", "run_fits", "run_control", "estimand", "adoption",
+    "assert_cutoff_clean", "run_fits", "run_canary", "require_canary",
+    "run_control", "require_control", "require_run_preconditions",
+    "estimand", "adoption",
     "merge", "harness_freeze_status", "require_harness_freeze", "main",
 ]
 
@@ -156,7 +173,12 @@ SCHEMA_ID = "epl-freshness-1"
 HARNESS_FILES = ("epl/freshsweep.py", "epl/tests/test_freshsweep.py")
 
 #: §3.2: "The control runs FIRST; not one matchday fit is run until it passes."
-RUN_ORDER = ("control", "run", "merge")
+#: §5.3 puts one thing before even that: the point-in-time canary, which is a
+#: precondition of the whole run rather than of the matchday fits alone. Both
+#: are ENFORCED — :func:`require_run_preconditions` refuses a fit that has
+#: neither on the record — because an order declared in a constant and checked
+#: by nobody is a comment.
+RUN_ORDER = ("canary", "control", "run", "merge")
 CONTROL_RUNS_FIRST = True
 
 #: §5.4's list, fixed in the document before any row existed: recorded on the
@@ -168,9 +190,17 @@ _VOLATILE = ("wall_seconds", "fit_seconds", "seconds", "shard_id",
 #: the tests assert it excludes everything the house rules protect.
 FRESHNESS_DIR = paths.FIT_DIR / "freshness"
 FRESHNESS_JSON = paths.FIT_DIR / "freshness.json"
-CONTROL_JSON = FRESHNESS_DIR / "control.json"
+
+#: The two preconditions live BESIDE the shards they gate, under one run
+#: directory, so a merge reads the canary and the control that belong to the
+#: fits it is merging rather than whatever happens to be at a fixed path.
+CONTROL_NAME = "control.json"
+CANARY_NAME = "canary.json"
+CONTROL_JSON = FRESHNESS_DIR / CONTROL_NAME
+CANARY_JSON = FRESHNESS_DIR / CANARY_NAME
 RESULT_JSON = paths.REPO_ROOT / "reports" / "epl_freshness_result.json"
-WRITES = (FRESHNESS_DIR, FRESHNESS_JSON, CONTROL_JSON, RESULT_JSON)
+WRITES = (FRESHNESS_DIR, FRESHNESS_JSON, CONTROL_JSON, CANARY_JSON,
+          RESULT_JSON)
 
 #: Where §6's freeze commit records the harness hashes. The prereg is the
 #: document the commit amends; the amendment ledger is read too, because a
@@ -766,10 +796,38 @@ def completed_keys(path: Path | str) -> set[str]:
 # ==========================================================================
 
 def blas_threads() -> dict[str, Any]:
-    """What this process actually pinned, recorded on every row (§3.2)."""
+    """What this process actually has, recorded on every row (§3.2).
+
+    Not what it asked for: the environment is read back, and
+    ``pinned_before_numpy`` says whether the pin could have reached the BLAS
+    pool at all. A row produced in a different threading environment is
+    therefore visible on the row rather than inferred from the source.
+    """
     out: dict[str, Any] = {v: _os.environ.get(v) for v in BLAS_VARS}
-    out["pinned_before_numpy"] = not _NUMPY_ALREADY_IMPORTED
+    out["pinned_before_numpy"] = bool(_IS_ENTRY_POINT
+                                      and not _NUMPY_ALREADY_IMPORTED)
+    out["entry_point"] = bool(_IS_ENTRY_POINT)
     return out
+
+
+def assert_blas_pinned(where: str) -> dict[str, Any]:
+    """§3.2's pre-stated condition: one BLAS thread per worker, for real fits.
+
+    Checked where fits actually happen rather than at import, because the pin
+    is a property of the process that runs them. A stubbed control runs no fit
+    and pins nothing; a control that is about to spend twenty ADVI fits does.
+    """
+    threads = blas_threads()
+    unpinned = [v for v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+                            "MKL_NUM_THREADS") if threads.get(v) != "1"]
+    if unpinned:
+        raise FreshnessError(
+            f"{where} runs real fits and this process is not pinned to one "
+            f"BLAS thread per worker: {unpinned} are {[threads.get(v) for v in unpinned]}. "
+            "§3.2 pre-states the condition and §5.2 records it per row. Run "
+            "the sweep as `python -m epl.freshsweep`, which pins before numpy "
+            "loads, or export the three variables before starting the worker.")
+    return threads
 
 
 class Engine:
@@ -1134,15 +1192,83 @@ def _fixture_row(point: FitPoint, match_id: str, probs: np.ndarray,
 
 
 # ==========================================================================
-# 8. the block-parity positive control
+# 8. the preconditions — the canary (§5.3), then the block-parity control
 # ==========================================================================
+
+def run_canary(runner: Callable[[], dict[str, Any]] | None = None, *,
+               path: Path | str | None = None,
+               write: bool = True) -> dict[str, Any]:
+    """§5.3's point-in-time canary, run once before anything else.
+
+    ``epl.walkforward.point_in_time_canary`` rewrites every result from a
+    cutoff onward to 9-0 and demands ``np.array_equal`` on the forecasts a fit
+    at that cutoff produces, with a positive control at a later cutoff proving
+    the corrupted results really did land — so a canary that rewrote nothing
+    cannot pass by accident. On the preregistered walk it returned max |Δp| =
+    0.0 against a positive control of 0.812.
+
+    IT IS A PRECONDITION AND NOT A RESULT. Arm A's training set is a strict
+    superset of Arm B's, so any leak in the pipeline biases this experiment
+    toward freshness — the direction an adoption would be granted on (§1.3
+    (b)). This is the check that the risk has not materialised, and §5.3 makes
+    ``PASS: false`` a :class:`CanaryFailed` that stops the run before a single
+    matchday fit.
+
+    The full dict is written whichever way it falls: a refusal that leaves no
+    record is a refusal nobody can audit.
+    """
+    if runner is None:
+        from epl import walkforward as wf
+        runner = wf.point_in_time_canary
+    started = time.perf_counter()
+    out = dict(runner())
+    out.setdefault("schema", SCHEMA_ID)
+    out["blas_threads"] = blas_threads()
+    out["seconds"] = round(time.perf_counter() - started, 1)
+    path = Path(path) if path is not None else CANARY_JSON
+    if write:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(out, indent=2, default=str) + "\n")
+    if not out.get("PASS"):
+        raise CanaryFailed(
+            f"the point-in-time canary did not pass: max |Δp| before the "
+            f"cutoff = {out.get('max_abs_diff_before_cutoff')!r} (must be 0), "
+            f"positive control = {out.get('max_abs_diff_positive_control')!r} "
+            "(must move). §5.3: the run does not start. A leak here would "
+            "flatter the matchday arm, which is the arm adoption would be "
+            f"granted on. The full dict is on the record at {paths.rel(path)}.")
+    return out
+
+
+def require_canary(path: Path | str | None = None) -> dict[str, Any]:
+    """Refuse a fit that has no passing canary on the record (§5.3)."""
+    path = Path(path) if path is not None else CANARY_JSON
+    if not path.exists():
+        raise CanaryFailed(
+            f"no point-in-time canary on the record at {paths.rel(path)}. §5.3 "
+            "makes it a precondition of the run, and an absent canary is not a "
+            "passing one: run `--canary` first.")
+    try:
+        rec = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise CanaryFailed(f"{paths.rel(path)} is not readable JSON: {exc}") from exc
+    if not rec.get("PASS"):
+        raise CanaryFailed(
+            f"the canary on record at {paths.rel(path)} did not pass: max "
+            f"|Δp| before the cutoff = "
+            f"{rec.get('max_abs_diff_before_cutoff')!r} (must be 0), positive "
+            f"control = {rec.get('max_abs_diff_positive_control')!r} (must "
+            "move). §5.3: the run does not start.")
+    return rec
+
 
 def run_control(dates: Sequence[str] | None = None,
                 corpus: pd.DataFrame | None = None, *,
                 fitter: Callable[[FitPoint], dict] | None = None,
                 engine: "Engine | None" = None,
                 limit: int | None = None, verbose: bool = True,
-                write: bool = False) -> dict[str, Any]:
+                write: bool = False,
+                path: Path | str | None = None) -> dict[str, Any]:
     """§3.2: re-fit block-opening dates and demand the corpus's own rows back.
 
     THE TOLERANCE IS EXACT EQUALITY at the corpus's eight decimals, ruled
@@ -1161,13 +1287,8 @@ def run_control(dates: Sequence[str] | None = None,
     it is a STOP.
     """
     corpus = load_corpus() if corpus is None else corpus
-    threads = blas_threads()
-    if any(threads.get(v) != "1" for v in ("OMP_NUM_THREADS",
-                                           "OPENBLAS_NUM_THREADS",
-                                           "MKL_NUM_THREADS")):
-        raise FreshnessError(
-            f"the control's pre-stated condition is one BLAS thread per "
-            f"worker and this process has {threads}")
+    threads = (assert_blas_pinned("the block-parity control") if fitter is None
+               else blas_threads())
 
     openings = {p.cutoff: p for p in fit_points(corpus, kind="opening",
                                                 check=False)}
@@ -1178,43 +1299,53 @@ def run_control(dates: Sequence[str] | None = None,
     if unknown:
         raise ControlMismatch(f"{unknown} are not block-opening dates")
 
+    # An engine this function BUILDS is an engine this function owns, and
+    # §3.2's pre-stated condition is `fast_panel=True` — so the
+    # `config_read_once` context is entered here. An engine the CALLER passes
+    # in is the caller's: `main --run` opens the context around its own engine,
+    # and entering it twice would nest `config_read_once` inside itself.
+    owned = None
     if fitter is None:
-        engine = engine or Engine(corpus, verbose=verbose)
+        if engine is None:
+            engine = owned = Engine(corpus, verbose=verbose)
         fitter = engine.fit
 
     by_id = corpus.set_index(corpus["match_id"].astype(str))
     detail, diffs, worst_rps = [], [], 0.0
     started = time.time()
-    for i, date in enumerate(dates, 1):
-        point = openings[date]
-        t0 = time.perf_counter()
-        out = fitter(point)
-        probs = _check_fit(point, out)
-        rows = []
-        for mid, prob in zip(point.match_ids, probs):
-            stored = [float(by_id.loc[str(mid), c]) for c in _PROB_COLUMNS]
-            got = [round(float(v), 8) for v in prob]
-            exact = [a == b for a, b in zip(got, stored)]
-            d = [abs(a - b) for a, b in zip(got, stored)]
-            diffs.extend(d)
-            y = int(by_id.loc[str(mid), "y"])
-            r = float(score_mod.rps(np.array([got]), np.array([y]))[0])
-            worst_rps = max(worst_rps,
-                            abs(r - float(by_id.loc[str(mid), "dc_rps"])))
-            rows.append({"match_id": str(mid), "exact": all(exact),
-                         "stored": stored, "refit": got,
-                         "max_abs_diff": max(d)})
-        detail.append({"cutoff": date, "n_fixtures": len(point.match_ids),
-                       "all_exact": all(r["exact"] for r in rows),
-                       "max_abs_diff": max((r["max_abs_diff"] for r in rows),
-                                           default=0.0),
-                       "seconds": round(time.perf_counter() - t0, 2),
-                       "fixtures": rows})
-        if verbose:
-            print(f"[control] {i}/{len(dates)} {date} "
-                  f"n={len(point.match_ids)} "
-                  f"max|dp|={detail[-1]['max_abs_diff']:.3g} "
-                  f"{detail[-1]['seconds']}s", flush=True)
+    with _ExitStack() as stack:
+        if owned is not None:
+            stack.enter_context(owned)
+        for i, date in enumerate(dates, 1):
+            point = openings[date]
+            t0 = time.perf_counter()
+            out = fitter(point)
+            probs = _check_fit(point, out)
+            rows = []
+            for mid, prob in zip(point.match_ids, probs):
+                stored = [float(by_id.loc[str(mid), c]) for c in _PROB_COLUMNS]
+                got = [round(float(v), 8) for v in prob]
+                exact = [a == b for a, b in zip(got, stored)]
+                d = [abs(a - b) for a, b in zip(got, stored)]
+                diffs.extend(d)
+                y = int(by_id.loc[str(mid), "y"])
+                r = float(score_mod.rps(np.array([got]), np.array([y]))[0])
+                worst_rps = max(worst_rps,
+                                abs(r - float(by_id.loc[str(mid), "dc_rps"])))
+                rows.append({"match_id": str(mid), "exact": all(exact),
+                             "stored": stored, "refit": got,
+                             "max_abs_diff": max(d)})
+            detail.append({"cutoff": date, "n_fixtures": len(point.match_ids),
+                           "all_exact": all(r["exact"] for r in rows),
+                           "max_abs_diff": max((r["max_abs_diff"] for r in rows),
+                                               default=0.0),
+                           "seconds": round(time.perf_counter() - t0, 2),
+                           "fixtures": rows})
+            if verbose:
+                print(f"[control] {i}/{len(dates)} {date} "
+                      f"n={len(point.match_ids)} "
+                      f"max|dp|={detail[-1]['max_abs_diff']:.3g} "
+                      f"{detail[-1]['seconds']}s", flush=True)
 
     worst = max(diffs) if diffs else 0.0
     result = {
@@ -1232,9 +1363,10 @@ def run_control(dates: Sequence[str] | None = None,
         "PASS": bool(worst == 0.0 and worst_rps <= 1e-12),
         "detail": detail,
     }
+    path = Path(path) if path is not None else CONTROL_JSON
     if write:
-        CONTROL_JSON.parent.mkdir(parents=True, exist_ok=True)
-        CONTROL_JSON.write_text(json.dumps(result, indent=2, default=str) + "\n")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(result, indent=2, default=str) + "\n")
     if not result["PASS"]:
         offenders = [d["cutoff"] for d in detail if not d["all_exact"]]
         raise ControlMismatch(
@@ -1247,6 +1379,64 @@ def run_control(dates: Sequence[str] | None = None,
             "design rests on: STOP, and write the amendment before anything "
             "continues.")
     return result
+
+
+def require_control(path: Path | str | None = None, *,
+                    dates: Sequence[str] | None = None) -> dict[str, Any]:
+    """Refuse a matchday fit before the block-parity control has passed (§3.2).
+
+    ``dates`` is the coverage the caller demands. The preregistered run demands
+    all twenty of §3.2's dates by name, so a three-date smoke control cannot
+    stand in for it; an audit run demands only that a control passed, which is
+    still the ORDER the document fixes.
+    """
+    path = Path(path) if path is not None else CONTROL_JSON
+    if not path.exists():
+        raise ControlMismatch(
+            f"the block-parity control has not run: there is no record at "
+            f"{paths.rel(path)}. §3.2: 'The control runs FIRST; not one "
+            "matchday fit is run until it passes.' Run `--control` first.")
+    try:
+        rec = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise ControlMismatch(
+            f"{paths.rel(path)} is not readable JSON: {exc}") from exc
+    if not rec.get("PASS"):
+        raise ControlMismatch(
+            f"the control on record at {paths.rel(path)} did not pass: max "
+            f"|Δp| = {rec.get('max_abs_prob_diff')!r}. §3.2 rules EXACT "
+            "equality at the corpus's eight decimals and forbids widening the "
+            "tolerance after seeing a difference.")
+    if dates is not None:
+        have = {str(d) for d in rec.get("dates", [])}
+        missing = sorted({str(d) for d in dates} - have)
+        if missing:
+            raise ControlMismatch(
+                f"the control on record covers {len(have)} date(s) and does "
+                f"not cover {missing[:5]} ({len(missing)} missing). The "
+                "preregistered run demands §3.2's twenty by name: a shorter "
+                "control is a smoke test, not the control.")
+    return rec
+
+
+def require_run_preconditions(*, directory: Path | str | None = None,
+                              canary_path: Path | str | None = None,
+                              control_path: Path | str | None = None,
+                              dates: Sequence[str] | None = None,
+                              ) -> dict[str, Any]:
+    """:data:`RUN_ORDER`, enforced rather than declared.
+
+    The canary (§5.3) is a precondition of the run; the control (§3.2) is what
+    runs first among the fits. Both are checked from their written records, so
+    the order holds across processes and across shards — four workers each
+    re-running the canary would be four answers to a question with one.
+    """
+    directory = Path(directory) if directory is not None else FRESHNESS_DIR
+    canary = require_canary(canary_path if canary_path is not None
+                            else directory / CANARY_NAME)
+    control = require_control(control_path if control_path is not None
+                              else directory / CONTROL_NAME, dates=dates)
+    return {"canary": canary, "control": control}
 
 
 # ==========================================================================
@@ -1268,8 +1458,8 @@ def _stratum_label(days: int) -> str:
     return {1: "1", 2: "2"}.get(int(days), "3+")
 
 
-def estimand(rows: Sequence[dict[str, Any]], corpus: pd.DataFrame | None = None,
-             *, n_boot: int = N_BOOT, seed: int = BOOTSTRAP_SEED,
+def estimand(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
+             seed: int = BOOTSTRAP_SEED,
              expected_fixtures: int | None = None) -> dict[str, Any]:
     """§2's mean paired RPS delta, its interval, and §3's secondaries.
 
@@ -1463,7 +1653,15 @@ def merge(shards: int = 1, *, directory: Path | str | None = None,
 
     directory = Path(directory) if directory is not None else FRESHNESS_DIR
     corpus = load_corpus() if corpus is None else corpus
+    preregistered = expected is None
     points = fit_points(corpus, check=(expected is None))
+    # The preconditions gate the NUMBER, not the wall clock. A merge that
+    # scored fits taken without a passing canary and a passing control would
+    # publish an estimand nobody checked — so they are re-read here, from the
+    # records beside these shards, however long ago they were written.
+    pre = require_run_preconditions(
+        directory=directory,
+        dates=(control_dates(corpus) if preregistered else None))
     expected = int(expected if expected is not None else EXPECTED_FIT_DATES)
     expected_fixtures = int(expected_fixtures if expected_fixtures is not None
                             else EXPECTED_STALE)
@@ -1530,7 +1728,7 @@ def merge(shards: int = 1, *, directory: Path | str | None = None,
             "not a subset.")
 
     check_corpus_scores(corpus)
-    result = estimand(rows, corpus, n_boot=n_boot, seed=seed,
+    result = estimand(rows, n_boot=n_boot, seed=seed,
                       expected_fixtures=expected_fixtures)
     result.update({
         "n_fits": len(got_keys), "n_fixtures": len(rows),
@@ -1540,12 +1738,11 @@ def merge(shards: int = 1, *, directory: Path | str | None = None,
         "config": {"path": paths.rel(CONFIG_PATH), "sha256": config_sha,
                    "seed": SEED},
         "harness_freeze": freeze,
-        "control": (json.loads(CONTROL_JSON.read_text())
-                    if CONTROL_JSON.exists() else None),
+        "control": dict(pre["control"]),
+        "canary": dict(pre["canary"]),
         "written_at": pd.Timestamp.now("UTC").isoformat(),
     })
-    if result["control"] is not None:
-        result["control"].pop("detail", None)
+    result["control"].pop("detail", None)
 
     if write:
         FRESHNESS_JSON.parent.mkdir(parents=True, exist_ok=True)
@@ -1561,7 +1758,8 @@ def merge(shards: int = 1, *, directory: Path | str | None = None,
 # 12. the CLI
 # ==========================================================================
 
-def _plan(corpus: pd.DataFrame, shards: int) -> dict[str, Any]:
+def _plan(corpus: pd.DataFrame, shards: int,
+          directory: Path) -> dict[str, Any]:
     points = fit_points(corpus)
     return {
         "n_fit_dates": len(points),
@@ -1571,6 +1769,11 @@ def _plan(corpus: pd.DataFrame, shards: int) -> dict[str, Any]:
         "control_dates": control_dates(corpus),
         "shards": {str(i): len(shard_points(points, i, shards))
                    for i in range(shards)},
+        "run_order": list(RUN_ORDER),
+        "directory": paths.rel(directory),
+        "preconditions": {
+            "canary": (directory / CANARY_NAME).exists(),
+            "control": (directory / CONTROL_NAME).exists()},
         "harness_freeze": harness_freeze_status(),
         "blas_threads": blas_threads(),
     }
@@ -1580,6 +1783,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--plan", action="store_true",
                     help="print the schedule and shard sizes; fits nothing")
+    ap.add_argument("--canary", action="store_true",
+                    help="the point-in-time canary; §5.3's precondition, and "
+                         "the first thing in RUN_ORDER")
     ap.add_argument("--control", action="store_true",
                     help="the block-parity positive control; runs FIRST (§3.2)")
     ap.add_argument("--run", action="store_true", help="Arm A's matchday fits")
@@ -1592,6 +1798,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--dates", default=None,
                     help="comma-separated control dates (default: the twenty)")
+    ap.add_argument("--dir", dest="directory", default=None,
+                    help="the run directory: the canary, the control and the "
+                         f"shard ledgers (default {paths.rel(FRESHNESS_DIR)})")
     ap.add_argument("--ledger", default=None,
                     help="scratch ledger for an audit run; the preregistered "
                          "location is refused until §6's freeze commit lands")
@@ -1604,17 +1813,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"STOP: --shard must be i/N, not {args.shard!r}", flush=True)
         return 2
 
+    directory = Path(args.directory) if args.directory else FRESHNESS_DIR
+
     try:
         if args.plan:
-            print(json.dumps(_plan(load_corpus(), max(count, args.shards)),
-                             indent=2, default=str))
+            print(json.dumps(_plan(load_corpus(), max(count, args.shards),
+                                   directory), indent=2, default=str))
+
+        if args.canary:
+            out = run_canary(path=directory / CANARY_NAME)
+            print(json.dumps(out, indent=2, default=str))
 
         if args.control:
             corpus = load_corpus()
             check_corpus_scores(corpus)
+            require_canary(directory / CANARY_NAME)     # RUN_ORDER, enforced
             out = run_control(
                 dates=(args.dates.split(",") if args.dates else None),
-                corpus=corpus, limit=args.limit, write=True)
+                corpus=corpus, limit=args.limit, write=True,
+                path=directory / CONTROL_NAME)
             summary = {k: v for k, v in out.items() if k != "detail"}
             print(json.dumps(summary, indent=2, default=str))
 
@@ -1622,11 +1839,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             corpus = load_corpus()
             check_corpus_scores(corpus)
             frozen = harness_freeze_status()
+            # §3.2 and §5.3, before a single fit: the preregistered run demands
+            # the control cover all twenty of §3.2's dates by name; an audit
+            # run demands only that a control passed, which is still the order.
+            require_run_preconditions(
+                directory=directory,
+                dates=(control_dates(corpus) if frozen["frozen"] else None))
+            assert_blas_pinned("the matchday sweep")
             points = shard_points(fit_points(corpus), index, count)
             if args.limit:
                 points = points[:args.limit]
             ledger = Path(args.ledger) if args.ledger else \
-                FRESHNESS_DIR / shard_name(index, count)
+                directory / shard_name(index, count)
             # Guard BEFORE the engine: building the store and the anchor costs
             # real time, and a run that is going to be refused should be
             # refused before it spends it.
@@ -1642,9 +1866,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(json.dumps(out, indent=2, default=str))
 
         if args.merge:
-            out = merge(shards=args.shards, n_boot=args.n_boot)
+            out = merge(shards=args.shards, n_boot=args.n_boot,
+                        directory=directory)
             summary = {k: v for k, v in out.items()
-                       if k not in ("control", "harness_freeze")}
+                       if k not in ("control", "canary", "harness_freeze")}
             print(json.dumps(summary, indent=2, default=str))
 
     except FreshnessError as exc:
