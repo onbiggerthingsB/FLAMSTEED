@@ -121,7 +121,7 @@ jobs:
           fi
           pytest tests -k leakage -q
 
-  # The EPL table simulator's suite — 925 tests that nothing automated ran.
+  # The EPL table simulator's suite — 935 tests that nothing automated ran.
   # `[tool.pytest.ini_options] testpaths = ["tests"]` means the job above never
   # collects epl/tests at all, so every EPL commit since the probe landed has
   # been merged on a green tick that said nothing about it. Same gap, same
@@ -137,7 +137,7 @@ jobs:
   epl:
     name: EPL suite
     runs-on: ubuntu-latest
-    timeout-minutes: 45   # ~9 min locally warm (902 passed / 23 skipped in 8m51s
+    timeout-minutes: 45   # ~9 min locally warm (912 passed / 23 skipped in 9m05s
                           # with data/ absent). Budget ~10 min on a runner, plus
                           # cold pip and a slower CPU. 45 leaves the same kind of
                           # headroom the tests job learned to leave.
@@ -163,7 +163,7 @@ jobs:
       # `@pytest.mark.skipif(not <PATH>.exists())` and skip.
       #
       # Verified rather than asserted: run in a checkout with no data/ directory
-      # at all, the suite is 902 passed / 23 skipped / 0 errors. That audit
+      # at all, the suite is 912 passed / 23 skipped / 0 errors. That audit
       # found exactly one unguarded test — test_simcli.py's committed-opener
       # whole-bundle check, which read data/epl/sim/issuances/ and would have
       # ERRORED here — and it is guarded now.
