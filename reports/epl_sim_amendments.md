@@ -4327,3 +4327,54 @@ later change to a hashed file requires an amendment in this file first, in this
 file's format, with the hashes reissued alongside it. Production wiring, if the
 experiment ever adopts, touches `src/` and therefore lands **batched into the
 next lock version** under the house merge-batching rule.
+
+## A10 — §2.1's published sanity trio was measured under a window §2.1 does not rule (2026-08-26)
+
+**Observation.** The market-anchoring preregistration
+([`epl_anchoring_prereg.md`](epl_anchoring_prereg.md), ed40f27) states its
+market window twice, and the two statements disagree. The **definition** is
+venue-blind — "the **10 most recent** such matches of *either* club",
+"`M = 10` matches per club" — and so is the constant it cites:
+`config/config.yaml:11`'s `elo.volatility_window` counts a club's most recent
+prior rating deltas, which it accrues home and away alike. The **published
+measurements** are not. The sanity trios §2.1 prints — window "min 201, median
+233, max 262", `eta` "0.2519 to 0.4429, median 0.3740", cross-club sd "0.6693
+to 0.8181, median 0.7514" — reproduce to the last digit only under a
+**per-venue** window (each club's 10 most recent *home* matches AND 10 most
+recent *away* matches, twenty per club, the sd then taken over the season's
+twenty). Under the window §2.1 actually **rules**, the same 212 cutoffs give
+window **(101, 129, 138)**, `eta` **(0.2350, 0.3764, 0.4445)**, sd
+**(0.6308, 0.7349, 0.8402)**. Found while implementing the window (ef873b7),
+before any fit; recorded then in code, ruled now.
+
+**Ruling.** The definition binds and the harness does not move: `epl/mktprior.py`
+computes the **venue-blind** window, exactly as §2.1's prose rule and its cited
+constant state. §2.1's published sanity trios are corrected to the ruled-window
+values above; the per-venue trios are recorded as the variant that produced the
+published numbers and bind nothing. No constant moves — `M = 10`, `L = 365`,
+`λ = 1.0` stay §2.1's — and §5.1's pre-stated `eta` refusal band
+**[0.10, 0.70]**, which contains both trios, stays exactly as pre-stated.
+
+**Rationale.** Fitting the mechanism to the numbers already printed would
+silently double `M` to 20, which §7 names an invalidation. A sanity statistic
+is a check *on* the mechanism; a check computed under a different window is
+evidence about that window, not this one. The one §2.1 claim the estimand's
+denominator rests on is rule-invariant and reproduces under both windows: **7
+of 212** cutoffs and **19 of 2,280** fixtures where a fitted club has no window
+match, every one a promoted club's opening weekend — those nineteen stay in the
+2,280 with the market term inert. The audit's single weighted smoke fit
+(cutoff 2022-10-18, `w = 1.00`) recovered `n_window = 129` — the ruled trio's
+own median — with `eta = 0.3558`, inside the pre-stated band.
+
+**What is pre-stated.**
+
+1. Both trios are pinned in code — `MEASURED_*` (the ruled window; binding) and
+   `DOCUMENTED_*` (the per-venue variant; binding nothing) — and
+   `epl/tests/test_mktprior.py::test_the_documents_published_sanity_statistics_are_stale`
+   asserts each, so the correction cannot drift silently in either direction.
+2. §2.1's committed text is not edited; this ledger corrects by note, not by
+   edit (A9 (b)'s own clause). The preregistration's §6 freeze note
+   cross-references this entry.
+3. The §6 harness-hash freeze lands only **after** this entry, in the commit
+   that follows it; any later change to a hashed file requires a further
+   amendment here first, per §6 step 4.
