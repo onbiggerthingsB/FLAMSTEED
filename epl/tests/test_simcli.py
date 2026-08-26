@@ -2287,6 +2287,8 @@ def _check_stderr_lines(report: dict) -> list[str]:
     return lines
 
 
+@pytest.mark.skipif(not COMMITTED_OPENER.exists(),
+                    reason="no committed opener bundle under data/")
 def test_the_committed_opener_whole_bundle_check_is_FAIL_and_the_ledger_says_so():
     """A6 (b.5) held against the DOCUMENTED command, and against the note that
     quotes it.
