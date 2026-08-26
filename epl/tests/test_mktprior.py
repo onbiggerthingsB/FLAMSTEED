@@ -1149,13 +1149,25 @@ def test_the_merge_refuses_a_ledger_taken_before_the_freeze(tmp_path):
 
 
 def test_the_merge_refuses_a_key_set_that_is_not_the_pre_stated_one(tmp_path):
+    """§5.1: the union's key set equals the pre-stated keys EXACTLY.
+
+    The refusal has to be REACHED to be tested. An earlier version of this
+    test ran the short merge with `harness_frozen=False`, and the freeze
+    guard refused first — the test stayed green with the key-set check
+    deleted outright, which the audit proved by seeding a merge that accepts
+    a subset. So: the frozen path, preconditions on the record, one fit key
+    missing, and the refusal demanded by its own name and message.
+    """
     corpus = _corpus()
     points = mp.grid_points(corpus, check=False)
-    _run(tmp_path, corpus, points[:-1], harness_frozen=False)
-    with pytest.raises(mp.MarketPriorError):
+    _write_preconditions(tmp_path)
+    _run(tmp_path, corpus, points[:-1], harness_frozen=True)
+    with pytest.raises(mp.MergeIncomplete) as exc:
         mp.merge(shards=1, directory=tmp_path, corpus=corpus, write=False,
                  expected=len(points), expected_fixtures=len(corpus),
-                 harness_frozen=False)
+                 harness_frozen=True)
+    assert "Not a superset, not a subset" in str(exc.value)
+    assert "1 missing" in str(exc.value)
 
 
 def test_the_predictions_file_is_new_and_never_the_pinned_corpus(tmp_path):
