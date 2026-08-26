@@ -1344,3 +1344,113 @@ that date and are reproducible from the recipes given beside them. The harness
 hashes, the fit-point digest and the panel digest that make "the design was fixed
 first" checkable for the run itself arrive in the follow-up commit named in §6,
 and no fit runs before it.*
+
+---
+
+## §6 step 2 — the harness-hash freeze (2026-08-26)
+
+The harness named in §6 now exists and has passed the adversarial audit §6
+step 1 requires before this note may be written. What the audit found is in
+2160766; what it verified is on the record:
+
+* **twelve seeded defects**, each seeded alone into `epl/mktprior.py` and
+  demanded red under the file's own tests: the blend losing its z-score (the
+  doubled-anchor widening §2.2 (ii) forbids), `z_blend(0)` losing the exact
+  identity, the window's cutoff bound made inclusive (§2.3's leak — own-matchday
+  odds in), the `OddsLeak` assert silenced, a fold containing its own scored
+  season (the partition invariant refuses it), the season-label cross-check
+  removed, poison believed on load, a corrupt mid-ledger line believed, the
+  shard partition off by one, a merge accepting a **subset** of the pre-stated
+  key set, the resume key dropping `w`, and the merge scoring rows stamped
+  `harness_frozen: false`. Eleven went red at first pass. The subset-tolerant
+  merge stayed green because its test ran the short merge from behind the
+  freeze guard and never reached the refusal it names — the guard itself fires
+  when reached (`MergeIncomplete: … 1 missing … Not a superset, not a
+  subset.`), the **test** was the defect, and 2160766 rewrote it to reach the
+  key-set check on the frozen path: red under the same seed, green clean.
+* **the leakage clause attacked with constructions** through the public API,
+  each refused or excluded per §2.3's exact ruling: a postponed match dated
+  after the cutoff and the scored fixture's own cutoff-day row contribute
+  nothing (`z_mkt` bit-identical with and without them, max |Δz| = 0.0; the
+  earlier meeting of the same clubs legitimately remains); a leaked frame
+  forced past the window is `OddsLeak` by name; a source file whose bytes move
+  after the pin is `OddsSourceDigestMismatch`; a panel with one price moved is
+  `OddsPanelMismatch`; a file offering only closing columns is refused, and a
+  closing NAME anywhere in the anchor path is refused by shape.
+* **the §5.4 odds canary, re-run on the real panel** at cutoff 2022-10-18:
+  negative leg exactly **0.0** across **1,030** corrupted on-or-after rows,
+  positive control **4.98**, all five `z_blend` legs identical after the
+  cutoff and moving before it, panel digest `84ea5621…`.
+* **§3.2's identity control re-run at one date** (2022-10-18, the block of
+  18): all **54** recomputed probabilities equal the corpus's stored values
+  **exactly** at their 8 decimals, max |ΔRPS| = **0.0**, `read_odds: false`,
+  parity lines byte-identical with the implementer's smoke — the `w = 0`
+  identity theorem holds and the archive has not drifted. And **one
+  `w = 1.00` fit** through the same Engine: `n_window` **129** (the ruled
+  window's own median — A10), `eta` **0.3558** inside the pre-stated band,
+  `z_blend` unit-sd, movement mean |Δp| **0.0120** against the 0.0032
+  seed-replica scale — a real treatment, and no third fit, the freshness
+  sweep's compute holding the machine.
+* **the gates:** the full `epl/tests` suite green, both lock checks
+  `LOCK VALID` (v10) after every commit, `git diff 5ba83e7..HEAD -- src
+  scripts site .github tools` empty, `config/config.yaml` untouched with
+  `strength_prior.source` re-verified inert, every protected file untouched,
+  the coupled ledger tests green after each ledger append, and a secret scan
+  over every commit since 5ba83e7 clean against a working positive control.
+
+These are the bytes:
+
+| File | Lines | SHA-256 |
+|---|---:|---|
+| `epl/mktprior.py` | 3230 | `8f214d16bd41c7b6e38a62fa3ddb3941ee219dd67f6357e2b8474d3053b1aba3` |
+| `epl/tests/test_mktprior.py` | 1313 | `923d5fb390b8eecd59233052143e98de4c93fa52c11570a5e22183fd13c18746` |
+
+Schema identifier: `epl-market-prior-1`. (`epl/oddscapture.py` is deliberately
+not a §6 harness file: it is not wired into `epl.mktprior` and changes no
+backtest number — ced09da.)
+
+**The enumerated fit-point list is frozen with the harness.** The 1,060
+`(cutoff, w)` pairs, recomputed from the pinned corpus by `grid_points` under
+§0.1's binding counts and serialised in `(cutoff, w)` order as `;`-joined
+`{cutoff}|{w:.2f}` (`fit_point_digest`), hash to:
+
+    0f28ab2d64db241b8f16f79e9149ea2b79882e3984a2052ac02cc4d8b788e5e2
+
+The 2,280 fixtures each weight prices are the corpus's own block rows, frozen
+transitively by the corpus digest `f31580073e…` and enforced at 212 blocks /
+2,280 fixtures by `CorpusShapeMismatch`. A run that fits any other set of
+points is not this experiment.
+
+**The odds panel digest is frozen as recomputed by the harness's own reader.**
+`build_panel()` over the eleven pinned `E0_*.csv` reproduces 4,167 rows /
+`Avg` 2,267 / `PS` 1,900 and the canonical digest §0.3 measured —
+`84ea5621e1aaa45bd43c3063897d79525103ae74dd51eb071b777bae9618235c` — so the
+panel this document measured and the panel the harness builds are provably the
+same object.
+
+**Two deviations, recorded rather than smoothed over.**
+
+1. §2.1's published sanity trios were measured under a per-venue window the
+   section does not rule. **A10** corrects the record before this freeze: the
+   venue-blind definition binds, the harness computes it, and both trios are
+   pinned in code as `MEASURED_*` / `DOCUMENTED_*` with a test asserting each.
+2. §5.5 states the resume key as `cutoff|w|seed|config_sha256|odds_panel_sha256`;
+   the implemented key is `cutoff|w|seed|config_sha256`. The fifth component is
+   enforced as a precondition instead of in the key: `OddsPanelMismatch`
+   refuses any panel that is not the pinned one before a fit runs, and
+   `panel_sha256` sits on every row outside the volatile set, so `RowConflict`
+   refuses a disagreement. Within any run this document permits, the omitted
+   component is a constant; a run under a different panel is refused before it
+   fits, not resumed past.
+
+Verify with:
+
+    shasum -a 256 epl/mktprior.py epl/tests/test_mktprior.py
+
+**If any hash differs at the time the run is executed, it is not the run this
+document preregisters.** Any change to a hashed file after this commit requires
+an amendment in `reports/epl_sim_amendments.md` **before** the change, in that
+file's format, with the hashes reissued alongside it (§6 step 4). §6 step 3 now
+applies: only after this commit does the first fit run — and the run itself
+queues behind the freshness sweep's compute, per the standing machine
+constraint.
