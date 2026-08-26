@@ -4446,3 +4446,74 @@ needed cadence. Two captures a week cover both clusters.
 text disagreed. The practice is correct and the text was too narrow, so the
 text is widened by this note rather than the practice being cut back to match
 a parenthetical that was wrong about the source.
+
+### The §4.5 activation gate — what "automation runs green" means (2026-08-26)
+
+**Decision amended: none.** The owner's §4.5 ruling above (matchday cadence,
+adopted by ownership and not by evidence) made the switch conditional on "the
+week the automated one-command cycle runs green". That phrase was never
+defined, and an undefined gate is a gate that gets argued about on the day it
+matters — or, worse, one that quietly passes because nobody wrote down what it
+was for. This note defines it. It does not move the ruling, relax it, or
+pre-authorise the switch.
+
+**The command.** One invocation, no arguments, from the repository root:
+
+    PYTHONPATH=src:. /Users/likerun/Desktop/worldcup/.venv/bin/python -m epl.livecycle
+
+Module invocation only — `epl/livecycle.py`'s `refuse_an_unsafe_launch`
+refuses a stdin-heredoc launch before anything runs, because that spawn kills
+the forecast gate's parallel leg on macOS.
+
+**The required state.** All four, together:
+
+1. **Exit 0 on at least three consecutive real cycle days.** Real means days
+   the operator would actually have run it, consecutively — not three runs on
+   one afternoon, and not three days cherry-picked from a fortnight. A no-op
+   day counts: the module is explicit that a day with no new results and a
+   fresh issuance says so and exits 0, and "running it daily has to be safe or
+   it will not be run daily" is the property being tested.
+2. **At least one of those days ingests real results and issues.** Three
+   consecutive no-op days prove the cycle can decline to act. They prove
+   nothing about the path that writes. The gate needs the writing path
+   exercised end to end at least once: results ingested from both sources
+   under the both-agree rule, a bundle forecast, `check` returning its designed
+   refusal, and the scoring steps appending rows.
+3. **Zero STOPs attributable to the cycle itself.** A STOP is
+   `STOP: <TypeName>: …` on stderr with **exit 2**; the forecast gate's
+   designed refusal is **exit 4**. Neither may be caused by the cycle's own
+   logic, its clocks, its ledger reads, or its writes. **A source outage does
+   not count against the gate** — `SourceUnreachable` means football-data or
+   openfootball was down, which is the world failing and not the automation.
+   Such a day is neutral: it does not break the consecutive count, and it does
+   not satisfy requirement 1 either. It is skipped and the count continues.
+   Every one of these judgements is auditable after the fact, because every run
+   — including a refused one, including `--dry-run` — appends exactly one
+   canonical-JSON line to `reports/epl_livecycle_journal.jsonl` carrying its
+   outcome and the reason.
+4. **`epl/tests` green at the switch commit.** The full suite, at the commit
+   that records the switch:
+
+       PYTHONPATH=src:. .venv/bin/python -m pytest epl/tests -q
+
+   Green at the switch, not green at some earlier commit that resembles it.
+   CI now runs this suite on every push, so the evidence is a tick rather than
+   a claim.
+
+**The authority.** The **owner flips it**. Nothing in the harness, this ledger,
+or the gate above adopts matchday cadence automatically: satisfying all four
+conditions makes the switch *available*, not *made*. When he makes it, the
+**switch date is recorded here as a dated note**, in the terms the §4.5 ruling
+already set. Until that note exists, **the live cadence is weekly**, exactly as
+`CADENCE_WEEKS = 1` has said since the walk.
+
+**The rollback, which is why this is cheap to try.** Cadence is not a constant
+in the code and never became one: it is **defined by how often the operator
+invokes the command**. So reverting is returning to weekly invocation — **no
+code change, no revert commit, no re-freeze, nothing to undo**. Nothing about
+running the cycle daily is one-way: the ingest is idempotent (a fixture the
+ledger already resolves with sources agreeing is nothing to do), the issuance
+step skips a cutoff that already has a bundle, and the season ledger's own
+conflict machinery stays the final arbiter either way. If matchday cadence
+turns out to cost more attention than it is worth, the operator simply stops
+running it daily, and a dated note here records that as well.
