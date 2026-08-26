@@ -849,3 +849,58 @@ Superseded: `441e917b98…` / `cabdf81c2d…`. Verify with
     shasum -a 256 epl/freshsweep.py epl/tests/test_freshsweep.py
 
 Any further change to a hashed file requires a further note here before it.
+
+---
+
+## §7 protocol deviation, disclosed — fits ran before the freeze (2026-08-26)
+
+**Appended, not edited.** This note does not amend §7; it discloses that §7
+was breached, which is the only honest thing a preregistration's own document
+can do after the fact.
+
+**The clause.** §7 lists among the things that would invalidate this
+preregistration: *"**A fit runs before the harness-hash commit of §6 exists**,
+or a hashed file differs at run time without a prior amendment."* Unqualified.
+Not "a fit that enters an estimand" — **a fit**.
+
+**The freeze commit.** `5ba83e7`, 2026-08-26 14:52:55 +0800.
+
+**The fits that ran before it.** During the adversarial audit §6 requires
+*before* the freeze — the audit whose whole purpose is to run the harness hard
+enough to find its defects — the harness fitted:
+
+1. **The §5.3 leakage canary**, with its live positive control. Reported in
+   §6 step 2 above: pre-cutoff forecasts moved `0.0`; the positive control
+   moved `0.811805376021185`.
+2. **A three-date §3.2 block-parity control** — cutoffs **2019-10-21,
+   2019-12-03, 2020-02-14**; 4 fixtures, 12 probabilities; `max |Δp| = 0.0`
+   at the corpus's 8 decimals; `PASS`. Artifact retained:
+   `data/epl/fit/freshness/control.pre-freeze-audit-2026-08-26.json`.
+
+(A further three-date control over 2019-10-21 / 2022-01-11 / 2024-10-21 ran in
+the same audit window under the smoke harness; same result, `max |Δp| = 0.0`.)
+
+**None of it entered any estimand.** The published −0.000216 is computed from
+the 507 post-freeze fits alone, whose 1,699 rows every carry
+`harness_frozen: true` — and the merge **refuses** a ledger carrying
+`harness_frozen: false`, by name, so a pre-freeze row could not have reached
+the number even if someone had tried to merge one. The pre-freeze fits were
+preconditions and audit probes; they produced PASS/FAIL verdicts and exact-
+equality checks, not deltas.
+
+**Why it happened, stated plainly rather than excused.** §6 ordered the audit
+before the freeze and §7 forbade fits before the freeze, and an adversarial
+audit of a fitting harness is not possible without running fits. The two
+clauses cannot both be satisfied. That is a defect in this document, written
+before anyone had tried to execute it, and the resolution chosen at the time —
+run the audit, freeze after — was the sensible one and was **not disclosed as
+a deviation**. It is disclosed now.
+
+**The standing that results.** This lifecycle is
+**protocol-deviant-disclosed**, not preregistration-clean. A reader who wants
+the strong form of the guarantee — *no fit of any kind preceded the frozen
+bytes* — does not have it here and should not be told they do. A future
+preregistration in this mold should say what this one should have said: that
+**audit fits are permitted before the freeze, must be enumerated in the freeze
+commit, and may not enter any estimand** — which is what actually happened, and
+what §7 should have licensed.

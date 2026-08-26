@@ -1533,3 +1533,72 @@ Superseded: `8f214d16bd…` / `923d5fb390…`. Verify with
     shasum -a 256 epl/mktprior.py epl/tests/test_mktprior.py
 
 Any further change to a hashed file requires a further note here before it.
+
+---
+
+## §7 protocol deviations, disclosed (2026-08-26)
+
+**Appended, not edited.** Two deviations from this document's own terms, both
+disclosed after the fact, neither amending the clause it breached.
+
+### (a) Fits ran before the harness-hash freeze
+
+**The clause.** §7: *"**A fit runs before the harness-hash commit of §6
+exists**, or a hashed file differs at run time without a prior amendment."*
+Unqualified — a fit, not a fit that enters an estimand.
+
+**The freeze commit.** `1b52623`, 2026-08-26 18:57:07 +0800.
+
+**The fits that ran before it**, during the §6 adversarial audit:
+
+1. **A `w = 0.00` control fit** at cutoff **2022-10-18** — §3.2's re-fit
+   identity control, 18 fixtures, 54 probabilities, `max |Δp| = 0.0`,
+   `max |ΔRPS| = 0.0` against a tolerance of exact equality at the corpus's 8
+   decimals; `PASS`. This is the check that `z_blend(0)` really is `elo_z`.
+2. **A `w = 1.00` smoke fit** at the same cutoff **2022-10-18**, 18 rows, every
+   one stamped `harness_frozen: false`. Its purpose was to exercise the
+   weighted path end to end and to recover `n_window` and `eta` for §5.1's
+   pre-stated refusal band — it returned `n_window = 129` and `eta = 0.3558`,
+   inside the band, and **A10 in `reports/epl_sim_amendments.md` already
+   records that fit and its numbers**.
+
+**Neither entered the estimand.** The published −0.000193 comes from the 1,060
+post-freeze fits, whose 11,400 rows all carry `harness_frozen: true`; the merge
+refuses any ledger carrying `harness_frozen: false` by name, calling a
+re-stamped pre-freeze row "exactly the back-dating §6 exists to prevent". The
+pre-freeze fits produced PASS verdicts and diagnostic constants, not deltas.
+
+**Why, plainly.** §6 orders an adversarial audit *before* the freeze; §7
+forbids fits *before* the freeze; a fitting harness cannot be adversarially
+audited without fitting. The two clauses are jointly unsatisfiable, which is a
+defect in this document rather than in the run. The resolution taken — audit,
+then freeze — was right and was **not labelled a deviation** at the time.
+
+**The standing that results.** This lifecycle is
+**protocol-deviant-disclosed**, not preregistration-clean, and a reader wanting
+the strong guarantee that no fit of any kind preceded the frozen bytes does not
+have it. The clause a future document should carry: audit fits are permitted
+before the freeze, must be **enumerated in the freeze commit**, and **may not
+enter any estimand**.
+
+### (b) The odds leakage canary deviated from its pre-stated construction
+
+**What was pre-stated.** §5.3's odds canary was specified to corrupt the
+archive's prices by a **fixed multiplier** and demand the recovered strengths
+move — a positive control proving the odds path is live rather than inert.
+
+**What ran.** The canary **swapped the home and away prices** instead. As a
+positive control this is at least as strong and arguably stronger: a multiplier
+applied to both sides of a de-vigged, z-scored strength recovery can partially
+cancel, whereas a home/away swap inverts the sign of the market log-odds
+`m = log(p_home / p_away)` for every affected match and cannot cancel. It
+moved `4.98` against a vacuous-leg count of zero, and the run reports it as
+PASS.
+
+**The deviation is that nobody said so.** The substitution was a sensible
+in-flight improvement made without an amendment, and §7 requires an amendment
+*before* a change to a pre-stated mechanism. The published PASS stands — the
+control did its job and did it well — but it is **a different control from the
+one this document specifies**, and the result document's statement that "both
+leakage canaries PASS with live positive controls" should be read with that
+substitution in view.

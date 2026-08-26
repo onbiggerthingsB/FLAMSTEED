@@ -4399,3 +4399,50 @@ cost the bar existed to price, and automation is what the owner is buying it
 down with. Until then the live cadence stays weekly. The switch date will be
 recorded here as a dated note when it happens. Nothing else changes: no model
 change, no decay change, and the freshness result (f87e69e) stands as published.
+
+### A9 scope — the odds capture is Tue+Fri, not weekly (2026-08-26)
+
+**Decision amended: A9's pre-stated first use of (a), widened.** No entry above
+is edited, qualified or withdrawn; this note records that practice is broader
+than the text A9 pre-stated, and why the widening is the right direction.
+
+**What A9 pre-stated.** "What is pre-stated", item 2: *"a **weekly** capture of
+the pre-closing odds file for the EPL (football-data fixtures file — overwritten
+weekly at the source …)"*.
+
+**What is actually run.** A capture on **Tuesday and Friday** of each week.
+
+**Why the widening.** The parenthetical A9 relied on — "overwritten weekly at
+the source" — is not how the source behaves. football-data's `fixtures.csv`
+carries the **upcoming** fixtures and is refreshed by the publisher through the
+week, so a single weekly pull is not a full sampling of it. Concretely: a
+Friday-only capture takes the weekend round and **misses midweek rounds
+entirely** — every Tuesday/Wednesday EPL programme, which in a congested season
+is a material share of fixtures and disproportionately the rounds where team
+news moves prices. A capture the day of, or the day before, each cluster of
+kickoffs is what "pre-closing" was actually asking for; "weekly" was a
+description of the source's refresh rate mistaken for a description of the
+needed cadence. Two captures a week cover both clusters.
+
+**What this does and does not change.**
+
+* It changes **cadence only**. Everything else A9 (a) pre-stated stands
+  unchanged: the same source file, files stay **local** per the standing
+  football-data ruling, **mirrored to the private vault, never redistributed**,
+  each snapshot named with its UTC capture instant.
+* It creates **no new permission**. A9 (a) already authorised the capture; a
+  more frequent pull of the same file under the same terms is the same act.
+* It touches **no estimand**. No number in any published result is computed
+  from these snapshots — the market-anchoring experiment
+  (`reports/epl_anchoring_result.md`) reads the football-data **archive**, not
+  this capture, and its dated note is explicit that archived opening prices are
+  not proven as-known-then. The capture exists precisely to build the
+  as-known-then record the archive cannot supply, for a **future**
+  preregistration.
+* Uncaptured days remain **unrecoverable**, which is the whole reason the
+  cadence errs wide rather than narrow.
+
+**Recording note.** Recorded on discovering that the shipped practice and A9's
+text disagreed. The practice is correct and the text was too narrow, so the
+text is widened by this note rather than the practice being cut back to match
+a parenthetical that was wrong about the source.
