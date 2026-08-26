@@ -229,3 +229,58 @@ Machine-readable: `reports/evidence/anchoring.json` is the shipped verdict
 verbatim — it still carries the wrong-population saturation block and the
 `method: "leave-one-season-out, in-fold"` label, both corrected here rather
 than rewritten there.
+
+---
+
+## Dated note — the mixed-attempt disclosure, and the rerun that closed it (2026-08-26)
+
+**Appended, not edited.** This note discloses a run-execution fact the result
+above does not state, and reports the check that settles it.
+
+**The fact.** The published prose says "the featpanel race of the first launch
+answered operationally by sequential sharding". What that phrasing does not
+say is that **shard 2's ledger is a mixed-provenance artifact**: rows from the
+crashed parallel launch and rows from the sequential relaunch, merged under the
+harness's resume-by-key. The resume is by design — `RowConflict` refuses any
+key whose non-volatile fields disagree, so a merged ledger cannot be
+*inconsistent* — but "no conflict was raised" is a weaker claim than "the
+parallel rows are the rows a clean run would have written", and only the
+stronger claim licenses treating the attempt as immaterial. The published
+result rested on the weaker one.
+
+**The check.** Shard 2's **265 fit points** were re-run from scratch,
+**sequentially**, into a fresh directory, under the frozen harness and the same
+preconditions (canary, odds-canary, and the 20-date control, all PASS in that
+directory before any fit). The resulting ledger was compared against the
+committed shard 2 in the module's **own canonical form** — `epl.mktprior`'s
+`_strip_volatile` + `run_digest`, which is §5.2's form: sorted, wall-clock and
+shard identity removed, `sort_keys`. This is the same comparison §5.4 already
+demands of a resumed run, applied to the attempt rather than to a resume.
+
+**VERDICT: BYTE-EQUIVALENT.**
+
+    rows: old 2836  new 2836
+    run_digest old : e90ac034187e849e1241826227aa35cc8fdb6f69ec37ef53a656823c41900d28
+    run_digest new : e90ac034187e849e1241826227aa35cc8fdb6f69ec37ef53a656823c41900d28
+    CANONICAL DIGESTS EQUAL: True
+    EQUIVALENCE: keys_match=True n_old=2836 n_new=2836 rows_differing=0
+    VERDICT: BYTE-EQUIVALENT
+
+Identical canonical digest, identical key set, **zero rows differing** across
+all 2,836. The rows the crashed parallel launch contributed are bit-for-bit
+the rows a clean sequential run produces.
+
+**What this establishes.** The mixed attempt is **proven immaterial**, not
+assumed so. The published estimand is the number an uninterrupted run would
+have produced, and the featpanel race — whatever it cost in wall clock —
+corrupted nothing. It also re-demonstrates the determinism the whole design
+leans on: same seed, same config, same panel, same corpus, different process
+topology, identical bytes.
+
+**Execution note, for the record.** The rerun itself was interrupted once (the
+process was killed at 233 of 265 fit points) and was completed by the harness's
+own resume — which is why 233 of the 265 fits in the comparison ledger were
+themselves written before the interruption and 32 after it. That the resumed
+ledger is byte-equivalent to the committed one is therefore evidence about
+**both** mechanisms at once: the parallel-to-sequential attempt, and resume
+itself.
