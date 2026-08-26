@@ -39,8 +39,14 @@ itself. On top of those, the block-parity control (:func:`run_control`) re-fits
 twenty block-opening dates and demands the corpus's own rows back **exactly**,
 which is where "the archive grew since the walk" stops being an assumption.
 
-THE CONTROL RUNS FIRST. §3.2: *"The control runs first; not one matchday fit is
-run until it passes."* :data:`RUN_ORDER` says so and the CLI obeys it.
+TWO THINGS RUN BEFORE ANY MATCHDAY FIT, AND BOTH REFUSE. §5.3 makes
+``walkforward.point_in_time_canary`` a precondition of the run — it is the
+check that the leak risk above has not materialised — and §3.2 rules that *"the
+control runs first; not one matchday fit is run until it passes."*
+:data:`RUN_ORDER` is ``("canary", "control", "run", "merge")`` and
+:func:`require_run_preconditions` ENFORCES it from the two written records, so
+the order holds across four shard processes and across the merge that scores
+them. An order declared in a constant and checked by nobody is a comment.
 
 WHAT THIS FILE MAY NOT DO. It writes ``data/epl/fit/`` and the machine-readable
 result, and nothing else (§6). It authors no verdict prose — the write-up is a
@@ -823,7 +829,8 @@ def assert_blas_pinned(where: str) -> dict[str, Any]:
     if unpinned:
         raise FreshnessError(
             f"{where} runs real fits and this process is not pinned to one "
-            f"BLAS thread per worker: {unpinned} are {[threads.get(v) for v in unpinned]}. "
+            f"BLAS thread per worker: {unpinned} are "
+            f"{[threads.get(v) for v in unpinned]}. "
             "§3.2 pre-states the condition and §5.2 records it per row. Run "
             "the sweep as `python -m epl.freshsweep`, which pins before numpy "
             "loads, or export the three variables before starting the worker.")
