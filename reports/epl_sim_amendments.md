@@ -4132,3 +4132,56 @@ the moment of writing and matches the frozen digest; `epl/simretro.py` and
 files, **before this entry was committed and before any code was written**. The
 working tree at `fa9fe4d` carried no change but this entry. **The commit that
 records this entry precedes every commit that implements any of it.**
+
+---
+
+## Cross-reference — the fit-freshness experiment (2026-08-26)
+
+**Decision amended: none.** Nothing in the EPL table simulator's preregistered
+design changes here, and no entry above is edited, qualified or withdrawn by
+this note. It exists because a second preregistered experiment now runs against
+the same frozen configuration this ledger governs, and a reader auditing the
+simulator's record should not have to discover it from a directory listing.
+
+**What it is.** [`reports/epl_freshness_prereg.md`](epl_freshness_prereg.md)
+preregisters a **paired matchday-refit experiment** on the walk-forward corpus
+`data/epl/fit/walkforward_predictions.parquet` — the same corpus A8 pins by
+digest, at the same digest, with the same row count, seasons and outcome counts.
+For each of the **1,699 stale fixtures (74.5% of 2,280)** whose block fit
+predates its match date, it re-prices the fixture from a fit taken at **its own
+matchday** and compares the two RPS values on the same fixture. The estimand is
+the mean paired delta, matchday minus block, with a (season, ISO-week) block
+bootstrap CI at B = 10,000 and the project's standard resampling seed 20260814.
+The adoption rule it pre-states is **Δ ≤ −0.00030 AND the 95% CI excludes
+zero**; on a miss the weekly cadence stands, and the result publishes either way.
+
+**What it can decide, and what it cannot.** It decides **when a fit happens** for
+the live cadence, and nothing else. It does **not** touch the model, the decay
+half-life, the arms, the nulls, the metrics, the acceptance criteria, D11's
+thresholds, D2, D12, the published arm, `ISSUANCE_SCHEMA_VERSION`, the matchboard
+schema, or the shadow challenger `dc_1x2_recal` that A8 authorises. It scores
+**match-level 1X2 forecasts by RPS**; it says nothing about TRPS, about table
+positions, or about how often a table issuance is re-issued — and its own §4.5
+refuses to license that follow-through. `src/`, `scripts/`, `site/`, `tools/`
+and `.github/` are not touched by it.
+
+**Status when written.** No harness exists — no `epl/freshness.py`, no runner, no
+ledger, no row, no delta. Following 07b5871's pattern, adapted to a
+preregistration that precedes its code: the freshness harness's hashes are
+frozen by a **follow-up commit, after the harness is audited and before the
+first fit runs**, and any later change to a hashed file requires an amendment in
+this file first, in this file's format, with the hashes reissued alongside it.
+
+**One provenance fact recorded here rather than only there.** The design review
+that motivated the experiment reports a cross-sectional staleness penalty of
+**0.00153 RPS**. Recomputing the cross-section from the pinned corpus on
+2026-08-26 did not reproduce that figure under any of twenty recomputations; the
+closest quantity is a within-block per-day slope of **+0.00159/day**, and six
+natural adjustments of the same 2,280 rows disagree on both sign and size — as
+levels from −0.00487 to +0.00015, as rates from +0.00159 to +0.00193 per day. No
+cross-sectional
+number is the estimand, a secondary, or an input to the adoption rule, so nothing
+depends on the discrepancy — but a figure that motivated a design and cannot be
+reproduced is recorded before the run rather than after it. If the review's
+recipe is later supplied and reproduces 0.00153, that is a dated note and
+changes nothing.
