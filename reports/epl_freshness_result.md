@@ -68,3 +68,9 @@ and the machine-readable `reports/epl_freshness_result.json` is unchanged.
 
 Per-fixture evidence, committed: `reports/evidence/freshness_per_fixture.csv`
 (1,699 rows) reproduces the estimand and every stratum by arithmetic alone.
+
+
+*Correction, 2026-08-27: the dated note of 2026-08-26 repeated the original's
+label "season-block bootstrap CI" for [−0.000463, +0.000024]; per
+reports/epl_freshness_result.json those blocks are (season, ISO week) — 203
+blocks, not 6. The label, not the number, was wrong.*

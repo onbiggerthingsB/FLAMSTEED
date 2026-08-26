@@ -101,3 +101,12 @@ dated note appended below this line.
 Built by pure projection from the run artifacts on 2026-08-26. The two CSVs
 carry full float `repr` — no rounding — so a recomputation matches the
 published numbers to the last bit rather than to a printed precision.
+
+
+## Vault push — completed (2026-08-27)
+
+The obligation recorded above is closed: the 22-file / 71 MB originals are on
+github.com/onbiggerthingsB/flamsteed-vault at commit **482c1fa**
+(426eed7 → 482c1fa, ls-remote verified), under
+`data/epl/fit-evidence-2026-08-26/`, with MANIFEST.sha256 extended
+2,574 → 2,596 and re-verified 2,596/2,596 before the push.

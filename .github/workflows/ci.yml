@@ -137,10 +137,10 @@ jobs:
   epl:
     name: EPL suite
     runs-on: ubuntu-latest
-    timeout-minutes: 45   # ~9 min locally warm (912 passed / 23 skipped in 9m05s
-                          # with data/ absent). Budget ~10 min on a runner, plus
-                          # cold pip and a slower CPU. 45 leaves the same kind of
-                          # headroom the tests job learned to leave.
+    timeout-minutes: 45   # 26s locally for the dataless subset (579 passed /
+                          # 44 skipped); the budget is pip + a slower runner.
+                          # 45 leaves the same kind of headroom the tests job
+                          # learned to leave.
     steps:
       - uses: actions/checkout@v4
 
@@ -155,19 +155,22 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e '.[dev]'
 
-      # No --ignore list here, unlike the job above, and that is a claim rather
-      # than an oversight: this suite is CI-safe BY DESIGN. Every test that
-      # needs a corpus builds its own synthetic one and injects a deterministic
-      # stub fitter, so nothing here runs an ADVI fit; the handful that read
-      # real artifacts under data/ are each guarded by
-      # `@pytest.mark.skipif(not <PATH>.exists())` and skip.
+      # Like the tests job above, the data-dependent modules are NAMED and
+      # excluded rather than quietly dropped: CI has no data/ directory, and
+      # eight EPL test files read data/epl/matches.parquet (or the fit stores)
+      # at module scope, so here they would collect as errors, not skips. The
+      # first version of this job claimed the suite was dataless-safe wholesale
+      # — measured in a sandbox whose package root still saw the archive
+      # (epl/paths.py anchors data/ at the package, guards resolve from cwd),
+      # so the audit split the roots and counted a fantasy. Re-measured
+      # single-rooted, dataless, at this commit: 579 passed / 44 skipped / 0
+      # failures with these exclusions (578+1: one envelope test needs the git
+      # metadata a real checkout always has).
       #
-      # Verified rather than asserted: run in a checkout with no data/ directory
-      # at all, the suite is 912 passed / 23 skipped / 0 errors. That audit
-      # found exactly one unguarded test — test_simcli.py's committed-opener
-      # whole-bundle check, which read data/epl/sim/issuances/ and would have
-      # ERRORED here — and it is guarded now.
-      - name: Run the EPL suite
+      # This list is deliberately fail-closed, exactly as above: a NEW test
+      # that reaches for data/ is not in it, so CI goes red until someone
+      # decides on purpose whether it belongs here.
+      - name: Run the EPL suite (data-dependent modules named and excluded)
         env:
           PYTHONPATH: src:.
           OMP_NUM_THREADS: '1'
@@ -175,4 +178,15 @@ jobs:
           MKL_NUM_THREADS: '1'
         run: |
           set -euo pipefail
-          pytest epl/tests -q
+          echo "Excluded — read data/epl/ archives at module or fixture scope:"
+          echo "  test_baseline test_fit test_freeze test_improve"
+          echo "  test_select test_sensitivity test_simcanary test_simcli"
+          pytest epl/tests -q \
+            --ignore=epl/tests/test_baseline.py \
+            --ignore=epl/tests/test_fit.py \
+            --ignore=epl/tests/test_freeze.py \
+            --ignore=epl/tests/test_improve.py \
+            --ignore=epl/tests/test_select.py \
+            --ignore=epl/tests/test_sensitivity.py \
+            --ignore=epl/tests/test_simcanary.py \
+            --ignore=epl/tests/test_simcli.py
