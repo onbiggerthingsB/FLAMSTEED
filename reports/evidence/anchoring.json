@@ -1,0 +1,584 @@
+{
+  "schema": "epl-market-prior-1",
+  "estimand": "mean paired RPS delta, dc_market_prior minus dc_native, over all 2,280 fixtures of the pinned corpus at the LOSO-selected weights; negative means the market prior helps",
+  "n": 2280,
+  "mean": -0.00019266704597330363,
+  "sd": 0.014505475632991408,
+  "se_iid": 0.00030378375802542033,
+  "ci95": [
+    -0.0008311139839800668,
+    0.00043208487330221153
+  ],
+  "n_blocks": 212,
+  "season_block_ci95": [
+    -0.0008380647661150046,
+    0.0008355958482063622
+  ],
+  "season_blocks": {
+    "n": 2280,
+    "mean": -0.00019266704597330363,
+    "sd": 0.014505475632991408,
+    "se_iid": 0.00030378375802542033,
+    "ci95": [
+      -0.0008380647661150046,
+      0.0008355958482063622
+    ],
+    "n_blocks": 6
+  },
+  "bootstrap": {
+    "n_boot": 10000,
+    "seed": 20260814,
+    "alpha": 0.05,
+    "primary_blocks": "season|ISO week",
+    "secondary_blocks": "season",
+    "method": "percentile"
+  },
+  "selection": {
+    "schema": "epl-market-prior-1",
+    "method": "leave-one-season-out, in-fold",
+    "grid": [
+      0.0,
+      0.15,
+      0.3,
+      0.5,
+      0.75,
+      1.0
+    ],
+    "tie_order": "(mean RPS, w) ascending \u2014 src/wcmodel/eval/blend.py's frozen order; ties go to the smaller w",
+    "selected": {
+      "2019/20": 1.0,
+      "2020/21": 0.5,
+      "2021/22": 0.75,
+      "2022/23": 1.0,
+      "2023/24": 1.0,
+      "2024/25": 1.0
+    },
+    "n_folds_at_grid_max": 4,
+    "folds_at_grid_max": [
+      "2019/20",
+      "2022/23",
+      "2023/24",
+      "2024/25"
+    ],
+    "n_folds_at_zero": 0,
+    "folds_at_zero": [],
+    "saturated": true,
+    "all_zero": false
+  },
+  "selected_weights": {
+    "2019/20": 1.0,
+    "2020/21": 0.5,
+    "2021/22": 0.75,
+    "2022/23": 1.0,
+    "2023/24": 1.0,
+    "2024/25": 1.0
+  },
+  "folds": [
+    {
+      "season": "2019/20",
+      "selected_w": 1.0,
+      "fold_mean_rps": 0.2021940282343294,
+      "n_fold_fixtures": 1900,
+      "grid": [
+        {
+          "w": 0.0,
+          "fold_mean_rps": 0.20254840278391006
+        },
+        {
+          "w": 0.15,
+          "fold_mean_rps": 0.2024362067137014
+        },
+        {
+          "w": 0.3,
+          "fold_mean_rps": 0.2023534221138395
+        },
+        {
+          "w": 0.5,
+          "fold_mean_rps": 0.2022795335714209
+        },
+        {
+          "w": 0.75,
+          "fold_mean_rps": 0.2022260422161395
+        },
+        {
+          "w": 1.0,
+          "fold_mean_rps": 0.2021940282343294
+        }
+      ]
+    },
+    {
+      "season": "2020/21",
+      "selected_w": 0.5,
+      "fold_mean_rps": 0.1986549912818001,
+      "n_fold_fixtures": 1900,
+      "grid": [
+        {
+          "w": 0.0,
+          "fold_mean_rps": 0.19878509137750347
+        },
+        {
+          "w": 0.15,
+          "fold_mean_rps": 0.1987160240307247
+        },
+        {
+          "w": 0.3,
+          "fold_mean_rps": 0.19867532219391293
+        },
+        {
+          "w": 0.5,
+          "fold_mean_rps": 0.1986549912818001
+        },
+        {
+          "w": 0.75,
+          "fold_mean_rps": 0.198664546716268
+        },
+        {
+          "w": 1.0,
+          "fold_mean_rps": 0.19869200084332567
+        }
+      ]
+    },
+    {
+      "season": "2021/22",
+      "selected_w": 0.75,
+      "fold_mean_rps": 0.203387019301651,
+      "n_fold_fixtures": 1900,
+      "grid": [
+        {
+          "w": 0.0,
+          "fold_mean_rps": 0.20356894200835085
+        },
+        {
+          "w": 0.15,
+          "fold_mean_rps": 0.2034891990542817
+        },
+        {
+          "w": 0.3,
+          "fold_mean_rps": 0.20343593945845442
+        },
+        {
+          "w": 0.5,
+          "fold_mean_rps": 0.20339825173553264
+        },
+        {
+          "w": 0.75,
+          "fold_mean_rps": 0.203387019301651
+        },
+        {
+          "w": 1.0,
+          "fold_mean_rps": 0.203395011712345
+        }
+      ]
+    },
+    {
+      "season": "2022/23",
+      "selected_w": 1.0,
+      "fold_mean_rps": 0.19963815670186333,
+      "n_fold_fixtures": 1900,
+      "grid": [
+        {
+          "w": 0.0,
+          "fold_mean_rps": 0.20052677875220806
+        },
+        {
+          "w": 0.15,
+          "fold_mean_rps": 0.20032105394428992
+        },
+        {
+          "w": 0.3,
+          "fold_mean_rps": 0.2001457805132262
+        },
+        {
+          "w": 0.5,
+          "fold_mean_rps": 0.19995508053826772
+        },
+        {
+          "w": 0.75,
+          "fold_mean_rps": 0.19977327849694945
+        },
+        {
+          "w": 1.0,
+          "fold_mean_rps": 0.19963815670186333
+        }
+      ]
+    },
+    {
+      "season": "2023/24",
+      "selected_w": 1.0,
+      "fold_mean_rps": 0.20424271781607176,
+      "n_fold_fixtures": 1900,
+      "grid": [
+        {
+          "w": 0.0,
+          "fold_mean_rps": 0.20454775495056238
+        },
+        {
+          "w": 0.15,
+          "fold_mean_rps": 0.2044663201860796
+        },
+        {
+          "w": 0.3,
+          "fold_mean_rps": 0.20440105617806287
+        },
+        {
+          "w": 0.5,
+          "fold_mean_rps": 0.2043355000258361
+        },
+        {
+          "w": 0.75,
+          "fold_mean_rps": 0.20427958083761052
+        },
+        {
+          "w": 1.0,
+          "fold_mean_rps": 0.20424271781607176
+        }
+      ]
+    },
+    {
+      "season": "2024/25",
+      "selected_w": 1.0,
+      "fold_mean_rps": 0.20132880640825385,
+      "n_fold_fixtures": 1900,
+      "grid": [
+        {
+          "w": 0.0,
+          "fold_mean_rps": 0.20167749410277963
+        },
+        {
+          "w": 0.15,
+          "fold_mean_rps": 0.2015834791489098
+        },
+        {
+          "w": 0.3,
+          "fold_mean_rps": 0.2015097398629332
+        },
+        {
+          "w": 0.5,
+          "fold_mean_rps": 0.2014367558260052
+        },
+        {
+          "w": 0.75,
+          "fold_mean_rps": 0.2013735930070848
+        },
+        {
+          "w": 1.0,
+          "fold_mean_rps": 0.20132880640825385
+        }
+      ]
+    }
+  ],
+  "adoption_rule": {
+    "threshold": -0.001,
+    "conditions": "delta <= -0.0010 AND the 212-week-block 95% CI excludes zero AND the 6-season-block 95% CI excludes zero",
+    "not_scaled_to": "the +0.0050 output-blend prize; and freshness's -0.00030 is refused as precedent \u2014 that was operational, with zero new parameters and one candidate, where this is a model change with a six-point grid and in-fold selection, which is exactly the pair of things the house bar buys",
+    "verdict": "DC NATIVE STANDS",
+    "applied_by": "nobody \u2014 adoption is an owner ruling"
+  },
+  "strata": {
+    "season": [
+      {
+        "stratum": "2019/20",
+        "selected_w": 1.0,
+        "n": 380,
+        "mean": -0.00039186951122214007,
+        "sd": 0.013616485987994038,
+        "se_iid": 0.0006985109927576358,
+        "ci95": [
+          -0.0016617924333270965,
+          0.001004868334404673
+        ],
+        "n_blocks": 35
+      },
+      {
+        "stratum": "2020/21",
+        "selected_w": 0.5,
+        "n": 380,
+        "mean": -0.0009438505179350326,
+        "sd": 0.00809499226500881,
+        "se_iid": 0.00041526434120979044,
+        "ci95": [
+          -0.0016512580164473837,
+          -0.00022383337166755564
+        ],
+        "n_blocks": 34
+      },
+      {
+        "stratum": "2021/22",
+        "selected_w": 0.75,
+        "n": 380,
+        "mean": -0.001040789866111934,
+        "sd": 0.00957459887092884,
+        "se_iid": 0.0004911665585735974,
+        "ci95": [
+          -0.002274933865318722,
+          -3.897106371597464e-05
+        ],
+        "n_blocks": 36
+      },
+      {
+        "stratum": "2022/23",
+        "selected_w": 1.0,
+        "n": 380,
+        "mean": 0.002279367992598129,
+        "sd": 0.01987054228951277,
+        "se_iid": 0.001019337311661634,
+        "ci95": [
+          0.0003789155002621666,
+          0.004291245507012698
+        ],
+        "n_blocks": 34
+      },
+      {
+        "stratum": "2023/24",
+        "selected_w": 1.0,
+        "n": 380,
+        "mean": -0.0006385565866723245,
+        "sd": 0.019360269886616616,
+        "se_iid": 0.0009931608897097376,
+        "ci95": [
+          -0.0029059297995551485,
+          0.001563122142959971
+        ],
+        "n_blocks": 37
+      },
+      {
+        "stratum": "2024/25",
+        "selected_w": 1.0,
+        "n": 380,
+        "mean": -0.00042030378649652006,
+        "sd": 0.012052161908359234,
+        "se_iid": 0.0006182628606900937,
+        "ci95": [
+          -0.0016949667901019212,
+          0.0008370106140470047
+        ],
+        "n_blocks": 36
+      }
+    ]
+  },
+  "saturation": {
+    "ran": true,
+    "label": "MODEL-CONTRIBUTION DIAGNOSTIC (\u00a73.4). Not a market comparison of the anchored arm's skill, not a claim about beating any market, and not comparable with the published dc_native-versus-closing-market benchmark.",
+    "w": 1.0,
+    "n": 1520,
+    "arm_mean_rps": 0.20023608526554107,
+    "native_mean_rps": 0.20002892573848924,
+    "w1_is_not_the_markets_forecast": "At w = 1 the PRIOR's direction is the market's. The likelihood, the decay, the widening, the correlation term and the scoreline structure remain the model's, so this arm is a fitted DC model and not a de-vigged price vector (\u00a72.5).",
+    "same_timing_market": {
+      "available": true,
+      "n": 1507,
+      "source": "Avg opening, de-vigged multiplicatively \u2014 the anchor's own panel, so the timing is the arm's own",
+      "market_mean_rps": 0.1945706618236144,
+      "arm_mean_rps": 0.2001137152123985,
+      "correlation": 0.9563593814860805,
+      "mean_abs_prob_gap": 0.040580025356423036,
+      "collapsed_onto_market": false,
+      "reading": "If the arm has collapsed onto the market the finding is that the prior has stopped being a prior \u2014 a reason to report, not a reason to hide (\u00a72.5)."
+    }
+  },
+  "movement": {
+    "mean_abs_prob_shift": 0.008825798317251462,
+    "max_abs_prob_shift": 0.16197646,
+    "seed_replica_scale": {
+      "mean": 0.0032,
+      "max": 0.0229,
+      "source": "reports/epl_walkforward.md"
+    }
+  },
+  "power": {
+    "realised_paired_sd": 0.014505475632991408,
+    "se_iid": 0.00030378375802542033,
+    "mde_80pct_two_sided": 0.0008512020899872278,
+    "note": "reported WITH the result; \u00a72.6 makes no power claim in advance and no threshold moves in response"
+  },
+  "comparison_policy": {
+    "estimand": "dc_market_prior vs dc_native",
+    "context": "dc_market_prior vs elo",
+    "public_benchmark": "dc_native vs closing market \u2014 UNCHANGED; epl/parse.py is not modified",
+    "diagnostic_only": "dc_market_prior vs same-timing OPENING market",
+    "banned_by_construction": [
+      "dc_market_prior vs closing market",
+      "any claim that any arm beats any market"
+    ]
+  },
+  "decides": "nothing",
+  "n_fits": 1060,
+  "n_ledger_rows": 11400,
+  "shards": [
+    "shard_00_of_04.jsonl",
+    "shard_01_of_04.jsonl",
+    "shard_02_of_04.jsonl",
+    "shard_03_of_04.jsonl"
+  ],
+  "run_digest": "f53ca4e3175760c860bbd2f7509b1fa3ef401961a90e89fee2268d0ab4c1123e",
+  "fit_point_digest": "0f28ab2d64db241b8f16f79e9149ea2b79882e3984a2052ac02cc4d8b788e5e2",
+  "corpus": {
+    "path": "data/epl/fit/walkforward_predictions.parquet",
+    "sha256": "f31580073eb3a7f0deca59b45d1576fb262272efc6d1893ce8c9931b9eff451a",
+    "rows": 2280
+  },
+  "odds_panel": {
+    "sha256": "84ea5621e1aaa45bd43c3063897d79525103ae74dd51eb071b777bae9618235c",
+    "rows": 4167,
+    "avg_rows": 2267,
+    "ps_rows": 1900
+  },
+  "config": {
+    "path": "epl/config_frozen.json",
+    "sha256": "9f2e086d39ae4b855ba21604367109e8e9ce00f96010c5ec65c380d317986abc",
+    "seed": 20260611
+  },
+  "harness_freeze": {
+    "frozen": true,
+    "where": "reports/epl_anchoring_prereg.md",
+    "files": {
+      "epl/mktprior.py": {
+        "recorded": "8f214d16bd41c7b6e38a62fa3ddb3941ee219dd67f6357e2b8474d3053b1aba3",
+        "source": "reports/epl_anchoring_prereg.md",
+        "actual": "8f214d16bd41c7b6e38a62fa3ddb3941ee219dd67f6357e2b8474d3053b1aba3",
+        "lines": 3230,
+        "match": true
+      },
+      "epl/tests/test_mktprior.py": {
+        "recorded": "923d5fb390b8eecd59233052143e98de4c93fa52c11570a5e22183fd13c18746",
+        "source": "reports/epl_anchoring_prereg.md",
+        "actual": "923d5fb390b8eecd59233052143e98de4c93fa52c11570a5e22183fd13c18746",
+        "lines": 1313,
+        "match": true
+      }
+    },
+    "missing": [],
+    "why": "",
+    "schema": "epl-market-prior-1"
+  },
+  "control": {
+    "schema": "epl-market-prior-1",
+    "w": 0.0,
+    "n_dates": 20,
+    "dates": [
+      "2019-10-21",
+      "2019-12-03",
+      "2020-02-14",
+      "2020-03-07",
+      "2020-06-22",
+      "2020-07-20",
+      "2020-09-14",
+      "2021-10-16",
+      "2021-12-06",
+      "2022-01-11",
+      "2022-08-05",
+      "2022-10-01",
+      "2022-10-18",
+      "2023-04-01",
+      "2023-04-03",
+      "2023-09-01",
+      "2024-02-12",
+      "2024-02-26",
+      "2024-09-21",
+      "2024-10-21"
+    ],
+    "n_fixtures": 227,
+    "n_probabilities": 681,
+    "max_abs_prob_diff": 0.0,
+    "mean_abs_prob_diff": 0.0,
+    "max_abs_rps_diff": 0.0,
+    "tolerance": "exact equality at the corpus's 8 decimals",
+    "rps_tolerance": 1e-12,
+    "dates_source": "epl.freshsweep.control_dates, reused verbatim (\u00a73.2)",
+    "blas_threads": {
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "pinned_before_numpy": true,
+      "entry_point": true
+    },
+    "seconds": 109.3,
+    "PASS": true
+  },
+  "canary": {
+    "cutoff": "2022-01-01",
+    "later": "2023-01-01",
+    "n_rewritten": 1717,
+    "n_fixtures_compared": 10,
+    "forecasts_bit_identical_before_cutoff": true,
+    "positive_control_forecasts_moved_after_cutoff": true,
+    "max_abs_diff_before_cutoff": 0.0,
+    "max_abs_diff_positive_control": 0.811805376021185,
+    "PASS": true,
+    "schema": "epl-market-prior-1",
+    "blas_threads": {
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "pinned_before_numpy": true,
+      "entry_point": true
+    },
+    "seconds": 24.0
+  },
+  "odds_canary": {
+    "schema": "epl-market-prior-1",
+    "cutoff": "2022-08-13",
+    "n_teams": 27,
+    "n_corrupted_after": 1117,
+    "n_corrupted_before": 3050,
+    "perturbation": "home and away prices exchanged",
+    "identical_after_cutoff": true,
+    "max_abs_diff_after_cutoff": 0.0,
+    "max_abs_diff_positive_control": 4.977265139589288,
+    "z_blend_legs": [
+      {
+        "w": 0.15,
+        "identical_after_cutoff": true,
+        "max_abs_diff_after_cutoff": 0.0,
+        "max_abs_diff_positive_control": 5.392730788771649
+      },
+      {
+        "w": 0.3,
+        "identical_after_cutoff": true,
+        "max_abs_diff_after_cutoff": 0.0,
+        "max_abs_diff_positive_control": 5.392730788771649
+      },
+      {
+        "w": 0.5,
+        "identical_after_cutoff": true,
+        "max_abs_diff_after_cutoff": 0.0,
+        "max_abs_diff_positive_control": 5.392730788771649
+      },
+      {
+        "w": 0.75,
+        "identical_after_cutoff": true,
+        "max_abs_diff_after_cutoff": 0.0,
+        "max_abs_diff_positive_control": 5.392730788771649
+      },
+      {
+        "w": 1.0,
+        "identical_after_cutoff": true,
+        "max_abs_diff_after_cutoff": 0.0,
+        "max_abs_diff_positive_control": 5.392730788771649
+      }
+    ],
+    "panel_sha256": "84ea5621e1aaa45bd43c3063897d79525103ae74dd51eb071b777bae9618235c",
+    "blas_threads": {
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "pinned_before_numpy": true,
+      "entry_point": true
+    },
+    "seconds": 0.05,
+    "vacuous_legs": [],
+    "PASS": true
+  },
+  "written_at": "2026-08-26T13:41:11.794219+00:00",
+  "predictions": {
+    "path": "data/epl/fit/dc_market_prior_predictions.parquet",
+    "rows": 2280,
+    "sha256": "da685cf4c8ae8a87da087ba8e5ef649e42181d1e3576c56ae5dc641a5ac0630e"
+  }
+}

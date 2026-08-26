@@ -1,0 +1,269 @@
+{
+  "schema": "epl-freshness-1",
+  "estimand": "mean paired RPS delta, matchday-fit minus block-fit, over the stale fixtures of the pinned corpus; negative means freshness helps",
+  "n": 1699,
+  "mean": -0.00021641381098099887,
+  "sd": 0.00526187213078852,
+  "se_iid": 0.0001276566962204371,
+  "ci95": [
+    -0.000463087562670131,
+    2.423462495518894e-05
+  ],
+  "n_blocks": 203,
+  "bootstrap": {
+    "n_boot": 10000,
+    "seed": 20260814,
+    "alpha": 0.05,
+    "blocks": "season|ISO week",
+    "method": "percentile"
+  },
+  "adoption_rule": {
+    "threshold": -0.0003,
+    "conditions": "delta <= -0.00030 AND ci95 upper bound < 0",
+    "verdict": "WEEKLY STANDS",
+    "applied_by": "nobody \u2014 \u00a74.5 makes adoption an owner ruling"
+  },
+  "strata": {
+    "staleness": [
+      {
+        "stratum": "1",
+        "n": 340,
+        "mean": 1.502008765185008e-05,
+        "sd": 0.0011141208438805509,
+        "se_iid": 6.0421686182078866e-05,
+        "ci95": [
+          -0.00012108103346426725,
+          0.00015806362154611124
+        ],
+        "n_blocks": 118
+      },
+      {
+        "stratum": "2",
+        "n": 164,
+        "mean": -0.00016558591531345873,
+        "sd": 0.0021115838137627714,
+        "se_iid": 0.00016488699386921088,
+        "ci95": [
+          -0.00038857043183485827,
+          4.250451009205227e-05
+        ],
+        "n_blocks": 76
+      },
+      {
+        "stratum": "3+",
+        "n": 1195,
+        "mean": -0.00028923665652463506,
+        "sd": 0.00619615766423124,
+        "se_iid": 0.000179241474298769,
+        "ci95": [
+          -0.0006409796879599125,
+          4.676633699423723e-05
+        ],
+        "n_blocks": 138
+      }
+    ],
+    "season": [
+      {
+        "stratum": "2019/20",
+        "n": 259,
+        "mean": 0.0001444871409789548,
+        "sd": 0.004064294404107048,
+        "se_iid": 0.0002525429662839983,
+        "ci95": [
+          -0.00019329967300889264,
+          0.0004802946578621267
+        ],
+        "n_blocks": 34
+      },
+      {
+        "stratum": "2020/21",
+        "n": 307,
+        "mean": -1.6475627440372466e-05,
+        "sd": 0.007241085035950196,
+        "se_iid": 0.0004132705516401698,
+        "ci95": [
+          -0.0007647630511674186,
+          0.0006792243866951919
+        ],
+        "n_blocks": 33
+      },
+      {
+        "stratum": "2021/22",
+        "n": 283,
+        "mean": -6.274665975017069e-05,
+        "sd": 0.004624203516342193,
+        "se_iid": 0.0002748803669144506,
+        "ci95": [
+          -0.0006197347138209802,
+          0.0004527497195494856
+        ],
+        "n_blocks": 33
+      },
+      {
+        "stratum": "2022/23",
+        "n": 294,
+        "mean": -0.00027155726620764557,
+        "sd": 0.006058240544201375,
+        "se_iid": 0.00035332376362701064,
+        "ci95": [
+          -0.0008855983888216225,
+          0.0003087297288211137
+        ],
+        "n_blocks": 33
+      },
+      {
+        "stratum": "2023/24",
+        "n": 285,
+        "mean": -0.0007875670299476526,
+        "sd": 0.00481096929426783,
+        "se_iid": 0.00028497722623930014,
+        "ci95": [
+          -0.0014646057396445747,
+          -0.00016393588848386944
+        ],
+        "n_blocks": 36
+      },
+      {
+        "stratum": "2024/25",
+        "n": 271,
+        "mean": -0.0002878209307625277,
+        "sd": 0.0034435040568417574,
+        "se_iid": 0.00020917797458970804,
+        "ci95": [
+          -0.0007683669257747977,
+          0.0001126430368243467
+        ],
+        "n_blocks": 34
+      }
+    ]
+  },
+  "staleness_interior": {
+    "1": 340,
+    "2": 164,
+    "3": 112,
+    "4": 181,
+    "5": 550,
+    "6": 352
+  },
+  "movement": {
+    "mean_abs_prob_shift": 0.002675810865214832,
+    "max_abs_prob_shift": 0.06709259999999995,
+    "seed_replica_scale": {
+      "mean": 0.0032,
+      "p99": 0.0139,
+      "max": 0.0229,
+      "source": "reports/epl_walkforward.md"
+    }
+  },
+  "decides": "nothing",
+  "secondaries_decide": "nothing",
+  "n_fits": 507,
+  "n_fixtures": 1699,
+  "shards": [
+    "shard_00_of_04.jsonl",
+    "shard_01_of_04.jsonl",
+    "shard_02_of_04.jsonl",
+    "shard_03_of_04.jsonl"
+  ],
+  "run_digest": "1cc7e87385c266166f028dc8eb4c332211e8cb8d6b833f652caf744b2686ddb9",
+  "corpus": {
+    "path": "data/epl/fit/walkforward_predictions.parquet",
+    "sha256": "f31580073eb3a7f0deca59b45d1576fb262272efc6d1893ce8c9931b9eff451a",
+    "rows": 2280
+  },
+  "config": {
+    "path": "epl/config_frozen.json",
+    "sha256": "9f2e086d39ae4b855ba21604367109e8e9ce00f96010c5ec65c380d317986abc",
+    "seed": 20260611
+  },
+  "harness_freeze": {
+    "frozen": true,
+    "where": "reports/epl_freshness_prereg.md",
+    "files": {
+      "epl/freshsweep.py": {
+        "recorded": "441e917b9821d919d08bb5c48377242f5028ed01d0ca1f7a77cf3d51d857745c",
+        "source": "reports/epl_freshness_prereg.md",
+        "actual": "441e917b9821d919d08bb5c48377242f5028ed01d0ca1f7a77cf3d51d857745c",
+        "lines": 1906,
+        "match": true
+      },
+      "epl/tests/test_freshsweep.py": {
+        "recorded": "cabdf81c2d8d2e09c85937f4d780a9ab4575569774a48230f461c3414efc8da0",
+        "source": "reports/epl_freshness_prereg.md",
+        "actual": "cabdf81c2d8d2e09c85937f4d780a9ab4575569774a48230f461c3414efc8da0",
+        "lines": 1351,
+        "match": true
+      }
+    },
+    "missing": [],
+    "why": "",
+    "schema": "epl-freshness-1"
+  },
+  "control": {
+    "schema": "epl-freshness-1",
+    "n_dates": 20,
+    "dates": [
+      "2019-10-21",
+      "2019-12-03",
+      "2020-02-14",
+      "2020-03-07",
+      "2020-06-22",
+      "2020-07-20",
+      "2020-09-14",
+      "2021-10-16",
+      "2021-12-06",
+      "2022-01-11",
+      "2022-08-05",
+      "2022-10-01",
+      "2022-10-18",
+      "2023-04-01",
+      "2023-04-03",
+      "2023-09-01",
+      "2024-02-12",
+      "2024-02-26",
+      "2024-09-21",
+      "2024-10-21"
+    ],
+    "n_fixtures": 56,
+    "n_probabilities": 168,
+    "max_abs_prob_diff": 0.0,
+    "mean_abs_prob_diff": 0.0,
+    "max_abs_rps_diff": 0.0,
+    "tolerance": "exact equality at the corpus's 8 decimals",
+    "rps_tolerance": 1e-12,
+    "blas_threads": {
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "pinned_before_numpy": true,
+      "entry_point": true
+    },
+    "seconds": 102.1,
+    "PASS": true
+  },
+  "canary": {
+    "cutoff": "2022-01-01",
+    "later": "2023-01-01",
+    "n_rewritten": 1717,
+    "n_fixtures_compared": 10,
+    "forecasts_bit_identical_before_cutoff": true,
+    "positive_control_forecasts_moved_after_cutoff": true,
+    "max_abs_diff_before_cutoff": 0.0,
+    "max_abs_diff_positive_control": 0.811805376021185,
+    "PASS": true,
+    "schema": "epl-freshness-1",
+    "blas_threads": {
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "pinned_before_numpy": true,
+      "entry_point": true
+    },
+    "seconds": 23.9
+  },
+  "written_at": "2026-08-26T07:17:34.826356+00:00"
+}
