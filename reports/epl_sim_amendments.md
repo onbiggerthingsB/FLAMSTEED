@@ -4245,3 +4245,85 @@ rules", 2026-08-26, after the cost and the trade-off were stated to him).**
 **Recording note.** Recorded before any market-using code. The plan document's
 rule line is superseded by this entry; the plan file is local and unversioned,
 and this ledger is the record.
+
+## Cross-reference — the market-anchoring experiment (2026-08-26)
+
+**Decision amended: none.** Nothing in the EPL table simulator's preregistered
+design changes here, and no entry above is edited, qualified or withdrawn by
+this note — A9 included. It exists because A9 (a)'s second pre-stated first use
+now has its document, and a reader auditing this record should not have to
+discover it from a directory listing.
+
+**What it is.**
+[`reports/epl_anchoring_prereg.md`](epl_anchoring_prereg.md) preregisters an
+**input-level market-prior experiment** on the walk-forward corpus
+`data/epl/fit/walkforward_predictions.parquet` — the same corpus A8 pins by
+digest, at the same digest, with the same row count, seasons, outcome counts and
+212 `(season, ISO week)` blocks. A market-implied per-club strength `z_mkt` is
+recovered from **opening** odds of matches **already played** before each cutoff
+(`Avg` opening, proportional de-vig, weighted ridge log-odds least squares,
+z-scored over the fitted teams) and **rotated into the anchor that already
+exists**: the att/def prior means become `k · z_blend(w)` with
+`z_blend(w) = zscore((1−w)·elo_z + w·z_mkt)` and `k_att = k_def = 0.6`
+**unchanged**, so the anchor's strength — and the 1.2× att/def doubling it
+carries — is neither altered nor widened by any `w`. The estimand is the mean
+paired ΔRPS over all **2,280** fixtures, `dc_market_prior` minus `dc_native`,
+with `w` selected **leave-one-season-out, in-fold** on the frozen grid
+`{0.00, 0.15, 0.30, 0.50, 0.75, 1.00}`. The adoption rule it pre-states is the
+**house model-change bar** — `Δ ≤ −0.0010` **and** the 95% `(season, ISO week)`
+block bootstrap CI (212 blocks) excludes zero **and** the 95% season block CI
+(6 blocks) excludes zero, B = 10,000 at the standard seed 20260814. On a miss
+`dc_native` stands, and the result publishes either way.
+
+**What it can decide, and what it cannot.** It decides whether a **new shadow
+arm**, `dc_market_prior`, clears the house bar. It does **not** switch the
+published arm — the arm is shadow-first and **there is no arm switch this
+season** — and it does not touch `k_att`/`k_def`, the decay half-life, the
+de-vig choice, the nulls, the metrics, the acceptance criteria, D11's
+thresholds, D2, D12, `ISSUANCE_SCHEMA_VERSION` (`epl-issuance-5`), the
+matchboard schema, or the shadow challenger `dc_1x2_recal` that A8 authorises.
+It scores **match-level 1X2 forecasts by RPS**; it says nothing about TRPS,
+about table positions, or about the table simulator's record. Under A9 (d) it
+creates no betting product. Its comparison policy is pre-ruled and recorded in
+its §3.4: `dc_native` versus the de-vigged **closing** market stays the
+unchanged public benchmark; `dc_market_prior` versus a same-timing opening
+market may appear **only** as a labelled model-contribution diagnostic;
+`dc_market_prior` versus a closing market, and any "beats the market" claim for
+any arm, are banned by construction. `src/`, `scripts/`, `site/`, `tools/`,
+`.github/` and `config/` are not touched by it — the harness reaches the prior
+through `epl/dcfit.py`'s existing `elo_z` argument to `build_design`, so the
+lock chain is untouched by the run itself.
+
+**One verification recorded here rather than only there.** The design brief
+reported that `config/config.yaml` reserves a market-anchor `strength_prior`
+source. The key exists (`config/config.yaml:60`, `source: elo`) and **nothing
+reads it**: `src/wcmodel/model/scoreline.py:191-218` reads only `enabled`,
+`k_att`, `k_def` and `d.elo_z`, and a repository grep finds no read of
+`strength_prior["source"]` anywhere. Setting `source: market` would change no
+computed value. The prereg records the key as inert so a later reader does not
+mistake documentation for a switch, and `config/config.yaml` is **not edited**.
+
+**One provenance fact, recorded before the run.** The design work motivated this
+experiment on the model's roster blindness — a market anchor helping most early
+in a season and most on promoted clubs. Measurement found that
+early × promoted interaction to be **~0.000**, and the preregistration states
+the honest motivation (broad information) and records the failed story as
+failed. Recomputation on 2026-08-26 reproduced the design's room figures at the
+fixture level (**8.2%** of the market-minus-DC log-odds disagreement explained
+by Elo against a reported 6%; residual sd **0.393** against 0.44; correlation
+with DC's signed error **+0.1712** against +0.17) and also produced a less
+flattering figure the design work does not report: at the **per-club** level the
+market strength vector is **91% collinear with the Elo anchor already in the
+prior** (`corr(z_mkt, elo_z)` mean **+0.955** across the 212 cutoffs). Both are
+printed in the prereg's §1.4. Neither is the estimand, a secondary, or an input
+to the adoption rule.
+
+**Status when written.** No harness exists — no `epl/mktprior.py`, no runner, no
+ledger, no row, no delta. Following 07b5871's pattern as the freshness
+preregistration adapts it: the harness's hashes, the enumerated 1,060
+`(cutoff, w)` fit points and the odds panel digest are frozen by a **follow-up
+commit, after the harness is audited and before the first fit runs**, and any
+later change to a hashed file requires an amendment in this file first, in this
+file's format, with the hashes reissued alongside it. Production wiring, if the
+experiment ever adopts, touches `src/` and therefore lands **batched into the
+next lock version** under the house merge-batching rule.
