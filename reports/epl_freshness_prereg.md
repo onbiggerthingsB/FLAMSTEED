@@ -742,3 +742,50 @@ corpus digest, the schedule counts, the twenty control dates and every figure in
 reproducible from the recipes given beside them. The harness hashes that make
 "the design was fixed first" checkable for the run itself arrive in the follow-up
 commit named in §6, and no fit runs before it.*
+
+---
+
+## §6 step 2 — the harness-hash freeze (2026-08-26)
+
+The harness named in §6 now exists and has passed the adversarial audit that §6
+step 1 requires before this note may be written: seven seeded defects each went
+red under the file's own tests (poison ignored by the merge; a torn tail
+believed on resume; a shard predicate off by one; openings leaking into the
+matchday schedule; the bootstrap seed drifting; a merge without this note; the
+control tolerance widened), the pairing and leakage probes were caught by their
+named refusals (`ScoreMismatch`, `CorpusDigestMismatch`, `MergeIncomplete`,
+`RowConflict`, `CutoffLeak` — with the typed poison row on the ledger), the
+§5.3 canary and a three-date §3.2 control were re-run and reproduced the
+published values exactly (max |Δp| before the cutoff **0.0** against a positive
+control of **0.811805376021185**; control max |Δp| **0.0** at the corpus's 8
+decimals), and §0.1's claim was re-verified against
+`data/epl/fit/walkforward_ledger.jsonl`: the corpus-derived block openings
+equal the walk's own cutoffs for all 212 blocks. These are the bytes:
+
+| File | Lines | SHA-256 |
+|---|---:|---|
+| `epl/freshsweep.py` | 1906 | `441e917b9821d919d08bb5c48377242f5028ed01d0ca1f7a77cf3d51d857745c` |
+| `epl/tests/test_freshsweep.py` | 1351 | `cabdf81c2d8d2e09c85937f4d780a9ab4575569774a48230f461c3414efc8da0` |
+
+Schema identifier: `epl-freshness-1`.
+
+**The enumerated fit-point list is frozen with the harness.** The 507 matchday
+fit points and their 1,699 fixtures, recomputed from the pinned corpus by
+`fit_points` under the binding schedule counts of §0.1, serialised in cutoff
+order as `json.dumps([{block, block_cutoff, cutoff, match_ids, season,
+staleness_days}, …], sort_keys=True, separators=(",", ":"))`, hash to:
+
+    fe6493bce3188c03c5eb3b9bfa0b0ad200ac3e3537202809b04901d69a018842
+
+A run that fits any other set of points is not this experiment, and the digest
+is reproducible from the pinned corpus alone.
+
+Verify with:
+
+    shasum -a 256 epl/freshsweep.py epl/tests/test_freshsweep.py
+
+**If any hash differs at the time the run is executed, it is not the run this
+document preregisters.** Any change to a hashed file after this commit requires
+an amendment in `reports/epl_sim_amendments.md` **before** the change, with the
+hashes reissued alongside it (§6 step 4). §6 step 3 now applies: only after
+this commit does the first fit run.
