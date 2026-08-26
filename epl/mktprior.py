@@ -185,6 +185,49 @@ DECAY_HALF_LIFE_DAYS = 365.0
 ETA_BAND = (0.10, 0.70)
 MAX_CONDITION = 1e10
 
+#: §2.1'S PUBLISHED SANITY STATISTICS DO NOT REPRODUCE UNDER §2.1'S OWN RULE,
+#: and this is the harness recording the fact rather than quietly picking a
+#: side. The document states the window twice and the two statements disagree:
+#:
+#: * THE DEFINITION — "keep a row if it is among the 10 most recent such
+#:   matches of *either* club", "`M = 10` matches per club", "one club-quarter
+#:   of a 38-match season" — is venue-blind, and so is the thing it cites for
+#:   the constant: `config/config.yaml:11`'s `volatility_window` counts "most
+#:   recent PRIOR rating deltas", which a club accrues home and away alike.
+#: * THE MEASUREMENTS — "min 201, median 233, max 262 matches", `eta` "0.2519
+#:   to 0.4429, median 0.3740", cross-club sd "0.6693 to 0.8181, median
+#:   0.7514" — were produced by a PER-VENUE window (each club's 10 most recent
+#:   HOME matches *and* 10 most recent AWAY matches, so 20 per club) whose sd
+#:   was then taken over the season's twenty rather than over every club the
+#:   window holds. Reproduced under exactly that variant, all three trios come
+#:   back to the last digit; under the ruled definition none of them does.
+#:
+#: THE DEFINITION BINDS AND THE ANNOTATIONS ARE STALE. A prose rule with a
+#: cited constant behind it is the mechanism; a sanity statistic is a check ON
+#: the mechanism, and a check that was run against a different window is
+#: evidence about that window and not about this one. Choosing the other way —
+#: fitting the mechanism to the numbers already printed — would silently double
+#: `M` to 20, which §7 makes an invalidation.
+#:
+#: :data:`MEASURED_WINDOW` / :data:`MEASURED_ETA` / :data:`MEASURED_SD` are
+#: what the RULED definition actually gives over the 212 cutoffs, recomputed
+#: here so that §2.1's numbers can be corrected by amendment against a recorded
+#: quantity rather than against a fresh script. The one claim of §2.1 that is
+#: rule-INVARIANT — 7 cutoffs and 19 fixtures where a fitted club has no window
+#: match at all — reproduces exactly, because being absent from the window
+#: does not depend on how many of a club's matches are kept.
+MEASURED_WINDOW = (101, 129, 138)
+MEASURED_ETA = (0.2350, 0.3764, 0.4445)
+MEASURED_SD = (0.6308, 0.7349, 0.8402)
+MEASURED_ZERO_WINDOW_CUTOFFS = 7
+MEASURED_ZERO_WINDOW_FIXTURES = 19
+
+#: The per-venue variant, kept ONLY so the test that diagnoses the stale
+#: annotations can name what produced them. Nothing on the fit path calls it.
+DOCUMENTED_WINDOW = (201, 233, 262)
+DOCUMENTED_ETA = (0.2519, 0.3740, 0.4429)
+DOCUMENTED_SD = (0.6693, 0.7514, 0.8181)
+
 #: §2.2's frozen anchor scale. Recorded here so a reader can see that this
 #: experiment does not move it; the value the fit uses is read from the frozen
 #: config, never from this constant.
@@ -439,6 +482,44 @@ def sha256_file(path: Path | str) -> str:
 
 def config_sha256(path: Path | str | None = None) -> str:
     return sha256_file(Path(path) if path is not None else CONFIG_PATH)
+
+
+def blas_threads() -> dict[str, Any]:
+    """What this process ACTUALLY has, recorded on every row (§5.2).
+
+    Not what it asked for: the environment is read back, and
+    ``pinned_before_numpy`` says whether the pin could have reached the BLAS
+    pool at all. A row produced in a different threading environment is
+    therefore visible ON THE ROW rather than inferred from the source — and
+    §5.2 excludes it from no digest, because the environment a row was produced
+    in belongs on the record.
+    """
+    out: dict[str, Any] = {v: _os.environ.get(v) for v in BLAS_VARS}
+    out["pinned_before_numpy"] = bool(_IS_ENTRY_POINT
+                                      and not _NUMPY_ALREADY_IMPORTED)
+    out["entry_point"] = bool(_IS_ENTRY_POINT)
+    return out
+
+
+def assert_blas_pinned(where: str) -> dict[str, Any]:
+    """§3.2's pre-stated condition: one BLAS thread per worker, for real fits.
+
+    Checked where fits actually happen rather than at import, because the pin is
+    a property of the process that runs them. A stubbed control runs no fit and
+    pins nothing; a control about to spend twenty ADVI fits does.
+    """
+    threads = blas_threads()
+    unpinned = [v for v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+                            "MKL_NUM_THREADS") if threads.get(v) != "1"]
+    if unpinned:
+        raise MarketPriorError(
+            f"{where} runs real fits and this process is not pinned to one "
+            f"BLAS thread per worker: {unpinned} are "
+            f"{[threads.get(v) for v in unpinned]}. §3.2 pre-states the "
+            "condition and §5.2 records it per row. Run the sweep as "
+            "`python -m epl.mktprior`, which pins before numpy loads, or "
+            "export the three variables before starting the worker.")
+    return threads
 
 
 # ==========================================================================
@@ -697,3 +778,464 @@ def assert_source_digests(files: Mapping[str, Path | str] | None = None,
             "precisely so that a re-download cannot move a price without "
             "anybody noticing.")
     return got
+
+
+# ==========================================================================
+# 5. z_mkt — §2.1, the four steps, and the leakage clause of §2.3
+# ==========================================================================
+def market_window(panel: OddsPanel, cutoff: str | pd.Timestamp) -> pd.DataFrame:
+    """§2.1 Step 1: which panel rows a fit at ``cutoff`` may read.
+
+    Strictly before ``C``, within ``L = 365`` days of it, then the ``M = 10``
+    most recent of EITHER club. Both constants are fixed by §2.1 and neither is
+    tuned: ``M`` is ``config/config.yaml:11``'s ``elo.volatility_window``, read
+    on this very path by ``count_volatility_arm``, and ``L`` is the model's own
+    ``decay_half_life_days``, so the anchor's memory is the likelihood's memory
+    and not a second free knob. §7 makes tuning either an invalidation.
+
+    THE STRICT BOUND IS §2.3'S WHOLE RULING, and it is conservative on purpose.
+    A live system at ``C`` really does hold opening prices for the coming
+    weekend, and reading them would roughly double the correlation with the
+    model's own errors (§1.5: +0.0982 against +0.1712). It is refused because
+    the archive carries no publication timestamp, because it would put a
+    fixture's own price into the prior that prices it, and because the
+    conservative rule inherits a bound that is already proven: a match's odds
+    are published before the match, so odds legality follows from match
+    legality, which is ``features.build``'s ``date < cutoff.normalize()``.
+    """
+    ts = pd.Timestamp(cutoff).normalize()
+    frame = panel.frame if isinstance(panel, OddsPanel) else panel
+    dates = frame["date"].to_numpy()
+    lo = (ts - pd.Timedelta(days=MARKET_WINDOW_DAYS)).to_datetime64()
+    sel = np.flatnonzero((dates < ts.to_datetime64()) & (dates >= lo))
+    if sel.size == 0:
+        return frame.iloc[sel].copy()
+
+    home = frame["home"].to_numpy()[sel]
+    away = frame["away"].to_numpy()[sel]
+    when = dates[sel]
+    keep = np.zeros(sel.size, dtype=bool)
+    for club in sorted(set(home) | set(away)):
+        idx = np.flatnonzero((home == club) | (away == club))
+        # `mergesort` is stable, so the ranking of a club's own matches is a
+        # function of the panel's canonical order and of nothing else. A club
+        # plays at most once a day, so there is no tie to break.
+        recent = idx[np.argsort(when[idx], kind="mergesort")][::-1]
+        keep[recent[:MARKET_WINDOW_MATCHES]] = True
+    return frame.iloc[sel[keep]].copy()
+
+
+def assert_no_odds_leak(window: pd.DataFrame,
+                        cutoff: str | pd.Timestamp) -> int:
+    """§5.1's `OddsLeak`: no window row may be dated on or after its cutoff."""
+    ts = pd.Timestamp(cutoff).normalize()
+    if len(window) == 0:
+        return 0
+    late = window.loc[window["date"] >= ts]
+    if len(late):
+        first = late.iloc[0]
+        raise OddsLeak(
+            f"{len(late)} window row(s) are dated on or after the cutoff "
+            f"{ts.date()} — the first is {first['home']} v {first['away']} on "
+            f"{pd.Timestamp(first['date']).date()}. §2.3: a fixture kicking "
+            "off at or after C contributes nothing to the prior of the fit "
+            "that prices it, and this is the leak that would bias the result "
+            "toward adoption.")
+    return int(len(window))
+
+
+@dataclass(frozen=True)
+class StrengthRecovery:
+    """What §2.1 Step 3's weighted ridge least squares recovered at one cutoff."""
+
+    cutoff: str
+    strength: dict[str, float]
+    eta: float
+    condition: float
+    n_matches: int
+    n_avg: int
+    sd: float
+
+    @property
+    def avg_share(self) -> float:
+        return (self.n_avg / self.n_matches) if self.n_matches else 0.0
+
+
+def recover_strength(window: pd.DataFrame, cutoff: str | pd.Timestamp, *,
+                     check: bool = True) -> StrengthRecovery:
+    """§2.1 Steps 2-3: de-vigged market log-odds -> per-club strength.
+
+    ``m_i = log(p_H / p_A) = eta + s[home] - s[away] + residual`` by weighted
+    least squares with weights ``0.5 ** (age_days / 365)`` — the pipeline's own
+    decay weight (``src/wcmodel/data/features.py:297``) — and a ridge penalty
+    ``lambda = 1.0`` on the club coefficients ONLY, never on ``eta``::
+
+        s, eta = solve( X'WX + diag(lam, …, lam, 0),  X'W m )
+
+    ``lambda = 1.0`` is fixed by §2.1, is not selected, and exists to shrink a
+    club with few window matches toward the league mean rather than to fit
+    anything. Leaving ``eta`` unpenalised matters: ``eta`` is the market's
+    implied home advantage, it is a level and not a contrast, and shrinking it
+    toward zero would push that level into the club coefficients where §2.2's
+    rotation would then treat it as strength.
+
+    The de-vig is ``epl.devig.proportional`` — multiplicative, per the OA
+    precedent — applied ONCE when the panel is built, so no caller here can
+    choose a different one. Shin is not used and is not swept.
+    """
+    ts = pd.Timestamp(cutoff).normalize()
+    n = int(len(window))
+    if n == 0:
+        return StrengthRecovery(cutoff=str(ts.date()), strength={}, eta=0.0,
+                                condition=0.0, n_matches=0, n_avg=0, sd=0.0)
+
+    home = window["home"].to_numpy()
+    away = window["away"].to_numpy()
+    clubs = sorted(set(home) | set(away))
+    index = {c: i for i, c in enumerate(clubs)}
+    k = len(clubs)
+
+    X = np.zeros((n, k + 1), dtype=float)
+    X[np.arange(n), [index[c] for c in home]] += 1.0
+    X[np.arange(n), [index[c] for c in away]] -= 1.0
+    X[:, k] = 1.0
+
+    age = (ts - pd.to_datetime(window["date"])).dt.days.to_numpy(dtype=float)
+    weight = 0.5 ** (age / DECAY_HALF_LIFE_DAYS)
+    m = window["m"].to_numpy(dtype=float)
+
+    penalty = np.full(k + 1, RIDGE_LAMBDA)
+    penalty[k] = 0.0                                   # never on eta
+    A = X.T @ (X * weight[:, None]) + np.diag(penalty)
+    b = X.T @ (weight * m)
+    condition = float(np.linalg.cond(A))
+    try:
+        solution = np.linalg.solve(A, b)
+    except np.linalg.LinAlgError as exc:
+        raise RecoveryUnstable(
+            f"the ridge normal equations at {ts.date()} are singular over "
+            f"{k} club(s) and {n} match(es): {exc}") from exc
+
+    s = solution[:k]
+    eta = float(solution[k])
+    rec = StrengthRecovery(
+        cutoff=str(ts.date()),
+        strength={c: float(v) for c, v in zip(clubs, s)},
+        eta=eta, condition=condition, n_matches=n,
+        n_avg=int((window["src"].to_numpy() == "Avg").sum()),
+        sd=float(np.std(s)))
+
+    if check:
+        if not np.isfinite(condition) or condition > MAX_CONDITION:
+            raise RecoveryUnstable(
+                f"the solve at {ts.date()} has condition number "
+                f"{condition:.3g} > {MAX_CONDITION:.0g}: the recovered "
+                "strengths would be noise dressed as an anchor")
+        if not (ETA_BAND[0] <= eta <= ETA_BAND[1]):
+            raise RecoveryUnstable(
+                f"the recovered home advantage at {ts.date()} is "
+                f"{eta:.4f} log-odds, outside the pre-stated band {ETA_BAND}. "
+                "§2.1 published 0.2519-0.4429 over the 212 cutoffs, measured "
+                "under a per-venue window it did not rule; under the window it "
+                "DID rule the same cutoffs give 0.2350-0.4445 "
+                "(:data:`MEASURED_ETA`). The band contains both, so it is the "
+                "band that was pre-stated and not a band chosen to fit either. "
+                "A value outside it means the inversion is not recovering what "
+                "it was checked to recover.")
+    return rec
+
+
+def assert_strength_disperses(rec: StrengthRecovery) -> float:
+    """§5.1's `DegenerateStrength`: a flat `s` would silently zero the anchor."""
+    if not np.isfinite(rec.sd) or rec.sd <= 0.0:
+        raise DegenerateStrength(
+            f"the cross-club sd of the recovered strengths at {rec.cutoff} is "
+            f"{rec.sd!r} over {len(rec.strength)} club(s). z_mkt would be all "
+            "zeros and the market term would do nothing — silently, and in a "
+            "direction nobody would notice from the estimand.")
+    return rec.sd
+
+
+def z_from_strength(rec: StrengthRecovery,
+                    teams: Sequence[str]) -> np.ndarray:
+    """§2.1 Step 4: `s` z-scored over the fitted teams, `team_elo_z`'s contract.
+
+    ``wcmodel.model.strength.team_elo_z`` takes ``nanmean``/``nanstd`` over the
+    teams it HAS and then sets an absent team to exactly ``0`` — not to
+    ``(0 - mean) / sd``. This mirrors that clause for clause, which is what §2.1
+    means by "a fitted club with no window match gets z_mkt = 0, the
+    no-information shrink to the mean": the absent club sits at the mean of the
+    clubs that DO have a window, exactly as an absent club sits at the mean of
+    the clubs that do have a rating.
+
+    Population sd (ddof = 0), and all zeros when the dispersion is zero — so
+    ``z_mkt`` and ``elo_z`` live on the same scale and can be mixed.
+    """
+    want = tuple(str(t) for t in teams)
+    r = np.array([rec.strength.get(t, np.nan) for t in want], dtype=float)
+    present = ~np.isnan(r)
+    if not present.any():
+        return np.zeros(len(want), dtype=float)
+    sd = float(np.std(r[present]))
+    if not np.isfinite(sd) or sd == 0.0:
+        return np.zeros(len(want), dtype=float)
+    z = (r - float(np.mean(r[present]))) / sd
+    z[~present] = 0.0
+    return z
+
+
+def market_z(panel: OddsPanel, cutoff: str | pd.Timestamp,
+             teams: Sequence[str], *, check: bool = True) -> np.ndarray:
+    """``z_mkt(·, cutoff)`` over ``teams`` — §2.1, all four steps."""
+    window = market_window(panel, cutoff)
+    assert_no_odds_leak(window, cutoff)
+    return z_from_strength(recover_strength(window, cutoff, check=check),
+                           teams)
+
+
+# ==========================================================================
+# 6. the blend — §2.2's ruling: rotation, not addition
+# ==========================================================================
+def assert_on_grid(w: float) -> float:
+    """§5.1's `GridEscape`: the six points, and no seventh."""
+    for point in W_GRID:
+        if abs(float(w) - point) < 1e-12:
+            return float(point)
+    raise GridEscape(
+        f"w = {w!r} is not on the frozen grid {list(W_GRID)}. §2.4 fixes six "
+        "points and §7 makes an extended grid an invalidation: a weight "
+        "chosen after the deltas exist is a weight chosen to suit them.")
+
+
+def blend(elo_z: Sequence[float], z_mkt: Sequence[float],
+          w: float) -> np.ndarray:
+    """§2.2: ``z_blend(w) = zscore((1-w)·elo_z + w·z_mkt)``, and
+    ``z_blend(0) := elo_z`` EXACTLY.
+
+    THE MARKET TERM DOES NOT ADD A SECOND ANCHOR — IT ROTATES THE ONE THAT
+    EXISTS, and four things follow that the additive alternative would have
+    left open:
+
+    (i) It enters ``att`` and ``def`` symmetrically at the same ``k``, so the
+    SUM of the two log-rates is exactly invariant and the anchor moves the
+    MARGIN only. An att-only entry would push expected total goals with a 1X2
+    signal that says nothing about totals.
+
+    (ii) The doubled anchor of §0.4 — ``2 x 0.6 = 1.2`` on the strength
+    difference — is neither fixed nor widened. Because the output is unit-sd at
+    every ``w``, no ``w`` changes how hard the prior pulls; ``w`` changes only
+    which direction it pulls in.
+
+    (iii) ``scripts/sweep_strength_k.py``'s settled ``k = 0.6`` is not
+    re-opened by accident. The additive form ``0.6·elo_z + k_mkt·z_mkt`` would
+    have confounded "the market's information helps" with "a tighter anchor
+    helps", because ``z_mkt`` is 91% collinear with ``elo_z`` (§1.4): at
+    ``k_mkt = 0.6`` the Elo-direction pull would nearly double to ~1.17 without
+    one word of the design saying so.
+
+    (iv) ``w = 1`` becomes the exact input-level analogue of the output blend's
+    saturation endpoint — a pure market DIRECTION for the prior, which §2.5
+    pre-rules and which is emphatically not the market's forecast.
+
+    ``z_blend(0)`` is ``elo_z`` literally rather than ``zscore(elo_z)`` so that
+    §3.2's control is a check on archive drift and not on float round-off.
+    """
+    weight = assert_on_grid(w)
+    ez = np.asarray(elo_z, dtype=float)
+    zm = np.asarray(z_mkt, dtype=float)
+    if ez.shape != zm.shape:
+        raise MarketPriorError(
+            f"elo_z has shape {ez.shape} and z_mkt has shape {zm.shape}: the "
+            "two vectors are indexed by the same fitted teams or they are not "
+            "mixable at all")
+    if weight == 0.0:
+        return ez.copy()
+    mix = (1.0 - weight) * ez + weight * zm
+    sd = float(np.std(mix))
+    if not np.isfinite(sd) or sd == 0.0:
+        return np.zeros(mix.shape, dtype=float)
+    return (mix - float(np.mean(mix))) / sd
+
+
+# ==========================================================================
+# 7. the odds canary — §5.4, new because the existing one cannot see odds
+# ==========================================================================
+#: THE PERTURBATION, and why it is a swap rather than a multiplier. It has to
+#: move the de-vigged vector materially AND leave a triple `epl.devig` will
+#: accept, or the canary would be testing the de-vig's input validation instead
+#: of the leakage rule — a multiplier on one price changes the inverse-price
+#: sum and can push it below 1, which no real book has and which
+#: `devig.proportional` refuses outright. Exchanging the home and away prices
+#: preserves the overround EXACTLY (it is the same three numbers), leaves every
+#: price above 1.0 by construction, and moves `m = log(p_H/p_A)` to `-m` — a
+#: change of `2|m|`, which is material on every row a real 1X2 book prices.
+CANARY_PERTURBATION = "home and away prices exchanged"
+
+
+def corrupt_odds(panel: OddsPanel, *, on_or_after: str | pd.Timestamp | None = None,
+                 before: str | pd.Timestamp | None = None) -> OddsPanel:
+    """A copy of ``panel`` with home and away prices exchanged on selected rows."""
+    frame = panel.frame.copy()
+    dates = frame["date"].to_numpy()
+    mask = np.ones(len(frame), dtype=bool)
+    if on_or_after is not None:
+        mask &= dates >= pd.Timestamp(on_or_after).normalize().to_datetime64()
+    if before is not None:
+        mask &= dates < pd.Timestamp(before).normalize().to_datetime64()
+    home = frame["h"].to_numpy(dtype=float).copy()
+    away = frame["a"].to_numpy(dtype=float).copy()
+    home[mask], away[mask] = away[mask].copy(), home[mask].copy()
+    frame["h"], frame["a"] = home, away
+
+    prices = frame[["h", "d", "a"]].to_numpy(dtype=float)
+    p = devig.proportional(prices)
+    frame["p_home"], frame["p_draw"], frame["p_away"] = p[:, 0], p[:, 1], p[:, 2]
+    frame["m"] = np.log(frame["p_home"].to_numpy(float)
+                        / frame["p_away"].to_numpy(float))
+    return OddsPanel(frame=frame, sha256=OddsPanel.digest(frame),
+                     n_avg=panel.n_avg, n_ps=panel.n_ps,
+                     max_date=panel.max_date, sources=panel.sources)
+
+
+def _canary_z(panel: OddsPanel, cutoff, teams) -> np.ndarray:
+    """The real ``z_mkt`` path with §5.1's stability band relaxed.
+
+    The band is relaxed and nothing else is: the same window, the same de-vig,
+    the same solve, the same z-score. The positive leg deliberately corrupts
+    prices until they are not a book any more, and refusing them for being
+    implausible would make the leg that gives the canary its meaning
+    unreachable.
+    """
+    return market_z(panel, cutoff, teams, check=False)
+
+
+def run_odds_canary(panel: OddsPanel, cutoff: str | pd.Timestamp,
+                    teams: Sequence[str], *,
+                    z_fn: Callable[..., np.ndarray] | None = None,
+                    elo_z: Sequence[float] | None = None,
+                    path: Path | str | None = None,
+                    write: bool = True) -> dict[str, Any]:
+    """§5.4's odds canary — a precondition of the run, not a result.
+
+    ``epl.walkforward.point_in_time_canary`` rewrites RESULTS from a cutoff
+    onward and demands identical forecasts. It is blind to the odds panel, so
+    it cannot detect a market leak, and this is its analogue:
+
+    * **Negative leg.** Corrupt every panel row dated on or after the cutoff
+      and demand ``np.array_equal`` against the uncorrupted anchor. Under §2.3
+      this must hold by construction; the canary proves the code IMPLEMENTS the
+      rule rather than describing it.
+    * **Positive control.** Corrupt panel rows BEFORE the cutoff and demand the
+      anchor MOVE by more than 1e-9. A canary that cannot fail is not a canary,
+      and this leg is what makes the negative leg mean something.
+
+    Where ``elo_z`` is supplied the same two legs are also run on ``z_blend``
+    at every ``w`` on the grid, which is the object §5.4 names. Where it is not,
+    the legs run on ``z_mkt``, of which ``z_blend`` is a deterministic function
+    at fixed ``elo_z``: a ``z_mkt`` that does not move cannot move ``z_blend``,
+    and a ``z_mkt`` that moves moves ``z_blend`` at every ``w > 0``.
+    """
+    started = time.perf_counter()
+    fn = z_fn or _canary_z
+    teams = [str(t) for t in teams]
+    ts = pd.Timestamp(cutoff).normalize()
+
+    base = np.asarray(fn(panel, ts, teams), dtype=float)
+    after = corrupt_odds(panel, on_or_after=ts)
+    before = corrupt_odds(panel, before=ts)
+    z_after = np.asarray(fn(after, ts, teams), dtype=float)
+    z_before = np.asarray(fn(before, ts, teams), dtype=float)
+
+    negative = float(np.max(np.abs(z_after - base))) if base.size else 0.0
+    positive = float(np.max(np.abs(z_before - base))) if base.size else 0.0
+    identical = bool(np.array_equal(z_after, base))
+
+    blend_legs: list[dict[str, Any]] = []
+    if elo_z is not None:
+        for w in W_GRID:
+            if w == 0.0:
+                continue
+            b0 = blend(elo_z, base, w)
+            blend_legs.append({
+                "w": w,
+                "identical_after_cutoff": bool(
+                    np.array_equal(blend(elo_z, z_after, w), b0)),
+                "max_abs_diff_after_cutoff": float(
+                    np.max(np.abs(blend(elo_z, z_after, w) - b0))),
+                "max_abs_diff_positive_control": float(
+                    np.max(np.abs(blend(elo_z, z_before, w) - b0))),
+            })
+
+    out: dict[str, Any] = {
+        "schema": SCHEMA_ID,
+        "cutoff": str(ts.date()),
+        "n_teams": len(teams),
+        "n_corrupted_after": int(
+            (panel.frame["date"] >= ts).sum()),
+        "n_corrupted_before": int((panel.frame["date"] < ts).sum()),
+        "perturbation": CANARY_PERTURBATION,
+        "identical_after_cutoff": identical,
+        "max_abs_diff_after_cutoff": negative,
+        "max_abs_diff_positive_control": positive,
+        "z_blend_legs": blend_legs,
+        "panel_sha256": panel.sha256,
+        "blas_threads": blas_threads(),
+        "seconds": round(time.perf_counter() - started, 2),
+    }
+    # A leg with nothing to corrupt is not a leg. §5.4's negative leg is only
+    # evidence if there WERE odds on or after the cutoff to hide, and the
+    # positive control is only a control if there were odds before it to move.
+    vacuous = [name for name, n in (("negative", out["n_corrupted_after"]),
+                                    ("positive control",
+                                     out["n_corrupted_before"])) if n == 0]
+    out["vacuous_legs"] = vacuous
+    out["PASS"] = bool(
+        not vacuous and identical and negative == 0.0 and positive > 1e-9
+        and all(leg["identical_after_cutoff"]
+                and leg["max_abs_diff_positive_control"] > 1e-9
+                for leg in blend_legs))
+
+    path = Path(path) if path is not None else ODDS_CANARY_JSON
+    if write:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(out, indent=2, default=str) + "\n")
+    if not out["PASS"]:
+        if vacuous:
+            raise MarketCanaryFailed(
+                f"the odds canary's {vacuous} leg(s) had nothing to corrupt at "
+                f"cutoff {ts.date()}: {out['n_corrupted_after']} panel row(s) "
+                f"on or after it and {out['n_corrupted_before']} before it. A "
+                "canary run where the corruption cannot reach anything passes "
+                "for the wrong reason, which is worse than failing.")
+        raise MarketCanaryFailed(
+            "the odds canary did not pass: corrupting odds dated on or after "
+            f"{ts.date()} moved the anchor by {negative!r} (must be exactly 0) "
+            f"and corrupting odds BEFORE it moved the anchor by {positive!r} "
+            "(must exceed 1e-9). §5.4: the run does not start. The negative "
+            "leg failing is a market leak, which biases toward adoption; the "
+            "positive leg failing means the anchor is not reading odds at all, "
+            "and a canary that cannot fail is not a canary.")
+    return out
+
+
+def require_odds_canary(path: Path | str | None = None) -> dict[str, Any]:
+    """Refuse a fit that has no passing odds canary on the record (§5.4)."""
+    path = Path(path) if path is not None else ODDS_CANARY_JSON
+    if not path.exists():
+        raise MarketCanaryFailed(
+            f"no odds canary on the record at {paths.rel(path)}. §5.4 makes it "
+            "a precondition of the run, and an absent canary is not a passing "
+            "one: run `--odds-canary` first.")
+    try:
+        rec = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise MarketCanaryFailed(
+            f"{paths.rel(path)} is not readable JSON: {exc}") from exc
+    if not rec.get("PASS"):
+        raise MarketCanaryFailed(
+            f"the odds canary on record at {paths.rel(path)} did not pass: "
+            f"max |Δz| after the cutoff = "
+            f"{rec.get('max_abs_diff_after_cutoff')!r} (must be 0), positive "
+            f"control = {rec.get('max_abs_diff_positive_control')!r} (must "
+            "move). §5.4: the run does not start.")
+    return rec
