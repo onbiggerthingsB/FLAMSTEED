@@ -45,7 +45,7 @@ def _team_rows(names=FPL_TEAMS) -> list[dict]:
 def _player(pid: int, *, team: int = 1, web_name: str | None = None,
             status: str = "a", chance_this=None, chance_next=None,
             news: str = "", news_added=None, now_cost: int = 50,
-            **extra) -> dict:
+            minutes: int = 0, **extra) -> dict:
     row = {
         "id": pid,
         "web_name": web_name if web_name is not None else f"Player{pid}",
@@ -56,6 +56,12 @@ def _player(pid: int, *, team: int = 1, web_name: str | None = None,
         "news": news,
         "news_added": news_added,
         "now_cost": now_cost,
+        # `minutes` is on every element of the live payload and the CAPTURE
+        # never reads it (it is not one of A11's five availability fields, and
+        # not a ledger column). A12's read side does, so the synthetic payload
+        # has to carry it or every as-of test would be testing a payload the
+        # feed does not serve.
+        "minutes": minutes,
         "element_type": 3,
         "team_code": team,
     }
@@ -995,3 +1001,173 @@ def test_verify_reports_an_unreadable_manifest_stamp_instead_of_dying_on_it(tmp_
                for p in out.problems), (
         "the later lines were still checked, and the ledger no longer matches "
         "a re-derivation that could not replay the first snapshot")
+
+
+# --------------------------------------------------------------------------
+# 10. the AS-OF read side (A12)
+# --------------------------------------------------------------------------
+# A12 authorises ONE reader over this archive: given a clock, the latest
+# snapshot our own pull clock observed at or before it. Everything here is
+# about that selection and about what it refuses; what the numbers MEAN is
+# `epl.availarm`'s and is tested there.
+#
+# The bytes are the record and the manifest is the attestation, so this reader
+# loads the RAW payload and never the derived ledger — `minutes` and `now_cost`
+# are not ledger fields and could not be read from it at all.
+
+def _snap(tmp_path, *, clock, **kw):
+    return av.as_of(clock, **_where_as_of(tmp_path), **kw)
+
+
+def _where_as_of(tmp_path: Path) -> dict:
+    where = _where(tmp_path)
+    return {"raw_dir": where["raw_dir"], "manifest_path": where["manifest_path"]}
+
+
+def test_as_of_selects_the_latest_snapshot_our_clock_observed_in_time(tmp_path):
+    """The selection rule, in one test: at or before, latest, ours.
+
+    Three pulls; a clock between the second and the third must read the SECOND
+    — not the newest on file, which is the mistake that would let an arm score
+    a fixture with information it did not have.
+    """
+    for day, cost in (("27", 50), ("28", 60), ("29", 70)):
+        _pull(tmp_path, _payload([_player(1, now_cost=cost)]),
+              f"2026-08-{day}T09:00:00Z")
+
+    view = _snap(tmp_path, clock="2026-08-28T23:59:59Z")
+
+    assert view.stamp == "20260828T090000Z"
+    assert view.observed_at == "2026-08-28T09:00:00Z"
+    assert view.squads["arsenal"][0]["now_cost"] == 60
+    assert view.n_players == 1
+
+
+def test_as_of_is_inclusive_of_a_snapshot_observed_at_exactly_the_clock(tmp_path):
+    """"at or before" is A12's own wording, and the boundary is the case that
+    decides whether a same-instant pull is visible at all."""
+    _pull(tmp_path, _payload([_player(1)]), "2026-08-27T09:00:00Z")
+    assert _snap(tmp_path, clock="2026-08-27T09:00:00Z").stamp \
+        == "20260827T090000Z"
+
+
+def test_a_snapshot_observed_after_the_clock_is_never_read(tmp_path):
+    """The leak this reader exists to make impossible.
+
+    A payload pulled after the clock is not a payload we had; borrowing it
+    would be claiming to have known, before a kickoff, what was first observed
+    afterwards. With nothing else on file there is no view at all, and the
+    refusal is typed so the arm can turn it into an abstention rather than
+    into a guess.
+    """
+    _pull(tmp_path, _payload([_player(1, status="i")]), "2026-08-29T09:00:00Z")
+
+    with pytest.raises(av.NoSnapshotAsOf, match="2026-08-29T09:00:00Z"):
+        _snap(tmp_path, clock="2026-08-28T00:00:00Z")
+
+
+def test_an_empty_archive_refuses_rather_than_returning_an_empty_view(tmp_path):
+    with pytest.raises(av.NoSnapshotAsOf):
+        _snap(tmp_path, clock="2026-08-28T00:00:00Z")
+
+
+def test_a_zero_delta_snapshot_is_selectable_because_it_attests_a_payload(
+        tmp_path):
+    """A12 (b): "zero-delta lines included, because every manifest line attests
+    a complete payload". The ledger's delta encoding is about CHANGE; the
+    archive's unit is the snapshot, and a quiet day still observed everyone."""
+    payload = _payload([_player(1, now_cost=50)])
+    _pull(tmp_path, payload, "2026-08-27T09:00:00Z")
+    report = _pull(tmp_path, payload, "2026-08-28T09:00:00Z")
+    assert report.rows == ()                     # nothing changed, nothing filed
+
+    view = _snap(tmp_path, clock="2026-08-28T12:00:00Z")
+    assert view.stamp == "20260828T090000Z"
+    assert view.line["n_rows_appended"] == 0
+    assert view.squads["arsenal"][0]["now_cost"] == 50
+
+
+def test_the_reader_refuses_a_missing_file_and_a_changed_one_by_name(tmp_path):
+    """The bytes are the record. Two ways for them not to be, both typed."""
+    _pull(tmp_path, _payload([_player(1)]), "2026-08-27T09:00:00Z")
+    raw = _where(tmp_path)["raw_dir"] / "bootstrap_20260827T090000Z.json.gz"
+
+    kept = raw.read_bytes()
+    raw.unlink()
+    with pytest.raises(av.SnapshotMissing, match="bootstrap_20260827T090000Z"):
+        _snap(tmp_path, clock="2026-08-27T12:00:00Z")
+
+    raw.write_bytes(gzip.compress(
+        _blob(_payload([_player(1, status="i", news="Edited")])), mtime=0))
+    with pytest.raises(av.SnapshotDigestMismatch):
+        _snap(tmp_path, clock="2026-08-27T12:00:00Z")
+
+    raw.write_bytes(kept)                        # and the untouched bytes pass
+    assert _snap(tmp_path, clock="2026-08-27T12:00:00Z").n_players == 1
+
+
+def test_the_view_carries_the_fields_the_rule_needs_and_maps_every_club(
+        tmp_path):
+    """Squads are keyed by the SEASON's club key, through the capture's own
+    strict resolver — so a caller never sees an FPL team id or spelling."""
+    players = [_player(i, team=i, minutes=90 * i, now_cost=40 + i)
+               for i in range(1, 21)]
+    _pull(tmp_path, _payload(players), "2026-08-27T09:00:00Z")
+    view = _snap(tmp_path, clock="2026-08-27T12:00:00Z")
+
+    assert len(view.squads) == 20
+    assert set(view.squads) == set(av.season_mod.load_manifest("2026/27").clubs)
+    row = view.squads["arsenal"][0]
+    assert tuple(row) == av.AS_OF_PLAYER_FIELDS
+    assert row["minutes"] == 90 and row["now_cost"] == 41
+    assert row["team_key"] == "arsenal"
+
+
+def test_the_reader_refuses_a_payload_that_lost_the_minutes_field(tmp_path):
+    """A11's capture asserts five availability fields and does not read
+    `minutes`; A12's weighting does. A payload without it is drift for THIS
+    reader even though the capture would have stored it happily, and a reader
+    that quietly weighted everyone at zero would produce a feature of zero that
+    looks like a fit squad."""
+    player = _player(1)
+    del player["minutes"]
+    _pull(tmp_path, _payload([player]), "2026-08-27T09:00:00Z")
+
+    with pytest.raises(av.AvailabilitySchemaDrift, match="minutes"):
+        _snap(tmp_path, clock="2026-08-27T12:00:00Z")
+
+
+def test_the_reader_reads_no_clock_of_its_own(tmp_path):
+    """`clock` is an INPUT, like `observed_at` is to the capture. A reader that
+    consulted the wall clock would answer differently tomorrow for a fixture
+    that kicked off last week."""
+    _pull(tmp_path, _payload([_player(1)]), "2026-08-27T09:00:00Z")
+    first = _snap(tmp_path, clock="2026-08-27T12:00:00Z")
+    second = _snap(tmp_path, clock=pd.Timestamp("2026-08-27T12:00:00Z"))
+    assert first.stamp == second.stamp == "20260827T090000Z"
+    assert first.squads == second.squads
+
+
+def test_the_selection_is_re_derivable_without_touching_the_bytes(tmp_path):
+    """A12 (f) step 2 re-derives WHICH snapshot a filed row should have used,
+    over the manifest alone: the check must not need the archive to be present
+    to say that a row named the wrong line."""
+    for day in ("27", "28"):
+        _pull(tmp_path, _payload([_player(1)]), f"2026-08-{day}T09:00:00Z")
+    lines = _manifest(tmp_path)
+
+    assert av.select_manifest_line(lines, "2026-08-28T00:00:00Z")["stamp"] \
+        == "20260827T090000Z"
+    assert av.select_manifest_line(lines, "2026-08-29T00:00:00Z")["stamp"] \
+        == "20260828T090000Z"
+    assert av.select_manifest_line(lines, "2026-08-01T00:00:00Z") is None
+
+
+def test_the_as_of_reader_is_still_not_a_model_input_of_its_own(tmp_path):
+    """A12 (e) moved exactly one boundary and no more: the capture module
+    imports no model module, and this reader added none."""
+    text = Path(av.__file__).read_text(encoding="utf-8")
+    for forbidden in ("import epl.leaguesim", "from epl import leaguesim",
+                      "from epl import matchboard", "from epl import availarm",
+                      "from epl import particles", "from epl import elo"):
+        assert forbidden not in text

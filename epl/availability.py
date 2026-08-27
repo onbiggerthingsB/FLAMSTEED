@@ -21,11 +21,26 @@ and all four are structural in this module:
 
 NO MODEL INTEGRATION, AND THAT IS THE POINT. A11 pre-states that nothing enters
 a model without its own preregistration through the covariate gate, whose only
-verdict to date remains UNVALIDATED. So this module imports no model, and
-`epl.livecycle` does not import this module: the capture is standalone by
-construction, and a test asserts the non-import in both directions. What it
-builds is an archive that a future preregistration could read. Today it feeds
-nothing.
+verdict to date remains UNVALIDATED. So this module imports no model: the
+capture is standalone by construction, and a test asserts it.
+
+WHAT IT FEEDS, AND UNDER WHAT RULING. Amendment A12 (2026-08-27) is that
+preregistration, for ONE use and no other: `dc_1x2_avail`, a match-only SHADOW
+challenger that transforms the published `dc_native` 1X2 marginals in its own
+ledger and touches no published number, no table, no issuance and no gate. A12
+(e) moved the boundary this module's own test had drawn, and moved it exactly
+as far as the arm needs: `epl.availarm` is the ONLY authorised bridge — it
+imports this module's read side and the matchboard's scoring side — and
+`epl.livecycle` still does not import this module. The covariate gate is
+untouched and its only verdict remains UNVALIDATED; entry into the PUBLISHED
+law would be a gate run plus its own amendment, and A12 pre-commits neither.
+
+THE READ SIDE A12 ADDED. :func:`as_of` — given a clock, the latest snapshot OUR
+pull clock observed at or before it, loaded from the raw bytes and grouped by
+club key. It binds on `observed_at` only, never on the source's `news_added`;
+it reads the derived ledger not at all (`minutes` and `now_cost` are not ledger
+columns); and it changes nothing about `pull`, `verify`, `status`, the manifest
+format or the three commands below.
 
 TWO CLOCKS, THE SAME TWO AS `epl.season`. `observed_at` is OUR pull clock — the
 instant this process fetched the payload. `news_added` is the SOURCE's own
@@ -55,7 +70,12 @@ ledger is the thing that was tampered with.
     data/epl/availability/availability_ledger.jsonl           gitignored, derived
     epl/season/2026_27/availability_manifest.jsonl            TRACKED attestation
 
-FIVE TYPED REFUSALS, NONE OF THEM A SILENT NARROW. `SourceUnreachable` (no
+EIGHT TYPED REFUSALS, NONE OF THEM A SILENT NARROW — five on the capture side
+and three A12 added with the read side (`NoSnapshotAsOf`: nothing was observed
+by the clock asked about, which is the arm's ABSTENTION and not a defect;
+`SnapshotMissing`: the manifest attests bytes the archive no longer holds;
+`SnapshotDigestMismatch`: the bytes on disk are not the attested bytes).
+`SourceUnreachable` (no
 bytes, or bytes that are not the feed), `AvailabilitySchemaDrift` (an asserted
 field is GONE, or is still there and no longer carries what it asserted —
 `news_added` that is not a timestamp is the live case; additions are tolerated,
@@ -101,6 +121,10 @@ __all__ = [
     "read_manifest", "read_ledger", "latest_state", "assert_schema",
     "team_key_map", "snapshot_rows", "pull", "verify", "status",
     "render_status", "main",
+    # the A12 as-of read side
+    "NoSnapshotAsOf", "SnapshotMissing", "SnapshotDigestMismatch",
+    "AS_OF_FIELDS", "AS_OF_PLAYER_FIELDS", "AsOfSnapshot",
+    "select_manifest_line", "as_of",
 ]
 
 BOOTSTRAP_URL = "https://fantasy.premierleague.com/api/bootstrap-static/"
@@ -117,6 +141,22 @@ AVAILABILITY_FIELDS = ("status", "chance_of_playing_this_round",
 #: Those five plus identity, club membership and price — the asserted set.
 PLAYER_FIELDS = ("id", "web_name", "team", *AVAILABILITY_FIELDS, "now_cost")
 TEAM_FIELDS = ("id", "name")
+
+#: A12's read side needs two fields the CAPTURE never reads — `now_cost` is
+#: already asserted (it is cheap and it is the price the source publishes) and
+#: `minutes` is not. Asserted on the way OUT rather than on the way in, so the
+#: capture's own contract is exactly A11's and this one is exactly A12's: a
+#: payload that lost `minutes` is still a lawful capture and is not a lawful
+#: input to the weighting.
+AS_OF_FIELDS = ("minutes", "now_cost")
+
+#: What :func:`as_of` hands a caller per player, in this order. Identity, club,
+#: the status fields the rule binds on, both weighting fields, and the source's
+#: own clock — which this rule never reads (A12 (h): the arm binds on
+#: `observed_at` only) and which the (g) audit will want beside every flag.
+AS_OF_PLAYER_FIELDS = ("player_id", "web_name", "team_key", "status",
+                       "chance_next", "news", "news_added", "minutes",
+                       "now_cost")
 
 #: The ledger row. Everything in it except the two provenance stamps is
 #: tracked, so "did anything change?" is exactly "did the row change?".
@@ -162,6 +202,24 @@ class ManifestConflict(AvailabilityError):
 
 class TeamUnmapped(AvailabilityError):
     """A club the season manifest does not contain. Refuse; never slug."""
+
+
+class NoSnapshotAsOf(AvailabilityError):
+    """No manifest line was observed at or before the clock asked about.
+
+    NOT a defect and NOT a skip. A12 (b) makes this the arm's ABSTENTION case:
+    the capture began on 2026-08-27 and every issuance older than that is a
+    question this archive cannot answer. Typed so a caller can tell "we had not
+    started looking" apart from "we looked and the bytes are gone".
+    """
+
+
+class SnapshotMissing(AvailabilityError):
+    """The manifest attests a payload the archive no longer holds."""
+
+
+class SnapshotDigestMismatch(AvailabilityError):
+    """The bytes on disk are not the bytes the manifest attested."""
 
 
 # --------------------------------------------------------------------------
@@ -877,6 +935,177 @@ def render_status(report: dict) -> str:
     if report["n_flagged_not_shown"]:
         out.append(f"    … {report['n_flagged_not_shown']} more (the ledger has all of them)")
     return "\n".join(out) + "\n"
+
+
+# --------------------------------------------------------------------------
+# the as-of read side (A12)
+# --------------------------------------------------------------------------
+# ONE READER, AND IT BINDS ON OUR CLOCK ONLY. A12 (b) selects the snapshot for
+# a fixture by taking the manifest lines whose `observed_at` is at or before
+# the issuance's `observed_by` and keeping the LATEST of them. `news_added` —
+# the source's own clock — is never consulted here: not as a filter, not as a
+# tiebreak. A12 (h) states the consequence plainly, and it is the reason this
+# archive's point-in-time claim is a property of how the ledger was built
+# rather than of the source's honesty: anything in a payload we pulled at or
+# before `observed_by` was in our hands then, whatever the source later says
+# about when it knew.
+#
+# THE BYTES ARE THE RECORD AND THE MANIFEST IS THE ATTESTATION. This reader
+# loads the raw snapshot and checks its digest against the tracked line before
+# reading a field out of it. THE DERIVED LEDGER IS NOT READ AT ALL, and could
+# not be: `minutes` and `now_cost` are not ledger columns.
+#
+# NOTHING HERE CHANGES THE CAPTURE. `pull`, `verify`, `status`, the manifest
+# format and the three CLI commands are exactly what A11 built; this is a
+# second door onto the same archive, opened by A12 for the shadow arm and for
+# nothing else.
+
+@dataclass(frozen=True)
+class AsOfSnapshot:
+    """One archived payload, resolved at a clock and grouped by club.
+
+    `line` is the tracked manifest line verbatim, so a caller can record WHICH
+    snapshot it read by the archive's own identifiers rather than by a path.
+    """
+    stamp: str
+    observed_at: str
+    sha256: str
+    raw_path: Path
+    n_players: int
+    line: dict
+    squads: dict[str, tuple[dict, ...]]
+
+    def squad(self, club_key: str) -> tuple[dict, ...]:
+        """This club's players, or `()` — the CALLER decides what empty means.
+
+        A12 makes an empty squad a refusal in the arm, where the feature is
+        computed and where a zero would be mistaken for a fit side. Here it is
+        just an answer about an archive.
+        """
+        return self.squads.get(club_key, ())
+
+
+def select_manifest_line(lines: Sequence[dict], clock) -> dict | None:
+    """The latest manifest line observed at or before `clock`, or None.
+
+    Separated from :func:`as_of` because A12 (f) step 2 re-derives the
+    SELECTION for a filed row — "is the snapshot this row names the one the
+    rule would have chosen?" — and that question must be answerable from the
+    tracked manifest alone, without the gitignored archive being present.
+
+    File order is instant order (`pull` refuses a backwards pull clock), but
+    the maximum is taken over parsed stamps anyway, with the later LINE winning
+    a tie: a reader that trusted line order would answer a hand-assembled
+    manifest confidently and wrongly.
+    """
+    bound = _utc(clock, "clock")
+    best: dict | None = None
+    best_at: pd.Timestamp | None = None
+    for i, line in enumerate(lines):
+        observed = _utc(line["observed_at"], f"manifest line {i + 1}'s observed_at")
+        if observed > bound:
+            continue
+        if best_at is None or observed >= best_at:
+            best, best_at = line, observed
+    return best
+
+
+def _as_of_player(element: Any, team_keys: dict[int, str]) -> dict:
+    team_id = int(element["team"])
+    if team_id not in team_keys:
+        raise TeamUnmapped(
+            f"player {element.get('web_name')!r} (id {element.get('id')}) "
+            f"plays for team id {team_id}, which the payload's own teams list "
+            "never declared")
+    missing = [f for f in AS_OF_FIELDS if f not in element]
+    if missing:
+        raise AvailabilitySchemaDrift(
+            f"elements[id={element.get('id')!r}, "
+            f"web_name={element.get('web_name')!r}] carries no {missing} — the "
+            "as-of read asserts "
+            f"{list(AS_OF_FIELDS)} on top of the capture's own set, because a "
+            "weighting computed over a field that is not there would be a "
+            "feature of zero wearing a fit squad's face")
+    return {
+        "player_id": int(element["id"]),
+        "web_name": str(element["web_name"]),
+        "team_key": team_keys[team_id],
+        "status": element["status"],
+        "chance_next": element["chance_of_playing_next_round"],
+        "news": element["news"],
+        # the SOURCE's clock, verbatim and unread by any rule: see A12 (h).
+        "news_added": element["news_added"],
+        "minutes": int(element["minutes"]),
+        "now_cost": int(element["now_cost"]),
+    }
+
+
+def as_of(clock, *, raw_dir: Path | str | None = None,
+          manifest_path: Path | str | None = None,
+          season: str = SEASON,
+          season_root: Path | str | None = None) -> AsOfSnapshot:
+    """The archive's answer to "what did we know at `clock`?".
+
+    `clock` is an INPUT and the only one: this reads no wall clock, so the same
+    clock over the same archive returns the same view tomorrow. Four typed
+    refusals and not one silent narrowing:
+
+    * :class:`NoSnapshotAsOf` — nothing was observed by then. The capture began
+      on 2026-08-27 and the honest answer for anything older is that we had not
+      started looking. A12 (b) turns this into the arm's ABSTENTION.
+    * :class:`SnapshotMissing` — the manifest attests bytes the archive lost.
+    * :class:`SnapshotDigestMismatch` — the bytes are not the attested bytes.
+    * :class:`AvailabilitySchemaDrift` / :class:`TeamUnmapped` — the payload is
+      not one this rule can read, or a club is not one the season fields. Both
+      are the capture's own refusals, raised by the capture's own code.
+    """
+    raw_dir = Path(raw_dir) if raw_dir is not None else RAW_DIR
+    manifest_path = (Path(manifest_path) if manifest_path is not None
+                     else default_manifest_path(season, season_root))
+    lines = read_manifest(manifest_path)
+    line = select_manifest_line(lines, clock)
+    if line is None:
+        earliest = min((l["observed_at"] for l in lines), default=None)
+        raise NoSnapshotAsOf(
+            f"no availability snapshot was observed at or before "
+            f"{iso_z(clock)}: the archive holds {len(lines)} line(s)"
+            + (f", the earliest observed at {earliest}" if earliest else "")
+            + ". The archive cannot answer a question that predates it, and "
+            "borrowing a later snapshot would claim knowledge we did not have")
+
+    path = raw_dir / line.get("raw", raw_name(line["stamp"]))
+    if not path.exists():
+        raise SnapshotMissing(
+            f"the manifest attests {path.name} at {line['observed_at']} and "
+            f"the archive does not hold it ({path}). The bytes are the record; "
+            "a reader that carried on without them would be reading the "
+            "attestation instead")
+    blob = gzip.decompress(path.read_bytes())
+    digest = sha256_bytes(blob)
+    if digest != line["sha256"]:
+        raise SnapshotDigestMismatch(
+            f"{path.name} hashes to {digest[:12]}… and the tracked manifest "
+            f"attests {line['sha256'][:12]}…. The bytes changed after they "
+            "were attested, so nothing read out of them is the record")
+
+    manifest = season_mod.load_manifest(
+        season, **({"root": season_root} if season_root is not None else {}))
+    payload = json.loads(blob)
+    assert_schema(payload, n_clubs=len(manifest.clubs))
+    team_keys = team_key_map(payload, manifest)
+
+    squads: dict[str, list[dict]] = {key: [] for key in team_keys.values()}
+    for element in payload["elements"]:
+        row = _as_of_player(element, team_keys)
+        squads[row["team_key"]].append(row)
+    for rows in squads.values():
+        rows.sort(key=lambda r: r["player_id"])
+
+    return AsOfSnapshot(
+        stamp=str(line["stamp"]), observed_at=str(line["observed_at"]),
+        sha256=digest, raw_path=path, n_players=len(payload["elements"]),
+        line=dict(line),
+        squads={key: tuple(rows) for key, rows in sorted(squads.items())})
 
 
 # --------------------------------------------------------------------------
