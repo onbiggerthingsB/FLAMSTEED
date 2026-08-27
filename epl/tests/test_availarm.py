@@ -1112,13 +1112,29 @@ def test_the_expected_effect_is_an_expectation_and_fires_nothing():
 @pytest.mark.skipif(not AVAIL_LEDGER.exists(),
                     reason="no matchweek has filed into the shadow ledger yet")
 def test_the_committed_shadow_ledger_is_this_schema_and_nothing_else():
-    for row in availarm.read_shadow(AVAIL_LEDGER):
+    """SORTED, not ordered — and the r6 version of this test would have failed
+    on the first real row.
+
+    The file is written through `leaguesim.canonical_json`, which sorts keys,
+    so what comes back off disk is in alphabetical order and never in
+    `ROW_FIELDS` order. Key ORDER is a property of the writer and is asserted
+    where it exists, on the row `score()` returns; what the FILE is held to is
+    the field SET, the frozen names, and byte-stable canonical JSON.
+    """
+    from epl import leaguesim
+
+    lines = [ln for ln in AVAIL_LEDGER.read_text(encoding="utf-8").splitlines()
+             if ln.strip()]
+    for line, row in zip(lines, availarm.read_shadow(AVAIL_LEDGER)):
         assert row["schema_version"] == availarm.SCHEMA_VERSION
         assert row["arm"] == availarm.ARM
         assert row["rule_version"] == availarm.RULE_VERSION
         fields = (availarm.ABSTENTION_FIELDS if availarm.is_abstention(row)
                   else availarm.ROW_FIELDS)
-        assert tuple(row) == fields
+        assert set(row) == set(fields)
+        assert line == leaguesim.canonical_json(row), (
+            "every line is the canonical encoding of its own object")
+        availarm.check_writable(row)
 
 
 # ==========================================================================
@@ -1621,3 +1637,154 @@ def test_every_malformed_byte_case_leaves_the_command_at_STOP_and_exit_2(
                           "--manifest", str(bits["manifest"])])
     assert code == 2
     assert capsys.readouterr().err.startswith("STOP: SnapshotDigestMismatch:")
+
+
+# ==========================================================================
+# 16. the entry binds the FORMULA, not only the constants (r7 I6)
+# ==========================================================================
+
+def _a12() -> str:
+    text = AMENDMENTS.read_text(encoding="utf-8")
+    return text[text.index("## A12 —"):]
+
+
+def _fenced(marker: str) -> str:
+    """The fenced block that follows `marker` inside A12."""
+    entry = _a12()
+    block = entry[entry.index(marker):]
+    block = block[block.index("```") + 3:]
+    return block[:block.index("```")]
+
+
+def test_the_tilt_in_the_code_is_the_map_the_amendment_prints():
+    """A12 (b)'s formula block, parsed and EVALUATED against `tilt`.
+
+    The r6 suite bound A12's constants and left its arithmetic to prose. A
+    transform is not a constant: `exp(-d/2)` on the home cell and `exp(+d/2)`
+    on the away cell is the entire content of this arm, and a sign swapped in
+    the code with the entry unread would have passed every test in the file.
+    """
+    block = _fenced("**The adjustment — a tilt of the published marginals")
+    lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
+    assert lines[0].replace(" ", "").startswith("d=k_avail")
+    assert "feat_home" in lines[0] and "feat_away" in lines[0]
+
+    factors = {}
+    for line in lines[1:]:
+        cell, _, rhs = line.partition("∝")
+        cell = cell.strip().removeprefix("q_")
+        sign = re.search(r"exp\(([−+-])d/2\)", rhs.replace(" ", ""))
+        factors[cell] = 0.0 if sign is None else (
+            -0.5 if sign.group(1) in "−-" else 0.5)
+    assert set(factors) == set(matchboard.OUTCOMES)
+    assert factors == {"home": -0.5, "draw": 0.0, "away": 0.5}, (
+        "the entry tilts the home cell DOWN and the away cell UP as the home "
+        "side's unavailability rises; the draw's log-strength is untouched")
+
+    # and the code computes exactly that, from the entry's own exponents
+    p = {"home": 0.55, "draw": 0.25, "away": 0.20}
+    d = 0.37
+    weighted = {k: p[k] * np.exp(factors[k] * d) for k in p}
+    total = sum(weighted.values())
+    got = availarm.tilt(p, d)
+    for key in matchboard.OUTCOMES:
+        assert got[key] == pytest.approx(weighted[key] / total, abs=1e-15)
+    # and `adjust` composes it with the entry's own `d = k (f_h - f_a)`
+    assert availarm.adjust(p, 0.30, 0.10) == pytest.approx(
+        availarm.tilt(p, availarm.K_AVAIL * (0.30 - 0.10)), abs=1e-15)
+
+
+def test_the_status_ladder_in_the_code_is_the_table_the_amendment_prints():
+    """A12 (b)'s markdown table, rung for rung, read out of the entry."""
+    entry = _a12()
+    table = entry[entry.index("| status | `u_p` | note |"):]
+    table = table[:table.index("**The null default is 0.5")]
+    ruled: dict[str, str] = {}
+    for line in table.splitlines():
+        if not line.startswith("| ") or line.startswith("|---"):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if cells[0] == "status":
+            continue
+        ruled[cells[0]] = cells[1].strip("*").strip()
+
+    assert availarm.unavailability(_p(1, status="a")) == float(ruled["`a` (available)"])
+    assert availarm.unavailability(_p(1, status="i")) == float(ruled["`i` (injured)"])
+    assert availarm.unavailability(_p(1, status="s")) == float(ruled["`s` (suspended)"])
+
+    doubtful = ruled["`d` (doubtful)"].strip("*").replace("−", "-")
+    assert doubtful == "(100 - chance_of_playing_next_round) / 100"
+    for chance in (25, 50, 75, 100, 0):
+        assert availarm.unavailability(_p(1, status="d", chance=chance)) == \
+            (100 - chance) / 100
+    assert availarm.unavailability(_p(1, status="d")) == \
+        float(ruled["`d` with null chance"])
+
+    excluded = next(k for k in ruled if ruled[k] == "excluded")
+    assert set(re.findall(r"`(\w)`", excluded)) == set(availarm.EXCLUDED_STATUSES)
+    assert availarm.unavailability(_p(1, status="u")) is None
+    assert availarm.unavailability(_p(1, status="n")) is None
+    assert ruled["anything else"] == "refused"
+    with pytest.raises(availarm.StatusUnruled):
+        availarm.unavailability(_p(1, status="x"))
+
+
+def test_the_two_tolerances_are_the_ones_item_four_pre_states():
+    """A12 item 4 names both, and the r6 suite bound neither: a verifier
+    loosened to 1e-6 would have passed the whole file."""
+    entry = _a12()
+    item = entry[entry.index("**4. Invariants on every row"):]
+    item = item[:item.index("**5. The typed refusals")]
+    found = re.findall(r"\*\*(1e-\d+)\*\*", item)
+    assert sorted(set(found)) == ["1e-12", "1e-9"]
+
+    sum_clause = item[:item.index(";")]
+    assert "Σ q = 1" in sum_clause and "1e-9" in sum_clause
+    assert availarm.SUM_TOLERANCE == float("1e-9")
+    assert availarm.AVAIL_TOLERANCE == float("1e-12")
+    # and A12 (f) steps 3 and 4 name the same pair for the re-derivation
+    f_section = entry[entry.index("#### (f) Verification"):]
+    f_section = f_section[:f_section.index("#### (g)")]
+    assert sorted(set(re.findall(r"\*\*(1e-\d+)\*\*", f_section))) == \
+        ["1e-12", "1e-9"]
+
+
+def test_the_source_clock_never_reorders_our_own(tmp_path):
+    """A12 (h): "The arm binds only on `observed_at`. Snapshot selection never
+    reads `news_added` — not as a tiebreak, not as a filter."
+
+    Built so the two clocks CONTRADICT each other: the earlier pull carries
+    news stamped in the future of the fixture it would price, and the later
+    pull carries news three weeks older. If selection ever consulted the
+    source's clock, one of the two answers below would flip.
+    """
+    from epl.tests import test_availability as cap
+
+    raw, manifest = tmp_path / "raw", tmp_path / "manifest.jsonl"
+
+    def payload(news_added: str) -> dict:
+        return cap._payload(
+            [cap._player(i, team=(i % 20) + 1, minutes=90, status="a",
+                         news="", news_added=news_added)
+             for i in range(1, 41)],
+            teams=cap._team_rows(cap.FPL_TEAMS))
+
+    _hand_archive(raw, manifest, "2026-08-26T09:00:00Z",
+                  payload("2026-09-30T00:00:00Z"))     # news from the FUTURE
+    _hand_archive(raw, manifest, "2026-08-27T09:00:00Z",
+                  payload("2026-08-05T00:00:00Z"))     # news three weeks OLDER
+
+    early = availarm.snapshot_for("2026-08-26T12:00:00Z", raw_dir=raw,
+                                  manifest_path=manifest)
+    assert early.stamp == "20260826T090000Z", (
+        "the only line observed by then, whatever its news says")
+    assert early.squad("arsenal")[0]["news_added"] == "2026-09-30T00:00:00Z", (
+        "and the source's clock is carried verbatim, because the A12 (g) audit "
+        "wants the GAP between the two")
+
+    late = availarm.snapshot_for("2026-08-28T00:00:00Z", raw_dir=raw,
+                                 manifest_path=manifest)
+    assert late.stamp == "20260827T090000Z", (
+        "the LATEST observed_at wins even though its news_added is the older "
+        "of the two — a source restating its own history cannot move this "
+        "arm's information set")
