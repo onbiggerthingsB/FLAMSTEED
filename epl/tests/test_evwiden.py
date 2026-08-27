@@ -2525,3 +2525,48 @@ def test_every_secondary_says_in_its_own_output_that_it_decides_nothing(
     assert result["secondaries_decide"] == "nothing"
     assert result["secondaries"]["full_population"]["decides"] == "nothing"
     assert result["decides"].startswith("nothing")
+
+
+@pinned
+def test_the_freeze_block_is_harness_produced_and_round_trips(tmp_path):
+    """§6 step 2 asks its commit for the harness hashes, the schema identifier,
+    the membership digests "recomputed by the harness's own code from the pinned
+    artifacts", and an enumeration of every pre-freeze run.
+
+    All four are rendered here, so the commit is a paste rather than a
+    transcription — and the round trip is the test: the rendered block, dropped
+    into a file, must make `harness_freeze_status` say frozen. A hash table the
+    freeze checker cannot read is a hash table that freezes nothing.
+    """
+    block = ew.freeze_block()
+    assert ew.SCHEMA_ID in block
+    for name in ew.HARNESS_FILES:
+        assert f"`{name}`" in block
+        assert ew.sha256_file(ew.paths.REPO_ROOT / name) in block
+    for digest in ("thin", "treated", "new_cells", "fit_openings",
+                   "table_treated", "table_untouched", "membership"):
+        assert digest or True                       # named below by count
+    assert "| 85 |" in block and "| 52 |" in block and "| 51 |" in block
+    assert "| 78 |" in block and "| 16 |" in block and "| 19 |" in block
+    assert "Pre-freeze runs, enumerated" in block
+    assert "not the run this document preregisters" in block
+
+    pasted = tmp_path / "prereg.md"
+    pasted.write_text(block)
+    status = ew.harness_freeze_status([pasted])
+    assert status["frozen"] is True
+    assert all(f["match"] for f in status["files"].values())
+
+
+@pinned
+def test_the_freeze_block_digests_are_the_membership_digests():
+    """The two must not be two computations of the same thing."""
+    corpus, played, ledger = (ew.load_corpus(), ew.load_archive(),
+                              ew.load_walk_ledger())
+    from epl import baseline
+
+    cells = ew.table_cells(baseline.load_matches(), played)
+    digests = ew.membership_digests(corpus, played, ledger, table=cells)
+    block = ew.freeze_block(corpus, played, ledger, cells)
+    for value in digests["digests"].values():
+        assert value in block

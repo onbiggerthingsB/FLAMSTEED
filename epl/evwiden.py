@@ -144,7 +144,7 @@ __all__ = [
     "require_run_preconditions", "estimand", "adoption", "merge",
     "table_cells", "run_table", "score_table", "table_gate",
     "assert_table_identity",
-    "write_evidence", "verify", "harness_freeze_status",
+    "write_evidence", "verify", "freeze_block", "harness_freeze_status",
     "require_harness_freeze",
     "launch_script", "main",
 ]
@@ -3772,6 +3772,93 @@ def harness_freeze_status(sources: Sequence[Path] | None = None,
             "schema": SCHEMA_ID}
 
 
+def freeze_block(corpus: pd.DataFrame | None = None,
+                 played: pd.DataFrame | None = None,
+                 ledger: dict[str, set[str]] | None = None,
+                 table: Sequence[dict[str, Any]] | None = None,
+                 *, pre_freeze_runs: Sequence[str] | None = None) -> str:
+    """§6 step 2's follow-up commit, RENDERED BY THE HARNESS'S OWN CODE.
+
+    The document asks that commit for a hash table over every harness file —
+    "file, line count, SHA-256" — the schema identifier, the frozen membership
+    digests "each serialised canonically and hashed, recomputed by the harness's
+    own code from the pinned artifacts", and an enumeration of every pre-freeze
+    run.
+
+    Every one of those is computed here, so the freeze commit is a paste rather
+    than a transcription. A transcribed digest is a digest with a typo in it,
+    and §6's whole point is that "the design was fixed first" be checkable by a
+    reader who runs `shasum` — which it is not if the recorded hash and the file
+    disagree because somebody's clipboard truncated a hex string.
+
+    This function READS the pinned artifacts and fits nothing.
+    """
+    corpus = load_corpus() if corpus is None else corpus
+    played = load_archive() if played is None else played
+    ledger = load_walk_ledger() if ledger is None else ledger
+    if table is None:
+        from epl import baseline
+
+        table = table_cells(baseline.load_matches(), played)
+    digests = membership_digests(corpus, played, ledger, table=table)
+
+    lines = [
+        "### §6 step 2 — the harness hashes and the frozen membership",
+        "",
+        f"Schema identifier: `{SCHEMA_ID}`. Recomputed by "
+        "`python -m epl.evwiden --freeze-block` from the pinned artifacts of "
+        "§0.1, whose digests are unchanged.",
+        "",
+        "| file | lines | SHA-256 |",
+        "|---|---:|---|",
+    ]
+    for name in HARNESS_FILES:
+        path = paths.REPO_ROOT / name
+        lines.append(f"| `{name}` | {len(path.read_text().splitlines())} | "
+                     f"`{sha256_file(path)}` |")
+    lines += [
+        "",
+        "| membership | count | SHA-256 of the canonical serialisation |",
+        "|---|---:|---|",
+    ]
+    rows = (("the thin fixtures (§2.3)", "thin", "thin"),
+            ("the treated fixtures (§2.3)", "treated", "treated"),
+            ("the newly-flagged club-cutoff cells (§2.2)", "new_cells",
+             "new_cells"),
+            ("the fit openings (§2.3)", "fit_openings", "fit_openings"),
+            ("the treated table cells (§3.3)", "table_treated", "table_treated"),
+            ("the untouched table cells (§3.3)", "table_untouched",
+             "table_untouched"))
+    for label, count_key, digest_key in rows:
+        count = digests["counts"].get(count_key)
+        digest = digests["digests"].get(digest_key)
+        if count is None or digest is None:
+            continue
+        lines.append(f"| {label} | {count} | `{digest}` |")
+    lines += [
+        f"| the membership as one object | — | "
+        f"`{digests['digests']['membership']}` |",
+        "",
+        "Pre-freeze runs, enumerated (§5.3 — none of them a fit, none of them "
+        "able to enter an estimand):",
+        "",
+    ]
+    for run in (pre_freeze_runs or (
+            "`python -m epl.evwiden --membership` and `--plan` — read the "
+            "pinned corpus, archive and ledger; compute the digests above",
+            "`python -m epl.evwiden --canary --no-results-canary --dir "
+            "<scratch>` — §5.3's evidence canary on the real archive, store "
+            "built in a temporary root",
+            "`pytest epl/tests/test_evwiden.py` — the synthetic corpora, plus "
+            "the `@pinned` tests that re-derive the census and the membership",
+    )):
+        lines.append(f"* {run}")
+    lines.append("")
+    lines.append("*If any hash differs at the time the run is executed, it is "
+                 "not the run this document preregisters.*")
+    return "\n".join(lines) + "\n"
+
+
 def require_harness_freeze(sources: Sequence[Path] | None = None,
                            ) -> dict[str, Any]:
     """Refuse anything that would score fits taken before §6's freeze commit.
@@ -3993,6 +4080,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                          "evidence and the shard ledgers; changes nothing")
     ap.add_argument("--evidence", action="store_true",
                     help="write §6's evidence files under reports/evidence/")
+    ap.add_argument("--freeze-block", dest="freeze_block", action="store_true",
+                    help="print §6 step 2's hash table and membership digests, "
+                         "recomputed from the pinned artifacts; fits nothing")
     ap.add_argument("--script", action="store_true",
                     help="write the detached-launch runner into the run "
                          "directory and print the nohup line")
@@ -4032,6 +4122,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "note": "§2.4: a detached run goes through a nohup'd SCRIPT "
                         "FILE, never a stdin heredoc.",
             }, indent=2))
+
+        if args.freeze_block:
+            print(freeze_block(), end="")
 
         if args.plan or args.membership:
             corpus, played = load_corpus(), load_archive()
