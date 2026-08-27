@@ -825,10 +825,27 @@ def test_the_status_command_prints_and_exits_zero(monkeypatch, tmp_path, capsys)
 # --------------------------------------------------------------------------
 def test_the_capture_is_standalone_and_wired_into_no_model():
     """A11: nothing enters a model without its own preregistration through the
-    covariate gate. The cheapest way to keep that true is for the live cycle
-    not to import this module at all."""
-    source = Path(av.__file__).with_name("livecycle.py").read_text(encoding="utf-8")
-    assert "availability" not in source
+    covariate gate.
+
+    THE BOUNDARY MOVED BY RULING, NOT BY EDIT. A11's version of this test
+    asserted that `epl/livecycle.py` did not contain the STRING "availability".
+    A12 is the preregistration A11 asked for — for the SHADOW use only — and
+    A12 (e) authorises exactly this re-scope, naming it before the code was
+    written so the softening of a guard traces to a dated ruling rather than to
+    a diff somebody hoped went unread. What replaces the string is the fact the
+    string stood in for: `epl.availarm` is the ONLY bridge, so the live cycle
+    imports it and never this module, and this module still imports no model.
+    The gate is untouched and its only verdict remains UNVALIDATED; the
+    PUBLISHED law would need a gate run plus its own amendment.
+    """
+    cycle = Path(av.__file__).with_name("livecycle.py").read_text(encoding="utf-8")
+    for forbidden in ("import epl.availability", "from epl import availability",
+                      "from epl.availability import"):
+        assert forbidden not in cycle, (
+            f"{forbidden!r} in the live cycle: A12 (e) makes `epl.availarm` "
+            "the only authorised bridge to this archive")
+    assert "from epl import availarm" in cycle or "availarm," in cycle, (
+        "the live cycle reaches A12's arm through `epl.availarm` or not at all")
 
     text = Path(av.__file__).read_text(encoding="utf-8")
     for forbidden in ("import epl.leaguesim", "from epl import leaguesim",

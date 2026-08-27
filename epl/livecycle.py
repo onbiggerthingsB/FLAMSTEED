@@ -11,7 +11,7 @@ forecast, no table and no score of its own, and every number it prints was
 produced by machinery that already has its own suite and its own refusals. Its
 job is sequencing, sourcing, cross-checking, and stopping.
 
-Nine steps, each gated on the one before it:
+Ten steps, each gated on the one before it:
 
   1. the odds snapshot, on Tuesdays and Fridays (UTC), via `epl.oddscapture`
   2. fetch BOTH result sources
@@ -21,7 +21,17 @@ Nine steps, each gated on the one before it:
   6. `check` the new bundle, and demand EXACTLY the designed refusal
   7. score the matchboard of the PRIOR issuance that priced those fixtures
   8. score the A8 shadow ledger from the same bundle
-  9. print one screen: ingested, issued, the headline moves, rows appended
+  9. score the A12 availability shadow ledger from the same bundle
+ 10. print one screen: ingested, issued, the headline moves, rows appended
+
+THE TWO SHADOW ARMS ARE SCORED, NOT PUBLISHED. Steps 8 and 9 file into their
+own append-only ledgers and move no number this project publishes. Step 9 is
+A12's `dc_1x2_avail`, reached through :mod:`epl.availarm` — the only bridge
+A12 (e) authorises between the A11 availability capture and this cycle. This
+module does not import :mod:`epl.availability`, reads no snapshot and decides
+no abstention: when the archive cannot answer an issuance's knowledge clock the
+arm files an abstention ROW, which is a record rather than a step that was
+skipped.
 
 A NO-OP DAY IS THE COMMON CASE. No new results and a fresh issuance means the
 cycle says so and exits 0. Running it daily has to be safe, or it will not be
@@ -112,8 +122,9 @@ from typing import Any, Callable, Mapping, Sequence
 
 import pandas as pd
 
-from epl import (fetch, leaguesim, matchboard, oddscapture, paths, recal,
-                 recalfit, recalshadow, season as season_mod, simcli, teams)
+from epl import (availarm, fetch, leaguesim, matchboard, oddscapture, paths,
+                 recal, recalfit, recalshadow, season as season_mod, simcli,
+                 teams)
 
 __all__ = [
     "LiveCycleError", "SourceUnreachable", "SourceMalformed",
@@ -826,7 +837,7 @@ def refuse_an_unsafe_launch(argv: Sequence[str] | None = None) -> None:
 
 
 # ==========================================================================
-# 7. the four heavy steps, as the cycle calls them
+# 7. the five heavy steps, as the cycle calls them
 # ==========================================================================
 # Each is a thin wrapper over machinery that already has its own suite. They
 # are parameters of `run_cycle` with these as defaults, so the tests can drive
@@ -882,11 +893,44 @@ def _step_shadow(*, directory, results_file, ledger, season_root,
     return {"appended": appended, "repeated": 0, "ledger": str(ledger)}
 
 
+def _step_avail(*, directory, results_file, ledger, season_root,
+                verbose: bool) -> dict:
+    """Step 9 — `python -m epl.availarm score` (A12 (e)), the second challenger.
+
+    The sibling of step 8 and deliberately its twin: same bundle, same results
+    file, its own ledger, called through the module's own ``main`` so the
+    operator's command and the cycle's step cannot answer differently. A
+    non-zero exit is this cycle's refusal and `availarm` has already printed its
+    own STOP line above it.
+
+    A12 (e) moved ONE boundary to let this exist and no more: this module
+    imports :mod:`epl.availarm`, which is the only authorised bridge to the A11
+    capture, and never :mod:`epl.availability` itself. Nothing here reads the
+    archive, decides an abstention or scores a row — the arm does all three, and
+    an abstention is a row it files rather than a step this cycle skips.
+    """
+    del verbose
+    before = _count_lines(ledger)
+    argv = ["score", "--directory", str(directory), "--results",
+            str(results_file), "--ledger", str(ledger)]
+    if season_root is not None:
+        argv += ["--season-root", str(season_root)]
+    code = availarm.main(argv)
+    if code != 0:
+        raise ScorecardMismatch(
+            f"`python -m epl.availarm score` refused (exit {code}) for "
+            f"{directory}. Its own STOP line is printed above this one; "
+            "nothing further in the cycle ran.")
+    appended = _count_lines(ledger) - before
+    return {"appended": appended, "repeated": 0, "ledger": str(ledger)}
+
+
 DEFAULT_STEPS: dict[str, Callable[..., Any]] = {
     "forecast": _step_forecast,
     "check": _step_check,
     "matchboard": _step_matchboard,
     "shadow": _step_shadow,
+    "avail": _step_avail,
 }
 
 
@@ -1073,14 +1117,14 @@ def run_cycle(*, now=None, season: str = simcli.DEFAULT_SEASON, root=None,
               allow_single_source: bool = False, dry_run: bool = False,
               skip_odds_snapshot: bool = False,
               out_root=None, derived_root=None, snapshot_dir=None,
-              shadow_ledger=None, journal=None,
+              shadow_ledger=None, avail_ledger=None, journal=None,
               fetchers: Mapping[str, Callable[[str], str]] | None = None,
               odds_fetcher: Callable[[str], bytes] | None = None,
               steps: Mapping[str, Callable[..., Any]] | None = None,
               board_reader: Callable[[Path], dict] | None = None,
               arms: Sequence[str] | None = None,
               stream=None, verbose: bool = True) -> dict[str, Any]:
-    """THE CYCLE. Nine steps, each gated on the one before it.
+    """THE CYCLE. Ten steps, each gated on the one before it.
 
     ``now`` is an INPUT and the only clock this function reads: the boundary
     (:func:`main`) reads the wall clock, the library does not. Move the machine's
@@ -1088,7 +1132,7 @@ def run_cycle(*, now=None, season: str = simcli.DEFAULT_SEASON, root=None,
     what makes a re-run of a recorded cycle a re-run rather than a new one.
 
     Everything that touches the world is injectable and defaults to the real
-    thing: the two result fetchers, the odds fetcher, the four heavy steps, and
+    thing: the two result fetchers, the odds fetcher, the five heavy steps, and
     the matchboard reader that decides which bundle scores a result. That is
     how the suite runs without a network and without a simulation, and it is
     also how an operator can rehearse one step at a time.
@@ -1106,6 +1150,8 @@ def run_cycle(*, now=None, season: str = simcli.DEFAULT_SEASON, root=None,
                     else Path(derived_root))
     shadow_ledger = (recalshadow.SHADOW_PATH if shadow_ledger is None
                      else Path(shadow_ledger))
+    avail_ledger = (availarm.SHADOW_PATH if avail_ledger is None
+                    else Path(avail_ledger))
     arms = tuple(simcli.ARMS if arms is None else arms)
 
     now = pd.Timestamp.now("UTC") if now is None else pd.Timestamp(now)
@@ -1140,6 +1186,7 @@ def run_cycle(*, now=None, season: str = simcli.DEFAULT_SEASON, root=None,
         "check": None,
         "scorecard": None,
         "shadow": None,
+        "avail": None,
         "digests": {},
     }
 
@@ -1157,7 +1204,8 @@ def run_cycle(*, now=None, season: str = simcli.DEFAULT_SEASON, root=None,
                       allow_single_source=allow_single_source, dry_run=dry_run,
                       skip_odds_snapshot=skip_odds_snapshot, out_root=out_root,
                       derived_root=derived_root, snapshot_dir=snapshot_dir,
-                      shadow_ledger=shadow_ledger, fetchers=fetchers,
+                      shadow_ledger=shadow_ledger, avail_ledger=avail_ledger,
+                      fetchers=fetchers,
                       odds_fetcher=odds_fetcher, steps=steps,
                       board_reader=board_reader, verbose=verbose)
     except REFUSALS as exc:
@@ -1176,9 +1224,9 @@ def run_cycle(*, now=None, season: str = simcli.DEFAULT_SEASON, root=None,
 
 def _run(entry, *, now, observed_at, cutoff, season, root, arms,
          allow_single_source, dry_run, skip_odds_snapshot, out_root,
-         derived_root, snapshot_dir, shadow_ledger, fetchers, odds_fetcher,
-         steps, board_reader, verbose) -> dict[str, Any]:
-    """The nine steps. Mutates `entry` as it goes, so a STOP is journalled with
+         derived_root, snapshot_dir, shadow_ledger, avail_ledger, fetchers,
+         odds_fetcher, steps, board_reader, verbose) -> dict[str, Any]:
+    """The ten steps. Mutates `entry` as it goes, so a STOP is journalled with
     everything that had already run rather than with an empty record."""
     season_obj = season_mod.Season.load(season, root=root)
     # Read the ledger's clocks BEFORE anything writes: a ledger this cycle
@@ -1365,7 +1413,7 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
             entry["check"] = parse_check_report(steps["check"](
                 directory, verbose=verbose))
 
-    # --- 7 + 8. score every resolved fixture the scorecards do not carry --
+    # --- 7 + 8 + 9. score every resolved fixture the scorecards do not carry -
     # NOT `if written`. A refusal between the ingest write (step 4) and here
     # leaves results on the ledger that nothing ever scores, because the next
     # run has nothing in `ingestable` — the ledger already resolves them. The
@@ -1411,6 +1459,7 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
 
         board_tally = {"appended": 0, "repeated": 0, "bundles": []}
         shadow_tally = {"appended": 0, "repeated": 0, "bundles": []}
+        avail_tally = {"appended": 0, "repeated": 0, "bundles": []}
         tag = f"livecycle/{cutoff}"
         with tempfile.TemporaryDirectory(prefix="livecycle-score-") as tmp:
             for bundle, fids in sorted(groups.items()):
@@ -1432,7 +1481,15 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
                 shadow = steps["shadow"](
                     directory=bundle, results_file=results_file,
                     ledger=shadow_ledger, season_root=root, verbose=verbose)
-                for tally, got in ((board_tally, board), (shadow_tally, shadow)):
+                # Step 9 — A12's arm, on the SAME bundle and the SAME results
+                # file, so the two challengers are scored against exactly what
+                # the matchboard was. An abstention is a row the arm files, not
+                # a step this cycle skips.
+                avail = steps["avail"](
+                    directory=bundle, results_file=results_file,
+                    ledger=avail_ledger, season_root=root, verbose=verbose)
+                for tally, got in ((board_tally, board), (shadow_tally, shadow),
+                                   (avail_tally, avail)):
                     tally["appended"] += int(got.get("appended", 0))
                     tally["repeated"] += int(got.get("repeated", 0))
                     tally["bundles"].append(paths.rel(bundle))
@@ -1440,11 +1497,13 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
         board_tally["unscoreable"] = unscoreable
         entry["scorecard"] = board_tally
         entry["shadow"] = shadow_tally
+        entry["avail"] = avail_tally
         entry["digests"]["matchboard_scorecard"] = simcli.sha256_file(
             Path(derived_root) / simcli.SCORECARD_FILENAME)
         entry["digests"]["recal_shadow"] = simcli.sha256_file(shadow_ledger)
+        entry["digests"]["avail_shadow"] = simcli.sha256_file(avail_ledger)
 
-    # --- 9. what happened -------------------------------------------------
+    # --- 10. what happened ------------------------------------------------
     if dry_run:
         entry["outcome"] = "planned"
     elif written or entry["issuance"] is not None:
@@ -1598,7 +1657,8 @@ def render_summary(entry: Mapping[str, Any]) -> str:
                 f"{r['club']} {r['was']:.3f}->{r['p']:.3f} "
                 f"({r['delta']:+.3f})" for r in rows))
 
-    for key, label in (("scorecard", "scorecard"), ("shadow", "shadow")):
+    for key, label in (("scorecard", "scorecard"), ("shadow", "shadow"),
+                       ("avail", "avail")):
         cell = entry.get(key)
         if cell is None:
             lines.append(f"{label:<11} nothing to score")
@@ -1656,7 +1716,7 @@ def main(argv: Sequence[str] | None = None, **overrides) -> int:
     """`STOP: <TypeName>: <message>` on stderr, exit 2 — simcli's convention.
 
     ``**overrides`` go straight to :func:`run_cycle` and are the seam the tests
-    drive: the clock, the fetchers and the four heavy steps. Nothing on the
+    drive: the clock, the fetchers and the five heavy steps. Nothing on the
     command line can set them, because a cadence command whose sources could be
     swapped from the shell is a cadence command that can be told what happened.
     """

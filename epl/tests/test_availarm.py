@@ -1096,3 +1096,89 @@ def test_the_committed_shadow_ledger_is_this_schema_and_nothing_else():
         fields = (availarm.ABSTENTION_FIELDS if availarm.is_abstention(row)
                   else availarm.ROW_FIELDS)
         assert tuple(row) == fields
+
+
+# ==========================================================================
+# 9. the live cycle's step 9, and the boundary A12 (e) moved
+# ==========================================================================
+
+def test_the_cycle_gains_step_nine_and_calls_it_through_the_arms_own_main():
+    from epl import livecycle
+
+    assert livecycle.DEFAULT_STEPS["avail"] is livecycle._step_avail
+    assert list(livecycle.DEFAULT_STEPS) == ["forecast", "check", "matchboard",
+                                             "shadow", "avail"]
+
+
+def test_availarm_is_the_only_bridge_between_the_capture_and_the_cycle():
+    """A12 (e), as executable rule. The capture module imports no model module
+    (unchanged); `epl/livecycle.py` does not import `epl.availability` DIRECTLY;
+    and `epl.availarm` imports both sides, because it is the authorised bridge.
+
+    Asserted over the import graph rather than over a substring: the live cycle
+    now legitimately mentions availability in its prose, and a string test would
+    have to be softened again the first time it did.
+    """
+    import ast
+
+    def imports_of(module) -> set[str]:
+        tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+        names: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names |= {alias.name for alias in node.names}
+            elif isinstance(node, ast.ImportFrom):
+                base = node.module or ""
+                names |= {f"{base}.{alias.name}" for alias in node.names}
+        return names
+
+    from epl import livecycle
+
+    cycle = imports_of(livecycle)
+    assert "epl.availability" not in cycle
+    assert "epl.availarm" in cycle
+
+    arm = imports_of(availarm)
+    assert "epl.availability" in arm and "epl.matchboard" in arm
+
+    capture = imports_of(av)
+    assert not any(name.startswith("epl.availarm") for name in capture)
+    for forbidden in ("epl.leaguesim", "epl.particles", "epl.elo", "epl.fit"):
+        assert forbidden not in capture
+
+
+def test_a_dry_run_scores_nothing_and_writes_no_avail_row(tmp_path):
+    """The cycle's dry run has not ingested, so it must not score — and that
+    holds for step 9 exactly as it holds for steps 7 and 8."""
+    from epl.tests import test_livecycle as lc
+
+    ledger = tmp_path / "avail.jsonl"
+    out = lc._cycle(tmp_path, dry_run=True, avail_ledger=ledger)
+    assert out["avail"] is None
+    assert out["_steps"].named("avail") == []
+    assert not ledger.exists()
+
+
+def test_the_cycle_scores_the_avail_arm_from_the_same_bundle_and_rows(tmp_path):
+    from epl.tests import test_livecycle as lc
+
+    out = lc._cycle(tmp_path)
+    board_call = out["_steps"].named("matchboard")[0]
+    avail_call = out["_steps"].named("avail")[0]
+    assert avail_call["directory"] == board_call["directory"]
+    assert avail_call["rows"] == board_call["rows"]
+    assert out["avail"]["appended"] == len(lc.MW1_SCORES)
+    assert "avail_shadow" in out["digests"]
+
+
+def test_the_step_turns_a_refusal_into_this_cycles_refusal(tmp_path):
+    """Mirrors step 8: a non-zero exit from the arm's own `main` is the cycle's
+    refusal, and the arm has already printed its STOP line above it."""
+    from epl import livecycle
+
+    with pytest.raises(livecycle.ScorecardMismatch, match="epl.availarm"):
+        livecycle._step_avail(directory=tmp_path / "nowhere",
+                              results_file=tmp_path / "none.jsonl",
+                              ledger=tmp_path / "avail.jsonl",
+                              season_root=None, verbose=False)
+    assert not (tmp_path / "avail.jsonl").exists()

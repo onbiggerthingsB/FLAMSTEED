@@ -625,12 +625,13 @@ def test_a_module_launch_is_allowed(monkeypatch):
 # ==========================================================================
 
 class _Steps:
-    """Recording stand-ins for the four heavy steps.
+    """Recording stand-ins for the five heavy steps.
 
     The real ones are `simcli.forecast`, `simcli.check_issuance`,
-    `simcli.derive_matchboard` and `epl.recal`'s `score`; each has its own
-    suite and none of them is re-tested here. What IS under test is that the
-    cycle calls them, in order, with the right clocks and the right bundle.
+    `simcli.derive_matchboard`, `epl.recal`'s `score` and `epl.availarm`'s;
+    each has its own suite and none of them is re-tested here. What IS under
+    test is that the cycle calls them, in order, with the right clocks and the
+    right bundle.
     """
 
     def __init__(self, *, gate_pass: bool = True, report=None):
@@ -640,7 +641,8 @@ class _Steps:
 
     def as_dict(self) -> dict:
         return {"forecast": self.forecast, "check": self.check,
-                "matchboard": self.matchboard, "shadow": self.shadow}
+                "matchboard": self.matchboard, "shadow": self.shadow,
+                "avail": self.avail}
 
     def forecast(self, **kw):
         self.calls.append(("forecast", kw))
@@ -671,6 +673,18 @@ class _Steps:
     def shadow(self, **kw):
         rows = _results_rows(kw["results_file"])
         self.calls.append(("shadow", {**kw, "rows": rows}))
+        return {"appended": len(rows), "repeated": 0, "ledger": str(kw["ledger"])}
+
+    def avail(self, **kw):
+        """Step 9's stand-in, and the twin of `shadow` because the step is.
+
+        A12's arm files a row per fixture whether it prices one or abstains, so
+        the count this returns is the count `shadow` returns: what the cycle is
+        held to here is that it CALLED the step with the same bundle and the
+        same results file, not what the arm does with them.
+        """
+        rows = _results_rows(kw["results_file"])
+        self.calls.append(("avail", {**kw, "rows": rows}))
         return {"appended": len(rows), "repeated": 0, "ledger": str(kw["ledger"])}
 
     def named(self, name: str) -> list[dict]:
@@ -714,6 +728,10 @@ def _cycle(tmp_path, *, of_scores=None, e0_scores=None, ledger=None,
         "now": NOW, "root": root, "out_root": tmp_path / "issuances",
         "derived_root": tmp_path / "derived",
         "shadow_ledger": tmp_path / "derived" / "shadow.jsonl",
+        # Step 9's ledger, pinned into `tmp_path` for the same reason step 8's
+        # is: the real default is the COMMITTED `reports/epl_avail_shadow.jsonl`
+        # and a suite that wrote into it would be filing rows nobody ruled.
+        "avail_ledger": tmp_path / "derived" / "avail.jsonl",
         "journal": tmp_path / "journal.jsonl",
         "snapshot_dir": tmp_path / "snapshots",
         "fetchers": {livecycle.SOURCE_A: of_fetch,
