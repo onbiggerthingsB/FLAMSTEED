@@ -1540,3 +1540,84 @@ def test_the_one_screen_prints_the_abstention_count_beside_the_denominator():
     screen = livecycle.render_summary(entry)
     assert "2 abstention(s)" in screen
     assert "0 scored" in screen
+
+
+# ==========================================================================
+# 15. malformed bytes are a typed refusal, not a traceback (r7 M1)
+# ==========================================================================
+#: A12 item 5: every refusal "deriving from `AvailArmError`, caught by
+#: `main()`, printing `STOP: …`, exiting 2". A truncated container and a
+#: half-written ledger line escaped that family entirely and came out as
+#: `EOFError` and `json.JSONDecodeError` tracebacks — the exact defect the STOP
+#: convention exists to stop.
+
+def _corrupt_the_archive(raw: Path, *, junk: bool = False) -> Path:
+    """A container the archive cannot open — truncated, or not gzip at all."""
+    blob = next(raw.glob("*.json.gz"))
+    blob.write_bytes(b"not a gzip container at all" if junk else
+                     gzip.compress(b'{"elements": []}' * 100, mtime=0)[:20])
+    return blob
+
+
+def test_a_truncated_container_is_a_typed_refusal_on_the_read_side(tmp_path):
+    raw, manifest = tmp_path / "raw", tmp_path / "manifest.jsonl"
+    _archive(raw, manifest, "2026-08-26T09:00:00Z")
+    _corrupt_the_archive(raw)
+    with pytest.raises(availarm.SnapshotDigestMismatch, match="gzip"):
+        availarm.snapshot_for("2026-08-27T09:00:00Z", raw_dir=raw,
+                              manifest_path=manifest)
+    _corrupt_the_archive(raw, junk=True)
+    with pytest.raises(availarm.SnapshotDigestMismatch, match="gzip"):
+        availarm.snapshot_for("2026-08-27T09:00:00Z", raw_dir=raw,
+                              manifest_path=manifest)
+
+
+def test_a_truncated_container_is_a_typed_refusal_in_the_verifier(tmp_path):
+    bits = _verifiable(tmp_path)
+    _corrupt_the_archive(bits["raw"])
+    with pytest.raises(availarm.SnapshotDigestMismatch, match="gzip"):
+        _reverify(bits)
+
+
+def test_payload_bytes_that_are_not_json_are_a_typed_refusal(tmp_path):
+    raw, manifest = tmp_path / "raw", tmp_path / "manifest.jsonl"
+    _archive(raw, manifest, "2026-08-26T09:00:00Z")
+    blob = next(raw.glob("*.json.gz"))
+    junk = b"<html>service unavailable</html>"
+    blob.write_bytes(gzip.compress(junk, mtime=0))
+    line = json.loads(manifest.read_text(encoding="utf-8").splitlines()[0])
+    line["sha256"] = av.sha256_bytes(junk)
+    manifest.write_text(json.dumps(line, sort_keys=True) + "\n", encoding="utf-8")
+    with pytest.raises(av.AvailabilitySchemaDrift, match="not JSON"):
+        availarm.snapshot_for("2026-08-27T09:00:00Z", raw_dir=raw,
+                              manifest_path=manifest)
+
+
+def test_a_half_written_ledger_line_is_a_typed_refusal_naming_the_line(
+        tmp_path):
+    path = tmp_path / "avail.jsonl"
+    availarm.append_shadow(path, _rows(_even_view()))
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write('{"fixture_id": "2627:charlie:delta", "arm"\n')
+    with pytest.raises(availarm.SchemaMismatch, match="line 2"):
+        availarm.read_shadow(path)
+
+
+def test_a_half_written_results_line_is_a_typed_refusal_naming_the_line(
+        tmp_path):
+    results = tmp_path / "results.jsonl"
+    results.write_text('{"fixture_id": "2627:alpha:bravo"}\n{"broken"\n',
+                       encoding="utf-8")
+    with pytest.raises(availarm.AvailArmError, match="line 2"):
+        availarm.read_results(results)
+
+
+def test_every_malformed_byte_case_leaves_the_command_at_STOP_and_exit_2(
+        tmp_path, capsys):
+    bits = _verifiable(tmp_path)
+    _corrupt_the_archive(bits["raw"])
+    code = availarm.main(["verify", "--ledger", str(bits["path"]),
+                          "--raw-dir", str(bits["raw"]),
+                          "--manifest", str(bits["manifest"])])
+    assert code == 2
+    assert capsys.readouterr().err.startswith("STOP: SnapshotDigestMismatch:")

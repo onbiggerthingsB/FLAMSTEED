@@ -889,13 +889,36 @@ def shadow_key(row: Mapping[str, Any]) -> tuple[str, str]:
     return (str(row.get("fixture_id")), str(row.get("run_digest")))
 
 
+def _read_jsonl(target: Path, what: str, refusal) -> list[dict]:
+    """JSONL, or a TYPED refusal naming the line. Never a bare traceback.
+
+    A half-written line — an interrupted append, a hand edit — came out of
+    `json.loads` as a `JSONDecodeError`, which `main()` does not catch and
+    which names a column in a string nobody can see. A12 item 5 puts every
+    refusal in one family, printed as STOP and exited 2.
+    """
+    out: list[dict] = []
+    for lineno, line in enumerate(
+            target.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError as exc:
+            raise refusal(
+                f"{target}: {what} line {lineno} is not JSON ({exc}). A "
+                "half-written line is an interrupted append or a hand edit, "
+                "and either way nothing after it can be trusted to be what was "
+                "filed") from exc
+    return out
+
+
 def read_shadow(path=None) -> list[dict]:
     """Every row on file, in the order they were appended. Missing is empty."""
     target = Path(SHADOW_PATH if path is None else path)
     if not target.exists():
         return []
-    return [json.loads(line) for line in
-            target.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return _read_jsonl(target, "shadow ledger", SchemaMismatch)
 
 
 def check_writable(row: Mapping[str, Any]) -> None:
@@ -1041,9 +1064,15 @@ def check_snapshot(row: Mapping[str, Any], *, lines: Sequence[dict],
         raise SnapshotMissing(
             f"{row.get('fixture_id')}: the manifest attests {path.name} and "
             f"the archive does not hold it ({path})")
-    import gzip                                     # deferred: only verify reads bytes
-
-    digest = availability.sha256_bytes(gzip.decompress(path.read_bytes()))
+    # Through the capture's own reader, which turns a truncated or non-gzip
+    # container into `SnapshotDigestMismatch` rather than an `EOFError` that
+    # `main()` does not catch (A12 item 5: every refusal in the family, STOP,
+    # exit 2).
+    try:
+        blob = availability.read_payload_bytes(path)
+    except availability.SnapshotDigestMismatch as exc:
+        raise SnapshotDigestMismatch(str(exc)) from exc
+    digest = availability.sha256_bytes(blob)
     for label, expected in (("the manifest", line["sha256"]),
                             ("this row", row.get("snapshot_sha256"))):
         if digest != expected:
@@ -1317,8 +1346,7 @@ def read_results(path) -> list[dict]:
             f"{target} does not exist. The results file is the REQUEST to "
             "score, and a missing one is a mistyped `--results` rather than a "
             "run with nothing to do")
-    return [json.loads(line) for line in
-            target.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return _read_jsonl(target, "results", AvailArmError)
 
 
 def score_bundle(source, results_file, *, ledger_path=None, season_root=None,

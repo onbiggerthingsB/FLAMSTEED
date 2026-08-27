@@ -103,6 +103,7 @@ import hashlib
 import json
 import re
 import sys
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -126,6 +127,7 @@ __all__ = [
     "NoSnapshotAsOf", "SnapshotMissing", "SnapshotDigestMismatch",
     "AS_OF_FIELDS", "AS_OF_PLAYER_FIELDS", "CHANCE_BOUNDS", "AsOfSnapshot",
     "select_manifest_line", "as_of", "instant", "instant_of_stamp",
+    "read_payload_bytes", "parse_payload",
 ]
 
 BOOTSTRAP_URL = "https://fantasy.premierleague.com/api/bootstrap-static/"
@@ -1100,6 +1102,36 @@ def _domain(element: Any) -> None:
                 "the switchover picks — none of which is a share of anything")
 
 
+def read_payload_bytes(path: Path) -> bytes:
+    """The decompressed payload, or a TYPED refusal — never a traceback.
+
+    A truncated or non-gzip container escaped the refusal family entirely and
+    surfaced as `EOFError` / `BadGzipFile`, which `main()` does not catch. It is
+    a digest question in substance: the bytes on disk are not the bytes that
+    were attested, and here they are not even bytes anything can hash.
+    """
+    try:
+        return gzip.decompress(path.read_bytes())
+    except (OSError, EOFError, zlib.error) as exc:
+        raise SnapshotDigestMismatch(
+            f"{path.name} is not readable as gzip ({type(exc).__name__}: "
+            f"{exc}). The bytes are the record, and a container this archive "
+            "cannot open holds no record at all — so nothing read out of it is "
+            "what the manifest attested") from exc
+
+
+def parse_payload(blob: bytes, path: Path) -> Any:
+    """The payload, or a TYPED refusal. Same reasoning, one layer up."""
+    try:
+        return json.loads(blob)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise AvailabilitySchemaDrift(
+            f"{path.name} decompresses to {len(blob)} bytes that are not JSON "
+            f"({exc}) — an error page stored under a snapshot's name is the "
+            "source having been unavailable in substance, and it is not a "
+            "payload this rule can read") from exc
+
+
 def _as_of_player(element: Any, team_keys: dict[int, str]) -> dict:
     team_id = int(element["team"])
     if team_id not in team_keys:
@@ -1171,7 +1203,7 @@ def as_of(clock, *, raw_dir: Path | str | None = None,
             f"the archive does not hold it ({path}). The bytes are the record; "
             "a reader that carried on without them would be reading the "
             "attestation instead")
-    blob = gzip.decompress(path.read_bytes())
+    blob = read_payload_bytes(path)
     digest = sha256_bytes(blob)
     if digest != line["sha256"]:
         raise SnapshotDigestMismatch(
@@ -1181,7 +1213,7 @@ def as_of(clock, *, raw_dir: Path | str | None = None,
 
     manifest = season_mod.load_manifest(
         season, **({"root": season_root} if season_root is not None else {}))
-    payload = json.loads(blob)
+    payload = parse_payload(blob, path)
     assert_schema(payload, n_clubs=len(manifest.clubs))
     team_keys = team_key_map(payload, manifest)
 
