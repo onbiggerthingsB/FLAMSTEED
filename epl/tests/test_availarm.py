@@ -146,8 +146,14 @@ def _squad(n: int, *, team_key: str, minutes: int = 0, now_cost: int = 50,
                now_cost=now_cost) for i in range(n)]
 
 
-def _view(squads: dict[str, list[dict]], *, stamp: str = "20260827T023039Z",
-          observed_at: str = "2026-08-27T02:30:39Z",
+#: PIT-CLEAN BY DEFAULT. `_board()`'s knowledge clock is 2026-08-21 00:00:00,
+#: so the default synthetic view is observed the day BEFORE it. The committed
+#: r6 suite defaulted to the real 2026-08-27 pull — six days after the board it
+#: priced — and every scoring test in it was therefore exercising the side door
+#: A12 (b) never authorised. A view observed after the clock is now a case a
+#: test has to ASK for, and section 10 asks for it.
+def _view(squads: dict[str, list[dict]], *, stamp: str = "20260820T090000Z",
+          observed_at: str = "2026-08-20T09:00:00Z",
           sha256: str = "ce" * 32) -> av.AsOfSnapshot:
     return av.AsOfSnapshot(
         stamp=stamp, observed_at=observed_at, sha256=sha256,
@@ -422,7 +428,7 @@ def test_a_scored_row_carries_every_field_A12_names_and_nothing_else():
     assert row["arm"] == availarm.ARM == "dc_1x2_avail"
     assert row["rule_version"] == availarm.RULE_VERSION == "dc-1x2-avail-1"
     assert row["k_avail"] == availarm.K_AVAIL == 1.0
-    assert row["snapshot_stamp"] == "20260827T023039Z"
+    assert row["snapshot_stamp"] == "20260820T090000Z"
     assert row["snapshot_sha256"] == "ce" * 32
     assert row["weight_basis_home"] == row["weight_basis_away"] == "minutes"
     # A7 (f), carried onto this surface too: no benchmark comparison column
@@ -1182,3 +1188,66 @@ def test_the_step_turns_a_refusal_into_this_cycles_refusal(tmp_path):
                               ledger=tmp_path / "avail.jsonl",
                               season_root=None, verbose=False)
     assert not (tmp_path / "avail.jsonl").exists()
+
+
+# ==========================================================================
+# 10. the side door, shut — the PIT guard is on the WRITE path (r7 B1)
+# ==========================================================================
+#: A12 (b) selects a snapshot by OUR clock: "keep the lines whose `observed_at`
+#: is at or before the issuance's `observed_by`". Until r7 that rule lived only
+#: in the canonical selector, and `score`/`append_shadow` took whatever
+#: `AsOfSnapshot` a caller handed them — so a board observed 2026-08-21 could be
+#: priced with a snapshot pulled on 2026-08-27 and the row filed without a
+#: murmur. These tests hold the guard where the row is MADE and where it is
+#: WRITTEN, because those are the two places a fabricated information set
+#: actually becomes a record.
+
+def _future_view() -> av.AsOfSnapshot:
+    """The `_even_view()` squads, observed six days AFTER the board's clock."""
+    home = _squad(11, team_key="alpha", minutes=270)
+    away = _squad(11, team_key="bravo", minutes=270, first=101)
+    home[0] = {**home[0], "status": "i"}
+    return _view({"alpha": home, "bravo": away},
+                 stamp="20260827T023039Z",
+                 observed_at="2026-08-27T02:30:39Z")
+
+
+def test_scoring_refuses_a_snapshot_observed_after_the_issuance_clock():
+    """The side door A12 (b) never authorised, shut at the scoring path.
+
+    `snapshot_for` picks correctly; `score` used to accept ANY view a caller
+    handed it. The two-clock discipline is a property of the rule, not of the
+    one function that happens to implement the selection.
+    """
+    with pytest.raises(availarm.SchemaMismatch, match="observed"):
+        _rows(_future_view())
+    with pytest.raises(availarm.SchemaMismatch, match="2026-08-27"):
+        availarm.forecast_rows(_board(), snapshot=_future_view())
+
+
+def test_the_write_path_refuses_a_row_whose_snapshot_postdates_its_clock(
+        tmp_path):
+    """And the guard is on the FILE, not only on the function above it.
+
+    A row's `snapshot_stamp` IS its snapshot's `observed_at` floored to the
+    second, so the ledger can answer "was this observed in time?" from the row
+    alone — without the manifest, which is exactly the object a caller could
+    substitute.
+    """
+    row = dict(_one())
+    row["snapshot_stamp"] = "20260827T023039Z"
+    path = tmp_path / "avail.jsonl"
+    with pytest.raises(availarm.SchemaMismatch, match="observed"):
+        availarm.append_shadow(path, [row])
+    assert not path.exists(), "nothing is written when a row is refused"
+
+
+def test_a_snapshot_observed_at_the_clock_itself_is_admissible():
+    """"at or before" — the bound is INCLUSIVE, and a boundary this arm got
+    wrong by a second would silently abstain on every same-instant pull."""
+    view = _view({"alpha": _squad(11, team_key="alpha", minutes=270),
+                  "bravo": _squad(11, team_key="bravo", minutes=270,
+                                  first=101)},
+                 stamp="20260821T000000Z", observed_at="2026-08-21T00:00:00Z")
+    row = _rows(view)[0]
+    assert row["snapshot_stamp"] == "20260821T000000Z"

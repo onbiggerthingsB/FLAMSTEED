@@ -72,6 +72,17 @@ restating its own history cannot move this arm's information set, and a
 carried through the read side, because the GAP between the two clocks is what
 the A12 (g) audit will want to see.
 
+AND THE CLOCK IS ENFORCED WHERE THE ROW IS WRITTEN, not only where the snapshot
+is selected. `snapshot_for` obeys A12 (b); a caller who builds an
+:class:`~epl.availability.AsOfSnapshot` by hand and hands it to :func:`score`
+would have gone around it. So the same comparison runs again in
+:func:`forecast_rows` (where the row is made) and a third time in
+:func:`check_writable`, from the row's OWN `snapshot_stamp` — which is
+`observed_at` floored to the second, and therefore answerable without the
+manifest, the one object a caller could substitute. Verification is optional,
+runs later, and cannot un-write a line; a point-in-time guarantee that lives
+only in a verifier is a guarantee about a command nobody is obliged to run.
+
 THE INPUT IS ON PROBATION
 -------------------------
 A12 (g): for this arm's first ten scored matchweeks the capture's flagged list
@@ -476,6 +487,35 @@ def snapshot_for(observed_by, *, raw_dir=None, manifest_path=None,
         raise SnapshotDigestMismatch(str(exc)) from exc
 
 
+def refuse_a_future_snapshot(observed_by, observed_at, *, what: str) -> None:
+    """A12 (b)'s selection rule, as a GUARD rather than as a selector.
+
+    "keep the lines whose `observed_at` is at or before the issuance's
+    `observed_by`" is a property of the RULE, not of the one function that
+    happens to implement the selection. :func:`snapshot_for` obeys it; a caller
+    that builds an :class:`~epl.availability.AsOfSnapshot` by hand and hands it
+    to :func:`score` bypasses it entirely, which is a fabricated information
+    set wearing a filed row's face. So the same comparison runs where the row
+    is MADE and again where it is WRITTEN.
+
+    The bound is INCLUSIVE — "at or before" — and a boundary this arm got wrong
+    by one second would silently abstain on every same-instant pull.
+    """
+    seen = availability.instant(observed_at, "the snapshot's observed_at")
+    bound = availability.instant(observed_by, "the issuance's observed_by")
+    if seen > bound:
+        raise SchemaMismatch(
+            f"{what}: the snapshot was observed at {availability.iso_z(seen)} "
+            f"and the issuance's knowledge clock is "
+            f"{availability.iso_z(bound)}. A12 (b) selects the latest line "
+            "observed AT OR BEFORE that clock, so pricing this row would claim "
+            "to have known, before the forecast was issued, things first "
+            "observed afterwards — the exact leak the two-clock discipline "
+            "exists to make impossible. Refused rather than abstained: an "
+            "abstention says the archive had nothing, and the archive had "
+            "something we were not allowed to look at")
+
+
 def _squad_of(snapshot: availability.AsOfSnapshot, club: str) -> tuple[dict, ...]:
     rows = snapshot.squad(club)
     if not rows:
@@ -602,6 +642,10 @@ def forecast_rows(board: Mapping[str, Any], *,
     re-priced — which is what makes ``rps_raw`` the same double the A7
     scorecard publishes rather than a number that is nearly it.
     """
+    if snapshot is not None:
+        refuse_a_future_snapshot(
+            board["observed_by"], snapshot.observed_at,
+            what=f"snapshot {snapshot.stamp}")
     out: list[dict] = []
     features: dict[str, SideFeature] = {}
     for row in (board.get("rows") or []):
@@ -737,15 +781,91 @@ def read_shadow(path=None) -> list[dict]:
             target.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def check_writable(row: Mapping[str, Any]) -> None:
+    """What has to be TRUE of a row before the append-only file may hold it.
+
+    THE GUARD IS ON THE WRITE PATH ON PURPOSE. Everything here is also checked
+    by :func:`verify`, and that was the whole defect: verification is optional,
+    runs later, and cannot un-write a line. A ledger whose only point-in-time
+    guarantee lives in a verifier is a ledger that will one day carry a row the
+    verifier was never run against.
+
+    Four things, in the order a reader would ask them:
+
+    1. the row is exactly one of A12 (d)'s two shapes — no missing field, and
+       no extra one, because a field this ledger was not authorised to carry is
+       as much a schema change as a missing one;
+    2. it carries the frozen rule's own names and, when it is a scored row,
+       A12's `k_avail` as a literal — the constant is a PRIOR and changes only
+       by a new amendment;
+    3. the snapshot it names was observed AT OR BEFORE its own `observed_by`
+       (A12 (b)), read out of the row's own stamp and therefore answerable
+       without the manifest — which is exactly the object a caller could
+       substitute;
+    4. the clocks precede the kickoff the season knew (A7 (e) via A12 (d)).
+    """
+    fixture_id = row.get("fixture_id")
+    abstained = row.get("abstained", None)
+    if abstained is not None and abstained is not True:
+        raise SchemaMismatch(
+            f"{fixture_id}: this row records abstained = {abstained!r}. A12 (b)"
+            " authorises exactly one abstention marker, the literal `true`; a "
+            "truthy value of another type reads as an abstention to one reader "
+            "and as a scored row to the next")
+
+    fields = ABSTENTION_FIELDS if abstained is True else ROW_FIELDS
+    if set(row) != set(fields):
+        raise SchemaMismatch(
+            f"{fixture_id}: this row carries {sorted(row)} and A12 (d) rules "
+            f"{sorted(fields)}. Unauthorised: "
+            f"{sorted(set(row) - set(fields))}; missing: "
+            f"{sorted(set(fields) - set(row))}")
+
+    for field, frozen in (("schema_version", SCHEMA_VERSION), ("arm", ARM),
+                          ("rule_version", RULE_VERSION)):
+        if row.get(field) != frozen:
+            raise SchemaMismatch(
+                f"{fixture_id}: this row records {field} = {row.get(field)!r} "
+                f"and the frozen rule's is {frozen!r}")
+
+    if abstained is True:
+        if row.get("reason") != ABSTENTION_REASON:
+            raise SchemaMismatch(
+                f"{fixture_id}: this abstention records reason "
+                f"{row.get('reason')!r} and A12 (b) authorises exactly one, "
+                f"{ABSTENTION_REASON!r}")
+    else:
+        k_row = row.get("k_avail")
+        if not isinstance(k_row, (int, float)) or float(k_row) != K_AVAIL:
+            raise SchemaMismatch(
+                f"{fixture_id}: this row records k_avail = {k_row!r} and A12's "
+                f"prior is {K_AVAIL!r}. The constant is a PRIOR, not a fit: it "
+                "changes only by a new amendment that states a new prior, so a "
+                "row carrying another value was computed under a rule this "
+                "repository does not hold")
+        refuse_a_future_snapshot(
+            row["observed_by"],
+            availability.instant_of_stamp(row["snapshot_stamp"]),
+            what=f"{fixture_id}: snapshot {row['snapshot_stamp']}")
+
+    _refuse_a_late_stamp(fixture_id, row["date"],
+                         (("cutoff", row["cutoff"]),
+                          ("observed_by", row["observed_by"])))
+
+
 def append_shadow(path, rows: Sequence[Mapping[str, Any]]) -> dict:
     """Append ONCE per key. Idempotent; a disagreeing re-file REFUSES.
 
     Nothing is written unless every row passes — the file is opened once, after
     the whole batch has been checked, so a batch with one bad row appends none
     of them and the re-run after the fix is a clean run rather than a partial
-    repair.
+    repair. Every offered row goes through :func:`check_writable` FIRST,
+    including a row that turns out to be a repeat: an idempotent re-file of a
+    row the rule would refuse is still a claim this file should not carry.
     """
     target = Path(SHADOW_PATH if path is None else path)
+    for row in rows:
+        check_writable(row)
     existing: dict[tuple[str, str], str] = {}
     for row in read_shadow(target):
         existing[shadow_key(row)] = leaguesim.canonical_json(row)
@@ -1163,6 +1283,7 @@ __all__ = [
     "SideFeature", "unavailability", "side_feature", "tilt", "adjust",
     "snapshot_for", "board_from", "abstention_row", "forecast_rows", "score",
     "is_abstention", "tally", "shadow_key", "read_shadow", "append_shadow",
+    "refuse_a_future_snapshot", "check_writable",
     "check_snapshot", "check_row", "check_abstention", "verify",
     "read_results", "score_bundle", "main",
 ]

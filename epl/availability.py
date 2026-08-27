@@ -101,6 +101,7 @@ import argparse
 import gzip
 import hashlib
 import json
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -124,7 +125,7 @@ __all__ = [
     # the A12 as-of read side
     "NoSnapshotAsOf", "SnapshotMissing", "SnapshotDigestMismatch",
     "AS_OF_FIELDS", "AS_OF_PLAYER_FIELDS", "AsOfSnapshot",
-    "select_manifest_line", "as_of",
+    "select_manifest_line", "as_of", "instant", "instant_of_stamp",
 ]
 
 BOOTSTRAP_URL = "https://fantasy.premierleague.com/api/bootstrap-static/"
@@ -299,11 +300,42 @@ def iso_z(value) -> str:
             f"T{ts.hour:02d}:{ts.minute:02d}:{ts.second:02d}Z")
 
 
+def instant(value, what: str = "clock") -> pd.Timestamp:
+    """UTC, second-resolution, never NaT — the ONE clock reader both sides use.
+
+    Public because A12's arm compares its own clocks (a snapshot's
+    `observed_at` against an issuance's `observed_by`) and two modules parsing
+    stamps two ways is how one of them starts answering a naive string
+    differently from an aware one.
+    """
+    return _utc(value, what)
+
+
 def stamp_for(value) -> str:
     """The filename stamp, which sorts in instant order."""
     ts = _utc(value)
     return (f"{ts.year:04d}{ts.month:02d}{ts.day:02d}"
             f"T{ts.hour:02d}{ts.minute:02d}{ts.second:02d}Z")
+
+
+def instant_of_stamp(stamp) -> pd.Timestamp:
+    """The exact inverse of :func:`stamp_for`: `20260827T023039Z` -> a UTC instant.
+
+    A filed row carries the snapshot's STAMP, not its `observed_at`, and the
+    write-time point-in-time guard has to answer "was this observed at or
+    before the issuance's knowledge clock?" from the row alone — without the
+    manifest, which is exactly the object a caller could substitute. The stamp
+    is `observed_at` floored to the second by construction, so reading it back
+    is a parse and not an inference.
+    """
+    text = str(stamp)
+    if not re.fullmatch(r"\d{8}T\d{6}Z", text):
+        raise AvailabilitySchemaDrift(
+            f"{text!r} is not a snapshot stamp: the archive writes "
+            "`YYYYMMDDThhmmssZ` and a value of another shape names no instant, "
+            "so nothing can be said about when it was observed")
+    return _utc(f"{text[0:4]}-{text[4:6]}-{text[6:8]}T"
+                f"{text[9:11]}:{text[11:13]}:{text[13:15]}Z", "snapshot stamp")
 
 
 def raw_name(stamp: str) -> str:
