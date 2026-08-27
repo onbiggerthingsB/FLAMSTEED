@@ -111,7 +111,8 @@ __all__ = [
     "EvWidenError", "SCHEMA_ID", "SEED", "BOOTSTRAP_SEED", "E_STAR", "E_GRID",
     "ARM_NAME", "ADOPT_DELTA", "TABLE_TOLERANCE", "RUN_ORDER",
     "load_corpus", "load_archive", "load_walk_ledger", "effective_evidence",
-    "evidence_table", "Membership", "membership", "membership_digests",
+    "evidence_table", "prior_rows", "Membership", "membership",
+    "membership_digests",
     "FitPoint", "fit_points", "shard_points", "shard_name", "fit_key",
     "canonical", "run_digest", "load_ledger", "run_fits", "Engine",
     "evidence_canary", "identity_canary", "direction_canary", "run_canary",
@@ -681,6 +682,18 @@ def archive_digest(played: pd.DataFrame) -> str:
 # 3. EFFECTIVE EVIDENCE — §0.3's quantity, defined once and computed once
 # ==========================================================================
 
+def prior_rows(played: pd.DataFrame, cutoff: pd.Timestamp) -> pd.DataFrame:
+    """The archive rows an evidence sum at ``cutoff`` may see: ``date < C``.
+
+    One function, one comparison, one place for §5.3's seeded defect to replace
+    — and one place a future reader has to look to answer "what could this fit
+    see?". ``features.build`` keeps ``date < cutoff.normalize()`` and this is the
+    same rule on the same frame.
+    """
+    dates = pd.to_datetime(played["date"]).dt.normalize()
+    return played.loc[dates < pd.Timestamp(cutoff).normalize()]
+
+
 def effective_evidence(cutoff: str | pd.Timestamp, played: pd.DataFrame,
                        clubs: Sequence[str] | None = None,
                        *, half_life_days: float = DECAY_HALF_LIFE_DAYS,
@@ -704,23 +717,19 @@ def effective_evidence(cutoff: str | pd.Timestamp, played: pd.DataFrame,
     trains on, and it is recomputed at every cutoff, so it drifts upward within a
     season as the club plays. Units: match-equivalents at full weight.
 
-    ``check_leak`` is §5.1's :class:`EvidenceLeak`, and it is not a formality:
-    the whole point of the quantity is that it is point-in-time, and the strict
-    ``<`` is the only thing that makes it so. The check costs one comparison on
-    a frame that has already been filtered by the same rule, which is exactly
-    the redundancy a leak guard is supposed to be.
+    ``check_leak`` is §5.1's :class:`EvidenceLeak`, and it is placed where it
+    can actually fail. A guard that re-applied the same ``date < C`` comparison
+    to the frame that comparison just produced would be a tautology, and the one
+    thing a leak guard may not be is unable to go red. So the check is made on
+    the AGES THAT WEIGHT THE SUM, downstream of the filter: a match dated on the
+    cutoff has ``age_days = 0`` and would enter at full weight ``0.5 ** 0 = 1``,
+    and a later one enters at MORE than full weight. Demanding every contributing
+    age be strictly positive therefore catches a filter that admits either —
+    which is exactly what :func:`prior_rows` being replaced by a ``<=`` variant
+    does, and what §5.3's seeded defect does to it.
     """
     ts = pd.Timestamp(cutoff).normalize()
-    dates = pd.to_datetime(played["date"]).dt.normalize()
-    prior = played.loc[dates < ts]
-    if check_leak and len(prior):
-        latest = pd.to_datetime(prior["date"]).max().normalize()
-        if not latest < ts:
-            raise EvidenceLeak(
-                f"a match dated {latest.date()} is inside the evidence sum for "
-                f"cutoff {ts.date()}: `e(t, C)` sums matches with date < C, and "
-                "a same-day or later row would let the predicate under test see "
-                "the future it is supposed to be blind to.")
+    prior = prior_rows(played, ts)
     keys = (clubs if clubs is not None
             else sorted(set(prior["home_key"].astype(str))
                         | set(prior["away_key"].astype(str))))
@@ -728,6 +737,15 @@ def effective_evidence(cutoff: str | pd.Timestamp, played: pd.DataFrame,
     if not len(prior):
         return out
     age = (ts - pd.to_datetime(prior["date"]).dt.normalize()).dt.days.to_numpy(float)
+    if check_leak and age.size and float(np.nanmin(age)) <= 0.0:
+        n_bad = int((age <= 0).sum())
+        raise EvidenceLeak(
+            f"{n_bad} match(es) dated on or after cutoff {ts.date()} contribute "
+            f"to the evidence sum (smallest age {float(np.nanmin(age)):.0f} "
+            "days). `e(t, C)` sums matches with date < C at weight "
+            "0.5 ** (age/365); an age of zero enters at FULL weight and a "
+            "negative age at more than full, so this is the predicate under "
+            "test seeing the future it is supposed to be blind to.")
     weight = 0.5 ** (age / float(half_life_days))
     for column in ("home_key", "away_key"):
         side = prior[column].astype(str).to_numpy()
