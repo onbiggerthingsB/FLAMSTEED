@@ -4517,3 +4517,46 @@ step skips a cutoff that already has a bundle, and the season ledger's own
 conflict machinery stays the final arbiter either way. If matchday cadence
 turns out to cost more attention than it is worth, the operator simply stops
 running it daily, and a dated note here records that as well.
+
+## A11 — the data-sourcing ruling: collection at the owner's risk, inputs only (2026-08-27)
+
+**Observation.** The availability research of 2026-08-26 found exactly one
+source of point-in-time injury/availability data that is deep, dense and free:
+the Fantasy Premier League API and its community snapshot archives. It also
+found the licence problem stated plainly by the independent reviewer: FPL's
+terms prohibit automated extraction and commercial exploitation, the archives'
+own licences cannot manufacture Premier League data rights, and the one
+licence-clean alternative (a paid provider whose terms explicitly permit
+storage and derived commercial products, ~€29/month) carries no usable
+history. The owner was told all of this twice, including the reviewer's
+recommendation against use without written permission.
+
+**Ruling (the owner's, after the risk was stated: automated collection from
+public sources, including sources whose terms restrict it, is authorized at
+his stated risk).** Scoped exactly:
+* (a) Collection is for INTERNAL MODEL INPUTS only. No source's bytes, tables
+  or derived datasets are ever republished on any surface of this product
+  line; published outputs are this project's own forecasts and scores.
+* (b) Raw snapshots are hashed and retained locally (gitignored data/), with
+  tracked manifests carrying digests and byte counts — attestation without
+  redistribution, the standing football-data pattern.
+* (c) The independent reviewer's objection is preserved here as the
+  counterpoint, not overwritten: written permission or the paid licence-clean
+  route remain the alternatives if the owner's risk posture changes.
+* (d) Collection stays personal-scale (a few requests a day against public
+  endpoints), never bulk re-serving, never circumventing authentication.
+
+**What is pre-stated.** First use: a daily capture of the FPL bootstrap
+feed — five availability fields per player (status, both chance-of-playing
+figures, news, news_added) plus the roster and price data the same payload
+carries — into a FOURTH bitemporal season ledger under the established
+two-clock discipline (observed_at = the pull; news_added = the source's own
+clock; corrections are new rows, never edits; a row whose news_added
+postdates a fixture is refused for that fixture). The capture is standalone
+(its own module and command); nothing enters any model without its own
+preregistration through the covariate gate, whose only verdict to date
+remains UNVALIDATED.
+
+**Recording note.** Recorded before any capture code exists. A10 was consumed
+by the anchoring window amendment of 2026-08-26; the ruling promised under
+that number is this entry.
