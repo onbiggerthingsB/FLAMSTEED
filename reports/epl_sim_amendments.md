@@ -4560,3 +4560,547 @@ remains UNVALIDATED.
 **Recording note.** Recorded before any capture code exists. A10 was consumed
 by the anchoring window amendment of 2026-08-26; the ruling promised under
 that number is this entry.
+
+---
+
+## A12 — `dc_1x2_avail`: the availability shadow arm — a fixed prior, not a fit (2026-08-27)
+
+**Decisions amended:** none of the published surfaces, and — as with A8 — that
+is the ruling rather than an omission. A12 is the child of two entries: A8,
+which built the pattern (a match-only shadow challenger, transforming the
+published `dc_native` 1X2 marginals, scored in its own ledger beside the
+record), and A11, which built the input (the FPL availability capture, a fourth
+bitemporal ledger that feeds nothing). A12 authorises the one thing neither
+parent authorises alone: a second shadow challenger, `dc_1x2_avail`, that reads
+the A11 archive and transforms the published marginals under a rule with **zero
+fitted parameters**, every constant of which is stated in this entry.
+**Explicitly NOT amended, and pinned here so a later commit can be held to
+it:** `ISSUANCE_SCHEMA_VERSION` stays **`epl-issuance-5`** (`epl/simcli.py:189`);
+the matchboard's schema stays **`epl-matchboard-1`**; the A7 scorecard
+`reports/matchboard_scorecard.jsonl` and the A8 shadow ledger
+`reports/epl_recal_shadow.jsonl` are not modified and neither is either rule;
+`dc_native`'s published numbers never change; the retrospective harness is
+untouched; the covariate gate gains no verdict — its only verdict to date
+remains **UNVALIDATED**, and nothing in this entry touches `dc_native`'s
+inputs, so nothing here passes through it or needs to.
+**Status of the amendment when written:** not a line of `epl/` changes under
+this ruling and **no `dc_1x2_avail` row, module, constant or string exists
+anywhere in this repository** — a repo-wide search at the moment of writing
+found the name nowhere. `epl/simretro.py` and `epl/simmetrics.py` still hash to
+the **v5** pair (`d64bef11…`, `b03d4fbc…`), re-hashed for this entry.
+`reports/matchboard_scorecard.jsonl` and `reports/epl_recal_shadow.jsonl` each
+hold exactly their **ten MW1 rows**. The availability capture holds exactly
+**two manifest lines**, both pulled 2026-08-27 — the first attesting all 614
+players, the second attesting a zero-delta pull — and they are the entirety of
+the archive this arm will ever have observed when its first admissible fixture
+arrives. At the moment of writing the working tree over `e609e3c` carried
+exactly two changes: this entry, and the capture's second manifest line — the
+02:57:27Z zero-delta attestation counted above, which its own commit records
+immediately before this one, so that the commit recording this entry carries
+this entry alone.
+
+*Arithmetic note. Every number in this entry was computed by this entry, on
+2026-08-27, from two pinned objects: the first raw snapshot
+(`bootstrap_20260827T023039Z.json.gz`, payload sha256 `ce95ad3e…` — the digest
+of the decompressed bytes, exactly as the tracked manifest records it) and the
+published Arsenal–Coventry MW0 marginals that A8 item 3 already pins. Closed
+arithmetic, no simulation, no Monte-Carlo error, reproducible from files whose
+digests the repository already tracks. The literature figure behind `k_avail`
+is quoted from published work, not measured here, and the entry says which.*
+
+### The observation
+
+A11's capture ran, and the archive it promised exists: 614 players, five
+availability fields each, two clocks per row. What one real snapshot shows, and
+the rule below has to survive contact with:
+
+* **The status alphabet, observed:** `a` 493, `i` 57, `u` 42, `d` 21, `s` 1 —
+  and `n` **zero**. The code FPL documents for "not available / on loan" did
+  not occur in the one snapshot that exists, and the ruled rule covers it
+  anyway, because a rule that only covers the statuses it has seen is a rule
+  that narrows silently the week a loan happens.
+* **Every observed `d` carries a chance figure** (75 or 25 in this snapshot;
+  FPL's ladder is 25/50/75). The null-chance case the rule must cover is an
+  edge, not the bulk — and it is exactly the edge that would otherwise get
+  decided ad hoc inside a function the week it first occurs.
+* **The payload's `minutes` field is current-season only.** One matchweek in,
+  club totals run 934–988 minutes. There are no prior-season minutes anywhere
+  in the capture, so an early-season weighting scheme built on minutes alone
+  would be built on one match of evidence. The design sketch for this arm said
+  "prior+current minutes share"; the archive cannot supply the "prior" half,
+  and this entry records that deviation here, once, rather than letting the
+  implementation quietly substitute something.
+* **The capture is standalone by construction and by test** —
+  `epl/tests/test_availability.py` asserts that `epl/livecycle.py` does not
+  contain the string `availability` and that the capture imports no model
+  module. A shadow arm scored by the live cycle necessarily touches that
+  boundary, so the boundary must be moved by ruling, in this file, not by an
+  implementer editing an assertion until it passes.
+
+The question this arm exists to answer is its parents' natural child: the
+recal arm asks whether the published law's *shape* leaves score on the table;
+this arm asks whether the one input the published law provably does not read —
+who is actually available to play — leaves any. The expected answer, stated
+now: **probably very little** (see *What is pre-stated*, item 6).
+
+### The ruling (owner, 2026-08-27) — pre-stated before the code
+
+#### (a) A match-only shadow challenger, named `dc_1x2_avail`
+
+The naming reasoning, in one line: the `dc_1x2_` family prefix is the
+contract — "a transform of the published `dc_native` 1X2 marginals and nothing
+else", exactly what it means on `dc_1x2_recal` — and the suffix names the
+lever, so the ledgers sort as siblings and read as siblings.
+
+Everything A8 (a) rules for the recal arm holds here verbatim: the transform
+is applied to the **published per-fixture marginals** — the matchboard's
+`probs` — and to nothing else. It produces a second three-cell vector per
+fixture, filed in its own shadow ledger, scored against the same result. It
+produces **no table, no position matrix, no consequence state, no matchboard,
+no arm in any issuance, and no change to any published number of any kind.**
+It is not a forecast this project publishes; it is a challenger this project
+scores.
+
+#### (b) THE FIXED RULE — zero fitted parameters, and every constant is in this entry
+
+**The snapshot, selected by our clock and nobody else's.** Per fixture: take
+the tracked manifest (`epl/season/2026_27/availability_manifest.jsonl`), keep
+the lines whose `observed_at` is **at or before the issuance's `observed_by`**,
+and select the **latest** such line — zero-delta lines included, because every
+manifest line attests a complete payload. Load the raw snapshot that line
+names; its payload sha256 must equal the manifest line's, else a typed refusal
+(**`SnapshotDigestMismatch`**; a missing file is **`SnapshotMissing`**). The
+bytes are the record and the manifest is the attestation — the derived ledger
+is not read at all, and could not be: `minutes` and `now_cost` are not ledger
+fields. One payload covers all twenty clubs, so both sides of a fixture read
+the same selected snapshot.
+
+**If no manifest line qualifies, the arm ABSTAINS for that fixture.** It files
+an abstention row — fixture, clocks, `abstained: true`, `reason:
+"no_snapshot"` — and it never fabricates, backfills, or borrows a later
+snapshot. The capture began 2026-08-27; every issuance whose `observed_by`
+predates the first manifest line therefore yields abstentions, which means
+**MW1 and MW2 are abstentions by construction** and this arm's scored record
+starts strictly after its input's archive does. An arm that scored weeks its
+input had never observed would be manufacturing a track record.
+
+**Status weights — the per-player unavailability probability `u_p`:**
+
+| status | `u_p` | note |
+|---|---|---|
+| `a` (available) | **0** | |
+| `i` (injured) | **1.0** | the chance field on `i` rows is deliberately ignored |
+| `s` (suspended) | **1.0** | likewise |
+| `d` (doubtful) | **(100 − chance_of_playing_next_round) / 100** | the one status the chance field binds on |
+| `d` with null chance | **0.5** | ruled default, below |
+| `u`, `n` (unavailable / on loan / left) | **excluded** | removed from the squad and its denominator entirely — not an absence, a non-member |
+| anything else | **refused** | **`StatusUnruled`**, naming the player and the code — never a silent skip |
+
+**The null default is 0.5 — chance 50 — and the reason is stated:** FPL's own
+ladder is 25/50/75, and 50 is its middle rung; a null is the source declining
+to guess, and ruling either extreme rung would import a directional guess the
+source did not make. The observed corpus fact recorded beside the ruling: in
+the only real snapshot, zero `d` rows carry null, so the default is ruled for
+the edge before the edge exists — which is the only time it can be ruled
+without looking at what it does to a score.
+
+**Fixing `i` and `s` at 1.0 flat is a ruled simplification and the entry says
+what it costs:** some injured players carry a nonzero chance figure, and the
+flat 1.0 overstates their absence probability. It is kept because the rule's
+job is to be checkable at zero parameters, not optimal; sharpening it is a new
+amendment, not an implementation refinement.
+
+**The player weight `w_p` — how much a side misses this player:** within each
+club, over the club's **included** players (status not `u`/`n`):
+
+* if the club's summed `minutes` over included players is **≥ 2970**, then
+  `w_p = minutes_p / Σ minutes` — the minutes share;
+* otherwise `w_p = now_cost_p / Σ now_cost` — the price share.
+
+The switchover constant is **2970 = 3 × 990** — three matches' worth of
+on-pitch minutes, since eleven occupied slots for ninety minutes put exactly
+990 player-minutes on a side per match — an arithmetic identity, not a tuned
+number. The justification, one sentence each: minutes share is used the moment
+it can distinguish rotation from absence, and three matches is the earliest
+that distinction means anything; until then `now_cost` share carries the
+weighting because the price is the source's own standing summary of expected
+involvement, present for every player from day one, and the payload contains no
+prior-season minutes to do the job instead. An empty included squad, or a zero
+denominator on the active branch, is **`SquadEmpty`** — refused, never a zero
+feature. The branch taken is recorded on every row (`weight_basis`, per side),
+so the switchover is auditable rather than inferred.
+
+**The feature, per side:**
+
+```
+feat_side = Σ over the club's included players of  w_p · u_p
+```
+
+a number in `[0, 1]`: the expected weighted unavailable fraction of the side.
+
+**The adjustment — a tilt of the published marginals, exactly this:**
+
+```
+d       = k_avail · (feat_home − feat_away)
+q_home  ∝ p_home · exp(−d/2)
+q_draw  ∝ p_draw
+q_away  ∝ p_away · exp(+d/2)
+```
+
+renormalised. The map's whole content is one identity:
+`log(q_home / q_away) = log(p_home / p_away) − d` — the home-vs-away log-odds
+of the published marginals move by exactly `d` nats, the draw cell's
+log-strength is untouched and moves only through renormalisation. This is the
+availability analogue of how A8's transform treats the published vector: a
+closed one-parameter map on the aggregate, applied post-aggregation, at the
+only point where the object it was reasoned about actually exists. It is not
+A8's power transform, and deliberately: recalibration is a symmetric statement
+about sharpness, availability is a directional statement about relative
+strength, and the natural one-parameter map for the latter is a tilt.
+
+**The coefficient, and its basis:**
+
+```
+k_avail = 1.0          rule_version = dc-1x2-avail-1
+```
+
+**`k_avail` is a PRIOR, not a fit, and this entry says so in exactly those
+words.** No repository data was consulted to choose it, and none could have
+been: no fixture has ever been scored under this rule, and the input archive
+is two pulls old. Its basis is the injury-cost literature — Hägglund et al.
+2013 (the UEFA elite-club injury study, *Br J Sports Med*), and the
+key-absence estimates descended from it — which puts one key first-XI absence
+at **low single-digit percentage points of match win probability**. The
+calibration arithmetic, closed and checkable: an ever-present player carries a
+minutes share of `1/11 = 0.0909…`; fully unavailable, at `k_avail = 1.0`, that
+is a 0.0909-nat tilt, which at an evens fixture (`p = 0.4 / 0.2 / 0.4`) moves
+the home probability to **0.381910** — a shift of **−1.81pp**, inside the
+literature's band. `1.0` is chosen as the round value whose implied
+per-key-absence effect sits in that band; a value with decimals would dress a
+prior as a measurement.
+
+**No drift trigger, no refit schedule, NONE — and unlike A8 this is not an
+annual constant.** A8's `a` is refit annually because it is a fit. `k_avail`
+is not a fit, so there is nothing to refit: it changes only by a new amendment
+that states a new prior or preregisters an estimation. There is no in-season
+condition that moves it, no monitoring rule that re-opens it, no threshold on
+live RPS that fires anything. Recorded as an explicit choice rather than an
+omission.
+
+#### (c) Team mapping — reused, strict, and a hard error
+
+FPL team → canonical club key goes through `epl.availability.team_key_map`,
+unchanged — the same strict resolver the capture already uses, with the same
+two refusals, both **`TeamUnmapped`**: a spelling the club registry does not
+know (register it there; never slug it here) and a club the registry knows but
+the season does not field. **An unmapped team is a hard error on the arm's
+whole run for that snapshot, never a silent skip of one club's players** — a
+feature computed over nineteen clubs' worth of a twenty-club payload would be
+a wrong number wearing a right number's name.
+
+#### (d) A self-contained shadow ledger, the sibling of A8 (c)
+
+**`reports/epl_avail_shadow.jsonl`** — in `reports/`, **append-only**, one
+JSON object per line, written **per matchweek, after the results have entered
+the season ledger** and never before. `schema_version` is
+**`epl-avail-shadow-1`**, carried on every row.
+
+| field | what it is |
+|---|---|
+| `arm` | `"dc_1x2_avail"` |
+| `fixture_id`, `date`, `home`, `away` | the fixture, in the matchboard's own terms |
+| `season`, `cutoff`, `observed_by` | the source issuance's clocks |
+| `run_digest`, `source_bundle` | the source issuance's `digests["dc_native"]` and path |
+| `probs_raw` | `{home, draw, away}` **as published** — copied, never re-priced |
+| `probs_avail` | the tilt applied to `probs_raw` |
+| `feat_home`, `feat_away` | the two features, as computed |
+| `weight_basis_home`, `weight_basis_away` | `"minutes"` or `"now_cost"` — which branch each side took |
+| `k_avail` | the constant, as a literal |
+| `snapshot_stamp`, `snapshot_sha256` | which snapshot the features came from, by the manifest's own identifiers |
+| `rule_version` | **`dc-1x2-avail-1`** |
+| `outcome` | `home` / `draw` / `away`, from the season ledger |
+| `rps_raw`, `rps_avail`, `rps_uniform` | the three scores |
+| `matchweek`, `ingest` | which week, and which ingest supplied the result |
+
+An **abstention row** carries `arm`, the fixture fields, the clocks,
+`run_digest`, `source_bundle`, `schema_version`, `rule_version`,
+`abstained: true` and `reason: "no_snapshot"` — and none of the probability,
+feature or score fields. Abstentions are **counted and never scored**; any
+aggregate over this ledger is an aggregate over scored rows and must print the
+abstention count beside itself, because an aggregate that hides its
+denominator is the oldest trick in forecasting.
+
+Everything else is A8 (c), restated as binding rather than incorporated by
+vague reference: the three scores by the project's literal (`r = 3`, ordered,
+`rps_uniform` exactly **5/18** for a home or away result and **1/9** for a
+draw); admissibility per A7 (e) — `cutoff` **and** `observed_by` both at or
+before kickoff as the season knew it, an inadmissible row **refused, naming
+the fixture and the offending stamp, never dropped**; results from the season
+ledger and from nowhere else, through the same `epl.season` path the
+matchboard and the recal ledger already use; idempotent by
+`(fixture_id, run_digest)`, a disagreeing re-file refused naming both values,
+nothing written unless every row passes; **no pass rule, none**; **no render
+authorised**; **nothing written into any bundle** — the row anchors itself by
+carrying the source run's digest and clocks.
+
+#### (e) The wiring, and the A11 boundary moved by ruling rather than by edit
+
+The arm lives in **one new module, `epl/availarm.py`**, with its own `main`
+(`score`, `verify`), and the live cycle gains a **step 9, `"avail"`**, invoked
+through that `main` exactly as step 8 invokes `epl.recal.main` — the
+operator's command and the cycle's step cannot answer differently — recording
+its tally in the journal entry and `digests["avail_shadow"]` beside
+`digests["recal_shadow"]`. It is scored forward beside `dc_1x2_recal`, on the
+same bundles, against the same results.
+
+**The boundary:** A11 pre-stated that nothing enters any model without its own
+preregistration, and the capture's test enforces the cheapest sufficient
+condition — `epl/livecycle.py` does not contain the string `availability`, and
+the capture imports no model module. **This entry is the preregistration**,
+for the shadow use only, and it moves the boundary to where the rule now
+needs it: the capture module still imports no model module (unchanged, still
+asserted); `epl/livecycle.py` still does not import `epl.availability`
+directly — `epl/availarm.py` is the **only** authorised bridge, importing the
+capture's read side and the matchboard's scoring side. The implementing commit
+is authorised to re-scope exactly **two** surfaces and no others: that test's
+livecycle clause (to assert the direct-import boundary above instead of the
+string), and the capture docstring's "Today it feeds nothing" sentence (to
+name this entry and the shadow arm). Pre-stated here so the softening of a
+guard is a ruling with a date on it, not a diff somebody hopes goes unread.
+
+**The covariate gate is untouched.** It governs entry into the published
+`dc_native` law; this arm touches no `dc_native` input and no published
+number, so the gate gains no verdict and loses no jurisdiction. If the
+availability archive is ever to enter the published law, that is a covariate
+gate run plus its own amendment, and nothing in A12 pre-commits either.
+
+#### (f) Verification — a standalone re-derivation that can fail
+
+`PYTHONPATH=src:. .venv/bin/python -m epl.availarm verify`, mirroring A8 (d)'s
+shape with the fit legs removed, because there is no fit. For every scored row
+in the ledger, in order, stopping at the first refusal:
+
+1. **The snapshot, before anything else.** The manifest line the row names
+   must exist, the raw file must exist, and its payload sha256 must equal the
+   manifest's — **`SnapshotMissing`** / **`SnapshotDigestMismatch`**, typed,
+   never a skip.
+2. **The selection re-derived.** The named snapshot must be the latest whose
+   `observed_at` is at or before the row's `observed_by` — a row that used a
+   snapshot the selection rule would not have chosen is **`SchemaMismatch`**.
+3. **The features re-derived from the bytes** — statuses, exclusions, the
+   null default, the branch, the shares — and required to equal `feat_home`
+   and `feat_away` to **1e-12**, else **`AvailMismatch`**, naming the fixture
+   and the side.
+4. **`probs_avail` re-derived** from the row's own `probs_raw`, features and
+   `k_avail` by the formula in (b), to **1e-12** on all three cells, else
+   **`AvailMismatch`** naming the cell. `Σ q = 1` within **1e-9**.
+5. **The frozen-rule fields** — `k_avail`, `rule_version`, `schema_version` —
+   equal this entry's, else **`SchemaMismatch`**.
+6. **Admissibility and arithmetic** — the A7 (e) ordering
+   (**`RowInadmissible`**), the three RPS values recomputed from the row's own
+   probabilities and outcome, `rps_uniform` at its exact literal, and
+   abstention rows checked for the absence of every score field.
+
+All refusals derive from one **`AvailArmError`**, caught by `main()`, printing
+`STOP: <TypeName>: …` and exiting **2**, like every typed refusal in this
+project. CI has no `data/`: the command **refuses** there, loudly, and the
+tests stay CI-safe with synthetic payloads and the repo's existing skip-guard,
+exactly as A8 (d) rules for its own command.
+
+#### (g) The audit practice — the input is on probation before the record means anything
+
+For the arm's **first ten scored matchweeks**, the capture's flagged list
+(every player with `u_p > 0`, both clubs) for at least **two fixtures per
+matchweek** is spot-audited against official club or press publications —
+squad news, confirmed team sheets, the club's own injury page — **before that
+matchweek's record is treated as meaningful.** Findings go to
+**`reports/epl_avail_audit.md`**, append-only, one dated entry per audited
+matchweek, naming the fixtures checked and every deviation in either
+direction: a player the feed flagged who the record shows fit, a player the
+record shows out whom the feed never flagged, with dates. Until the tenth
+scored matchweek's entry exists, **every summary of this arm's record carries
+the sentence "the input feed is under audit; this record is provisional"** —
+a language rule in the A8 (e) sense, binding on every surface this project
+writes. The audit audits the *input*; it fires nothing, gates nothing, and
+its deviations are dated notes, not thresholds.
+
+#### (h) Two-clock candor — the arm binds on our clock only
+
+`news_added` is the **source's claim** about when it knew; `observed_at` is
+**ours** about when we did. **The arm binds only on `observed_at`.** Snapshot
+selection never reads `news_added` — not as a tiebreak, not as a filter — so a
+source restating its own history (the `ClockRegression` case the capture
+already watches) cannot move this arm's information set, and even a
+`news_added` stamped in the future of our pull changes nothing. The candid
+consequence, stated rather than implied: on every admissible row the A11
+read-time refusal (a `news_added` postdating the fixture) is **unreachable**,
+because anything in a snapshot observed at or before `observed_by ≤ kickoff`
+was necessarily in the payload when we pulled it — binding on `observed_at`
+is what makes the point-in-time claim a property of the ledger's construction
+rather than of the source's honesty. `news_added` is still recorded wherever
+rows carry it, because the *gap* between the two clocks is exactly what the
+(g) audit and any future preregistration will want to see.
+
+### The rationale
+
+**A prior, because a fit here would be the rationalisation this file exists to
+catch.** The archive is two pulls old, the arm has never scored a fixture, and
+the one dataset that could calibrate `k_avail` — availability paired with
+subsequent results at this project's own cutoffs — does not exist yet and will
+be *produced by this arm*. Fitting the coefficient to the first weeks of that
+data and then scoring it on the rest is the shape of error this ledger was
+built against. So the coefficient is a prior from published literature, stated
+before any row exists, and the shadow ledger will simply measure it. If the
+measurement eventually argues for a different constant, that argument is a
+preregistered experiment — A8's language rule applies in full: evidence, not
+establishment.
+
+**A tilt, because that is what availability *is* on the scale the published
+law already uses.** The published 1X2 is a monotone function of a strength
+difference; players missing from one side and not the other is a strength
+statement with a sign. The one-parameter map that says exactly that and
+nothing else is a shift of the home-vs-away log-odds, leaving the draw's
+log-strength alone. Reusing A8's power transform here would answer a shape
+question nobody asked; inventing a three-parameter map would be three knobs
+where the literature justifies one.
+
+**Abstention, because the alternative is a fabricated information set.** The
+capture began after MW2. An arm that "scored" MW1 by borrowing the earliest
+snapshot would be claiming to have known, before the season's first kickoff,
+things first observed twelve days later — precisely the leak the two-clock
+discipline exists to make impossible. The abstention row makes the gap
+auditable instead of invisible: the ledger will show *that* the arm sat out,
+and why, in its own append-only record.
+
+**The boundary is moved in this entry because tests are rules.** The
+capture's standalone test is A11's ruling in executable form. An implementer
+who needed it green would have edited it, and the edit would have been
+correct — and undocumented. Moving the boundary here, before the code, with
+the exact two re-scopes named, keeps the chain of custody: every softening of
+a guard in this project should trace to a dated ruling that authorised it.
+
+**And the honest size of the claim is small, again.** The recal arm's entire
+in-sample gain was 0.00027 of RPS on a defect that was *measured first*. This
+arm's lever is real but mostly priced in already — availability news moves
+team strength, but team strength is what the Elo-anchored, time-weighted fit
+already tracks, one week behind — so what this arm can capture is only the
+*fresh* component: news the feed carries that last week's results do not.
+Item 6 pre-states the expectation accordingly, and the language rule keeps
+anyone from writing a bigger sentence than the ledger has earned.
+
+### What is pre-stated
+
+Everything here is fixed before the code exists and before a single
+`dc_1x2_avail` row exists anywhere.
+
+**1. The rule's constants, all of them.**
+
+```
+k_avail            = 1.0                       (a prior, not a fit)
+null d-chance      → u_p = 0.5                 (chance 50, the ladder's middle rung)
+i, s               → u_p = 1.0                 (chance ignored)
+u, n               → excluded from squad and denominator
+minutes switchover = 2970                      (= 3 × 990, arithmetic, not tuned)
+weight fallback    = now_cost share            (below the switchover)
+rule_version       = dc-1x2-avail-1
+schema_version     = epl-avail-shadow-1
+ledger             = reports/epl_avail_shadow.jsonl
+audit file         = reports/epl_avail_audit.md
+```
+
+**2. The worked control, from the pinned snapshot — arithmetic, not a
+forecast, and deliberately impossible to file.** From
+`bootstrap_20260827T023039Z.json.gz` (payload sha256 `ce95ad3e…`, 614
+players), by the rule in (b). Every club's summed minutes is under 2970 (max
+observed 988), so **the `now_cost` branch is the live branch for all twenty
+clubs at this snapshot**, and the control exercises it:
+
+* **Arsenal** — 29 included players, `now_cost` denominator 1793, three
+  flagged: J.Timber (`i`, contributes 0.036252091467), Saliba (`i`,
+  0.033463469046), Bruno G. (`d`, chance 75, 0.009760178472) —
+  `feat = 0.079475738985`.
+* **Coventry City** — 31 included, denominator 1445, one flagged: Wright
+  (`i`, 0.038062283737) — `feat = 0.038062283737`.
+* `d = 1.0 × (0.079475738985 − 0.038062283737) = 0.041413455248`.
+* Applied to the published Arsenal–Coventry MW0 marginals A8 item 3 pins
+  (`H 0.763900 / D 0.161750 / A 0.074350`):
+
+```
+q = 0.758945627187 / 0.164063230911 / 0.076991141902      (4dp: 0.7589 / 0.1641 / 0.0770)
+```
+
+with `p_home` moving by **−0.004954372813**. A8 item 4's rounding rule applies
+verbatim: derive from the file's own values and assert to **1e-9 or better**,
+never on a rendered four-decimal string. And the pairing is deliberately
+inadmissible as a ledger row — the fixture kicked off twelve days before the
+snapshot was observed — which is exactly what makes it safe as a control: it
+can check an implementation and can never become a score.
+
+**3. The evens control for `k_avail`.** One ever-present player (minutes share
+`1/11`) fully unavailable, at an evens fixture `0.4 / 0.2 / 0.4`:
+`q_home = 0.381909532447`, a shift of **−0.018090467553**. This is the
+arithmetic that places `k_avail = 1.0` inside the literature's low
+single-digit-pp band, and it is a property of the formula, not a measurement
+of this league.
+
+**4. Invariants on every row, every matchweek.** `Σ q = 1` within **1e-9**;
+`probs_avail` and both features re-derive from the named snapshot's bytes and
+the row's own fields within **1e-12**; `k_avail`, `rule_version`,
+`schema_version` equal this entry's; `rps_uniform` exactly 5/18 or 1/9;
+admissibility stamps in order or the row is refused by name;
+`(fixture_id, run_digest)` idempotent, disagreement refused; abstention rows
+carry no score fields; `weight_basis_*` matches the branch the snapshot's own
+minutes dictate.
+
+**5. The typed refusals, by name.** **`SnapshotMissing`**,
+**`SnapshotDigestMismatch`**, **`StatusUnruled`**, **`SquadEmpty`**,
+**`AvailMismatch`**, **`SchemaMismatch`**, **`RowInadmissible`**,
+**`RowConflict`** — all deriving from **`AvailArmError`**, caught by `main()`,
+printing `STOP: …`, exiting **2** — plus the capture's own **`TeamUnmapped`**,
+which the arm lets through untranslated, because it is the same fact.
+
+**6. The expected effect, stated before any row exists: 0 to +0.0002 mean
+RPS.** That is the honest prior — between "nothing, because the fit already
+knows" and roughly the recal arm's in-sample scale — and it is an
+expectation, not a threshold: nothing fires if the ledger lands outside it in
+either direction; a surprise in either direction is a finding to be written
+up, not a trigger. **No expectation about any single fixture's sign is
+pre-stated. Adoption into any published surface only ever happens by a future
+preregistered experiment, in this file, written before the switch. Rollback
+is: stop scoring; the ledger is retained** — an arm that stopped is a record,
+not an embarrassment to delete.
+
+**7. What A12 does NOT decide.** Nothing about the retrospective harness —
+no v6, no new hash pair. Nothing about the arms, nulls, acceptance criteria,
+D11, the gate, or which arm is published. No number in any published report
+moves. `ISSUANCE_SCHEMA_VERSION` stays `epl-issuance-5`; `check` gains no
+criterion; the matchboard and both existing ledgers are byte-untouched;
+`src/`, `scripts/`, `site/`, `tools/`, `config/` and `.github/` are not
+touched; the A8 rule and its constant are not touched; the covariate gate's
+UNVALIDATED verdict stands.
+
+**Nothing above was chosen after seeing a result under it**, because no
+`dc_1x2_avail` row exists to have produced one. The two numbers that could
+have been chosen to flatter — the worked control's tilt and its direction —
+are arithmetic on a fixture that finished 3–0 to the side the tilt *hurts*
+(the transform lowers Arsenal's home probability by half a point on a match
+Arsenal won), and they are recorded pointing that way.
+
+### Recording note
+
+Written **before any line of `dc_1x2_avail` exists**: no `epl/availarm.py`,
+no `reports/epl_avail_shadow.jsonl`, no `reports/epl_avail_audit.md`, no row,
+no test, no step 9. At the moment of writing: `epl/simretro.py` and
+`epl/simmetrics.py` re-hashed to the v5 pair (`d64bef11…`, `b03d4fbc…`);
+`ISSUANCE_SCHEMA_VERSION` read from `epl/simcli.py:189` as `epl-issuance-5`;
+`reports/matchboard_scorecard.jsonl` and `reports/epl_recal_shadow.jsonl` at
+ten rows each; the availability manifest at two lines, both 2026-08-27, the
+first attesting 614 players against payload sha256 `ce95ad3e…` and the second
+a zero-delta pull; a repo-wide search finding the string `dc_1x2_avail`
+nowhere. Every number in *What is pre-stated* items 2 and 3 was computed on
+2026-08-27 from the pinned snapshot and the already-published MW0 marginals,
+**before this entry was committed and before any code was written**. Besides
+this entry the working tree over `e609e3c` carried exactly one change — the
+second pull's manifest attestation, committed on its own immediately before
+this entry's commit — and nothing else. **The commit that records this entry
+precedes every commit that implements any of it.**
