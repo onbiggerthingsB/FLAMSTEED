@@ -2442,3 +2442,86 @@ def test_no_results_canary_cannot_follow_the_run_past_the_freeze(tmp_path):
                        "results": {"PASS": True}, "results_canary_run": True},
                       path)
     assert ew.require_run_preconditions(tmp_path, require_results=True)
+
+
+# ==========================================================================
+# 18. no selection on outcomes — ultra-review lesson 2, and §2.1's ruling
+# ==========================================================================
+
+def test_the_population_is_selected_from_the_past_and_never_from_the_outcome(
+        tmp_path):
+    """§1.4's rule: thin is `min-side e < e*` AT THE BLOCK CUTOFF, a sum over
+    matches strictly before it. Nothing about which fixtures enter the estimand
+    can depend on how they turned out.
+
+    Tested on the real selection path: permute every outcome, rewrite every
+    forecast, and demand the thin and treated sets come back identical — the
+    ultra-review's "any selection step must be prequential/past-only",
+    satisfied here by there being no selection step at all.
+    """
+    corpus, played, ledger = _world()
+    before = ew.membership(corpus, played, ledger, e_star=ew.E_STAR)
+
+    scrambled = corpus.copy()
+    scrambled["y"] = (scrambled["y"] + 1) % 3
+    scrambled[["dc_home", "dc_draw", "dc_away"]] = \
+        scrambled[["dc_away", "dc_home", "dc_draw"]].to_numpy()
+    scrambled["dc_rps"] = score_mod.rps(
+        scrambled[list(ew._PROB_COLUMNS)].to_numpy(float),
+        scrambled["y"].to_numpy())
+    after = ew.membership(scrambled, played, ledger, e_star=ew.E_STAR)
+
+    assert after.thin == before.thin
+    assert after.treated == before.treated
+    assert after.new_cells == before.new_cells
+    assert after.blocks == before.blocks
+    # and the fits the run would pay for are the same fits
+    assert ew.fit_openings(scrambled, played, ledger) == \
+        ew.fit_openings(corpus, played, ledger)
+
+
+def test_the_population_does_not_move_when_the_archive_gains_a_later_match():
+    """The same property from the other side: evidence is a sum over matches
+    STRICTLY BEFORE the block cutoff, so a result that lands after it cannot
+    retroactively make a fixture thick."""
+    corpus, played, ledger = _world()
+    before = ew.membership(corpus, played, ledger)
+    later = pd.concat([played, pd.DataFrame([{
+        "match_id": "future1", "date": pd.Timestamp(CUT_C) + pd.Timedelta(days=5),
+        "home_key": "stale", "away_key": "rich", "fthg": 3, "ftag": 0,
+        "played": True, "season": "hist"}])], ignore_index=True)
+    assert ew.membership(corpus, later, ledger).thin == before.thin
+
+
+def test_the_grid_is_reported_and_the_verdict_cannot_read_it():
+    """§2.1: "No parameter is selected anywhere in this experiment… every grid
+    point's estimand analogue is published as a secondary with ZERO DECISION
+    WEIGHT", and §2.1 pre-states the cost: a neighbour that looks better is
+    selection-on-outcome, may not be adopted, and carries exploratory standing
+    only.
+
+    `adoption` takes the estimand's own point estimate and its two intervals.
+    It has no parameter through which a grid point could reach it.
+    """
+    import inspect
+
+    signature = inspect.signature(ew.adoption)
+    assert list(signature.parameters) == ["delta", "ci95_block", "ci95_season",
+                                          "table"]
+    # a spectacular grid point cannot change a missing verdict
+    miss = ew.adoption(-0.0001, [-0.001, 0.002], [-0.001, 0.002],
+                       _PASSING_TABLE)
+    assert miss["verdict"] == "DC_NATIVE STANDS"
+    assert "grid" not in json.dumps(miss)
+
+
+def test_every_secondary_says_in_its_own_output_that_it_decides_nothing(
+        tmp_path):
+    """§3: "Everything in §3.1 and §3.4 is published with the result and DECIDES
+    NOTHING." A claim in a document is a claim; a field in the output travels
+    with the number to wherever it gets quoted."""
+    rows = _merged(tmp_path)
+    result = ew.estimand(rows, n_boot=100, corpus_rows=len(rows))
+    assert result["secondaries_decide"] == "nothing"
+    assert result["secondaries"]["full_population"]["decides"] == "nothing"
+    assert result["decides"].startswith("nothing")
