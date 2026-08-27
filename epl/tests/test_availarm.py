@@ -1408,3 +1408,67 @@ def test_the_write_path_refuses_a_row_under_another_constant(tmp_path):
     row = {**_one(), "k_avail": 0.5}
     with pytest.raises(availarm.SchemaMismatch, match="k_avail"):
         availarm.append_shadow(tmp_path / "avail.jsonl", [row])
+
+
+# ==========================================================================
+# 13. the source's domain — a clamp would reverse the ruled sign (r7 I4)
+# ==========================================================================
+#: A12 (b) writes `u_p = (100 - chance)/100` and then states, in terms, that
+#: `feat_side` is "a number in `[0, 1]`". Nothing checked the source's domain,
+#: so a `chance_of_playing_next_round` of 200 produced `u_p = -1` and a
+#: NEGATIVE feature — a tilt with the wrong sign, moving a side's probability
+#: the way it moves when players are AVAILABLE. Clamping would be worse than
+#: refusing: it would silently price a payload the rule cannot read.
+
+def test_a_chance_outside_the_sources_own_ladder_is_refused_not_clamped():
+    with pytest.raises(av.AvailabilitySchemaDrift, match="200"):
+        availarm.unavailability(_p(1, status="d", chance=200))
+    with pytest.raises(av.AvailabilitySchemaDrift, match="-25"):
+        availarm.unavailability(_p(1, status="d", chance=-25))
+    # and the ladder's own ends stay admissible
+    assert availarm.unavailability(_p(1, status="d", chance=0)) == 1.0
+    assert availarm.unavailability(_p(1, status="d", chance=100)) == 0.0
+
+
+def test_a_negative_weight_is_refused_rather_than_summed():
+    with pytest.raises(av.AvailabilitySchemaDrift, match="minutes"):
+        availarm.side_feature([_p(1, minutes=-90, now_cost=50),
+                               _p(2, minutes=3000, now_cost=50)])
+    with pytest.raises(av.AvailabilitySchemaDrift, match="now_cost"):
+        availarm.side_feature([_p(1, minutes=0, now_cost=-50),
+                               _p(2, minutes=0, now_cost=50)])
+
+
+def test_the_feature_is_provably_in_the_unit_interval_A12_names():
+    """The post-condition, asserted on the number rather than hoped for."""
+    for squad in ([_p(i, status="i") for i in range(1, 12)],
+                  _squad(11, team_key="alpha"),
+                  [_p(1, status="d", chance=25), *_squad(10, team_key="alpha",
+                                                         first=2)]):
+        feat = availarm.side_feature(squad).feat
+        assert 0.0 <= feat <= 1.0
+
+
+def test_the_as_of_read_refuses_a_payload_outside_the_sources_domain(tmp_path):
+    """And the refusal is at the ARCHIVE's door too, where the bytes are read:
+    the arm's own check protects a hand-built view, this one protects every
+    caller of the read side."""
+    from epl.tests import test_availability as cap
+
+    raw, manifest = tmp_path / "raw", tmp_path / "manifest.jsonl"
+    players = [cap._player(i, team=(i % 20) + 1, minutes=90) for i in range(1, 41)]
+    players[0] = {**players[0], "status": "d",
+                  "chance_of_playing_next_round": 200}
+    _hand_archive(raw, manifest, "2026-08-27T02:30:39Z",
+                  cap._payload(players, teams=cap._team_rows(cap.FPL_TEAMS)))
+    with pytest.raises(av.AvailabilitySchemaDrift, match="200"):
+        availarm.snapshot_for("2026-08-27T09:00:00Z", raw_dir=raw,
+                              manifest_path=manifest)
+
+    players[0] = {**players[0], "chance_of_playing_next_round": None,
+                  "minutes": -1}
+    _hand_archive(raw, manifest, "2026-08-27T03:00:00Z",
+                  cap._payload(players, teams=cap._team_rows(cap.FPL_TEAMS)))
+    with pytest.raises(av.AvailabilitySchemaDrift, match="minutes"):
+        availarm.snapshot_for("2026-08-27T09:00:00Z", raw_dir=raw,
+                              manifest_path=manifest)

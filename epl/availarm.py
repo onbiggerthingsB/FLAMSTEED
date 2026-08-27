@@ -334,6 +334,16 @@ class RowConflict(AvailArmError):
 #: a wrong number wearing a right number's name.
 TeamUnmapped = availability.TeamUnmapped
 
+#: The capture's OWN drift refusal, on exactly the same footing and for exactly
+#: the same reason: a `chance_of_playing_next_round` outside the source's own
+#: 0..100, or a negative `minutes`/`now_cost`, is not a fact about this arm's
+#: rule but a fact about the payload — the feed is no longer serving what A12
+#: (b) reads. It is REFUSED and never clamped: A12 (b) states the feature is "a
+#: number in [0, 1]", a chance of 200 gives `u_p = -1` and reverses the sign of
+#: the tilt, and a clamp would price the payload anyway and file the answer as
+#: if the rule could read it.
+AvailabilitySchemaDrift = availability.AvailabilitySchemaDrift
+
 
 # ==========================================================================
 # 2. the feature — A12 (b), per player and per side
@@ -354,7 +364,20 @@ def unavailability(player: Mapping[str, Any]) -> float | None:
         return None
     if status == DOUBTFUL_STATUS:
         chance = player.get("chance_next")
-        chance = NULL_CHANCE if chance is None else float(chance)
+        if chance is None:
+            chance = NULL_CHANCE
+        else:
+            chance = float(chance)
+            low, high = availability.CHANCE_BOUNDS
+            if not low <= chance <= high:
+                raise AvailabilitySchemaDrift(
+                    f"player {player.get('web_name')!r} (id "
+                    f"{player.get('player_id')}) carries chance_next="
+                    f"{player.get('chance_next')!r}, outside the source's own "
+                    f"{low}..{high}. A12 (b) reads it as "
+                    "`u_p = (100 - chance)/100` and states the feature is a "
+                    "number in [0, 1]; this value puts `u_p` outside that "
+                    "interval and REVERSES the sign of the tilt")
         return (100.0 - chance) / 100.0
     raise StatusUnruled(
         f"player {player.get('web_name')!r} (id {player.get('player_id')}) "
@@ -400,6 +423,21 @@ def side_feature(players: Sequence[Mapping[str, Any]]) -> SideFeature:
             "rather than returning a zero feature, because a zero reads as "
             "'everyone is fit' and means 'we know nothing'")
 
+    # THE DOMAIN, BEFORE THE ARITHMETIC. A negative term can cancel another
+    # player's weight, shrink the denominator, or flip the branch the
+    # switchover picks — none of which is a share of anything. The read side
+    # refuses these at the archive's door; this refuses them for a view a
+    # caller built by hand, which is the only other way one arrives here.
+    for player, _ in included:
+        for field in (WEIGHT_BASIS_MINUTES, WEIGHT_BASIS_FALLBACK):
+            if int(player[field]) < 0:
+                raise AvailabilitySchemaDrift(
+                    f"player {player.get('web_name')!r} (id "
+                    f"{player.get('player_id')}) carries {field}="
+                    f"{player[field]!r}. A12 (b) makes both weighting fields "
+                    "SHARES of a club total, and a negative term is a share of "
+                    "nothing")
+
     total_minutes = sum(int(p["minutes"]) for p, _ in included)
     basis = (WEIGHT_BASIS_MINUTES if total_minutes >= MINUTES_SWITCHOVER
              else WEIGHT_BASIS_FALLBACK)
@@ -436,7 +474,18 @@ def side_feature(players: Sequence[Mapping[str, Any]]) -> SideFeature:
                 # (h)); the GAP between the two clocks is what the audit wants.
                 "news_added": player.get("news_added"),
             })
-    return SideFeature(feat=math.fsum(contributions), weight_basis=basis,
+    feat = math.fsum(contributions)
+    # A12 (b) states the feature is "a number in [0, 1]", so it is ASSERTED
+    # rather than hoped for: every u_p is in [0, 1] and every share is a
+    # non-negative fraction of their own sum, so this can only fail if one of
+    # the guards above ever stops holding — which is exactly when a silent
+    # wrong-signed tilt would otherwise be filed.
+    if not 0.0 <= feat <= 1.0:
+        raise AvailMismatch(
+            f"this club's feature is {feat!r}, and A12 (b) states the feature "
+            "is a number in [0, 1]. A value outside it is a tilt whose "
+            "magnitude, and possibly whose sign, the ruling does not authorise")
+    return SideFeature(feat=feat, weight_basis=basis,
                        n_included=len(included), denominator=denominator,
                        flagged=tuple(flagged))
 
@@ -1425,6 +1474,7 @@ __all__ = [
     "AvailArmError", "SnapshotMissing", "SnapshotDigestMismatch",
     "StatusUnruled", "SquadEmpty", "AvailMismatch", "SchemaMismatch",
     "RowInadmissible", "RowConflict", "TeamUnmapped",
+    "AvailabilitySchemaDrift",
     "SideFeature", "unavailability", "side_feature", "tilt", "adjust",
     "manifest_lines", "snapshot_for", "board_from", "abstention_row",
     "forecast_rows", "score",

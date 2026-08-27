@@ -124,7 +124,7 @@ __all__ = [
     "render_status", "main",
     # the A12 as-of read side
     "NoSnapshotAsOf", "SnapshotMissing", "SnapshotDigestMismatch",
-    "AS_OF_FIELDS", "AS_OF_PLAYER_FIELDS", "AsOfSnapshot",
+    "AS_OF_FIELDS", "AS_OF_PLAYER_FIELDS", "CHANCE_BOUNDS", "AsOfSnapshot",
     "select_manifest_line", "as_of", "instant", "instant_of_stamp",
 ]
 
@@ -1042,6 +1042,64 @@ def select_manifest_line(lines: Sequence[dict], clock) -> dict | None:
     return best
 
 
+#: The source's own ladder is 25/50/75 and its own bounds are 0 and 100.
+#: A12 (b) writes `u_p = (100 - chance)/100` and then states that `feat_side` is
+#: "a number in [0, 1]" — which is a claim about the SOURCE's domain as much as
+#: about the arithmetic. A chance of 200 gives `u_p = -1` and a negative
+#: feature: a tilt with the sign REVERSED, moving a side's probability the way
+#: it moves when players are available.
+CHANCE_BOUNDS = (0, 100)
+
+
+def _domain(element: Any) -> None:
+    """Refuse a payload outside the source's own domain. NEVER clamp it.
+
+    A clamp is the worse failure of the two: it prices a payload this rule
+    cannot read and files the result as if it could, where a refusal says the
+    feed changed and stops. The three fields A12's weighting stands on are
+    checked, and each names the player and the value.
+    """
+    chance = element["chance_of_playing_next_round"]
+    if chance is not None:
+        try:
+            value = float(chance)
+        except (TypeError, ValueError) as exc:
+            raise AvailabilitySchemaDrift(
+                f"elements[id={element.get('id')!r}, "
+                f"web_name={element.get('web_name')!r}] carries "
+                f"chance_of_playing_next_round={chance!r}, which is not a "
+                "number — A12 (b) divides by it") from exc
+        low, high = CHANCE_BOUNDS
+        if not low <= value <= high:
+            raise AvailabilitySchemaDrift(
+                f"elements[id={element.get('id')!r}, "
+                f"web_name={element.get('web_name')!r}] carries "
+                f"chance_of_playing_next_round={chance!r}, outside the source's "
+                f"own {low}..{high}. A12 (b) reads it as "
+                "`u_p = (100 - chance)/100` and states the feature is a number "
+                "in [0, 1]; this value puts `u_p` outside that interval and "
+                "REVERSES the sign of the tilt. Refused, not clamped: a clamp "
+                "prices a payload this rule cannot read and files the answer as "
+                "if it could")
+    for field in AS_OF_FIELDS:
+        try:
+            value = int(element[field])
+        except (TypeError, ValueError) as exc:
+            raise AvailabilitySchemaDrift(
+                f"elements[id={element.get('id')!r}, "
+                f"web_name={element.get('web_name')!r}] carries "
+                f"{field}={element[field]!r}, which is not a whole number — "
+                "A12 (b) sums it into a denominator") from exc
+        if value < 0:
+            raise AvailabilitySchemaDrift(
+                f"elements[id={element.get('id')!r}, "
+                f"web_name={element.get('web_name')!r}] carries "
+                f"{field}={value}. A12 (b) makes both weighting fields SHARES "
+                "of a club total, and a negative term can cancel another "
+                "player's weight, shrink the denominator, or flip the branch "
+                "the switchover picks — none of which is a share of anything")
+
+
 def _as_of_player(element: Any, team_keys: dict[int, str]) -> dict:
     team_id = int(element["team"])
     if team_id not in team_keys:
@@ -1058,6 +1116,7 @@ def _as_of_player(element: Any, team_keys: dict[int, str]) -> dict:
             f"{list(AS_OF_FIELDS)} on top of the capture's own set, because a "
             "weighting computed over a field that is not there would be a "
             "feature of zero wearing a fit squad's face")
+    _domain(element)
     return {
         "player_id": int(element["id"]),
         "web_name": str(element["web_name"]),
