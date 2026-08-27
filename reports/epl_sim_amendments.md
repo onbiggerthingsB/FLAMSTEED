@@ -5104,3 +5104,45 @@ this entry the working tree over `e609e3c` carried exactly one change — the
 second pull's manifest attestation, committed on its own immediately before
 this entry's commit — and nothing else. **The commit that records this entry
 precedes every commit that implements any of it.**
+
+---
+
+## A12 — appended note (2026-08-27): two further docstring re-scopes, recorded before the edit
+
+**This is an appended note to A12, not a new ruling and not an edit to A12's
+own text**, which stands exactly as written above.
+
+A12 (e) authorised the implementing commit to re-scope **exactly two** surfaces
+and named them: the capture test's livecycle clause, and the capture
+docstring's "Today it feeds nothing" sentence. Both were re-scoped and no
+others. An independent review of the implementing range then found two further
+committed sentences that still describe the world before A12 and now
+**contradict the code beside them**:
+
+* `epl/availability.py`, bound (c) of A11's four: "the alternatives … stay
+  open, **which is why nothing downstream is allowed to depend on this**" —
+  while the same docstring, twenty lines lower, already names A12 and the
+  shadow consumer it authorises;
+* `epl/livecycle.py`, its "NOT IN SCOPE, DELIBERATELY" paragraph: "**No FPL
+  capture** (a separate queued build; A11 is not recorded)" — while the module
+  imports `epl.availarm` and runs A12's step 9.
+
+Neither sentence is one of the two A12 (e) named, so correcting them is an
+extension of that authorisation and is recorded here **before** the edit rather
+than made quietly inside it. **What the extension does and does not cover:**
+it covers exactly these two sentences, corrected to describe what the code now
+does, and it is a documentation correction only. It moves no boundary, softens
+no guard and changes no executable rule: the A11 bounds themselves are
+unchanged and A12's own re-scoping of bound (c) — nothing downstream may depend
+on this capture *except the one shadow use A12 preregisters* — is what the
+corrected sentence will say. `epl/livecycle.py` still does not import
+`epl.availability`; `epl.availarm` is still the only authorised bridge; the
+capture still imports no model module; the covariate gate still holds its
+`UNVALIDATED` verdict and gains nothing here.
+
+**Why it is written down at all.** A12's own rationale says it: "every
+softening of a guard in this project should trace to a dated ruling that
+authorised it." A stale sentence corrected without a note is indistinguishable,
+to a later reader, from a boundary moved without one — and the second is the
+thing this file exists to catch. Recorded 2026-08-27, in the fix round that
+answers the review of `e609e3c..10496fa`.

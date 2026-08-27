@@ -14,7 +14,11 @@ and all four are structural in this module:
 * (b) raw snapshots hashed and retained locally under gitignored `data/`, with
   a TRACKED manifest — attestation without redistribution;
 * (c) the alternatives (written permission, the paid licence-clean feed) stay
-  open, which is why nothing downstream is allowed to depend on this;
+  open, which is why nothing downstream may depend on this EXCEPT the one use
+  a later amendment preregisters by name — today that is A12's `dc_1x2_avail`
+  shadow arm and nothing else (see "WHAT IT FEEDS, AND UNDER WHAT RULING"
+  below). Re-scoped by the appended note to A12, 2026-08-27; the bound itself
+  is unchanged, and an unnamed dependency is still not authorised;
 * (d) personal scale — one pull a day against one public endpoint. There is no
   cron here. The operator runs it; a scheduler committed by a harness is a
   standing side effect nobody reviewed.

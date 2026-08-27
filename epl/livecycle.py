@@ -99,10 +99,19 @@ refused, and the digests of whatever it wrote. ``--dry-run`` writes nothing
 else, and it writes this — a flight log with holes in it is not a flight log,
 and the line records ``"dry_run": true`` so the two are never confused.
 
-NOT IN SCOPE, DELIBERATELY. No FPL capture (a separate queued build; A11 is not
-recorded). No scraping beyond the two public files above. No cadence note in
-the amendments ledger — the owner flips the cadence after this runs green in
-production, and the switch date is his to record.
+NOT IN SCOPE, DELIBERATELY. No FPL CAPTURE — A11 records the capture and A12
+its one shadow consumer, and this module runs neither: step 9 calls
+:mod:`epl.availarm`, which is the only authorised bridge, and this module still
+does not import :mod:`epl.availability`, fetch a payload, read a snapshot or
+decide an abstention. No scraping beyond the two public files above. No cadence
+note in the amendments ledger — the owner flips the cadence after this runs
+green in production, and the switch date is his to record.
+
+(The sentence this paragraph used to carry — "No FPL capture (a separate queued
+build; A11 is not recorded)" — predated both amendments and contradicted the
+import six lines below it. Corrected under the appended note to A12,
+2026-08-27, which records the extension of A12 (e)'s two named re-scopes to
+this sentence and to A11's bound (c). Nothing executable moved with it.)
 """
 from __future__ import annotations
 
