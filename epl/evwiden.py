@@ -135,6 +135,7 @@ from epl import score as score_mod                                # noqa: E402
 __all__ = [
     "EvWidenError", "SCHEMA_ID", "SEED", "BOOTSTRAP_SEED", "E_STAR", "E_GRID",
     "ARM_NAME", "ADOPT_DELTA", "TABLE_TOLERANCE", "RUN_ORDER",
+    "REALISED_CONFIG_SHA256", "realised_config_sha256", "assert_config_frozen",
     "load_corpus", "load_archive", "load_walk_ledger", "effective_evidence",
     "evidence_table", "prior_rows", "Membership", "membership",
     "membership_digests",
@@ -187,6 +188,20 @@ SEED = 20260611
 #: §0.1's realised configuration, the two fields this experiment depends on.
 FROZEN_WIDENING = {"mechanism": "c", "strength": 0.5}
 DECAY_HALF_LIFE_DAYS = 365.0
+
+#: R-I1's repaired pin. `epl.freeze.frozen_wcmodel_config()` loads the LIVE
+#: `config/config.yaml` and overlays only the frozen EPL Elo block, so the
+#: superseded three-condition check bound `epl/config_frozen.json`, the realised
+#: seed and the realised widening block AND NOTHING ELSE — not the decay
+#: half-life that DEFINES `e`, not the volatility window `e* = 10.0` is taken
+#: from, not the likelihood, not the ADVI block. Drift there would change `e`,
+#: the posteriors or reproducibility while the documented refusal passed.
+#:
+#: The value is the SHA-256 of `json.dumps(frozen_wcmodel_config(),
+#: sort_keys=True, default=str)`, computed 2026-08-27 under the pinned frozen
+#: file and pinned by R-I1.
+REALISED_CONFIG_SHA256 = \
+    "78a51cd92c48838a57e3d6832b7661aad7a5b231425572214a067c2a35edbdcd"
 
 #: §2.6-equivalent: the project's own block bootstrap, percentile, at the
 #: standard resampling seed. §2.3 requires BOTH blockings and §4.1 gates on both.
@@ -384,8 +399,9 @@ class LedgerDigestMismatch(EvWidenError):
 
 
 class ConfigNotFrozen(EvWidenError):
-    """The config is not `9f2e086d…`, the seed is not 20260611, or widening is
-    not `{mechanism: c, strength: 0.5}`."""
+    """The config is not `9f2e086d…`, the seed is not 20260611, widening is not
+    `{mechanism: c, strength: 0.5}`, or — R-I1's fourth condition — the REALISED
+    configuration does not hash to `78a51cd9…`."""
 
 
 class MembershipMismatch(EvWidenError):
@@ -464,6 +480,21 @@ class MergeIncomplete(EvWidenError):
     """The merged key set is not exactly the pre-stated one."""
 
 
+class TableMCImprecise(EvWidenError):
+    """R-B3's paired Monte-Carlo error cannot be computed (R2-X, the 23rd).
+
+    R2-B3 step 2 names the structural conditions: unequal per-particle season
+    counts, or an ``n_particles`` that differs across the 16 deciding cells or
+    between a cell's two arms. Joint resampling is undefined without a common
+    index space and this document will not approximate one.
+
+    R2-X is explicit that gate (iv) being left UNRESOLVED by the precision rule
+    (P1)-(P5) is **not** a refusal and raises nothing: UNRESOLVED is a published
+    verdict, it blocks adoption, and conflating the two would make the harness
+    raise on a result it is required to publish.
+    """
+
+
 # ==========================================================================
 # 2. DIGESTS, THE CORPUS, THE ARCHIVE, THE LEDGER, THE CONFIGURATION
 # ==========================================================================
@@ -481,15 +512,35 @@ def config_sha256(path: Path | str | None = None) -> str:
     return sha256_file(Path(path) if path is not None else CONFIG_PATH)
 
 
+def realised_config_sha256(cfg: dict) -> str:
+    """R-I1's digest of the configuration the run actually realises.
+
+    One definition, in one place, so the constant, the check and the ledger row
+    cannot drift apart: ``sha256(json.dumps(cfg, sort_keys=True,
+    default=str))``.
+    """
+    return hashlib.sha256(
+        json.dumps(cfg, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+
 def assert_config_frozen(path: Path | str | None = None,
                          cfg: dict | None = None) -> str:
-    """Refuse a configuration that is not the frozen one (§5.1).
+    """Refuse a configuration that is not the frozen one (§5.1, as R-I1 repairs it).
 
-    Three things, not one: the file's digest, the realised seed, and the
-    realised widening block. The last is not decoration — this experiment is
-    defined on mechanism (c) at strength 0.5, and under mechanism (a) the
-    widening would move into the LIKELIHOOD, the posterior would stop being
-    arm-invariant, and every pairing claim in §2.3 would be false.
+    FOUR things, not three: the file's digest, the realised seed, the realised
+    widening block, and — R-I1's repair — a digest of the WHOLE realised
+    configuration.
+
+    The widening block is not decoration: this experiment is defined on
+    mechanism (c) at strength 0.5, and under mechanism (a) the widening would
+    move into the LIKELIHOOD, the posterior would stop being arm-invariant, and
+    every pairing claim in §2.3 would be false.
+
+    The fourth condition is the one R-I1 added, and it is the one that binds
+    everything §0.1 quoted and the superseded check held none of:
+    ``windows.decay_half_life_days = 365`` (which DEFINES `e`),
+    ``elo.volatility_window = 10`` (which `e* = 10.0` is taken from),
+    ``model.inference`` and the rest of the live YAML.
     """
     path = Path(path) if path is not None else CONFIG_PATH
     if not path.exists():
@@ -516,6 +567,19 @@ def assert_config_frozen(path: Path | str | None = None,
                 "makes the fitted posterior identical across arms. Under (a) it "
                 "is not, and the pairing this experiment reports would be a "
                 "comparison of two different posteriors.")
+        realised_digest = realised_config_sha256(cfg)
+        if realised_digest != REALISED_CONFIG_SHA256:
+            raise ConfigNotFrozen(
+                f"the realised configuration hashes to {realised_digest}, not "
+                f"the pinned {REALISED_CONFIG_SHA256}. R-I1 pins the digest of "
+                "`freeze.frozen_wcmodel_config()` itself, because that function "
+                "loads the LIVE config/config.yaml and overlays only the frozen "
+                "EPL Elo block: the decay half-life that DEFINES `e`, the "
+                "volatility window `e* = 10.0` is taken from, the likelihood and "
+                "the ADVI block all come from a file the frozen-file digest does "
+                "not bind. A drift there changes `e`, the posteriors or "
+                "reproducibility while the superseded three-condition check "
+                "passes.")
     return got
 
 
@@ -1491,8 +1555,7 @@ class Engine:
         self._epl_fit = epl_fit
         self.cfg = freeze.frozen_wcmodel_config()
         self.config_sha256 = assert_config_frozen(cfg=self.cfg)
-        self.realised_config_sha256 = hashlib.sha256(
-            json.dumps(self.cfg, sort_keys=True, default=str).encode()).hexdigest()
+        self.realised_config_sha256 = realised_config_sha256(self.cfg)
 
         self.played = load_archive() if played is None else played
         self.ledger = load_walk_ledger() if ledger is None else ledger

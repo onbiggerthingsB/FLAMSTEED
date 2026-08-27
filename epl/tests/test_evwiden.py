@@ -65,6 +65,16 @@ PINNED_LEDGER = Path("data/epl/fit/walkforward_ledger.jsonl")
 #: The preregistration this harness implements.
 PREREG = Path("reports/epl_widening_prereg.md")
 
+#: The `@pinned` tests of R-I5: they read the pinned artifacts DELIBERATELY, to
+#: re-derive the document's own census. They fit nothing and simulate nothing,
+#: they are authorised by name under R-B5, and they are not covered by R-I5's
+#: SYNTHETIC definition.
+pinned = pytest.mark.skipif(
+    not (PINNED_CORPUS.exists() and PINNED_ARCHIVE.exists()
+         and PINNED_LEDGER.exists()),
+    reason="the pinned corpus, archive and walk-forward ledger are on the "
+           "machine that ran the walk and nowhere else")
+
 
 # ==========================================================================
 # the synthetic world: an archive whose `e` values are chosen, not discovered
@@ -287,6 +297,8 @@ def test_seeded_defect_config_under_mechanism_a_refuses(monkeypatch, tmp_path):
     monkeypatch.setattr(ew, "CONFIG_SHA256", ew.sha256_file(ew.CONFIG_PATH))
     good = {"seed": ew.SEED, "model": {"widening": {"mechanism": "c",
                                                     "strength": 0.5}}}
+    monkeypatch.setattr(ew, "REALISED_CONFIG_SHA256",
+                        ew.realised_config_sha256(good))
     assert ew.assert_config_frozen(cfg=good)
     for broken in ({"seed": 1, "model": {"widening": ew.FROZEN_WIDENING}},
                    {"seed": ew.SEED,
@@ -295,6 +307,48 @@ def test_seeded_defect_config_under_mechanism_a_refuses(monkeypatch, tmp_path):
                     "model": {"widening": {"mechanism": "c", "strength": 0.9}}}):
         with pytest.raises(ew.ConfigNotFrozen):
             ew.assert_config_frozen(cfg=broken)
+
+
+def test_the_realised_configuration_is_pinned_and_not_only_the_frozen_file(
+        monkeypatch):
+    """R-I1: `frozen_wcmodel_config()` loads the LIVE `config/config.yaml` and
+    overlays only the frozen EPL Elo block, so the decay half-life that DEFINES
+    `e`, the volatility window `e* = 10.0` is taken from, the likelihood and the
+    whole ADVI block came from a file no check bound.
+
+    `ConfigNotFrozen` now fires on four conditions, not three, and the fourth is
+    a digest of the configuration the run actually realises.
+    """
+    monkeypatch.setattr(ew, "CONFIG_SHA256", ew.sha256_file(ew.CONFIG_PATH))
+    good = {"seed": ew.SEED,
+            "model": {"widening": {"mechanism": "c", "strength": 0.5}}}
+    digest = ew.realised_config_sha256(good)
+    monkeypatch.setattr(ew, "REALISED_CONFIG_SHA256", digest)
+    assert ew.assert_config_frozen(cfg=good)
+
+    drifted = dict(good)
+    drifted["windows"] = {"decay_half_life_days": 180}
+    with pytest.raises(ew.ConfigNotFrozen) as exc:
+        ew.assert_config_frozen(cfg=drifted)
+    assert "realised" in str(exc.value)
+
+
+@pinned
+def test_the_pinned_realised_config_digest_is_the_documents():
+    """R-I1 pins `78a51cd9…`, computed 2026-08-27 under the pinned frozen file.
+    A drift there changes `e`, the posteriors, or reproducibility while the
+    superseded three-condition check passed."""
+    from epl import freeze
+
+    assert ew.REALISED_CONFIG_SHA256 == (
+        "78a51cd92c48838a57e3d6832b7661aad7a5b231425572214a067c2a35edbdcd")
+    cfg = freeze.frozen_wcmodel_config()
+    assert ew.realised_config_sha256(cfg) == ew.REALISED_CONFIG_SHA256
+    # and the fields R-I1 says it now binds
+    assert cfg["windows"]["decay_half_life_days"] == 365
+    assert cfg["elo"]["volatility_window"] == 10
+    assert cfg["model"]["widening"] == {"mechanism": "c", "strength": 0.5}
+    assert cfg["seed"] == ew.SEED
 
 
 # ==========================================================================
@@ -2084,13 +2138,6 @@ def test_the_cli_refuses_a_malformed_shard_spec(capsys):
 # 16. the pinned artifacts — read-only, no fits, skipped where they are absent
 # ==========================================================================
 
-pinned = pytest.mark.skipif(
-    not (PINNED_CORPUS.exists() and PINNED_ARCHIVE.exists()
-         and PINNED_LEDGER.exists()),
-    reason="the pinned corpus, archive and walk-forward ledger are on the "
-           "machine that ran the walk and nowhere else")
-
-
 @pytest.fixture(scope="module")
 def real():
     """The pinned world, loaded once. READ-ONLY, and no fit runs here.
@@ -2326,7 +2373,9 @@ def test_every_refusal_type_5_1_names_exists_and_derives_from_the_base():
              "CutoffLeak", "CanaryFailed", "EvidenceCanaryFailed",
              "ControlMismatch", "UntreatedMoved", "TableIdentityBreak",
              "FitFailed", "UnpriceableFixture", "ScoreMismatch",
-             "SchemaMismatch", "RowConflict", "ShardFailed", "MergeIncomplete")
+             "SchemaMismatch", "RowConflict", "ShardFailed", "MergeIncomplete",
+             "TableMCImprecise")
+    assert len(named) == 23
     for name in named:
         cls = getattr(ew, name)
         assert issubclass(cls, ew.EvWidenError), name
@@ -2348,8 +2397,12 @@ def test_the_harness_invents_no_refusal_the_document_never_wrote():
              "CutoffLeak", "CanaryFailed", "EvidenceCanaryFailed",
              "ControlMismatch", "UntreatedMoved", "TableIdentityBreak",
              "FitFailed", "UnpriceableFixture", "ScoreMismatch",
-             "SchemaMismatch", "RowConflict", "ShardFailed", "MergeIncomplete"}
+             "SchemaMismatch", "RowConflict", "ShardFailed", "MergeIncomplete",
+             "TableMCImprecise"}
     assert subclasses == named
+    # R2-X counts it both ways so neither reading is wrong: 23 named refusals,
+    # 24 classes counting the base they all derive from.
+    assert len(subclasses) == 23 and len(subclasses | {"EvWidenError"}) == 24
     # the pre-freeze-fit invalidation is one of the unnamed ones, and refuses
     # as the base class
     with pytest.raises(ew.EvWidenError) as exc:
