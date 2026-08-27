@@ -1943,40 +1943,96 @@ def test_the_merge_refuses_without_a_passing_canary_record(tmp_path):
 # 11. the table-retro leg — §3.3's identity demand and §4.1 (iv)'s gate
 # ==========================================================================
 
-def _cells(n_treated: int = 2, n_untouched: int = 3):
-    """A synthetic grid of table cells, some treated and some not."""
-    out = []
-    for i in range(n_treated + n_untouched):
-        treated = ["sunderland"] if i < n_treated else []
-        out.append({
-            "season": f"20{19 + i // 2}/{20 + i // 2}",
-            "cutoff_label": f"MW{i}", "cutoff": f"2020-0{1 + i}-01",
-            "clubs": ["sunderland", "rich", "mid"],
-            "provisional_incumbent": [], "provisional_enlarged": treated,
-            "treated_clubs": treated,
-            "evidence": {"sunderland": 0.17, "rich": 50.0, "mid": 5.0},
-        })
+#: The synthetic table world mirrors §3.3's own shape: seven seasons x five
+#: labels = 35 cells, with R-B2's census of treated cells per label —
+#: MW0 3, MW3 2, MW6 **7**, MW10 4, MW19 **0**. The gates are per horizon now,
+#: so a fixture-world that flattened the labels could not exercise them.
+TABLE_SEASONS = tuple(f"20{19 + i}/{20 + i}" for i in range(7))
+TABLE_LABELS = ("MW0", "MW3", "MW6", "MW10", "MW19")
+TABLE_CLUBS = ("sunderland", "rich", "mid")
+
+#: P particles, k seasons each: n_sims = P * k. Small enough to bootstrap in a
+#: test, large enough that `ddof=1` means something.
+TALLY_PARTICLES = 8
+TALLY_SEASONS_PER_PARTICLE = 4
+TALLY_N_SIMS = TALLY_PARTICLES * TALLY_SEASONS_PER_PARTICLE
+
+
+def _tally(shift: int, *, jitter: int = 0, particles: int = TALLY_PARTICLES,
+           k: int = TALLY_SEASONS_PER_PARTICLE, clubs: int = 3) -> np.ndarray:
+    """A per-particle fractional rank-mass tally with honest margins.
+
+    Every particle's tally is `k` times a permutation matrix, so every club row
+    and every rank column sums to `k` — the equal-cluster condition R2-B3 step 2
+    enforces and `epl.simmetrics.trps_se_cluster` enforces on its own input.
+    `jitter = 0` makes every particle identical, so the bootstrap has exactly
+    zero variance and a gate test can be about the gate; `jitter > 0` makes the
+    particles differ and the standard error real.
+    """
+    out = np.zeros((particles, clubs, clubs), dtype=float)
+    for s in range(particles):
+        rot = (shift + (s % (jitter + 1))) % clubs
+        for c in range(clubs):
+            out[s, c, (c + rot) % clubs] = float(k)
     return out
 
 
-def _table_runner(shift: float = -0.001, *, break_identity: str | None = None):
-    """A stub cell runner with the `TableRunner` output contract."""
+def _cells(seasons=TABLE_SEASONS, labels=TABLE_LABELS):
+    """§3.3's 35 cells, with R-B2's per-label treated census."""
+    treated_by_label = {"MW0": 3, "MW3": 2, "MW6": 7, "MW10": 4, "MW19": 0}
+    out = []
+    for label in labels:
+        for i, season in enumerate(seasons):
+            treated = ["sunderland"] if i < treated_by_label.get(label, 0) else []
+            out.append({
+                "season": season, "cutoff_label": label,
+                "cutoff": f"20{19 + i}-08-{10 + TABLE_LABELS.index(label):02d}",
+                "clubs": list(TABLE_CLUBS),
+                "provisional_incumbent": ["rich"],
+                "provisional_enlarged": sorted(["rich"] + treated),
+                "treated_clubs": treated,
+                "evidence": {"sunderland": 0.17, "rich": 50.0, "mid": 5.0},
+            })
+    return out
+
+
+def _parity_for(cells):
+    """The protected runner's digests, as `run_parity_oracle` would return them."""
+    return {f"{c['season']}|{c['cutoff_label']}": {
+        "key": f"{c['season']}|{c['cutoff_label']}",
+        "substantive_digest": f"sub-{c['season']}-{c['cutoff_label']}",
+        "provisional_teams": ["rich"]} for c in cells}
+
+
+def _table_runner(shift: float = -0.001, *, break_identity: str | None = None,
+                  jitter: int = 0, break_parity: bool = False,
+                  break_provisional: bool = False):
+    """A stub cell runner with the repaired `TableRunner` output contract."""
 
     def run(cell):
         treated = list(cell["treated_clubs"])
-        base = 0.08 + 0.001 * len(cell["cutoff_label"])
+        key = f"{cell['season']}|{cell['cutoff_label']}"
+        base = 0.08 + 0.0001 * TABLE_LABELS.index(cell["cutoff_label"])
         delta = shift if treated else 0.0
-        digest_c = f"digest-{cell['season']}-{cell['cutoff_label']}"
-        digest_t = digest_c if not treated else digest_c + "-t"
+        sampler_c = f"sampler-{key}"
+        sampler_t = sampler_c if not treated else sampler_c + "-t"
         if break_identity == "untouched" and not treated:
-            digest_t = digest_c + "-moved"
+            sampler_t = sampler_c + "-moved"
         if break_identity == "treated" and treated:
-            digest_t = digest_c
+            sampler_t = sampler_c
+        sub_c = f"sub-{cell['season']}-{cell['cutoff_label']}"
+        if break_parity:
+            sub_c += "-drifted"
+        prov_c = ["rich"]
+        prov_t = sorted(set(prov_c) | set(treated))
+        if break_provisional:
+            prov_t = sorted(set(prov_t) | {"mid"})
 
-        def arm(name, trps, digest):
+        def arm(name, trps, sampler, sub, provisional):
             return {"trps": trps, "wtrps": trps * 1.1, "flat_trps": 0.2,
-                    "digest": digest, "effective_posterior_hash": "book",
-                    "provisional": treated if name == "treatment" else [],
+                    "sampler_digest": sampler, "substantive_digest": sub,
+                    "effective_posterior_hash": "book",
+                    "provisional": provisional,
                     "coverage": {"coverage50": 0.5, "coverage90": 0.9},
                     "coverage_treated": {c: {"coverage50": 0.6,
                                              "coverage90": 0.95}
@@ -1986,7 +2042,9 @@ def _table_runner(shift: float = -0.001, *, break_identity: str | None = None):
                                          "points_p95": 50.0,
                                          "points_realised": 25}
                                      for c in treated},
-                    "n_sims": 20000, "n_particles": 1000,
+                    "n_sims": TALLY_N_SIMS, "n_particles": TALLY_PARTICLES,
+                    "tally_check": {"sims_per_particle":
+                                    TALLY_SEASONS_PER_PARTICLE},
                     "widening_mode": "per_fixture_bernoulli@alpha=0.5"}
 
         return {
@@ -1995,21 +2053,44 @@ def _table_runner(shift: float = -0.001, *, break_identity: str | None = None):
             "clubs": cell["clubs"], "treated_clubs": treated,
             "provisional_incumbent": cell["provisional_incumbent"],
             "provisional_enlarged": cell["provisional_enlarged"],
-            "evidence": cell["evidence"], "n_sims": 20000, "seed": 20260611,
-            "arms": {"control": arm("control", base, digest_c),
-                     "treatment": arm("treatment", base + delta, digest_t)},
+            "provisional_control": prov_c, "provisional_treatment": prov_t,
+            "evidence": cell["evidence"], "n_sims": TALLY_N_SIMS,
+            "seed": 20260611,
+            "arms": {"control": arm("control", base, sampler_c, sub_c, prov_c),
+                     "treatment": arm("treatment", base + delta, sampler_t,
+                                      sub_c + "-t", prov_t)},
             "identical": ew.assert_table_identity(
-                treated, digest_c, digest_t,
-                where=f"{cell['season']} {cell['cutoff_label']}"),
-            "realised_hash": "realised", "harness_sha256": "stub",
+                treated, sampler_c, sampler_t, where=key),
+            "realised_hash": "realised",
+            "realised_positions": {c: i + 1 for i, c in enumerate(TABLE_CLUBS)},
+            "realised_spans": {c: 1 for c in TABLE_CLUBS},
+            "realised_points": {c: 40 - 5 * i for i, c in enumerate(TABLE_CLUBS)},
+            "consequence_weights": [1.0, 1.0],
+            "harness_sha256": "stub",
+            "_tallies": {"control": _tally(0, jitter=jitter),
+                         "treatment": _tally(1 if treated else 0,
+                                             jitter=jitter)},
         }
 
     return run
 
 
+def _run_cells(tmp_path, cells=None, *, runner=None, name="table.jsonl",
+               harness_frozen=False, **kwargs):
+    """Run the stub table leg with a stub parity oracle beside it."""
+    cells = _cells() if cells is None else cells
+    path = Path(tmp_path) / name
+    ew.run_table(cells, path, runner=runner or _table_runner(),
+                 parity=_parity_for(cells), n_sims=TALLY_N_SIMS, seed=20260611,
+                 config_sha="c", verbose=False, harness_frozen=harness_frozen,
+                 **kwargs)
+    rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+    return path, rows
+
+
 def test_the_untouched_cells_must_prove_they_did_not_move():
     """§3.3: "the other 19 cells are unchanged by construction, AND THE HARNESS
-    MUST PROVE IT"."""
+    MUST PROVE IT" — on the SAMPLER digest (R2-B4(a))."""
     assert ew.assert_table_identity([], "d", "d", where="cell") is True
     with pytest.raises(ew.TableIdentityBreak) as exc:
         ew.assert_table_identity([], "d", "other", where="cell")
@@ -2017,73 +2098,552 @@ def test_the_untouched_cells_must_prove_they_did_not_move():
 
 
 def test_a_treated_cell_that_did_not_move_is_the_absence_of_the_experiment():
-    """Not in the document's letter, and the reason is stated in the code: a
-    zero delta from a treatment that never reached the sampler would be reported
-    as "no harm"."""
+    """R-H(4) as R2-B4(a) restates it so that it can actually FAIL: with the
+    provisional set outside the digest, equality is a statement about
+    scorelines, tie blocks and points — the things the D12 branch moves."""
     assert ew.assert_table_identity(["x"], "d", "e", where="cell") is False
     with pytest.raises(ew.TableIdentityBreak) as exc:
         ew.assert_table_identity(["x"], "d", "d", where="cell")
     assert "never reached the sampler" in str(exc.value)
+    assert "SAMPLER OUTPUT" in str(exc.value)
+
+
+def test_the_provisional_set_is_a_compared_field_and_not_a_digest_ingredient():
+    """R2-B4(a) ends round one's tautology: the digest included the provisional
+    set, and R-H(4) then used digest inequality as proof that the treatment
+    reached the sampler. Those two prove nothing together. Metadata is checked
+    as metadata now."""
+    ew.assert_provisional_fields(["x"], ["a"], ["a", "x"], where="cell")
+    ew.assert_provisional_fields([], ["a"], ["a"], where="cell")
+    with pytest.raises(ew.TableIdentityBreak) as exc:
+        ew.assert_provisional_fields(["x"], ["a"], ["a"], where="cell")
+    assert "compared field" in str(exc.value)
+    with pytest.raises(ew.TableIdentityBreak):
+        ew.assert_provisional_fields(["x"], ["a"], ["a", "x", "y"], where="cell")
+    with pytest.raises(ew.TableIdentityBreak) as exc:
+        ew.assert_provisional_fields([], ["a"], ["a", "b"], where="cell")
+    assert "untouched cells" in str(exc.value)
+
+
+# ---- R2-B4: the digests, and the call into protected code ------------------
+
+class _FakePlan:
+    def __init__(self, clubs, n_sims, n_particles, seed=20260611):
+        self.season = "2019/20"
+        self.season_code = "1920"
+        self.cutoff = "2019-08-09"
+        self.observed_by = "2019-08-09T00:00:00Z"
+        self.clubs = tuple(clubs)
+        self.fixtures = tuple(
+            _FakeFixture(f"f{i}", i, clubs[i % len(clubs)],
+                         clubs[(i + 1) % len(clubs)],
+                         None if i else (1, 0))
+            for i in range(2))
+        self.adjustments = np.zeros(len(clubs), np.int16)
+        self.boundaries = ((1, 1), (2, 3))
+        self.rule_id = "handbook-v1"
+        self.n_sims = int(n_sims)
+        self.n_particles = int(n_particles)
+        self.seed = int(seed)
+        self.chunk_size = 8
+        self.n_unresolved = 0
+        self.results_lag = False
+
+
+class _FakeFixture:
+    def __init__(self, fixture_id, ordinal, home, away, result):
+        self.fixture_id = fixture_id
+        self.ordinal = ordinal
+        self.home_key = home
+        self.away_key = away
+        self.result = result
+
+
+class _FakeRows:
+    def __init__(self, block_start, block_span, particle, n_clubs):
+        n = len(block_start)
+        self.block_start = np.asarray(block_start, np.uint8)
+        self.block_span = np.asarray(block_span, np.uint8)
+        self.resolution_code = np.zeros((n, n_clubs), np.uint8)
+        self.order = np.tile(np.arange(n_clubs, dtype=np.int8), (n, 1))
+        self.particle = np.asarray(particle, np.int64)
+        self.points = np.zeros((n, n_clubs), np.int16)
+        self.gd = np.zeros((n, n_clubs), np.int16)
+        self.gf = np.zeros((n, n_clubs), np.int16)
+
+
+class _FakeRun:
+    """The surface `particle_tallies` and the two digests read, and no more."""
+
+    def __init__(self, *, n_clubs=3, particles=4, k=2, tie=False):
+        n = particles * k
+        # season i puts club c at position c+1, except a tied pair when asked
+        start, span = [], []
+        for i in range(n):
+            if tie and i % 2 == 0:
+                start.append([1, 1, 3])
+                span.append([2, 2, 1])
+            else:
+                start.append(list(range(1, n_clubs + 1)))
+                span.append([1] * n_clubs)
+        particle = [i % particles for i in range(n)]
+        self.retained_rows = _FakeRows(start, span, particle, n_clubs)
+        self.plan = _FakePlan([f"c{i}" for i in range(n_clubs)], n, particles)
+        self.n_sims = n
+        self.n_particles = particles
+        from epl import table as table_mod
+
+        ranking = table_mod.Ranking(
+            block_start=self.retained_rows.block_start,
+            block_span=self.retained_rows.block_span,
+            resolution_code=self.retained_rows.resolution_code,
+            order=self.retained_rows.order,
+            boundaries=self.plan.boundaries, rule_id=self.plan.rule_id)
+        self.matrix = table_mod.position_mass(ranking).sum(axis=0) / n
+
+
+def test_the_tally_is_fractional_rank_mass_and_never_reads_order():
+    """R2-B3 supersedes R-B3's tally bullet. `.order` is "the deterministic
+    club-index order" inside a shared block and carries no meaning; the matrix
+    TRPS scores is built from `position_mass`'s fractional `1/span`."""
+    run = _FakeRun(tie=True)
+    tallies = ew.particle_tallies(run)
+    assert tallies.shape == (run.n_particles, 3, 3)
+    # a tie block of two clubs spreads 1/2 across both positions
+    assert set(np.unique(tallies)) <= {0.0, 0.5, 1.0, 1.5, 2.0}
+    # scrambling `order` cannot move the tally: nothing reads it
+    scrambled = _FakeRun(tie=True)
+    scrambled.retained_rows.order = scrambled.retained_rows.order[:, ::-1].copy()
+    assert np.array_equal(ew.particle_tallies(scrambled), tallies)
+
+
+def test_the_chunked_tally_is_bit_identical_to_the_unchunked_one():
+    """R2-B3: "a committed test asserts that equality at 0.0". `numpy.add.at` is
+    unbuffered and applies its indices in order, so contiguous ascending chunks
+    perform the same sequence of additions as one pass."""
+    run = _FakeRun(particles=4, k=8, tie=True)
+    whole = ew.particle_tallies(run, chunk_size=10_000)
+    for size in (1, 3, 7, 32):
+        assert float(np.abs(ew.particle_tallies(run, chunk_size=size)
+                            - whole).max()) == 0.0
+
+
+def test_the_tally_binds_the_matrix_and_refuses_an_unequal_cluster():
+    """R2-B3's two committed checks: the tally reproduces the scored matrix, and
+    every particle is an equal cluster of complete seasons."""
+    run = _FakeRun(tie=True)
+    tallies = ew.particle_tallies(run)
+    check = ew.assert_tally_binds_the_matrix(tallies, run)
+    assert check["max_abs_matrix_diff"] <= 1e-9
+    assert check["sims_per_particle"] == run.n_sims / run.n_particles
+
+    with pytest.raises(ew.TableMCImprecise) as exc:
+        ew.assert_tally_binds_the_matrix(tallies * 1.5, run)
+    assert "does not reproduce the scored matrix" in str(exc.value)
+
+    lopsided = tallies.copy()
+    lopsided[0, 0, 0] += 1.0
+    with pytest.raises(ew.TableMCImprecise) as exc:
+        ew.assert_tally_binds_the_matrix(lopsided, run)
+    assert "equal cluster" in str(exc.value) or "does not reproduce" in str(
+        exc.value)
+
+
+def test_the_sampler_digest_excludes_everything_but_the_sampler():
+    """R2-B4(a): "Nothing else. No club list, no plan, no seed, no posterior
+    hash, NO PROVISIONAL SET, no arm label, no clocks, no host, no shard id, no
+    free text." It is comparable only within one cell, between its two arms."""
+    run = _FakeRun(tie=True)
+    tallies = ew.particle_tallies(run)
+    base = ew.sampler_digest(run, tallies)
+
+    # the plan, the seed and the club names are outside it
+    run.plan.seed = 999
+    run.plan.clubs = ("z0", "z1", "z2")
+    run.plan.chunk_size = 4096
+    assert ew.sampler_digest(run, tallies) == base
+    # the sampler's own output is inside it
+    moved = run.retained_rows.points.copy()
+    moved[0, 0] += 1
+    run.retained_rows.points = moved
+    assert ew.sampler_digest(run, tallies) != base
+
+
+def test_the_substantive_digest_binds_the_whole_plan_state():
+    """R2-B4(b): season/cutoff/`observed_by` identity, the fixture-and-result
+    snapshot, the adjustments, the rule id, the chunking (which fixes the RNG
+    chunk keys and therefore the numbers) and the results-lag state."""
+    run = _FakeRun()
+    tallies = ew.particle_tallies(run)
+    kw = dict(weights=[1.0, 1.0], boundaries=run.plan.boundaries,
+              realised_hash="r", realised_positions=[1, 2, 3],
+              realised_points=[40, 30, 20], effective_posterior_hash="book")
+    base = ew.substantive_digest(run, tallies, **kw)
+
+    state = ew.plan_state(run)
+    assert set(state) == {"season", "season_code", "cutoff", "observed_by",
+                          "clubs", "fixtures", "adjustments", "boundaries",
+                          "rule_id", "n_sims", "n_particles", "seed",
+                          "chunk_size", "n_unresolved", "results_lag"}
+    for field, value in (("chunk_size", 4096), ("observed_by", "later"),
+                         ("rule_id", "other"), ("results_lag", True),
+                         ("n_unresolved", 2)):
+        run = _FakeRun()
+        setattr(run.plan, field, value)
+        assert ew.substantive_digest(run, ew.particle_tallies(run),
+                                     **kw) != base, field
+    # ...and the provisional set is NOT in it — that is R2-B4(a)'s repair
+    assert "provisional" not in ew.plan_state(_FakeRun())
+
+
+def test_the_table_runner_calls_protected_simulate_with_its_own_signature():
+    """R-B4 recorded the defect rather than fixing it quietly: the harness
+    called `leaguesim.simulate` with the particle book in `state`'s argument
+    position and no `seed` at all, while protected `epl/simretro.py:555` calls
+    it `simulate(arm, state, provider, n_sims, seed, …)`."""
+    import inspect
+
+    from epl import leaguesim
+
+    order = list(inspect.signature(leaguesim.simulate).parameters)
+    assert order[:6] == ["arm", "state", "book_or_provider", "n_sims", "seed",
+                         "chunk_size"]
+
+    seen = {}
+
+    def spy(*args, **kwargs):
+        seen["args"], seen["kwargs"] = args, kwargs
+        return "run"
+
+    import unittest.mock as mock
+
+    with mock.patch.object(leaguesim, "simulate", spy):
+        out = ew.simulate_arm("STATE", "BOOK", n_sims=7, seed=11, chunk_size=3,
+                              n_particles=5)
+    assert out == "run"
+    assert seen["args"] == (ew.TABLE_ARM_LABEL, "STATE", "BOOK", 7, 11, 3)
+    assert seen["kwargs"] == {"n_particles": 5}
+    bound = inspect.signature(leaguesim.simulate).bind(*seen["args"],
+                                                       **seen["kwargs"])
+    assert bound.arguments["state"] == "STATE"
+    assert bound.arguments["book_or_provider"] == "BOOK"
+    assert bound.arguments["seed"] == 11
+
+
+# ---- R-B4 / R2-B4(c): the 35-cell native-parity oracle ---------------------
+
+def test_the_parity_oracle_compares_substantive_digests_and_the_incumbent_set():
+    """R-B4: binding the SCHEDULE to protected code binds neither its semantics
+    nor its call, and the 19-untouched-cell control compares two arms produced
+    by the SAME new code, so shared drift passes it silently."""
+    oracle = {"substantive_digest": "abc", "provisional_teams": ["rich"]}
+    assert ew.assert_native_parity("2019/20|MW6", "abc", oracle,
+                                   ["rich"])["PASS"] is True
+    with pytest.raises(ew.TableIdentityBreak) as exc:
+        ew.assert_native_parity("2019/20|MW6", "def", oracle, ["rich"])
+    assert "native parity at all thirty-five cells" in str(exc.value)
+    with pytest.raises(ew.TableIdentityBreak) as exc:
+        ew.assert_native_parity("2019/20|MW6", "abc", oracle, ["rich", "mid"])
+    assert "control arm IS the incumbent arm" in str(exc.value)
+
+
+def test_the_parity_oracle_runs_every_cell_and_resumes(tmp_path):
+    cells = _cells()
+    seen = []
+
+    def stub(cell):
+        seen.append(f"{cell['season']}|{cell['cutoff_label']}")
+        return {"key": seen[-1], "season": cell["season"],
+                "cutoff_label": cell["cutoff_label"],
+                "substantive_digest": f"sub-{seen[-1]}",
+                "provisional_teams": ["rich"]}
+
+    path = tmp_path / "parity.jsonl"
+    out = ew.run_parity_oracle(cells, path, runner=stub, verbose=False)
+    assert len(out) == len(cells) == 35
+    assert len(seen) == 35
+    again = ew.run_parity_oracle(cells, path, runner=stub, verbose=False)
+    assert len(seen) == 35 and len(again) == 35     # resumed, not re-run
+
+
+def test_the_treated_run_refuses_a_cell_the_oracle_never_covered(tmp_path):
+    cells = _cells()
+    with pytest.raises(ew.TableIdentityBreak) as exc:
+        ew.run_table(cells, tmp_path / "t.jsonl", runner=_table_runner(),
+                     parity={}, n_sims=TALLY_N_SIMS, seed=1, config_sha="c",
+                     verbose=False, harness_frozen=False)
+    assert "BEFORE one treated simulation" in str(exc.value)
+
+
+def test_the_treated_run_refuses_a_control_arm_that_drifted_from_protected(
+        tmp_path):
+    cells = _cells()
+    with pytest.raises(ew.TableIdentityBreak):
+        ew.run_table(cells, tmp_path / "t.jsonl",
+                     runner=_table_runner(break_parity=True),
+                     parity=_parity_for(cells), n_sims=TALLY_N_SIMS, seed=1,
+                     config_sha="c", verbose=False, harness_frozen=False)
 
 
 def test_the_table_leg_writes_one_row_per_cell_and_resumes(tmp_path):
     cells = _cells()
     path = tmp_path / "table.jsonl"
-    out = ew.run_table(cells, path, runner=_table_runner(), n_sims=20000,
+    out = ew.run_table(cells, path, runner=_table_runner(),
+                       parity=_parity_for(cells), n_sims=TALLY_N_SIMS,
                        seed=20260611, config_sha="c", verbose=False,
                        harness_frozen=False)
-    assert out["n_written"] == len(cells)
-    again = ew.run_table(cells, path, runner=_table_runner(), n_sims=20000,
+    assert out["n_written"] == len(cells) == 35
+    again = ew.run_table(cells, path, runner=_table_runner(),
+                         parity=_parity_for(cells), n_sims=TALLY_N_SIMS,
                          seed=20260611, config_sha="c", verbose=False,
                          harness_frozen=False)
     assert again["n_written"] == 0 and again["n_skipped"] == len(cells)
+    # the tallies live beside the ledger, because a [P, C, C] array is not a
+    # JSONL field and R2-B3 needs all thirty-two at once
+    assert ew.tally_path(path, {"season": "2019/20",
+                                "cutoff_label": "MW6"}).exists()
 
 
-def test_score_table_computes_the_paired_deltas_by_cell(tmp_path):
-    cells = _cells()
-    path = tmp_path / "table.jsonl"
-    ew.run_table(cells, path, runner=_table_runner(shift=-0.001), n_sims=1,
-                 seed=1, config_sha="c", verbose=False, harness_frozen=False)
-    rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
-    scored = ew.score_table(rows, n_boot=200)
-    assert scored["n_cells"] == len(cells)
-    assert scored["n_treated_cells"] == 2
-    assert scored["n_untouched_cells"] == 3
-    # equal weights over every cell, treated and untouched alike
-    assert scored["pooled_delta_trps"]["mean"] == pytest.approx(
-        (-0.001 * 2) / len(cells))
-    assert all(c["delta_trps"] == 0.0 for c in scored["per_cell"]
-               if not c["treated_clubs"])
-    assert "DISPLAYED MARGINALS" in scored["trps_limitation"]
-    assert scored["secondaries_decide"] == "nothing"
+# ---- R-B2: the deciding statistics are per horizon -------------------------
+
+def test_the_pooled_35_cell_statistic_is_gone_from_every_deciding_path(tmp_path):
+    """R-B2: the 35-cell pooled ΔTRPS and ΔwTRPS are WITHDRAWN from the
+    published outputs entirely, not demoted to secondaries. Protected code
+    freezes "Never averaged across cutoffs" and publishing the average invites
+    it to be quoted as a verdict."""
+    path, rows = _run_cells(tmp_path)
+    scored = ew.score_table(rows, n_boot=200, ledger_path=path)
+    assert "pooled_delta_trps" not in scored
+    assert "pooled_delta_wtrps" not in scored
+    assert "withdrawn" in scored
+    gate = ew.table_gate(scored)
+    assert "pooled" not in json.dumps(gate["iv_a"])
+    assert "pooled" not in json.dumps(gate["iv_b"])
+    assert "pooled" not in json.dumps(gate["iv_c"])
+    assert "decides nothing" in gate["withdrawn"]
+
+
+def test_the_deciding_statistics_are_the_named_horizon_and_the_point_gates(
+        tmp_path):
+    """R-B2 (iv-a): the equal-weight mean over the SEVEN MW6 cells. (iv-b): at
+    MW0, MW3 and MW10, the mean over THAT LABEL'S TREATED CELLS ONLY."""
+    path, rows = _run_cells(tmp_path, runner=_table_runner(shift=-0.001))
+    scored = ew.score_table(rows, n_boot=200, ledger_path=path)
+    assert scored["mw6"]["n"] == 7
+    assert scored["mw6"]["mean"] == pytest.approx(-0.001)     # all seven treated
+    assert scored["per_label"]["MW0"]["n_treated"] == 3
+    assert scored["per_label"]["MW3"]["n_treated"] == 2
+    assert scored["per_label"]["MW10"]["n_treated"] == 4
+    for label in ("MW0", "MW3", "MW10"):
+        assert scored["per_label"][label]["mean"] == pytest.approx(-0.001)
+        assert "no interval" in scored["per_label"][label]["interval"]
+    assert scored["mw19"]["structural_zero"] is True
+    assert scored["mw19"]["n_treated"] == 0
+    assert scored["mw19"]["decides"] == "nothing"
+
+
+def test_the_mw6_interval_is_r_b3s_frozen_construction(tmp_path):
+    """R-B3's table: `epl.score.block_bootstrap_ci`, the seven season strings
+    one cell per block, B = 10,000, alpha = 0.05, seed 20260814, NumPy's default
+    linear-interpolation quantile."""
+    path, rows = _run_cells(tmp_path)
+    scored = ew.score_table(rows, n_boot=500, ledger_path=path)
+    mw6 = scored["mw6"]
+    assert mw6["n_blocks"] == ew.TABLE_CI_BLOCKS == 7
+    assert mw6["bootstrap"]["function"] == "epl.score.block_bootstrap_ci"
+    assert mw6["bootstrap"]["seed"] == ew.BOOTSTRAP_SEED
+    assert mw6["bootstrap"]["alpha"] == ew.ALPHA
+    deltas = np.array([c["delta_trps"] for c in mw6["per_cell"]], dtype=float)
+    seasons = [c["season"] for c in mw6["per_cell"]]
+    lo, hi, n = score_mod.block_bootstrap_ci(deltas, seasons, n_boot=500,
+                                             alpha=ew.ALPHA,
+                                             seed=ew.BOOTSTRAP_SEED)
+    assert mw6["ci95"] == [lo, hi] and n == 7
+
+
+# ---- R2-B3: the jointly resampled, tie-aware paired bootstrap --------------
+
+def _mc_cells(n=2, *, jitter=1, particles=TALLY_PARTICLES, label="MW6"):
+    positions = np.array([1, 2, 3])
+    spans = np.array([1, 1, 1])
+    return [{"key": f"2019/2{i}|{label}", "cutoff_label": label,
+             "positions": positions, "spans": spans,
+             "control": _tally(0, jitter=jitter, particles=particles),
+             "treatment": _tally(1, jitter=jitter, particles=particles)}
+            for i in range(n)]
+
+
+def test_the_paired_bootstrap_applies_one_index_to_every_tally():
+    """R2-B3: "There is no quadrature step and no independence claim anywhere in
+    this estimator." The label mean is computed INSIDE each replicate, so cells
+    that move together in the run move together in the replicate.
+
+    Round one's `sqrt(sum se^2)/7` would shrink a perfectly correlated pair by
+    `1/sqrt(2)`; the joint estimator does not, and that is the whole repair."""
+    cells = _mc_cells(n=2, jitter=1)
+    out = ew.paired_mc_bootstrap(cells, n_boot=400, seed=ew.MC_SEED)
+    per_cell = list(out["mc_se_per_cell"].values())
+    label = out["mc_se_label"]["MW6"]
+    assert all(v > 0 for v in per_cell)
+    # the two cells are byte-identical by construction, so the mean of their
+    # deltas has exactly their own standard error — not the quadrature one
+    assert label == pytest.approx(per_cell[0], rel=1e-12)
+    quadrature = float(np.sqrt(sum(v ** 2 for v in per_cell)) / len(per_cell))
+    assert label > quadrature
+
+
+def test_the_paired_bootstrap_is_deterministic_at_its_frozen_seed():
+    cells = _mc_cells(n=2, jitter=1)
+    a = ew.paired_mc_bootstrap(cells, n_boot=200, seed=ew.MC_SEED)
+    b = ew.paired_mc_bootstrap(cells, n_boot=200, seed=ew.MC_SEED)
+    assert a["mc_se_per_cell"] == b["mc_se_per_cell"]
+    assert ew.MC_BOOT == 2000 and ew.MC_SEED == 20260827
+    c = ew.paired_mc_bootstrap(cells, n_boot=200, seed=ew.MC_SEED + 1)
+    assert c["mc_se_per_cell"] != a["mc_se_per_cell"]
+
+
+def test_the_bootstrap_refuses_a_common_index_space_it_does_not_have():
+    """R2-B3 step 2: "Joint resampling is undefined without a common index
+    space, and this document will not approximate one." `TableMCImprecise`."""
+    mixed = _mc_cells(n=1) + _mc_cells(n=1, particles=TALLY_PARTICLES * 2)
+    mixed[1]["key"] = "other|MW6"
+    with pytest.raises(ew.TableMCImprecise) as exc:
+        ew.paired_mc_bootstrap(mixed, n_boot=10)
+    assert "ONE common index space" in str(exc.value)
+
+    lopsided = _mc_cells(n=1)
+    lopsided[0]["control"] = lopsided[0]["control"].copy()
+    lopsided[0]["control"][0, 0, 0] += 1.0
+    with pytest.raises(ew.TableMCImprecise) as exc:
+        ew.paired_mc_bootstrap(lopsided, n_boot=10)
+    assert "unequal season" in str(exc.value)
+
+
+# ---- gate (iv), all three parts, and the precision rule --------------------
+
+def _scored(mean_mw6=0.0, ci=(-1.0, 1.0), means=(0.0, 0.0, 0.0), se=None):
+    labels = dict(zip(ew.POINT_GATE_LABELS, means))
+    mc_se = {"MW6": 0.0, "MW0": 0.0, "MW3": 0.0, "MW10": 0.0}
+    mc_se.update(se or {})
+    return {
+        "n_cells": 35, "n_treated_cells": 16,
+        "mw6": {"cutoff_label": "MW6", "n": 7, "mean": mean_mw6,
+                "ci95": list(ci), "n_blocks": 7},
+        "per_label": {lab: {"cutoff_label": lab, "n_treated": 3,
+                            "mean": labels[lab]}
+                      for lab in ew.POINT_GATE_LABELS},
+        "mw19": {"structural_zero": True, "decides": "nothing"},
+        "mc": {"mc_boot": ew.MC_BOOT, "mc_seed": ew.MC_SEED,
+               "n_particles": 1000, "sims_per_particle": 20.0,
+               "mc_se_label": mc_se, "mc_se_per_cell": {}},
+    }
+
+
+def test_gate_iv_a_is_the_mw6_mean_against_the_tolerance():
+    assert ew.table_gate(_scored(mean_mw6=-0.001))["iv_a"]["PASS"] is True
+    assert ew.table_gate(_scored(mean_mw6=0.0002))["iv_a"]["PASS"] is True
+    assert ew.table_gate(_scored(mean_mw6=0.0003))["iv_a"]["PASS"] is False
+    assert ew.table_gate(_scored(mean_mw6=0.0003))["verdict"] == "FAIL"
+
+
+def test_gate_iv_b_is_a_point_gate_at_each_of_mw0_mw3_and_mw10():
+    """R-B2: "No interval is computed at these labels and none is required; two
+    cells do not carry one." MW19 decides nothing."""
+    ok = ew.table_gate(_scored(means=(0.0, 0.0002, -0.001)))
+    assert all(v["PASS"] for v in ok["iv_b"].values())
+    assert ok["verdict"] == "PASS"
+    bad = ew.table_gate(_scored(means=(0.0, 0.0, 0.0003)))
+    assert bad["iv_b"]["MW10"]["PASS"] is False
+    assert bad["verdict"] == "FAIL"
+    assert bad["mw19"]["decides"] == "nothing"
+
+
+def test_gate_iv_c_fails_only_a_resolvable_worsening():
+    """(iv-c) fails if the MW6 mean is > 0 AND the interval's lower bound is
+    > 0. An unresolvable wiggle passes; a small-but-resolvable worsening does
+    not."""
+    assert ew.table_gate(_scored(mean_mw6=0.00005,
+                                 ci=(-0.0001, 0.0002)))["iv_c"]["PASS"] is True
+    resolvable = ew.table_gate(_scored(mean_mw6=0.00005,
+                                       ci=(0.00001, 0.0002)))
+    assert resolvable["iv_c"]["PASS"] is False
+    assert resolvable["verdict"] == "FAIL"
+
+
+def test_the_precision_rule_guards_every_deciding_boundary():
+    """R2-B3's repair of the unguarded boundary: round one guarded the
+    comparison to +0.0002 and nothing else, while (iv-c) decides on two further
+    boundaries against ZERO and (iv-b) on three more against the tolerance.
+    Noise at any of them could turn a failing gate into a passing one."""
+    # (P1) resolution
+    p1 = ew.table_gate(_scored(mean_mw6=-0.01, ci=(-0.02, -0.005),
+                               means=(-0.01, -0.01, -0.01),
+                               se={"MW6": 6e-5}))
+    assert p1["verdict"] == "UNRESOLVED" and "P1" in p1["precision"]["fired"]
+    # (P2) iv-a's tolerance boundary
+    p2 = ew.table_gate(_scored(mean_mw6=0.00019, ci=(-1.0, -0.5),
+                               se={"MW6": 1e-5}))
+    assert "P2" in p2["precision"]["fired"] and p2["verdict"] == "UNRESOLVED"
+    # (P3) iv-b's tolerance boundaries, per label
+    p3 = ew.table_gate(_scored(mean_mw6=-0.01, ci=(-0.02, -0.005),
+                               means=(0.00019, -0.01, -0.01),
+                               se={"MW0": 1e-5}))
+    assert "P3.MW0" in p3["precision"]["fired"]
+    # (P4) iv-c's zero boundary on the mean
+    p4 = ew.table_gate(_scored(mean_mw6=1e-6, ci=(-1.0, -0.5),
+                               se={"MW6": 1e-5}))
+    assert "P4" in p4["precision"]["fired"]
+    # (P5) iv-c's zero boundary on the interval
+    p5 = ew.table_gate(_scored(mean_mw6=-0.01, ci=(1e-6, 0.5),
+                               se={"MW6": 1e-5}))
+    assert "P5" in p5["precision"]["fired"]
+    # ...and every one of them only ever REFUSES
+    for out in (p1, p2, p3, p4, p5):
+        assert out["PASS"] is False and out["resolved"] is False
+
+
+def test_an_unresolved_gate_blocks_adoption_and_can_never_grant_one():
+    """R2-B3: "UNRESOLVED blocks adoption and can never grant one." R2-X: it is
+    a published VERDICT, not a refusal, and raises nothing."""
+    gate = ew.table_gate(_scored(mean_mw6=1e-6, ci=(-1.0, -0.5),
+                                 se={"MW6": 1e-5}))
+    out = ew.adoption(-0.002, [-0.003, -0.001], [-0.003, -0.001], gate)
+    assert out["verdict"].startswith("UNRESOLVED")
+    assert "ADOPT" not in out["verdict"].replace("ADOPT is refused", "")
+
+
+def test_a_missing_monte_carlo_error_is_unresolved_and_never_small():
+    """A deciding SE that was never computed is treated as unresolved rather
+    than as zero: the direction that cannot be gamed."""
+    scored = _scored(mean_mw6=-0.01, ci=(-0.02, -0.005))
+    scored["mc"]["mc_se_label"] = {}
+    out = ew.table_gate(scored)
+    assert out["verdict"] == "UNRESOLVED"
+    assert "P1" in out["precision"]["fired"]
 
 
 def test_score_table_refuses_an_untouched_cell_that_moved(tmp_path):
-    path = tmp_path / "table.jsonl"
-    cells = _cells()
-    ew.run_table(cells, path, runner=_table_runner(), n_sims=1, seed=1,
-                 config_sha="c", verbose=False, harness_frozen=False)
-    rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+    path, rows = _run_cells(tmp_path)
     for row in rows:
         if not row["treated_clubs"]:
             row["arms"]["treatment"]["trps"] += 1e-6
             break
     with pytest.raises(ew.TableIdentityBreak):
-        ew.score_table(rows, n_boot=100)
+        ew.score_table(rows, n_boot=100, ledger_path=path)
 
 
 def test_the_hull_analogue_is_printed_with_no_decision_weight(tmp_path):
     """§3.4: "the one Hull-analogue — illustrative, no decision weight"."""
-    path = tmp_path / "table.jsonl"
     cells = _cells()
-    for cell in cells[:2]:
-        cell["season"] = "2025/26"
-    ew.run_table(cells, path, runner=_table_runner(), n_sims=1, seed=1,
-                 config_sha="c", verbose=False, harness_frozen=False)
-    rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
-    scored = ew.score_table(rows, n_boot=100)
+    for cell in cells:
+        if cell["season"] == "2019/20" and cell["treated_clubs"]:
+            cell["season"] = "2025/26"
+    path, rows = _run_cells(tmp_path, cells)
+    scored = ew.score_table(rows, n_boot=100, ledger_path=path)
     assert scored["hull_analogue"]["club"] == "sunderland"
-    assert scored["hull_analogue"]["n_cells"] == 2
+    # 2025/26's own MW6 cell is treated already (all seven MW6 cells are), and
+    # the four renamed 2019/20 cells join it
+    assert scored["hull_analogue"]["n_cells"] == 5
     assert "no decision weight" in scored["hull_analogue"]["label"]
     detail = scored["hull_analogue"]["cells"][0]
     assert set(detail["control"]) >= {"p_relegated", "points_mean", "points_p5",
@@ -2094,11 +2654,8 @@ def test_the_coverage_reading_direction_is_fixed_before_the_run(tmp_path):
     """§1.3: the counter-hypothesis, with its reading direction pre-stated —
     coverage already at or above nominal that the treatment pushes further above
     is evidence FOR double-counting and AGAINST this rule."""
-    path = tmp_path / "table.jsonl"
-    ew.run_table(_cells(), path, runner=_table_runner(), n_sims=1, seed=1,
-                 config_sha="c", verbose=False, harness_frozen=False)
-    rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
-    scored = ew.score_table(rows, n_boot=100)
+    path, rows = _run_cells(tmp_path)
+    scored = ew.score_table(rows, n_boot=100, ledger_path=path)
     reading = scored["coverage_reading"]
     assert "double-counting" in reading and "AGAINST this rule" in reading
     treated = next(c for c in scored["per_cell"] if c["treated_clubs"])
@@ -2106,40 +2663,22 @@ def test_the_coverage_reading_direction_is_fixed_before_the_run(tmp_path):
     assert treated["coverage_treated_treatment"]
 
 
-def test_the_table_gate_is_the_tolerance_and_the_significance_clause():
-    """§4.1 (iv): "<= +0.0002, AND it is not the case that the pooled ΔTRPS is
-    > 0 with its 95% season-block CI excluding zero"."""
-    def gate(mean, ci):
-        return ew.table_gate({"pooled_delta_trps":
-                              {"mean": mean, "ci95": ci, "n_blocks": 7},
-                              "n_cells": 35})
-
-    assert gate(-0.001, [-0.002, -0.0005])["PASS"] is True     # helps
-    assert gate(0.0001, [-0.001, 0.002])["PASS"] is True       # inside tolerance
-    assert gate(0.0002, [-0.001, 0.002])["PASS"] is True       # exactly at it
-    assert gate(0.0003, [-0.001, 0.002])["PASS"] is False      # past it
-    # an unresolvable wiggle passes; a small-but-resolvable worsening does not
-    assert gate(0.00005, [-0.0001, 0.0002])["PASS"] is True
-    assert gate(0.00005, [0.00001, 0.0002])["PASS"] is False
-
-
 def test_the_table_gate_discloses_that_its_numbers_are_invented():
-    """§4.3: R1 has no pass rule, so a table-level bar has no house precedent
-    and one had to be invented. The disclosure travels with the number."""
-    out = ew.table_gate({"pooled_delta_trps": {"mean": 0.0, "ci95": [-1.0, 1.0],
-                                               "n_blocks": 7}, "n_cells": 35})
+    """§4.3 as R-B2 reissues it: R1 has no pass rule, so both the tolerance and
+    the significance construction are invented, blind, for a SINGLE NAMED
+    HORIZON rather than for an average protected code forbids."""
+    out = ew.table_gate(_scored())
     assert "invented" in out["disclosure"]
     assert "poor coverage" in out["disclosure"]
+    assert "single named horizon" in out["disclosure"]
     assert out["tolerance"] == ew.TABLE_TOLERANCE
 
 
 def test_the_table_ledger_refuses_a_missing_cell(tmp_path):
-    """Not a superset, not a subset: a pooled mean over 34 cells is not the
-    quantity §4.1 (iv) gates on."""
+    """Not a superset, not a subset: a mean over 34 cells is not the quantity
+    §4.1 (iv) gates on."""
     cells = _cells()
-    path = tmp_path / "table.jsonl"
-    ew.run_table(cells[:-1], path, runner=_table_runner(), n_sims=1, seed=1,
-                 config_sha="c", verbose=False, harness_frozen=True)
+    path, _ = _run_cells(tmp_path, cells[:-1], harness_frozen=True)
     with pytest.raises(ew.MergeIncomplete) as exc:
         ew.load_table_ledger(path, expected=cells)
     assert "missing" in str(exc.value)
@@ -2147,9 +2686,7 @@ def test_the_table_ledger_refuses_a_missing_cell(tmp_path):
 
 def test_the_table_ledger_refuses_unfrozen_rows(tmp_path):
     cells = _cells()
-    path = tmp_path / "table.jsonl"
-    ew.run_table(cells, path, runner=_table_runner(), n_sims=1, seed=1,
-                 config_sha="c", verbose=False, harness_frozen=False)
+    path, _ = _run_cells(tmp_path, cells)
     with pytest.raises(ew.EvWidenError) as exc:
         ew.load_table_ledger(path, expected=cells)
     assert "not a cell of the preregistered run" in str(exc.value)
@@ -2157,32 +2694,39 @@ def test_the_table_ledger_refuses_unfrozen_rows(tmp_path):
 
 def test_a_failed_cell_poisons_the_table_ledger(tmp_path):
     path = tmp_path / "table.jsonl"
+    cells = _cells()
 
     def explode(cell):
         raise RuntimeError("the simulator ran out of memory")
 
     with pytest.raises(ew.FitFailed):
-        ew.run_table(_cells(), path, runner=explode, n_sims=1, seed=1,
-                     config_sha="c", verbose=False, harness_frozen=False)
+        ew.run_table(cells, path, runner=explode, parity=_parity_for(cells),
+                     n_sims=1, seed=1, config_sha="c", verbose=False,
+                     harness_frozen=False)
     assert ew.poison_rows(path)
     with pytest.raises(ew.ShardFailed):
-        ew.run_table(_cells(), path, runner=_table_runner(), n_sims=1, seed=1,
+        ew.run_table(cells, path, runner=_table_runner(),
+                     parity=_parity_for(cells), n_sims=1, seed=1,
                      config_sha="c", verbose=False, harness_frozen=False)
 
 
 def test_the_table_leg_never_appends_to_the_protected_retro_ledger():
     """§3.3: `data/epl/sim/retro_r1.jsonl` is read-only and never appended; the
-    leg writes its own ledger."""
+    leg writes its own ledger. R-B4: the parity run is EXECUTED, not read off
+    the archive ledger."""
     assert "retro_r1" not in str(ew.TABLE_LEDGER)
     assert ew.paths.rel(ew.TABLE_LEDGER).startswith("data/epl/sim/evwiden")
     assert ew.TABLE_ARM_LABEL == "dc_native"     # what `leaguesim` is told
     assert ew.ARM_NAME == "dc_evwiden"           # what the ledger records
+    for target in ew.WRITES:
+        assert "retro_r1" not in ew.paths.rel(Path(target))
 
 
 def test_the_merge_carries_the_table_gate_into_the_adoption_rule(tmp_path):
     _run(tmp_path)
     _freeze_rows(tmp_path)
-    passing = {"gate": {"PASS": True, "pooled_delta_trps": 0.0}}
+    passing = {"gate": ew.table_gate(_scored(mean_mw6=-0.001,
+                                             ci=(-0.01, -0.0005)))}
     out = _merge(tmp_path, table=passing)
     assert out["adoption"]["conditions"]["iv_table_gate"]["PASS"] is True
     assert not out["adoption"]["verdict"].startswith("INCOMPLETE")
@@ -2199,11 +2743,7 @@ def test_the_evidence_files_are_written_whichever_way_the_numbers_fall(tmp_path)
     _run(tmp_path)
     rows = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
     result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
-    cells_path = tmp_path / "table.jsonl"
-    ew.run_table(_cells(), cells_path, runner=_table_runner(), n_sims=1, seed=1,
-                 config_sha="c", verbose=False, harness_frozen=False)
-    table_rows = [json.loads(l) for l in cells_path.read_text().splitlines()
-                  if l.strip()]
+    _, table_rows = _run_cells(tmp_path)
 
     out = tmp_path / "evidence"
     written = ew.write_evidence(result, rows, table_rows, directory=out)
@@ -2240,11 +2780,7 @@ def test_the_per_fixture_file_reproduces_the_estimand_with_arithmetic_alone(
 def test_the_table_evidence_file_carries_both_arms_of_every_cell(tmp_path):
     import csv as _csv
 
-    cells_path = tmp_path / "table.jsonl"
-    ew.run_table(_cells(), cells_path, runner=_table_runner(), n_sims=1, seed=1,
-                 config_sha="c", verbose=False, harness_frozen=False)
-    table_rows = [json.loads(l) for l in cells_path.read_text().splitlines()
-                  if l.strip()]
+    _, table_rows = _run_cells(tmp_path)
     out = tmp_path / "evidence"
     ew.write_evidence({"schema": ew.SCHEMA_ID}, None, table_rows,
                       directory=out, manifest=False)

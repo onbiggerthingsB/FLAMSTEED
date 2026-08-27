@@ -157,7 +157,11 @@ __all__ = [
     "evidence_canary", "identity_canary", "direction_canary", "run_canary",
     "require_run_preconditions", "estimand", "adoption", "merge",
     "table_cells", "run_table", "score_table", "table_gate",
-    "assert_table_identity",
+    "assert_table_identity", "assert_provisional_fields",
+    "particle_tallies", "assert_tally_binds_the_matrix", "paired_mc_bootstrap",
+    "sampler_digest", "substantive_digest", "plan_state",
+    "ParityRunner", "run_parity_oracle", "assert_native_parity", "simulate_arm",
+    "MC_BOOT", "MC_SEED", "MW6_LABEL", "POINT_GATE_LABELS", "SHARDS",
     "write_evidence", "verify", "freeze_block", "harness_freeze_status",
     "require_harness_freeze",
     "launch_script", "main",
@@ -251,9 +255,54 @@ BASELINE_ARM = "dc_native"
 #: probabilities themselves.
 ADOPT_DELTA = -0.0010
 
-#: §4.1 (iv) — the table gate, invented from R1's own recorded scale and
-#: disclosed as invented in §4.3.
+#: §4.1 (iv) as R-B2 repairs it — the per-horizon tolerance, invented from R1's
+#: own recorded scale (paired dc-family TRPS differences of "two parts in a
+#: thousand" on a TRPS of order 0.08, i.e. ~2e-4 PER CELL) and disclosed as
+#: invented. The superseded gate applied that per-cell scale to an average over
+#: 35 cells of which 19 are exact zeros, which permitted about +0.0004375 of
+#: average degradation across the 16 changed cells; the repaired gates apply it
+#: to treated-cell means directly, 2.19x tighter.
 TABLE_TOLERANCE = 0.0002
+
+#: R-B2's named horizon. MW6 is the only one of the five labels at which EVERY
+#: cell is treated, so it is the only horizon at which the do-no-harm question
+#: is asked with no structural zero in the denominator; and the early-season
+#: table forecast is where a thin-evidence club's dispersion is widest. Named
+#: before any fit exists, and §7 makes replacing it after any table run an
+#: invalidation.
+MW6_LABEL = "MW6"
+
+#: R-B2 (iv-b)'s point-gate labels, and the structural zero that decides nothing.
+POINT_GATE_LABELS: tuple[str, ...] = ("MW0", "MW3", "MW10")
+STRUCTURAL_ZERO_LABEL = "MW19"
+
+#: R-B2's census, recomputed by the read-only pass R-B5 authorises: how many of
+#: each label's seven cells the rule treats. MW19 holds zero and enters nothing.
+EXPECTED_TREATED_BY_LABEL = {"MW0": 3, "MW3": 2, "MW6": 7, "MW10": 4, "MW19": 0}
+
+#: R-B3's season-block interval of the MW6 mean: `epl.score.block_bootstrap_ci`,
+#: the seven season strings one cell per block, B = 10,000, alpha = 0.05, the
+#: standard resampling seed. A seven-block percentile bootstrap has poor
+#: coverage, is not claimed to have good coverage, and has the narrow job both
+#: predecessors gave season blocks: to refuse a verdict carried by one season.
+TABLE_CI_BLOCKS = 7
+
+#: R2-B3's paired particle bootstrap, pre-stated before any table run existed.
+#: A2-N4 leaves B and the resampling seed to "the amendment that accompanies the
+#: first run to report the bootstrap SE, before that run"; R-B3 is that
+#: statement.
+MC_BOOT = 2_000
+MC_SEED = 20260827
+
+#: R2-B3 (P1): any deciding MC SE above a quarter of the tolerance leaves gate
+#: (iv) UNRESOLVED. UNRESOLVED blocks adoption and can never grant one, which is
+#: the direction that cannot be gamed.
+MC_PRECISION_FRACTION = 0.25
+MC_PRECISION_LIMIT = MC_PRECISION_FRACTION * TABLE_TOLERANCE      # 5e-5
+
+#: R2-B3 (P2)-(P5): a deciding comparison inside this many simulation standard
+#: errors of its own boundary is UNRESOLVED.
+MC_BOUNDARY_SIGMAS = 2.0
 
 #: §0.1 / §0.4's counts. A corpus, archive or ledger that does not produce them
 #: is a different object, not a smaller experiment.
@@ -336,6 +385,16 @@ EVIDENCE_MANIFEST = EVIDENCE_DIR / "MANIFEST.sha256"
 WRITES = (EVWIDEN_DIR, EVWIDEN_JSON, TABLE_DIR, TABLE_LEDGER, CANARY_JSON,
           EVIDENCE_JSON, EVIDENCE_PER_FIXTURE, EVIDENCE_TABLE_CELLS,
           EVIDENCE_GRID_MEANS, EVIDENCE_MANIFEST)
+
+#: R2-I6: the shard count is a PREREGISTERED CONSTANT, not a runtime choice.
+#: R-I6's closing paragraph declared a list and then wrote a category — "each
+#: shard ledger" names no count and no filename, while the shard count was a CLI
+#: argument and the filename a format string, so the promised MANIFEST
+#: membership was not decidable from the document. Four is the harness's own
+#: default and it is fixed here: a run at any other shard count is not the run
+#: this document preregisters. Shards still run SEQUENTIALLY (§2.4) — the
+#: partition buys resumability and per-shard poisoning, not parallelism.
+SHARDS = 4
 
 #: Where §6's freeze commit records the harness hashes.
 PREREG_PATH = paths.REPO_ROOT / "reports" / "epl_widening_prereg.md"
@@ -2829,8 +2888,16 @@ def adoption(delta: float, ci95_block: Sequence[float],
         "iv_table_gate": (dict(table) if table is not None
                           else {"PASS": None, "why": "the table leg has not run"}),
     }
+    unresolved = bool(table is not None
+                      and str(table.get("verdict")) == "UNRESOLVED")
     if iv is None:
         verdict = "INCOMPLETE — the table gate of §4.1 (iv) has not been measured"
+    elif unresolved:
+        # R2-B3: UNRESOLVED is a published VERDICT, not a refusal. It blocks
+        # adoption and can never grant one, and the result document names which
+        # of (P1)-(P5) fired.
+        verdict = ("UNRESOLVED — gate (iv) falls inside the simulation's own "
+                   "error; ADOPT is refused and dc_native stands")
     elif i and ii and iii and iv:
         verdict = "ADOPT"
     else:
@@ -3127,8 +3194,12 @@ RELEGATION_RANKS = 3
 
 _TABLE_ROW_FIELDS = ("schema", "key", "season", "cutoff_label", "cutoff",
                      "clubs", "treated_clubs", "provisional_incumbent",
-                     "provisional_enlarged", "evidence", "n_sims", "seed",
-                     "arms", "identical", "realised_hash", "config_sha256",
+                     "provisional_enlarged", "provisional_control",
+                     "provisional_treatment", "evidence", "n_sims", "seed",
+                     "arms", "identical", "realised_hash", "realised_positions",
+                     "realised_spans", "realised_points",
+                     "consequence_weights", "parity",
+                     "parity_digest_simretro", "config_sha256",
                      "harness_sha256", "harness_frozen")
 
 
@@ -3212,6 +3283,234 @@ def table_key(cell: dict[str, Any], config_sha: str, n_sims: int,
     """The table leg's resume key: one cell, one configuration, one budget."""
     return (f"{cell['season']}|{cell['cutoff_label']}|{cell['cutoff']}|"
             f"{int(n_sims)}|{int(seed)}|{config_sha}")
+
+
+def cell_key(row: dict[str, Any]) -> str:
+    """`season|cutoff_label` — the identity a cell keeps across legs."""
+    return f"{row['season']}|{row['cutoff_label']}"
+
+
+def simulate_arm(state, book, *, n_sims: int, seed: int, chunk_size: int,
+                 n_particles: int | None = None):
+    """THE one call into protected :func:`epl.leaguesim.simulate`, in one place.
+
+    R-B4 recorded the defect rather than fixing it quietly: at the time of that
+    repair the harness called ``simulate`` with the particle book in ``state``'s
+    argument position and no ``seed`` argument at all, while protected
+    ``epl/simretro.py:555`` calls it ``simulate(arm, state, provider, n_sims,
+    seed, …)``. No test exercised the real call and no fit had run, so the
+    35-cell parity oracle would have caught it on its first cell and nothing
+    else in the harness would have.
+
+    Funnelling the call through one function is what lets a test bind the
+    argument tuple against ``inspect.signature(leaguesim.simulate)`` without a
+    fit — the check that the positional order is the protected one.
+
+    Both arms are labelled ``dc_native`` to ``leaguesim``, and that is the
+    document's rule rather than a harness convenience: the provider IS
+    ``DCNativeProvider`` in both arms — a ``ParticleBook`` may not wear another
+    arm's name — and what differs between them is the BOOK, which is the
+    treatment.
+    """
+    from epl import leaguesim
+
+    return leaguesim.simulate(TABLE_ARM_LABEL, state, book, int(n_sims),
+                              int(seed), int(chunk_size),
+                              n_particles=n_particles)
+
+
+# --------------------------------------------------------------------------
+# R2-B3 step 1 — the per-particle FRACTIONAL rank-mass tally
+# --------------------------------------------------------------------------
+
+def particle_tallies(run, *, chunk_size: int = 2048) -> np.ndarray:
+    """``[P, C, C]`` — each particle's share of the mass TRPS actually scores.
+
+    R2-B3 supersedes R-B3's tally bullet, and the defect it repairs is that
+    ``.order`` is the wrong object. ``epl/table.py`` says of it in its own
+    docstring that *"inside a shared block its sequence carries no meaning and
+    is only the deterministic club-index order"* (`epl/table.py:374-377`). The
+    matrix TRPS scores is built from FRACTIONAL RANK MASS:
+    ``epl.table.position_mass`` spreads ``1/span`` across the ``span``
+    positions a tie block occupies (`epl/table.py:550-593`). A bootstrap over
+    ``.order`` would resample a different object from the one the point
+    estimate scores.
+
+    The tally is therefore built through the protected code that DEFINES it: a
+    :class:`epl.table.Ranking` over the run's own retained rows and plan, then
+    ``position_mass``. ``order`` is passed because the dataclass requires the
+    field; **it is never read** — ``position_mass`` reads ``block_start`` and
+    ``block_span`` and nothing else.
+
+    Accumulation is chunked the way ``position_mass_sums`` chunks, in ascending
+    season order. ``numpy.add.at`` is unbuffered and applies its indices in
+    order, so a chunked accumulation over contiguous ascending ranges performs
+    exactly the same sequence of additions as an unchunked one and the sums are
+    bit-identical — a committed test asserts that equality at 0.0.
+    """
+    from epl import table as table_mod
+
+    rows, plan = run.retained_rows, run.plan
+    n_particles = int(run.n_particles)
+    n_clubs = len(plan.clubs)
+    n = int(np.asarray(rows.block_start).shape[0])
+    out = np.zeros((n_particles, n_clubs * n_clubs), dtype=float)
+    particle = np.asarray(rows.particle)
+    for lo in range(0, n, max(1, int(chunk_size))):
+        hi = min(lo + max(1, int(chunk_size)), n)
+        ranking = table_mod.Ranking(
+            block_start=rows.block_start[lo:hi], block_span=rows.block_span[lo:hi],
+            resolution_code=rows.resolution_code[lo:hi], order=rows.order[lo:hi],
+            boundaries=plan.boundaries, rule_id=plan.rule_id)
+        mass = table_mod.position_mass(ranking).reshape(hi - lo, -1)
+        np.add.at(out, particle[lo:hi], mass)
+    return out.reshape(n_particles, n_clubs, n_clubs)
+
+
+def assert_tally_binds_the_matrix(tallies: np.ndarray, run,
+                                  *, tolerance: float = 1e-9) -> dict[str, Any]:
+    """R2-B3's two committed checks, which bind the tally to the point estimate.
+
+    * ``max |T.sum(axis=0)/n_sims − run.matrix| ≤ 1e-9`` — the tally reproduces
+      the scored matrix. The tolerance rather than bit equality is deliberate:
+      the protected accumulator sums in CHUNK order and this one sums in
+      PARTICLE order. (``run.matrix`` is ``mass.matrix / n_sims``, so the
+      comparison is made on the normalised scale the run publishes.)
+    * every particle's tally has **every row and every column** equal to
+      ``k = n_sims / P`` to within 1e-9 — a league season is a bijection
+      between clubs and ranks, and this is the same equal-cluster condition the
+      protected ``epl.simmetrics.trps_se_cluster`` enforces on its own input.
+    """
+    tallies = np.asarray(tallies, dtype=float)
+    n_sims, n_particles = int(run.n_sims), int(run.n_particles)
+    matrix = np.asarray(run.matrix, dtype=float)
+    d_matrix = float(np.abs(tallies.sum(axis=0) / n_sims - matrix).max())
+    if d_matrix > float(tolerance):
+        raise TableMCImprecise(
+            f"the per-particle tally does not reproduce the scored matrix: "
+            f"max |T.sum(0)/n_sims − matrix| = {d_matrix:.3g} > {tolerance:g}. "
+            "R2-B3 binds the bootstrapped object to the object the point "
+            "estimate scores; a tally that describes something else would give "
+            "a standard error for a statistic nobody reported.")
+    k = n_sims / float(n_particles)
+    rows_ok = float(np.abs(tallies.sum(axis=2) - k).max())
+    cols_ok = float(np.abs(tallies.sum(axis=1) - k).max())
+    if max(rows_ok, cols_ok) > float(tolerance):
+        raise TableMCImprecise(
+            f"a particle's tally is not an equal cluster of {k:g} seasons: the "
+            f"worst club-row deviation is {rows_ok:.3g} and the worst rank-column "
+            f"deviation {cols_ok:.3g}. A league season is a bijection between "
+            "clubs and ranks, and R2-B3 step 2 makes an unequal cluster a "
+            "refusal rather than something to reweight.")
+    return {"max_abs_matrix_diff": d_matrix, "sims_per_particle": k,
+            "max_abs_row_dev": rows_ok, "max_abs_col_dev": cols_ok,
+            "n_particles": n_particles, "n_sims": n_sims}
+
+
+# --------------------------------------------------------------------------
+# R2-B4 — the two digests, with disjoint jobs
+# --------------------------------------------------------------------------
+
+def sampler_digest(run, tallies: np.ndarray) -> str:
+    """SAMPLER OUTPUT ONLY — comparable within one cell, between its two arms.
+
+    R2-B4(a) ends round one's tautology. R-B4's digest INCLUDED the provisional
+    set and R-H(4) then required every treated cell's two digests to DIFFER as
+    proof that the treatment reached the sampler; together those prove nothing,
+    because the digests differ the moment the metadata names a different set,
+    whether or not one scoreline changed. A test that cannot fail is not a test.
+
+    Four items, in this order, and **nothing else** — no club list, no plan, no
+    seed, no posterior hash, **no provisional set**, no arm label, no clocks, no
+    host, no shard id, no free text:
+
+    1. the scored position matrix at full stored precision;
+    2. the per-particle fractional rank-mass tallies of R2-B3 step 1;
+    3. the retained points, goal-difference and goals-for vectors;
+    4. the tie-block record — ``block_start``, ``block_span``,
+       ``resolution_code``.
+    """
+    from epl import leaguesim
+
+    rows = run.retained_rows
+    payload = [
+        np.asarray(run.matrix, dtype=float),
+        np.asarray(tallies, dtype=float),
+        [np.asarray(rows.points), np.asarray(rows.gd), np.asarray(rows.gf)],
+        [np.asarray(rows.block_start), np.asarray(rows.block_span),
+         np.asarray(rows.resolution_code)],
+    ]
+    return hashlib.sha256(
+        leaguesim.canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def plan_state(run) -> dict[str, Any]:
+    """R2-B4(b): the complete field set of :class:`epl.leaguesim.SimPlan`.
+
+    Season, cutoff and ``observed_by`` identity; the fixture-and-result snapshot
+    the run was built on; the points adjustments; the ranking rule id; the
+    chunking, which fixes the RNG chunk keys and therefore the numbers; and the
+    results-lag state. A run that differs from another in any of them is a
+    different run, and the substantive digest now says so.
+    """
+    plan = run.plan
+    return {
+        "season": str(plan.season), "season_code": str(plan.season_code),
+        "cutoff": str(plan.cutoff), "observed_by": str(plan.observed_by),
+        "clubs": list(plan.clubs),
+        "fixtures": [[str(f.fixture_id), int(f.ordinal), str(f.home_key),
+                      str(f.away_key),
+                      None if f.result is None else [int(f.result[0]),
+                                                     int(f.result[1])]]
+                     for f in plan.fixtures],
+        "adjustments": [int(v) for v in np.asarray(plan.adjustments).tolist()],
+        "boundaries": [[int(a), int(b)] for a, b in plan.boundaries],
+        "rule_id": str(plan.rule_id), "n_sims": int(plan.n_sims),
+        "n_particles": int(plan.n_particles), "seed": int(plan.seed),
+        "chunk_size": int(plan.chunk_size),
+        "n_unresolved": int(plan.n_unresolved),
+        "results_lag": bool(plan.results_lag),
+    }
+
+
+def substantive_digest(run, tallies: np.ndarray, *, weights: Sequence[float],
+                       boundaries: Sequence[Sequence[int]],
+                       realised_hash: str,
+                       realised_positions: Sequence[int],
+                       realised_points: Sequence[int],
+                       effective_posterior_hash: str) -> str:
+    """EVERYTHING A RERUN MUST REPRODUCE — the parity oracle's comparator.
+
+    R2-B4: ``sampler_digest``'s four items **plus** the club list, the
+    consequence weights and the boundary definition, the realised-truth
+    identity, ``effective_posterior_hash`` / ``n_sims`` / ``n_particles`` /
+    ``seed``, and the full :class:`epl.leaguesim.SimPlan` state.
+
+    **Excluded by name:** the arm label, the provisional set, wall clocks, host,
+    shard id, and any free-text note. The provisional set left the digest and
+    became a compared FIELD (R2-B4(a)), which is what lets the treated-cell
+    identity test fail.
+    """
+    from epl import leaguesim
+
+    rows = run.retained_rows
+    payload = [
+        np.asarray(run.matrix, dtype=float),
+        np.asarray(tallies, dtype=float),
+        [np.asarray(rows.points), np.asarray(rows.gd), np.asarray(rows.gf)],
+        [np.asarray(rows.block_start), np.asarray(rows.block_span),
+         np.asarray(rows.resolution_code)],
+        list(run.plan.clubs),
+        [[float(w) for w in weights],
+         [[int(a), int(b)] for a, b in boundaries]],
+        [str(realised_hash), [int(p) for p in realised_positions],
+         [int(p) for p in realised_points]],
+        [str(effective_posterior_hash), int(run.n_sims), int(run.n_particles),
+         int(run.plan.seed)],
+        plan_state(run),
+    ]
+    return hashlib.sha256(
+        leaguesim.canonical_json(payload).encode("utf-8")).hexdigest()
 
 
 class TableRunner:
@@ -3310,19 +3609,29 @@ class TableRunner:
         weights = simmetrics.consequence_weights(len(clubs))
 
         arms: dict[str, Any] = {}
+        tallies: dict[str, np.ndarray] = {}
         for name, book in (("control", control), ("treatment", treatment)):
-            run = leaguesim.simulate(TABLE_ARM_LABEL, book, self.n_sims,
-                                     self.seed, chunk_size=self.chunk_size,
-                                     n_particles=book.n_particles)
+            run = simulate_arm(state, book, n_sims=self.n_sims, seed=self.seed,
+                               chunk_size=self.chunk_size,
+                               n_particles=book.n_particles)
             matrix = simmetrics.scored_matrix(run.matrix, len(clubs))
             table_mod.check_doubly_stochastic(run.matrix)
             points = np.asarray(run.retained_rows.points)
+            tally = particle_tallies(run)
+            tally_check = assert_tally_binds_the_matrix(tally, run)
+            tallies[name] = tally
             arms[name] = {
                 "trps": float(simmetrics.trps(matrix, positions, spans=spans)),
                 "wtrps": float(simmetrics.wtrps(matrix, positions, weights,
                                                 spans=spans)),
                 "flat_trps": float(simmetrics.flat_trps(positions, spans=spans)),
-                "digest": run.digest(),
+                "sampler_digest": sampler_digest(run, tally),
+                "substantive_digest": substantive_digest(
+                    run, tally, weights=weights,
+                    boundaries=run.plan.boundaries,
+                    realised_hash=realised.realised_hash,
+                    realised_positions=positions, realised_points=truth,
+                    effective_posterior_hash=book.content_hash()),
                 "effective_posterior_hash": book.content_hash(),
                 "provisional": sorted(book.provisional),
                 "coverage": simmetrics.interval_coverage(points, truth),
@@ -3331,6 +3640,7 @@ class TableRunner:
                 "clubs_detail": _club_detail(matrix, points, clubs,
                                              cell["treated_clubs"], truth),
                 "n_sims": int(run.n_sims), "n_particles": int(run.n_particles),
+                "tally_check": tally_check,
                 "widening_mode":
                     f"per_fixture_bernoulli@alpha={book.alpha:g}",
             }
@@ -3339,8 +3649,12 @@ class TableRunner:
                       f"TRPS={arms[name]['trps']:.6f}", flush=True)
 
         identical = assert_table_identity(
-            cell["treated_clubs"], arms["control"]["digest"],
-            arms["treatment"]["digest"], where=f"{season} {label}")
+            cell["treated_clubs"], arms["control"]["sampler_digest"],
+            arms["treatment"]["sampler_digest"], where=f"{season} {label}")
+        assert_provisional_fields(cell["treated_clubs"],
+                                  arms["control"]["provisional"],
+                                  arms["treatment"]["provisional"],
+                                  where=f"{season} {label}")
 
         return {
             "schema": SCHEMA_ID, "season": season, "cutoff_label": label,
@@ -3348,53 +3662,271 @@ class TableRunner:
             "treated_clubs": sorted(cell["treated_clubs"]),
             "provisional_incumbent": sorted(incumbent),
             "provisional_enlarged": sorted(enlarged),
+            # R2-B4(a): the provisional set left both digests and became a
+            # COMPARED FIELD, checked three ways — against the protected
+            # runner's own provenance at the parity oracle, against the frozen
+            # 16/19 census here, and by `assert_provisional_fields`.
+            "provisional_control": sorted(control.provisional),
+            "provisional_treatment": sorted(treatment.provisional),
             "evidence": dict(cell["evidence"]),
             "n_sims": self.n_sims, "seed": self.seed,
             "arms": arms, "identical": identical,
             "realised_hash": realised.realised_hash,
             "realised_positions": {c: int(p) for c, p in
                                    zip(clubs, positions.tolist())},
+            "realised_spans": {c: int(s) for c, s in zip(clubs, spans.tolist())},
             "realised_points": {c: int(p) for c, p in zip(clubs, truth.tolist())},
+            "consequence_weights": [float(w) for w in weights],
             "n_training_matches": int(info.n_training_matches),
             "cold_start_teams": list(info.cold_start_teams),
             "config_sha256": self.config_sha256,
             "harness_sha256": self.harness_sha256,
             "wall_seconds": round(time.perf_counter() - started, 2),
+            #: Not written to the ledger — `run_table` lifts it out and saves
+            #: the arrays beside it, because the joint bootstrap of R2-B3 needs
+            #: all thirty-two tallies at once and a JSONL row is not where a
+            #: [1000, 20, 20] float64 array belongs.
+            "_tallies": tallies,
         }
 
 
 def assert_table_identity(treated_clubs: Sequence[str], control_digest: str,
                           treatment_digest: str, *, where: str) -> bool:
-    """§3.3's two-sided identity demand, in one place so it can be tested.
+    """The two-sided cell identity, RESTATED ON ``sampler_digest`` (R2-B4(a)).
 
     The 19 untouched cells are "unchanged by construction, **and the harness
-    must prove it**": an untouched cell whose treatment digest differs from its
-    control's is :class:`TableIdentityBreak`.
+    must prove it**": an untouched cell whose two arms' sampler digests differ
+    is :class:`TableIdentityBreak`.
 
-    The OTHER direction is refused too, and it is not in the document's letter
-    because the document could not have anticipated a harness bug: a cell whose
-    rule-named treated clubs produced a byte-identical run is not a null result
-    — it is a treatment that never reached the sampler, and reporting its zero
-    delta as evidence of "no harm" would be reporting the absence of the
-    experiment.
+    The other direction is equally required (R-H(4)): a treated cell whose two
+    arms' sampler digests are EQUAL is :class:`TableIdentityBreak` too. A
+    treatment that changes no sampler output where the rule says it must is not
+    a null result; it is a treatment that never reached the sampler, and
+    reporting its zero delta as evidence of no harm would be reporting the
+    absence of the experiment.
+
+    **The digest this reads must be ``sampler_digest``, and that is the whole
+    repair.** Round one's digest included the provisional set, so a treated
+    cell's two digests differed the moment the metadata named a different set —
+    whether or not one scoreline changed. With the provisional set outside the
+    digest the second condition is a statement about scorelines, tie blocks and
+    points, the things the D12 branch actually moves, and it can fail.
     """
     identical = bool(str(control_digest) == str(treatment_digest))
     if not treated_clubs and not identical:
         raise TableIdentityBreak(
             f"{where} carries no treated club, so the two books are the same "
-            "book and the two runs must be the same run — but their digests "
-            f"differ ({str(control_digest)[:12]}… vs "
+            "book and the two runs must be the same run — but their sampler "
+            f"digests differ ({str(control_digest)[:12]}… vs "
             f"{str(treatment_digest)[:12]}…). §3.3 rules the 19 untouched cells "
             "unchanged BY CONSTRUCTION and requires the harness to prove it; a "
             "break here means the treatment reaches further than the rule names.")
     if treated_clubs and identical:
         raise TableIdentityBreak(
             f"{where} carries treated clubs {sorted(treated_clubs)} and the two "
-            "arms produced byte-identical runs. A treatment that changes nothing "
-            "where the rule says it should is not a null result — it is a "
-            "treatment that never reached the sampler, and its zero delta is the "
-            "absence of the experiment rather than evidence of no harm.")
+            "arms produced byte-identical SAMPLER OUTPUT. A treatment that "
+            "changes nothing where the rule says it should is not a null result "
+            "— it is a treatment that never reached the sampler, and its zero "
+            "delta is the absence of the experiment rather than evidence of no "
+            "harm.")
     return identical
+
+
+def assert_provisional_fields(treated_clubs: Sequence[str],
+                              provisional_control: Sequence[str],
+                              provisional_treatment: Sequence[str], *,
+                              where: str) -> None:
+    """R2-B4(a): metadata is checked AS METADATA, the sampler by its output.
+
+    The provisional set left both digests, so it is compared directly: the
+    treatment's set must be a strict superset of the control's at a treated
+    cell and equal to it at an untouched one, and the difference must be exactly
+    the clubs the rule names.
+    """
+    control = {str(c) for c in provisional_control}
+    treatment = {str(c) for c in provisional_treatment}
+    treated = {str(c) for c in treated_clubs}
+    if treated:
+        if not treatment > control or (treatment - control) != treated:
+            raise TableIdentityBreak(
+                f"{where}: the treatment book's provisional set adds "
+                f"{sorted(treatment - control)} to the control's, and §3.3's "
+                f"frozen enumeration names {sorted(treated)}. R2-B4 makes the "
+                "provisional set a compared field precisely so a mismatch here "
+                "is caught as metadata rather than smuggled into a digest.")
+    elif treatment != control:
+        raise TableIdentityBreak(
+            f"{where} is one of the 19 untouched cells, so the two books carry "
+            f"the same provisional set — and they do not: the treatment adds "
+            f"{sorted(treatment - control)} and drops "
+            f"{sorted(control - treatment)}.")
+
+
+# --------------------------------------------------------------------------
+# R-B4 / R2-B4(c) — the 35-cell native-parity oracle against PROTECTED code
+# --------------------------------------------------------------------------
+
+class ParityRunner:
+    """Protected :class:`epl.simretro.ArchiveRunner`, `dc_native`, one cell.
+
+    R-B4: binding the SCHEDULE to protected code binds neither
+    ``ArchiveRunner``'s semantics — verified adjustments, ``config_read_once``,
+    particle-book construction, boundaries, chunking, refusal handling, ranker
+    checks, provenance — nor its call. The 19-untouched-cell control compares
+    two arms produced by the SAME new code, so any drift shared by both arms
+    passes it silently. The oracle is the answer: the new runner must reproduce
+    the protected runner's ``dc_native`` output at ALL THIRTY-FIVE cells, no
+    sampling, before one treated simulation is executed.
+
+    R2-B4(c) supersedes §2.4's budget with the oracle's true cost, because
+    ``ArchiveRunner`` owns its own fit (`epl/simretro.py:520-527,536`), exposes
+    no posterior and no ``ParticleBook`` for reuse, and returns
+    ``CutoffResult``/``ArmResult`` — so the parity leg cannot ride the new
+    runner's fits and needs its own 35.
+
+    ``data/epl/sim/retro_r1.jsonl`` stays read-only and is not the comparison
+    object: the parity run is EXECUTED, not read off the archive ledger.
+    """
+
+    def __init__(self, matches: pd.DataFrame | None = None, *,
+                 store=None, anchor=None, config: dict | None = None,
+                 n_sims: int | None = None, seed: int | None = None,
+                 chunk_size: int | None = None,
+                 require_verified_adjustments: bool = True,
+                 verbose: bool = True):
+        from epl import baseline, leaguesim, simretro
+
+        self.matches = baseline.load_matches() if matches is None else matches
+        self.n_sims = int(simretro.DEFAULT_N_SIMS if n_sims is None else n_sims)
+        self.seed = int(simretro.SEED if seed is None else seed)
+        self.chunk_size = int(leaguesim.DEFAULT_CHUNK_SIZE if chunk_size is None
+                              else chunk_size)
+        self.require_verified_adjustments = bool(require_verified_adjustments)
+        self.verbose = bool(verbose)
+        self._runner = simretro.ArchiveRunner(
+            self.matches, store=store, anchor=anchor, config=config,
+            chunk_size=self.chunk_size,
+            require_verified_adjustments=self.require_verified_adjustments,
+            verbose=verbose)
+
+    def __call__(self, cell: dict[str, Any]) -> dict[str, Any]:
+        from epl import simmetrics, simretro
+
+        season, label = str(cell["season"]), str(cell["cutoff_label"])
+        cutoff = pd.Timestamp(cell["cutoff"]).normalize()
+        started = time.perf_counter()
+        result = self._runner(season=season, cutoff_label=label, cutoff=cutoff,
+                              arms=(TABLE_ARM_LABEL,), nulls=(),
+                              n_sims=self.n_sims, seed=self.seed)
+        arm = result.arms[TABLE_ARM_LABEL]
+        run = arm.run
+        if run is None:
+            raise TableIdentityBreak(
+                f"{season} {label}: the protected runner returned no SimRun for "
+                f"{TABLE_ARM_LABEL}, so there is nothing to compare against and "
+                "R-B4's oracle cannot be executed.")
+        realised = simretro.realised_positions(
+            self.matches, season,
+            require_verified=self.require_verified_adjustments)
+        clubs = list(result.clubs)
+        tally = particle_tallies(run)
+        assert_tally_binds_the_matrix(tally, run)
+        return {
+            "schema": SCHEMA_ID, "season": season, "cutoff_label": label,
+            "cutoff": str(cutoff.date()), "key": f"{season}|{label}",
+            "arm": TABLE_ARM_LABEL,
+            "substantive_digest": substantive_digest(
+                run, tally, weights=simmetrics.consequence_weights(len(clubs)),
+                boundaries=run.plan.boundaries,
+                realised_hash=realised.realised_hash,
+                realised_positions=realised.position_vector(clubs),
+                realised_points=realised.points_vector(clubs),
+                effective_posterior_hash=result.provenance[
+                    "effective_posterior_hash"]),
+            "provisional_teams": sorted(
+                str(t) for t in result.provenance["provisional_teams"]),
+            "effective_posterior_hash":
+                result.provenance["effective_posterior_hash"],
+            "n_sims": int(run.n_sims), "n_particles": int(run.n_particles),
+            "seed": self.seed, "source": "epl.simretro.ArchiveRunner (protected)",
+            "wall_seconds": round(time.perf_counter() - started, 2),
+        }
+
+
+def run_parity_oracle(cells: Sequence[dict[str, Any]],
+                      path: Path | str, *,
+                      runner: Callable[[dict], dict] | None = None,
+                      resume: bool = True, verbose: bool = True,
+                      ) -> dict[str, dict[str, Any]]:
+    """Execute the protected runner at every cell and record its digest.
+
+    Resumable per cell and never sampled: R2-B4(c) folds "sampling the parity
+    oracle" into §2.4's standing refusal to thin the run.
+    """
+    path = Path(path)
+    runner = ParityRunner(verbose=verbose) if runner is None else runner
+    done: dict[str, dict[str, Any]] = {}
+    if resume and path.exists():
+        rows, poison, _ = read_jsonl(path)
+        if poison:
+            raise ShardFailed(
+                f"{paths.rel(path)} carries {len(poison)} poison row(s); the "
+                f"first is {poison[0].get('error_type')}")
+        done = {str(r["key"]): r for r in rows}
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for i, cell in enumerate(cells, 1):
+        key = f"{cell['season']}|{cell['cutoff_label']}"
+        if key in done:
+            continue
+        row = runner(cell)
+        with path.open("a") as fh:
+            fh.write(json.dumps(row, default=str) + "\n")
+        done[key] = row
+        if verbose:
+            print(f"[evwiden-parity] {i}/{len(cells)} {key} "
+                  f"{row['substantive_digest'][:12]}…", flush=True)
+    missing = [f"{c['season']}|{c['cutoff_label']}" for c in cells
+               if f"{c['season']}|{c['cutoff_label']}" not in done]
+    if missing:
+        raise MergeIncomplete(
+            f"the parity oracle is short {len(missing)} cell(s) "
+            f"(first: {missing[:3]}). R-B4 requires native parity at ALL "
+            "thirty-five cells before one treated simulation is executed, and "
+            "R2-B4(c) makes sampling it an amendment rather than an "
+            "optimisation.")
+    return done
+
+
+def assert_native_parity(cell_key_: str, new_digest: str, oracle: dict[str, Any],
+                         provisional_control: Sequence[str]) -> dict[str, Any]:
+    """One cell of R-B4's oracle: the new runner's control arm against protected.
+
+    The comparator is the ``substantive_digest``, computed by the SAME harness
+    function from the protected runner's ``SimRun`` and from the new runner's
+    control-arm ``SimRun`` (R2-B4(c)). The provisional set — which is outside
+    both digests now — is compared directly against ``ArchiveRunner``'s own
+    ``provenance["provisional_teams"]``.
+    """
+    want = str(oracle["substantive_digest"])
+    if str(new_digest) != want:
+        raise TableIdentityBreak(
+            f"{cell_key_}: the new runner's control arm hashes to "
+            f"{str(new_digest)[:12]}… and protected epl.simretro.ArchiveRunner's "
+            f"own dc_native run hashes to {want[:12]}…. R-B4 requires native "
+            "parity at all thirty-five cells before one treated simulation "
+            "runs: binding the schedule to protected code binds neither its "
+            "semantics nor its call, and the 19-untouched-cell control cannot "
+            "see a drift both arms share.")
+    theirs = sorted(str(t) for t in oracle["provisional_teams"])
+    ours = sorted(str(t) for t in provisional_control)
+    if ours != theirs:
+        raise TableIdentityBreak(
+            f"{cell_key_}: the control book's provisional set {ours} is not "
+            f"the protected runner's {theirs}. R2-B4 takes the provisional set "
+            "out of the digest and compares it as a field, so this is the "
+            "check that the control arm IS the incumbent arm.")
+    return {"key": cell_key_, "parity_digest_simretro": want, "PASS": True}
 
 
 def _coverage_for(points: np.ndarray, truth: np.ndarray, clubs: Sequence[str],
@@ -3446,23 +3978,67 @@ def _club_detail(matrix: np.ndarray, points: np.ndarray, clubs: Sequence[str],
     return out
 
 
+def tallies_dir(ledger_path: Path | str) -> Path:
+    """Where the per-particle tallies live, beside the table ledger.
+
+    R2-B3 step 3 applies ONE resample index to all thirty-two tallies at once,
+    so the estimator needs every deciding cell's tallies simultaneously and a
+    JSONL row is not where a ``[1000, 20, 20]`` float64 array belongs. They are
+    written beside the ledger, inside §6's `data/epl/sim/evwiden*` write set.
+    """
+    return Path(ledger_path).parent / "tallies"
+
+
+def tally_path(ledger_path: Path | str, row: dict[str, Any]) -> Path:
+    key = f"{row['season']}|{row['cutoff_label']}".replace("/", "-")
+    return tallies_dir(ledger_path) / f"{key}.npz"
+
+
+def load_tallies(ledger_path: Path | str, row: dict[str, Any],
+                 ) -> dict[str, np.ndarray]:
+    path = tally_path(ledger_path, row)
+    if not path.exists():
+        raise TableMCImprecise(
+            f"{paths.rel(path)} is not on disk, so cell "
+            f"{cell_key(row)}'s per-particle tallies cannot be resampled. "
+            "R2-B3's estimator is jointly paired across cells and there is no "
+            "per-cell fallback: a missing tally is a refusal, not a smaller "
+            "bootstrap.")
+    with np.load(path) as data:
+        return {"control": np.asarray(data["control"], dtype=float),
+                "treatment": np.asarray(data["treatment"], dtype=float)}
+
+
 def run_table(cells: Sequence[dict[str, Any]],
               ledger_path: Path | str | None = None, *,
               runner: Callable[[dict], dict] | None = None,
+              parity: dict[str, dict[str, Any]] | None = None,
+              parity_runner: Callable[[dict], dict] | None = None,
+              require_parity: bool = True,
               n_sims: int | None = None, seed: int | None = None,
               config_sha: str | None = None, resume: bool = True,
               verbose: bool = True, harness_frozen: bool = True,
               ) -> dict[str, Any]:
     """Run both arms at every cell and append one JSONL row per cell.
 
+    THE PARITY ORACLE RUNS FIRST, at all thirty-five cells, before one treated
+    simulation is executed (R-B4). Its digests are recorded beside the ledger
+    and every cell's control arm is checked against its own.
+
     Resumable per cell and poisoned per cell, exactly as the match-level shard
-    is: §2.4's budget is 35 fits plus 70 runs of 20,000 simulated seasons, and a
-    crash two hours in should cost the cell in flight and nothing else.
+    is: R2-B4(c)'s budget for this leg is 70 fits and 105 runs of 20,000
+    simulated seasons — bounded by ~4 hours, not ~2 — and a crash two hours in
+    should cost the cell in flight and nothing else.
     """
     ledger_path = Path(ledger_path) if ledger_path is not None else TABLE_LEDGER
     _guard_ledger_location(ledger_path, harness_frozen)
     runner = TableRunner(n_sims=n_sims, seed=seed,
                          verbose=verbose) if runner is None else runner
+    if parity is None and require_parity:
+        parity = run_parity_oracle(
+            cells, ledger_path.parent / "parity.jsonl", runner=parity_runner,
+            resume=resume, verbose=verbose)
+    parity = dict(parity or {})
     n_sims = int(getattr(runner, "n_sims", n_sims or 0))
     seed = int(getattr(runner, "seed", seed or 0))
     config_sha = (getattr(runner, "config_sha256", None) or config_sha
@@ -3500,6 +4076,32 @@ def run_table(cells: Sequence[dict[str, Any]],
                 f"{type(exc).__name__}: {exc}")
             _poison_table(ledger_path, cell, key, wrapped)
             raise wrapped from exc
+
+        arm_tallies = row.pop("_tallies", None)
+        ck = cell_key(row)
+        if require_parity:
+            oracle = parity.get(ck)
+            if oracle is None:
+                raise TableIdentityBreak(
+                    f"{ck} has no protected-runner parity digest. R-B4 requires "
+                    "native parity at all thirty-five cells BEFORE one treated "
+                    "simulation is executed; a cell that ran without one ran "
+                    "outside the oracle.")
+            row["parity"] = assert_native_parity(
+                ck, row["arms"]["control"]["substantive_digest"], oracle,
+                row["provisional_control"])
+            row["parity_digest_simretro"] = oracle["substantive_digest"]
+        else:
+            row["parity"] = {"key": ck, "PASS": None,
+                             "why": "the caller supplied no oracle"}
+            row["parity_digest_simretro"] = None
+        if arm_tallies is not None:
+            target = tally_path(ledger_path, row)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            np.savez_compressed(
+                target,
+                control=np.asarray(arm_tallies["control"], dtype=float),
+                treatment=np.asarray(arm_tallies["treatment"], dtype=float))
         row.update({"key": key, "harness_frozen": bool(harness_frozen),
                     "config_sha256": config_sha})
         for field in _TABLE_ROW_FIELDS:
@@ -3587,14 +4189,171 @@ def load_table_ledger(path: Path | str | None = None, *,
     return out
 
 
+def _cell_positions(row: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
+    """The cell's own realised position vector and realised block widths.
+
+    R2-B3 step 3: ``positions_c`` and ``spans_c`` are "the same two arrays the
+    cell's point estimate is scored with" — read back off the row in the club
+    order the run used, never re-derived from a schedule.
+    """
+    clubs = [str(c) for c in row["clubs"]]
+    positions = np.array([int(row["realised_positions"][c]) for c in clubs],
+                         dtype=int)
+    spans = np.array([int(row["realised_spans"][c]) for c in clubs], dtype=int)
+    return positions, spans
+
+
+def paired_mc_bootstrap(cells: Sequence[dict[str, Any]], *,
+                        n_boot: int = MC_BOOT, seed: int = MC_SEED,
+                        ) -> dict[str, Any]:
+    """R2-B3's estimator: tie-aware, jointly resampled, covariance by construction.
+
+    ``cells`` is one entry per DECIDING cell — R2-B3 runs the estimator over the
+    16 treated cells and MW19 enters nothing — each carrying ``key``,
+    ``cutoff_label``, ``positions``, ``spans`` and the two arms' per-particle
+    fractional rank-mass tallies.
+
+    STEP 2, the preconditions and the refusal that guards them. All tallies must
+    report the same ``n_particles`` ``P`` and every particle must carry the same
+    whole number of simulated seasons. Joint resampling is undefined without a
+    common index space and this document will not approximate one, so a
+    violation is :class:`TableMCImprecise` and stops the table leg.
+
+    STEP 3, one resample per replicate applied to all thirty-two tallies. The
+    same ``picked`` is applied to both arms of a cell — the CRN pairing, since
+    the arms share particles and streams and differ only on the D12 branch — AND
+    to every other cell, which is R2-B3's repair of round one's false
+    independence: ``epl.leaguesim.streams(seed, chunk, fixture_ordinal)`` reads
+    only those three things, not the season and not the cell, and all 35 cells
+    run at the same seed, so simulated season *n* of one cell consumes the same
+    uniforms as simulated season *n* of another. **There is no quadrature step
+    and no independence claim anywhere in this estimator**: the label means are
+    computed INSIDE each replicate and their spread is read directly, so
+    whatever covariance the shared streams induce is reproduced within every
+    replicate rather than modelled.
+
+    Resampling the particle INDEX does not claim that particle *s* of one cell
+    is the same posterior draw as particle *s* of another — it plainly is not.
+    It uses the fact that the shared randomness is indexed by
+    ``(particle index, chunk, fixture_ordinal)`` and the particle index is
+    deterministic in the season index, so two cells that share uniforms move
+    together inside a replicate exactly as they move together in the run.
+
+    HONEST LIMITS, stated here as R2-B3 states them: the particle is the
+    cluster, as it is in every Monte-Carlo error this repository publishes;
+    within-particle match randomness at fixed particle is resampled only through
+    the seasons each particle carries; and a 7-, 4-, 3- or 2-cell label mean is
+    a small average however it is estimated. This is a BOUND on how much of the
+    gate's margin is simulation noise, not a model of the fit's own uncertainty,
+    which no table statistic in this experiment sees.
+    """
+    from epl import simmetrics
+
+    if not cells:
+        raise TableMCImprecise(
+            "the paired Monte-Carlo estimator was handed no deciding cell. "
+            "R2-B3 runs it over the 16 treated cells; an empty set means the "
+            "table leg's own census disagrees with §3.3's.")
+
+    particles = {int(np.asarray(c["control"]).shape[0]) for c in cells} | \
+                {int(np.asarray(c["treatment"]).shape[0]) for c in cells}
+    if len(particles) != 1:
+        raise TableMCImprecise(
+            f"the deciding cells carry {sorted(particles)} particles. R2-B3 "
+            "step 2 requires ONE common index space across all thirty-two "
+            "tallies; joint resampling is undefined without it.")
+    n_particles = particles.pop()
+    if n_particles < 2:
+        raise TableMCImprecise(
+            f"a bootstrap over {n_particles} particle(s) resamples nothing")
+
+    seasons_per_particle: set[float] = set()
+    for cell in cells:
+        for arm in ("control", "treatment"):
+            tally = np.asarray(cell[arm], dtype=float)
+            if tally.ndim != 3 or tally.shape[1] != tally.shape[2]:
+                raise TableMCImprecise(
+                    f"{cell['key']} {arm}: a tally is [particles, clubs, ranks] "
+                    f"with clubs == ranks; got {tally.shape}")
+            per = tally.sum(axis=2)
+            if not np.allclose(per, per.flat[0], atol=1e-9):
+                raise TableMCImprecise(
+                    f"{cell['key']} {arm}: the particles carry unequal season "
+                    "counts. R2-B3 step 2 makes that a refusal, not something "
+                    "to reweight.")
+            seasons_per_particle.add(round(float(per.flat[0]), 9))
+    if len(seasons_per_particle) != 1:
+        raise TableMCImprecise(
+            f"the deciding cells carry {sorted(seasons_per_particle)} simulated "
+            "seasons per particle; R2-B3 step 2 requires one whole number, "
+            "shared.")
+    per_particle = seasons_per_particle.pop()
+    if abs(per_particle - round(per_particle)) > 1e-9:
+        raise TableMCImprecise(
+            f"{per_particle} simulated seasons per particle is not a whole "
+            "number, so the particle is not a cluster of complete seasons.")
+
+    order = list(cells)
+    labels = sorted({str(c["cutoff_label"]) for c in order})
+    rng = np.random.default_rng(int(seed))
+    per_cell = {str(c["key"]): np.empty(int(n_boot), dtype=float) for c in order}
+    per_label = {lab: np.empty(int(n_boot), dtype=float) for lab in labels}
+
+    for r in range(int(n_boot)):
+        picked = rng.integers(0, n_particles, n_particles)
+        for cell in order:
+            scores = {}
+            for arm in ("control", "treatment"):
+                matrix = np.asarray(cell[arm], dtype=float)[picked].sum(axis=0)
+                matrix = matrix / matrix.sum(axis=1, keepdims=True)
+                scores[arm] = float(simmetrics.trps(
+                    matrix, cell["positions"], spans=cell["spans"]))
+            per_cell[str(cell["key"])][r] = scores["treatment"] - scores["control"]
+        for lab in labels:
+            keys = [str(c["key"]) for c in order
+                    if str(c["cutoff_label"]) == lab]
+            per_label[lab][r] = float(np.mean([per_cell[k][r] for k in keys]))
+
+    return {
+        "schema": SCHEMA_ID, "mc_boot": int(n_boot), "mc_seed": int(seed),
+        "n_particles": int(n_particles),
+        "sims_per_particle": float(per_particle),
+        "n_deciding_cells": len(order),
+        "mc_se_label": {lab: float(np.std(per_label[lab], ddof=1))
+                        for lab in labels},
+        "mc_se_per_cell": {k: float(np.std(v, ddof=1))
+                           for k, v in per_cell.items()},
+        "estimator": ("R2-B3: tie-aware fractional rank mass, one resample "
+                      "index per replicate applied to every tally, label means "
+                      "computed inside the replicate — no quadrature, no "
+                      "independence claim"),
+        "decides": "only ever to REFUSE — an UNRESOLVED gate blocks adoption "
+                   "and can never grant one",
+    }
+
+
 def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
                 seed: int = BOOTSTRAP_SEED,
+                mc: dict[str, Any] | None = None,
+                tallies: dict[str, dict[str, np.ndarray]] | None = None,
+                ledger_path: Path | str | None = None,
+                mc_boot: int = MC_BOOT, mc_seed: int = MC_SEED,
                 expected_cells: int | None = None) -> dict[str, Any]:
-    """§3.4's table-side numbers: per-cell paired deltas, pooled, and coverage.
+    """§3.4's table-side numbers, and R-B2's per-horizon deciding statistics.
 
-    Everything here except the pooled ΔTRPS is a SECONDARY and decides nothing.
-    The pooled ΔTRPS feeds §4.1 (iv), which is a do-no-harm gate: it can block an
-    adoption and can never grant one.
+    **The 35-cell pooled ΔTRPS and pooled ΔwTRPS are WITHDRAWN** — not demoted
+    to secondaries, withdrawn from the published outputs entirely (R-B2).
+    `epl/simretro.py:41` and `epl/simmetrics.py:44` both freeze *"Never averaged
+    across cutoffs"*: a forecast at the opener and one at matchweek 19 answer
+    different questions and their average describes neither. Publishing an
+    aggregate that protected code forbids as a verdict invites it to be quoted
+    as one. What publishes in its place is every cell's ΔTRPS and ΔwTRPS
+    individually, and the four treated-cell label means.
+
+    What decides is (iv-a) the MW6 mean over its seven cells with R-B3's frozen
+    season-block interval, (iv-b) the treated-cell means at MW0, MW3 and MW10,
+    and (iv-c) the significance-and-precision clause. Everything else here is a
+    SECONDARY and decides nothing.
 
     TRPS IS PROPER FOR THE DISPLAYED MARGINALS ONLY — `epl/simmetrics.py` says so
     in its own docstring. Two forecasts with the same position matrix and a
@@ -3612,6 +4371,7 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
     for row in rows:
         control, treatment = row["arms"]["control"], row["arms"]["treatment"]
         per_cell.append({
+            "key": cell_key(row),
             "season": str(row["season"]), "cutoff_label": str(row["cutoff_label"]),
             "cutoff": str(row["cutoff"]),
             "treated_clubs": list(row["treated_clubs"]),
@@ -3622,6 +4382,14 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
             "wtrps_treatment": float(treatment["wtrps"]),
             "delta_wtrps": float(treatment["wtrps"]) - float(control["wtrps"]),
             "identical": bool(row["identical"]),
+            "provisional_control": list(row.get("provisional_control") or ()),
+            "provisional_treatment": list(row.get("provisional_treatment") or ()),
+            "sampler_digest_control": control.get("sampler_digest"),
+            "sampler_digest_treatment": treatment.get("sampler_digest"),
+            "substantive_digest_control": control.get("substantive_digest"),
+            "substantive_digest_treatment": treatment.get("substantive_digest"),
+            "parity_digest_simretro": row.get("parity_digest_simretro"),
+            "realised_hash": row.get("realised_hash"),
             "coverage_control": dict(control.get("coverage") or {}),
             "coverage_treatment": dict(treatment.get("coverage") or {}),
             "coverage_treated_control": dict(control.get("coverage_treated") or {}),
@@ -3630,17 +4398,93 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
         })
 
     deltas = np.array([c["delta_trps"] for c in per_cell], dtype=float)
-    seasons = [c["season"] for c in per_cell]
-    pooled = _summarise(deltas, seasons, n_boot=n_boot, seed=seed)
     wdeltas = np.array([c["delta_wtrps"] for c in per_cell], dtype=float)
-    pooled_w = _summarise(wdeltas, seasons, n_boot=n_boot, seed=seed)
+    by_row = {cell_key(r): r for r in rows}
+
+    # ---- (iv-a) the named horizon, MW6 -----------------------------------
+    mw6_idx = [i for i, c in enumerate(per_cell)
+               if c["cutoff_label"] == MW6_LABEL]
+    mw6_deltas = deltas[mw6_idx]
+    mw6_seasons = [per_cell[i]["season"] for i in mw6_idx]
+    if mw6_deltas.size:
+        lo, hi, n_blocks = score_mod.block_bootstrap_ci(
+            mw6_deltas, mw6_seasons, n_boot=n_boot, alpha=ALPHA, seed=seed)
+    else:
+        lo, hi, n_blocks = 0.0, 0.0, 0
+    mw6 = {
+        "cutoff_label": MW6_LABEL, "n": len(mw6_idx),
+        "mean": float(mw6_deltas.mean()) if mw6_deltas.size else 0.0,
+        "ci95": [float(lo), float(hi)], "n_blocks": int(n_blocks),
+        "bootstrap": {"function": "epl.score.block_bootstrap_ci",
+                      "blocks": "the seven season strings, one cell per block",
+                      "B": int(n_boot), "alpha": ALPHA, "seed": int(seed),
+                      "quantile": "np.quantile(means, [alpha/2, 1 - alpha/2]), "
+                                  "NumPy's default linear interpolation"},
+        "per_cell": [per_cell[i] for i in mw6_idx],
+    }
+
+    # ---- (iv-b) the per-horizon point gates, treated cells only ----------
+    label_means: dict[str, dict[str, Any]] = {}
+    for label in POINT_GATE_LABELS:
+        idx = [i for i, c in enumerate(per_cell)
+               if c["cutoff_label"] == label and c["treated_clubs"]]
+        label_means[label] = {
+            "cutoff_label": label, "n_treated": len(idx),
+            "mean": float(deltas[idx].mean()) if idx else 0.0,
+            "cells": [per_cell[i]["key"] for i in idx],
+            "interval": "none — R-B2 computes no interval at these labels and "
+                        "requires none; two cells do not carry one",
+        }
+
+    structural = {
+        "cutoff_label": STRUCTURAL_ZERO_LABEL,
+        "n": sum(1 for c in per_cell
+                 if c["cutoff_label"] == STRUCTURAL_ZERO_LABEL),
+        "n_treated": sum(1 for c in per_cell
+                         if c["cutoff_label"] == STRUCTURAL_ZERO_LABEL
+                         and c["treated_clubs"]),
+        "structural_zero": True, "decides": "nothing",
+    }
+
+    # ---- R2-B3's paired Monte-Carlo error, over the 16 deciding cells ----
+    if mc is None:
+        deciding = [c for c in per_cell if c["treated_clubs"]]
+        payload = []
+        for c in deciding:
+            row = by_row[c["key"]]
+            arms = (tallies or {}).get(c["key"])
+            if arms is None:
+                if ledger_path is None:
+                    raise TableMCImprecise(
+                        f"{c['key']}: no per-particle tallies were supplied and "
+                        "no ledger path was given to load them from. Gate (iv) "
+                        "may not be evaluated without R2-B3's paired error: "
+                        "§7 makes an MC estimator that is not the "
+                        "jointly-resampled tie-aware one an invalidation.")
+                arms = load_tallies(ledger_path, row)
+            positions, spans = _cell_positions(row)
+            payload.append({"key": c["key"],
+                            "cutoff_label": c["cutoff_label"],
+                            "positions": positions, "spans": spans,
+                            "control": arms["control"],
+                            "treatment": arms["treatment"]})
+        mc = paired_mc_bootstrap(payload, n_boot=mc_boot, seed=mc_seed)
+    for c in per_cell:
+        c["mc_se_paired"] = mc["mc_se_per_cell"].get(c["key"])
 
     by_label: list[dict[str, Any]] = []
     for label in sorted({c["cutoff_label"] for c in per_cell}):
         idx = [i for i, c in enumerate(per_cell) if c["cutoff_label"] == label]
-        by_label.append({"cutoff_label": label, "n": len(idx),
-                         "mean_delta_trps": float(deltas[idx].mean()),
-                         "mean_delta_wtrps": float(wdeltas[idx].mean())})
+        treated_idx = [i for i in idx if per_cell[i]["treated_clubs"]]
+        by_label.append({
+            "cutoff_label": label, "n": len(idx), "n_treated": len(treated_idx),
+            "mean_delta_trps_treated": (float(deltas[treated_idx].mean())
+                                        if treated_idx else 0.0),
+            "mean_delta_wtrps_treated": (float(wdeltas[treated_idx].mean())
+                                         if treated_idx else 0.0),
+            "decides": ("gate (iv-a)" if label == MW6_LABEL else
+                        "gate (iv-b)" if label in POINT_GATE_LABELS
+                        else "nothing")})
 
     analogue = [c for c in per_cell if c["season"] == HULL_ANALOGUE[0]
                 and HULL_ANALOGUE[1] in c["treated_clubs"]]
@@ -3665,7 +4509,20 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
         "schema": SCHEMA_ID, "n_cells": len(per_cell),
         "n_treated_cells": len(per_cell) - len(untouched),
         "n_untouched_cells": len(untouched),
-        "pooled_delta_trps": pooled, "pooled_delta_wtrps": pooled_w,
+        #: R-B2: the 35-cell pooled ΔTRPS and ΔwTRPS are WITHDRAWN from the
+        #: published outputs entirely, not demoted. Protected code freezes
+        #: "Never averaged across cutoffs", and publishing an aggregate that
+        #: protected code forbids as a verdict invites it to be quoted as one.
+        "withdrawn": {
+            "pooled_delta_trps_35_cells":
+                "withdrawn by R-B2 — epl/simretro.py:41 and "
+                "epl/simmetrics.py:44 both freeze 'Never averaged across "
+                "cutoffs'; 19 of 35 cells are structural zeros and all seven "
+                "MW19 cells are among them, so the average diluted harm at the "
+                "horizons where the treatment fires",
+            "pooled_delta_wtrps_35_cells": "withdrawn by R-B2, same reason"},
+        "mw6": mw6, "per_label": label_means, "mw19": structural,
+        "mc": mc,
         "per_cutoff_label": by_label, "per_cell": per_cell,
         "hull_analogue": {
             "label": "the one Hull-analogue — illustrative, no decision weight",
@@ -3687,35 +4544,143 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
 
 
 def table_gate(scored: dict[str, Any]) -> dict[str, Any]:
-    """§4.1 (iv), the do-no-harm gate the queue binds.
+    """§4.1 (iv) as R-B2 repairs it — per horizon, and nothing on an average.
 
-    > the pooled mean paired ΔTRPS (treatment − control, equal weights over the
-    > 35 cells) is ≤ +0.0002, AND it is not the case that the pooled ΔTRPS is
-    > > 0 with its 95% season-block CI (7 blocks) excluding zero.
+    > **(iv-a) The named-horizon gate — MW6.** The equal-weight mean over the
+    > seven MW6 cells of ΔTRPS must be ≤ +0.0002.
+    >
+    > **(iv-b) The per-horizon point gates.** At each of MW0, MW3 and MW10, the
+    > equal-weight mean over THAT LABEL'S TREATED CELLS ONLY must be ≤ +0.0002.
+    > No interval is computed at these labels and none is required; two cells do
+    > not carry one. MW19 holds zero treated cells, is a structural zero by
+    > construction, is reported as such, and decides nothing.
+    >
+    > **(iv-c) The significance-and-precision clause, at MW6 only.** The gate
+    > FAILS if the MW6 mean is > 0 **and** the lower bound of R-B3's frozen
+    > season-block interval is > 0.
 
-    §4.3 discloses that both numbers are INVENTED — R1 has no pass rule
-    (`reports/epl_sim_retro_v1_1.md` §10: *"Nothing, by itself"*) — invented from
-    R1's own recorded scale before any widened table existed, and that a 7-block
-    percentile bootstrap has poor coverage and is not claimed to have good
-    coverage. Its job is the narrow one both predecessors gave season blocks: to
-    refuse a verdict carried by one season.
+    THE PRECISION RULE OF R2-B3, at EVERY deciding boundary. Gate (iv) is
+    UNRESOLVED — and ADOPT is refused — if any of (P1)–(P5) holds. Every one is
+    one-directional: UNRESOLVED blocks adoption and can never grant one, so
+    simulation noise is only ever able to REFUSE, which is the direction that
+    cannot be gamed.
+
+    (P4) and (P5) exist because (iv-c) is a FAILURE clause: noise that pushes
+    the MW6 mean or its lower bound below zero converts a failure into a
+    passage, and that is the one direction this document may not leave open.
+    (P5) is deliberately a conservative proxy and is labelled one — the interval
+    is a season-block resample of the seven cells' POINT deltas and the MC SE is
+    the scale on which each of those points is itself uncertain, so the
+    comparison bounds rather than propagates.
+
+    §4.3, reissued by R-B2: R1 has no pass rule (`reports/epl_sim_retro_v1_1.md`
+    §10: *"Nothing, by itself"*), so both the tolerance and the significance
+    construction are INVENTED, invented blind, in a place where the house had
+    none. What is new is that they are invented for a SINGLE NAMED HORIZON
+    rather than for an average protected code forbids, and that the simulation
+    error of that horizon is a published, deciding-capable quantity.
     """
-    pooled = scored["pooled_delta_trps"]
-    mean = float(pooled["mean"])
-    lo, hi = (float(v) for v in pooled["ci95"])
-    within = mean <= TABLE_TOLERANCE
-    resolvable_harm = bool(mean > 0.0 and lo > 0.0)
+    mw6 = scored["mw6"]
+    mc_se = dict(scored.get("mc", {}).get("mc_se_label") or {})
+    mean_mw6 = float(mw6["mean"])
+    lo_mw6, hi_mw6 = (float(v) for v in mw6["ci95"])
+    se_mw6 = mc_se.get(MW6_LABEL)
+
+    iv_a = {"cutoff_label": MW6_LABEL, "n": int(mw6["n"]), "mean": mean_mw6,
+            "bar": TABLE_TOLERANCE, "PASS": bool(mean_mw6 <= TABLE_TOLERANCE)}
+    iv_b = {}
+    for label in POINT_GATE_LABELS:
+        leg = scored["per_label"][label]
+        iv_b[label] = {"n_treated": int(leg["n_treated"]),
+                       "mean": float(leg["mean"]), "bar": TABLE_TOLERANCE,
+                       "PASS": bool(float(leg["mean"]) <= TABLE_TOLERANCE)}
+    resolvable_harm = bool(mean_mw6 > 0.0 and lo_mw6 > 0.0)
+    iv_c = {"cutoff_label": MW6_LABEL, "mean": mean_mw6,
+            "ci95_season": [lo_mw6, hi_mw6], "n_blocks": int(mw6["n_blocks"]),
+            "significant_worsening": resolvable_harm,
+            "PASS": bool(not resolvable_harm)}
+
+    conditions: list[dict[str, Any]] = []
+
+    def _cond(name: str, fired: bool | None, value: Any, rule: str) -> None:
+        conditions.append({"condition": name, "value": value, "rule": rule,
+                           "fired": fired})
+
+    deciding_se = {MW6_LABEL: se_mw6,
+                   **{lab: mc_se.get(lab) for lab in POINT_GATE_LABELS}}
+    missing = [lab for lab, v in deciding_se.items() if v is None]
+    worst_se = max((float(v) for v in deciding_se.values() if v is not None),
+                   default=None)
+    _cond("P1", (True if missing else bool(worst_se > MC_PRECISION_LIMIT)),
+          {"mc_se_label": deciding_se, "limit": MC_PRECISION_LIMIT,
+           "missing": missing},
+          "any deciding MC SE > 0.25 x 0.0002 = 5e-5 (a missing one is treated "
+          "as unresolved, never as small)")
+    _cond("P2", (None if se_mw6 is None else
+                 bool(abs(mean_mw6 - TABLE_TOLERANCE)
+                      < MC_BOUNDARY_SIGMAS * float(se_mw6))),
+          {"mean_MW6": mean_mw6, "mc_se_mw6": se_mw6},
+          "|mean_MW6 - 0.0002| < 2 x mc_se_mw6")
+    for label in POINT_GATE_LABELS:
+        se = mc_se.get(label)
+        _cond(f"P3.{label}",
+              (None if se is None else
+               bool(abs(float(iv_b[label]["mean"]) - TABLE_TOLERANCE)
+                    < MC_BOUNDARY_SIGMAS * float(se))),
+              {"mean": iv_b[label]["mean"], "mc_se": se},
+              f"|mean_{label} - 0.0002| < 2 x mc_se_{label.lower()}")
+    _cond("P4", (None if se_mw6 is None else
+                 bool(abs(mean_mw6) < MC_BOUNDARY_SIGMAS * float(se_mw6))),
+          {"mean_MW6": mean_mw6, "mc_se_mw6": se_mw6},
+          "|mean_MW6 - 0| < 2 x mc_se_mw6 — iv-c's zero boundary on the mean")
+    _cond("P5", (None if se_mw6 is None else
+                 bool(abs(lo_mw6) < MC_BOUNDARY_SIGMAS * float(se_mw6))),
+          {"ci_lo_MW6": lo_mw6, "mc_se_mw6": se_mw6},
+          "|ci_lo_MW6 - 0| < 2 x mc_se_mw6 — iv-c's zero boundary on the "
+          "interval; a CONSERVATIVE PROXY, and labelled one")
+
+    fired = [c["condition"] for c in conditions if c["fired"]]
+    resolved = not fired
+    gates_pass = bool(iv_a["PASS"] and all(v["PASS"] for v in iv_b.values())
+                      and iv_c["PASS"])
+    verdict = ("PASS" if resolved and gates_pass else
+               "UNRESOLVED" if not resolved else "FAIL")
     return {
-        "PASS": bool(within and not resolvable_harm),
-        "pooled_delta_trps": mean, "tolerance": TABLE_TOLERANCE,
-        "within_tolerance": bool(within),
-        "ci95_season": [lo, hi], "n_blocks": int(pooled["n_blocks"]),
-        "significant_worsening": resolvable_harm,
+        # An UNRESOLVED gate blocks adoption and can never grant one, so it
+        # reaches `adoption` as a False that names itself.
+        "PASS": bool(verdict == "PASS"),
+        "verdict": verdict, "resolved": bool(resolved),
+        "iv_a": iv_a, "iv_b": iv_b, "iv_c": iv_c,
+        "mw19": scored["mw19"],
+        "tolerance": TABLE_TOLERANCE,
         "n_cells": int(scored["n_cells"]),
-        "disclosure": ("§4.3: both numbers are invented — R1 has no pass rule — "
-                       "from R1's own recorded scale, before any widened table "
-                       "existed. A 7-block percentile bootstrap has poor "
-                       "coverage and is not claimed to have good coverage."),
+        "n_treated_cells": int(scored["n_treated_cells"]),
+        "precision": {
+            "mc_boot": int(scored.get("mc", {}).get("mc_boot", MC_BOOT)),
+            "mc_seed": int(scored.get("mc", {}).get("mc_seed", MC_SEED)),
+            "n_particles": scored.get("mc", {}).get("n_particles"),
+            "sims_per_particle": scored.get("mc", {}).get("sims_per_particle"),
+            "mc_se_mw6": se_mw6,
+            "mc_se_mw0": mc_se.get("MW0"), "mc_se_mw3": mc_se.get("MW3"),
+            "mc_se_mw10": mc_se.get("MW10"),
+            "mc_se_per_cell": dict(
+                scored.get("mc", {}).get("mc_se_per_cell") or {}),
+            "conditions": conditions, "fired": fired, "resolved": bool(resolved),
+            "rule": "R2-B3 (P1)-(P5); (P6)'s structural conditions raise "
+                    "TableMCImprecise and stop the leg rather than publishing "
+                    "an UNRESOLVED verdict",
+        },
+        "withdrawn": "the 35-cell pooled ΔTRPS decides nothing and is not "
+                     "published at all (R-B2)",
+        "disclosure": ("§4.3 as R-B2 reissues it: both the tolerance and the "
+                       "significance construction are invented — R1 has no pass "
+                       "rule — from R1's own recorded per-cell scale, blind, in "
+                       "a place where the house had none. They are now invented "
+                       "for a single named horizon rather than for an average "
+                       "protected code forbids, and the simulation error of "
+                       "that horizon is published and deciding-capable. A "
+                       "seven-block percentile bootstrap has poor coverage and "
+                       "is not claimed to have good coverage."),
     }
 
 
@@ -4271,13 +5236,23 @@ def _plan(corpus: pd.DataFrame, played: pd.DataFrame,
         "preconditions": {"canary": (directory / CANARY_NAME).exists()},
         "harness_freeze": harness_freeze_status(),
         "blas_threads": blas_threads(),
-        "budget": {"fits": len(points),
-                   "table_fits": EXPECTED_TABLE_CELLS,
-                   "table_runs": 2 * EXPECTED_TABLE_CELLS,
+        # R2-B4(c) supersedes §2.4's table-leg budget: `ArchiveRunner` owns its
+        # own fit and exposes no posterior or ParticleBook for reuse, so the
+        # parity oracle cannot ride the new runner's fits and needs its own 35.
+        "budget": {"match_fits": len(points),
+                   "table_fits": 2 * EXPECTED_TABLE_CELLS,
+                   "table_parity_fits": EXPECTED_TABLE_CELLS,
+                   "table_runner_fits": EXPECTED_TABLE_CELLS,
+                   "table_simulations": 3 * EXPECTED_TABLE_CELLS,
+                   "total_fits": len(points) + 2 * EXPECTED_TABLE_CELLS,
+                   "bound": "the table leg is bounded by ~4 hours, not ~2 "
+                            "(R2-B4(c))",
+                   "shards": SHARDS,
                    "note": "§2.4: shards run SEQUENTIALLY and the run may not "
                            "be thinned — dropping cutoffs, fixtures, cells or "
                            "grid points to fit a clock is an amendment, not an "
-                           "optimisation."},
+                           "optimisation, and R2-B4(c) folds sampling the "
+                           "parity oracle into that refusal."},
     }
 
 
@@ -4487,6 +5462,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 cells = table_cells(baseline.load_matches())
                 rows = load_table_ledger(table_ledger, expected=cells)
                 scored = score_table(rows, n_boot=args.n_boot,
+                                     ledger_path=table_ledger,
                                      expected_cells=EXPECTED_TABLE_CELLS)
                 table_out = {"scored": scored, "gate": table_gate(scored),
                              "rows": rows}
