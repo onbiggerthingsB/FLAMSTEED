@@ -918,7 +918,7 @@ def _step_avail(*, directory, results_file, ledger, season_root,
     an abstention is a row it files rather than a step this cycle skips.
     """
     del verbose
-    before = _count_lines(ledger)
+    before = len(availarm.read_shadow(ledger))
     argv = ["score", "--directory", str(directory), "--results",
             str(results_file), "--ledger", str(ledger)]
     if season_root is not None:
@@ -929,8 +929,19 @@ def _step_avail(*, directory, results_file, ledger, season_root,
             f"`python -m epl.availarm score` refused (exit {code}) for "
             f"{directory}. Its own STOP line is printed above this one; "
             "nothing further in the cycle ran.")
-    appended = _count_lines(ledger) - before
-    return {"appended": appended, "repeated": 0, "ledger": str(ledger)}
+    # A12 (d): abstentions are COUNTED and never scored, and "any aggregate
+    # over this ledger is an aggregate over scored rows and must print the
+    # abstention count beside itself". A tally of `appended` alone cannot tell
+    # an all-scored week from a week the arm sat out entirely — which is
+    # exactly the denominator that rule exists to stop anyone hiding. The rows
+    # this call added are read back from the arm's own ledger, and `repeated`
+    # is the offered count minus them rather than a hardcoded zero.
+    fresh = availarm.read_shadow(ledger)[before:]
+    offered = _count_lines(results_file)
+    abstained = sum(1 for row in fresh if availarm.is_abstention(row))
+    return {"appended": len(fresh), "repeated": max(offered - len(fresh), 0),
+            "scored": len(fresh) - abstained, "abstained": abstained,
+            "ledger": str(ledger)}
 
 
 DEFAULT_STEPS: dict[str, Callable[..., Any]] = {
@@ -1687,8 +1698,15 @@ def render_summary(entry: Mapping[str, Any]) -> str:
         if cell is None:
             lines.append(f"{label:<11} nothing to score")
         else:
+            # A12 (d)'s language rule on the one screen a human reads: where a
+            # step reports them, the scored count and the abstention count are
+            # printed TOGETHER. An aggregate that hides its denominator is the
+            # oldest trick in forecasting.
+            split = ("" if "abstained" not in cell else
+                     f" ({cell['scored']} scored, "
+                     f"{cell['abstained']} abstention(s))")
             lines.append(
-                f"{label:<11} {cell['appended']} row(s) appended"
+                f"{label:<11} {cell['appended']} row(s) appended" + split
                 + (f", {cell['repeated']} already filed" if cell["repeated"] else "")
                 + f"  from {', '.join(Path(b).name for b in cell['bundles'])}")
 

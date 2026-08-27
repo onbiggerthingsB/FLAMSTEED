@@ -1472,3 +1472,71 @@ def test_the_as_of_read_refuses_a_payload_outside_the_sources_domain(tmp_path):
     with pytest.raises(av.AvailabilitySchemaDrift, match="minutes"):
         availarm.snapshot_for("2026-08-27T09:00:00Z", raw_dir=raw,
                               manifest_path=manifest)
+
+
+# ==========================================================================
+# 14. the flight log can tell a scored week from a sat-out one (r7 I5)
+# ==========================================================================
+
+def _fake_main(rows):
+    """A stand-in for `availarm.main` that files `rows` and exits 0."""
+    def main(argv):
+        ledger = argv[argv.index("--ledger") + 1]
+        availarm.append_shadow(Path(ledger), rows)
+        return 0
+    return main
+
+
+def test_step_nine_records_scored_and_abstained_and_a_real_repeated_count(
+        tmp_path, monkeypatch):
+    """A12 (e) puts step 9's tally in the journal and A12 (d) rules that "any
+    aggregate over this ledger is an aggregate over scored rows and must print
+    the abstention count beside itself". The r6 step returned `appended` and a
+    hardcoded `repeated: 0`, so an all-abstention batch and an all-scored batch
+    of the same size wrote the same journal line — which is the denominator
+    A12 (d) exists to stop anyone hiding."""
+    from epl import livecycle
+
+    ledger = tmp_path / "avail.jsonl"
+    results = tmp_path / "results.jsonl"
+    results.write_text("".join(
+        json.dumps(_result(fid, hg=2, ag=0)) + "\n"
+        for fid in ("2627:alpha:bravo", "2627:charlie:delta")), encoding="utf-8")
+
+    scored = _rows(_even_view())
+    sat_out = availarm.score(
+        _board_for("2627:charlie:delta"),
+        [_result("2627:charlie:delta", hg=0, ag=1)], snapshot=None,
+        ledger=_ledger(_played("2627:charlie:delta", 0, 1)))
+    monkeypatch.setattr(availarm, "main", _fake_main([*scored, *sat_out]))
+
+    got = livecycle._step_avail(directory=tmp_path, results_file=results,
+                                ledger=ledger, season_root=None, verbose=False)
+    assert got["appended"] == 2
+    assert got["scored"] == 1 and got["abstained"] == 1
+    assert got["repeated"] == 0
+
+    # the same batch again: nothing new lands, and the count says so
+    again = livecycle._step_avail(directory=tmp_path, results_file=results,
+                                  ledger=ledger, season_root=None,
+                                  verbose=False)
+    assert again == {**got, "appended": 0, "scored": 0, "abstained": 0,
+                     "repeated": 2}
+
+
+def test_the_one_screen_prints_the_abstention_count_beside_the_denominator():
+    """A12 (d)'s language rule, on the surface a human actually reads."""
+    from epl import livecycle
+
+    entry = {"outcome": "ran", "at": "2026-08-28T09:00:00Z",
+             "season": "2026/27", "cutoff": "2026-08-28",
+             "dry_run": False, "sources": {}, "ingested": {"fixtures": []},
+             "issuance": None, "already_resolved": None, "check": None,
+             "scorecard": {"appended": 2, "repeated": 0, "bundles": ["b"]},
+             "shadow": {"appended": 2, "repeated": 0, "bundles": ["b"]},
+             "avail": {"appended": 2, "repeated": 0, "bundles": ["b"],
+                       "scored": 0, "abstained": 2},
+             "digests": {}}
+    screen = livecycle.render_summary(entry)
+    assert "2 abstention(s)" in screen
+    assert "0 scored" in screen
