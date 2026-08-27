@@ -1643,15 +1643,24 @@ def test_the_movement_diagnostic_prints_beside_the_reseed_scale(tmp_path):
     assert movement["reseed_scale"]["source"] == "reports/epl_walkforward.md"
 
 
-def test_power_is_reported_and_decides_nothing(tmp_path):
-    """§2.3: "No power claim is made in advance… no threshold in §4 moves in
-    response"."""
+def test_the_realised_power_is_reported_beside_the_frozen_scenarios(tmp_path):
+    """R-I2 supersedes §2.3's "No power claim is made in advance": the analysis
+    was done, blind, and is committed code. What the estimand carries is the
+    other half R-I2 requires — "after the run, the REALISED paired SD of the
+    treated deltas and the MDE recomputed at it" — which decides nothing and
+    moves no threshold, beside the three frozen scenarios and R-I2's warning."""
     rows = _merged(tmp_path)
     result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
     power = result["power"]
-    assert power["mde_80pct_two_sided_5pct"] == pytest.approx(
-        power["multiplier"] * power["se_iid"])
-    assert "no power claim" in power["note"]
+    realised = power["realised"]
+    assert realised["mde_80pct_two_sided_5pct"] == pytest.approx(
+        realised["multiplier"] * realised["se_iid"])
+    assert realised["sd_paired_treated"] is not None
+    assert "NOT gate" in realised["note"]
+    assert [s["scenario"] for s in power["frozen_scenarios"]] == [
+        "A freshness-scale", "B anchoring-scale", "C mechanism-scale"]
+    assert "SUBSTANTIALLY UNINFORMATIVE" in power["warning"]
+    assert power["decides"].startswith("nothing")
     assert result["decides"].startswith("nothing")
     assert result["secondaries_decide"] == "nothing"
 

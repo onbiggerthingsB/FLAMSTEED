@@ -2,12 +2,18 @@
 keyed on the wrong quantity?
 
 This module executes the design preregistered in
-``reports/epl_widening_prereg.md`` (f26b760) and computes the estimand fixed in
-its §2.3. It chooses nothing. The corpus, the archive, the walk-forward ledger
-and the configuration are pinned by digest; the rule, its one constant
-(``e* = 10.0``), the grid, the two-gate adoption rule, the refusal semantics and
-the scope were written down before this file existed; and §4.5 makes adoption an
-owner ruling that no script may take.
+``reports/epl_widening_prereg.md`` — the original at f26b760, its first repair
+section at 1b79cc5 and its round-two repairs at 3d3ec4a — and computes the
+estimand fixed in its §2.3 as R-B1 repairs it. It chooses nothing. The corpus,
+the archive, the walk-forward ledger and the configuration are pinned by digest;
+the rule, its one constant (``e* = 10.0``), the grid, the four-gate adoption
+rule, the refusal semantics and the scope were written down before this file
+existed; and §4.5 makes adoption an owner ruling that no script may take.
+
+**WHERE A REPAIR AND THE ORIGINAL CONFLICT, THE REPAIR GOVERNS, AND ROUND TWO
+GOVERNS ROUND ONE.** Every superseded clause this module used to implement is
+named at the code that replaced it, so a reader who greps for the original's
+words finds the ruling that retired them rather than silence.
 
 THE RULE, ONCE (§2.1)::
 
@@ -74,29 +80,25 @@ commit of §6 exists: :func:`harness_freeze_status` reads that commit's own
 record and :func:`merge` refuses without it, because a run that precedes the
 freeze is, by §7, not the run this document preregisters.
 
-PRE-FREEZE CONTACT WITH THE REAL ARTIFACTS, DISCLOSED. §5.3 rules that before
-§6's freeze commit "no harness code touches the real archive, the real corpus,
-or the real ledger except to hash them". That clause is about FITS — its own
-sentence ends "and the merge would refuse their rows anyway", and §6 step 2
-requires the frozen membership digests to be "recomputed by the harness's own
-code from the pinned artifacts", which cannot be done without reading them. What
-is therefore permitted pre-freeze, and what this harness did:
+PRE-FREEZE CONTACT WITH THE REAL ARTIFACTS, DISCLOSED. R2-B5 supersedes both
+§5.3's "except to hash them" sentence and the introduction's synthetic-only
+clause with one rule: **pre-freeze, no harness code fits and no harness code
+simulates; reading the pinned artifacts is permitted, is read-only, and is
+enumerated by name and date in the freeze commit.** :data:`PRE_FREEZE_RUNS`
+carries all six authorised passes and :func:`freeze_block` prints them.
 
-* ``--membership`` and ``--plan``, which read the pinned corpus, archive and
-  ledger and compute §2.2's cells, §2.3's population and §3.3's table cells.
-  Read-only, no fit, no simulation, and the output is exactly what the freeze
-  commit records.
-* ``--canary --no-results-canary``, which runs §5.3's evidence canary on the
-  real archive. It builds a point-in-time store — in a TEMPORARY root, never the
-  shared one — and runs ``count_volatility_arm``. No fit, no simulation.
-* The ``@pinned`` tests in ``epl/tests/test_evwiden.py``, which check the four
-  digests and re-derive the document's census, grid table, membership and table
-  cells. Read-only, no fit.
-
-NOT ONE FIT ON THE REAL ARCHIVE PRECEDED THE FREEZE. Every fitting path is
-gated: :func:`_guard_ledger_location` closes the preregistered run directory
-until §6's commit lands, and every row an audit writes elsewhere is stamped
-``harness_frozen: false`` and refused by the merge.
+NOT ONE FIT ON THE REAL ARCHIVE PRECEDES THE FREEZE, AND THE GUARD IS NOT THE
+DIRECTORY. Round one's preamble claimed the harness's guards made a pre-freeze
+delta impossible; round two withdrew that sentence as FALSE, because
+:func:`_guard_ledger_location` is keyed to the run directory and a ``--dir``
+outside the defaults escaped it. :func:`assert_may_fit` is keyed to the freeze
+state and to the ARTIFACT IDENTITY being read — the pinned archive's own
+module-level digest and the pinned corpus's frozen shape — and it gates
+:class:`Engine`, :class:`TableRunner`, :class:`ParityRunner` and the results
+canary. A synthetic world fits freely; the pinned one does not, and no ``--dir``
+moves that. The directory guard is kept beside it, because a pre-freeze
+``canary.json`` in the run directory is still what a later ``--run`` reads as
+"the canary passed".
 
 NO MARKET DATA. The corpus's price columns are not read by this module at all.
 """
@@ -255,9 +257,22 @@ WIDENING_ALPHA = 0.5
 ARM_NAME = "dc_evwiden"
 BASELINE_ARM = "dc_native"
 
-#: §4.1 (i) — the HOUSE model-change bar, argued in §4.2 and not lowered to
-#: freshness's operational -0.00030, because this changes the published
-#: probabilities themselves.
+#: §4.1 (i). R-I3 renames it and R2-I3 rebuilds its justification: this is an
+#: **invented thin-population threshold**, not the house bar applied. It takes
+#: its numeral from `reports/epl_improved.md` §5.2's model-change bar, which was
+#: set over a full evaluation window; this one is set over 85 fixtures chosen to
+#: be where the effect is largest, a difference in system-level materiality of
+#: about 26.8x. **The numeral is borrowed, the authority is not.**
+#:
+#: R2-I3 withdraws round one's ground 1 as a unit error — `-0.0016` is a mean
+#: RPS demand and `0.0032 / 0.0139 / 0.0229` are absolute probability shifts —
+#: and rebuilds it in RPS against RPS: the bar sits at about 2.2 standard errors
+#: of its own estimator under the optimistic scenario and INSIDE one standard
+#: error under both pessimistic ones. Ground 3 is "Law, not cadence" and claims
+#: nothing more: the product value of this rule is not quantified anywhere in
+#: this repository and this experiment does not quantify it. Ground 4 is the
+#: concession — a passing result is -0.000037 pooled over the corpus, smaller in
+#: magnitude than the +0.000075 re-seed shift.
 ADOPT_DELTA = -0.0010
 
 #: §4.1 (iv) as R-B2 repairs it — the per-horizon tolerance, invented from R1's
@@ -3053,15 +3068,32 @@ def estimand(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
         movement = {"n_treated": 0, "mean_abs_prob_shift": 0.0,
                     "max_abs_prob_shift": 0.0, "reseed_scale": dict(RESEED_SCALE)}
 
+    treated_sd = (float(treated_deltas.std(ddof=1))
+                  if treated_deltas.size > 1 else None)
     se = head.get("se_iid")
     power = {
-        "sd_paired": head.get("sd"), "se_iid": se,
-        "mde_80pct_two_sided_5pct": (float(_MDE_Z * se) if se else None),
-        "multiplier": _MDE_Z,
-        "note": "§2.3: no power claim was made in advance and no threshold in "
-                "§4 moves in response to these numbers. The iid SE understates "
-                "the block-correlated case; the bootstrap intervals are the "
-                "reported uncertainty.",
+        # R-I2 supersedes §2.3's "No power claim is made in advance": the
+        # analysis was done, blind, before any delta existed, and it is committed
+        # code at `epl.evwiden.power_simulation`. What lives HERE is the other
+        # half R-I2 requires — "after the run, the REALISED paired SD of the
+        # treated deltas and the MDE recomputed at it" — which decides nothing
+        # and moves no threshold.
+        "realised": {
+            "sd_paired_thin": head.get("sd"),
+            "sd_paired_treated": treated_sd,
+            "se_iid": se,
+            "mde_80pct_two_sided_5pct": (float(_MDE_Z * se) if se else None),
+            "multiplier": _MDE_Z,
+            "note": "the two-sided-test-against-zero MDE, which is NOT gate "
+                    "(i)'s: gate (i) is a threshold AT the bar, so an "
+                    "80%-power MDE equal to the bar is unattainable by "
+                    "construction at any SD. The joint MDE is "
+                    "power_simulation()'s.",
+        },
+        "frozen_scenarios": [{"scenario": n, "paired_sd": s, "source": src}
+                             for n, s, src in POWER_SCENARIOS],
+        "warning": POWER_WARNING,
+        "decides": "nothing — no threshold in §4 moves in response",
     }
 
     return {
@@ -3529,14 +3561,19 @@ def adoption(delta: float, ci95_block: Sequence[float],
     > FOUR: (i) the point estimate is ``Δ ≤ −0.0010`` over the 85 thin fixtures;
     > (ii) the 95% (season, ISO week) block bootstrap CI excludes zero — upper
     > bound strictly < 0; (iii) the 95% season block bootstrap CI also excludes
-    > zero; (iv) the table gate holds.
+    > zero; (iv) the table gate holds — **per horizon**, as R-B2 repairs it:
+    > (iv-a) MW6's seven-cell mean ≤ +0.0002, (iv-b) the treated-cell means at
+    > MW0, MW3 and MW10 each ≤ +0.0002, and (iv-c) the MW6 mean is not
+    > resolvably positive.
     >
     > Otherwise ``dc_native`` stands unchanged, Hull's forecast included.
 
     ``table`` is :func:`table_gate`'s verdict. It is REQUIRED for an ADOPT:
     §4.1 makes all four necessary, so a match-level result with no table leg
     behind it cannot adopt, and this function says MISSING rather than
-    quietly treating an absent gate as a passed one.
+    quietly treating an absent gate as a passed one. An UNRESOLVED gate (iv) is
+    a published VERDICT rather than a refusal (R2-X): it blocks adoption and can
+    never grant one.
     """
     i = float(delta) <= ADOPT_DELTA
     ii = float(ci95_block[1]) < 0.0
@@ -6611,8 +6648,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                          "directory and print the nohup line")
     ap.add_argument("--shard", default="0/1",
                     help="i/N — this worker's slice of the fit points")
-    ap.add_argument("--shards", type=int, default=1,
-                    help="how many shards the merge must find")
+    ap.add_argument("--shards", type=int, default=SHARDS,
+                    help="how many shards the merge must find. R2-I6 freezes "
+                         f"this at {SHARDS}: a run at any other shard count is "
+                         "not the run this document preregisters")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--dir", dest="directory", default=None,
                     help="the run directory: the canary record and the shard "
