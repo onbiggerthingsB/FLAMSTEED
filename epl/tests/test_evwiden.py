@@ -689,7 +689,7 @@ def _stub_fitter(corpus, played, ledger, *, defect: str | None = None):
             "n_training_matches": 100, "n_teams": len(ew_clubs(corpus, point)),
             "anchor_spec": "stub", "latest_training_date": "1999-01-01",
             "warnings": [], "unpriceable": [], "health": health,
-            "control_max_abs_diff": 0.0,
+            "control_max_abs_diff": 0.0, "control_mean_abs_diff": 0.0,
             "identity_canary": None if enlarged != incumbent else True,
             "direction_canary": {"PASS": True, "n_fixtures": 1},
             "wall_seconds": 0.01, "fit_seconds": 0.01,
@@ -761,7 +761,11 @@ def test_every_row_carries_the_two_level_provenance_contract(tmp_path):
         assert field in rows[0]["fit"], field
     assert rows[0]["arm_a"]["arm"] == ew.ARM_NAME
     assert rows[0]["arm_b"]["arm"] == ew.BASELINE_ARM
-    assert rows[0]["arm_b"]["recomputed"] is False
+    # R-B1: Arm B IS recomputed now — from the same posterior — and the corpus
+    # is a separate block whose role says what it is.
+    assert rows[0]["arm_b"]["recomputed"] is True
+    assert "predict pass 1" in rows[0]["arm_b"]["source"]
+    assert "control" in rows[0]["corpus_control"]["role"]
     assert rows[0]["arm_a"]["alpha"] == ew.WIDENING_ALPHA
 
 
@@ -1222,16 +1226,92 @@ def _merged(tmp_path):
 
 
 def _hand_deltas(rows, e_star=ew.E_STAR):
-    """The paired deltas, recomputed from the ROWS' own probabilities."""
+    """The paired deltas, recomputed from the ROWS' own probabilities.
+
+    R-B1: Arm B is `probs_incumbent` — the SAME posterior under the fit's own
+    recomputed incumbent set — and not the corpus's stored row.
+    """
     out = {}
     for r in rows:
         if float(r["e_min"]) >= e_star:
             continue
         y = int(r["y"])
         a = float(score_mod.rps(np.array([r["probs_arm"]]), np.array([y]))[0])
-        b = float(score_mod.rps(np.array([r["probs_native"]]), np.array([y]))[0])
+        b = float(score_mod.rps(np.array([r["probs_incumbent"]]),
+                                np.array([y]))[0])
         out[r["match_id"]] = a - b
     return out
+
+
+def test_arm_b_is_the_same_posteriors_incumbent_pass_and_never_the_corpus():
+    """R-B1, the repair that makes the pairing real.
+
+    The superseded design took Arm B out of the corpus — an old ROUNDED 1X2
+    projection — while Arm A came from a new fit, and mechanism (c) acts on the
+    full scoreline grid BEFORE that projection. Two grids can agree at eight
+    decimals after projection and respond differently to `inflate_predictive`.
+
+    Both arms now come from one posterior and one base grid. This test proves it
+    where the identity control cannot mask it: `_fixture_row` is handed a fit
+    whose incumbent pass DIFFERS from the stored corpus row, and the delta must
+    follow the incumbent pass.
+    """
+    corpus = _corpus()
+    point = ew.FitPoint(season="2019/20", block="2019/20|2020W02", cutoff=CUT_A,
+                        match_ids=("m001",))
+    row = corpus.set_index(corpus["match_id"].astype(str)).loc["m001"]
+    native = [float(row[c]) for c in ew._PROB_COLUMNS]
+    incumbent = [round(native[0] - 0.01, 8), round(native[1] + 0.01, 8),
+                 round(native[2], 8)]
+    arm = [round(incumbent[0] - 0.02, 8), round(incumbent[1] + 0.02, 8),
+           round(incumbent[2], 8)]
+    out = {
+        "pairs": [("rich", "mid")], "evidence": {"rich": 50.0, "mid": 5.0},
+        "probs_incumbent": np.array([incumbent]), "probs_arm": np.array([arm]),
+        "probs_widened": {}, "provisional_incumbent": [], "treated": ["m001"],
+    }
+    made = ew._fixture_row(point, 0, out, row, {"realised_config_sha256": "r",
+                                                "harness_sha256": "h",
+                                                "archive_rows": 1,
+                                                "archive_sha256": "a",
+                                                "ledger_sha256": "l",
+                                                "wall_seconds": 0.0},
+                           key="k", config_sha="c", shard_id="0/1",
+                           harness_frozen=False, e_star=ew.E_STAR,
+                           grid=ew.E_GRID)
+    y = int(row["y"])
+    rps = lambda p: float(score_mod.rps(np.array([p]), np.array([y]))[0])  # noqa: E731
+
+    assert made["probs_incumbent"] == incumbent
+    assert made["rps_B"] == pytest.approx(rps(incumbent))
+    assert made["rps_arm"] == pytest.approx(rps(arm))
+    # the estimand's delta is Arm A minus the SAME posterior's incumbent pass
+    assert made["delta"] == pytest.approx(rps(arm) - rps(incumbent))
+    # ...and the corpus survives only as the control, side by side
+    assert made["rps_native"] == pytest.approx(rps(native))
+    assert made["delta_vs_corpus"] == pytest.approx(rps(arm) - rps(native))
+    assert made["delta"] != pytest.approx(made["delta_vs_corpus"])
+    assert made["max_abs_dp_vs_corpus"] == pytest.approx(
+        max(abs(a - b) for a, b in zip(incumbent, native)))
+    assert made["arm_b"]["recomputed"] is True
+    assert "corpus" in made["corpus_control"]["role"]
+
+
+def test_the_corpus_is_the_external_control_at_full_strength(tmp_path):
+    """R-B1: "The corpus is demoted to an external identity control." All 820
+    fixtures must still equal Arm B at their eight decimals, and each stored
+    `dc_rps` must still re-derive from its own stored probabilities.
+
+    The consequence R-B1 pre-states, so it cannot be discovered later: because
+    the control demands eight-decimal equality and stops the run otherwise, the
+    repaired delta can differ from the superseded one by at most the eighth
+    decimal, per fixture. Both are published."""
+    rows = _merged(tmp_path)
+    for r in rows:
+        assert r["probs_incumbent"] == r["probs_native"]
+        assert float(r["max_abs_dp_vs_corpus"]) == 0.0
+        assert float(r["delta"]) == pytest.approx(float(r["delta_vs_corpus"]),
+                                                  abs=1e-12)
 
 
 def test_the_estimand_is_the_mean_paired_delta_over_the_thin_population(tmp_path):
@@ -1594,9 +1674,9 @@ def test_seeded_defect_a_substituted_fixture_refuses(tmp_path):
     assert "substitution" in str(exc.value)
 
 
-def test_seeded_defect_a_recomputed_arm_b_refuses(tmp_path):
-    """§2.3: Arm B is NOT recomputed. A row carrying different numbers under its
-    name has recomputed it, which is a different experiment."""
+def test_seeded_defect_a_corpus_row_that_is_not_the_corpus_refuses(tmp_path):
+    """R-B1: the corpus is the EXTERNAL identity control. A row that copies
+    different numbers under that name has nothing left to control against."""
     _run(tmp_path)
     _freeze_rows(tmp_path)
     path = tmp_path / ew.shard_name(0, 1)
@@ -1605,7 +1685,23 @@ def test_seeded_defect_a_recomputed_arm_b_refuses(tmp_path):
     path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
     with pytest.raises(ew.MergeIncomplete) as exc:
         _merge(tmp_path)
-    assert "recomputed" in str(exc.value)
+    assert "identity control" in str(exc.value)
+
+
+def test_seeded_defect_an_arm_b_that_drifted_from_the_corpus_refuses(tmp_path):
+    """§3.2, as R-B1 restates it: all 820 fixtures of the 78 openings must equal
+    Arm B at their eight decimals, and the merge re-checks it rather than
+    trusting the run's own inline control."""
+    _run(tmp_path)
+    _freeze_rows(tmp_path)
+    path = tmp_path / ew.shard_name(0, 1)
+    rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+    rows[0]["probs_incumbent"] = [round(v + 1e-8, 8)
+                                  for v in rows[0]["probs_incumbent"]]
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    with pytest.raises(ew.ControlMismatch) as exc:
+        _merge(tmp_path)
+    assert "eight decimals" in str(exc.value)
 
 
 def test_seeded_defect_a_row_for_a_fixture_the_corpus_does_not_have_refuses(

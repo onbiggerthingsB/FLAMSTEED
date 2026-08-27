@@ -17,20 +17,33 @@ ADD, never REPLACE. Binary, never continuous. ``alpha`` stays 0.5 and the mix is
 the incumbent one, so a treated fixture is mechanically indistinguishable from a
 fixture the incumbent predicate already widens.
 
-WHAT THE TWO ARMS ARE (§2.3).
+WHAT THE TWO ARMS ARE (§2.3, AS R-B1 REPAIRS IT). Both arms are computed from
+the SAME newly fitted posterior and the SAME base grid, at every one of the 78
+block openings. The superseded design read Arm B out of the corpus — an old
+ROUNDED 1X2 projection — while Arm A came from a new fit; mechanism (c) acts on
+the full scoreline grid BEFORE that projection, so two grids could agree at
+eight decimals after projection and respond differently to
+``inflate_predictive``, and "same draws, only membership differs" was asserted
+about an object the control never bound.
 
-* **Arm B**, ``dc_native``, is **not recomputed**. It is the walk-forward's own
-  ``dc_home``/``dc_draw``/``dc_away``/``dc_rps``, read out of
-  ``data/epl/fit/walkforward_predictions.parquet`` at the eight decimals
-  ``epl/walkforward.py::_one_cutoff`` wrote them with. Its RPS is re-derived
-  from its own stored probabilities and a disagreement past 1e-12 is
-  :class:`ScoreMismatch`.
-* **Arm A**, ``dc_evwiden``, is the SAME FIT with a larger provisional set. §0.2
-  of the preregistration establishes the fact the whole design stands on: under
-  mechanism (c) the likelihood weight is untouched (``widening.py:48-62`` copies
-  ``d.weight`` and modifies it only for mechanism "a"), so **the fitted
-  posterior is identical for any provisional set** and the treatment is a pure
-  predict-time re-key.
+* **Arm B**, ``dc_native``, is the block's fixtures predicted from the fitted
+  posterior under **the fit's own recomputed incumbent provisional set** —
+  predict pass 1. Nothing about it is read from the corpus.
+* **Arm A**, ``dc_evwiden``, is the same block's fixtures predicted from **the
+  same posterior object** under the §2.1 union — predict pass 2. No refit, no
+  re-seed, no second sampler call: the two passes differ only in the set handed
+  to ``provisional_as``. §0.2 establishes the fact the whole design stands on:
+  under mechanism (c) the likelihood weight is untouched (``widening.py:48-62``
+  copies ``d.weight`` and modifies it only for mechanism "a"), so **the fitted
+  posterior is identical for any provisional set**.
+* **The delta** is ``rps(Arm A) − rps(Arm B)``, both arms from one posterior.
+
+THE CORPUS IS THE EXTERNAL IDENTITY CONTROL, at full strength and in no
+estimand. All 820 fixtures of the 78 openings must equal Arm B at their eight
+decimals (:class:`ControlMismatch`), and each stored ``dc_rps`` must equal the
+RPS of its own stored probabilities to 1e-12 (:class:`ScoreMismatch`). Every row
+publishes ``delta`` and ``delta_vs_corpus`` side by side, so a reader can
+confirm the equality rather than take it.
 
 THREE PREDICT PASSES PER FIT, AND WHY EACH ONE EXISTS. A fit is expensive and a
 prediction is not, so this module spends predictions on making the controls real
@@ -334,9 +347,10 @@ REQUIRED_ROW_FIELDS = (
     "home_key", "away_key", "y", "e_home", "e_away", "e_min", "e_star",
     "thin_at", "thin", "treated", "incumbent_widened",
     "probs_native", "probs_incumbent", "probs_arm", "probs_widened",
-    "rps_native", "rps_native_recomputed", "rps_arm", "delta",
-    "seed", "config_sha256", "arm_a", "arm_b", "fit", "harness_frozen",
-    "shard_id", "seconds",
+    "rps_native", "rps_native_recomputed", "rps_B", "rps_arm", "delta",
+    "delta_vs_corpus", "max_abs_dp_vs_corpus",
+    "seed", "config_sha256", "arm_a", "arm_b", "corpus_control", "fit",
+    "harness_frozen", "shard_id", "seconds",
 )
 REQUIRED_FIT_FIELDS = (
     "cutoff", "seed", "config_sha256", "realised_config_sha256",
@@ -345,8 +359,8 @@ REQUIRED_FIT_FIELDS = (
     "provisional_ledger", "evidence", "anchor_spec", "warnings",
     "unpriceable", "health", "harness_sha256", "archive_rows",
     "archive_sha256", "ledger_sha256", "blas_threads", "wall_seconds",
-    "latest_training_date", "control_max_abs_diff", "identity_canary",
-    "direction_canary",
+    "latest_training_date", "control_max_abs_diff", "control_mean_abs_diff",
+    "identity_canary", "direction_canary",
 )
 
 _PROB_COLUMNS = ("dc_home", "dc_draw", "dc_away")
@@ -1652,6 +1666,7 @@ class Engine:
                            for m in point.match_ids], dtype=float)
         diff = np.abs(probs_incumbent - stored)
         worst = float(diff.max()) if diff.size else 0.0
+        mean_diff = float(diff.mean()) if diff.size else 0.0
         if not np.array_equal(probs_incumbent, stored):
             offenders = [point.match_ids[i] for i in
                          sorted(set(np.flatnonzero(diff.max(axis=1) > 0)))]
@@ -1676,11 +1691,13 @@ class Engine:
         for i, mid in enumerate(point.match_ids):
             if mid in treated_here:
                 continue
-            if not np.array_equal(probs_arm[i], stored[i]):
+            # R-B1: against ARM B — the same posterior's incumbent pass — and
+            # not against the corpus, which is now the external control.
+            if not np.array_equal(probs_arm[i], probs_incumbent[i]):
                 raise UntreatedMoved(
                     f"{point.cutoff}: {mid} is outside the treated set and its "
                     f"Arm-A probabilities {probs_arm[i].tolist()} differ from "
-                    f"the corpus's {stored[i].tolist()}. The treatment must "
+                    f"Arm B's {probs_incumbent[i].tolist()}. The treatment must "
                     "touch exactly the fixtures the rule names — a fixture that "
                     "moves without being named means the predicate is not "
                     "per-fixture, and every untreated delta this run reports "
@@ -1753,6 +1770,7 @@ class Engine:
             "latest_training_date": str(pit["latest_training_date"]),
             "warnings": warns, "unpriceable": [], "health": health,
             "control_max_abs_diff": worst,
+            "control_mean_abs_diff": mean_diff,
             "identity_canary": identity,
             "direction_canary": (None if direction is None else
                                  {k: v for k, v in direction.items()
@@ -1824,6 +1842,7 @@ def _fit_provenance(point: FitPoint, out: dict, *, config_sha: str,
         "unpriceable": list(out.get("unpriceable", [])),
         "health": dict(out.get("health", {})),
         "control_max_abs_diff": float(out.get("control_max_abs_diff", 0.0)),
+        "control_mean_abs_diff": float(out.get("control_mean_abs_diff", 0.0)),
         "identity_canary": out.get("identity_canary"),
         "direction_canary": out.get("direction_canary"),
         "harness_sha256": harness_sha,
@@ -1839,7 +1858,14 @@ def _fixture_row(point: FitPoint, index: int, out: dict, corpus_row: pd.Series,
                  fit: dict, *, key: str, config_sha: str, shard_id: str,
                  harness_frozen: bool, e_star: float,
                  grid: Sequence[float]) -> dict[str, Any]:
-    """One paired fixture: Arm A computed, Arm B copied, both with provenance."""
+    """One paired fixture: BOTH arms from the same posterior (R-B1).
+
+    Arm B is predict pass 1 — the block's fixtures under the fit's own
+    recomputed incumbent provisional set — and Arm A is predict pass 2 under the
+    §2.1 union. Nothing about either is read from the corpus. The corpus's
+    stored row survives as the EXTERNAL identity control, recorded beside them
+    with its own delta so a reader can confirm the equality rather than take it.
+    """
     match_id = str(point.match_ids[index])
     home, away = out["pairs"][index]
     evidence = out["evidence"]
@@ -1847,6 +1873,7 @@ def _fixture_row(point: FitPoint, index: int, out: dict, corpus_row: pd.Series,
     e_min = min(e_home, e_away)
 
     native = [float(corpus_row[c]) for c in _PROB_COLUMNS]
+    arm_b = [float(v) for v in out["probs_incumbent"][index]]
     arm = [float(v) for v in out["probs_arm"][index]]
     y = int(corpus_row["y"])
     rps_native = float(corpus_row["dc_rps"])
@@ -1857,7 +1884,10 @@ def _fixture_row(point: FitPoint, index: int, out: dict, corpus_row: pd.Series,
             f"{match_id}: stored dc_rps {rps_native!r} and the RPS of the "
             f"stored probabilities {rps_native_recomputed!r} differ by "
             f"{abs(rps_native_recomputed - rps_native):.3g}")
+    rps_b = float(score_mod.rps(np.array([arm_b]), np.array([y]))[0])
     rps_arm = float(score_mod.rps(np.array([arm]), np.array([y]))[0])
+    max_abs_dp_vs_corpus = max((abs(a - b) for a, b in zip(arm_b, native)),
+                               default=0.0)
 
     incumbent = set(out["provisional_incumbent"])
     return {
@@ -1873,17 +1903,25 @@ def _fixture_row(point: FitPoint, index: int, out: dict, corpus_row: pd.Series,
         "treated": bool(match_id in set(out["treated"])),
         "incumbent_widened": bool(home in incumbent or away in incumbent),
         "probs_native": native,
-        "probs_incumbent": [float(v) for v in out["probs_incumbent"][index]],
+        "probs_incumbent": arm_b,
         "probs_arm": arm,
         "probs_widened": out["probs_widened"].get(match_id),
         "rps_native": rps_native,
         "rps_native_recomputed": rps_native_recomputed,
-        "rps_arm": rps_arm, "delta": rps_arm - rps_native,
+        "rps_B": rps_b,
+        "rps_arm": rps_arm,
+        #: R-B1's estimand delta: Arm A minus Arm B, both from ONE posterior.
+        "delta": rps_arm - rps_b,
+        #: The same fixture against the corpus's stored row — the external
+        #: control's delta, published beside the estimand's so a reader can
+        #: confirm the eight-decimal equality rather than take it.
+        "delta_vs_corpus": rps_arm - rps_native,
+        "max_abs_dp_vs_corpus": float(max_abs_dp_vs_corpus),
         "seed": SEED, "config_sha256": config_sha,
         "arm_a": {
             "arm": ARM_NAME,
             "source": "epl.evwiden: epl.dcfit.fit_epl, then the §2.1 union on "
-                      "post.provisional_teams",
+                      "post.provisional_teams (predict pass 2)",
             "rule": f"provisional' = incumbent u {{ t : e(t, C) < {e_star:g} }}",
             "alpha": WIDENING_ALPHA, "mechanism": "c",
             "cutoff": point.cutoff, "seed": SEED,
@@ -1897,9 +1935,30 @@ def _fixture_row(point: FitPoint, index: int, out: dict, corpus_row: pd.Series,
             "rounding": f"round(v, {ROUND_DP})",
         },
         "arm_b": {
-            "arm": BASELINE_ARM, "source": paths.rel(CORPUS_PATH),
-            "corpus_sha256": CORPUS_SHA256, "cutoff": point.cutoff,
-            "columns": list(_PROB_COLUMNS) + ["dc_rps"], "recomputed": False,
+            "arm": BASELINE_ARM,
+            "source": "epl.evwiden: the SAME posterior under the fit's own "
+                      "recomputed incumbent provisional set (predict pass 1)",
+            "rule": "provisional = provisional_incumbent(C)",
+            "alpha": WIDENING_ALPHA, "mechanism": "c",
+            "cutoff": point.cutoff, "seed": SEED,
+            "config_sha256": config_sha,
+            "realised_config_sha256": fit["realised_config_sha256"],
+            "harness_sha256": fit["harness_sha256"],
+            "predict": "post.predict_1x2(home, away, neutral=False)",
+            "rounding": f"round(v, {ROUND_DP})",
+            #: R-B1: Arm B IS recomputed now, and that is the repair. The
+            #: superseded arm was an old rounded 1X2 projection the control
+            #: could only bind AFTER projection, while mechanism (c) acts on the
+            #: full scoreline grid before it.
+            "recomputed": True,
+        },
+        "corpus_control": {
+            "role": "the external identity control (§3.2 as R-B1 demotes it) — "
+                    "the corpus enters no estimand",
+            "source": paths.rel(CORPUS_PATH), "corpus_sha256": CORPUS_SHA256,
+            "columns": list(_PROB_COLUMNS) + ["dc_rps"],
+            "probs": native, "rps": rps_native,
+            "max_abs_dp_vs_arm_b": float(max_abs_dp_vs_corpus),
         },
         "fit": fit, "harness_frozen": bool(harness_frozen),
         "shard_id": shard_id, "seconds": fit.get("wall_seconds"),
@@ -2421,9 +2480,13 @@ def _grid_delta(row: dict[str, Any], e_star: float) -> float:
     """This fixture's Arm-A minus Arm-B delta at one grid point.
 
     Assembled from the SAME fits (§3.1: "each point's … from the same 78 fits").
-    A fixture the incumbent predicate already widens takes the corpus's own row
-    under every arm and contributes exactly 0.0; a treated one takes the widened
+    A fixture the incumbent predicate already widens takes Arm B's own row under
+    every arm and contributes exactly 0.0; a treated one takes the widened
     probabilities pass 3 computed. Nothing here refits anything.
+
+    R-B1: the baseline is ``rps_B`` — the same posterior's incumbent pass — and
+    not the corpus's stored RPS. Every delta this experiment reports is a
+    difference between two predictions of one posterior.
     """
     if bool(row["incumbent_widened"]):
         return 0.0
@@ -2437,7 +2500,7 @@ def _grid_delta(row: dict[str, Any], e_star: float) -> float:
     y = int(row["y"])
     rps_arm = float(score_mod.rps(np.array([[float(v) for v in widened]]),
                                   np.array([y]))[0])
-    return rps_arm - float(row["rps_native"])
+    return rps_arm - float(row["rps_B"])
 
 
 def estimand(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
@@ -2710,10 +2773,18 @@ def rejoin(rows: Sequence[dict[str, Any]], corpus: pd.DataFrame,
         want_native = [float(stored[c]) for c in _PROB_COLUMNS]
         if native != want_native:
             raise MergeIncomplete(
-                f"{mid}: the ledger's Arm-B probabilities {native} are not the "
-                f"corpus's {want_native}. Arm B is NOT recomputed (§2.3); a row "
-                "that carries different numbers under its name has recomputed "
-                "it, which is a different experiment.")
+                f"{mid}: the ledger's recorded corpus row {native} is not the "
+                f"corpus's {want_native}. R-B1 demotes the corpus to an "
+                "EXTERNAL identity control; a row that copies different numbers "
+                "under that name has nothing left to control against.")
+        arm_b = [float(v) for v in row["probs_incumbent"]]
+        if arm_b != want_native:
+            raise ControlMismatch(
+                f"{mid}: Arm B — the same posterior's incumbent pass — is "
+                f"{arm_b} and the corpus's own row is {want_native}. §3.2 rules "
+                "EXACT equality at the corpus's eight decimals over all 820 "
+                "fixtures, and §7 makes widening that tolerance after a "
+                "mismatch an invalidation.")
         recomputed = float(score_mod.rps(np.array([native]),
                                          np.array([int(row["y"])]))[0])
         worst_rps = max(worst_rps, abs(recomputed - float(row["rps_native"])),
@@ -2882,7 +2953,10 @@ def merge(shards: int = 1, *, directory: Path | str | None = None,
             "n_fixtures": len(rows),
             "max_abs_diff": max((float(r["fit"]["control_max_abs_diff"])
                                  for r in rows), default=0.0),
+            "mean_abs_diff": (float(np.mean([float(r["max_abs_dp_vs_corpus"])
+                                             for r in rows])) if rows else 0.0),
             "tolerance": "exact equality at the corpus's 8 decimals",
+            "role": "external — R-B1 demotes the corpus out of the contrast",
             "rps_max_abs_diff": joined["max_abs_rps_diff"]},
         "harness_freeze": freeze,
         "canaries": pre,
