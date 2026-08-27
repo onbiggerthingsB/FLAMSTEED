@@ -2834,6 +2834,100 @@ def test_the_manifest_updates_in_place_and_keeps_what_it_did_not_write(tmp_path)
 # 13. the §6 freeze — the commit that makes "the design was fixed first" checkable
 # ==========================================================================
 
+def test_the_pre_freeze_guard_is_keyed_to_the_artifacts_not_the_directory():
+    """R2's binding obligation, and the sentence it withdrew as FALSE: "the
+    harness's own guards refuse to produce [a delta] until the freeze block is
+    committed."
+
+    `_guard_ledger_location` is keyed to the run DIRECTORY, so a `--run` or
+    `--table` pointed at a `--dir` outside the default directories could fit the
+    real archive and produce a real delta with no freeze block anywhere, and
+    `data/` is gitignored so it would leave no Git trace. The repaired guard is
+    keyed to the freeze state and to the ARTIFACT IDENTITY being read.
+    """
+    corpus, played, _ = _world()
+    # a synthetic world fits freely, before the freeze and after
+    assert ew.assert_may_fit("test", harness_frozen=False, played=played,
+                             corpus=corpus)["real_artifacts"] is False
+    # a caller that has not loaded a frame is a caller about to load the pinned
+    # one, and is refused
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.assert_may_fit("test", harness_frozen=False, played=None)
+    assert "about to be loaded" in str(exc.value)
+    assert "never to the output directory" in str(exc.value)
+
+
+@pinned
+def test_no_scratch_directory_lets_the_pinned_archive_be_fitted_unfrozen(
+        tmp_path, real):
+    """The hole R2 names at `epl/evwiden.py:1712-1740,4158-4189`, closed: no
+    `--dir` moves the refusal, because the refusal never read the directory."""
+    corpus, played, ledger = real
+    assert ew.is_pinned_archive(played) is True
+    assert ew.is_pinned_corpus(corpus) is True
+
+    for kwargs in ({"played": played}, {"corpus": corpus},
+                   {"played": played, "corpus": corpus}):
+        with pytest.raises(ew.EvWidenError) as exc:
+            ew.assert_may_fit("test", harness_frozen=False,
+                              directory=tmp_path, **kwargs)
+        assert "IS the pinned" in str(exc.value)
+
+    # ...and the Engine refuses at construction, before it spends a store
+    with pytest.raises(ew.EvWidenError):
+        ew.Engine(corpus, played, ledger=ledger, harness_frozen=False,
+                  directory=tmp_path)
+
+
+@pinned
+def test_the_table_runners_refuse_the_pinned_archive_before_the_freeze(tmp_path):
+    """`--table` had the analogous directory-keyed hole, and both the new runner
+    and the parity oracle's protected runner are gated now."""
+    from epl import baseline
+
+    matches = baseline.load_matches()
+    with pytest.raises(ew.EvWidenError):
+        ew.TableRunner(matches, harness_frozen=False, directory=tmp_path)
+    with pytest.raises(ew.EvWidenError):
+        ew.ParityRunner(matches, harness_frozen=False, directory=tmp_path)
+
+
+def test_the_freeze_block_enumerates_all_six_authorised_pre_freeze_passes():
+    """R-B5: "`epl.evwiden.freeze_block`'s default enumeration currently names
+    four runs and must be extended to name all six above before the freeze
+    commit is generated." The freeze block's list stays binding and must be
+    complete."""
+    assert len(ew.PRE_FREEZE_RUNS) == 6
+    joined = " ".join(ew.PRE_FREEZE_RUNS)
+    for marker in ("--membership", "--plan", "--canary --no-results-canary",
+                   "pytest epl/tests/test_evwiden.py", "dcfit.fit_epl",
+                   "--freeze-block", "repair round's two exports"):
+        assert marker in joined, marker
+    assert "TemporaryDirectory" in joined and "paths.STORE_DIR" in joined
+
+
+@pinned
+def test_membership_and_plan_carry_the_table_cell_memberships(tmp_path, real):
+    """R-B5 pass 1 authorises `--membership` and `--plan` to compute "§2.2's
+    cells, §2.3's population, §3.3's TABLE CELLS and the digests the freeze
+    commit records". The table cells were the half the CLI omitted."""
+    corpus, played, ledger = real
+    cells = ew.default_table_cells(played)
+    assert len(cells) == ew.EXPECTED_TABLE_CELLS
+
+    digests = ew.membership_digests(corpus, played, ledger, table=cells)
+    assert {"table_treated", "table_untouched"} <= set(digests["digests"])
+    assert digests["counts"]["table_treated"] == ew.EXPECTED_TABLE_TREATED
+    assert digests["counts"]["table_untouched"] == ew.EXPECTED_TABLE_UNTOUCHED
+
+    plan = ew._plan(corpus, played, ledger, ew.SHARDS, tmp_path, table=cells)
+    assert {"table_treated", "table_untouched"} <= set(plan["digests"])
+    assert plan["budget"]["table_fits"] == 70
+    assert plan["budget"]["table_simulations"] == 105
+    assert plan["budget"]["total_fits"] == 78 + 70
+    assert "~4 hours" in plan["budget"]["bound"]
+
+
 def test_the_freeze_refuses_until_the_hash_table_lands(tmp_path):
     empty = tmp_path / "prereg.md"
     empty.write_text("# nothing here\n")
@@ -2845,27 +2939,129 @@ def test_the_freeze_refuses_until_the_hash_table_lands(tmp_path):
     assert "SYNTHETIC" in str(exc.value)
 
 
-def test_the_freeze_matches_the_bytes_on_disk(tmp_path):
+def test_an_uncommitted_hash_paste_freezes_nothing(tmp_path):
+    """R2, the defect that replaces round one's round-trip test: "Round one's
+    freeze guard parses current prose against current filesystem bytes, which an
+    uncommitted two-line paste satisfies; that is not a freeze and this document
+    does not accept it as one."
+
+    The paste below carries the CORRECT digests of the harness files on disk —
+    it is exactly what round one's guard called frozen — and it is refused,
+    because it is not in a commit."""
     table = tmp_path / "prereg.md"
     table.write_text("\n".join(
         f"| `{name}` | {ew.sha256_file(ew.paths.REPO_ROOT / name)} |"
         for name in ew.HARNESS_FILES) + "\n")
     status = ew.harness_freeze_status([table])
+    assert status["frozen"] is False
+    assert status["files"] == {}
+    assert "COMMITTED" in status["why"]
+    assert status["uncommitted_sources"] == [ew.paths.rel(table)]
+
+
+def test_the_freeze_reads_the_committed_prose_and_the_committed_bytes():
+    """R2: the guard verifies "the Git object identity of the prereg blob whose
+    hash table it reads". Both sides come out of Git — the prose AND the harness
+    bytes — and the working tree is checked as well, so a dirty tree is not
+    frozen either."""
+    status = ew.harness_freeze_status()
+    assert status["rev"] == "HEAD"
+    assert [s["path"] for s in status["sources"]] == [
+        ew.paths.rel(ew.PREREG_PATH), ew.paths.rel(ew.AMENDMENTS_PATH)]
+    assert all(s["committed"] for s in status["sources"])
+    assert all(s["blob"] for s in status["sources"])
+    # the prereg is committed and the harness hash table has NOT been pasted:
+    # R-H(1) reaffirms that the freeze stays unpasted until the harness
+    # implements both repair rounds
+    assert status["frozen"] is False
+    assert status["missing"] == list(ew.HARNESS_FILES)
+
+
+def _as_if_committed(table: str | None = None):
+    """`git show` as it would read after the freeze commit landed.
+
+    The prereg carries `table` (the rendered hash table by default) and every
+    harness file's committed bytes are the working tree's, which is what a clean
+    tree at the freeze commit looks like.
+    """
+    text = table if table is not None else "\n".join(
+        f"| `{name}` | {ew.sha256_file(ew.paths.REPO_ROOT / name)} |"
+        for name in ew.HARNESS_FILES) + "\n"
+
+    def committed(relpath, rev="HEAD"):
+        if relpath == ew.paths.rel(ew.PREREG_PATH):
+            return text.encode()
+        if relpath in ew.HARNESS_FILES:
+            return (ew.paths.REPO_ROOT / relpath).read_bytes()
+        return b""
+
+    return committed
+
+
+def test_the_freeze_needs_a_commit_that_is_an_ancestor_of_head(monkeypatch):
+    """The task R2 sets the guard: verify a COMMITTED freeze — the Git identity
+    of the source, not prose beside bytes."""
+    monkeypatch.setattr(ew, "git_committed_bytes", _as_if_committed())
+    status = ew.harness_freeze_status()
     assert status["frozen"] is True
-    assert set(status["files"]) == set(ew.HARNESS_FILES)
+    assert status["is_ancestor"] is True
+    assert ew.git_is_ancestor(status["commit"]) is True
     assert all(f["match"] for f in status["files"].values())
-    assert all(f["lines"] > 0 for f in status["files"].values())
+    assert all(f["committed"] == f["actual"] for f in status["files"].values())
+
+    # ...and a commit that is not an ancestor of HEAD freezes nothing
+    monkeypatch.setattr(ew, "git_is_ancestor", lambda *a, **k: False)
+    later = ew.harness_freeze_status()
+    assert later["frozen"] is False
+    assert "not an ancestor" in later["why"]
 
 
-def test_the_freeze_refuses_a_hash_that_no_longer_describes_the_file(tmp_path):
+def test_the_freeze_refuses_a_hash_that_no_longer_describes_the_file(monkeypatch):
     """§6 step 2: "if any hash differs at the time the run is executed, it is
     not the run this document preregisters"."""
-    table = tmp_path / "prereg.md"
-    table.write_text("\n".join(
-        f"| `{name}` | {'0' * 64} |" for name in ew.HARNESS_FILES) + "\n")
-    status = ew.harness_freeze_status([table])
+    monkeypatch.setattr(ew, "git_committed_bytes", _as_if_committed(
+        "\n".join(f"| `{name}` | {'0' * 64} |"
+                  for name in ew.HARNESS_FILES) + "\n"))
+    status = ew.harness_freeze_status()
     assert status["frozen"] is False
-    assert "differs from the file on disk" in status["why"]
+    assert "differs from the committed bytes" in status["why"]
+
+
+def test_a_dirty_working_tree_is_not_a_frozen_harness(monkeypatch):
+    """The recorded digest must describe BOTH the committed bytes and the file
+    the run will actually import."""
+    monkeypatch.setattr(
+        ew, "git_committed_bytes",
+        lambda relpath, rev="HEAD": (
+            ("\n".join(f"| `{name}` | {'a' * 64} |"
+                       for name in ew.HARNESS_FILES) + "\n").encode()
+            if relpath == ew.paths.rel(ew.PREREG_PATH) else b"different bytes"))
+    status = ew.harness_freeze_status()
+    assert status["frozen"] is False
+    for rec in status["files"].values():
+        assert rec["match"] is False
+
+
+def test_the_first_real_fit_event_is_recorded_once_and_then_binds(tmp_path):
+    """R-B6, made mechanical: from the moment a real fit on the real archive
+    exists, ANY change to ANY hashed file invalidates this preregistration — no
+    note, no dated appendix, no disclosure and no owner ruling restores it."""
+    assert ew.first_fit_record(tmp_path) is None
+    record = ew.record_first_real_fit(tmp_path, where="the results canary")
+    assert record["where"] == "the results canary"
+    assert set(record["harness"]) == set(ew.HARNESS_FILES)
+    assert record["commit"] and record["prereg_blob"]
+    # written once and never rewritten
+    again = ew.record_first_real_fit(tmp_path, where="something else")
+    assert again["at"] == record["at"] and again["where"] == record["where"]
+
+    ew.assert_no_hashed_file_moved(tmp_path)          # nothing moved yet
+    moved = json.loads((tmp_path / ew.FIRST_FIT_NAME).read_text())
+    moved["harness"][ew.HARNESS_FILES[0]] = "0" * 64
+    (tmp_path / ew.FIRST_FIT_NAME).write_text(json.dumps(moved))
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.assert_no_hashed_file_moved(tmp_path)
+    assert "INVALIDATES this preregistration" in str(exc.value)
 
 
 # ==========================================================================
@@ -3416,11 +3612,24 @@ def test_the_freeze_block_is_harness_produced_and_round_trips(tmp_path):
     assert "Pre-freeze runs, enumerated" in block
     assert "not the run this document preregisters" in block
 
+    assert all(name in block for name in
+               ("--membership", "--freeze-block", "repair round's two exports"))
+
+    # THE ROUND TRIP IS NOT A PASTE ANY MORE (R2). Round one's test dropped the
+    # rendered block into a temporary file and demanded `harness_freeze_status`
+    # say frozen; an uncommitted two-line paste satisfied that, which is not a
+    # freeze. What is asserted instead is that the block a COMMIT would carry
+    # binds the committed bytes.
     pasted = tmp_path / "prereg.md"
     pasted.write_text(block)
-    status = ew.harness_freeze_status([pasted])
-    assert status["frozen"] is True
-    assert all(f["match"] for f in status["files"].values())
+    assert ew.harness_freeze_status([pasted])["frozen"] is False
+    import unittest.mock as mock
+
+    with mock.patch.object(ew, "git_committed_bytes",
+                           _as_if_committed(block)):
+        got = ew.harness_freeze_status([ew.PREREG_PATH])
+    assert got["frozen"] is True
+    assert all(f["match"] for f in got["files"].values())
 
 
 @pinned
