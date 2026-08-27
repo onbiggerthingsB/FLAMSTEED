@@ -982,38 +982,53 @@ def test_every_audit_row_is_stamped_unfrozen(tmp_path):
 # 6. the treatment itself — the production path, not a restatement of it
 # ==========================================================================
 
-def _poisson_grid(lam_home: float = 1.5, lam_away: float = 1.2,
-                  n: int = 11) -> np.ndarray:
-    from math import exp, factorial
-
-    h = np.array([exp(-lam_home) * lam_home ** k / factorial(k) for k in range(n)])
-    a = np.array([exp(-lam_away) * lam_away ** k / factorial(k) for k in range(n)])
-    g = np.outer(h, a)
-    return g / g.sum()
-
-
 class _FakePosterior:
-    """The smallest object the production widening path will accept.
+    """The smallest object the WHOLE production map will accept.
 
-    It carries a real normalised scoreline grid and delegates to `draw_api`'s
-    own `finalize_grid`, so a test that goes through it is testing the shipped
-    mechanism rather than a re-implementation of it.
+    R-M2 binds the direction canary to the production path, so this double
+    carries the surface `draw_api.per_draw_rates` and `mean_grid_over_draws`
+    actually read — a team index, `_post` for the fitted parameters, the
+    covariate hook and the config — and `predict_scoreline` DELEGATES to
+    `draw_api.production_grid`, exactly as `wcmodel.model.posterior.Posterior`
+    does. A test that goes through it therefore exercises the shipped map end to
+    end rather than a re-implementation of its last leg.
+
+    `log_rate` moves both clubs' log-rates together, which is how the edge
+    branch is reached: at a marginal mean below `widening._MEAN_EDGE_EPS` there
+    is no interior max-entropy solution and `inflate_predictive` documents that
+    it returns the grid unchanged.
     """
 
-    def __init__(self, grid=None, mechanism: str = "c", strength: float = 0.5):
-        self._grid = _poisson_grid() if grid is None else grid
+    def __init__(self, mechanism: str = "c", strength: float = 0.5,
+                 log_rate: float = 0.2, n_draws: int = 2):
         self.provisional_teams: set[str] = set()
-        self._cfg = {"widening": {"mechanism": mechanism, "strength": strength}}
+        self._cfg = {"widening": {"mechanism": mechanism, "strength": strength},
+                     "neutral_home_adv_fraction": 0.5}
         self.teams = ["a", "b"]
         self._idx = {"a": 0, "b": 1}
         self.likelihood = "dixon_coles"
+        s = int(n_draws)
+        self._params = {
+            "att": np.array([[0.05] * s, [-0.05] * s]),
+            "def": np.array([[0.02] * s, [-0.02] * s]),
+            "mu": np.array([float(log_rate)] * s),
+            "home_adv": np.array([0.25] * s),
+            "rho": np.array([-0.05] * s),
+        }
+
+    def _post(self, name):
+        return self._params[name]
+
+    def _covariate_offsets(self, covariates):
+        return 0.0, 0.0
 
     def predict_scoreline(self, home, away, neutral=False):
-        from wcmodel.model.draw_api import finalize_grid
+        from wcmodel.model.draw_api import FixtureCtx, production_grid
 
-        provisional = (home in self.provisional_teams
-                       or away in self.provisional_teams)
-        return finalize_grid(self._grid.copy(), self, provisional=provisional)
+        return production_grid(self, FixtureCtx(home=home, away=away,
+                                                neutral=neutral,
+                                                covariates=None,
+                                                host_factor=None))
 
     def predict_1x2(self, home, away, neutral=False):
         from wcmodel.model.draw_api import grid_one_x_two
@@ -1048,35 +1063,90 @@ def test_the_treated_fixture_gets_a_different_forecast_and_the_base_one_does_not
     assert np.array_equal(wide, other)
 
 
-def test_direction_canary_holds_the_mix_to_inflate_predictive_itself():
-    """§5.3: "Every treated grid must equal `inflate_predictive(base_grid,
-    is_provisional=True, strength=0.5)` exactly, and carry strictly higher
-    entropy than its base — the mechanism's own guarantee, checked rather than
-    assumed"."""
+def test_the_pre_widening_grid_is_read_out_of_the_production_functions():
+    """R-M2's comparator needs the grid `finalize_grid` is HANDED, and takes it
+    from `draw_api`'s own two legs rather than re-deriving it: a canary built on
+    a second implementation of the map checks the second implementation."""
+    from wcmodel.model.draw_api import finalize_grid
+
     post = _FakePosterior()
-    out = ew.direction_canary(post, [("a", "b")])
+    grid = ew.pre_widening_grid(post, "a", "b")
+    with ew.provisional_as(post, ()):
+        base = np.asarray(post.predict_scoreline("a", "b"), dtype=float)
+    assert np.array_equal(finalize_grid(grid.copy(), post, provisional=False),
+                          base)
+
+
+def test_direction_canary_is_bound_to_the_production_path_and_the_frozen_alpha():
+    """R-M2: the comparator is `finalize_grid(grid, posterior, provisional=…)`,
+    equality is BIT equality, and the frozen alpha stays checkable because the
+    production output must also equal `inflate_predictive(grid, True, 0.5)`
+    renormalised the way `finalize_grid` renormalises it."""
+    post = _FakePosterior()
+    out = ew.direction_canary(post, [("a", "b")], treated=["a"])
     assert out["PASS"] is True
     assert out["max_abs_grid_diff"] == 0.0
-    assert out["min_entropy_gain"] > 0.0
+    assert out["max_abs_diff_vs_frozen_alpha"] == 0.0
+    assert out["min_entropy_gain_interior"] > 0.0
     assert out["alpha"] == ew.WIDENING_ALPHA
+    assert "finalize_grid" in out["comparator"]
+    # the branch every fixture took is recorded
+    assert out["branches"] == [{"home": "a", "away": "b", "treated": True,
+                                "branch": "interior",
+                                "entropy_gain": out["detail"][0]["entropy_gain"],
+                                "max_abs_dp": out["detail"][0]["max_abs_dp"],
+                                "ok": True}]
+    assert out["n_interior"] == 1 and out["n_edge"] == 0
+    assert out["n_treated_interior"] == 1
+
+
+def test_the_direction_canary_accepts_the_documented_edge_branch():
+    """R-M2: `inflate_predictive` documents an edge no-op — a marginal mean at
+    ~0 has no interior max-entropy solution and the grid is returned unchanged —
+    so "strictly higher entropy" is not unconditional. An edge fixture with an
+    unchanged grid and an equal entropy is the CORRECT result."""
+    post = _FakePosterior(log_rate=-30.0)
+    grid = ew.pre_widening_grid(post, "a", "b")
+    assert float((grid.sum(axis=1) * np.arange(grid.shape[0])).sum()) < 1e-9
+    with pytest.raises(ew.CanaryFailed) as exc:
+        ew.direction_canary(post, [("a", "b")])
+    assert "every fixture took the documented edge branch" in str(exc.value)
+    # ...and the record says so rather than calling it a mechanism failure
+    try:
+        ew.direction_canary(post, [("a", "b")])
+    except ew.CanaryFailed as err:
+        assert "interior branch reached = False" in str(err)
+
+
+def test_the_direction_canary_needs_one_treated_fixture_in_the_interior_branch():
+    """R-M2: "A direction canary in which every fixture took the edge branch is
+    CanaryFailed: it proved nothing." The same holds when the interior fixtures
+    are all untreated — the treated grids are the ones under test."""
+    post = _FakePosterior()
+    # every fixture interior, and the treated club plays one of them
+    assert ew.direction_canary(post, [("a", "b")], treated=["b"])["PASS"]
+    # a treated club nobody in this block plays is not a demand on this block
+    assert ew.direction_canary(post, [("a", "b")], treated=["z"])["PASS"]
 
 
 def test_seeded_defect_a_widening_that_does_not_widen_fails_the_direction_canary():
     """Under mechanism (a) `finalize_grid` applies no predict-time mix, so the
-    "widened" grid is the base grid: same numbers, zero entropy gain."""
+    "widened" grid is the base grid: same numbers, zero entropy gain — and the
+    fixture is in the INTERIOR branch, where that is a failure."""
     post = _FakePosterior(mechanism="a")
     with pytest.raises(ew.CanaryFailed) as exc:
         ew.direction_canary(post, [("a", "b")])
-    assert "entropy" in str(exc.value)
+    assert "entropy gain" in str(exc.value)
 
 
 def test_seeded_defect_a_mix_at_the_wrong_strength_fails_the_direction_canary():
     """§2.1 freezes alpha at 0.5. A grid mixed at another strength is a
-    different treatment from the preregistered one."""
+    different treatment from the preregistered one, and R-M2's move onto the
+    production path does not lose that check."""
     post = _FakePosterior(strength=0.25)
     with pytest.raises(ew.CanaryFailed) as exc:
         ew.direction_canary(post, [("a", "b")], strength=ew.WIDENING_ALPHA)
-    assert "inflate_predictive" in str(exc.value)
+    assert "frozen alpha" in str(exc.value)
 
 
 def test_predict_rows_refuses_a_club_the_posterior_cannot_price():

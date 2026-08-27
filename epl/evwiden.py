@@ -1721,12 +1721,14 @@ class Engine:
                     "widening that is not zero is a treatment doing something "
                     "the rule does not describe.")
 
-        # ---- the direction canary, once per fit ---------------------------
-        # §5.3: the treated grid must BE `inflate_predictive(base, True, 0.5)`
-        # and must carry strictly higher entropy. Run on this block's first
-        # fixture, on every fit, so the mechanism's own guarantee is evidence on
-        # 78 real posteriors rather than a claim in a docstring.
-        direction = direction_canary(post, pairs[:1]) if pairs else None
+        # ---- the direction canary, on EVERY fixture of the block ----------
+        # R-M2: the comparator is the production path, the documented edge
+        # branch is a correct result rather than a failure, the branch every
+        # fixture took is recorded, and at least one TREATED fixture must have
+        # taken the interior branch — a canary in which every fixture no-ops
+        # proved nothing. Run on every fixture of every fit, so the mechanism's
+        # own guarantee is evidence on 820 real grids rather than on one.
+        direction = direction_canary(post, pairs, treated=added) if pairs else None
 
         # ---- pass 3: the widened value, for the grid ---------------------
         wanted = [m for m in point.match_ids if str(m) in set(grid_treated)]
@@ -1772,6 +1774,9 @@ class Engine:
             "control_max_abs_diff": worst,
             "control_mean_abs_diff": mean_diff,
             "identity_canary": identity,
+            #: R-M2 requires the branch every fixture took to be recorded, so
+            #: `branches` stays on the row; only the full per-fixture entropies
+            #: are dropped, and they are recomputable from the grids.
             "direction_canary": (None if direction is None else
                                  {k: v for k, v in direction.items()
                                   if k != "detail"}),
@@ -2275,58 +2280,148 @@ def grid_entropy(grid: np.ndarray) -> float:
     return float(-(nz * np.log(nz)).sum())
 
 
-def direction_canary(post, pairs: Sequence[tuple[str, str]], *,
-                     strength: float = WIDENING_ALPHA) -> dict[str, Any]:
-    """§5.3: the treated grid IS the incumbent mix, and it is strictly wider.
+def pre_widening_grid(post, home: str, away: str, *,
+                      neutral: bool = False) -> np.ndarray:
+    """The production map's scoreline grid BEFORE ``finalize_grid`` runs on it.
 
-    Two demands, both on the production path's own output:
-
-    * the widened grid equals ``inflate_predictive(base_grid,
-      is_provisional=True, strength=0.5)`` EXACTLY — the mechanism's own
-      function, called here on the base grid the same posterior produced, so
-      "the treatment is the incumbent mix at the incumbent alpha" (§2.1) is
-      checked rather than asserted;
-    * it carries strictly HIGHER entropy than its base — the mechanism's own
-      guarantee (``widening.py``: mixing toward a max-entropy reference strictly
-      increases Shannon entropy), checked rather than assumed.
+    R-M2 binds the direction canary to the production path, and the production
+    path's own last leg is ``finalize_grid(grid, posterior, provisional=…)`` —
+    so the canary needs the ``grid`` that leg is handed. It is read out of
+    ``wcmodel.model.draw_api``'s own functions (``per_draw_rates`` then
+    ``mean_grid_over_draws``, the two legs ``production_grid`` calls before
+    finalization) and never re-implemented here: a canary built on a second
+    implementation of the map checks the second implementation.
     """
+    from wcmodel.model import draw_api
+
+    ctx = draw_api.FixtureCtx(home=home, away=away, neutral=bool(neutral),
+                              covariates=None, host_factor=None)
+    lh, la = draw_api.per_draw_rates(post, ctx)
+    if str(getattr(post, "likelihood", "dixon_coles")) == "dixon_coles":
+        return draw_api.mean_grid_over_draws(
+            lh, la, likelihood="dixon_coles", rho=post._post("rho"),
+            max_goals=draw_api.PRODUCTION_MAX_GOALS)
+    return draw_api.mean_grid_over_draws(
+        lh, la, likelihood="bivariate_poisson",
+        l3=np.exp(post._post("log_lambda3")),
+        max_goals=draw_api.PRODUCTION_MAX_GOALS)
+
+
+def direction_canary(post, pairs: Sequence[tuple[str, str]], *,
+                     treated: Sequence[str] = (),
+                     strength: float = WIDENING_ALPHA) -> dict[str, Any]:
+    """§5.3's direction canary, as R-M2 repairs it on both halves.
+
+    The superseded canary compared the widened grid with a bare
+    ``inflate_predictive`` call and demanded strictly higher entropy
+    UNCONDITIONALLY. Both halves were wrong. ``finalize_grid``
+    (``src/wcmodel/model/draw_api.py:218-231``) applies ``inflate_predictive``
+    and then an **unconditional** renormalisation, so the bare call is a
+    comparison against something the production map does not emit; and
+    ``inflate_predictive`` documents an EDGE NO-OP — a marginal mean at ~0 or at
+    the largest representable score has no interior max-entropy solution and the
+    grid is returned unchanged (``widening.py:225-233``), so "strictly higher
+    entropy" is not unconditional.
+
+    THE REPAIRED COMPARATOR, three demands, every fixture:
+
+    1. the posterior's own widened output equals ``finalize_grid(grid,
+       posterior, provisional=True)`` at **bit equality** (``np.array_equal``);
+    2. that production output equals the frozen mix — ``inflate_predictive(grid,
+       is_provisional=True, strength=0.5)`` renormalised the way
+       ``finalize_grid`` renormalises it — which is what keeps §2.1's "EXACTLY
+       the one incumbent mix at the frozen alpha" checkable after the comparator
+       moved onto the production path;
+    3. entropy strictly higher than ``finalize_grid(grid, posterior,
+       provisional=False)`` **except** where the documented edge branch fires,
+       in which case an unchanged grid and an equal entropy are the correct
+       result.
+
+    THE BRANCH IS RECORDED FOR EVERY FIXTURE, and at least one fixture must have
+    taken the INTERIOR branch with a strictly higher entropy and a strictly
+    positive ``max |Δp|``; when the block carries treated fixtures, at least one
+    of THEM must have. A direction canary in which every fixture took the edge
+    branch is :class:`CanaryFailed`: it proved nothing.
+    """
+    from wcmodel.model.draw_api import finalize_grid
     from wcmodel.model.widening import inflate_predictive
 
-    detail, worst, min_gain = [], 0.0, float("inf")
+    treated = {str(t) for t in treated}
+    detail: list[dict[str, Any]] = []
+    worst_production, worst_frozen = 0.0, 0.0
     for home, away in pairs:
-        with provisional_as(post, ()):
-            base = np.asarray(post.predict_scoreline(home, away, neutral=False),
-                              dtype=float)
+        grid = np.asarray(pre_widening_grid(post, home, away), dtype=float)
+        base = finalize_grid(grid.copy(), post, provisional=False)
+        expected = finalize_grid(grid.copy(), post, provisional=True)
         with provisional_as(post, (home,)):
             wide = np.asarray(post.predict_scoreline(home, away, neutral=False),
                               dtype=float)
-        expected = inflate_predictive(base, is_provisional=True,
-                                      strength=float(strength))
-        diff = float(np.abs(wide - expected).max())
-        gain = grid_entropy(wide) - grid_entropy(base)
-        worst = max(worst, diff)
-        min_gain = min(min_gain, gain)
-        detail.append({"home": home, "away": away, "max_abs_diff": diff,
-                       "entropy_base": grid_entropy(base),
-                       "entropy_widened": grid_entropy(wide),
-                       "entropy_gain": gain,
-                       "exact": bool(np.array_equal(wide, expected))})
 
-    record = {"schema": SCHEMA_ID, "n_fixtures": len(pairs),
-              "alpha": float(strength), "max_abs_grid_diff": worst,
-              "min_entropy_gain": (None if min_gain == float("inf")
-                                   else float(min_gain)),
-              "detail": detail,
-              "PASS": bool(pairs and all(d["exact"] for d in detail)
-                           and min_gain > 0.0)}
+        raw = inflate_predictive(grid.copy(), is_provisional=True,
+                                 strength=float(strength))
+        edge = bool(np.array_equal(raw, grid))
+        frozen = raw / raw.sum()
+
+        d_production = float(np.abs(wide - expected).max())
+        d_frozen = float(np.abs(expected - frozen).max())
+        worst_production = max(worst_production, d_production)
+        worst_frozen = max(worst_frozen, d_frozen)
+        gain = grid_entropy(wide) - grid_entropy(base)
+        moved = float(np.abs(wide - base).max())
+        interior = not edge
+        ok = (bool(np.array_equal(wide, expected))
+              and bool(np.array_equal(expected, frozen))
+              and (gain > 0.0 and moved > 0.0 if interior
+                   else bool(np.array_equal(wide, base)) and gain == 0.0))
+        detail.append({
+            "home": home, "away": away,
+            "treated": bool(str(home) in treated or str(away) in treated),
+            "branch": "edge" if edge else "interior",
+            "max_abs_diff_vs_production": d_production,
+            "max_abs_diff_vs_frozen_alpha": d_frozen,
+            "entropy_base": grid_entropy(base),
+            "entropy_widened": grid_entropy(wide),
+            "entropy_gain": gain, "max_abs_dp": moved, "ok": bool(ok)})
+
+    interior_rows = [d for d in detail if d["branch"] == "interior" and d["ok"]]
+    treated_interior = [d for d in interior_rows if d["treated"]]
+    has_interior = bool(interior_rows)
+    has_treated_interior = bool(treated_interior) or not (
+        treated and any(d["treated"] for d in detail))
+
+    gains = [d["entropy_gain"] for d in detail if d["branch"] == "interior"]
+    record = {
+        "schema": SCHEMA_ID, "n_fixtures": len(pairs),
+        "alpha": float(strength),
+        "comparator": "wcmodel.model.draw_api.finalize_grid(grid, posterior, "
+                      "provisional=…) — the production path",
+        "n_interior": sum(1 for d in detail if d["branch"] == "interior"),
+        "n_edge": sum(1 for d in detail if d["branch"] == "edge"),
+        "n_treated_interior": len(treated_interior),
+        "max_abs_grid_diff": worst_production,
+        "max_abs_diff_vs_frozen_alpha": worst_frozen,
+        "min_entropy_gain_interior": (min(gains) if gains else None),
+        "branches": [{k: d[k] for k in ("home", "away", "treated", "branch",
+                                        "entropy_gain", "max_abs_dp", "ok")}
+                     for d in detail],
+        "detail": detail,
+        "PASS": bool(pairs and all(d["ok"] for d in detail)
+                     and has_interior and has_treated_interior),
+    }
     if not record["PASS"]:
+        broken = [f"{d['home']} v {d['away']} ({d['branch']})"
+                  for d in detail if not d["ok"]]
         raise CanaryFailed(
-            f"the direction canary did not pass: max |Δgrid| against "
-            f"inflate_predictive = {worst:.3g} (must be exactly 0) and the "
-            f"smallest entropy gain was {record['min_entropy_gain']!r} (must be "
-            "strictly positive). §2.1 rules that a treated fixture receives "
-            "EXACTLY the one incumbent mix at the frozen alpha; a grid that is "
-            "not that mix is a different treatment from the preregistered one.")
+            "the direction canary did not pass. max |Δgrid| against the "
+            f"production path = {worst_production:.3g} and against the frozen "
+            f"alpha = {worst_frozen:.3g} (both must be exactly 0); the smallest "
+            f"interior entropy gain was {record['min_entropy_gain_interior']!r} "
+            f"(must be strictly positive); {len(broken)} fixture(s) failed "
+            f"{broken[:3]}; interior branch reached = {has_interior}, treated "
+            f"fixture in the interior branch = {has_treated_interior}. §2.1 "
+            "rules that a treated fixture receives EXACTLY the one incumbent "
+            "mix at the frozen alpha, and R-M2 rules that a canary in which "
+            "every fixture took the documented edge branch proved nothing.")
     return record
 
 
