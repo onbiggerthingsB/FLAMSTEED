@@ -165,6 +165,10 @@ __all__ = [
     "MC_BOOT", "MC_SEED", "MW6_LABEL", "POINT_GATE_LABELS", "SHARDS",
     "write_evidence", "verify", "freeze_block", "harness_freeze_status",
     "require_harness_freeze",
+    "power_simulation", "power_structure", "power_reproduces",
+    "bootstrap_shortcut_matches", "implementation_report",
+    "assert_implements_document", "assert_may_fit", "evidence_object",
+    "assert_manifest_complete", "MANIFEST_PATHS",
     "launch_script", "main",
 ]
 
@@ -3090,6 +3094,429 @@ def estimand(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
 
 
 # ==========================================================================
+# 11b. THE POWER SIMULATION — R-I2's analysis, R2-I2's committed code
+# ==========================================================================
+
+#: R2-I2's frozen structure. R-I2 gave the counts; the ASSIGNMENT of the 85
+#: thin fixtures to their 62 week blocks is the pinned corpus's own, recomputed
+#: by :func:`power_structure` under R-B5's read-only authorisation and checked
+#: against these numbers.
+POWER_N_THIN = 85
+POWER_N_TREATED = 52
+POWER_N_WEEK_BLOCKS = 62
+POWER_N_SEASONS = 6
+POWER_THIN_BY_SEASON = (26, 11, 12, 12, 12, 12)
+POWER_TREATED_BY_SEASON = (21, 4, 7, 6, 7, 7)
+
+#: R-I2's three scenarios, frozen blind: no delta of this experiment exists, so
+#: none of them is informed by one.
+POWER_SCENARIOS: tuple[tuple[str, float, str], ...] = (
+    ("A freshness-scale", 0.005262,
+     "reports/epl_freshness_result.json's own sd over its 1,699 paired deltas"),
+    ("B anchoring-scale", 0.014449,
+     "reports/epl_anchoring_result.md's past-only estimand, paired sd over "
+     "2,280 fixtures"),
+    ("C mechanism-scale", 0.036,
+     "a deliberately pessimistic extrapolation, named as invented: about 2.3x "
+     "beyond the largest committed point of the anchoring weight ladder"),
+)
+POWER_RHOS: tuple[float, ...] = (0.0, 0.5)
+POWER_REPLICATES = 2_000
+POWER_SEED = 20260827
+
+#: R2-I2's MDE search grid: 101 points, step 2e-4, delta the injected TREATED
+#: effect in RPS.
+POWER_GRID_STEP = 2e-4
+POWER_GRID_POINTS = 101
+
+#: R-I2's bar on the treated scale, exactly: 0.0010 x 85 / 52. Evaluated at its
+#: own seed and replicates, never interpolated from the grid.
+POWER_BAR = -(0.0010 * POWER_N_THIN / POWER_N_TREATED)
+
+#: R-I2's six published rows, as the document prints them. R2-I2 binds the
+#: committed implementation to reproduce them before the freeze commit; if they
+#: do not reproduce, a dated note corrects them BEFORE the freeze, and no freeze
+#: block may be rendered while an unreproduced power number stands.
+PUBLISHED_POWER: tuple[dict[str, Any], ...] = (
+    {"scenario": "A freshness-scale", "rho": 0.0, "power_at_bar": 0.461,
+     "mde_estimand": -0.001440, "ratio": 1.44, "power_at_2x": 0.977},
+    {"scenario": "A freshness-scale", "rho": 0.5, "power_at_bar": 0.425,
+     "mde_estimand": -0.001553, "ratio": 1.55, "power_at_2x": 0.944},
+    {"scenario": "B anchoring-scale", "rho": 0.0, "power_at_bar": 0.103,
+     "mde_estimand": -0.003738, "ratio": 3.74, "power_at_2x": 0.326},
+    {"scenario": "B anchoring-scale", "rho": 0.5, "power_at_bar": 0.103,
+     "mde_estimand": -0.004160, "ratio": 4.16, "power_at_2x": 0.274},
+    {"scenario": "C mechanism-scale", "rho": 0.0, "power_at_bar": 0.058,
+     "mde_estimand": -0.009200, "ratio": 9.20, "power_at_2x": 0.083},
+    {"scenario": "C mechanism-scale", "rho": 0.5, "power_at_bar": 0.044,
+     "mde_estimand": -0.010635, "ratio": 10.63, "power_at_2x": 0.081},
+)
+
+POWER_WARNING = (
+    "This design is underpowered against effects near its own bar unless the "
+    "realised paired SD comes in at or below the freshness scale. At the "
+    "anchoring scale a true treated effect of -0.0016 would be missed about "
+    "nine times in ten. A MISS IS THEREFORE SUBSTANTIALLY UNINFORMATIVE: 'no "
+    "adoption' here means 'not detected at this power', not 'no effect', and "
+    "the result document must say so in those words.")
+
+
+def power_structure(corpus: pd.DataFrame | None = None,
+                    played: pd.DataFrame | None = None,
+                    ledger: dict[str, set[str]] | None = None,
+                    ) -> dict[str, Any]:
+    """R2-I2's frozen structure, recomputed from the pinned artifacts.
+
+    85 fixtures, 52 treated, 62 week blocks, 6 seasons; by season
+    26 / 11 / 12 / 12 / 12 / 12 with treated 21 / 4 / 7 / 6 / 7 / 7. The counts
+    are R-I2's; the ASSIGNMENT of fixtures to blocks is the corpus's own, which
+    is what the week-block bootstrap actually resamples, and it is checked
+    against the counts rather than typed in.
+    """
+    corpus = load_corpus() if corpus is None else corpus
+    played = load_archive() if played is None else played
+    ledger = load_walk_ledger() if ledger is None else ledger
+    m = membership(corpus, played, ledger, e_star=E_STAR)
+    detail = m.detail
+    treated = set(m.treated)
+    keys = sorted(m.thin)
+    blocks = [str(detail[k]["block"]) for k in keys]
+    seasons = [str(detail[k]["season"]) for k in keys]
+    is_treated = np.array([k in treated for k in keys], dtype=bool)
+
+    by_season = tuple(sum(1 for s in seasons if s == season)
+                      for season in sorted(set(seasons)))
+    treated_by_season = tuple(
+        int(np.sum(is_treated[[i for i, s in enumerate(seasons)
+                               if s == season]]))
+        for season in sorted(set(seasons)))
+    problems = []
+    if len(keys) != POWER_N_THIN:
+        problems.append(f"{len(keys)} thin, not {POWER_N_THIN}")
+    if int(is_treated.sum()) != POWER_N_TREATED:
+        problems.append(f"{int(is_treated.sum())} treated, not {POWER_N_TREATED}")
+    if len(set(blocks)) != POWER_N_WEEK_BLOCKS:
+        problems.append(f"{len(set(blocks))} week blocks, not "
+                        f"{POWER_N_WEEK_BLOCKS}")
+    if len(set(seasons)) != POWER_N_SEASONS:
+        problems.append(f"{len(set(seasons))} seasons, not {POWER_N_SEASONS}")
+    if by_season != POWER_THIN_BY_SEASON:
+        problems.append(f"thin by season {by_season}, not {POWER_THIN_BY_SEASON}")
+    if treated_by_season != POWER_TREATED_BY_SEASON:
+        problems.append(f"treated by season {treated_by_season}, not "
+                        f"{POWER_TREATED_BY_SEASON}")
+    if problems:
+        raise MembershipMismatch(
+            "; ".join(problems) + ". R2-I2 freezes the power simulation's "
+            "structure; a different one answers a different question.")
+    return {"keys": keys, "blocks": blocks, "seasons": seasons,
+            "treated": is_treated, "n_thin": len(keys),
+            "n_treated": int(is_treated.sum()),
+            "n_week_blocks": len(set(blocks)), "n_seasons": len(set(seasons)),
+            "thin_by_season": by_season,
+            "treated_by_season": treated_by_season}
+
+
+class _BlockResampler:
+    """`epl.score.block_bootstrap_ci`'s own resample, precomputed once.
+
+    R2-I2 permits a vectorised inner loop **only** if a committed test asserts
+    that its ``(lo, hi, n_blocks)`` equals the protected function's on the
+    frozen structure, at three named noise draws, to 1e-15. This is that loop,
+    and :func:`bootstrap_shortcut_matches` is that assertion.
+
+    The resample indices depend on the seed, ``n_boot`` and ``n_blocks`` ONLY —
+    never on the data — so they are drawn once and reused, which is the whole
+    speedup. The estimator is unchanged: blocks resampled with replacement, the
+    statistic pooled over matches, percentile quantiles at NumPy's default
+    linear interpolation.
+    """
+
+    def __init__(self, labels: Sequence[Any], *, n_boot: int = N_BOOT,
+                 alpha: float = ALPHA, seed: int = BOOTSTRAP_SEED):
+        arr = np.asarray(list(labels), dtype=object)
+        _, inverse = np.unique(arr, return_inverse=True)
+        order = np.argsort(inverse, kind="mergesort")
+        cuts = np.flatnonzero(np.diff(inverse[order])) + 1
+        self.groups = np.split(order, cuts)
+        self.sizes = np.array([g.size for g in self.groups], dtype=float)
+        self.n_blocks = int(self.sizes.size)
+        self.alpha = float(alpha)
+        rng = np.random.default_rng(int(seed))
+        draw = rng.integers(0, self.n_blocks, size=(int(n_boot), self.n_blocks))
+        self.denominator = self.sizes[draw].sum(axis=1)
+        counts = np.zeros((int(n_boot), self.n_blocks), dtype=float)
+        np.add.at(counts, (np.arange(int(n_boot))[:, None], draw), 1.0)
+        self.counts = counts
+
+    def block_sums(self, values: np.ndarray) -> np.ndarray:
+        """`[..., n_fixtures]` -> `[..., n_blocks]`, in the function's own order."""
+        values = np.asarray(values, dtype=float)
+        return np.stack([values[..., g].sum(axis=-1) for g in self.groups],
+                        axis=-1)
+
+    def quantiles(self, block_sums: np.ndarray) -> np.ndarray:
+        """`[..., n_blocks]` -> `[..., 2]` percentile bounds."""
+        means = (np.asarray(block_sums, dtype=float) @ self.counts.T) \
+            / self.denominator
+        return np.quantile(means, [self.alpha / 2.0, 1.0 - self.alpha / 2.0],
+                           axis=-1).T
+
+
+def bootstrap_shortcut_matches(deltas: np.ndarray, labels: Sequence[Any], *,
+                               n_boot: int = N_BOOT, alpha: float = ALPHA,
+                               seed: int = BOOTSTRAP_SEED,
+                               tolerance: float = 1e-15) -> dict[str, Any]:
+    """R2-I2's condition on the shortcut: equal to the protected function.
+
+    "Absent that test, the shortcut is removed, not trusted."
+    """
+    want_lo, want_hi, want_blocks = score_mod.block_bootstrap_ci(
+        deltas, list(labels), n_boot=n_boot, alpha=alpha, seed=seed)
+    sampler = _BlockResampler(labels, n_boot=n_boot, alpha=alpha, seed=seed)
+    got_lo, got_hi = sampler.quantiles(sampler.block_sums(np.asarray(deltas)))
+    out = {"lo": [float(want_lo), float(got_lo)],
+           "hi": [float(want_hi), float(got_hi)],
+           "n_blocks": [int(want_blocks), int(sampler.n_blocks)],
+           "max_abs_diff": float(max(abs(got_lo - want_lo),
+                                     abs(got_hi - want_hi))),
+           "tolerance": float(tolerance)}
+    out["PASS"] = bool(out["max_abs_diff"] <= tolerance
+                       and want_blocks == sampler.n_blocks)
+    return out
+
+
+def power_simulation(structure: dict[str, Any] | None = None, *,
+                     replicates: int = POWER_REPLICATES,
+                     seed: int = POWER_SEED, n_boot: int = N_BOOT,
+                     bootstrap_seed: int = BOOTSTRAP_SEED,
+                     verbose: bool = False) -> dict[str, Any]:
+    """R-I2's power analysis, as R2-I2 makes it committed, runnable code.
+
+    R-I2's six numbers were produced by uncommitted scratch code: the
+    correlated-Gaussian construction, the correlation scope, the MDE search
+    grid, the interpolation rule, the tie rule and the claimed 1e-15 shortcut
+    equivalence existed nowhere a reader could run. A preregistration that
+    publishes six deciding-adjacent numbers from code no one can execute is
+    doing the thing it exists to stop.
+
+    THE CONSTRUCTION, FROZEN.
+
+    * **Structure** — :func:`power_structure`, checked against R-I2's counts.
+      Untreated deltas are exactly 0.0, never noisy, as the ADD design makes
+      them.
+    * **Noise** — for a treated fixture *i* in week block *b*, the delta is
+      ``δ + s · ( sqrt(ρ)·u_b + sqrt(1−ρ)·z_i )`` with ``u_b`` and ``z_i``
+      independent standard normals: an equicorrelated Gaussian whose
+      correlation scope is **the week block and nothing else**. Season
+      correlation is not modelled and is not claimed; ρ ∈ {0, 0.5} brackets it.
+    * **Replicates** — ``R = 2,000``, one ``numpy.random.default_rng(20260827)``
+      consumed in scenario order (A ρ=0, A ρ=0.5, B ρ=0, B ρ=0.5, C ρ=0,
+      C ρ=0.5), and within a scenario one noise draw per replicate **reused
+      across every grid point of δ** — common random numbers, so the power curve
+      is monotone in δ up to Monte-Carlo error.
+    * **Gates** — all three deciding match gates exactly as §4.1 states them,
+      through ``epl.score.block_bootstrap_ci``'s own resample at B = 10,000,
+      α = 0.05, seed 20260814, on the 62 week blocks and on the 6 seasons.
+    * **The MDE** — grid ``δ ∈ {0, −0.0002, …, −0.0200}``; power at a grid point
+      is the fraction of replicates at which ALL THREE gates pass; MDE80 is the
+      linear interpolation in δ between the first adjacent pair bracketing 0.80,
+      scanning from δ = 0 downward; a grid point at exactly 0.80 IS the MDE; and
+      if power never reaches 0.80 the MDE is reported as ``< −0.0200`` with no
+      interpolated value rather than extrapolated. Reported on the estimand's
+      scale, treated effect × 52/85.
+    * **Power at the bar** is evaluated at ``δ = −0.0016346153846153847``
+      exactly, which is not on the grid and is not interpolated from it.
+
+    A STRUCTURAL FACT, so no one reads the table as a defect in the simulation:
+    gate (i) is a threshold AT the bar, not a test against zero, so at a true
+    effect exactly equal to the bar the probability of clearing it is about one
+    half whatever the variance is. An 80%-power MDE equal to the bar is
+    unattainable by construction, at any SD; the honest quantity is the ratio.
+
+    This function WRITES NOTHING. It prints the table and returns the `power`
+    object `reports/evidence/widening.json` carries.
+    """
+    structure = power_structure() if structure is None else structure
+    treated_mask = np.asarray(structure["treated"], dtype=bool)
+    blocks = list(structure["blocks"])
+    seasons = list(structure["seasons"])
+    n_thin = len(blocks)
+    n_treated = int(treated_mask.sum())
+    scale = n_treated / float(n_thin)
+
+    week = _BlockResampler(blocks, n_boot=n_boot, alpha=ALPHA,
+                           seed=bootstrap_seed)
+    season = _BlockResampler(seasons, n_boot=n_boot, alpha=ALPHA,
+                             seed=bootstrap_seed)
+    # the treated-count vector per block, which is what δ multiplies
+    unit = np.zeros(n_thin, dtype=float)
+    unit[treated_mask] = 1.0
+    t_week = week.block_sums(unit)
+    t_season = season.block_sums(unit)
+
+    block_index = {b: i for i, b in enumerate(sorted(set(blocks)))}
+    treated_block = np.array([block_index[b] for i, b in enumerate(blocks)
+                              if treated_mask[i]], dtype=int)
+    grid = np.array([-POWER_GRID_STEP * i for i in range(POWER_GRID_POINTS)],
+                    dtype=float)
+
+    rng = np.random.default_rng(int(seed))
+    rows: list[dict[str, Any]] = []
+    for name, sd, source in POWER_SCENARIOS:
+        for rho in POWER_RHOS:
+            u = rng.standard_normal((int(replicates), len(block_index)))
+            z = rng.standard_normal((int(replicates), n_treated))
+            noise = float(sd) * (np.sqrt(rho) * u[:, treated_block]
+                                 + np.sqrt(1.0 - rho) * z)
+            full = np.zeros((int(replicates), n_thin), dtype=float)
+            full[:, treated_mask] = noise
+            s_week = week.block_sums(full)
+            s_season = season.block_sums(full)
+            noise_total = full.sum(axis=1)
+
+            def passes(delta: np.ndarray) -> np.ndarray:
+                delta = np.asarray(delta, dtype=float).reshape(-1)
+                mean = (delta * n_treated + noise_total) / float(n_thin)
+                ok = mean <= ADOPT_DELTA
+                hi_w = week.quantiles(delta[:, None] * t_week + s_week)[:, 1]
+                hi_s = season.quantiles(delta[:, None] * t_season
+                                        + s_season)[:, 1]
+                return ok & (hi_w < 0.0) & (hi_s < 0.0)
+
+            # the pass indicator is monotone in delta — every gate is — so the
+            # whole power curve follows from each replicate's own critical grid
+            # index, found by a bisection that evaluates the gates 7 times
+            # rather than 101.
+            deepest = passes(np.full(int(replicates), grid[-1]))
+            lo = np.zeros(int(replicates), dtype=int)
+            hi = np.full(int(replicates), POWER_GRID_POINTS - 1, dtype=int)
+            while np.any(lo < hi):
+                mid = (lo + hi) // 2
+                ok = passes(grid[mid])
+                hi = np.where(ok, mid, hi)
+                lo = np.where(ok, lo, np.minimum(mid + 1, hi))
+            critical = np.where(deepest, lo, POWER_GRID_POINTS)
+            curve = np.array([float(np.mean(critical <= k))
+                              for k in range(POWER_GRID_POINTS)], dtype=float)
+
+            at_bar = float(np.mean(passes(np.full(int(replicates), POWER_BAR))))
+            at_two = float(np.mean(passes(np.full(int(replicates),
+                                                  2.0 * POWER_BAR))))
+            mde, note = _mde_from_curve(grid, curve)
+            rows.append({
+                "scenario": name, "sd": float(sd), "source": source,
+                "rho": float(rho),
+                "power_at_bar": at_bar,
+                "mde_treated": (None if mde is None else float(mde)),
+                "mde_estimand": (None if mde is None else float(mde * scale)),
+                "ratio_to_bar": (None if mde is None
+                                 else float(mde * scale / ADOPT_DELTA)),
+                "power_at_2x_bar": at_two,
+                "exhausted": bool(mde is None), "note": note,
+                "curve": [float(v) for v in curve],
+            })
+            if verbose:
+                print(f"[evwiden-power] {name} rho={rho} power@bar={at_bar:.3f} "
+                      f"MDE={rows[-1]['mde_estimand']}", flush=True)
+
+    return {
+        "schema": SCHEMA_ID,
+        "structure": {k: v for k, v in structure.items()
+                      if k not in ("keys", "blocks", "seasons", "treated")},
+        "definition": ("MDE80 is the injected treated effect at which ALL THREE "
+                       "deciding match gates pass with probability 0.80, "
+                       "reported on the estimand's scale (treated effect x "
+                       f"{n_treated}/{n_thin})"),
+        "replicates": int(replicates), "simulation_seed": int(seed),
+        "bootstrap": {"function": "epl.score.block_bootstrap_ci",
+                      "B": int(n_boot), "alpha": ALPHA,
+                      "seed": int(bootstrap_seed)},
+        "grid": {"step": POWER_GRID_STEP, "points": POWER_GRID_POINTS,
+                 "from": 0.0, "to": float(grid[-1]),
+                 "interpolation": "linear in delta between the FIRST adjacent "
+                                  "pair bracketing 0.80, scanning from 0 "
+                                  "downward; a grid point at exactly 0.80 IS "
+                                  "the MDE; if 0.80 is never reached the MDE is "
+                                  "reported as < -0.0200 with no interpolated "
+                                  "value"},
+        "bar": {"treated": POWER_BAR, "estimand": ADOPT_DELTA,
+                "evaluated": "at its own seed and replicates, never "
+                             "interpolated from the grid"},
+        "structural_fact": ("gate (i) is a threshold AT the bar, not a test "
+                            "against zero, so at a true effect exactly equal to "
+                            "the bar the probability of clearing it is about "
+                            "one half whatever the variance is. An 80%-power "
+                            "MDE equal to the bar is unattainable by "
+                            "construction, at any SD; the honest quantity is "
+                            "the ratio."),
+        "rows": rows, "published": [dict(r) for r in PUBLISHED_POWER],
+        "warning": POWER_WARNING,
+        "decides": "nothing — no threshold in §4 moves in response",
+    }
+
+
+def _mde_from_curve(grid: np.ndarray, curve: np.ndarray
+                    ) -> tuple[float | None, str]:
+    """R2-I2's interpolation, tie and exhaustion rules, in that order."""
+    for k in range(len(grid)):
+        if curve[k] == 0.80:
+            return float(grid[k]), "tie rule: the grid point IS the MDE"
+        if k and curve[k - 1] < 0.80 < curve[k]:
+            lo_d, hi_d = float(grid[k - 1]), float(grid[k])
+            lo_p, hi_p = float(curve[k - 1]), float(curve[k])
+            frac = (0.80 - lo_p) / (hi_p - lo_p)
+            return lo_d + frac * (hi_d - lo_d), "linear interpolation in delta"
+    return None, ("exhaustion rule: power does not reach 0.80 anywhere on the "
+                  "grid, so the MDE is < -0.0200 and the table says so rather "
+                  "than extrapolating")
+
+
+def power_reproduces(power: dict[str, Any] | None = None, *,
+                     places: int = 3) -> dict[str, Any]:
+    """Does the committed implementation reproduce R-I2's six published rows?
+
+    R2-I2: "These six rows are to be reproduced by the committed implementation
+    before the freeze commit. If they do not reproduce, this section's numbers
+    are corrected by a dated note appended to this document BEFORE the freeze
+    commit… No freeze block may be rendered while an unreproduced power number
+    stands in this document."
+    """
+    power = power_simulation() if power is None else power
+    checks = []
+    for want, got in zip(PUBLISHED_POWER, power["rows"]):
+        same_row = (want["scenario"] == got["scenario"]
+                    and float(want["rho"]) == float(got["rho"]))
+        mde = got.get("mde_estimand")
+        checks.append({
+            "scenario": want["scenario"], "rho": want["rho"],
+            "row_matches": bool(same_row),
+            "power_at_bar": {"published": want["power_at_bar"],
+                             "reproduced": round(float(got["power_at_bar"]),
+                                                 places)},
+            "mde_estimand": {"published": want["mde_estimand"],
+                             "reproduced": (None if mde is None
+                                            else round(float(mde), 6))},
+            "power_at_2x": {"published": want["power_at_2x"],
+                            "reproduced": round(float(got["power_at_2x_bar"]),
+                                                places)},
+        })
+        checks[-1]["PASS"] = bool(
+            same_row
+            and checks[-1]["power_at_bar"]["reproduced"] == want["power_at_bar"]
+            and checks[-1]["mde_estimand"]["reproduced"] == want["mde_estimand"]
+            and checks[-1]["power_at_2x"]["reproduced"] == want["power_at_2x"])
+    return {"schema": SCHEMA_ID, "checks": checks,
+            "PASS": all(c["PASS"] for c in checks),
+            "rule": ("R2-I2: no freeze block may be rendered while an "
+                     "unreproduced power number stands in this document; the "
+                     "remedy is a dated note appended BEFORE the freeze commit, "
+                     "stating the scratch value, the reproduced value, and what "
+                     "in the frozen construction the scratch code did "
+                     "differently.")}
+
+
+# ==========================================================================
 # 12. THE ADOPTION RULE — §4.1, all four, none sufficient
 # ==========================================================================
 
@@ -5687,11 +6114,129 @@ def harness_freeze_status(sources: Sequence[Path] | None = None, *,
             "schema": SCHEMA_ID}
 
 
+def implementation_report(power: dict[str, Any] | None = None,
+                          ) -> list[dict[str, Any]]:
+    """Does this harness implement the document as BOTH repair rounds leave it?
+
+    R2-0: "§6 step 1 ('the harness is written and audited') is not satisfied
+    until the harness implements this document as repaired in both rounds; §6
+    step 2's freeze block may not be generated before that." Each row below is
+    one of the re-review's work-order items, checked mechanically rather than
+    asserted.
+    """
+    import inspect
+
+    from epl import leaguesim
+
+    refusals = {name for name, obj in globals().items()
+                if inspect.isclass(obj) and issubclass(obj, EvWidenError)
+                and obj is not EvWidenError}
+    sig = list(inspect.signature(leaguesim.simulate).parameters)
+    gate = table_gate({
+        "n_cells": 35, "n_treated_cells": 16,
+        "mw6": {"n": 7, "mean": 0.0, "ci95": [-1.0, 1.0], "n_blocks": 7},
+        "per_label": {lab: {"n_treated": 1, "mean": 0.0}
+                      for lab in POINT_GATE_LABELS},
+        "mw19": {"structural_zero": True, "decides": "nothing"},
+        "mc": {"mc_se_label": {"MW6": 0.0, "MW0": 0.0, "MW3": 0.0,
+                               "MW10": 0.0}}})
+    tests = (paths.REPO_ROOT / HARNESS_FILES[1])
+    test_text = tests.read_text() if tests.exists() else ""
+    rows: list[dict[str, Any]] = [
+        {"id": "R-B1", "what": "both arms from one posterior, the corpus a "
+                               "control",
+         "ok": ("rps_B" in REQUIRED_ROW_FIELDS
+                and "delta_vs_corpus" in REQUIRED_ROW_FIELDS
+                and "corpus_control" in REQUIRED_ROW_FIELDS)},
+        {"id": "R-B2", "what": "gate (iv) per horizon; the pooled 35-cell "
+                               "statistic on no deciding path",
+         "ok": ({"iv_a", "iv_b", "iv_c"} <= set(gate)
+                and "pooled" not in json.dumps(gate["iv_a"])
+                and MW6_LABEL == "MW6" and POINT_GATE_LABELS ==
+                ("MW0", "MW3", "MW10"))},
+        {"id": "R2-B3", "what": "the tie-aware jointly paired particle bootstrap "
+                                "and (P1)-(P5)",
+         "ok": (MC_BOOT == 2_000 and MC_SEED == 20260827
+                and "TableMCImprecise" in refusals
+                and {c["condition"] for c in gate["precision"]["conditions"]}
+                == {"P1", "P2", "P3.MW0", "P3.MW3", "P3.MW10", "P4", "P5"})},
+        {"id": "R2-B4", "what": "the protected signature, the parity oracle and "
+                                "the two digests",
+         "ok": (sig[:6] == ["arm", "state", "book_or_provider", "n_sims",
+                            "seed", "chunk_size"]
+                and callable(sampler_digest) and callable(substantive_digest)
+                and callable(run_parity_oracle))},
+        {"id": "R2-B5", "what": "no real fit before the freeze, whatever the "
+                                "--dir; six enumerated passes",
+         "ok": (callable(assert_may_fit) and len(PRE_FREEZE_RUNS) == 6)},
+        {"id": "R-B6", "what": "the freeze verified against Git identity, and "
+                               "the first-fit event",
+         "ok": (callable(git_committed_bytes) and callable(git_is_ancestor)
+                and callable(record_first_real_fit))},
+        {"id": "R-I1", "what": "the realised configuration digest is pinned and "
+                               "compared",
+         "ok": (len(REALISED_CONFIG_SHA256) == 64
+                and "REALISED_CONFIG_SHA256" in
+                inspect.getsource(assert_config_frozen))},
+        {"id": "R2-I2", "what": "the power simulation is committed code at the "
+                                "ruled path",
+         "ok": callable(power_simulation) and callable(power_reproduces)},
+        {"id": "R-I4", "what": "the evidence canary's array_equal comparator and "
+                               "both mask counts",
+         "ok": ("array_equal" in inspect.getsource(evidence_canary)
+                and callable(corrupt_mask))},
+        {"id": "R2-I5", "what": "the synthetic-ancestry test exists",
+         "ok": "test_the_synthetic_clubs_are_absent_from_the_pinned_artifacts"
+               in test_text},
+        {"id": "R2-I6", "what": "the frozen schemas and the eleven-path MANIFEST",
+         "ok": (len(MANIFEST_PATHS) == 11 and SHARDS == 4
+                and "p_home_B" in _PER_FIXTURE_COLUMNS
+                and "parity_digest_simretro" in _TABLE_COLUMNS)},
+        {"id": "R-M2", "what": "the direction canary runs the production path",
+         "ok": ("finalize_grid" in inspect.getsource(direction_canary)
+                and callable(pre_widening_grid))},
+        {"id": "R2-X", "what": "23 named refusals", "ok": len(refusals) == 23},
+    ]
+    reproduced = power_reproduces(power)
+    rows.append({"id": "R2-I2 (numbers)",
+                 "what": "the six published power rows reproduce",
+                 "ok": bool(reproduced["PASS"]), "detail": reproduced})
+    return rows
+
+
+def assert_implements_document(power: dict[str, Any] | None = None
+                               ) -> list[dict[str, Any]]:
+    """R2-0's binding order, enforced: no freeze block before conformance."""
+    report = implementation_report(power)
+    broken = [r for r in report if not r["ok"]]
+    if broken:
+        detail = "; ".join(f"{r['id']}: {r['what']}" for r in broken)
+        raise EvWidenError(
+            "refusing to render §6 step 2's freeze block: this harness does not "
+            f"yet implement the document as BOTH repair rounds leave it — "
+            f"{detail}. R2-0: '§6 step 1 (the harness is written and audited) is "
+            "not satisfied until the harness implements this document as "
+            "repaired in both rounds; §6 step 2's freeze block may not be "
+            "generated before that.' A hash table committed now would freeze "
+            "code that does not implement the document, which is the one thing "
+            "a hash table must never do."
+            + ("" if not any(r["id"].startswith("R2-I2 (numbers)")
+                             for r in broken) else
+               " On the power numbers specifically, R2-I2 names the remedy and "
+               "it is an owner's call, not the harness's: a dated note appended "
+               "to this document BEFORE the freeze commit, stating the scratch "
+               "value, the reproduced value, and what in the frozen "
+               "construction the scratch code did differently."))
+    return report
+
+
 def freeze_block(corpus: pd.DataFrame | None = None,
                  played: pd.DataFrame | None = None,
                  ledger: dict[str, set[str]] | None = None,
                  table: Sequence[dict[str, Any]] | None = None,
-                 *, pre_freeze_runs: Sequence[str] | None = None) -> str:
+                 *, pre_freeze_runs: Sequence[str] | None = None,
+                 power: dict[str, Any] | None = None,
+                 check_implementation: bool = True) -> str:
     """§6 step 2's follow-up commit, RENDERED BY THE HARNESS'S OWN CODE.
 
     The document asks that commit for a hash table over every harness file —
@@ -5706,8 +6251,16 @@ def freeze_block(corpus: pd.DataFrame | None = None,
     reader who runs `shasum` — which it is not if the recorded hash and the file
     disagree because somebody's clipboard truncated a hex string.
 
+    R2 adds a precondition, and it is the reason this function can refuse:
+    ``--freeze-block`` **must refuse to render until the harness implements this
+    document**, both rounds, and R2-I2 adds that no freeze block may be rendered
+    while an unreproduced power number stands in it.
+    :func:`assert_implements_document` is that check.
+
     This function READS the pinned artifacts and fits nothing.
     """
+    if check_implementation:
+        assert_implements_document(power)
     corpus = load_corpus() if corpus is None else corpus
     played = load_archive() if played is None else played
     ledger = load_walk_ledger() if ledger is None else ledger
@@ -5788,7 +6341,7 @@ def require_harness_freeze(sources: Sequence[Path] | None = None,
 # 17. THE DETACHED LAUNCH — §2.4's runner, GENERATED rather than committed
 # ==========================================================================
 
-def launch_script(directory: Path | str | None = None, shards: int = 4, *,
+def launch_script(directory: Path | str | None = None, shards: int = SHARDS, *,
                   python: str = ".venv/bin/python",
                   table: bool = True, merge: bool = True) -> str:
     """The nohup'd runner, as text. §6 names two harness files and this is not
@@ -5848,10 +6401,18 @@ def launch_script(directory: Path | str | None = None, shards: int = 4, *,
         "  fi",
         "}",
         "",
-        '# RUN_ORDER, enforced by the module too: the canaries are a precondition',
-        '# of the run and the identity control runs first among the fits.',
+        '# R2-H STEP 1 — the post-freeze RESULTS CANARY. This is the first',
+        '# post-freeze act and it performs the FIRST REAL FITS of this',
+        '# experiment: `walkforward.point_in_time_canary` calls `_forecasts`',
+        '# four times. R-B6 comes into force at its completion, not at the',
+        '# single-opening exercise. `PASS: false` on any leg stops the',
+        '# experiment and the failure publishes.',
         'run_step canary $PY -u -m epl.evwiden --canary --dir "$DIR"',
         "",
+        "# R2-H STEP 3 — the four shards, then the merge, then the table leg's",
+        "# parity oracle, then the table leg's 35 cells. (Step 2, the",
+        "# single-opening exercise, is run by hand into a SCRATCH directory",
+        "# outside this one and its rows are never merged.)",
         "# §2.4: SEQUENTIALLY. Parallel shards crash on the featpanel .tmp rename",
         "# race in the locked path.",
     ]
@@ -5860,7 +6421,11 @@ def launch_script(directory: Path | str | None = None, shards: int = 4, *,
             f'run_step shard_{i:02d}_of_{shards:02d} $PY -u -m epl.evwiden '
             f'--run --shard {i}/{shards} --dir "$DIR"')
     if table:
-        lines += ["", "# §3.3's table leg: 35 fits, 70 runs of 20,000 seasons.",
+        lines += ["",
+                  "# §3.3's table leg, on R2-B4(c)'s budget: 70 fits and 105",
+                  "# runs of 20,000 seasons — the 35-cell parity oracle against",
+                  "# protected ArchiveRunner runs FIRST, inside --table, before",
+                  "# one treated simulation is executed.",
                   'run_step table $PY -u -m epl.evwiden --table --dir "$DIR"']
     if merge:
         lines += ["", "# The merge refuses an incomplete or poisoned shard set,",
@@ -6031,6 +6596,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                          "evidence and the shard ledgers; changes nothing")
     ap.add_argument("--evidence", action="store_true",
                     help="write §6's evidence files under reports/evidence/")
+    ap.add_argument("--power", action="store_true",
+                    help="R2-I2's power simulation: prints the table and the "
+                         "`power` object; fits nothing, simulates no season, "
+                         "writes nothing")
+    ap.add_argument("--conformance", action="store_true",
+                    help="does this harness implement the document as BOTH "
+                         "repair rounds leave it? prints the work order")
     ap.add_argument("--freeze-block", dest="freeze_block", action="store_true",
                     help="print §6 step 2's hash table and membership digests, "
                          "recomputed from the pinned artifacts; fits nothing")
@@ -6073,6 +6645,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "note": "§2.4: a detached run goes through a nohup'd SCRIPT "
                         "FILE, never a stdin heredoc.",
             }, indent=2))
+
+        if args.power:
+            out = power_simulation(verbose=True)
+            print("| scenario | rho | power at the bar | joint MDE (estimand) "
+                  "| ratio to the bar | power at 2x the bar |")
+            print("|---|---:|---:|---:|---:|---:|")
+            for row in out["rows"]:
+                mde = ("< -0.0200" if row["mde_estimand"] is None
+                       else f"{row['mde_estimand']:.6f}")
+                ratio = ("—" if row["ratio_to_bar"] is None
+                         else f"{row['ratio_to_bar']:.2f}x")
+                print(f"| {row['scenario']} | {row['rho']} | "
+                      f"{row['power_at_bar']:.3f} | {mde} | {ratio} | "
+                      f"{row['power_at_2x_bar']:.3f} |")
+            print(json.dumps(power_reproduces(out), indent=2, default=str))
+
+        if args.conformance:
+            print(json.dumps(implementation_report(), indent=2, default=str))
 
         if args.freeze_block:
             print(freeze_block(), end="")

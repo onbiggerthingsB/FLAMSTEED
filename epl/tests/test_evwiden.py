@@ -3723,6 +3723,154 @@ def test_every_secondary_says_in_its_own_output_that_it_decides_nothing(
     assert result["decides"].startswith("nothing")
 
 
+# ==========================================================================
+# R2-I2 — the power simulation, committed
+# ==========================================================================
+
+def _reproducing_power():
+    """A `power` object whose rows are the six published ones, exactly.
+
+    `power_simulation()` itself is R = 2,000 replicates over six scenarios and
+    costs about twenty seconds; the freeze-block tests are about the freeze
+    block, so they hand it a stub and the reproduction question gets its own
+    test.
+    """
+    return {"rows": [{"scenario": r["scenario"], "rho": r["rho"],
+                      "power_at_bar": r["power_at_bar"],
+                      "mde_estimand": r["mde_estimand"],
+                      "power_at_2x_bar": r["power_at_2x"]}
+                     for r in ew.PUBLISHED_POWER]}
+
+
+def test_the_power_simulation_is_committed_code_at_the_ruled_path():
+    """R2-I2: "R-I2's six power numbers were produced by uncommitted scratch
+    code… A preregistration that publishes six deciding-adjacent numbers from
+    code no one can execute is doing the thing it exists to stop."
+
+    Module `epl/evwiden.py`, function `power_simulation()`, CLI
+    `python -m epl.evwiden --power`, tests here, and it WRITES NOTHING."""
+    import inspect
+
+    assert callable(ew.power_simulation)
+    assert ew.power_simulation.__module__ == "epl.evwiden"
+    source = inspect.getsource(ew.power_simulation)
+    for forbidden in ("write_text", "to_parquet", "open(", "savez"):
+        assert forbidden not in source, forbidden
+    cli = inspect.getsource(ew.main)
+    assert "--power" in cli and "power_simulation(" in cli
+    # the constants R2-I2 freezes
+    assert ew.POWER_REPLICATES == 2000 and ew.POWER_SEED == 20260827
+    assert ew.POWER_GRID_POINTS == 101 and ew.POWER_GRID_STEP == 2e-4
+    assert [s[1] for s in ew.POWER_SCENARIOS] == [0.005262, 0.014449, 0.036]
+    assert ew.POWER_RHOS == (0.0, 0.5)
+    assert ew.POWER_BAR == pytest.approx(-0.0016346153846153847, abs=1e-18)
+    assert 2 * ew.POWER_BAR == pytest.approx(-0.0032692307692307695, abs=1e-18)
+    assert len(ew.PUBLISHED_POWER) == 6
+
+
+def test_the_mde_rules_are_interpolation_then_tie_then_exhaustion():
+    """R2-I2 freezes all three, in that order."""
+    grid = np.array([-2e-4 * i for i in range(5)])
+    # a grid point at exactly 0.80 IS the MDE, with no interpolation
+    mde, note = ew._mde_from_curve(grid, np.array([0.0, 0.5, 0.80, 0.9, 1.0]))
+    assert mde == grid[2] and "tie rule" in note
+    # otherwise the FIRST adjacent pair bracketing 0.80, linearly interpolated
+    mde, note = ew._mde_from_curve(grid, np.array([0.0, 0.5, 0.7, 0.9, 1.0]))
+    assert mde == pytest.approx(grid[2] + 0.5 * (grid[3] - grid[2]))
+    assert "linear interpolation" in note
+    # and if 0.80 is never reached the table says so rather than extrapolating
+    mde, note = ew._mde_from_curve(grid, np.array([0.0, 0.1, 0.2, 0.3, 0.4]))
+    assert mde is None and "exhaustion rule" in note
+
+
+@pinned
+def test_the_bootstrap_shortcut_equals_the_protected_function(real):
+    """R2-I2: "A vectorised inner loop is permitted ONLY if a committed test
+    asserts that its `(lo, hi, n_blocks)` equals the protected function's on the
+    frozen structure, at three named noise draws, to 1e-15 — and reports
+    `n_blocks` of 62 and 6. Absent that test, the shortcut is removed, not
+    trusted." """
+    corpus, played, ledger = real
+    structure = ew.power_structure(corpus, played, ledger)
+    for named_seed in (20260827, 20260814, 20260611):
+        draw = np.random.default_rng(named_seed).standard_normal(
+            structure["n_thin"]) * 0.005262
+        week = ew.bootstrap_shortcut_matches(draw, structure["blocks"],
+                                             n_boot=2000)
+        season = ew.bootstrap_shortcut_matches(draw, structure["seasons"],
+                                               n_boot=2000)
+        assert week["PASS"] and season["PASS"], named_seed
+        assert week["max_abs_diff"] <= 1e-15
+        assert season["max_abs_diff"] <= 1e-15
+        assert week["n_blocks"] == [62, 62]
+        assert season["n_blocks"] == [6, 6]
+
+
+@pinned
+def test_the_power_structure_is_r_i2s_frozen_one(real):
+    """R2-I2's structure, and the counts are checked rather than typed in: the
+    ASSIGNMENT of the 85 fixtures to their 62 week blocks is the corpus's own,
+    which is what the week-block bootstrap actually resamples."""
+    corpus, played, ledger = real
+    s = ew.power_structure(corpus, played, ledger)
+    assert s["n_thin"] == 85 == ew.POWER_N_THIN
+    assert s["n_treated"] == 52 == ew.POWER_N_TREATED
+    assert s["n_week_blocks"] == 62 == ew.POWER_N_WEEK_BLOCKS
+    assert s["n_seasons"] == 6 == ew.POWER_N_SEASONS
+    assert s["thin_by_season"] == (26, 11, 12, 12, 12, 12)
+    assert s["treated_by_season"] == (21, 4, 7, 6, 7, 7)
+    assert int(np.asarray(s["treated"]).sum()) == 52
+
+
+@pinned
+def test_the_power_simulation_runs_and_carries_its_own_construction(real):
+    """A short run: the object it emits is the one `widening.json` carries, and
+    every frozen choice is named in it."""
+    corpus, played, ledger = real
+    structure = ew.power_structure(corpus, played, ledger)
+    out = ew.power_simulation(structure, replicates=50, n_boot=500)
+    assert len(out["rows"]) == 6
+    assert out["bootstrap"]["seed"] == ew.BOOTSTRAP_SEED
+    assert out["simulation_seed"] == ew.POWER_SEED
+    assert "unattainable by construction" in out["structural_fact"]
+    assert "SUBSTANTIALLY UNINFORMATIVE" in out["warning"]
+    assert out["decides"].startswith("nothing")
+    for row in out["rows"]:
+        assert 0.0 <= row["power_at_bar"] <= 1.0
+        assert len(row["curve"]) == ew.POWER_GRID_POINTS
+        # the curve is monotone in delta up to Monte-Carlo error — common
+        # random numbers across grid points are what make it so
+        assert all(b >= a for a, b in zip(row["curve"], row["curve"][1:]))
+
+
+@pinned
+def test_the_freeze_block_refuses_while_a_power_number_is_unreproduced():
+    """R2-I2: "No freeze block may be rendered while an unreproduced power
+    number stands in this document." The remedy is a dated note appended BEFORE
+    the freeze commit, and it is an owner's call rather than the harness's."""
+    broken = _reproducing_power()
+    broken["rows"][0] = dict(broken["rows"][0], power_at_bar=0.999)
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.freeze_block(power=broken)
+    assert "does not yet implement the document" in str(exc.value)
+    assert "dated note appended" in str(exc.value)
+    assert "R2-I2 (numbers)" in str(exc.value)
+
+    report = ew.implementation_report(broken)
+    assert [r["id"] for r in report if not r["ok"]] == ["R2-I2 (numbers)"]
+
+
+def test_the_conformance_report_covers_the_re_reviews_whole_work_order():
+    """R2-0: "§6 step 1 (the harness is written and audited) is not satisfied
+    until the harness implements this document as repaired in both rounds"."""
+    report = ew.implementation_report(_reproducing_power())
+    ids = [r["id"] for r in report]
+    assert set(ids) >= {"R-B1", "R-B2", "R2-B3", "R2-B4", "R2-B5", "R-B6",
+                        "R-I1", "R2-I2", "R-I4", "R2-I5", "R2-I6", "R-M2",
+                        "R2-X", "R2-I2 (numbers)"}
+    assert all(r["ok"] for r in report), [r for r in report if not r["ok"]]
+
+
 @pinned
 def test_the_freeze_block_is_harness_produced_and_round_trips(tmp_path):
     """§6 step 2 asks its commit for the harness hashes, the schema identifier,
@@ -3734,7 +3882,7 @@ def test_the_freeze_block_is_harness_produced_and_round_trips(tmp_path):
     into a file, must make `harness_freeze_status` say frozen. A hash table the
     freeze checker cannot read is a hash table that freezes nothing.
     """
-    block = ew.freeze_block()
+    block = ew.freeze_block(power=_reproducing_power())
     assert ew.SCHEMA_ID in block
     for name in ew.HARNESS_FILES:
         assert f"`{name}`" in block
@@ -3776,6 +3924,7 @@ def test_the_freeze_block_digests_are_the_membership_digests():
 
     cells = ew.table_cells(baseline.load_matches(), played)
     digests = ew.membership_digests(corpus, played, ledger, table=cells)
-    block = ew.freeze_block(corpus, played, ledger, cells)
+    block = ew.freeze_block(corpus, played, ledger, cells,
+                            power=_reproducing_power())
     for value in digests["digests"].values():
         assert value in block
