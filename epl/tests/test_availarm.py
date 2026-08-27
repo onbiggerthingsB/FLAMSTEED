@@ -1788,3 +1788,42 @@ def test_the_source_clock_never_reorders_our_own(tmp_path):
         "the LATEST observed_at wins even though its news_added is the older "
         "of the two — a source restating its own history cannot move this "
         "arm's information set")
+
+
+def test_a_ledger_the_cycle_cannot_read_back_is_journalled_not_a_traceback(
+        tmp_path, monkeypatch):
+    """Step 9 reads its own ledger back to tally scored against abstained, so
+    the arm's refusal family has to be one the cycle can journal. A STOP with
+    no line in the flight log is the one hole a flight log may not have."""
+    from epl import livecycle
+
+    assert availarm.AvailArmError in livecycle.REFUSALS
+    ledger = tmp_path / "avail.jsonl"
+    ledger.write_text('{"fixture_id": "2627:alpha:bravo"\n', encoding="utf-8")
+    results = tmp_path / "results.jsonl"
+    results.write_text(json.dumps(_result()) + "\n", encoding="utf-8")
+    monkeypatch.setattr(availarm, "main", _fake_main([]))
+    with pytest.raises(availarm.SchemaMismatch, match="line 1"):
+        livecycle._step_avail(directory=tmp_path, results_file=results,
+                              ledger=ledger, season_root=None, verbose=False)
+
+
+def test_an_earned_abstention_stays_earned_as_the_archive_grows(tmp_path):
+    """The append-only property the abstention check leans on: the capture
+    refuses a backwards pull clock, so the manifest is monotone in
+    `observed_at` and a line can only ever land after every line already on it.
+    A correctly filed abstention is therefore still correct next month."""
+    bits = _verifiable(tmp_path)
+    earned = _rows(None)[0]                     # observed_by 2026-08-21
+    _rewrite(bits["path"], [*availarm.read_shadow(bits["path"]), earned])
+    assert _reverify(bits)["n_abstained"] == 1
+
+    for when in ("2026-08-28T09:00:00Z", "2026-09-04T09:00:00Z"):
+        _archive(bits["raw"], bits["manifest"], when, squads=_real_squads())
+        assert _reverify(bits)["n_abstained"] == 1, (
+            "no line can appear before one already on the manifest, so the "
+            "selection at 2026-08-21 stays empty for ever")
+
+    with pytest.raises(av.ClockRegression):
+        _archive(bits["raw"], bits["manifest"], "2026-08-20T09:00:00Z",
+                 squads=_real_squads())

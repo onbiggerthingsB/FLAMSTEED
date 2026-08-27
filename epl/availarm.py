@@ -1217,6 +1217,15 @@ def check_abstention(row: Mapping[str, Any], *,
     the correct scored one for ever. When `lines` is given (verification always
     gives them) the selection is re-run at the row's own `observed_by` and must
     come back empty.
+
+    AND THE ANSWER CANNOT GO STALE, which is what makes the check safe on an
+    append-only file. The capture refuses a backwards pull clock outright
+    (`epl.availability.pull` raises `ClockRegression` when a pull's
+    `observed_at` precedes the last manifest line's), so the manifest is
+    monotone in `observed_at`: a line can only ever be added AFTER every line
+    already on it. A correctly filed abstention therefore stays correct however
+    much the archive grows, and a row this refuses was wrong when it was
+    written.
     """
     fixture_id = row.get("fixture_id")
     if row.get("abstained") is not True:

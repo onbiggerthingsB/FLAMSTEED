@@ -213,6 +213,13 @@ REFUSALS: tuple[type[BaseException], ...] = (
     LiveCycleError, season_mod.SeasonError, simcli.CliError,
     matchboard.MatchboardError, recalfit.RecalError, oddscapture.CaptureError,
     leaguesim.SimError, teams.UnknownTeamError,
+    # Step 9's own family. The step calls the arm through its `main`, which
+    # turns its refusals into an exit code — but the step also READS the arm's
+    # ledger back to tally scored against abstained (A12 (d)), and a ledger
+    # this cycle cannot read is this cycle's refusal. Without it that one
+    # refusal would escape `run_cycle`'s journalling and leave a STOP with no
+    # line in the flight log, which is the one hole a flight log may not have.
+    availarm.AvailArmError,
 )
 
 
