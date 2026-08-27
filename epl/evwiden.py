@@ -3851,6 +3851,11 @@ def freeze_block(corpus: pd.DataFrame | None = None,
             "built in a temporary root",
             "`pytest epl/tests/test_evwiden.py` — the synthetic corpora, plus "
             "the `@pinned` tests that re-derive the census and the membership",
+            "one `Engine(...)` construction plus `fit_points`, `enlarged`, "
+            "`assert_cutoff_clean` and `assert_point_in_time` at the first "
+            "opening — the whole of `Engine.fit` EXCEPT the call to "
+            "`dcfit.fit_epl`, run to check the wiring. No sampler ran and the "
+            "shared point-in-time store was byte-identical afterwards",
     )):
         lines.append(f"* {run}")
     lines.append("")
