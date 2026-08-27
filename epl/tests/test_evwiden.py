@@ -2754,6 +2754,117 @@ def test_the_evidence_files_are_written_whichever_way_the_numbers_fall(tmp_path)
         assert (out / name).exists()
 
 
+def test_the_verdict_json_carries_r_i6s_frozen_field_list(tmp_path):
+    """R-I6: "the evidence schema, frozen field by field". The superseded table
+    said "both CIs" where there are THREE deciding intervals, left the
+    820-fixture control without a committed home, promised Sunderland and
+    coverage diagnostics no column held, and froze no MANIFEST membership."""
+    _run(tmp_path)
+    rows = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
+    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    path, table_rows = _run_cells(tmp_path)
+    scored = ew.score_table(table_rows, n_boot=200, ledger_path=path)
+    gate = ew.table_gate(scored)
+    result.update({
+        "table": {"scored": scored, "gate": gate},
+        "identity_control": {"n_fixtures": 8, "max_abs_diff": 0.0,
+                             "mean_abs_diff": 0.0},
+        "adoption": ew.adoption(result["mean"], result["ci95"],
+                                result["ci95_season"], gate),
+        "canaries": {"PASS": True}})
+    published = ew.evidence_object(result)
+
+    assert set(published) >= {
+        "schema", "generated_at", "prereg_commit", "repairs_section", "pins",
+        "estimand", "ci_week", "ci_season", "ci_table_mw6",
+        "gate_i", "gate_ii", "gate_iii", "gate_iv", "controls", "canaries",
+        "grid", "strata", "movement", "coverage", "sunderland", "power",
+        "materiality", "verdict"}
+    # THREE deciding intervals, each with its own frozen construction
+    for name in ("ci_week", "ci_season", "ci_table_mw6"):
+        assert set(published[name]) >= {"function", "n_blocks", "B", "alpha",
+                                        "seed", "lo", "hi"}
+        assert published[name]["function"] == "epl.score.block_bootstrap_ci"
+    assert published["ci_table_mw6"]["n_blocks"] == 7
+    # the 820-fixture control has a home, with both numbers
+    assert set(published["controls"]["identity"]) == {"n", "max_abs_diff",
+                                                      "mean_abs_diff", "PASS"}
+    assert published["controls"]["table_parity"]["n_cells"] == 35
+    # gate (iv) carries R2-B3's precision names, not R-I6's superseded mc_se_mean
+    precision = published["gate_iv"]["precision"]
+    assert set(precision) >= {"mc_boot", "mc_seed", "n_particles",
+                              "sims_per_particle", "mc_se_mw6", "mc_se_mw0",
+                              "mc_se_mw3", "mc_se_mw10", "mc_se_per_cell",
+                              "conditions", "resolved"}
+    assert "mc_se_mean" not in precision
+    assert {c["condition"] for c in precision["conditions"]} == {
+        "P1", "P2", "P3.MW0", "P3.MW3", "P3.MW10", "P4", "P5"}
+    assert published["gate_iv"]["mw19"]["decides"] == "nothing"
+    assert published["sunderland"]["club"] == "sunderland"
+    assert published["materiality"]["required_sentence"] == \
+        ew.MATERIALITY_SENTENCE
+    assert published["pins"]["realised_config_sha256"] == \
+        ew.REALISED_CONFIG_SHA256
+
+
+def test_the_manifest_is_the_eleven_paths_and_a_missing_file_is_a_refusal(
+        tmp_path):
+    """R2-I6: "'Bulky local artifacts' is no longer a category; it is a list."
+    Eleven paths, and `--verify` refuses a missing entry, a disagreeing digest,
+    or an entry of ours outside the eleven."""
+    assert len(ew.MANIFEST_PATHS) == 11
+    assert ew.MANIFEST_PATHS[4:8] == tuple(
+        f"data/epl/fit/evwiden/shard_{i:02d}_of_04.jsonl" for i in range(4))
+    assert ew.SHARDS == 4
+
+    manifest = tmp_path / "MANIFEST.sha256"
+    entries = {}
+    for rel in ew.MANIFEST_PATHS:
+        target = tmp_path / Path(rel).name
+        target.write_text(rel)
+        entries[rel] = target
+    ew.update_manifest({k: str(v) for k, v in entries.items()}, manifest,
+                       require=ew.MANIFEST_PATHS)
+    assert ew.assert_manifest_complete(manifest, entries=entries)["PASS"]
+
+    # a missing promised artifact is a refusal, never a silent omission
+    absent = dict(entries)
+    absent[ew.MANIFEST_PATHS[-1]] = tmp_path / "nope"
+    with pytest.raises(ew.MergeIncomplete) as exc:
+        ew.update_manifest({k: str(v) for k, v in absent.items()},
+                           tmp_path / "other.sha256",
+                           require=ew.MANIFEST_PATHS)
+    assert "never a silent omission" in str(exc.value)
+
+    # a digest that disagrees is a refusal
+    entries[ew.MANIFEST_PATHS[0]].write_text("moved")
+    with pytest.raises(ew.MergeIncomplete) as exc:
+        ew.assert_manifest_complete(manifest, entries=entries)
+    assert "digest disagrees" in str(exc.value)
+
+
+def test_the_manifest_refuses_an_entry_of_ours_outside_the_eleven(tmp_path):
+    manifest = tmp_path / "MANIFEST.sha256"
+    entries = {}
+    for rel in ew.MANIFEST_PATHS:
+        target = tmp_path / Path(rel).name
+        target.write_text(rel)
+        entries[rel] = target
+    ew.update_manifest({k: str(v) for k, v in entries.items()}, manifest)
+    manifest.write_text(manifest.read_text()
+                        + f"{'0' * 64}  reports/evidence/widening_extra.csv  1\n")
+    with pytest.raises(ew.MergeIncomplete) as exc:
+        ew.assert_manifest_complete(manifest, entries=entries)
+    assert "outside the eleven" in str(exc.value)
+
+    # ...and another experiment's entries are not ours to refuse
+    manifest.write_text("\n".join(
+        line for line in manifest.read_text().splitlines()
+        if "widening_extra" not in line)
+        + f"\n{'0' * 64}  reports/evidence/anchoring_per_fixture.csv  1\n")
+    assert ew.assert_manifest_complete(manifest, entries=entries)["PASS"]
+
+
 def test_the_per_fixture_file_reproduces_the_estimand_with_arithmetic_alone(
         tmp_path):
     """`reports/evidence/README.md`'s standard: a reader holding this file and
@@ -2769,25 +2880,46 @@ def test_the_per_fixture_file_reproduces_the_estimand_with_arithmetic_alone(
     with (out / "widening_per_fixture.csv").open() as fh:
         got = list(_csv.DictReader(fh))
     assert len(got) == result["n"]
+    assert list(got[0]) == list(ew._PER_FIXTURE_COLUMNS)
     assert float(np.mean([float(r["delta"]) for r in got])) == \
         pytest.approx(result["mean"])
     # the block labels are columns, because both bootstraps need them
     assert {"block", "season"} <= set(got[0])
     assert len({r["block"] for r in got}) == result["n_blocks"]
     assert len({r["season"] for r in got}) == result["n_season_blocks"]
+    # R-B1: both arms and the corpus, side by side, so a reader can confirm the
+    # eight-decimal equality rather than take it
+    for row in got:
+        assert row["p_home_B"] == row["p_home_corpus"]
+        assert float(row["max_abs_dp_vs_corpus"]) == 0.0
+        assert float(row["delta"]) == pytest.approx(
+            float(row["rps_A"]) - float(row["rps_B"]))
+        assert float(row["delta_vs_corpus"]) == pytest.approx(float(row["delta"]))
 
 
 def test_the_table_evidence_file_carries_both_arms_of_every_cell(tmp_path):
     import csv as _csv
 
-    _, table_rows = _run_cells(tmp_path)
+    path, table_rows = _run_cells(tmp_path)
+    scored = ew.score_table(table_rows, n_boot=100, ledger_path=path)
     out = tmp_path / "evidence"
-    ew.write_evidence({"schema": ew.SCHEMA_ID}, None, table_rows,
+    ew.write_evidence({"schema": ew.SCHEMA_ID,
+                       "table": {"scored": scored}}, None, table_rows,
                       directory=out, manifest=False)
     with (out / "widening_table_cells.csv").open() as fh:
         got = list(_csv.DictReader(fh))
-    assert len(got) == 2 * len(table_rows)
-    assert {r["arm"] for r in got} == {ew.ARM_NAME, ew.BASELINE_ARM}
+    # R-I6: 35 rows — one per CELL, the paired shape the deltas have
+    assert len(got) == len(table_rows) == 35
+    assert list(got[0]) == list(ew._TABLE_COLUMNS)
+    treated = [r for r in got if r["treated_clubs"]]
+    assert len(treated) == 16
+    for row in treated:
+        assert row["sampler_digest_control"] != row["sampler_digest_treatment"]
+        assert row["parity_digest_simretro"]
+        assert row["provisional_control"] and row["provisional_treatment"]
+        assert row["mc_se_paired"] != ""
+    assert all(float(r["delta_trps"]) == 0.0 for r in got
+               if not r["treated_clubs"])
 
 
 def test_the_grid_file_carries_every_point_including_the_degenerate_ones(
@@ -2801,10 +2933,13 @@ def test_the_grid_file_carries_every_point_including_the_degenerate_ones(
     ew.write_evidence(result, None, None, directory=out, manifest=False)
     with (out / "widening_grid_means.csv").open() as fh:
         got = list(_csv.DictReader(fh))
+    assert list(got[0]) == ["e_star", "n_thin", "n_treated", "mean_delta",
+                            "ci_lo", "ci_hi", "n_blocks", "degenerate",
+                            "decides"]
     assert {float(r["e_star"]) for r in got} == {1.0, 3.0, 5.0, 8.0, 10.0, 12.0}
-    degenerate = {float(r["e_star"]) for r in got
-                  if r["degenerate_by_construction"] == "True"}
+    degenerate = {float(r["e_star"]) for r in got if r["degenerate"] == "True"}
     assert set(ew.E_GRID_DEGENERATE) <= degenerate
+    assert {r["decides"] for r in got} == {"nothing"}
 
 
 def test_the_manifest_updates_in_place_and_keeps_what_it_did_not_write(tmp_path):
@@ -3447,7 +3582,7 @@ def test_verify_refuses_a_verdict_that_does_not_match_its_own_evidence(tmp_path)
     ew.write_evidence(result, rows, None, directory=out, manifest=False)
 
     published = json.loads((out / "widening.json").read_text())
-    published["mean"] = float(published["mean"]) + 1e-6
+    published["estimand"]["mean"] = float(published["estimand"]["mean"]) + 1e-6
     (out / "widening.json").write_text(json.dumps(published))
     with pytest.raises(ew.MergeIncomplete) as exc:
         ew.verify(tmp_path, shards=1, evidence=out / "widening.json", n_boot=200)

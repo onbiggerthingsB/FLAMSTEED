@@ -4949,24 +4949,61 @@ def table_gate(scored: dict[str, Any]) -> dict[str, Any]:
 # 15. THE EVIDENCE CONTRACT — §6, regardless of outcome
 # ==========================================================================
 
-#: §6's per-fixture columns, in the order the file writes them.
+#: R-I6's per-fixture columns, frozen field by field. `block` and `season` are
+#: columns because both bootstraps need them, and the corpus's own probabilities
+#: sit beside Arm B's so a reader can confirm the eight-decimal equality rather
+#: than take it (R-B1).
 _PER_FIXTURE_COLUMNS = (
     "key", "match_id", "season", "block", "cutoff", "date",
-    "home_key", "away_key", "e_home", "e_away", "e_min", "e_star",
-    "thin", "treated", "incumbent_widened", "thin_at",
-    "native_home", "native_draw", "native_away",
-    "arm_home", "arm_draw", "arm_away",
-    "y", "rps_native", "rps_arm", "delta")
+    "home_key", "away_key", "e_home", "e_away", "e_min", "thin_at",
+    "treated", "incumbent_widened",
+    "p_home_B", "p_draw_B", "p_away_B",
+    "p_home_A", "p_draw_A", "p_away_A",
+    "p_home_corpus", "p_draw_corpus", "p_away_corpus",
+    "y", "rps_B", "rps_A", "delta", "delta_vs_corpus",
+    "max_abs_dp_vs_corpus")
 
+#: R-I6's table-cell columns, one row per CELL (35, not 70): the paired shape
+#: the deltas actually have. R2-I6 adds the sampler digests and the two
+#: provisional sets, and `mc_se_paired` is R2-B3's per-cell `mc_se_cell`.
 _TABLE_COLUMNS = (
-    "season", "cutoff_label", "cutoff", "arm", "trps", "wtrps", "flat_trps",
-    "coverage50", "coverage90", "treated_clubs", "n_treated_clubs",
-    "identical", "digest", "effective_posterior_hash", "realised_hash",
-    "n_sims", "seed")
+    "season", "cutoff_label", "cutoff", "treated_clubs", "n_treated_clubs",
+    "trps_control", "trps_treatment", "delta_trps",
+    "wtrps_control", "wtrps_treatment", "delta_wtrps",
+    "mc_se_paired", "identical",
+    "sampler_digest_control", "sampler_digest_treatment",
+    "substantive_digest_control", "substantive_digest_treatment",
+    "parity_digest_simretro",
+    "provisional_control", "provisional_treatment",
+    "cov50_control", "cov90_control", "cov50_treatment", "cov90_treatment",
+    "cov50_treated_control", "cov90_treated_control",
+    "cov50_treated_treatment", "cov90_treated_treatment",
+    "realised_hash")
 
-_GRID_COLUMNS = ("e_star", "population", "treated", "already_widened",
-                 "mean_delta", "sd", "ci95_lo", "ci95_hi", "n_blocks",
-                 "degenerate_by_construction")
+_GRID_COLUMNS = ("e_star", "n_thin", "n_treated", "mean_delta", "ci_lo",
+                 "ci_hi", "n_blocks", "degenerate", "decides")
+
+#: R2-I6's MANIFEST membership, frozen as an exact list of ELEVEN paths.
+#: R-I6's closing paragraph declared a list and then wrote a category; this is
+#: the list. Files 5-11 are the bulky local artifacts and are NOT committed —
+#: what is committed is their digest and byte size, which is the point of the
+#: manifest.
+MANIFEST_PATHS: tuple[str, ...] = (
+    "reports/evidence/widening.json",
+    "reports/evidence/widening_per_fixture.csv",
+    "reports/evidence/widening_table_cells.csv",
+    "reports/evidence/widening_grid_means.csv",
+    *(f"data/epl/fit/evwiden/{shard_name(i, SHARDS)}" for i in range(SHARDS)),
+    "data/epl/fit/evwiden.json",
+    "data/epl/sim/evwiden/table_cells.jsonl",
+    "data/epl/fit/evwiden/canary.json",
+)
+
+#: The namespace this experiment owns inside the SHARED manifest. R2-I6 refuses
+#: "an entry outside the eleven"; `reports/evidence/MANIFEST.sha256` is a file
+#: two earlier experiments already wrote, so the closure is scoped to the paths
+#: this experiment could have written — anything naming `widening` or `evwiden`.
+_MANIFEST_NAMESPACE = ("widening", "evwiden")
 
 
 def _write_csv(path: Path, columns: Sequence[str],
@@ -4994,75 +5031,275 @@ def per_fixture_evidence(rows: Sequence[dict[str, Any]], *,
     for row in sorted(rows, key=lambda r: (str(r["cutoff"]), str(r["match_id"]))):
         if float(row["e_min"]) >= float(e_star):
             continue
-        native = [float(v) for v in row["probs_native"]]
-        arm = [float(v) for v in row["probs_arm"]]
+        corpus = [float(v) for v in row["probs_native"]]
+        arm_b = [float(v) for v in row["probs_incumbent"]]
+        arm_a = [float(v) for v in row["probs_arm"]]
         out.append({
             "key": row["key"], "match_id": row["match_id"],
             "season": row["season"], "block": row["block"],
             "cutoff": row["cutoff"], "date": row["date"],
             "home_key": row["home_key"], "away_key": row["away_key"],
             "e_home": row["e_home"], "e_away": row["e_away"],
-            "e_min": row["e_min"], "e_star": float(e_star),
-            "thin": bool(row["thin"]), "treated": bool(row["treated"]),
-            "incumbent_widened": bool(row["incumbent_widened"]),
+            "e_min": row["e_min"],
             "thin_at": ";".join(row["thin_at"]),
-            "native_home": native[0], "native_draw": native[1],
-            "native_away": native[2],
-            "arm_home": arm[0], "arm_draw": arm[1], "arm_away": arm[2],
-            "y": int(row["y"]), "rps_native": float(row["rps_native"]),
-            "rps_arm": float(row["rps_arm"]), "delta": float(row["delta"]),
+            "treated": bool(row["treated"]),
+            "incumbent_widened": bool(row["incumbent_widened"]),
+            "p_home_B": arm_b[0], "p_draw_B": arm_b[1], "p_away_B": arm_b[2],
+            "p_home_A": arm_a[0], "p_draw_A": arm_a[1], "p_away_A": arm_a[2],
+            "p_home_corpus": corpus[0], "p_draw_corpus": corpus[1],
+            "p_away_corpus": corpus[2],
+            "y": int(row["y"]), "rps_B": float(row["rps_B"]),
+            "rps_A": float(row["rps_arm"]), "delta": float(row["delta"]),
+            "delta_vs_corpus": float(row["delta_vs_corpus"]),
+            "max_abs_dp_vs_corpus": float(row["max_abs_dp_vs_corpus"]),
         })
     return out
 
 
-def table_evidence(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
-    """§6's 35 cells x both arms, one CSV row per (cell, arm)."""
+def table_evidence(rows: Sequence[dict[str, Any]],
+                   mc_se: dict[str, Any] | None = None,
+                   ) -> list[dict[str, Any]]:
+    """R-I6's 35 table-cell rows — one per CELL, the shape the deltas have."""
+    mc_se = dict(mc_se or {})
     out = []
     for row in sorted(rows, key=lambda r: (str(r["season"]), str(r["cutoff"]))):
-        for arm in ("control", "treatment"):
-            leg = row["arms"][arm]
-            coverage = leg.get("coverage") or {}
-            out.append({
-                "season": row["season"], "cutoff_label": row["cutoff_label"],
-                "cutoff": row["cutoff"],
-                "arm": BASELINE_ARM if arm == "control" else ARM_NAME,
-                "trps": leg["trps"], "wtrps": leg["wtrps"],
-                "flat_trps": leg.get("flat_trps"),
-                "coverage50": coverage.get("coverage50"),
-                "coverage90": coverage.get("coverage90"),
-                "treated_clubs": ";".join(row["treated_clubs"]),
-                "n_treated_clubs": len(row["treated_clubs"]),
-                "identical": bool(row["identical"]),
-                "digest": leg.get("digest"),
-                "effective_posterior_hash": leg.get("effective_posterior_hash"),
-                "realised_hash": row.get("realised_hash"),
-                "n_sims": row.get("n_sims"), "seed": row.get("seed"),
-            })
+        control, treatment = row["arms"]["control"], row["arms"]["treatment"]
+
+        def cov(leg, key, club=None):
+            if club is None:
+                return (leg.get("coverage") or {}).get(key)
+            per = (leg.get("coverage_treated") or {})
+            values = [v.get(key) for v in per.values() if v.get(key) is not None]
+            return float(np.mean(values)) if values else None
+
+        out.append({
+            "season": row["season"], "cutoff_label": row["cutoff_label"],
+            "cutoff": row["cutoff"],
+            "treated_clubs": ";".join(row["treated_clubs"]),
+            "n_treated_clubs": len(row["treated_clubs"]),
+            "trps_control": float(control["trps"]),
+            "trps_treatment": float(treatment["trps"]),
+            "delta_trps": float(treatment["trps"]) - float(control["trps"]),
+            "wtrps_control": float(control["wtrps"]),
+            "wtrps_treatment": float(treatment["wtrps"]),
+            "delta_wtrps": float(treatment["wtrps"]) - float(control["wtrps"]),
+            "mc_se_paired": mc_se.get(cell_key(row)),
+            "identical": bool(row["identical"]),
+            "sampler_digest_control": control.get("sampler_digest"),
+            "sampler_digest_treatment": treatment.get("sampler_digest"),
+            "substantive_digest_control": control.get("substantive_digest"),
+            "substantive_digest_treatment": treatment.get("substantive_digest"),
+            "parity_digest_simretro": row.get("parity_digest_simretro"),
+            "provisional_control": ";".join(row.get("provisional_control") or ()),
+            "provisional_treatment":
+                ";".join(row.get("provisional_treatment") or ()),
+            "cov50_control": cov(control, "coverage50"),
+            "cov90_control": cov(control, "coverage90"),
+            "cov50_treatment": cov(treatment, "coverage50"),
+            "cov90_treatment": cov(treatment, "coverage90"),
+            "cov50_treated_control": cov(control, "coverage50", club=True),
+            "cov90_treated_control": cov(control, "coverage90", club=True),
+            "cov50_treated_treatment": cov(treatment, "coverage50", club=True),
+            "cov90_treated_treatment": cov(treatment, "coverage90", club=True),
+            "realised_hash": row.get("realised_hash"),
+        })
     return out
 
 
 def grid_evidence(result: dict[str, Any]) -> list[dict[str, Any]]:
-    """§6's grid file: every grid point's population, treated count, mean, CI."""
+    """R-I6's grid file: `e_star, n_thin, n_treated, mean_delta, ci_lo, ci_hi,
+    n_blocks, degenerate, decides`."""
     return [{
-        "e_star": g["e_star"], "population": g["population"],
-        "treated": g["treated"], "already_widened": g["already_widened"],
-        "mean_delta": g["mean"], "sd": g.get("sd"),
-        "ci95_lo": g["ci95"][0], "ci95_hi": g["ci95"][1],
+        "e_star": g["e_star"], "n_thin": g["population"],
+        "n_treated": g["treated"],
+        "mean_delta": g["mean"],
+        "ci_lo": g["ci95"][0], "ci_hi": g["ci95"][1],
         "n_blocks": g["n_blocks"],
-        "degenerate_by_construction": bool(g["degenerate_by_construction"]),
+        "degenerate": bool(g["degenerate_by_construction"]),
+        "decides": "nothing",
     } for g in result["secondaries"]["grid"]]
 
 
-def update_manifest(entries: dict[str, str], path: Path | str | None = None,
-                    ) -> Path:
+def evidence_object(result: dict[str, Any], *,
+                    power: dict[str, Any] | None = None) -> dict[str, Any]:
+    """R-I6's `reports/evidence/widening.json`, frozen field by field.
+
+    The superseded contract said "both CIs" where there are **three** deciding
+    intervals, left the 820-fixture control without a committed home, promised
+    Sunderland and coverage diagnostics no column held, and froze no MANIFEST
+    membership. Every name below is the document's own; R2-B3 supersedes
+    `gate_iv.mc_se_mean` with its own `precision` names.
+    """
+    table = result.get("table") or {}
+    scored = table.get("scored") or {}
+    gate = table.get("gate") or {}
+    secondaries = result.get("secondaries") or {}
+    adoption_ = result.get("adoption") or {}
+    conditions = adoption_.get("conditions") or {}
+    control = result.get("identity_control") or {}
+    mw6 = scored.get("mw6") or {}
+    boot = result.get("bootstrap") or {}
+
+    def _ci(values, n_blocks, *, blocks: str):
+        lo, hi = ((float(values[0]), float(values[1])) if values else (None, None))
+        return {"function": "epl.score.block_bootstrap_ci", "blocks": blocks,
+                "n_blocks": (int(n_blocks) if n_blocks is not None else None),
+                "B": int(boot.get("n_boot", N_BOOT)),
+                "alpha": float(boot.get("alpha", ALPHA)),
+                "seed": int(boot.get("seed", BOOTSTRAP_SEED)),
+                "lo": lo, "hi": hi}
+
+    out: dict[str, Any] = {
+        "schema": SCHEMA_ID,
+        "generated_at": pd.Timestamp.now("UTC").isoformat(),
+        "prereg_commit": git_commit_touching(paths.rel(PREREG_PATH)),
+        "prereg_blob": git_blob_id(paths.rel(PREREG_PATH)),
+        "repairs_section": ("Repairs of 2026-08-27 (round one) and Repairs of "
+                            "2026-08-27, round two — on the re-review"),
+        "pins": {
+            "corpus_sha256": CORPUS_SHA256, "corpus_rows": CORPUS_ROWS,
+            "corpus_seasons": list(CORPUS_SEASONS),
+            "archive_sha256": ARCHIVE_SHA256, "archive_rows": ARCHIVE_ROWS,
+            "ledger_sha256": WALK_LEDGER_SHA256, "ledger_rows": WALK_LEDGER_ROWS,
+            "config_sha256": CONFIG_SHA256,
+            "realised_config_sha256": REALISED_CONFIG_SHA256,
+            "seed": SEED, "widening": dict(FROZEN_WIDENING),
+            "e_star": E_STAR, "shards": SHARDS},
+        "estimand": {"n": result.get("n"), "mean": result.get("mean"),
+                     "sd": result.get("sd"), "se_iid": result.get("se_iid"),
+                     "definition": result.get("estimand")},
+        "ci_week": _ci(result.get("ci95"), result.get("n_blocks"),
+                       blocks="the corpus's own (season, ISO week) labels"),
+        "ci_season": _ci(result.get("ci95_season"),
+                         result.get("n_season_blocks"), blocks="the 6 seasons"),
+        "ci_table_mw6": _ci(mw6.get("ci95"), mw6.get("n_blocks") or None,
+                            blocks="the seven season strings, one MW6 cell per "
+                                   "block"),
+        "gate_i": {"value": conditions.get("i_point_estimate", {}).get("value"),
+                   "bar": ADOPT_DELTA,
+                   "PASS": conditions.get("i_point_estimate", {}).get("PASS")},
+        "gate_ii": {"value": conditions.get(
+            "ii_block_ci_excludes_zero", {}).get("ci95"),
+            "bar": "upper bound strictly < 0",
+            "PASS": conditions.get("ii_block_ci_excludes_zero", {}).get("PASS")},
+        "gate_iii": {"value": conditions.get(
+            "iii_season_ci_excludes_zero", {}).get("ci95"),
+            "bar": "upper bound strictly < 0",
+            "PASS": conditions.get("iii_season_ci_excludes_zero", {}).get("PASS")},
+        "gate_iv": {
+            "mw6": {"n": mw6.get("n"), "mean": mw6.get("mean"),
+                    "ci": mw6.get("ci95"),
+                    "per_cell": [{k: c.get(k) for k in
+                                  ("season", "cutoff_label", "delta_trps",
+                                   "delta_wtrps", "mc_se_paired")}
+                                 for c in (mw6.get("per_cell") or [])]},
+            "per_label": {lab: {
+                "n_treated": (scored.get("per_label", {}).get(lab, {})
+                              .get("n_treated")),
+                "mean": scored.get("per_label", {}).get(lab, {}).get("mean"),
+                "PASS": gate.get("iv_b", {}).get(lab, {}).get("PASS")}
+                for lab in POINT_GATE_LABELS},
+            "mw19": scored.get("mw19") or {"structural_zero": True,
+                                           "decides": "nothing"},
+            "precision": gate.get("precision"),
+            "PASS_or_UNRESOLVED": gate.get("verdict"),
+            "withdrawn": scored.get("withdrawn")},
+        "controls": {
+            "identity": {"n": control.get("n_fixtures"),
+                         "max_abs_diff": control.get("max_abs_diff"),
+                         "mean_abs_diff": control.get("mean_abs_diff"),
+                         "PASS": (None if control.get("max_abs_diff") is None
+                                  else float(control["max_abs_diff"]) == 0.0)},
+            "untreated_moved": {"n": 0, "refusal": "UntreatedMoved",
+                                "PASS": True},
+            "predicate_mismatch": {"n": 0, "refusal": "PredicateMismatch",
+                                   "PASS": True},
+            "table_parity": {
+                "n_cells": len(scored.get("per_cell") or []),
+                "PASS": all(bool((c or {}).get("parity_digest_simretro"))
+                            for c in (scored.get("per_cell") or [])) or None,
+                "per_cell_digests": {
+                    c["key"]: c.get("parity_digest_simretro")
+                    for c in (scored.get("per_cell") or [])}},
+        },
+        "canaries": result.get("canaries"),
+        "grid": [{"e_star": g["e_star"], "n_thin": g["population"],
+                  "n_treated": g["treated"], "mean": g["mean"],
+                  "ci": g["ci95"], "degenerate":
+                      bool(g["degenerate_by_construction"]),
+                  "decides": "nothing"}
+                 for g in (secondaries.get("grid") or [])],
+        "strata": {k: [{**s, "decides": "nothing"} for s in v]
+                   for k, v in (secondaries.get("strata") or {}).items()},
+        "movement": secondaries.get("movement"),
+        "coverage": {c["key"]: {
+            "control": c.get("coverage_treated_control"),
+            "treatment": c.get("coverage_treated_treatment")}
+            for c in (scored.get("per_cell") or []) if c.get("treated_clubs")},
+        "sunderland": scored.get("hull_analogue"),
+        "power": power if power is not None else result.get("power"),
+        "materiality": {
+            "pooled_corpus": (secondaries.get("full_population") or {}).get("mean"),
+            "reseed_shift": RESEED_SCALE["pooled_shift"],
+            "required_sentence": MATERIALITY_SENTENCE},
+        "verdict": adoption_.get("verdict"),
+        "which_gate_decided": [name for name, leg in conditions.items()
+                               if isinstance(leg, dict)
+                               and leg.get("PASS") is False],
+        "secondaries_decide": "nothing",
+    }
+    return out
+
+
+#: R-I3's required disclosure, in the result document, in these words.
+MATERIALITY_SENTENCE = (
+    "the rule's corpus-level effect is below this model's own re-seed noise, "
+    "and its value is a claim about the fixtures it touches, not about the "
+    "model's aggregate accuracy")
+
+
+def manifest_entries(directory: Path | str | None = None,
+                     table_ledger: Path | str | None = None,
+                     ) -> dict[str, Path]:
+    """R2-I6's eleven paths, resolved. The list, not a category."""
+    directory = Path(directory) if directory is not None else EVWIDEN_DIR
+    table_ledger = (Path(table_ledger) if table_ledger is not None
+                    else TABLE_LEDGER)
+    out: dict[str, Path] = {}
+    for rel in MANIFEST_PATHS:
+        if rel.startswith("reports/evidence/"):
+            out[rel] = EVIDENCE_DIR / Path(rel).name
+        elif rel.endswith("table_cells.jsonl"):
+            out[rel] = table_ledger
+        elif rel == "data/epl/fit/evwiden.json":
+            out[rel] = EVWIDEN_JSON
+        else:
+            out[rel] = directory / Path(rel).name
+    return out
+
+
+def update_manifest(entries: dict[str, str], path: Path | str | None = None, *,
+                    require: Sequence[str] | None = None) -> Path:
     """§6: the bulky local artifacts' digests AND byte sizes, in the manifest.
 
     Existing lines are preserved in their existing order and updated in place;
     new ones are appended. The manifest is a shared file that two earlier
     experiments already wrote, and rewriting it from scratch would silently drop
     their entries — which is the opposite of what a manifest is for.
+
+    R2-I6: **a missing artifact is a refusal, never a silent omission.** Every
+    path in ``require`` must exist; the superseded writer skipped what it could
+    not find, which is how a "complete" manifest ends up describing ten files.
     """
     path = Path(path) if path is not None else EVIDENCE_MANIFEST
+    absent = [rel for rel in (require or ())
+              if not Path(entries.get(rel, "/nonexistent")).exists()]
+    if absent:
+        raise MergeIncomplete(
+            f"the manifest is missing {len(absent)} promised artifact(s) "
+            f"(first: {absent[:3]}). R2-I6 freezes the membership as an exact "
+            "list of eleven paths and refuses to skip a file it cannot find: a "
+            "missing artifact is a refusal, never a silent omission.")
     fresh: dict[str, str] = {}
     for rel, target in entries.items():
         target = Path(target)
@@ -5086,11 +5323,71 @@ def update_manifest(entries: dict[str, str], path: Path | str | None = None,
     return path
 
 
+def read_manifest(path: Path | str | None = None) -> dict[str, dict[str, Any]]:
+    """`path -> {sha256, bytes}` for every line of the shared manifest."""
+    path = Path(path) if path is not None else EVIDENCE_MANIFEST
+    out: dict[str, dict[str, Any]] = {}
+    if not path.exists():
+        return out
+    for line in path.read_text().splitlines():
+        parts = line.split()
+        if len(parts) >= 2:
+            out[parts[1]] = {"sha256": parts[0],
+                             "bytes": (int(parts[2]) if len(parts) > 2
+                                       and parts[2].isdigit() else None)}
+    return out
+
+
+def assert_manifest_complete(path: Path | str | None = None, *,
+                             entries: dict[str, Path] | None = None,
+                             ) -> dict[str, Any]:
+    """R2-I6: exactly the eleven, every digest agreeing, nothing else of ours.
+
+    ``--verify`` refuses if any of the eleven is missing from the manifest, if
+    any digest disagrees, or if the manifest carries an entry outside the
+    eleven. The closure is scoped to the namespace this experiment owns —
+    ``reports/evidence/MANIFEST.sha256`` is a shared file two earlier
+    experiments already wrote, and refusing THEIR entries would be refusing the
+    manifest for doing its job.
+    """
+    path = Path(path) if path is not None else EVIDENCE_MANIFEST
+    entries = manifest_entries() if entries is None else entries
+    recorded = read_manifest(path)
+    missing = [rel for rel in MANIFEST_PATHS if rel not in recorded]
+    ours = [rel for rel in recorded
+            if any(tag in rel for tag in _MANIFEST_NAMESPACE)]
+    extra = sorted(set(ours) - set(MANIFEST_PATHS))
+    disagree: list[str] = []
+    absent: list[str] = []
+    for rel in MANIFEST_PATHS:
+        target = Path(entries.get(rel, "/nonexistent"))
+        if not target.exists():
+            absent.append(rel)
+            continue
+        if rel in recorded and recorded[rel]["sha256"] != sha256_file(target):
+            disagree.append(rel)
+    out = {"path": paths.rel(path), "n_required": len(MANIFEST_PATHS),
+           "missing": missing, "extra": extra, "disagree": disagree,
+           "absent_on_disk": absent,
+           "PASS": not (missing or extra or disagree or absent)}
+    if not out["PASS"]:
+        raise MergeIncomplete(
+            f"{paths.rel(path)} does not carry R2-I6's eleven paths: "
+            f"{len(missing)} missing {missing[:3]}, {len(extra)} outside the "
+            f"eleven {extra[:3]}, {len(disagree)} whose digest disagrees "
+            f"{disagree[:3]}, {len(absent)} promised but absent on disk "
+            f"{absent[:3]}. "
+            "'Bulky local artifacts' is no longer a category; it is a list, and "
+            "a run that cannot produce one of them has not finished.")
+    return out
+
+
 def write_evidence(result: dict[str, Any],
                    rows: Sequence[dict[str, Any]] | None = None,
                    table_rows: Sequence[dict[str, Any]] | None = None, *,
                    directory: Path | str | None = None,
-                   manifest: bool = True) -> dict[str, str]:
+                   manifest: bool = True,
+                   require_manifest_complete: bool = True) -> dict[str, str]:
     """§6's evidence contract, written whichever way the numbers fell.
 
     ULTRA-REVIEW LESSON 1, applied from day one: the verdict's machine-readable
@@ -5107,7 +5404,9 @@ def write_evidence(result: dict[str, Any],
     written: dict[str, str] = {}
 
     json_path = directory / EVIDENCE_JSON.name
-    json_path.write_text(json.dumps(result, indent=2, default=str) + "\n")
+    published = (result if isinstance(result.get("estimand"), dict)
+                 else evidence_object(result))
+    json_path.write_text(json.dumps(published, indent=2, default=str) + "\n")
     written["widening.json"] = paths.rel(json_path)
 
     if rows is not None:
@@ -5119,24 +5418,33 @@ def write_evidence(result: dict[str, Any],
                        grid_evidence(result))
         written["widening_grid_means.csv"] = paths.rel(p)
     if table_rows is not None:
+        mc_se = ((result.get("table") or {}).get("scored") or {}).get(
+            "mc", {}).get("mc_se_per_cell")
         p = _write_csv(directory / EVIDENCE_TABLE_CELLS.name, _TABLE_COLUMNS,
-                       table_evidence(table_rows))
+                       table_evidence(table_rows, mc_se))
         written["widening_table_cells.csv"] = paths.rel(p)
     if manifest:
-        p = update_manifest({paths.rel(EVWIDEN_JSON): EVWIDEN_JSON,
-                             paths.rel(TABLE_LEDGER): TABLE_LEDGER,
-                             paths.rel(CANARY_JSON): CANARY_JSON,
-                             **{paths.rel(s): s for s in
-                                sorted(EVWIDEN_DIR.glob("shard_*.jsonl"))}},
-                            directory / EVIDENCE_MANIFEST.name)
+        # R2-I6: exactly the eleven, and a missing artifact is a refusal.
+        entries = manifest_entries()
+        for rel in ("reports/evidence/widening.json",
+                    "reports/evidence/widening_per_fixture.csv",
+                    "reports/evidence/widening_table_cells.csv",
+                    "reports/evidence/widening_grid_means.csv"):
+            entries[rel] = directory / Path(rel).name
+        require = (MANIFEST_PATHS
+                   if directory == EVIDENCE_DIR and require_manifest_complete
+                   else None)
+        p = update_manifest({k: str(v) for k, v in entries.items()},
+                            directory / EVIDENCE_MANIFEST.name, require=require)
         written["MANIFEST.sha256"] = paths.rel(p)
     return written
 
 
-def verify(directory: Path | str | None = None, *, shards: int = 1,
+def verify(directory: Path | str | None = None, *, shards: int = SHARDS,
            evidence: Path | str | None = None,
            n_boot: int = N_BOOT, seed: int = BOOTSTRAP_SEED,
-           tolerance: float = 1e-12) -> dict[str, Any]:
+           tolerance: float = 1e-12,
+           check_manifest: bool | None = None) -> dict[str, Any]:
     """Re-derive the published headline from the COMMITTED evidence, and from
     the shard ledgers, and demand they agree.
 
@@ -5157,6 +5465,9 @@ def verify(directory: Path | str | None = None, *, shards: int = 1,
             "regardless of outcome, so an absent file is a run that never "
             "finished rather than a result that went the wrong way.")
     published = json.loads(evidence.read_text())
+    estimand_block = published.get("estimand")
+    headline = (dict(estimand_block) if isinstance(estimand_block, dict)
+                else dict(published))
 
     per_fixture = evidence.with_name(EVIDENCE_PER_FIXTURE.name)
     from_csv: dict[str, Any] = {"path": paths.rel(per_fixture), "present": False}
@@ -5188,16 +5499,34 @@ def verify(directory: Path | str | None = None, *, shards: int = 1,
             checks.append({"source": name, "checked": False,
                            "why": "not on disk"})
             continue
-        d_mean = abs(float(got["mean"]) - float(published["mean"]))
-        d_n = int(got["n"]) - int(published["n"])
+        d_mean = abs(float(got["mean"]) - float(headline["mean"]))
+        d_n = int(got["n"]) - int(headline["n"])
         checks.append({"source": name, "checked": True,
                        "delta_mean": d_mean, "delta_n": d_n,
                        "PASS": bool(d_mean <= tolerance and d_n == 0)})
+
+    # R2-I6: `--verify` validates MANIFEST completeness — the eleven paths, no
+    # digest disagreeing, and no entry of ours outside them.
+    if check_manifest is None:
+        check_manifest = evidence.parent.resolve() == EVIDENCE_DIR.resolve()
+    manifest: dict[str, Any] = {"checked": False,
+                                "why": "the evidence is not the committed "
+                                       "reports/evidence/ directory"}
+    if check_manifest:
+        manifest = assert_manifest_complete(
+            evidence.with_name(EVIDENCE_MANIFEST.name))
+        manifest["checked"] = True
+        checks.append({"source": "manifest", "checked": True,
+                       "PASS": bool(manifest["PASS"])})
+
     ran = [c for c in checks if c.get("checked")]
     out = {"schema": SCHEMA_ID, "evidence": paths.rel(evidence),
-           "published": {k: published.get(k) for k in
-                         ("mean", "n", "ci95", "ci95_season", "run_digest")},
+           "published": {"mean": headline.get("mean"), "n": headline.get("n"),
+                         "ci_week": published.get("ci_week"),
+                         "ci_season": published.get("ci_season"),
+                         "verdict": published.get("verdict")},
            "per_fixture_csv": from_csv, "shard_ledgers": from_ledger,
+           "manifest": manifest,
            "checks": checks, "tolerance": tolerance,
            "PASS": bool(ran) and all(c["PASS"] for c in ran)}
     if not out["PASS"]:
