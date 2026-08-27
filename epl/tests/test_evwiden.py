@@ -2815,6 +2815,19 @@ def test_the_verdict_json_carries_r_i6s_frozen_field_list(tmp_path):
     assert published["pins"]["realised_config_sha256"] == \
         ew.REALISED_CONFIG_SHA256
 
+    # R-I2's required publication: the frozen scenarios, the structure, the MDE
+    # definition, R, both seeds, the six rows — AND the realised numbers, which
+    # decide nothing.
+    frozen = {"structure": {"n_thin": 85}, "rows": [],
+              "definition": "MDE80", "replicates": 2000,
+              "simulation_seed": ew.POWER_SEED,
+              "bootstrap": {"seed": ew.BOOTSTRAP_SEED}}
+    with_power = ew.evidence_object(result, power=frozen)
+    assert with_power["power"]["simulation_seed"] == ew.POWER_SEED
+    assert with_power["power"]["bootstrap"]["seed"] == ew.BOOTSTRAP_SEED
+    assert with_power["power"]["realised"]["sd_paired_treated"] is not None
+    assert with_power["power"]["reproduces"]["PASS"] is False
+
 
 def test_the_manifest_is_the_eleven_paths_and_a_missing_file_is_a_refusal(
         tmp_path):

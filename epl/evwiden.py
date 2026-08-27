@@ -3515,8 +3515,14 @@ def power_reproduces(power: dict[str, Any] | None = None, *,
     stands in this document."
     """
     power = power_simulation() if power is None else power
+    rows = list(power.get("rows") or ())
+    if len(rows) != len(PUBLISHED_POWER):
+        return {"schema": SCHEMA_ID, "checks": [], "PASS": False,
+                "why": f"{len(rows)} simulated row(s) against "
+                       f"{len(PUBLISHED_POWER)} published: a comparison that "
+                       "runs out of rows is not a comparison that passed"}
     checks = []
-    for want, got in zip(PUBLISHED_POWER, power["rows"]):
+    for want, got in zip(PUBLISHED_POWER, rows):
         same_row = (want["scenario"] == got["scenario"]
                     and float(want["rho"]) == float(got["rho"]))
         mde = got.get("mde_estimand")
@@ -5701,7 +5707,14 @@ def evidence_object(result: dict[str, Any], *,
             "treatment": c.get("coverage_treated_treatment")}
             for c in (scored.get("per_cell") or []) if c.get("treated_clubs")},
         "sunderland": scored.get("hull_analogue"),
-        "power": power if power is not None else result.get("power"),
+        # R-I2's required publication: "a `power` object holding these
+        # scenarios, the frozen structure, the MDE definition, R, both seeds,
+        # the six rows above, and — after the run — the REALISED paired SD of
+        # the treated deltas and the MDE recomputed at it. The realised numbers
+        # decide nothing and no threshold moves in response."
+        "power": ({**power, "realised": (result.get("power") or {}).get(
+            "realised"), "reproduces": power_reproduces(power)}
+            if power is not None else result.get("power")),
         "materiality": {
             "pooled_corpus": (secondaries.get("full_population") or {}).get("mean"),
             "reseed_shift": RESEED_SCALE["pooled_shift"],
@@ -5850,7 +5863,7 @@ def write_evidence(result: dict[str, Any],
                    rows: Sequence[dict[str, Any]] | None = None,
                    table_rows: Sequence[dict[str, Any]] | None = None, *,
                    directory: Path | str | None = None,
-                   manifest: bool = True,
+                   manifest: bool = True, power: dict[str, Any] | None = None,
                    require_manifest_complete: bool = True) -> dict[str, str]:
     """§6's evidence contract, written whichever way the numbers fell.
 
@@ -5869,7 +5882,7 @@ def write_evidence(result: dict[str, Any],
 
     json_path = directory / EVIDENCE_JSON.name
     published = (result if isinstance(result.get("estimand"), dict)
-                 else evidence_object(result))
+                 else evidence_object(result, power=power))
     json_path.write_text(json.dumps(published, indent=2, default=str) + "\n")
     written["widening.json"] = paths.rel(json_path)
 
@@ -6818,9 +6831,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 merged = [r for shard in range(args.shards)
                           for r in load_ledger(
                               directory / shard_name(shard, args.shards))]
+                # R-I2's `power` object is computed HERE, from committed code,
+                # so the verdict file carries numbers a reader can re-run rather
+                # than numbers a scratch script once printed.
                 written = write_evidence(
                     result, merged,
-                    None if table_out is None else table_out["rows"])
+                    None if table_out is None else table_out["rows"],
+                    power=power_simulation())
                 result["evidence"] = written
             summary = {k: v for k, v in result.items()
                        if k not in ("membership", "canaries", "harness_freeze",
