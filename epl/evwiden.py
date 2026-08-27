@@ -3165,23 +3165,22 @@ POWER_GRID_POINTS = 101
 #: own seed and replicates, never interpolated from the grid.
 POWER_BAR = -(0.0010 * POWER_N_THIN / POWER_N_TREATED)
 
-#: R-I2's six published rows, as the document prints them. R2-I2 binds the
-#: committed implementation to reproduce them before the freeze commit; if they
-#: do not reproduce, a dated note corrects them BEFORE the freeze, and no freeze
-#: block may be rendered while an unreproduced power number stands.
+#: The six published rows AS CORRECTED by the dated note of 2026-08-28 (the
+#: R2-I2 remedy: the scratch stream was unrecoverable, so the committed
+#: implementation's numbers became the document's numbers before the freeze).
 PUBLISHED_POWER: tuple[dict[str, Any], ...] = (
-    {"scenario": "A freshness-scale", "rho": 0.0, "power_at_bar": 0.461,
-     "mde_estimand": -0.001440, "ratio": 1.44, "power_at_2x": 0.977},
-    {"scenario": "A freshness-scale", "rho": 0.5, "power_at_bar": 0.425,
-     "mde_estimand": -0.001553, "ratio": 1.55, "power_at_2x": 0.944},
-    {"scenario": "B anchoring-scale", "rho": 0.0, "power_at_bar": 0.103,
-     "mde_estimand": -0.003738, "ratio": 3.74, "power_at_2x": 0.326},
-    {"scenario": "B anchoring-scale", "rho": 0.5, "power_at_bar": 0.103,
-     "mde_estimand": -0.004160, "ratio": 4.16, "power_at_2x": 0.274},
-    {"scenario": "C mechanism-scale", "rho": 0.0, "power_at_bar": 0.058,
-     "mde_estimand": -0.009200, "ratio": 9.20, "power_at_2x": 0.083},
-    {"scenario": "C mechanism-scale", "rho": 0.5, "power_at_bar": 0.044,
-     "mde_estimand": -0.010635, "ratio": 10.63, "power_at_2x": 0.081},
+    {"scenario": "A freshness-scale", "rho": 0.0, "power_at_bar": 0.451,
+     "mde_estimand": -0.001446, "ratio": 1.45, "power_at_2x": 0.976},
+    {"scenario": "A freshness-scale", "rho": 0.5, "power_at_bar": 0.408,
+     "mde_estimand": -0.001571, "ratio": 1.57, "power_at_2x": 0.950},
+    {"scenario": "B anchoring-scale", "rho": 0.0, "power_at_bar": 0.122,
+     "mde_estimand": -0.003741, "ratio": 3.74, "power_at_2x": 0.321},
+    {"scenario": "B anchoring-scale", "rho": 0.5, "power_at_bar": 0.091,
+     "mde_estimand": -0.004180, "ratio": 4.18, "power_at_2x": 0.267},
+    {"scenario": "C mechanism-scale", "rho": 0.0, "power_at_bar": 0.050,
+     "mde_estimand": -0.009309, "ratio": 9.31, "power_at_2x": 0.087},
+    {"scenario": "C mechanism-scale", "rho": 0.5, "power_at_bar": 0.047,
+     "mde_estimand": -0.010522, "ratio": 10.52, "power_at_2x": 0.080},
 )
 
 POWER_WARNING = (

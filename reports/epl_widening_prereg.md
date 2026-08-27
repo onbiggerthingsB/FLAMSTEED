@@ -2640,3 +2640,60 @@ fit, before the harness revision that these repairs oblige, and before any delta
 of this experiment existed anywhere. Round one's repairs stand except where a row
 of the index above supersedes them; the harness implements neither round yet, and
 §6's freeze block may not be rendered until it implements both.*
+
+---
+
+## Dated note — 2026-08-28, before the freeze commit: the six power rows corrected, as R2-I2 prescribed
+
+R2-I2 ordered: *"These six rows are to be reproduced by the committed
+implementation before the freeze commit. If they do not reproduce, this
+section's numbers are corrected by a dated note appended to this document
+BEFORE the freeze commit."* They did not reproduce exactly, and this is that
+note. No freeze block has been rendered; no real fit of this experiment has
+run; the correction conditions on no outcome — a power simulation reads only
+the frozen SDs and the frozen 85/52/62/6 structure, which the committed
+implementation recomputed from the pinned artifacts and matched exactly
+(by season 26/11/12/12/12/12, treated 21/4/7/6/7/7).
+
+**What the scratch code did differently:** R2-I2 froze R = 2,000, both seeds,
+the scenario order, and CRN-across-delta — but not the order in which the
+block effects `u_b` and the fixture effects `z_i` are consumed inside a
+replicate, nor the fixture-to-block assignment beyond its counts. The scratch
+stream is therefore unrecoverable, and exact reproduction was never
+attainable. The committed implementation freezes the consumption order (per
+scenario: `u = rng.standard_normal((R, n_blocks))` then
+`z = rng.standard_normal((R, n_treated))`, documented at
+`epl.evwiden.power_simulation`), and its numbers are now the document's
+numbers. Every difference is inside Monte-Carlo error at R = 2,000
+(SE ≈ 0.011 at p ≈ 0.45; ≈ 0.007 at p ≈ 0.10), and the MDEs agree to
+0.02–1.2%: the construction reproduced, the stream did not.
+
+**The corrected table (supersedes the six rows of the R-I2 table above;
+scratch values retained for the record):**
+
+| Scenario | ρ | power@bar scratch → corrected | MDE(estimand) scratch → corrected | ratio | power@2× scratch → corrected |
+|---|---|---|---|---|---|
+| A freshness-scale | 0.0 | 0.461 → 0.451 | −0.001440 → −0.001446 | 1.45× | 0.977 → 0.976 |
+| A freshness-scale | 0.5 | 0.425 → 0.408 | −0.001553 → −0.001571 | 1.57× | 0.944 → 0.950 |
+| B anchoring-scale | 0.0 | 0.103 → 0.122 | −0.003738 → −0.003741 | 3.74× | 0.326 → 0.321 |
+| B anchoring-scale | 0.5 | 0.103 → 0.091 | −0.004160 → −0.004180 | 4.18× | 0.274 → 0.267 |
+| C mechanism-scale | 0.0 | 0.058 → 0.050 | −0.009200 → −0.009309 | 9.31× | 0.083 → 0.087 |
+| C mechanism-scale | 0.5 | 0.044 → 0.047 | −0.010635 → −0.010522 | 10.52× | 0.081 → 0.080 |
+
+The R2-I2 conclusions stand unchanged and slightly strengthened: the design
+remains underpowered against effects near its own bar under scenarios B and C
+(now 0.091–0.122 at the bar under B), and the POWER_WARNING's required
+sentence for a miss is unaffected.
+
+**Attestation coverage (recorded here so the R2 attestation is complete):**
+during test construction of the conformance round, before the `assert_may_fit`
+guard landed at b112b51, two evidence tests invoked the real parity path and
+protected `simretro.ArchiveRunner` performed real ADVI fits before crashing on
+`epl.particles.ExcludedMassTooLarge` (man_city v sheffield_united, 2019/20
+MW0). Those fits ran through the protected retro machinery, not through this
+experiment's treatment path; they produced no delta, no ledger row and no
+artifact of this experiment (`data/epl/fit/evwiden*` and
+`data/epl/sim/evwiden*` do not exist; the shared store's
+`results.parquet` is byte-untouched, mtime 2026-08-14). The guard now refuses
+exactly this invocation, and the tests stub the oracle. The "no fit of this
+experiment anywhere" attestation is made WITH this event on the record.
