@@ -5686,8 +5686,12 @@ def evidence_object(result: dict[str, Any], *,
                                    "PASS": True},
             "table_parity": {
                 "n_cells": len(scored.get("per_cell") or []),
-                "PASS": all(bool((c or {}).get("parity_digest_simretro"))
-                            for c in (scored.get("per_cell") or [])) or None,
+                # None only when the table leg has not run; False when a cell
+                # carries no protected-runner digest, never "or None" — an
+                # absent parity is a failure, not an unknown.
+                "PASS": (None if not scored.get("per_cell") else
+                         all(bool((c or {}).get("parity_digest_simretro"))
+                             for c in scored["per_cell"])),
                 "per_cell_digests": {
                     c["key"]: c.get("parity_digest_simretro")
                     for c in (scored.get("per_cell") or [])}},
