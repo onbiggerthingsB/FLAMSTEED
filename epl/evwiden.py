@@ -61,6 +61,30 @@ commit of §6 exists: :func:`harness_freeze_status` reads that commit's own
 record and :func:`merge` refuses without it, because a run that precedes the
 freeze is, by §7, not the run this document preregisters.
 
+PRE-FREEZE CONTACT WITH THE REAL ARTIFACTS, DISCLOSED. §5.3 rules that before
+§6's freeze commit "no harness code touches the real archive, the real corpus,
+or the real ledger except to hash them". That clause is about FITS — its own
+sentence ends "and the merge would refuse their rows anyway", and §6 step 2
+requires the frozen membership digests to be "recomputed by the harness's own
+code from the pinned artifacts", which cannot be done without reading them. What
+is therefore permitted pre-freeze, and what this harness did:
+
+* ``--membership`` and ``--plan``, which read the pinned corpus, archive and
+  ledger and compute §2.2's cells, §2.3's population and §3.3's table cells.
+  Read-only, no fit, no simulation, and the output is exactly what the freeze
+  commit records.
+* ``--canary --no-results-canary``, which runs §5.3's evidence canary on the
+  real archive. It builds a point-in-time store — in a TEMPORARY root, never the
+  shared one — and runs ``count_volatility_arm``. No fit, no simulation.
+* The ``@pinned`` tests in ``epl/tests/test_evwiden.py``, which check the four
+  digests and re-derive the document's census, grid table, membership and table
+  cells. Read-only, no fit.
+
+NOT ONE FIT ON THE REAL ARCHIVE PRECEDED THE FREEZE. Every fitting path is
+gated: :func:`_guard_ledger_location` closes the preregistered run directory
+until §6's commit lands, and every row an audit writes elsewhere is stamped
+``harness_frozen: false`` and refused by the merge.
+
 NO MARKET DATA. The corpus's price columns are not read by this module at all.
 """
 
@@ -2217,12 +2241,22 @@ def write_canaries(record: dict[str, Any], path: Path | str | None = None,
 
 
 def require_run_preconditions(directory: Path | str | None = None, *,
-                              path: Path | str | None = None) -> dict[str, Any]:
+                              path: Path | str | None = None,
+                              require_results: bool | None = None,
+                              ) -> dict[str, Any]:
     """:data:`RUN_ORDER`, enforced rather than declared.
 
     The canaries are read from their WRITTEN record, so the order holds across
     processes and across shards — four workers each re-running them would be
     four answers to a question with one.
+
+    ``require_results`` decides whether §5.3's RESULTS canary
+    (``walkforward.point_in_time_canary``) must be on that record. It costs real
+    fits, so ``--no-results-canary`` exists for the synthetic audit — and that
+    flag must not be able to follow the run past the freeze. Left at ``None`` it
+    is derived from :func:`harness_freeze_status`: once §6's commit has landed,
+    the preregistered run demands the canary §5.3 pre-states as "run once as a
+    precondition on the real archive AFTER the freeze".
     """
     directory = Path(directory) if directory is not None else EVWIDEN_DIR
     path = Path(path) if path is not None else directory / CANARY_NAME
@@ -2241,6 +2275,17 @@ def require_run_preconditions(directory: Path | str | None = None, *,
         raise CanaryFailed(
             f"the canary record at {paths.rel(path)} did not pass "
             f"({failed or 'no PASS field'}). §5.3: the run does not start.")
+
+    if require_results is None:
+        require_results = bool(harness_freeze_status()["frozen"])
+    if require_results and not rec.get("results_canary_run"):
+        raise CanaryFailed(
+            f"the canary record at {paths.rel(path)} was written with "
+            "--no-results-canary, so `epl.walkforward.point_in_time_canary` "
+            "never ran. §5.3 makes it a precondition of the run on the REAL "
+            "archive after the freeze; skipping it is a concession to the "
+            "synthetic audit's clock and may not follow the run past §6's "
+            "commit. Re-run `--canary` without the flag.")
     return rec
 
 
@@ -2658,7 +2703,15 @@ def merge(shards: int = 1, *, directory: Path | str | None = None,
     corpus = load_corpus() if corpus is None else corpus
     check_corpus_scores(corpus)
 
-    pre = (require_run_preconditions(directory) if require_canaries else
+    # The preconditions gate the NUMBER, not the wall clock: they are re-read
+    # here, from the records beside these shards, however long ago they were
+    # written. `require_results` comes from THIS merge's own freeze verdict
+    # rather than from a fresh look at the repository, so a merge that has
+    # already decided it is scoring the preregistered run demands the
+    # preregistered run's canaries.
+    pre = (require_run_preconditions(directory,
+                                     require_results=bool(freeze["frozen"]))
+           if require_canaries else
            {"skipped": "the caller asserted the canaries"})
 
     if preregistered:
@@ -4010,7 +4063,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             assert_ledger_covers(corpus, ledger)
             check_corpus_scores(corpus)
             frozen = harness_freeze_status()
-            require_run_preconditions(directory)
+            require_run_preconditions(directory,
+                                      require_results=bool(frozen["frozen"]))
             assert_blas_pinned("the evidence-widening sweep")
             digests = membership_digests(corpus, played, ledger)
             points = shard_points(fit_points(corpus,
@@ -4041,7 +4095,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             frozen = harness_freeze_status()
             _guard_ledger_location(table_ledger, bool(frozen["frozen"]))
-            require_run_preconditions(directory)
+            require_run_preconditions(directory,
+                                      require_results=bool(frozen["frozen"]))
             assert_blas_pinned("the table-retro leg")
             matches = baseline.load_matches()
             cells = table_cells(matches)

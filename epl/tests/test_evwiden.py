@@ -1595,7 +1595,16 @@ def test_the_merge_refuses_without_a_passing_canary_record(tmp_path):
     with pytest.raises(ew.CanaryFailed):
         _merge(tmp_path, require_canaries=True)
 
+    # a merge that asserts the freeze also demands the RESULTS canary: the
+    # audit's --no-results-canary may not follow the run past §6's commit
     ew.write_canaries({"PASS": True, "evidence": {"PASS": True}},
+                      tmp_path / ew.CANARY_NAME)
+    with pytest.raises(ew.CanaryFailed) as exc:
+        _merge(tmp_path, require_canaries=True)
+    assert "--no-results-canary" in str(exc.value)
+
+    ew.write_canaries({"PASS": True, "evidence": {"PASS": True},
+                       "results": {"PASS": True}, "results_canary_run": True},
                       tmp_path / ew.CANARY_NAME)
     assert _merge(tmp_path, require_canaries=True)["n_fixtures"] == 8
 
@@ -2410,3 +2419,26 @@ def test_no_live_2026_27_quantity_can_enter_this_experiment():
     source = (ew.paths.REPO_ROOT / "epl" / "evwiden.py").read_text()
     for forbidden in ("2026/27", "27.885", "0.27885", "15.9%", "58.71"):
         assert forbidden not in source, forbidden
+
+
+def test_no_results_canary_cannot_follow_the_run_past_the_freeze(tmp_path):
+    """§5.3 makes `walkforward.point_in_time_canary` a precondition on the REAL
+    archive after the freeze. `--no-results-canary` exists for the synthetic
+    audit's clock, and a flag that saved time before the freeze must not be able
+    to silently remove a precondition after it."""
+    path = tmp_path / ew.CANARY_NAME
+    ew.write_canaries({"PASS": True, "evidence": {"PASS": True},
+                       "results_canary_run": False}, path)
+
+    # before the freeze, an audit record is enough to keep the ORDER
+    assert ew.require_run_preconditions(tmp_path, require_results=False)
+
+    # after it, the same record is refused by name
+    with pytest.raises(ew.CanaryFailed) as exc:
+        ew.require_run_preconditions(tmp_path, require_results=True)
+    assert "--no-results-canary" in str(exc.value)
+
+    ew.write_canaries({"PASS": True, "evidence": {"PASS": True},
+                       "results": {"PASS": True}, "results_canary_run": True},
+                      path)
+    assert ew.require_run_preconditions(tmp_path, require_results=True)
