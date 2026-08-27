@@ -463,6 +463,34 @@ def adjust(probs: Mapping[str, float], feat_home: float, feat_away: float, *,
 # 4. the snapshot, selected by our clock and nobody else's
 # ==========================================================================
 
+def manifest_lines(*, manifest_path=None, season: str = availability.SEASON,
+                   season_root=None) -> list[dict]:
+    """A12 (b)'s TRUST ANCHOR, read — or a typed refusal if it is not there.
+
+    The distinction this function exists to make, because getting it wrong
+    fabricates a record: a manifest that EXISTS and attests nothing is the
+    archive before its first pull, and A12 (b) rules an abstention for it. A
+    manifest that is NOT THERE attests nothing about anything, including about
+    whether it was the tracked one — so it is a refusal, never an abstention.
+
+    Before this, a typoed `--manifest` read as `[]`, became `NoSnapshotAsOf`,
+    became `snapshot=None`, became a filed `no_snapshot` row; and A12 (d)'s
+    `(fixture_id, run_digest)` idempotence then made that fabricated row REFUSE
+    the correct scored one for ever.
+    """
+    path = Path(manifest_path) if manifest_path is not None else (
+        availability.default_manifest_path(season, season_root))
+    if not path.exists():
+        raise SnapshotMissing(
+            f"the availability manifest is not at {path}. A12 (b) makes the "
+            "tracked manifest the attestation this arm reads its snapshots "
+            "through, and a file that is not there attests nothing about "
+            "anything — including about whether it is the tracked one. This is "
+            "a REFUSAL and not an abstention: an abstention says the archive "
+            "had nothing to say, and a path nobody can open has not been asked")
+    return availability.read_manifest(path)
+
+
 def snapshot_for(observed_by, *, raw_dir=None, manifest_path=None,
                  season: str = availability.SEASON,
                  season_root=None) -> availability.AsOfSnapshot | None:
@@ -475,6 +503,8 @@ def snapshot_for(observed_by, *, raw_dir=None, manifest_path=None,
     the type the ledger names; :class:`TeamUnmapped` alone passes through
     untranslated, because it is the same fact on both surfaces.
     """
+    manifest_lines(manifest_path=manifest_path, season=season,
+                   season_root=season_root)
     try:
         return availability.as_of(observed_by, raw_dir=raw_dir,
                                   manifest_path=manifest_path, season=season,
@@ -1077,16 +1107,29 @@ def verify(path=None, *, raw_dir=None, manifest_path=None,
            k_avail: float = K_AVAIL) -> dict:
     """A12 (f), in order, stopping at the first refusal.
 
-    CI has no `data/`, so this command refuses there — loudly and correctly.
-    That is its job. A verification that quietly declines to verify is worse
-    than one that was never run, because it prints something.
+    CI HAS NO `data/`, SO THIS COMMAND REFUSES THERE — loudly, BEFORE it reads
+    a row. It used to touch the archive only inside the row loop, which meant
+    an empty ledger and a missing archive both returned success: a verification
+    that quietly declines to verify is worse than one that was never run,
+    because it prints something. A12 (f)'s last paragraph rules the opposite of
+    what that did.
+
+    The two objects it needs are checked up front and by name: the tracked
+    manifest (the attestation) and the raw directory (the bytes). Neither is
+    optional and neither absence is an empty answer.
     """
     target = Path(SHADOW_PATH if path is None else path)
-    rows = read_shadow(target)
-    lines = availability.read_manifest(
-        manifest_path if manifest_path is not None
-        else availability.default_manifest_path(season, season_root))
+    lines = manifest_lines(manifest_path=manifest_path, season=season,
+                           season_root=season_root)
     raw = Path(raw_dir) if raw_dir is not None else availability.RAW_DIR
+    if not raw.is_dir():
+        raise SnapshotMissing(
+            f"the archived snapshots are not at {raw}. The bytes are the "
+            "record: A12 (f) re-derives every feature FROM THEM, and a machine "
+            "that does not hold them cannot verify anything. CI has no `data/` "
+            "and this is the loud refusal A12 (f) rules for it — not a pass "
+            "over an archive nobody looked at")
+    rows = read_shadow(target)
 
     seen: dict[tuple[str, str], int] = {}
     views: dict[str, availability.AsOfSnapshot] = {}
@@ -1146,13 +1189,22 @@ def score_bundle(source, results_file, *, ledger_path=None, season_root=None,
     admissibility ordering, the snapshot digest and the raw-score identity all
     refuse — and only then is the file opened.
     """
+    target = Path(SHADOW_PATH if ledger_path is None else ledger_path)
+    if (raw_dir is not None or manifest_path is not None
+            or avail_season_root is not None) and target == SHADOW_PATH:
+        raise AvailArmError(
+            "this run substitutes the archive (--raw-dir / --manifest) and "
+            f"files into the official ledger {paths.rel(SHADOW_PATH)}. A12 (b) "
+            "makes the TRACKED manifest the attestation every row in that file "
+            "is a claim about, so an untracked archive may not write into it. "
+            "Point --ledger somewhere else, or drop the overrides and read the "
+            "archive A12 names")
     board = board_from(source, season_root=season_root)
     snapshot = snapshot_for(board["observed_by"], raw_dir=raw_dir,
                             manifest_path=manifest_path, season=season,
                             season_root=avail_season_root)
     rows = score(board, read_results(results_file), snapshot=snapshot,
                  season_root=season_root, k_avail=k_avail)
-    target = Path(SHADOW_PATH if ledger_path is None else ledger_path)
     counts = append_shadow(target, rows)
     return {"board": board, "rows": rows, "ledger": str(target),
             "snapshot": snapshot, **counts, **tally(rows)}
@@ -1281,7 +1333,8 @@ __all__ = [
     "StatusUnruled", "SquadEmpty", "AvailMismatch", "SchemaMismatch",
     "RowInadmissible", "RowConflict", "TeamUnmapped",
     "SideFeature", "unavailability", "side_feature", "tilt", "adjust",
-    "snapshot_for", "board_from", "abstention_row", "forecast_rows", "score",
+    "manifest_lines", "snapshot_for", "board_from", "abstention_row",
+    "forecast_rows", "score",
     "is_abstention", "tally", "shadow_key", "read_shadow", "append_shadow",
     "refuse_a_future_snapshot", "check_writable",
     "check_snapshot", "check_row", "check_abstention", "verify",

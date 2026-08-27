@@ -981,10 +981,27 @@ def test_the_command_is_the_one_A12_named_with_the_two_modes():
 
 
 def test_a_refusal_is_a_STOP_line_and_exit_2_not_a_traceback(tmp_path, capsys):
+    """And a machine without the archive REFUSES rather than reporting a pass.
+
+    A12 (f): "CI has no `data/`: the command refuses there, loudly". The r6
+    command touched the archive only inside its row loop, so an empty ledger on
+    a machine holding no snapshots exited 0 — the rule implemented backwards,
+    and pinned that way by this test's own first assertion. Both objects A12 (f)
+    needs are named: the manifest is the attestation, the raw directory is the
+    bytes.
+    """
     code = availarm.main(["verify", "--ledger", str(tmp_path / "nope.jsonl"),
                           "--raw-dir", str(tmp_path / "raw"),
                           "--manifest", str(tmp_path / "manifest.jsonl")])
-    assert code == 0, "an empty ledger has nothing to refuse"
+    assert code == 2, "no manifest is no attestation, and that is a refusal"
+    assert capsys.readouterr().err.startswith("STOP: SnapshotMissing:")
+
+    (tmp_path / "manifest.jsonl").write_text("", encoding="utf-8")
+    code = availarm.main(["verify", "--ledger", str(tmp_path / "nope.jsonl"),
+                          "--raw-dir", str(tmp_path / "raw"),
+                          "--manifest", str(tmp_path / "manifest.jsonl")])
+    assert code == 2, "and no archive is no bytes, which is also a refusal"
+    assert "STOP: SnapshotMissing:" in capsys.readouterr().err
 
     bits = _verifiable(tmp_path)
     next(bits["raw"].glob("*.json.gz")).unlink()
@@ -1251,3 +1268,58 @@ def test_a_snapshot_observed_at_the_clock_itself_is_admissible():
                  stamp="20260821T000000Z", observed_at="2026-08-21T00:00:00Z")
     row = _rows(view)[0]
     assert row["snapshot_stamp"] == "20260821T000000Z"
+
+
+# ==========================================================================
+# 11. the trust anchor — a manifest is present or the arm STOPs (r7 B3)
+# ==========================================================================
+#: A12 (b) names ONE manifest: `epl/season/2026_27/availability_manifest.jsonl`,
+#: tracked, and "the bytes are the record and the manifest is the attestation".
+#: A missing file is not an archive that knows nothing — it is an archive
+#: nobody can ask. Reading it as "no snapshot qualified" turned a typo into a
+#: filed abstention, and A12 (d)'s `(fixture_id, run_digest)` idempotence then
+#: made that fabricated row BLOCK the correct scored one for ever.
+
+def test_a_missing_manifest_is_a_typed_stop_and_never_an_abstention(tmp_path):
+    with pytest.raises(availarm.SnapshotMissing, match="manifest"):
+        availarm.snapshot_for("2026-08-27T09:00:00Z",
+                              raw_dir=tmp_path / "raw",
+                              manifest_path=tmp_path / "nowhere.jsonl")
+
+
+def test_a_present_but_empty_manifest_is_still_an_honest_abstention(tmp_path):
+    """The distinction the fix turns on. A manifest that EXISTS and attests
+    nothing is the archive before its first pull, and A12 (b) rules an
+    abstention for it. A manifest that is not there attests nothing about
+    anything, including about whether it is the tracked one."""
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text("", encoding="utf-8")
+    assert availarm.snapshot_for("2026-08-27T09:00:00Z",
+                                 raw_dir=tmp_path / "raw",
+                                 manifest_path=manifest) is None
+
+
+def test_a_substituted_manifest_may_not_write_into_the_official_ledger(
+        tmp_path):
+    """A12 (b)'s trust anchor is the TRACKED manifest. The scoring entrypoint
+    still takes `--manifest`/`--raw-dir` — they are what makes the suite
+    CI-safe — but an untracked archive may not file into
+    `reports/epl_avail_shadow.jsonl`, because a row there is a claim about the
+    archive this repository tracks."""
+    with pytest.raises(availarm.AvailArmError, match="official"):
+        availarm.score_bundle(tmp_path / "bundle", tmp_path / "results.jsonl",
+                              manifest_path=tmp_path / "manifest.jsonl")
+    with pytest.raises(availarm.AvailArmError, match="official"):
+        availarm.score_bundle(tmp_path / "bundle", tmp_path / "results.jsonl",
+                              raw_dir=tmp_path / "raw",
+                              ledger_path=availarm.SHADOW_PATH)
+
+
+def test_the_official_ledger_is_the_default_and_an_override_is_a_choice(
+        tmp_path):
+    """And the guard is on the LEDGER, not on the flag: an override that writes
+    somewhere else is exactly what the live cycle and this suite do."""
+    with pytest.raises(availarm.AvailArmError, match="neither an issuance"):
+        availarm.score_bundle(tmp_path / "bundle", tmp_path / "results.jsonl",
+                              manifest_path=tmp_path / "manifest.jsonl",
+                              ledger_path=tmp_path / "avail.jsonl")
