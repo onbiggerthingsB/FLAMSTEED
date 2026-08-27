@@ -1058,8 +1058,13 @@ def test_the_evidence_canary_corrupts_clubs_and_not_only_scores():
     after = ew.corrupt_archive(played, CUT_B, side="after")
     late = after.loc[pd.to_datetime(after["date"]) >= pd.Timestamp(CUT_B)]
     assert len(late)
-    assert set(late["home_key"]) == {ew._CANARY_CLUB}
-    assert set(late["away_key"]) == {ew._CANARY_CLUB}
+    assert all(str(k).startswith(ew._CANARY_PREFIX) for k in late["home_key"])
+    assert all(str(k).startswith(ew._CANARY_PREFIX) for k in late["away_key"])
+    # unique per row: `valid_played_results` collapses content-identical rows
+    # (same date, same unordered pair, same goals map) as its duplicate-match
+    # dedup, so a corruption that repeated one club pair would DELETE the rows
+    # it meant to rewrite and the canary would crash instead of measuring
+    assert len(set(late["home_key"])) == len(late)
 
 
 def test_seeded_defect_a_leak_the_per_call_guard_cannot_see_fails_the_canary(
@@ -1593,3 +1598,815 @@ def test_the_merge_refuses_without_a_passing_canary_record(tmp_path):
     ew.write_canaries({"PASS": True, "evidence": {"PASS": True}},
                       tmp_path / ew.CANARY_NAME)
     assert _merge(tmp_path, require_canaries=True)["n_fixtures"] == 8
+
+
+# ==========================================================================
+# 11. the table-retro leg — §3.3's identity demand and §4.1 (iv)'s gate
+# ==========================================================================
+
+def _cells(n_treated: int = 2, n_untouched: int = 3):
+    """A synthetic grid of table cells, some treated and some not."""
+    out = []
+    for i in range(n_treated + n_untouched):
+        treated = ["sunderland"] if i < n_treated else []
+        out.append({
+            "season": f"20{19 + i // 2}/{20 + i // 2}",
+            "cutoff_label": f"MW{i}", "cutoff": f"2020-0{1 + i}-01",
+            "clubs": ["sunderland", "rich", "mid"],
+            "provisional_incumbent": [], "provisional_enlarged": treated,
+            "treated_clubs": treated,
+            "evidence": {"sunderland": 0.17, "rich": 50.0, "mid": 5.0},
+        })
+    return out
+
+
+def _table_runner(shift: float = -0.001, *, break_identity: str | None = None):
+    """A stub cell runner with the `TableRunner` output contract."""
+
+    def run(cell):
+        treated = list(cell["treated_clubs"])
+        base = 0.08 + 0.001 * len(cell["cutoff_label"])
+        delta = shift if treated else 0.0
+        digest_c = f"digest-{cell['season']}-{cell['cutoff_label']}"
+        digest_t = digest_c if not treated else digest_c + "-t"
+        if break_identity == "untouched" and not treated:
+            digest_t = digest_c + "-moved"
+        if break_identity == "treated" and treated:
+            digest_t = digest_c
+
+        def arm(name, trps, digest):
+            return {"trps": trps, "wtrps": trps * 1.1, "flat_trps": 0.2,
+                    "digest": digest, "effective_posterior_hash": "book",
+                    "provisional": treated if name == "treatment" else [],
+                    "coverage": {"coverage50": 0.5, "coverage90": 0.9},
+                    "coverage_treated": {c: {"coverage50": 0.6,
+                                             "coverage90": 0.95}
+                                         for c in treated},
+                    "clubs_detail": {c: {"p_relegated": 0.6, "points_mean": 30.0,
+                                         "points_sd": 14.1, "points_p5": 12.0,
+                                         "points_p95": 50.0,
+                                         "points_realised": 25}
+                                     for c in treated},
+                    "n_sims": 20000, "n_particles": 1000,
+                    "widening_mode": "per_fixture_bernoulli@alpha=0.5"}
+
+        return {
+            "schema": ew.SCHEMA_ID, "season": cell["season"],
+            "cutoff_label": cell["cutoff_label"], "cutoff": cell["cutoff"],
+            "clubs": cell["clubs"], "treated_clubs": treated,
+            "provisional_incumbent": cell["provisional_incumbent"],
+            "provisional_enlarged": cell["provisional_enlarged"],
+            "evidence": cell["evidence"], "n_sims": 20000, "seed": 20260611,
+            "arms": {"control": arm("control", base, digest_c),
+                     "treatment": arm("treatment", base + delta, digest_t)},
+            "identical": ew.assert_table_identity(
+                treated, digest_c, digest_t,
+                where=f"{cell['season']} {cell['cutoff_label']}"),
+            "realised_hash": "realised", "harness_sha256": "stub",
+        }
+
+    return run
+
+
+def test_the_untouched_cells_must_prove_they_did_not_move():
+    """§3.3: "the other 19 cells are unchanged by construction, AND THE HARNESS
+    MUST PROVE IT"."""
+    assert ew.assert_table_identity([], "d", "d", where="cell") is True
+    with pytest.raises(ew.TableIdentityBreak) as exc:
+        ew.assert_table_identity([], "d", "other", where="cell")
+    assert "unchanged BY CONSTRUCTION" in str(exc.value)
+
+
+def test_a_treated_cell_that_did_not_move_is_the_absence_of_the_experiment():
+    """Not in the document's letter, and the reason is stated in the code: a
+    zero delta from a treatment that never reached the sampler would be reported
+    as "no harm"."""
+    assert ew.assert_table_identity(["x"], "d", "e", where="cell") is False
+    with pytest.raises(ew.TableIdentityBreak) as exc:
+        ew.assert_table_identity(["x"], "d", "d", where="cell")
+    assert "never reached the sampler" in str(exc.value)
+
+
+def test_the_table_leg_writes_one_row_per_cell_and_resumes(tmp_path):
+    cells = _cells()
+    path = tmp_path / "table.jsonl"
+    out = ew.run_table(cells, path, runner=_table_runner(), n_sims=20000,
+                       seed=20260611, config_sha="c", verbose=False,
+                       harness_frozen=False)
+    assert out["n_written"] == len(cells)
+    again = ew.run_table(cells, path, runner=_table_runner(), n_sims=20000,
+                         seed=20260611, config_sha="c", verbose=False,
+                         harness_frozen=False)
+    assert again["n_written"] == 0 and again["n_skipped"] == len(cells)
+
+
+def test_score_table_computes_the_paired_deltas_by_cell(tmp_path):
+    cells = _cells()
+    path = tmp_path / "table.jsonl"
+    ew.run_table(cells, path, runner=_table_runner(shift=-0.001), n_sims=1,
+                 seed=1, config_sha="c", verbose=False, harness_frozen=False)
+    rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+    scored = ew.score_table(rows, n_boot=200)
+    assert scored["n_cells"] == len(cells)
+    assert scored["n_treated_cells"] == 2
+    assert scored["n_untouched_cells"] == 3
+    # equal weights over every cell, treated and untouched alike
+    assert scored["pooled_delta_trps"]["mean"] == pytest.approx(
+        (-0.001 * 2) / len(cells))
+    assert all(c["delta_trps"] == 0.0 for c in scored["per_cell"]
+               if not c["treated_clubs"])
+    assert "DISPLAYED MARGINALS" in scored["trps_limitation"]
+    assert scored["secondaries_decide"] == "nothing"
+
+
+def test_score_table_refuses_an_untouched_cell_that_moved(tmp_path):
+    path = tmp_path / "table.jsonl"
+    cells = _cells()
+    ew.run_table(cells, path, runner=_table_runner(), n_sims=1, seed=1,
+                 config_sha="c", verbose=False, harness_frozen=False)
+    rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+    for row in rows:
+        if not row["treated_clubs"]:
+            row["arms"]["treatment"]["trps"] += 1e-6
+            break
+    with pytest.raises(ew.TableIdentityBreak):
+        ew.score_table(rows, n_boot=100)
+
+
+def test_the_hull_analogue_is_printed_with_no_decision_weight(tmp_path):
+    """§3.4: "the one Hull-analogue — illustrative, no decision weight"."""
+    path = tmp_path / "table.jsonl"
+    cells = _cells()
+    for cell in cells[:2]:
+        cell["season"] = "2025/26"
+    ew.run_table(cells, path, runner=_table_runner(), n_sims=1, seed=1,
+                 config_sha="c", verbose=False, harness_frozen=False)
+    rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+    scored = ew.score_table(rows, n_boot=100)
+    assert scored["hull_analogue"]["club"] == "sunderland"
+    assert scored["hull_analogue"]["n_cells"] == 2
+    assert "no decision weight" in scored["hull_analogue"]["label"]
+    detail = scored["hull_analogue"]["cells"][0]
+    assert set(detail["control"]) >= {"p_relegated", "points_mean", "points_p5",
+                                      "points_p95"}
+
+
+def test_the_coverage_reading_direction_is_fixed_before_the_run(tmp_path):
+    """§1.3: the counter-hypothesis, with its reading direction pre-stated —
+    coverage already at or above nominal that the treatment pushes further above
+    is evidence FOR double-counting and AGAINST this rule."""
+    path = tmp_path / "table.jsonl"
+    ew.run_table(_cells(), path, runner=_table_runner(), n_sims=1, seed=1,
+                 config_sha="c", verbose=False, harness_frozen=False)
+    rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+    scored = ew.score_table(rows, n_boot=100)
+    reading = scored["coverage_reading"]
+    assert "double-counting" in reading and "AGAINST this rule" in reading
+    treated = next(c for c in scored["per_cell"] if c["treated_clubs"])
+    assert treated["coverage_treated_control"]
+    assert treated["coverage_treated_treatment"]
+
+
+def test_the_table_gate_is_the_tolerance_and_the_significance_clause():
+    """§4.1 (iv): "<= +0.0002, AND it is not the case that the pooled ΔTRPS is
+    > 0 with its 95% season-block CI excluding zero"."""
+    def gate(mean, ci):
+        return ew.table_gate({"pooled_delta_trps":
+                              {"mean": mean, "ci95": ci, "n_blocks": 7},
+                              "n_cells": 35})
+
+    assert gate(-0.001, [-0.002, -0.0005])["PASS"] is True     # helps
+    assert gate(0.0001, [-0.001, 0.002])["PASS"] is True       # inside tolerance
+    assert gate(0.0002, [-0.001, 0.002])["PASS"] is True       # exactly at it
+    assert gate(0.0003, [-0.001, 0.002])["PASS"] is False      # past it
+    # an unresolvable wiggle passes; a small-but-resolvable worsening does not
+    assert gate(0.00005, [-0.0001, 0.0002])["PASS"] is True
+    assert gate(0.00005, [0.00001, 0.0002])["PASS"] is False
+
+
+def test_the_table_gate_discloses_that_its_numbers_are_invented():
+    """§4.3: R1 has no pass rule, so a table-level bar has no house precedent
+    and one had to be invented. The disclosure travels with the number."""
+    out = ew.table_gate({"pooled_delta_trps": {"mean": 0.0, "ci95": [-1.0, 1.0],
+                                               "n_blocks": 7}, "n_cells": 35})
+    assert "invented" in out["disclosure"]
+    assert "poor coverage" in out["disclosure"]
+    assert out["tolerance"] == ew.TABLE_TOLERANCE
+
+
+def test_the_table_ledger_refuses_a_missing_cell(tmp_path):
+    """Not a superset, not a subset: a pooled mean over 34 cells is not the
+    quantity §4.1 (iv) gates on."""
+    cells = _cells()
+    path = tmp_path / "table.jsonl"
+    ew.run_table(cells[:-1], path, runner=_table_runner(), n_sims=1, seed=1,
+                 config_sha="c", verbose=False, harness_frozen=True)
+    with pytest.raises(ew.MergeIncomplete) as exc:
+        ew.load_table_ledger(path, expected=cells)
+    assert "missing" in str(exc.value)
+
+
+def test_the_table_ledger_refuses_unfrozen_rows(tmp_path):
+    cells = _cells()
+    path = tmp_path / "table.jsonl"
+    ew.run_table(cells, path, runner=_table_runner(), n_sims=1, seed=1,
+                 config_sha="c", verbose=False, harness_frozen=False)
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.load_table_ledger(path, expected=cells)
+    assert "not a cell of the preregistered run" in str(exc.value)
+
+
+def test_a_failed_cell_poisons_the_table_ledger(tmp_path):
+    path = tmp_path / "table.jsonl"
+
+    def explode(cell):
+        raise RuntimeError("the simulator ran out of memory")
+
+    with pytest.raises(ew.FitFailed):
+        ew.run_table(_cells(), path, runner=explode, n_sims=1, seed=1,
+                     config_sha="c", verbose=False, harness_frozen=False)
+    assert ew.poison_rows(path)
+    with pytest.raises(ew.ShardFailed):
+        ew.run_table(_cells(), path, runner=_table_runner(), n_sims=1, seed=1,
+                     config_sha="c", verbose=False, harness_frozen=False)
+
+
+def test_the_table_leg_never_appends_to_the_protected_retro_ledger():
+    """§3.3: `data/epl/sim/retro_r1.jsonl` is read-only and never appended; the
+    leg writes its own ledger."""
+    assert "retro_r1" not in str(ew.TABLE_LEDGER)
+    assert ew.paths.rel(ew.TABLE_LEDGER).startswith("data/epl/sim/evwiden")
+    assert ew.TABLE_ARM_LABEL == "dc_native"     # what `leaguesim` is told
+    assert ew.ARM_NAME == "dc_evwiden"           # what the ledger records
+
+
+def test_the_merge_carries_the_table_gate_into_the_adoption_rule(tmp_path):
+    _run(tmp_path)
+    _freeze_rows(tmp_path)
+    passing = {"gate": {"PASS": True, "pooled_delta_trps": 0.0}}
+    out = _merge(tmp_path, table=passing)
+    assert out["adoption"]["conditions"]["iv_table_gate"]["PASS"] is True
+    assert not out["adoption"]["verdict"].startswith("INCOMPLETE")
+
+
+# ==========================================================================
+# 12. the evidence contract — §6, and the ultra-review lesson behind it
+# ==========================================================================
+
+def test_the_evidence_files_are_written_whichever_way_the_numbers_fall(tmp_path):
+    """§4.4: "The result publishes either way… There is no file drawer." And
+    ultra-review lesson 1: the verdict's machine-readable basis is COMMITTED,
+    not gitignored."""
+    _run(tmp_path)
+    rows = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
+    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    cells_path = tmp_path / "table.jsonl"
+    ew.run_table(_cells(), cells_path, runner=_table_runner(), n_sims=1, seed=1,
+                 config_sha="c", verbose=False, harness_frozen=False)
+    table_rows = [json.loads(l) for l in cells_path.read_text().splitlines()
+                  if l.strip()]
+
+    out = tmp_path / "evidence"
+    written = ew.write_evidence(result, rows, table_rows, directory=out)
+    assert set(written) == {"widening.json", "widening_per_fixture.csv",
+                            "widening_grid_means.csv",
+                            "widening_table_cells.csv", "MANIFEST.sha256"}
+    for name in written:
+        assert (out / name).exists()
+
+
+def test_the_per_fixture_file_reproduces_the_estimand_with_arithmetic_alone(
+        tmp_path):
+    """`reports/evidence/README.md`'s standard: a reader holding this file and
+    nothing else recomputes the headline by averaging one column."""
+    import csv as _csv
+
+    _run(tmp_path)
+    rows = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
+    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    out = tmp_path / "evidence"
+    ew.write_evidence(result, rows, None, directory=out, manifest=False)
+
+    with (out / "widening_per_fixture.csv").open() as fh:
+        got = list(_csv.DictReader(fh))
+    assert len(got) == result["n"]
+    assert float(np.mean([float(r["delta"]) for r in got])) == \
+        pytest.approx(result["mean"])
+    # the block labels are columns, because both bootstraps need them
+    assert {"block", "season"} <= set(got[0])
+    assert len({r["block"] for r in got}) == result["n_blocks"]
+    assert len({r["season"] for r in got}) == result["n_season_blocks"]
+
+
+def test_the_table_evidence_file_carries_both_arms_of_every_cell(tmp_path):
+    import csv as _csv
+
+    cells_path = tmp_path / "table.jsonl"
+    ew.run_table(_cells(), cells_path, runner=_table_runner(), n_sims=1, seed=1,
+                 config_sha="c", verbose=False, harness_frozen=False)
+    table_rows = [json.loads(l) for l in cells_path.read_text().splitlines()
+                  if l.strip()]
+    out = tmp_path / "evidence"
+    ew.write_evidence({"schema": ew.SCHEMA_ID}, None, table_rows,
+                      directory=out, manifest=False)
+    with (out / "widening_table_cells.csv").open() as fh:
+        got = list(_csv.DictReader(fh))
+    assert len(got) == 2 * len(table_rows)
+    assert {r["arm"] for r in got} == {ew.ARM_NAME, ew.BASELINE_ARM}
+
+
+def test_the_grid_file_carries_every_point_including_the_degenerate_ones(
+        tmp_path):
+    import csv as _csv
+
+    _run(tmp_path)
+    rows = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
+    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    out = tmp_path / "evidence"
+    ew.write_evidence(result, None, None, directory=out, manifest=False)
+    with (out / "widening_grid_means.csv").open() as fh:
+        got = list(_csv.DictReader(fh))
+    assert {float(r["e_star"]) for r in got} == {1.0, 3.0, 5.0, 8.0, 10.0, 12.0}
+    degenerate = {float(r["e_star"]) for r in got
+                  if r["degenerate_by_construction"] == "True"}
+    assert set(ew.E_GRID_DEGENERATE) <= degenerate
+
+
+def test_the_manifest_updates_in_place_and_keeps_what_it_did_not_write(tmp_path):
+    """The manifest is a shared file two earlier experiments already wrote;
+    rewriting it from scratch would silently drop their entries."""
+    path = tmp_path / "MANIFEST.sha256"
+    path.write_text("aaa  data/epl/fit/freshness.json  10\n"
+                    "bbb  data/epl/fit/anchoring.json  20\n")
+    target = tmp_path / "thing.json"
+    target.write_text("{}")
+    ew.update_manifest({"data/epl/fit/evwiden.json": target}, path)
+    lines = path.read_text().splitlines()
+    assert any(l.startswith("aaa ") for l in lines)
+    assert any(l.startswith("bbb ") for l in lines)
+    entry = next(l for l in lines if "evwiden.json" in l)
+    digest, name, size = entry.split()
+    assert digest == ew.sha256_file(target)
+    assert int(size) == target.stat().st_size
+
+    target.write_text("{ }")             # a rewrite updates in place, not appends
+    ew.update_manifest({"data/epl/fit/evwiden.json": target}, path)
+    assert sum(1 for l in path.read_text().splitlines()
+               if "evwiden.json" in l) == 1
+
+
+# ==========================================================================
+# 13. the §6 freeze — the commit that makes "the design was fixed first" checkable
+# ==========================================================================
+
+def test_the_freeze_refuses_until_the_hash_table_lands(tmp_path):
+    empty = tmp_path / "prereg.md"
+    empty.write_text("# nothing here\n")
+    status = ew.harness_freeze_status([empty])
+    assert status["frozen"] is False
+    assert "has not landed" in status["why"]
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.require_harness_freeze([empty])
+    assert "SYNTHETIC" in str(exc.value)
+
+
+def test_the_freeze_matches_the_bytes_on_disk(tmp_path):
+    table = tmp_path / "prereg.md"
+    table.write_text("\n".join(
+        f"| `{name}` | {ew.sha256_file(ew.paths.REPO_ROOT / name)} |"
+        for name in ew.HARNESS_FILES) + "\n")
+    status = ew.harness_freeze_status([table])
+    assert status["frozen"] is True
+    assert set(status["files"]) == set(ew.HARNESS_FILES)
+    assert all(f["match"] for f in status["files"].values())
+    assert all(f["lines"] > 0 for f in status["files"].values())
+
+
+def test_the_freeze_refuses_a_hash_that_no_longer_describes_the_file(tmp_path):
+    """§6 step 2: "if any hash differs at the time the run is executed, it is
+    not the run this document preregisters"."""
+    table = tmp_path / "prereg.md"
+    table.write_text("\n".join(
+        f"| `{name}` | {'0' * 64} |" for name in ew.HARNESS_FILES) + "\n")
+    status = ew.harness_freeze_status([table])
+    assert status["frozen"] is False
+    assert "differs from the file on disk" in status["why"]
+
+
+# ==========================================================================
+# 14. the detached launch — §2.4, generated rather than committed
+# ==========================================================================
+
+def test_the_launcher_is_generated_and_lives_in_the_run_directory(tmp_path):
+    """§6 names two harness files. A loose `run_evwiden.sh` would be code whose
+    bytes nothing hashes while being able to change which shards run."""
+    path = ew.write_launch_script(tmp_path, shards=3)
+    assert path.parent == tmp_path
+    assert path.name == ew.LAUNCH_NAME
+    assert not str(path).startswith(str(ew.paths.REPO_ROOT / "scripts"))
+    assert path.stat().st_mode & 0o111        # executable
+    assert not (ew.paths.REPO_ROOT / "epl" / "run_evwiden.sh").exists()
+
+
+def test_the_launcher_pins_blas_before_python_and_runs_unbuffered(tmp_path):
+    text = ew.launch_script(tmp_path, shards=2)
+    for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+        assert f"export {var}=1" in text or f"{var}=1" in text
+    assert text.index("export OMP_NUM_THREADS") < text.index("$PY -u -m epl.evwiden")
+    assert "-u -m epl.evwiden" in text
+    assert "nohup sh" in text                 # the launch line, in a comment
+    assert "<<" not in text                   # never a stdin heredoc
+
+
+def test_the_launcher_runs_shards_sequentially_and_waits_per_pid(tmp_path):
+    """§2.4: parallel shards crash on the featpanel `.tmp` rename race, and a
+    bare `wait` returns the LAST job's status — a failed shard would sail past."""
+    text = ew.launch_script(tmp_path, shards=3)
+    order = [text.index(f"--shard {i}/3") for i in range(3)]
+    assert order == sorted(order)
+    assert 'wait "$pid"' in text
+    for line in text.splitlines():
+        assert line.strip() != "wait"
+    assert text.count("run_step shard_") == 3
+    assert "exit 2" in text                   # a failed step stops the run
+
+
+def test_the_launcher_puts_the_canary_first_and_the_merge_last(tmp_path):
+    """RUN_ORDER, in the launcher as well as in the module."""
+    text = ew.launch_script(tmp_path, shards=2)
+    assert text.index("run_step canary") < text.index("run_step shard_00")
+    assert text.index("run_step shard_01") < text.index("run_step table")
+    assert text.index("run_step table") < text.index("run_step merge")
+    assert ew.RUN_ORDER == ("canary", "run", "table", "merge")
+
+
+def test_the_launcher_is_a_valid_shell_script(tmp_path):
+    """`sh -n` parses it without running it."""
+    path = ew.write_launch_script(tmp_path, shards=2)
+    done = subprocess.run(["sh", "-n", str(path)], capture_output=True)
+    assert done.returncode == 0, done.stderr.decode()
+
+
+# ==========================================================================
+# 15. the CLI
+# ==========================================================================
+
+def test_the_cli_writes_the_launcher_and_exits_clean(tmp_path, capsys):
+    assert ew.main(["--script", "--dir", str(tmp_path), "--shards", "2"]) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["launch"].startswith("nohup sh ")
+    assert (tmp_path / ew.LAUNCH_NAME).exists()
+    assert "heredoc" in printed["note"]
+
+
+def test_the_cli_reports_a_typed_refusal_as_stop_and_exit_two(tmp_path, capsys):
+    """The `RecalError` convention §5.1 adopts: `STOP: …` with the type, exit 2."""
+    assert ew.main(["--merge", "--dir", str(tmp_path)]) == 2
+    out = capsys.readouterr().out
+    assert out.startswith("STOP: ")
+    assert "Error" in out.split(":")[1] or "Failed" in out or "Mismatch" in out
+
+
+def test_the_cli_refuses_a_malformed_shard_spec(capsys):
+    assert ew.main(["--run", "--shard", "one-of-four"]) == 2
+    assert "must be i/N" in capsys.readouterr().out
+
+
+# ==========================================================================
+# 16. the pinned artifacts — read-only, no fits, skipped where they are absent
+# ==========================================================================
+
+pinned = pytest.mark.skipif(
+    not (PINNED_CORPUS.exists() and PINNED_ARCHIVE.exists()
+         and PINNED_LEDGER.exists()),
+    reason="the pinned corpus, archive and walk-forward ledger are on the "
+           "machine that ran the walk and nowhere else")
+
+
+@pytest.fixture(scope="module")
+def real():
+    """The pinned world, loaded once. READ-ONLY, and no fit runs here.
+
+    §7 makes a real-archive fit before the §6 freeze commit an invalidation.
+    Reading the archive to recompute `e` is not a fit: it is arithmetic on
+    committed bytes, and it is how §6 step 2's membership digests are produced
+    in the first place.
+    """
+    corpus = ew.load_corpus()
+    played = ew.load_archive()
+    ledger = ew.load_walk_ledger()
+    return corpus, played, ledger
+
+
+@pinned
+def test_the_four_pinned_digests_are_the_documents():
+    """§0.1's table, verified by the recipe the document prints."""
+    assert ew.sha256_file(PINNED_CORPUS) == ew.CORPUS_SHA256
+    assert ew.sha256_file(PINNED_ARCHIVE) == ew.ARCHIVE_SHA256
+    assert ew.sha256_file(PINNED_LEDGER) == ew.WALK_LEDGER_SHA256
+    assert ew.sha256_file(ew.CONFIG_PATH) == ew.CONFIG_SHA256
+
+
+@pinned
+def test_the_corpus_the_archive_and_the_ledger_have_the_pinned_shapes(real):
+    corpus, played, ledger = real
+    assert len(corpus) == 2280
+    assert corpus["block"].nunique() == 212
+    assert len(played) == 4560
+    assert len(ledger) == 212
+    ew.assert_ledger_covers(corpus, ledger)
+    assert ew.check_corpus_scores(corpus)["max_abs_diff"] <= 1e-12
+
+
+@pinned
+def test_the_harness_reproduces_the_documents_evidence_census(real):
+    """§0.4, recomputed through the harness's own code: 4,240 club-cutoff cells,
+    `e` at 0.00 / 5.70 / 18.76 / 51.97 / 60.21, 25 cells under 3 and 13 under 1
+    — every one of them already widened."""
+    corpus, played, ledger = real
+    table = ew.evidence_table(corpus, played)
+    values = np.array([v for per_block in table.values()
+                       for v in per_block.values()])
+    assert values.size == ew.EXPECTED_CELLS
+    assert round(float(values.min()), 2) == 0.00
+    assert round(float(np.percentile(values, 1)), 2) == 5.70
+    assert round(float(np.percentile(values, 5)), 2) == 18.76
+    assert round(float(np.median(values)), 2) == 51.97
+    assert round(float(values.max()), 2) == 60.21
+    assert int((values < 3).sum()) == 25
+    assert int((values < 1).sum()) == 13
+    # "every one already widened" — no cell under 3 is a NEW cell
+    assert ew.membership(corpus, played, ledger, e_star=3.0).new_cells == ()
+
+
+@pinned
+def test_the_harness_reproduces_the_documents_grid_table(real):
+    """§1.4's table, recomputed: thin / already widened / treated / blocks."""
+    corpus, played, ledger = real
+    expected = {                      # e*: (thin, already, treated, blocks)
+        1.0: (12, 12, 0, 12),
+        3.0: (24, 24, 0, 24),
+        5.0: (39, 32, 7, 34),
+        8.0: (66, 33, 33, 50),
+        10.0: (85, 33, 52, 62),
+        12.0: (110, 33, 77, 78),
+    }
+    for star, (thin, already, treated, blocks) in expected.items():
+        m = ew.membership(corpus, played, ledger, e_star=star)
+        assert (len(m.thin), len(m.already_widened), len(m.treated),
+                len(m.blocks)) == (thin, already, treated, blocks), star
+
+
+@pinned
+def test_the_harness_reproduces_the_frozen_membership(real):
+    """§2.2 and §2.3, through `membership_digests`'s own count checks: 85 thin,
+    52 treated, 51 cells of which 47 reach a fixture, 78 openings, 820 control
+    fixtures, 46 incumbent-widened fixtures, and the per-season split."""
+    corpus, played, ledger = real
+    out = ew.membership_digests(corpus, played, ledger)
+    assert out["counts"] == {
+        "thin": 85, "treated": 52, "new_cells": 51, "new_cells_playing": 47,
+        "fit_openings": 78, "control_fixtures": 820, "primary_blocks": 62,
+        "cells": 4240, "incumbent_fixtures": 46}
+    assert out["thin_by_season"] == {"2019/20": 26, "2020/21": 11,
+                                     "2021/22": 12, "2022/23": 12,
+                                     "2023/24": 12, "2024/25": 12}
+    assert len(out["keys"]["thin"]) == 85
+    assert len(out["keys"]["treated"]) == 52
+    assert set(out["keys"]["treated"]) <= set(out["keys"]["thin"])
+    assert all(len(v) == 64 for v in out["digests"].values())
+
+
+@pinned
+def test_the_51_cells_concentrate_on_the_nine_club_seasons_the_document_names(
+        real):
+    """§2.2: "They concentrate on nine club-seasons — three returning-thin
+    (aston_villa 2019/20, norwich 2019/20, sheffield_united 2023/24) and six
+    cold-start tails"."""
+    corpus, played, ledger = real
+    m = ew.membership(corpus, played, ledger)
+    season_of = {str(b): str(part["season"].iloc[0])
+                 for b, part in corpus.groupby("block")}
+    got = {(season_of[block], club) for block, club in m.new_cells}
+    assert got == {
+        ("2019/20", "aston_villa"), ("2019/20", "norwich"),
+        ("2019/20", "sheffield_united"), ("2020/21", "leeds"),
+        ("2021/22", "brentford"), ("2022/23", "nottm_forest"),
+        ("2023/24", "luton"), ("2023/24", "sheffield_united"),
+        ("2024/25", "ipswich")}
+
+
+@pinned
+def test_the_fit_schedule_is_78_openings_over_820_fixtures(real):
+    """§2.3 and §3.2, with `fit_points`' own count check switched on."""
+    corpus, played, ledger = real
+    points = ew.fit_points(corpus, played=played, ledger=ledger)
+    assert len(points) == 78
+    assert sum(len(p.match_ids) for p in points) == 820
+    primary = set(ew.membership(corpus, played, ledger).blocks)
+    assert primary <= {p.cutoff for p in points}
+    # the shards still partition the real schedule
+    for n in (1, 4):
+        seen = [p.cutoff for i in range(n)
+                for p in ew.shard_points(points, i, n)]
+        assert sorted(seen) == sorted(p.cutoff for p in points)
+
+
+@pinned
+def test_the_table_leg_enumerates_the_16_cells_the_document_names():
+    """§3.3, recomputed from the pinned archive by the §0.3 recipe and
+    `count_volatility_arm` at each scheduled cutoff. No fit and no simulation:
+    this is the enumeration the §6 commit freezes."""
+    from epl import baseline, simretro
+
+    matches = baseline.load_matches()
+    cells = ew.table_cells(matches)
+    assert len(cells) == len(simretro.SEASONS) * len(simretro.COMPARISON_CUTOFFS)
+    assert len(cells) == 35
+    treated = {(c["season"], c["cutoff_label"]): c["treated_clubs"]
+               for c in cells if c["treated_clubs"]}
+    assert len(treated) == 16
+    assert len(cells) - len(treated) == 19
+    assert treated[("2019/20", "MW0")] == ["aston_villa", "norwich"]
+    assert treated[("2019/20", "MW6")] == ["aston_villa", "norwich",
+                                           "sheffield_united"]
+    assert treated[("2023/24", "MW0")] == ["sheffield_united"]
+    # the one Hull-analogue, §0.5's Sunderland cells
+    for label in ("MW0", "MW3", "MW6"):
+        assert treated[("2025/26", label)] == ["sunderland"]
+    assert ("2025/26", "MW10") not in treated
+    assert round(cells[0]["evidence"]["aston_villa"], 2) == 4.74
+
+
+@pinned
+def test_the_hull_analogue_carries_the_evidence_the_document_records():
+    """§0.5: Sunderland at the 2025/26 opener — `e` = 0.172, the Hull
+    configuration one season early, and not provisional."""
+    from epl import baseline
+
+    matches = baseline.load_matches()
+    played = matches.loc[matches["played"]].copy()
+    played["date"] = pd.to_datetime(played["date"]).dt.normalize()
+    e = ew.effective_evidence("2025-08-15", played, ["sunderland"])
+    assert round(e["sunderland"], 3) == 0.172
+
+
+@pytest.mark.skipif(not PREREG.exists(), reason="the preregistration is absent")
+def test_the_module_does_not_drift_from_the_document_it_implements():
+    """The constants a reader would check by grep, checked by a test instead."""
+    text = PREREG.read_text()
+    assert "`e* = 10.0` frozen" in text
+    assert "**ADOPT the evidence-mass re-key" in text
+    assert "`dc_evwiden`" in text
+    assert ew.CORPUS_SHA256 in text
+    assert ew.ARCHIVE_SHA256 in text
+    assert ew.WALK_LEDGER_SHA256 in text
+    assert ew.CONFIG_SHA256 in text
+    assert "epl-evwiden-1" in text and ew.SCHEMA_ID == "epl-evwiden-1"
+    for name in ew.HARNESS_FILES:
+        assert name in text
+    # the numbers §4 gates on, as the document writes them
+    assert "-0.0010" in text.replace("−", "-")
+    assert "+0.0002" in text
+
+
+def test_the_canary_never_rebuilds_the_shared_point_in_time_store(monkeypatch):
+    """§6 closes the write set, and `epl.fit.build_store` UNLINKS and rewrites
+    `data/epl/fit/store/results.parquet` whenever the row set differs.
+
+    The canary builds a store from a deliberately corrupted frame. Under the
+    default root that would overwrite production state this experiment is not
+    allowed to write — silently, and only on the machine that has the store.
+    Every build therefore goes to a temporary root, and this test is the guard
+    that it stays that way.
+    """
+    import epl.fit as epl_fit
+    import wcmodel.model.volatility_diagnostic as vd
+
+    roots = []
+
+    def fake_build_store(matches=None, root=None, rebuild=False):
+        roots.append(root)
+        return object()
+
+    monkeypatch.setattr(epl_fit, "build_store", fake_build_store)
+    monkeypatch.setattr(vd, "count_volatility_arm",
+                        lambda store, cutoff, clubs, config=None: pd.DataFrame(
+                            {"team": list(clubs),
+                             "volatility_flag": [False] * len(clubs),
+                             "few_games_flag": [False] * len(clubs)}))
+
+    corpus, played, ledger = _world()
+    record = ew._run_all_canaries(corpus, played, ledger, results_canary=False)
+    assert record["PASS"] is True
+    assert record["results_canary_run"] is False
+    assert roots and all(r is not None for r in roots)
+    default = str(ew.paths.STORE_DIR.resolve())
+    assert all(not str(Path(r).resolve()).startswith(default) for r in roots)
+
+
+# ==========================================================================
+# 17. the refusal inventory, and `--verify`
+# ==========================================================================
+
+def test_every_refusal_type_5_1_names_exists_and_derives_from_the_base():
+    """§5.1's table, by name. A typed name is a promise the preregistration
+    made; this is the test that it was kept."""
+    named = ("CorpusMissing", "CorpusDigestMismatch", "CorpusShapeMismatch",
+             "ArchiveDigestMismatch", "LedgerDigestMismatch", "ConfigNotFrozen",
+             "MembershipMismatch", "PredicateMismatch", "EvidenceLeak",
+             "CutoffLeak", "CanaryFailed", "EvidenceCanaryFailed",
+             "ControlMismatch", "UntreatedMoved", "TableIdentityBreak",
+             "FitFailed", "UnpriceableFixture", "ScoreMismatch",
+             "SchemaMismatch", "RowConflict", "ShardFailed", "MergeIncomplete")
+    for name in named:
+        cls = getattr(ew, name)
+        assert issubclass(cls, ew.EvWidenError), name
+        assert issubclass(cls, RuntimeError), name
+
+
+def test_the_harness_invents_no_refusal_the_document_never_wrote():
+    """`epl.freshsweep`'s ruling, applied here: a condition §7 pre-states as an
+    invalidation but §5.1 never named refuses as the BASE class rather than
+    under a name invented after the fact."""
+    import inspect
+
+    subclasses = {name for name, obj in vars(ew).items()
+                  if inspect.isclass(obj) and issubclass(obj, ew.EvWidenError)
+                  and obj is not ew.EvWidenError}
+    named = {"CorpusMissing", "CorpusDigestMismatch", "CorpusShapeMismatch",
+             "ArchiveDigestMismatch", "LedgerDigestMismatch", "ConfigNotFrozen",
+             "MembershipMismatch", "PredicateMismatch", "EvidenceLeak",
+             "CutoffLeak", "CanaryFailed", "EvidenceCanaryFailed",
+             "ControlMismatch", "UntreatedMoved", "TableIdentityBreak",
+             "FitFailed", "UnpriceableFixture", "ScoreMismatch",
+             "SchemaMismatch", "RowConflict", "ShardFailed", "MergeIncomplete"}
+    assert subclasses == named
+    # the pre-freeze-fit invalidation is one of the unnamed ones, and refuses
+    # as the base class
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.require_harness_freeze([Path("/nonexistent-prereg.md")])
+    assert type(exc.value) is ew.EvWidenError
+
+
+def test_verify_re_derives_the_headline_from_the_committed_evidence(tmp_path):
+    """The check a reader of the repository can run: three routes to the number
+    rather than one number copied twice."""
+    _run(tmp_path)
+    rows = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
+    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    out = tmp_path / "evidence"
+    ew.write_evidence(result, rows, None, directory=out, manifest=False)
+
+    checked = ew.verify(tmp_path, shards=1, evidence=out / "widening.json",
+                        n_boot=200)
+    assert checked["PASS"] is True
+    sources = {c["source"] for c in checked["checks"] if c.get("checked")}
+    assert sources == {"per_fixture_csv", "shard_ledgers"}
+    assert all(c["delta_mean"] <= 1e-12 for c in checked["checks"]
+               if c.get("checked"))
+
+
+def test_verify_refuses_a_verdict_that_does_not_match_its_own_evidence(tmp_path):
+    """A verdict nobody can recompute is exactly what `reports/evidence/`
+    exists to prevent."""
+    _run(tmp_path)
+    rows = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
+    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    out = tmp_path / "evidence"
+    ew.write_evidence(result, rows, None, directory=out, manifest=False)
+
+    published = json.loads((out / "widening.json").read_text())
+    published["mean"] = float(published["mean"]) + 1e-6
+    (out / "widening.json").write_text(json.dumps(published))
+    with pytest.raises(ew.MergeIncomplete) as exc:
+        ew.verify(tmp_path, shards=1, evidence=out / "widening.json", n_boot=200)
+    assert "does not re-derive" in str(exc.value)
+
+
+def test_verify_refuses_when_there_is_no_published_verdict(tmp_path):
+    with pytest.raises(ew.MergeIncomplete) as exc:
+        ew.verify(tmp_path, shards=1, evidence=tmp_path / "absent.json")
+    assert "never finished" in str(exc.value)
+
+
+def test_no_live_2026_27_quantity_can_enter_this_experiment():
+    """§7: "The 27.9→15.9 counterfactual, or any live-2026/27 quantity, enters
+    any gate" is an invalidation, and §1.2 rules the counterfactual "a
+    motivating observation OUTSIDE the evidence base… the harness does not
+    recompute it".
+
+    The scoring window stops at 2024/25 and the table leg's seasons come from
+    `simretro.SEASONS`, which stops at 2025/26. Neither reaches the live season,
+    and no number from it appears anywhere in the harness.
+    """
+    from epl import simretro
+
+    assert max(ew.CORPUS_SEASONS) == "2024/25"
+    assert "2026/27" not in simretro.SEASONS
+    assert max(simretro.SEASONS) == "2025/26"
+    assert ew.HULL_ANALOGUE == ("2025/26", "sunderland")
+
+    source = (ew.paths.REPO_ROOT / "epl" / "evwiden.py").read_text()
+    for forbidden in ("2026/27", "27.885", "0.27885", "15.9%", "58.71"):
+        assert forbidden not in source, forbidden

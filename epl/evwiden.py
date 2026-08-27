@@ -95,6 +95,7 @@ import hashlib                                                    # noqa: E402
 import json                                                       # noqa: E402
 import re                                                         # noqa: E402
 import socket                                                     # noqa: E402
+import tempfile                                                   # noqa: E402
 import time                                                       # noqa: E402
 from contextlib import contextmanager                             # noqa: E402
 from dataclasses import dataclass                                 # noqa: E402
@@ -118,7 +119,9 @@ __all__ = [
     "evidence_canary", "identity_canary", "direction_canary", "run_canary",
     "require_run_preconditions", "estimand", "adoption", "merge",
     "table_cells", "run_table", "score_table", "table_gate",
-    "write_evidence", "harness_freeze_status", "require_harness_freeze",
+    "assert_table_identity",
+    "write_evidence", "verify", "harness_freeze_status",
+    "require_harness_freeze",
     "launch_script", "main",
 ]
 
@@ -1968,10 +1971,18 @@ def _check_fit(point: FitPoint, out: dict) -> None:
 # 10. THE CANARIES — §5.3. A canary that cannot fail is not a canary.
 # ==========================================================================
 
-#: The sentinel a corrupted archive row is reassigned to. It is a club name no
-#: archive carries, so a leak shows up as evidence attributed to a club that
-#: does not exist rather than as a small numerical drift somebody might excuse.
-_CANARY_CLUB = "__canary_corrupt__"
+#: The prefix a corrupted archive row's clubs are reassigned to. No archive
+#: carries these names, so a leak shows up as evidence attributed to clubs that
+#: do not exist rather than as a small numerical drift somebody might excuse.
+#:
+#: The names are made unique PER ROW, and that is not cosmetic:
+#: ``wcmodel.data.features.valid_played_results`` collapses rows that are
+#: content-identical — same normalised date, same unordered team pair, same
+#: team-to-goals map — as its duplicate-match dedup. A corruption that gave
+#: every row the SAME two clubs and the same score therefore deleted a thousand
+#: rows on the way into the store instead of rewriting them, and the canary
+#: crashed rather than measuring anything.
+_CANARY_PREFIX = "__canary_corrupt__"
 
 
 def corrupt_archive(played: pd.DataFrame, cutoff: str | pd.Timestamp, *,
@@ -1999,8 +2010,10 @@ def corrupt_archive(played: pd.DataFrame, cutoff: str | pd.Timestamp, *,
             f"the canary has nothing to corrupt {side} {ts.date()}: a canary "
             "run over an empty mask passes by accident, which is the one thing "
             "a canary may never do")
-    out.loc[mask, "home_key"] = _CANARY_CLUB
-    out.loc[mask, "away_key"] = _CANARY_CLUB
+    n = int(mask.sum())
+    tag = np.arange(n)
+    out.loc[mask, "home_key"] = [f"{_CANARY_PREFIX}h{i}" for i in tag]
+    out.loc[mask, "away_key"] = [f"{_CANARY_PREFIX}a{i}" for i in tag]
     for column in ("fthg", "ftag"):
         if column in out.columns:
             out.loc[mask, column] = 9
@@ -2999,23 +3012,9 @@ class TableRunner:
                 print(f"[evwiden-table] {season} {label} {name} "
                       f"TRPS={arms[name]['trps']:.6f}", flush=True)
 
-        identical = bool(arms["control"]["digest"] == arms["treatment"]["digest"])
-        if not cell["treated_clubs"] and not identical:
-            raise TableIdentityBreak(
-                f"{season} {label} carries no treated club, so the two books are "
-                "the same book and the two runs must be the same run — but their "
-                f"digests differ ({arms['control']['digest'][:12]}… vs "
-                f"{arms['treatment']['digest'][:12]}…). §3.3 rules that the 19 "
-                "untouched cells are unchanged BY CONSTRUCTION and that the "
-                "harness must prove it; a break here means the treatment reaches "
-                "further than the rule names.")
-        if cell["treated_clubs"] and identical:
-            raise TableIdentityBreak(
-                f"{season} {label} carries treated clubs "
-                f"{sorted(cell['treated_clubs'])} and the two arms produced "
-                "byte-identical runs. A treatment that changes nothing where the "
-                "rule says it should is not a null result — it is a treatment "
-                "that never reached the sampler.")
+        identical = assert_table_identity(
+            cell["treated_clubs"], arms["control"]["digest"],
+            arms["treatment"]["digest"], where=f"{season} {label}")
 
         return {
             "schema": SCHEMA_ID, "season": season, "cutoff_label": label,
@@ -3036,6 +3035,40 @@ class TableRunner:
             "harness_sha256": self.harness_sha256,
             "wall_seconds": round(time.perf_counter() - started, 2),
         }
+
+
+def assert_table_identity(treated_clubs: Sequence[str], control_digest: str,
+                          treatment_digest: str, *, where: str) -> bool:
+    """§3.3's two-sided identity demand, in one place so it can be tested.
+
+    The 19 untouched cells are "unchanged by construction, **and the harness
+    must prove it**": an untouched cell whose treatment digest differs from its
+    control's is :class:`TableIdentityBreak`.
+
+    The OTHER direction is refused too, and it is not in the document's letter
+    because the document could not have anticipated a harness bug: a cell whose
+    rule-named treated clubs produced a byte-identical run is not a null result
+    — it is a treatment that never reached the sampler, and reporting its zero
+    delta as evidence of "no harm" would be reporting the absence of the
+    experiment.
+    """
+    identical = bool(str(control_digest) == str(treatment_digest))
+    if not treated_clubs and not identical:
+        raise TableIdentityBreak(
+            f"{where} carries no treated club, so the two books are the same "
+            "book and the two runs must be the same run — but their digests "
+            f"differ ({str(control_digest)[:12]}… vs "
+            f"{str(treatment_digest)[:12]}…). §3.3 rules the 19 untouched cells "
+            "unchanged BY CONSTRUCTION and requires the harness to prove it; a "
+            "break here means the treatment reaches further than the rule names.")
+    if treated_clubs and identical:
+        raise TableIdentityBreak(
+            f"{where} carries treated clubs {sorted(treated_clubs)} and the two "
+            "arms produced byte-identical runs. A treatment that changes nothing "
+            "where the rule says it should is not a null result — it is a "
+            "treatment that never reached the sampler, and its zero delta is the "
+            "absence of the experiment rather than evidence of no harm.")
+    return identical
 
 
 def _coverage_for(points: np.ndarray, truth: np.ndarray, clubs: Sequence[str],
@@ -3548,6 +3581,84 @@ def write_evidence(result: dict[str, Any],
     return written
 
 
+def verify(directory: Path | str | None = None, *, shards: int = 1,
+           evidence: Path | str | None = None,
+           n_boot: int = N_BOOT, seed: int = BOOTSTRAP_SEED,
+           tolerance: float = 1e-12) -> dict[str, Any]:
+    """Re-derive the published headline from the COMMITTED evidence, and from
+    the shard ledgers, and demand they agree.
+
+    This is the check a reader of the repository can run. `widening.json` is a
+    verdict somebody wrote down; `widening_per_fixture.csv` is the 85 rows it
+    rests on. Averaging one column of the CSV must reproduce the JSON's mean to
+    1e-12, and re-scoring the shard ledgers must reproduce it again — so the
+    three ways of arriving at the number are three, and not one number copied
+    twice.
+
+    It fits nothing, simulates nothing and writes nothing.
+    """
+    evidence = Path(evidence) if evidence is not None else EVIDENCE_JSON
+    if not evidence.exists():
+        raise MergeIncomplete(
+            f"{paths.rel(evidence)} is not on disk: there is no published "
+            "verdict to verify. §6's evidence contract is written by the merge "
+            "regardless of outcome, so an absent file is a run that never "
+            "finished rather than a result that went the wrong way.")
+    published = json.loads(evidence.read_text())
+
+    per_fixture = evidence.with_name(EVIDENCE_PER_FIXTURE.name)
+    from_csv: dict[str, Any] = {"path": paths.rel(per_fixture), "present": False}
+    if per_fixture.exists():
+        with per_fixture.open() as fh:
+            rows = list(csv.DictReader(fh))
+        deltas = np.array([float(r["delta"]) for r in rows], dtype=float)
+        lo, hi, n_blocks = score_mod.block_bootstrap_ci(
+            deltas, [str(r["block"]) for r in rows], n_boot=n_boot,
+            alpha=ALPHA, seed=seed)
+        from_csv = {"path": paths.rel(per_fixture), "present": True,
+                    "n": len(rows), "mean": float(deltas.mean()),
+                    "ci95": [lo, hi], "n_blocks": int(n_blocks)}
+
+    from_ledger: dict[str, Any] = {"present": False}
+    directory = Path(directory) if directory is not None else EVWIDEN_DIR
+    paths_present = [directory / shard_name(i, shards) for i in range(int(shards))]
+    if all(p.exists() for p in paths_present):
+        ledger_rows = [r for p in paths_present for r in load_ledger(p)]
+        scored = estimand(ledger_rows, n_boot=n_boot, seed=seed,
+                          corpus_rows=CORPUS_ROWS)
+        from_ledger = {"present": True, "n": scored["n"],
+                       "mean": scored["mean"], "ci95": scored["ci95"],
+                       "run_digest": run_digest(ledger_rows)}
+
+    checks = []
+    for name, got in (("per_fixture_csv", from_csv), ("shard_ledgers", from_ledger)):
+        if not got.get("present"):
+            checks.append({"source": name, "checked": False,
+                           "why": "not on disk"})
+            continue
+        d_mean = abs(float(got["mean"]) - float(published["mean"]))
+        d_n = int(got["n"]) - int(published["n"])
+        checks.append({"source": name, "checked": True,
+                       "delta_mean": d_mean, "delta_n": d_n,
+                       "PASS": bool(d_mean <= tolerance and d_n == 0)})
+    ran = [c for c in checks if c.get("checked")]
+    out = {"schema": SCHEMA_ID, "evidence": paths.rel(evidence),
+           "published": {k: published.get(k) for k in
+                         ("mean", "n", "ci95", "ci95_season", "run_digest")},
+           "per_fixture_csv": from_csv, "shard_ledgers": from_ledger,
+           "checks": checks, "tolerance": tolerance,
+           "PASS": bool(ran) and all(c["PASS"] for c in ran)}
+    if not out["PASS"]:
+        raise MergeIncomplete(
+            f"the published verdict does not re-derive from its own evidence: "
+            f"{[c for c in checks if not c.get('PASS', True)]}. Either the "
+            "committed files disagree with the ledger they were projected from, "
+            "or nothing was available to check them against — and a verdict "
+            "nobody can recompute is exactly what reports/evidence/ exists to "
+            "prevent.")
+    return out
+
+
 # ==========================================================================
 # 16. THE HARNESS-HASH FREEZE OF §6
 # ==========================================================================
@@ -3776,22 +3887,34 @@ def _run_all_canaries(corpus: pd.DataFrame, played: pd.DataFrame,
                    | set(corpus.loc[corpus["season"] == season,
                                     "away_key"].astype(str)))
 
-    def provisional_fn(frame: pd.DataFrame) -> set[str]:
-        store = epl_fit.build_store(frame)
-        arm = count_volatility_arm(store, cutoff, clubs, config=cfg)
-        return set(arm.loc[arm["volatility_flag"]
-                           | arm["few_games_flag"], "team"])
+    # The store root is a TEMPORARY directory, and that is a §6 requirement
+    # rather than tidiness: `epl.fit.build_store` unlinks and rewrites the
+    # shared `data/epl/fit/store/results.parquet` whenever the row set differs,
+    # so building a store from the CORRUPTED frame under the default root would
+    # overwrite production state this experiment is not allowed to write.
+    with tempfile.TemporaryDirectory(prefix="evwiden-canary-") as scratch:
+        roots = {}
 
-    record: dict[str, Any] = {
-        "schema": SCHEMA_ID,
-        "evidence": evidence_canary(played, cutoff, clubs,
-                                    provisional_fn=provisional_fn),
-        "blas_threads": blas_threads(),
-    }
+        def provisional_fn(frame: pd.DataFrame) -> set[str]:
+            root = Path(scratch) / f"store{len(roots)}"
+            roots[len(roots)] = root
+            store = epl_fit.build_store(frame, root=root)
+            arm = count_volatility_arm(store, cutoff, clubs, config=cfg)
+            return set(arm.loc[arm["volatility_flag"]
+                               | arm["few_games_flag"], "team"])
+
+        record: dict[str, Any] = {
+            "schema": SCHEMA_ID, "cutoff": str(pd.Timestamp(cutoff).date()),
+            "season": season,
+            "evidence": evidence_canary(played, cutoff, clubs,
+                                        provisional_fn=provisional_fn),
+            "blas_threads": blas_threads(),
+        }
     if results_canary:
         record["results"] = run_canary()
     record["PASS"] = all(bool(v.get("PASS")) for v in record.values()
                          if isinstance(v, dict) and "PASS" in v)
+    record["results_canary_run"] = bool(results_canary)
     return record
 
 
@@ -3941,6 +4064,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                                      expected_cells=EXPECTED_TABLE_CELLS)
                 table_out = {"scored": scored, "gate": table_gate(scored),
                              "rows": rows}
+            if args.verify and not args.merge:
+                print(json.dumps(verify(directory, shards=args.shards,
+                                        n_boot=args.n_boot), indent=2,
+                                 default=str))
+                return 0
             result = merge(shards=args.shards, directory=directory,
                            corpus=corpus, played=played, ledger=ledger,
                            table=(None if table_out is None
