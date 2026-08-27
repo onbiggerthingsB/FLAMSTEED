@@ -750,13 +750,18 @@ def _cycle(tmp_path, *, of_scores=None, e0_scores=None, ledger=None,
 
 
 def _prescored(tmp_path, fixtures=MW1_META, derived: str = "derived"):
-    """File scorecard and shadow rows for `fixtures`, so the cycle has NO
+    """File scorecard, shadow AND avail rows for `fixtures`, so the cycle has NO
     backlog. Without this a hand-ingested round is outstanding work and a
     "no-op" day correctly scores it — which is the whole point of the backlog
-    fix, and makes "nothing was scored" a claim a test has to earn."""
+    fix, and makes "nothing was scored" a claim a test has to earn.
+
+    THREE ledgers, not two: A12's arm is a first-class member of the backlog
+    definition, so a fixture the first two carry and the third does not is
+    still outstanding work.
+    """
     root = tmp_path / derived
     root.mkdir(parents=True, exist_ok=True)
-    for name in (simcli.SCORECARD_FILENAME, "shadow.jsonl"):
+    for name in (simcli.SCORECARD_FILENAME, "shadow.jsonl", "avail.jsonl"):
         (root / name).write_text("".join(
             json.dumps({"fixture_id": fid, "run_digest": "a" * 64}) + "\n"
             for fid in fixtures), encoding="utf-8")
@@ -1823,9 +1828,10 @@ class _ScoringSteps(_Steps):
     """`_Steps`, but the scoring stubs actually file rows, so "already scored"
     is a fact on disk rather than a fact in a list."""
 
-    def __init__(self, *, scorecard: Path, shadow: Path, **kw):
+    def __init__(self, *, scorecard: Path, shadow: Path, avail: Path, **kw):
         super().__init__(**kw)
         self.scorecard, self.shadow_path = Path(scorecard), Path(shadow)
+        self.avail_path = Path(avail)
 
     def _file(self, path, rows, digest):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1844,18 +1850,25 @@ class _ScoringSteps(_Steps):
         self._file(self.shadow_path, _results_rows(kw["results_file"]), "a" * 64)
         return out
 
+    def avail(self, **kw):
+        out = super().avail(**kw)
+        self._file(self.avail_path, _results_rows(kw["results_file"]), "a" * 64)
+        return out
+
 
 def test_a_refusal_after_the_ingest_write_leaves_a_backlog_the_next_run_clears(tmp_path):
     root = _season_copy(tmp_path, "backlog")
     derived = tmp_path / "derived"
     scorecard = derived / simcli.SCORECARD_FILENAME
     shadow = derived / "shadow.jsonl"
+    avail = derived / "avail.jsonl"
 
     # --- run 1: the ingest writes, then the gate refuses ------------------
-    failing = _ScoringSteps(scorecard=scorecard, shadow=shadow, gate_pass=False)
+    failing = _ScoringSteps(scorecard=scorecard, shadow=shadow, avail=avail,
+                            gate_pass=False)
     with pytest.raises(livecycle.GateNotPassed):
         _cycle(tmp_path, root=root, steps=failing,
-               derived_root=derived, shadow_ledger=shadow)
+               derived_root=derived, shadow_ledger=shadow, avail_ledger=avail)
 
     assert not failing.named("matchboard"), "nothing should have been scored"
     written_ids = {r["fixture_id"] for r in _results_rows(
@@ -1866,9 +1879,9 @@ def test_a_refusal_after_the_ingest_write_leaves_a_backlog_the_next_run_clears(t
 
     # --- run 2: a clean cycle. The sources carry the SAME round, which the
     # ledger already resolves, so this run writes nothing at all. ----------
-    clean = _ScoringSteps(scorecard=scorecard, shadow=shadow)
+    clean = _ScoringSteps(scorecard=scorecard, shadow=shadow, avail=avail)
     out = _cycle(tmp_path, root=root, steps=clean,
-                 derived_root=derived, shadow_ledger=shadow)
+                 derived_root=derived, shadow_ledger=shadow, avail_ledger=avail)
     assert out["ingested"]["written"] is False       # nothing new was written
 
     scored = {r["fixture_id"] for call in clean.named("matchboard")
@@ -1876,31 +1889,110 @@ def test_a_refusal_after_the_ingest_write_leaves_a_backlog_the_next_run_clears(t
     assert scored == written_ids, (
         "the orphaned fixtures were never scored by any run")
     assert {r["fixture_id"] for r in _results_rows(scorecard)} == written_ids
+    assert {r["fixture_id"] for r in _results_rows(avail)} == written_ids, (
+        "step 9 files beside the other two, and the backlog is what feeds it")
 
     # --- run 3: nothing is left, so nothing is re-scored -------------------
-    third = _ScoringSteps(scorecard=scorecard, shadow=shadow)
+    third = _ScoringSteps(scorecard=scorecard, shadow=shadow, avail=avail)
     _cycle(tmp_path, root=root, steps=third,
-           derived_root=derived, shadow_ledger=shadow)
+           derived_root=derived, shadow_ledger=shadow, avail_ledger=avail)
     assert not third.named("matchboard"), "a cleared backlog must stay cleared"
 
 
+def test_a_fixture_only_the_avail_ledger_lacks_is_still_a_backlog(tmp_path):
+    """The case the two-ledger definition could never see.
+
+    A12's step 9 landed AFTER the matchboard scorecard and the A8 shadow ledger
+    already carried MW1, so on the committed definition those ten fixtures were
+    "scored" and the arm was never offered them. Its abstentions — the rows
+    A12 (b) rules exist "by construction" for MW1 and MW2 — would never have
+    been filed at all.
+    """
+    root = _season_copy(tmp_path, "availgap")
+    derived = tmp_path / "derived"
+    scorecard = derived / simcli.SCORECARD_FILENAME
+    shadow = derived / "shadow.jsonl"
+    avail = derived / "avail.jsonl"
+
+    _prescored(tmp_path)                    # all three, then take one away
+    avail.write_text("", encoding="utf-8")
+
+    steps = _ScoringSteps(scorecard=scorecard, shadow=shadow, avail=avail)
+    out = _cycle(tmp_path, root=root, steps=steps, ledger=MW1_SCORES,
+                 derived_root=derived, shadow_ledger=shadow, avail_ledger=avail)
+    offered = {r["fixture_id"] for call in steps.named("avail")
+               for r in call["rows"]}
+    assert offered == set(MW1_META), (
+        "every MW1 fixture is outstanding work for the arm that has not seen it")
+    assert out["avail"]["appended"] == len(MW1_META)
+
+
 def test_the_backlog_is_read_from_the_ledger_not_from_this_runs_list(tmp_path):
-    """The unit the fix turns on, tested directly."""
+    """The unit the fix turns on, tested directly — over all THREE ledgers.
+
+    A12's arm files per matchweek beside the other two, and the ten MW1
+    fixtures were already in the first two ledgers before step 9 existed. A
+    backlog defined over two of three would therefore never have offered MW1 to
+    the arm at all: its abstentions — the rows A12 (b) rules "by construction"
+    — would simply never be filed, and a step-9 refusal could never be retried.
+    """
     scorecard = tmp_path / "scorecard.jsonl"
     shadow = tmp_path / "shadow.jsonl"
-    scorecard.write_text(json.dumps({"fixture_id": "a", "run_digest": "d"}) + "\n")
-    shadow.write_text(json.dumps({"fixture_id": "a", "run_digest": "d"}) + "\n")
+    avail = tmp_path / "avail.jsonl"
+    row = json.dumps({"fixture_id": "a", "run_digest": "d"}) + "\n"
+    for path in (scorecard, shadow, avail):
+        path.write_text(row)
 
     assert livecycle.unscored_fixtures(
-        ["a", "b", "c"], scorecard=scorecard, shadow=shadow) == ["b", "c"]
-    # scored on one ledger but not the other is still unscored
-    shadow.write_text("")
+        ["a", "b", "c"], scorecard=scorecard, shadow=shadow,
+        avail=avail) == ["b", "c"]
+    # scored on two ledgers but not the third is still unscored — and that
+    # holds for whichever of the three is the short one.
+    for short in (scorecard, shadow, avail):
+        short.write_text("")
+        assert livecycle.unscored_fixtures(
+            ["a"], scorecard=scorecard, shadow=shadow, avail=avail) == ["a"]
+        short.write_text(row)
     assert livecycle.unscored_fixtures(
-        ["a"], scorecard=scorecard, shadow=shadow) == ["a"]
+        ["a"], scorecard=scorecard, shadow=shadow, avail=avail) == []
     # absent files mean nothing has been scored yet
     assert livecycle.unscored_fixtures(
         ["a"], scorecard=tmp_path / "nope.jsonl",
-        shadow=tmp_path / "nope2.jsonl") == ["a"]
+        shadow=tmp_path / "nope2.jsonl",
+        avail=tmp_path / "nope3.jsonl") == ["a"]
+
+
+def test_a_step_nine_refusal_journals_what_steps_seven_and_eight_wrote(tmp_path):
+    """A12 (e) makes step 9's tally part of the flight log, and a STOP is
+    exactly when the log has to be complete: steps 7 and 8 have already
+    appended by the time step 9 refuses, and a journal line that hides those
+    writes describes a run that did not happen."""
+    root = _season_copy(tmp_path, "stop9")
+    derived = tmp_path / "derived"
+    scorecard = derived / simcli.SCORECARD_FILENAME
+    shadow = derived / "shadow.jsonl"
+    avail = derived / "avail.jsonl"
+
+    class _RefusingNine(_ScoringSteps):
+        def avail(self, **kw):
+            self.calls.append(("avail", {**kw, "rows": []}))
+            raise livecycle.ScorecardMismatch(
+                "`python -m epl.availarm score` refused (exit 2)")
+
+    steps = _RefusingNine(scorecard=scorecard, shadow=shadow, avail=avail)
+    with pytest.raises(livecycle.ScorecardMismatch):
+        _cycle(tmp_path, root=root, steps=steps, derived_root=derived,
+               shadow_ledger=shadow, avail_ledger=avail,
+               journal=tmp_path / "journal.jsonl")
+
+    entry = json.loads((tmp_path / "journal.jsonl").read_text(
+        encoding="utf-8").splitlines()[-1])
+    assert entry["outcome"] == "STOP"
+    assert entry["refused"]["type"] == "ScorecardMismatch"
+    assert entry["scorecard"]["appended"] == len(MW1_META)
+    assert entry["shadow"]["appended"] == len(MW1_META)
+    assert entry["digests"]["matchboard_scorecard"] is not None
+    assert entry["digests"]["recal_shadow"] is not None
 
 
 def test_the_committed_journal_verifies_and_its_history_was_not_rewritten():

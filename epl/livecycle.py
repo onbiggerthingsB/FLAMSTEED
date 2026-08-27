@@ -772,8 +772,9 @@ def _scored_fixture_ids(path) -> set[str]:
     return out
 
 
-def unscored_fixtures(resolved: Iterable[str], *, scorecard, shadow) -> list[str]:
-    """Resolved fixtures that either scoring ledger does not yet carry.
+def unscored_fixtures(resolved: Iterable[str], *, scorecard, shadow,
+                      avail) -> list[str]:
+    """Resolved fixtures that ANY of the three scoring ledgers does not carry.
 
     THE WORK IS READ FROM THE LEDGERS, NOT FROM THIS RUN'S WRITTEN LIST. The
     ingest writes at step 4 and the scoring runs at steps 7-8, so every refusal
@@ -788,13 +789,20 @@ def unscored_fixtures(resolved: Iterable[str], *, scorecard, shadow) -> list[str
     fixture costs a `repeated` and changes nothing — the failure this guards
     against is scoring too LITTLE, and it errs toward too much.
 
-    A fixture missing from EITHER ledger counts: the matchboard scorecard and
-    the A8 shadow ledger are written by two separate steps, and a refusal
-    between them leaves exactly one of them short.
+    A fixture missing from ANY ledger counts: the matchboard scorecard, the A8
+    shadow ledger and A12's availability ledger are written by three separate
+    steps, and a refusal between them leaves one or two of them short.
+
+    THE THIRD LEDGER IS A FIRST-CLASS MEMBER AND HAD TO BE. A12's step 9 landed
+    after the first two already carried MW1, so a definition over two of three
+    called those ten fixtures scored and never offered them to the arm: its
+    abstentions — the rows A12 (b) rules exist "by construction" for MW1 and
+    MW2 — would never have been filed at all, and a step-9 refusal could never
+    be retried, because the next run's backlog was empty for the same reason.
     """
-    board, shad = _scored_fixture_ids(scorecard), _scored_fixture_ids(shadow)
+    filed = [_scored_fixture_ids(path) for path in (scorecard, shadow, avail)]
     return sorted(fid for fid in {str(f) for f in resolved}
-                  if fid not in board or fid not in shad)
+                  if any(fid not in ids for ids in filed))
 
 
 # ==========================================================================
@@ -1433,7 +1441,8 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
         kickoffs = season_mod._kickoffs_known(
             season_obj.fixtures, season_obj.amendments, observed_at)
         work = [fid for fid in unscored_fixtures(
-            resolved, scorecard=scorecard_path, shadow=shadow_ledger)
+            resolved, scorecard=scorecard_path, shadow=shadow_ledger,
+            avail=avail_ledger)
             if fid in kickoffs]
     if work:
         # Two populations, two strictnesses. What THIS run ingested must find a
@@ -1460,6 +1469,22 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
         board_tally = {"appended": 0, "repeated": 0, "bundles": []}
         shadow_tally = {"appended": 0, "repeated": 0, "bundles": []}
         avail_tally = {"appended": 0, "repeated": 0, "bundles": []}
+        # THE FLIGHT LOG IS WIRED UP BEFORE THE STEPS RUN, not after they all
+        # do. Steps 7, 8 and 9 append in that order, so a refusal in step 9 —
+        # or in step 8 — happens with rows already on disk. Assigned by
+        # reference and mutated in place, so the journal line a STOP writes
+        # carries what the earlier steps actually wrote instead of three nulls
+        # describing a run that did not happen.
+        entry["scorecard"] = board_tally
+        entry["shadow"] = shadow_tally
+        entry["avail"] = avail_tally
+
+        def _stamp_digests() -> None:
+            entry["digests"]["matchboard_scorecard"] = simcli.sha256_file(
+                Path(derived_root) / simcli.SCORECARD_FILENAME)
+            entry["digests"]["recal_shadow"] = simcli.sha256_file(shadow_ledger)
+            entry["digests"]["avail_shadow"] = simcli.sha256_file(avail_ledger)
+
         tag = f"livecycle/{cutoff}"
         with tempfile.TemporaryDirectory(prefix="livecycle-score-") as tmp:
             for bundle, fids in sorted(groups.items()):
@@ -1474,34 +1499,33 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
                         "matchweek": season_obj.fixture(fid).matchday,
                         "ingest": tag}) + "\n" for fid in fids),
                     encoding="utf-8")
-                board = steps["matchboard"](
+                def _record(tally, got) -> None:
+                    tally["appended"] += int(got.get("appended", 0))
+                    tally["repeated"] += int(got.get("repeated", 0))
+                    for field in ("scored", "abstained"):
+                        if field in got:
+                            tally[field] = (tally.get(field, 0)
+                                            + int(got[field]))
+                    tally["bundles"].append(paths.rel(bundle))
+                    _stamp_digests()
+
+                _record(board_tally, steps["matchboard"](
                     directory=bundle, results_file=results_file,
                     out_dir=derived_root, season_root=root,
-                    derived_at=str(now.floor("s")), verbose=verbose)
-                shadow = steps["shadow"](
+                    derived_at=str(now.floor("s")), verbose=verbose))
+                _record(shadow_tally, steps["shadow"](
                     directory=bundle, results_file=results_file,
-                    ledger=shadow_ledger, season_root=root, verbose=verbose)
+                    ledger=shadow_ledger, season_root=root, verbose=verbose))
                 # Step 9 — A12's arm, on the SAME bundle and the SAME results
                 # file, so the two challengers are scored against exactly what
                 # the matchboard was. An abstention is a row the arm files, not
                 # a step this cycle skips.
-                avail = steps["avail"](
+                _record(avail_tally, steps["avail"](
                     directory=bundle, results_file=results_file,
-                    ledger=avail_ledger, season_root=root, verbose=verbose)
-                for tally, got in ((board_tally, board), (shadow_tally, shadow),
-                                   (avail_tally, avail)):
-                    tally["appended"] += int(got.get("appended", 0))
-                    tally["repeated"] += int(got.get("repeated", 0))
-                    tally["bundles"].append(paths.rel(bundle))
+                    ledger=avail_ledger, season_root=root, verbose=verbose))
         board_tally["backlog"] = sorted(set(chosen) - set(ingestable))
         board_tally["unscoreable"] = unscoreable
-        entry["scorecard"] = board_tally
-        entry["shadow"] = shadow_tally
-        entry["avail"] = avail_tally
-        entry["digests"]["matchboard_scorecard"] = simcli.sha256_file(
-            Path(derived_root) / simcli.SCORECARD_FILENAME)
-        entry["digests"]["recal_shadow"] = simcli.sha256_file(shadow_ledger)
-        entry["digests"]["avail_shadow"] = simcli.sha256_file(avail_ledger)
+        _stamp_digests()
 
     # --- 10. what happened ------------------------------------------------
     if dry_run:
