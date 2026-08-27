@@ -1323,3 +1323,88 @@ def test_the_official_ledger_is_the_default_and_an_override_is_a_choice(
         availarm.score_bundle(tmp_path / "bundle", tmp_path / "results.jsonl",
                               manifest_path=tmp_path / "manifest.jsonl",
                               ledger_path=tmp_path / "avail.jsonl")
+
+
+# ==========================================================================
+# 12. verification proves the row, it does not merely read it (r7 I1, I2)
+# ==========================================================================
+
+def test_verify_refuses_an_abstention_a_qualifying_snapshot_contradicts(
+        tmp_path):
+    """A12 (b) rules an abstention for one fact only — "if no manifest line
+    qualifies". The r6 verifier checked an abstention's SHAPE and moved on, so
+    a hand-written `no_snapshot` row for a fixture the archive could perfectly
+    well have priced passed; and A12 (d)'s idempotence then made that row
+    refuse the correct scored one for ever. The claim is re-derived from the
+    tracked manifest, which is the one object this check needs."""
+    bits = _verifiable(tmp_path)                # archive observed 2026-08-26
+    board = _real_board()                       # observed_by 2026-08-27
+    fabricated = availarm.abstention_row(board, board["rows"][0])
+    _rewrite(bits["path"], [fabricated])
+    with pytest.raises(availarm.SchemaMismatch, match="abstention"):
+        _reverify(bits)
+
+
+def test_verify_accepts_an_abstention_the_selection_rule_earns(tmp_path):
+    """The other half, so the check above is not simply refusing everything."""
+    bits = _verifiable(tmp_path)
+    earned = _rows(None)[0]                     # observed_by 2026-08-21
+    _rewrite(bits["path"], [*availarm.read_shadow(bits["path"]), earned])
+    assert _reverify(bits)["n_abstained"] == 1
+
+
+def test_verify_refuses_an_abstention_marker_that_is_not_the_literal_true(
+        tmp_path):
+    """`abstained: 1` reads as an abstention to one reader and as a scored row
+    to the next — and a row that is a scored row to a reader who then finds no
+    `probs_raw` on it is a traceback, not a refusal."""
+    bits = _verifiable(tmp_path)
+    smuggled = {**_rows(None)[0], "abstained": 1}
+    _rewrite(bits["path"], [smuggled])
+    with pytest.raises(availarm.SchemaMismatch, match="abstained"):
+        _reverify(bits)
+    assert availarm.is_abstention({"abstained": 1}) is False
+    assert availarm.is_abstention({"abstained": True}) is True
+
+
+def test_verify_refuses_a_scored_row_carrying_a_field_A12_never_named(
+        tmp_path):
+    """A12 (d)'s table is exact in both directions. The r6 verifier read the
+    fields it wanted and never asked what else was on the row, so a ledger
+    could grow a column nobody ruled."""
+    bits = _verifiable(tmp_path)
+    pristine = availarm.read_shadow(bits["path"])
+    rows = [{**pristine[0], "market_price": 1.85}]
+    _rewrite(bits["path"], rows)
+    with pytest.raises(availarm.SchemaMismatch, match="market_price"):
+        _reverify(bits)
+
+    rows = [{k: v for k, v in pristine[0].items() if k != "ingest"}]
+    _rewrite(bits["path"], rows)
+    with pytest.raises(availarm.SchemaMismatch, match="ingest"):
+        _reverify(bits)
+
+
+def test_the_frozen_coefficient_is_not_a_parameter_of_any_filing_path():
+    """A12: "`k_avail` is a PRIOR, not a fit"; it "changes only by a new
+    amendment". The r6 module took it as a keyword on `score`, `score_bundle`
+    AND `verify` — so 0.5 could be written and then blessed by
+    `verify(..., k_avail=0.5)`, which is a repository holding a rule nobody
+    ruled and a verifier agreeing with it.
+
+    `adjust` and `tilt` keep theirs: they are the arithmetic A12 item 3's
+    control is written against, and neither files anything.
+    """
+    import inspect
+
+    for fn in (availarm.score, availarm.score_bundle, availarm.verify,
+               availarm.forecast_rows, availarm.check_row):
+        assert "k_avail" not in inspect.signature(fn).parameters, (
+            f"{fn.__name__} takes the frozen prior as an argument")
+    assert "k_avail" in inspect.signature(availarm.adjust).parameters
+
+
+def test_the_write_path_refuses_a_row_under_another_constant(tmp_path):
+    row = {**_one(), "k_avail": 0.5}
+    with pytest.raises(availarm.SchemaMismatch, match="k_avail"):
+        availarm.append_shadow(tmp_path / "avail.jsonl", [row])

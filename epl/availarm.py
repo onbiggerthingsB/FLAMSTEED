@@ -105,6 +105,38 @@ published number, so the gate keeps its jurisdiction and gains no ruling.
 Entry into the published law would be a gate run plus its own amendment, and
 A12 pre-commits neither.
 
+WHAT VERIFICATION DELIBERATELY DOES NOT DO, AND ON WHOSE AUTHORITY
+------------------------------------------------------------------
+The r7 review asked for three further checks. Each is REFUSED here on A12's own
+text, and the refusal is recorded rather than left as an omission:
+
+* **Re-opening `source_bundle` and comparing `probs_raw` against the bundle's
+  matchboard.** A12 (d) rules the opposite construction in as many words:
+  "nothing written into any bundle — the row anchors itself by carrying the
+  source run's digest and clocks." The bundle lives under `data/`, which
+  `.gitignore` excludes at the repository root, so a verifier that required it
+  could never run on a fresh clone — and A12 (f) is a check on the LEDGER,
+  which is the tracked artefact.
+* **Comparing `outcome` against the season ledger.** A12 (f) step 6 scopes the
+  arithmetic to "the three RPS values recomputed from the row's OWN
+  probabilities and outcome". The season ledger is where a row's outcome comes
+  FROM at write time (through `epl.matchboard.score`, which refuses a fixture
+  the ledger does not resolve); re-asking it at verify time is a check A12 did
+  not rule and would make verification of an old row depend on a ledger that
+  has legitimately grown since.
+* **A hash chain or an expected-row set over the ledger.** A12 (d) states this
+  file's integrity rule and it is one rule: "idempotent by `(fixture_id,
+  run_digest)`, a disagreeing re-file refused naming both values". There is no
+  chain in the field table. Adding one is a schema change to an append-only
+  ledger, which is a new amendment and not an implementation refinement — the
+  same reasoning A12 applies to `k_avail`.
+
+What verification DOES prove, which is the part that was missing: every row's
+shape exactly, in both directions; the literal `true` as the only abstention
+marker; and — the r6 hole — that an abstention was EARNED, by re-running A12
+(b)'s selection at the row's own `observed_by` and requiring it to come back
+empty.
+
 NO CLOCK
 --------
 A row is a function of the bundle, the archive and the frozen rule. Nothing
@@ -664,8 +696,7 @@ def abstention_row(board: Mapping[str, Any], row: Mapping[str, Any]) -> dict:
 
 
 def forecast_rows(board: Mapping[str, Any], *,
-                  snapshot: availability.AsOfSnapshot | None,
-                  k_avail: float = K_AVAIL) -> list[dict]:
+                  snapshot: availability.AsOfSnapshot | None) -> list[dict]:
     """The half of every row that exists before a result does.
 
     ``probs_raw`` is the matchboard's own ``probs`` object, COPIED and never
@@ -691,12 +722,12 @@ def forecast_rows(board: Mapping[str, Any], *,
             **_head(board, row),
             "probs_raw": probs_raw,
             "probs_avail": adjust(probs_raw, home.feat, away.feat,
-                                  k_avail=k_avail),
+                                  k_avail=K_AVAIL),
             "feat_home": home.feat,
             "feat_away": away.feat,
             "weight_basis_home": home.weight_basis,
             "weight_basis_away": away.weight_basis,
-            "k_avail": float(k_avail),
+            "k_avail": float(K_AVAIL),
             "snapshot_stamp": snapshot.stamp,
             "snapshot_sha256": snapshot.sha256,
             "rule_version": RULE_VERSION,
@@ -706,8 +737,7 @@ def forecast_rows(board: Mapping[str, Any], *,
 
 def score(board: Mapping[str, Any], results: Iterable[Mapping[str, Any]], *,
           snapshot: availability.AsOfSnapshot | None,
-          ledger=None, season_root=None,
-          k_avail: float = K_AVAIL) -> list[dict]:
+          ledger=None, season_root=None) -> list[dict]:
     """Complete A12 rows for results that have entered the SEASON LEDGER.
 
     The result half — which fixtures were played, with what scoreline, and
@@ -730,7 +760,7 @@ def score(board: Mapping[str, Any], results: Iterable[Mapping[str, Any]], *,
     scored = matchboard.score(board, results, ledger=ledger,
                               season_root=season_root)
     heads = {row["fixture_id"]: row for row in
-             forecast_rows(board, snapshot=snapshot, k_avail=k_avail)}
+             forecast_rows(board, snapshot=snapshot)}
 
     out: list[dict] = []
     for row in scored:
@@ -758,7 +788,15 @@ def score(board: Mapping[str, Any], results: Iterable[Mapping[str, Any]], *,
 
 
 def is_abstention(row: Mapping[str, Any]) -> bool:
-    return bool(row.get("abstained"))
+    """A12 (b) authorises ONE abstention marker: the literal JSON `true`.
+
+    Not "truthy". A row carrying `abstained: 1` read as an abstention here and
+    as a scored row to anything comparing against `True` — and a scored row
+    with no `probs_raw` on it is a traceback, not a refusal. Rows with a
+    non-boolean marker are refused by name in :func:`check_writable` and in
+    :func:`verify`; this predicate simply never calls one an abstention.
+    """
+    return row.get("abstained") is True
 
 
 def tally(rows: Sequence[Mapping[str, Any]]) -> dict:
@@ -979,8 +1017,8 @@ def check_snapshot(row: Mapping[str, Any], *, lines: Sequence[dict],
     return line
 
 
-def check_row(row: Mapping[str, Any], *, snapshot: availability.AsOfSnapshot,
-              k_avail: float = K_AVAIL) -> None:
+def check_row(row: Mapping[str, Any], *,
+              snapshot: availability.AsOfSnapshot) -> None:
     """A12 (f) steps 3 to 6 on ONE scored row, in the order the ruling gives.
 
     Step 3 re-derives the features FROM THE SNAPSHOT'S BYTES rather than from
@@ -992,6 +1030,20 @@ def check_row(row: Mapping[str, Any], *, snapshot: availability.AsOfSnapshot,
     the discrimination the ruling is after.
     """
     fixture_id = row.get("fixture_id")
+
+    # --- step 0: the shape, before any number on it means anything.
+    # A12 (d)'s table is exact in BOTH directions and the r6 verifier only ever
+    # read the fields it wanted, so a ledger could grow a column nobody ruled
+    # and pass. `sorted`, not `tuple`: the file is `leaguesim.canonical_json`,
+    # which sorts keys, so key ORDER is a property of the writer and not of the
+    # bytes on disk.
+    if set(row) != set(ROW_FIELDS):
+        raise SchemaMismatch(
+            f"{fixture_id}: this scored row carries {sorted(row)} and A12 (d) "
+            f"rules {sorted(ROW_FIELDS)}. Unauthorised: "
+            f"{sorted(set(row) - set(ROW_FIELDS))}; missing: "
+            f"{sorted(set(ROW_FIELDS) - set(row))}. A field this ledger was not "
+            "authorised to carry is as much a schema change as a missing one")
 
     # --- step 3: the features, re-derived from the bytes
     for side, key in (("home", "feat_home"), ("away", "feat_away")):
@@ -1043,12 +1095,16 @@ def check_row(row: Mapping[str, Any], *, snapshot: availability.AsOfSnapshot,
                 f"and the frozen rule's is {frozen!r}. A row filed under a "
                 "name it was not computed under cannot be read beside the rows "
                 "that were")
-    if float(k_row) != float(k_avail):
+    if float(k_row) != K_AVAIL:
         raise SchemaMismatch(
             f"{fixture_id}: this row records k_avail = {k_row!r} and A12's "
-            f"prior is {k_avail!r}. The constant is a PRIOR and changes only by "
+            f"prior is {K_AVAIL!r}. The constant is a PRIOR and changes only by "
             "a new amendment, so a row carrying another one was computed under "
-            "a rule this repository does not hold")
+            "a rule this repository does not hold. THE EXPECTED VALUE IS THIS "
+            "MODULE'S CONSTANT AND NOT A CALLER'S: a verifier that took the "
+            "constant as an argument could bless 0.5 by being told to expect "
+            "0.5, which is a repository holding a rule nobody ruled and a "
+            "check agreeing with it")
 
     # --- step 6: admissibility and the three scores
     _refuse_a_late_stamp(fixture_id, row["date"],
@@ -1071,9 +1127,25 @@ def check_row(row: Mapping[str, Any], *, snapshot: availability.AsOfSnapshot,
             "exactly 5/18 for a home or away result and 1/9 for a draw")
 
 
-def check_abstention(row: Mapping[str, Any]) -> None:
-    """A12 (f) step 6: an abstention row carries no score field, and says why."""
+def check_abstention(row: Mapping[str, Any], *,
+                     lines: Sequence[dict] | None = None) -> None:
+    """A12 (f) step 6 — and step 2, which an abstention needs just as much.
+
+    THE CLAIM IS RE-DERIVED, NOT READ. A12 (b) authorises an abstention for one
+    fact only: "if no manifest line qualifies". The r6 verifier checked the
+    row's SHAPE and continued, so a hand-written `no_snapshot` row for a fixture
+    the archive could perfectly well have priced passed — and A12 (d)'s
+    `(fixture_id, run_digest)` idempotence then made that fabricated row refuse
+    the correct scored one for ever. When `lines` is given (verification always
+    gives them) the selection is re-run at the row's own `observed_by` and must
+    come back empty.
+    """
     fixture_id = row.get("fixture_id")
+    if row.get("abstained") is not True:
+        raise SchemaMismatch(
+            f"{fixture_id}: this row records abstained = "
+            f"{row.get('abstained')!r}. A12 (b) authorises exactly one "
+            "abstention marker, the literal `true`")
     # SORTED, not ordered: the file is `leaguesim.canonical_json`, which sorts
     # keys so the bytes never depend on the order a dict happened to be built
     # in. The ORDER is asserted where it exists, on the row `score()` returns.
@@ -1100,11 +1172,23 @@ def check_abstention(row: Mapping[str, Any]) -> None:
     _refuse_a_late_stamp(fixture_id, row["date"],
                          (("cutoff", row["cutoff"]),
                           ("observed_by", row["observed_by"])))
+    if lines is None:
+        return
+    chosen = availability.select_manifest_line(lines, row["observed_by"])
+    if chosen is not None:
+        raise SchemaMismatch(
+            f"{fixture_id}: this row is an abstention and the tracked manifest "
+            f"holds line {chosen.get('stamp')!r}, observed at "
+            f"{chosen.get('observed_at')!r}, at or before the row's own "
+            f"observed_by ({row['observed_by']}). A12 (b) rules an abstention "
+            "for one fact — no manifest line qualifies — and one qualified. A "
+            "fabricated abstention is not a harmless blank: it is a filed row, "
+            "and this ledger gives a fixture one row per issuance, so it "
+            "refuses the correct scored row for ever")
 
 
 def verify(path=None, *, raw_dir=None, manifest_path=None,
-           season: str = availability.SEASON, season_root=None,
-           k_avail: float = K_AVAIL) -> dict:
+           season: str = availability.SEASON, season_root=None) -> dict:
     """A12 (f), in order, stopping at the first refusal.
 
     CI HAS NO `data/`, SO THIS COMMAND REFUSES THERE — loudly, BEFORE it reads
@@ -1142,8 +1226,17 @@ def verify(path=None, *, raw_dir=None, manifest_path=None,
                 f"{index + 1}). A12 (d) gives a fixture one row per issuance, "
                 "and a file holding two says nothing a reader can use")
         seen[key] = index
+        marker = row.get("abstained", None)
+        if marker is not None and marker is not True:
+            raise SchemaMismatch(
+                f"{row.get('fixture_id')}: this row records abstained = "
+                f"{marker!r}. A12 (b) authorises exactly one abstention "
+                "marker, the literal `true`; a truthy value of another type "
+                "reads as an abstention to one reader and as a scored row to "
+                "the next, and a scored row with no `probs_raw` on it is a "
+                "traceback rather than a refusal")
         if is_abstention(row):
-            check_abstention(row)
+            check_abstention(row, lines=lines)
             continue
         check_snapshot(row, lines=lines, raw_dir=raw)
         stamp = str(row["observed_by"])
@@ -1155,11 +1248,11 @@ def verify(path=None, *, raw_dir=None, manifest_path=None,
                     f"{row.get('fixture_id')}: step 2 accepted this row's "
                     "snapshot and re-selecting it returned nothing")
             views[stamp] = view
-        check_row(row, snapshot=views[stamp], k_avail=k_avail)
+        check_row(row, snapshot=views[stamp])
 
     return {"ledger": str(target), "exists": target.exists(),
             "arm": ARM, "rule_version": RULE_VERSION,
-            "schema_version": SCHEMA_VERSION, "k_avail": float(k_avail),
+            "schema_version": SCHEMA_VERSION, "k_avail": float(K_AVAIL),
             "n_snapshots": len(lines), **tally(rows)}
 
 
@@ -1181,8 +1274,8 @@ def read_results(path) -> list[dict]:
 
 def score_bundle(source, results_file, *, ledger_path=None, season_root=None,
                  raw_dir=None, manifest_path=None,
-                 season: str = availability.SEASON, avail_season_root=None,
-                 k_avail: float = K_AVAIL) -> dict:
+                 season: str = availability.SEASON,
+                 avail_season_root=None) -> dict:
     """Derive, score and append in one pass, refusing before anything is written.
 
     The whole batch is scored first — which is where the season ledger, the
@@ -1204,7 +1297,7 @@ def score_bundle(source, results_file, *, ledger_path=None, season_root=None,
                             manifest_path=manifest_path, season=season,
                             season_root=avail_season_root)
     rows = score(board, read_results(results_file), snapshot=snapshot,
-                 season_root=season_root, k_avail=k_avail)
+                 season_root=season_root)
     counts = append_shadow(target, rows)
     return {"board": board, "rows": rows, "ledger": str(target),
             "snapshot": snapshot, **counts, **tally(rows)}
