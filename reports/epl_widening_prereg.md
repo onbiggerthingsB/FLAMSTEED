@@ -887,3 +887,850 @@ at 2025-08-15 (games 114, vol 8.737, unflagged) and Ipswich (games 38, vol
 rows). The harness hashes and membership digests that make "the design was
 fixed first" checkable arrive in the §6 follow-up commit, and no real fit
 runs before it.*
+
+---
+
+## Repairs of 2026-08-27 — pre-freeze, pre-fit, on the cross-model review
+
+**Standing.** This section is appended, not merged: every word above it stands
+exactly as committed at f26b760, and this section supersedes named clauses of
+it, clause by clause. Where a repair and the original text conflict, **the
+repair governs**. Where this section is silent, the original governs.
+
+**Why a repair is permitted at all.** The house lifecycle allows a
+preregistration to be repaired only while it has decided nothing. That
+condition holds and is checkable: **no freeze commit exists** (§6 step 2 has
+not landed; `epl.evwiden.harness_freeze_status` reports the harness unfrozen),
+**not one fit of this experiment has been run on the real archive**, no
+`data/epl/fit/evwiden*` or `data/epl/sim/evwiden*` file exists, no delta
+exists anywhere, and the harness's own guards refuse to produce one until the
+freeze block is committed. Nothing below is informed by an outcome, because
+there is no outcome. After the freeze commit and the first real fit, **R-B6**
+applies and no further repair is possible.
+
+**What prompted it.** An independent cross-model review (Codex `gpt-5.6-sol`,
+ultra) of f26b760 returned UNSOUND with six blocking, six important and five
+minor defects. Every one of the seventeen is ruled below, by its own
+identifier, and every ruling is REPAIRED — none was contested, because each was
+checkable against this repository and each check confirmed it. The harness
+builder's four standing concerns are ruled in **R-H**.
+
+---
+
+### R-B1 — the arms are paired on the fitted object, not on a rounded projection
+
+**Supersedes** §2.3's `Arm B` bullet, its `The delta` bullet, and §3.2's role.
+
+The defect is real: Arm A came from a new fit while Arm B was an old rounded
+1X2 projection, and mechanism (c) acts on the **full scoreline grid** before
+that projection. Two grids can agree at eight decimals after projection and
+respond differently to `inflate_predictive`, so "same draws, only membership
+differs" was asserted about an object the control never bound.
+
+**The repaired definition.** Both arms are computed from the SAME newly fitted
+posterior and the SAME base grid, at every one of the 78 block openings:
+
+* **Arm B — `dc_native`** — the block's fixtures predicted from the fitted
+  posterior under **the fit's own recomputed incumbent provisional set**. This
+  is the harness's predict pass 1. Nothing about it is read from the corpus.
+* **Arm A — `dc_evwiden`** — the same block's fixtures predicted from **the
+  same posterior object** under the §2.1 union. This is predict pass 2. No
+  refit, no re-seed, no second sampler call: the two passes differ only in the
+  set handed to `provisional_as`.
+* **The delta** — `rps(Arm A) − rps(Arm B)` per fixture, `epl.score.rps` on the
+  corpus's `y`, both arms from the same posterior.
+
+**The corpus is demoted to an external identity control.** The stored
+`dc_home` / `dc_draw` / `dc_away` / `dc_rps` no longer enter the estimand at
+all. They remain the §3.2 control at full strength: all **820** fixtures of the
+78 openings must equal Arm B at their eight decimals (`ControlMismatch`), and
+each stored `dc_rps` must equal the RPS of its own stored probabilities to
+1e-12 (`ScoreMismatch`). The control is now what its name always claimed — an
+**external** check that the refit reproduces the published arm — rather than
+one leg of the contrast.
+
+**Pre-stated consequence, so it cannot be discovered later.** Because the
+control demands eight-decimal equality and stops the run otherwise, the
+repaired delta can differ from the superseded one by at most the eighth
+decimal, per fixture. This repair is not expected to move the number; it moves
+what the number is *guaranteed* to be. Both are published: the per-fixture
+evidence file carries `delta` (the estimand's, Arm A minus Arm B) and
+`delta_vs_corpus` (Arm A minus the stored row) side by side, so a reader can
+confirm the equality rather than take it.
+
+---
+
+### R-B2 — the table gate is per-horizon; nothing decides on a cross-horizon average
+
+**Supersedes** §4.1 clause (iv), §3.3's "pooled" language, §3.4's "pooled Δ per
+cutoff label", and §4.3.
+
+The defect is real and it is a violation of protected code's own stated law.
+`epl/simretro.py:41` and `epl/simmetrics.py:44` both freeze **"Never averaged
+across cutoffs"** — a forecast at the opener and one at matchweek 19 answer
+different questions and their average describes neither. The superseded gate
+(iv) made exactly that average deciding, and it diluted twice over: 19 of 35
+cells are structural zeros, and all seven MW19 cells are among them, so harm at
+the horizons where the treatment actually fires was averaged against cells
+where it cannot.
+
+**The census the repair is built on** (recomputed 2026-08-27 by the read-only
+pass authorised in R-B5, from the pinned archive; it reproduces §3.3's
+enumeration exactly):
+
+| cutoff label | cells | treated cells |
+|---|---:|---:|
+| MW0 | 7 | 3 |
+| MW3 | 7 | 2 |
+| MW6 | 7 | **7** |
+| MW10 | 7 | 4 |
+| MW19 | 7 | **0** |
+
+**The repaired gate (iv), in three parts, all required.**
+
+> **(iv-a) The named-horizon gate — MW6.** The statistic is the **equal-weight
+> mean over the seven MW6 cells of ΔTRPS = TRPS(treatment) − TRPS(control)**.
+> It must be **≤ +0.0002**.
+>
+> **(iv-b) The per-horizon point gates.** At each of MW0, MW3 and MW10, the
+> equal-weight mean of ΔTRPS **over that label's treated cells only** (3, 2 and
+> 4 cells respectively) must be **≤ +0.0002**. No interval is computed at these
+> labels and none is required; two cells do not carry one. MW19 holds zero
+> treated cells, is a structural zero by construction, is reported as such, and
+> decides nothing.
+>
+> **(iv-c) The significance-and-precision clause, at MW6 only.** Defined in
+> R-B3.
+
+**Why MW6 is the named horizon, and why naming it now is not selection.** It is
+named before any fit exists, on two grounds neither of which is an outcome.
+*Support:* MW6 is the only one of the five labels at which **every** cell is
+treated, so it is the only horizon at which the do-no-harm question is asked
+with no structural zero in the denominator. *Product:* the early-season table
+forecast is where a thin-evidence club's dispersion is widest and where the
+issuance surface that motivated this work is published (§0.4). The choice is
+frozen here; §7 makes replacing it after any table run an invalidation.
+
+**The tolerance, recalibrated to the new estimand.** +0.0002 came from R1's own
+recorded scale — paired dc-family TRPS differences of "two parts in a thousand"
+on a TRPS of order 0.08, i.e. ~2e-4 **per cell**. The superseded gate applied
+that per-cell scale to an average over 35 cells of which 19 are exact zeros,
+which permitted about **+0.0004375** of average degradation across the 16
+changed cells. The repaired gates apply it to treated-cell means directly, so
+it permits at most **+0.0002** where the treatment fires — **2.19× tighter**
+than the clause it replaces. The number is unchanged; the estimand it governs
+is the one it was calibrated for.
+
+**Withdrawn.** The 35-cell pooled ΔTRPS and pooled ΔwTRPS are **withdrawn from
+the published outputs entirely**, not demoted to secondaries. Publishing an
+aggregate that protected code forbids as a verdict invites it to be quoted as
+one. What publishes in their place: every cell's ΔTRPS and ΔwTRPS individually,
+and the four treated-cell label means above.
+
+**§4.3 is superseded and reissued.** The disclosure it made stands and grows:
+R1 has no pass rule (`reports/epl_sim_retro_v1_1.md` §10: *"Nothing, by
+itself"*), so both the tolerance and the significance construction are
+**invented**, invented blind, in a place where the house had none. What is new
+is that they are now invented for a **single named horizon** rather than for a
+forbidden average, and that R-B3 makes the simulation error of that horizon a
+published, deciding-capable quantity rather than an unstated one.
+
+---
+
+### R-B3 — the deciding table uncertainty is frozen, and simulation noise may only refuse
+
+**Supersedes** §4.1's "95% season-block CI (7 blocks)" phrase and §3.3's silence
+on Monte Carlo error.
+
+The defect is real: unlike the two match CIs, the table CI named no function,
+no B, no bootstrap seed, no quantile convention; `simretro.score_retro` cannot
+supply one because it refuses cross-cutoff aggregation; and the standing
+amendment **A2-N4** requires a TRPS Monte Carlo error that the document never
+mentioned. A gate whose tolerance is the same order as the simulation's own
+error is a gate that noise can decide.
+
+**The interval, frozen in full.**
+
+| | |
+|---|---|
+| statistic | the equal-weight mean of the seven MW6 per-cell ΔTRPS |
+| function | `epl.score.block_bootstrap_ci` (`epl/score.py:193`), the same function both match legs use |
+| deltas | the 7 MW6 cell deltas, in season order |
+| block labels | the seven season strings `2019/20 … 2025/26`, one cell per block, so `n_blocks = 7` |
+| B | **10,000** |
+| alpha | **0.05** |
+| resampling seed | **20260814** |
+| quantile convention | `np.quantile(means, [alpha/2, 1 − alpha/2])` on the function's own pooled-mean resample, NumPy's default linear interpolation |
+
+Clause (iv-c) fails if the MW6 mean is `> 0` **and** the interval's lower bound
+is `> 0`. A seven-block percentile bootstrap has poor coverage, is not claimed
+to have good coverage, and has the narrow job both predecessors gave season
+blocks: to refuse a verdict carried by one season.
+
+**The paired Monte Carlo error, frozen in full.** `epl/simmetrics.py` is
+protected and its `trps_se_cluster` is a **single-arm** estimator; the quantity
+this gate needs is the error of a **paired difference** under common random
+numbers. It is defined here, to be implemented in the harness module, mirroring
+the protected estimator's convention exactly:
+
+* the run retains per-particle rank tallies, built from
+  `SimRun.retained_rows.particle` and `.order` (plan v2 D20 already retains
+  both), shaped `[n_particles, n_clubs, n_ranks]`;
+* every particle must carry the same number of simulated seasons
+  (`sims_per_particle_min == sims_per_particle_max`) — the equal-cluster
+  assumption the protected estimator enforces. Unequal counts are the new
+  refusal `TableMCImprecise`;
+* `rng = np.random.default_rng(MC_SEED)`; for each of `MC_BOOT` replicates,
+  `picked = rng.integers(0, n_particles, n_particles)`;
+* **the same `picked` is applied to both arms' tallies** — this is the whole
+  point: the arms share particles, share `(chunk, fixture)` RNG streams and
+  differ only on the D12 branch at treated fixtures, so most of the simulation
+  noise cancels in the difference and only a paired estimator sees what is
+  left;
+* each arm's resampled total is row-normalised and scored with
+  `epl.simmetrics.trps(matrix, positions, spans=spans)` — the same call, with
+  the same spans, the cell's point estimate uses;
+* the cell's paired MC SE is the standard deviation (`ddof=1`) of the `MC_BOOT`
+  differences.
+
+**`MC_BOOT = 2,000` and `MC_SEED = 20260827`**, pre-stated here, before any
+table run exists. A2-N4 leaves B and the resampling seed to "the amendment that
+accompanies the first run to report the bootstrap SE, before that run"; this is
+that document and this is that statement.
+
+The MW6 mean's MC SE is `sqrt(Σ_c se_c²) / 7` over its seven cells — they are
+independent runs at different seasons with different fits and different
+streams, so their errors add in quadrature.
+
+**The precision rule, one-directional.** Gate (iv) is **UNRESOLVED**, and
+ADOPT is refused, if **either**
+
+* `mc_se_mean > 0.25 × 0.0002 = 5e-5`, **or**
+* `|mean_MW6 − 0.0002| < 2 × mc_se_mean` — the comparison to the tolerance
+  falls inside the simulation's own error.
+
+An UNRESOLVED gate blocks adoption; it can never grant one. Simulation noise is
+therefore only ever able to *refuse*, which is the direction that cannot be
+gamed. `n_sims` stays at **20,000**: the precision rule does **not** license a
+larger run, because enlarging a preregistered constant after a number exists is
+exactly what §7 forbids. An UNRESOLVED verdict publishes as UNRESOLVED, with
+every number, under §4.4's no-file-drawer rule.
+
+---
+
+### R-B4 — a conformance oracle against protected code, and a defined substantive digest
+
+**Supersedes** §3.3's "reproduces `simretro`'s schedule through `simretro`'s own
+public surface" as a sufficiency claim, and §5.1's undefined "table digest".
+
+The defect is real. Binding the *schedule* to protected code binds neither
+`ArchiveRunner`'s semantics — verified adjustments, `config_read_once`,
+particle-book construction, boundaries, chunking, refusal handling, ranker
+checks, provenance — nor its call. The 19-untouched-cell control compares two
+arms produced by the **same new code**, so any drift shared by both arms passes
+it silently.
+
+**The oracle, required before any treated table run.** The new runner must
+reproduce protected `epl.simretro.ArchiveRunner`'s `dc_native` output at **all
+thirty-five cells** — native parity, every cell, no sampling — before one
+treated simulation is executed. A difference at any cell is
+`TableIdentityBreak` and stops the leg. `data/epl/sim/retro_r1.jsonl` stays
+read-only and is not the comparison object: the parity run is executed, not
+read off the archive ledger.
+
+**The substantive digest, defined.** SHA-256 over the canonical JSON
+(`epl.leaguesim.canonical_json`) of, in this order:
+
+1. the club list;
+2. the scored position matrix at full stored precision;
+3. the per-particle rank tallies;
+4. the retained points, goal-difference and goals-for vectors;
+5. the tie-block record — `block_start`, `block_span`, `resolution_code`;
+6. the consequence weights and the boundary definition;
+7. the realised-truth identity — `realised_hash`, the realised position vector
+   and the realised points vector;
+8. `effective_posterior_hash`, `n_sims`, `n_particles`, `seed`;
+9. the provisional set actually carried by the book.
+
+**Excluded by name:** the arm label, wall clocks, host, shard id, and any
+free-text note. Those are the labels the digest must not bind; everything
+substantive is bound.
+
+**Both arms are labelled `dc_native` to `leaguesim`.** That is now the
+document's rule and not a harness convenience: the provider *is*
+`DCNativeProvider` in both arms — a `ParticleBook` may not wear another arm's
+name — and what differs between them is the **book**, which is the treatment.
+The experiment's own arm name `dc_evwiden` names the re-keyed book and is
+recorded on the row. Because the label is shared, the arm field cannot differ
+between the two runs of a cell, and the digests of an untouched cell are
+comparable by construction.
+
+**The two-sided cell identity is required** — see R-H(4).
+
+**This oracle is not hypothetical.** At the time of this repair,
+`epl/evwiden.py` calls `leaguesim.simulate` in its table runner with the
+particle book in `state`'s argument position and no `seed` argument at all;
+protected `epl/simretro.py:555` calls it as `simulate(arm, state, provider,
+n_sims, seed, …)`. A 35-cell parity run against the protected runner catches
+that on its first cell, and nothing else in the harness does — no test
+exercises the real call, and no fit has run. That is precisely the class of
+drift the oracle exists to catch, and it is recorded here rather than fixed
+quietly.
+
+---
+
+### R-B5 — the pre-freeze read-only passes, authorised by name and date
+
+**Supersedes** §5.3's sentence *"Pre-freeze, no harness code touches the real
+archive, the real corpus, or the real ledger except to hash them"*.
+
+The defect is real: §6 step 2 requires the membership digests to be
+"recomputed by the harness's own code from the pinned artifacts", which cannot
+be done by hashing them. As written, the document mandated its own deviation
+before any harness work began.
+
+**The superseding clause.** *Before the §6 freeze commit, no harness code
+**fits** and no harness code **simulates**. Reading the pinned artifacts is
+permitted and enumerated.*
+
+**Authorised, retroactively and by name, on 2026-08-27** — every one read-only,
+no `dcfit.fit_epl`, no `leaguesim.simulate`, nothing written inside the
+repository:
+
+1. `python -m epl.evwiden --membership` and `--plan` — read the pinned corpus,
+   archive and ledger; compute §2.2's cells, §2.3's population, §3.3's table
+   cells and the digests the freeze commit records.
+2. `python -m epl.evwiden --canary --no-results-canary --dir <scratch>` —
+   §5.3's evidence canary on the real archive, with the point-in-time store
+   built in a `tempfile.TemporaryDirectory` and never under `paths.STORE_DIR`.
+3. `pytest epl/tests/test_evwiden.py`, including the `@pinned` tests that
+   re-derive the census, the grid table, the membership and the table cells.
+4. One partial engine pass at the first opening (2019-08-09): construction,
+   `fit_points`, the enlarged set, `assert_cutoff_clean` and
+   `assert_point_in_time` — the whole of the fit path **except** the call to
+   `dcfit.fit_epl`. No sampler ran; the shared point-in-time store was
+   byte-identical afterwards.
+5. `--freeze-block` itself, which reads the pinned artifacts to render §6's
+   commit rather than have a human transcribe digests.
+6. **This repair round's two exports**, run 2026-08-27 into the session
+   scratchpad: the 85-fixture block-and-season structure used by R-I2's power
+   simulation, and the 35-cell per-label census tabulated in R-B2. Both call
+   only `membership` and `table_cells`; both fit nothing and simulate nothing;
+   neither wrote inside the repository.
+
+**The rule for any further pre-freeze pass.** It must be read-only; it may not
+call `dcfit.fit_epl` or `leaguesim.simulate`, and may not build a store under
+`paths.STORE_DIR`; it may write nothing under `data/`, `reports/` or anywhere
+in the repository; and it must be **added to the freeze block's enumeration
+before the freeze commit is made**. The freeze block's list stays binding and
+must be complete — an unenumerated pre-freeze pass is a protocol deviation
+whether or not it touched anything. `epl.evwiden.freeze_block`'s default
+enumeration currently names four runs and must be extended to name all six
+above before the freeze commit is generated.
+
+---
+
+### R-B6 — after the first real fit, a hashed file cannot be changed at all
+
+**Supersedes** §6 step 4 in its entirety, and adds to §7.
+
+The defect is real and it is the most dangerous of the six. "Any change to a
+hashed file thereafter requires a dated note appended to this document before
+the change, with the hashes reissued" was not limited to the pre-fit period,
+and §7 invalidated only an *unnoted* hash difference. As written, an author who
+had seen a real delta could append a note, alter deciding code, reissue the
+hashes and remain nominally inside this preregistration. Disclosure after an
+outcome does not restore blindness.
+
+**The superseding clause, in two regimes.**
+
+> **Before the first real fit.** A hashed file may change. The freeze block is
+> regenerated by `--freeze-block` and re-committed, and the run that follows is
+> the run this document preregisters. No note is required, because nothing has
+> been observed.
+>
+> **After any real fit on the real archive exists** — whether or not it
+> produced a delta, whether or not it was merged, whether or not anyone looked
+> at it — **any change to any hashed file invalidates this preregistration.**
+> No note, no dated appendix, no disclosure and no owner ruling restores it.
+> The invalidated run **publishes**, with its numbers and with the reason it
+> was invalidated, and a new preregistration begins in a new document with its
+> own freeze.
+>
+> Notes appended to this document after results exist may correct **prose
+> only** — a typo, a citation, a clarification of what was already meant. A
+> note may not change a threshold, a population, a statistic, a seed, a digest,
+> a gate, or one line of code this document hashes.
+
+**§7 gains, and these are invalidations:** any change to a hashed file after
+the first real fit, with or without a note; gate (iv) evaluated on any
+cross-horizon average; the MW6 horizon replaced after any table run; the paired
+MC error omitted or computed with different constants; the 35-cell parity
+oracle skipped or sampled; and the estimand's delta computed against the corpus
+rather than against the same-posterior incumbent pass.
+
+---
+
+### R-I1 — the realised configuration is pinned, not only the frozen file
+
+**Supersedes** §0.1's configuration row and §5.1's `ConfigNotFrozen`.
+
+The defect is real. `epl.freeze.frozen_wcmodel_config()` loads the **live**
+`config/config.yaml` and overlays only the frozen EPL Elo block; the digest
+check bound `epl/config_frozen.json`, the realised seed and the realised
+widening block, and nothing else. The decay half-life — which *defines* `e` —
+the volatility window from which `e* = 10.0` is taken, the likelihood and the
+whole ADVI inference block all came from a file no check bound. Drift there
+would change `e`, the posteriors, or reproducibility while the documented
+refusal passed.
+
+**The repaired pin.** `realised_config_sha256` is the SHA-256 of
+`json.dumps(freeze.frozen_wcmodel_config(), sort_keys=True, default=str)`. Its
+value, computed 2026-08-27 under the pinned frozen file, is
+
+`78a51cd92c48838a57e3d6832b7661aad7a5b231425572214a067c2a35edbdcd`
+
+and it is **pinned here**. `ConfigNotFrozen` now fires on four conditions, not
+three: the frozen file's digest, the realised seed, the realised widening
+block, and this realised digest. The §6 freeze commit records it beside the
+membership digests. Every ledger row continues to carry both `config_sha256`
+(the frozen file) and `realised_config_sha256`, so a reader can tell which
+moved.
+
+What this now binds, all of which §0.1 quoted and none of which the superseded
+check held: `windows.decay_half_life_days = 365`, `elo.volatility_window = 10`,
+`model.widening = {mechanism: c, strength: 0.5}`, `model.inference = {backend:
+advi, draws: 1000, tune: 1000, advi_iters: 30000}`, and `seed = 20260611`.
+
+---
+
+### R-I2 — the power analysis, done, with the joint-gate MDE
+
+**Supersedes** §2.3's *"No power claim is made in advance"* and §1.4's implicit
+claim that a support census is a power analysis.
+
+The defect is real: §1.4 counted where the rule *bites*, which is support, not
+power, and the document then declined to say whether its own three conjunctive
+match gates could jointly pass at any plausible effect. The bar demands a
+treated-fixture mean of −0.0016346 (`0.0010 × 85/52`), and the repository's own
+committed paired contrasts sit at variances where that is a stretch.
+
+**The scenarios, frozen blind.** No delta of this experiment exists, so none of
+these is informed by one.
+
+| scenario | paired SD | source |
+|---|---:|---|
+| **A — freshness-scale** | **0.005262** | `reports/epl_freshness_result.json`'s own `sd` over its 1,699 paired deltas — same corpus, same model, a predict-time change of comparable reach |
+| **B — anchoring-scale** | **0.014449** | `reports/epl_anchoring_result.md`'s past-only estimand, paired sd over 2,280 fixtures — a larger predict-time change |
+| **C — mechanism-scale** | **0.036** | a deliberately pessimistic extrapolation, named as invented, argued below |
+
+Scenario C is grounded rather than guessed. The anchoring contrast's paired SD
+scales with the size of its treatment, and the ladder is committed in
+`reports/evidence/anchoring_per_fixture.csv` (recomputed 2026-08-27):
+
+| market weight `w` | 0.15 | 0.30 | 0.50 | 0.75 | 1.00 |
+|---|---:|---:|---:|---:|---:|
+| paired SD | 0.003025 | 0.005832 | 0.009181 | 0.012690 | 0.015479 |
+
+The relation is close to linear in the treatment's size, and mixing a fitted
+scoreline grid halfway toward a max-entropy product grid is a larger
+perturbation of the 1X2 law than any point on that ladder. Scenario C at 0.036
+sits about 2.3× beyond the largest committed point. It is an extrapolation and
+it is labelled one; a power analysis that tests only optimistic variances is
+not a power analysis.
+
+**The method, frozen.** On the frozen structure — 85 fixtures, 52 treated, 62
+week blocks, 6 seasons, by season 26 / 11 / 12 / 12 / 12 / 12 with treated
+21 / 4 / 7 / 6 / 7 / 7 — inject a constant treated effect δ plus Gaussian noise
+at SD `s`, at within-block correlations ρ ∈ {0, 0.5}, leaving untreated deltas
+at exactly zero as the design makes them; then evaluate **all three deciding
+match gates exactly as §4.1 states them**, using `epl.score.block_bootstrap_ci`
+at B = 10,000, α = 0.05, seed 20260814. The bootstrap shortcut used for speed
+was asserted equal to the real function to 1e-15 before any number was
+reported, and the block counts it produces are 62 and 6. R = 2,000 replicates,
+simulation seed 20260827.
+
+**The MDE definition, frozen:** the injected treated effect at which **all
+three deciding match gates pass with probability 0.80**. Reported on the
+estimand's scale (treated effect × 52/85).
+
+| scenario | ρ | power at the bar | joint MDE (estimand) | ratio to the −0.0010 bar | power at 2× the bar |
+|---|---:|---:|---:|---:|---:|
+| A freshness-scale | 0.0 | 0.461 | −0.001440 | 1.44× | 0.977 |
+| A freshness-scale | 0.5 | 0.425 | −0.001553 | 1.55× | 0.944 |
+| B anchoring-scale | 0.0 | 0.103 | −0.003738 | 3.74× | 0.326 |
+| B anchoring-scale | 0.5 | 0.103 | −0.004160 | 4.16× | 0.274 |
+| C mechanism-scale | 0.0 | 0.058 | −0.009200 | 9.20× | 0.083 |
+| C mechanism-scale | 0.5 | 0.044 | −0.010635 | 10.63× | 0.081 |
+
+**A structural fact, stated so no one reads the table as a defect in the
+simulation.** Gate (i) is a threshold **at** the bar, not a test against zero,
+so at a true effect exactly equal to the bar the probability of clearing it is
+about one half whatever the variance is. **An 80%-power MDE equal to the bar is
+unattainable by construction**, at any SD; the honest quantity is the ratio,
+which is what the table reports. (This also corrects the review's
+`MDE80 = 2.802·s/√52`, which is the two-sided-test-against-zero MDE and does
+not describe gate (i). The direction of its conclusion survives the
+correction.)
+
+**The ruling. Nothing in §4 moves.** The bar stays −0.0010, the CIs stay, the
+population stays 85, the constant stays 10.0. What changes is that the document
+now says, before any delta exists:
+
+> **This design is underpowered against effects near its own bar unless the
+> realised paired SD comes in at or below the freshness scale.** At the
+> anchoring scale a true treated effect of −0.0016 would be missed about nine
+> times in ten. A MISS IS THEREFORE SUBSTANTIALLY UNINFORMATIVE: "no adoption"
+> here means "not detected at this power", not "no effect", and the result
+> document must say so in those words.
+
+§4.4's refusal to re-litigate a miss is unchanged, and this is not a licence to
+re-run at a second seed, a larger corpus or a lower bar. It is the reader's
+warning, frozen in advance, so that the size of the null cannot be argued
+about after it arrives.
+
+**Required publication.** `reports/evidence/widening.json` carries a `power`
+object holding these scenarios, the frozen structure, the MDE definition, R,
+both seeds, the six rows above, and — after the run — the **realised** paired
+SD of the treated deltas and the MDE recomputed at it. The realised numbers
+decide nothing and no threshold moves in response; §2.3's sentence to that
+effect stands.
+
+---
+
+### R-I3 — the bar is an invented thin-population threshold, and says so
+
+**Supersedes** §4.2's sentence *"The full bar applies, **on the preregistered
+population**."*
+
+The defect is real in its claim of authority, though not in its disclosure:
+§4.2 already published the 85/2280 arithmetic and the −0.000037 pooled figure.
+What it did wrong was to present the numeral as the house bar **applied**,
+when the house bar was set over a full evaluation window and this one is set
+over 85 fixtures chosen to be where the effect is largest — a difference in
+system-level materiality of about 26.8×.
+
+**The repaired sentence.** *−0.0010 over the 85 thin fixtures is an **invented
+thin-population threshold**. It takes its numeral from
+`reports/epl_improved.md` §5.2's model-change bar; the numeral is borrowed, the
+authority is not.* It is justified on four grounds, the fourth of which was
+computed only in this repair section and is marked as such:
+
+1. **Noise.** The corpus-level re-seed shift is +0.000075 and the per-match
+   ADVI re-seed scale is mean 0.0032 / p99 0.0139 / max 0.0229
+   (`reports/epl_walkforward.md`). A bar that a re-seed could clear is not a
+   bar; −0.0016 per treated fixture is well outside that scale.
+2. **Power.** R-I2's table. A materially lower bar would sit inside the noise
+   of scenario B; a materially higher one is unreachable under every scenario.
+   The bar is at the edge of what this population can resolve, which is where a
+   preregistered bar belongs.
+3. **Product.** The rule changes the published law on the fixtures it touches
+   (§4.2), which is what the full model-change scale protects — this is not an
+   operational change and the freshness discount to −0.00030 does not apply.
+4. **System-level materiality**, and this is the concession: a passing result
+   is **−0.000037 pooled over the corpus**, smaller in magnitude than the
+   +0.000075 re-seed shift. **This experiment cannot demonstrate a
+   corpus-level improvement and does not claim one.**
+
+**Required disclosure, in the result document, in these words:** *"the rule's
+corpus-level effect is below this model's own re-seed noise, and its value is a
+claim about the fixtures it touches, not about the model's aggregate
+accuracy."*
+
+**A corpus-level materiality *condition* is refused**, on §4.2's own argument:
+a pooled bar would be unclearable by construction for any rule this targeted,
+and preregistering one would be preregistering a guaranteed miss. The
+disclosure is required; the gate is not added.
+
+---
+
+### R-I4 — the evidence canary's perturbation, frozen exactly
+
+**Supersedes** §5.3's *"corrupt every archive row"* / *"corrupt rows before the
+cutoff"*.
+
+The defect is real: "corrupt" named no field, no transformation, no magnitude
+and no comparison, and `e` reads only club participation and date — so
+corrupting scores alone would be a canary that cannot fail. The anchoring
+experiment's canary was substituted in flight and became a disclosed deviation;
+this one is frozen before the freeze.
+
+**The mutation, frozen.** Rows are selected by normalised date: `after` selects
+`date ≥ cutoff`, `before` selects `date < cutoff`. For the i-th selected row,
+0-based in frame order:
+
+* `home_key := "__canary_corrupt__h{i}"`, `away_key := "__canary_corrupt__a{i}"`
+* `fthg := 9`, `ftag := 9`
+* **dates are not touched.** The cutoff partition must survive the mutation or
+  the canary tests a different thing.
+
+Per-row unique sentinels are required, not decorative: `wcmodel.data.features`'
+duplicate-match dedup collapses content-identical rows, and a shared sentinel
+deleted the rows it meant to rewrite (fixed at 06bd431). A canary that crashes
+is not a canary that fails.
+
+**The comparisons, frozen.** *Negative leg:* the evidence vector `e(t, C)` over
+the corpus's clubs, compared with `numpy.array_equal` on the float64 values
+**before rounding** — bit equality, not a tolerance — and both provisional sets
+(incumbent and enlarged) compared by set equality. Any difference is
+`EvidenceCanaryFailed`. *Positive control:* `max_t |e_corrupt − e_clean| >
+1e-9`; the realised value is recorded on the canary record. *Both legs* record
+the number of rows the mask selected; an empty mask is a refusal, never a pass.
+
+The record from the authorised 2026-08-27 run stands as the reference: at
+cutoff 2022-08-13 the negative leg moved `e` by 0.0 and the positive control by
+52.53, with both provisional sets identical.
+
+---
+
+### R-I5 — "synthetic" has an enforceable definition
+
+**Supersedes** §5.3's and §6 step 1's unqualified *"synthetic corpora only"*.
+
+The defect is real: nothing in the document excluded copied, sampled or
+transformed real rows from being labelled synthetic, and enumerating a command
+afterwards does not prove input ancestry.
+
+**The definition, frozen.** A corpus, archive or ledger is **SYNTHETIC** iff
+every one of its values is written literally in `epl/tests/test_evwiden.py`, or
+generated there by arithmetic over literals written there. **No value may be
+read, copied, sampled, transformed, or otherwise derived from**
+`data/epl/matches.parquet`, `data/epl/fit/walkforward_predictions.parquet`,
+`data/epl/fit/walkforward_ledger.jsonl`, `data/epl/sim/retro_r1.jsonl`, or any
+artifact derived from them.
+
+The generators are `_archive()` and `_corpus()` in that module. Their four
+clubs — `rich`, `mid`, `stale`, `cold` — are invented, and a test asserts that
+none of the four appears in the pinned archive's club columns, which is the
+ancestry check made mechanical. Both generators are hashed by the §6 hash
+table, because the test module is one of the two hashed harness files.
+
+**The `@pinned` tests are not synthetic and are not covered by this
+definition.** They read the pinned artifacts deliberately, to re-derive the
+document's own census; they fit nothing and simulate nothing, and they are
+authorised under R-B5.
+
+---
+
+### R-I6 — the evidence schema, frozen field by field
+
+**Supersedes** §6's evidence-contract table.
+
+The defect is real: the table said "both CIs" where there are **three**
+deciding intervals, left the 820-fixture control without a committed home,
+promised Sunderland and coverage diagnostics no column held, and froze no
+MANIFEST membership.
+
+**`reports/evidence/widening.json`** carries, at minimum, and by these names:
+
+* `schema`, `generated_at`, `prereg_commit`, `repairs_section`;
+* `pins` — corpus / archive / ledger / frozen-config digests, the realised
+  config digest, and the row and season counts;
+* `estimand` — `{n: 85, mean, sd, se_iid}`;
+* `ci_week` and `ci_season` — each `{function, n_blocks, B, alpha, seed, lo,
+  hi}`; `ci_table_mw6` likewise, with `n_blocks: 7`;
+* `gate_i`, `gate_ii`, `gate_iii` — each `{value, bar, PASS}`;
+* `gate_iv` — `{mw6: {n: 7, mean, ci, mc_se_mean, per_cell: [...]},
+  per_label: {MW0, MW3, MW10: {n_treated, mean, PASS}}, mw19:
+  {structural_zero: true, decides: "nothing"}, precision: {mc_se_mean,
+  rule, resolved: bool}, PASS_or_UNRESOLVED}`;
+* `controls` — `{identity: {n: 820, max_abs_diff, mean_abs_diff, PASS},
+  untreated_moved, predicate_mismatch, table_parity: {n_cells: 35, PASS,
+  per_cell_digests}}`;
+* `canaries` — results, evidence (both legs, both row counts, the positive
+  control's realised magnitude), identity, direction (with the branch each
+  fixture took);
+* `grid` — five points, each `{n_thin, n_treated, mean, ci, degenerate,
+  decides: "nothing"}`;
+* `strata` — six seasons and two club categories, each `decides: "nothing"`;
+* `movement` — mean and max `|Δp|` over the treated fixtures, beside the
+  re-seed reference scale;
+* `coverage` — per treated club, per arm, cov50 and cov90;
+* `sunderland` — the three 2025/26 cells, both arms: relegation probability,
+  points mean, 5–95 band, under the label §3.4 fixes;
+* `power` — R-I2's object, frozen scenarios plus realised;
+* `materiality` — the pooled corpus figure and R-I3's required sentence;
+* `verdict` — `ADOPT` / `NO ADOPT` / `UNRESOLVED`, and which gate decided.
+
+**`widening_per_fixture.csv`** — 85 rows: `key, match_id, season, block,
+cutoff, date, home_key, away_key, e_home, e_away, e_min, thin_at, treated,
+incumbent_widened, p_home_B, p_draw_B, p_away_B, p_home_A, p_draw_A, p_away_A,
+p_home_corpus, p_draw_corpus, p_away_corpus, y, rps_B, rps_A, delta,
+delta_vs_corpus, max_abs_dp_vs_corpus`.
+
+**`widening_table_cells.csv`** — 35 rows: `season, cutoff_label, cutoff,
+treated_clubs, n_treated_clubs, trps_control, trps_treatment, delta_trps,
+wtrps_control, wtrps_treatment, delta_wtrps, mc_se_paired, identical,
+substantive_digest_control, substantive_digest_treatment,
+parity_digest_simretro, cov50_control, cov90_control, cov50_treatment,
+cov90_treatment, cov50_treated_control, cov90_treated_control,
+cov50_treated_treatment, cov90_treated_treatment, realised_hash`.
+
+**`widening_grid_means.csv`** — `e_star, n_thin, n_treated, mean_delta, ci_lo,
+ci_hi, n_blocks, degenerate, decides`.
+
+**`reports/evidence/MANIFEST.sha256`** must carry an entry, with byte size, for
+each of the four files above **and** for every bulky local artifact: each shard
+ledger, the merged fit ledger and the table ledger. `--verify` refuses if any
+promised entry is missing or any digest disagrees. "Bulky local artifacts" is
+no longer a category; it is a list.
+
+---
+
+### R-M1 — the union is through `e* = 12`, not below it
+
+**Supersedes** §2.3's phrase *"the `e* < 12` union"*. §1.4's table gives 78
+blocks at `e* = 12` and 50 at `e* = 8`, so the union of grid points strictly
+below 12 cannot be 78. The correct phrase is **"the union through `e* = 12`
+(that is, `e* ≤ 12`)"**. The count **78** is right and stays binding, as do the
+62 primary blocks it contains.
+
+---
+
+### R-M2 — the direction canary, bound to the production path and honest about edges
+
+**Supersedes** §5.3's direction-canary bullet.
+
+The defect is real on both halves. `finalize_grid`
+(`src/wcmodel/model/draw_api.py:218-231`) applies `inflate_predictive` and then
+an **unconditional** renormalisation, so a comparison against
+`inflate_predictive` alone is a comparison against something the production map
+does not emit; and `inflate_predictive` documents an edge no-op — a marginal
+mean at ~0 or at the largest representable score has no interior max-entropy
+solution and the grid is returned **unchanged**, so "strictly higher entropy"
+is not unconditional.
+
+**The repaired canary.** The comparator is the production path:
+`finalize_grid(grid, posterior, provisional=True)`, against the base
+`finalize_grid(grid, posterior, provisional=False)` computed from the same
+pre-widening `grid`. Equality is **bit equality** (`numpy.array_equal`).
+Entropy must be strictly higher than the base **except** where the documented
+edge branch fires, in which case unchanged grid and equal entropy are the
+correct result. The canary records which branch every treated fixture took and
+**requires at least one treated fixture in the interior branch** with strictly
+higher entropy and a strictly positive `max |Δp|`. A direction canary in which
+every fixture took the edge branch is `CanaryFailed`: it proved nothing.
+
+---
+
+### R-M3 — the anchoring LOSO is not a precedent, and nothing is selected here
+
+**Supersedes** §2.1's *"stricter than the prequential-selection precedent
+(anchoring's LOSO)"*.
+
+The defect is real. `reports/epl_anchoring_result.md` §1 rules that label false
+in its own words — the folds are honest about a season's fixtures but not about
+its **results**, because the information travels through training ancestry
+rather than through the fold split, and the honest name is *"in-fold weight
+selection with shared training ancestry"*. It is a failed attempt, not a
+precedent.
+
+**The repaired sentence.** *The nearest thing this repository has to a
+prequential selector is the anchoring experiment's **failed** leave-one-season-out
+attempt, whose own result document rules the label false; it is a precedent for
+nothing. The correct statement here is simpler and stronger: **this experiment
+performs no outcome-based selection at all.** `e*` is fixed at 10.0 from
+`config/config.yaml`'s `elo.volatility_window`, the grid is reported and never
+selected from, and `epl.evwiden.adoption` takes four arguments none of which is
+a grid point.*
+
+---
+
+### R-M4 — the disclaimer distinguishes the thin population from the treated one
+
+**Supersedes** §8's first bullet's closing sentence.
+
+**The repaired sentence.** *The estimand answers only the question asked: the
+value of the re-key over **all 85 thin fixtures**, 33 of which the incumbent
+predicate already widens and which therefore carry a delta of exactly zero by
+construction. Only 52 fixtures are touched.*
+
+---
+
+### R-M5 — the identity control's support citation is corrected
+
+**Supersedes** §3.2's citation of `verify_fast_path_is_inert`.
+
+The defect is real: that function builds the feature panel twice and compares
+the two with `DataFrame.equals` (`epl/walkforward.py:321-329`). It is a check on
+feature frames, not on repeated fitted forecasts, and it cannot support a claim
+about bit-equal predictions.
+
+**The repaired support**, which is narrower and true: `epl.walkforward.point_in_time_canary`
+(`epl/walkforward.py:450-460`) runs the whole pipeline this experiment runs —
+anchor, fit, cold start, `predict_1x2` — and compares **probabilities**, with a
+positive control proving the corruption landed; and `dcfit.fit_epl` draws from
+the frozen configuration's single `seed`, which does not vary by cutoff. Beyond
+that, **the 820-fixture control is not supported by an assumption; it is the
+claim under test.** If repeated fits do not reproduce the published
+probabilities at eight decimals, this experiment stops, and that is the point
+of running the control first.
+
+---
+
+### R-H — the harness builder's four concerns, ruled
+
+**(1) The freeze stays unpasted. CONFIRMED.** §6's order is unchanged — harness
+written and audited, then the freeze commit, then the first real fit — and the
+freeze block may not be generated until the harness carries these repairs. A
+hash table committed now would freeze code that does not implement the
+document, which is the one thing a hash table must never do.
+
+**(2) The sampler leg is unexercised, and its first exercise is named here.
+BLESSED.** The **first post-freeze act** of this experiment is:
+
+> `python -m epl.evwiden --run --limit 1 --dir <scratch>` — one fit at the
+> **first opening by date, 2019-08-09** (10 fixtures; ledger incumbent set
+> `{sheffield_united}`; the §2.1 union adds exactly `{aston_villa, norwich}`),
+> written to a scratch directory outside the preregistered run directory.
+
+Its purpose is to exercise, once and end to end, the one path no test can
+execute without a real fit: the identity control at that opening, the cutoff
+and point-in-time assertions, the three predict passes, the direction canary
+and the row schema. **Its numbers enter no estimand**; its rows are never
+merged; the opening is named here, before the fit, and it is first by date and
+not by anything else, so it is not a selection step. Its console output and row
+count are recorded in the result document.
+
+**This is a real fit on the real archive.** It runs after the freeze commit,
+and from the moment it completes **R-B6 is in force**: the harness is frozen for
+good. If its identity control fails, the run stops and the failure publishes.
+
+**(3) §5.3's "except to hash them". RULED** — see R-B5. The builder's reading is
+adopted as the document's own, with "and simulations" added: the clause is
+about fits and simulations, reading is enumerated, and the six authorised
+passes are listed by name and date.
+
+**(4) The two-sided cell identity. RULED, and adopted into the document.** §3.3
+demanded only one direction — an untouched cell whose arms differ is
+`TableIdentityBreak`. The other direction is now equally required: **a cell
+whose rule-named treated clubs produced a byte-identical run is
+`TableIdentityBreak` too.** The builder's reason is the document's reason: a
+treatment that changes nothing where the rule says it should is not a null
+result, it is a treatment that never reached the sampler, and reporting its
+zero delta as evidence of no harm would be reporting the absence of the
+experiment.
+
+---
+
+### R-X — the refusal inventory, and what this section does not change
+
+**§5.1 gains exactly one type and loses none.** `TableMCImprecise` — the paired
+Monte Carlo error cannot be computed (unequal per-particle season counts), or
+the precision rule of R-B3 leaves gate (iv) UNRESOLVED. The inventory is
+therefore **twenty-three** types. `ConfigNotFrozen`, `ControlMismatch` and
+`TableIdentityBreak` gain the conditions named in R-I1, R-B1 and R-B4/R-H(4)
+respectively.
+
+**Unchanged by this section, and still binding:** the rule of §2.1 and its one
+frozen constant `e* = 10.0`; ADD-not-REPLACE and binary-not-continuous;
+α = 0.5 and mechanism (c); the populations 85 / 52 / 51 / 78 and the table's
+16 / 19; the seeds 20260611 and 20260814; B = 10,000; §4.1 clauses (i), (ii)
+and (iii) and their bars; the conjunction "ALL FOUR"; §4.4's publish-either-way
+and its refusal to re-litigate a miss; §4.5's shadow-first adoption and the
+owner ruling that alone can take it; §6's closed write set and the lock check;
+§7's other invalidations; §8's other disclaimers; and the fact that no
+secondary, stratum or grid point decides anything.
+
+*Repaired 2026-08-27, before the freeze commit, before the first fit, and
+before any delta of this experiment existed anywhere.*
