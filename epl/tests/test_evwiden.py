@@ -92,6 +92,15 @@ CUT_D = "2020-01-20"          # season one, block three — `stale` sits it out
 #:   cold  — no archive rows at all       -> e = 0, the Coventry shape
 CLUBS = ("rich", "mid", "stale", "cold")
 
+#: R2-I5's corrected inventory of fact. There are THREE generators — `_archive`,
+#: `_corpus` and `_ledger`, with `_world` returning the three together — and
+#: FIVE invented club names, not four: `other` appears in `_archive()` as the
+#: counterparty club and is not in `CLUBS`, which is why round one missed it.
+#: R2-I5 makes the ancestry claim a test rather than an assertion:
+#: `test_the_synthetic_clubs_are_absent_from_the_pinned_artifacts` below.
+SYNTHETIC_CLUBS = ("rich", "mid", "stale", "cold", "other")
+SYNTHETIC_GENERATORS = ("_archive", "_corpus", "_ledger")
+
 
 def _archive() -> pd.DataFrame:
     """A played frame with hand-placed dates, so every `e` is predictable."""
@@ -182,6 +191,68 @@ def _ledger(**override) -> dict[str, set[str]]:
 
 def _world():
     return _corpus(), _archive(), _ledger()
+
+
+# ==========================================================================
+# R2-I5 — "synthetic" has an enforceable definition, and it is enforced HERE
+# ==========================================================================
+
+def test_the_generator_inventory_is_the_documents():
+    """R2-I5 corrects round one's inventory of fact: three generators, five
+    invented club names. Round one asserted a check into existence and named
+    two generators and four clubs; this is the check."""
+    for name in SYNTHETIC_GENERATORS:
+        assert callable(globals()[name]), name
+    archive, corpus = _archive(), _corpus()
+    used = (set(archive["home_key"].astype(str))
+            | set(archive["away_key"].astype(str))
+            | set(corpus["home_key"].astype(str))
+            | set(corpus["away_key"].astype(str)))
+    assert used == set(SYNTHETIC_CLUBS)
+    assert "other" in used and "other" not in CLUBS
+    ledger = _ledger()
+    assert set().union(*ledger.values()) <= set(SYNTHETIC_CLUBS)
+
+
+@pinned
+def test_the_synthetic_clubs_are_absent_from_the_pinned_artifacts():
+    """R2-I5, the ancestry check made mechanical — the test round one said
+    existed and did not.
+
+    R-I5 defines SYNTHETIC as "every one of its values is written literally in
+    `epl/tests/test_evwiden.py`, or generated there by arithmetic over literals
+    written there", and forbids any value read, copied, sampled or transformed
+    from the pinned artifacts. Names that also occur in the real archive would
+    make that claim uncheckable by inspection; none of the five does.
+    """
+    archive = pd.read_parquet(PINNED_ARCHIVE)
+    corpus = pd.read_parquet(PINNED_CORPUS)
+    real = (set(archive["home_key"].astype(str))
+            | set(archive["away_key"].astype(str))
+            | set(corpus["home_key"].astype(str))
+            | set(corpus["away_key"].astype(str)))
+    assert set(SYNTHETIC_CLUBS).isdisjoint(real), sorted(
+        set(SYNTHETIC_CLUBS) & real)
+
+
+def test_the_generators_read_nothing_from_the_pinned_artifacts(monkeypatch):
+    """R-I5: "No value may be read, copied, sampled, transformed, or otherwise
+    derived from" the pinned parquet, ledger or retro ledger.
+
+    The two routes this repository reads them by are closed for the duration,
+    so a generator that reached for one would raise rather than quietly
+    succeed."""
+    def refuse(*a, **k):
+        raise AssertionError("a synthetic generator read a pinned artifact")
+
+    monkeypatch.setattr(pd, "read_parquet", refuse)
+    monkeypatch.setattr(pd, "read_json", refuse, raising=False)
+    monkeypatch.setattr(pd, "read_csv", refuse)
+    monkeypatch.setattr(Path, "read_text", refuse)
+    monkeypatch.setattr(Path, "read_bytes", refuse)
+    monkeypatch.setattr(Path, "open", refuse)
+    corpus, archive, ledger = _world()
+    assert len(corpus) and len(archive) and ledger
 
 
 # ==========================================================================
@@ -1175,6 +1246,46 @@ def test_evidence_canary_passes_on_a_sound_frame():
     assert out["negative_leg_max_abs_diff"] == 0.0
     assert out["positive_control_max_abs_diff"] > 1e-9
     assert out["provisional_checked"] is False
+
+
+def test_the_negative_leg_is_array_equal_and_both_legs_count_their_rows():
+    """R-I4: the comparison is `numpy.array_equal` on the float64 values BEFORE
+    rounding — bit equality, not a tolerance — and "both legs record the number
+    of rows the mask selected; an empty mask is a refusal, never a pass"."""
+    played = _archive()
+    out = ew.evidence_canary(played, CUT_B, list(CLUBS))
+    assert out["negative_leg_array_equal"] is True
+    assert "array_equal" in out["comparator"]
+    n_after = int(ew.corrupt_mask(played, CUT_B, side="after").sum())
+    n_before = int(ew.corrupt_mask(played, CUT_B, side="before").sum())
+    assert out["negative_leg_rows_selected"] == n_after > 0
+    assert out["positive_control_rows_selected"] == n_before > 0
+    assert n_after + n_before == len(played)
+    # R-I4's frozen mutation, on the record beside the numbers
+    assert out["mutation"]["fthg"] == 9 and out["mutation"]["ftag"] == 9
+    assert out["mutation"]["dates"] == "not touched"
+
+
+def test_the_negative_leg_refuses_a_difference_no_tolerance_would_see():
+    """A bound rather than a tolerance: one ULP of movement in the evidence
+    vector is a leak, and `array_equal` is what makes it one."""
+    played = _archive()
+    real = ew.effective_evidence
+
+    def nudged(cutoff, frame, clubs=None, **kwargs):
+        out = real(cutoff, frame, clubs, **kwargs)
+        if any(str(k).startswith(ew._CANARY_PREFIX)
+               for k in frame["home_key"].astype(str)):
+            first = sorted(out)[0]
+            out[first] = np.nextafter(out[first], np.inf)
+        return out
+
+    import unittest.mock as mock
+
+    with mock.patch.object(ew, "effective_evidence", nudged):
+        with pytest.raises(ew.EvidenceCanaryFailed) as err:
+            ew.evidence_canary(played, CUT_B, list(CLUBS))
+    assert "array_equal = False" in str(err.value)
 
 
 def test_the_evidence_canary_corrupts_clubs_and_not_only_scores():

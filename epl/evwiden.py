@@ -2136,6 +2136,23 @@ def _check_fit(point: FitPoint, out: dict) -> None:
 _CANARY_PREFIX = "__canary_corrupt__"
 
 
+def corrupt_mask(played: pd.DataFrame, cutoff: str | pd.Timestamp, *,
+                 side: str) -> np.ndarray:
+    """Which rows R-I4's mutation selects, by NORMALISED date.
+
+    R-I4 froze the selection: ``after`` selects ``date >= cutoff``, ``before``
+    selects ``date < cutoff``. The mask is a function of its own so both legs
+    can RECORD how many rows they selected — R-I4 requires that, and an empty
+    mask is a refusal rather than a pass.
+    """
+    if side not in ("before", "after"):
+        raise EvWidenError(f"side must be 'before' or 'after', not {side!r}")
+    ts = pd.Timestamp(cutoff).normalize()
+    dates = pd.to_datetime(played["date"]).dt.normalize()
+    mask = (dates >= ts) if side == "after" else (dates < ts)
+    return mask.to_numpy(bool)
+
+
 def corrupt_archive(played: pd.DataFrame, cutoff: str | pd.Timestamp, *,
                     side: str) -> pd.DataFrame:
     """Rewrite the archive on one side of ``cutoff``, clubs and scores alike.
@@ -2150,12 +2167,9 @@ def corrupt_archive(played: pd.DataFrame, cutoff: str | pd.Timestamp, *,
     on scores would pass on a broken filter. Reassigning the clubs is what makes
     the negative leg able to fail.
     """
-    if side not in ("before", "after"):
-        raise EvWidenError(f"side must be 'before' or 'after', not {side!r}")
     ts = pd.Timestamp(cutoff).normalize()
     out = played.copy()
-    dates = pd.to_datetime(out["date"]).dt.normalize()
-    mask = (dates >= ts) if side == "after" else (dates < ts)
+    mask = corrupt_mask(played, ts, side=side)
     if not bool(mask.any()):
         raise EvWidenError(
             f"the canary has nothing to corrupt {side} {ts.date()}: a canary "
@@ -2188,6 +2202,13 @@ def evidence_canary(played: pd.DataFrame, cutoff: str | pd.Timestamp,
     * **Positive control** — corrupt the rows BEFORE the cutoff and demand ``e``
       moves by more than 1e-9.
 
+    R-I4 FREEZES THE COMPARISON, and the repair is that the negative leg is a
+    BOUND rather than a tolerance: the evidence vector over the corpus's clubs
+    is compared with ``numpy.array_equal`` on the float64 values **before
+    rounding**. Both provisional sets are compared by set equality; both legs
+    record the number of rows their mask selected; an empty mask is a refusal,
+    never a pass.
+
     ``provisional_fn`` maps a played frame to the incumbent provisional set; the
     run passes the real one (a store plus ``count_volatility_arm``) and a test
     passes a stub. When it is ``None`` only the evidence legs run, and the record
@@ -2196,14 +2217,21 @@ def evidence_canary(played: pd.DataFrame, cutoff: str | pd.Timestamp,
     ts = pd.Timestamp(cutoff).normalize()
     clubs = [str(c) for c in clubs]
     base = effective_evidence(ts, played, clubs)
+    base_vec = np.array([base[c] for c in clubs], dtype=float)
 
+    n_after = int(corrupt_mask(played, ts, side="after").sum())
     after = corrupt_archive(played, ts, side="after")
     after_e = effective_evidence(ts, after, clubs)
-    negative = max((abs(after_e[c] - base[c]) for c in clubs), default=0.0)
+    after_vec = np.array([after_e[c] for c in clubs], dtype=float)
+    #: R-I4: BIT equality on the unrounded float64 vector, not a tolerance.
+    negative_equal = bool(np.array_equal(after_vec, base_vec))
+    negative = float(np.abs(after_vec - base_vec).max()) if clubs else 0.0
 
+    n_before = int(corrupt_mask(played, ts, side="before").sum())
     before = corrupt_archive(played, ts, side="before")
     before_e = effective_evidence(ts, before, clubs)
-    positive = max((abs(before_e[c] - base[c]) for c in clubs), default=0.0)
+    before_vec = np.array([before_e[c] for c in clubs], dtype=float)
+    positive = float(np.abs(before_vec - base_vec).max()) if clubs else 0.0
 
     sets_equal: bool | None = None
     set_detail: dict[str, Any] = {}
@@ -2222,19 +2250,32 @@ def evidence_canary(played: pd.DataFrame, cutoff: str | pd.Timestamp,
     out = {
         "schema": SCHEMA_ID, "cutoff": str(ts.date()), "n_clubs": len(clubs),
         "e_star": float(e_star),
+        "comparator": "numpy.array_equal on the unrounded float64 evidence "
+                      "vector (R-I4: a bound, not a tolerance)",
+        "negative_leg_rows_selected": n_after,
+        "positive_control_rows_selected": n_before,
+        "negative_leg_array_equal": negative_equal,
         "negative_leg_max_abs_diff": float(negative),
         "positive_control_max_abs_diff": float(positive),
         "provisional_sets_identical": sets_equal,
         "provisional_checked": provisional_fn is not None,
+        "mutation": {
+            "home_key": f"{_CANARY_PREFIX}h{{i}}",
+            "away_key": f"{_CANARY_PREFIX}a{{i}}",
+            "fthg": 9, "ftag": 9, "dates": "not touched",
+            "note": "per-row unique sentinels, because features' duplicate-match "
+                    "dedup collapses content-identical rows (fixed at 06bd431)"},
         "detail": set_detail,
-        "PASS": bool(negative == 0.0 and positive > 1e-9
-                     and (sets_equal is not False)),
+        "PASS": bool(negative_equal and n_after > 0 and n_before > 0
+                     and positive > 1e-9 and (sets_equal is not False)),
     }
     if not out["PASS"]:
         raise EvidenceCanaryFailed(
-            "the evidence canary did not pass: the negative leg moved `e` by "
-            f"{negative:.3g} (must be exactly 0), the positive control moved it "
-            f"by {positive:.3g} (must exceed 1e-9), provisional sets identical "
+            "the evidence canary did not pass: the negative leg's evidence "
+            f"vector array_equal = {negative_equal!r} (must be True; largest "
+            f"difference {negative:.3g}) over {n_after} corrupted row(s), the "
+            f"positive control moved `e` by {positive:.3g} (must exceed 1e-9) "
+            f"over {n_before} corrupted row(s), provisional sets identical "
             f"= {sets_equal!r}. §5.3: a canary that cannot fail is not a canary, "
             "and one that fails is a leak in the predicate's own input.")
     return out
