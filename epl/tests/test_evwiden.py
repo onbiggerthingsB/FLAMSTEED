@@ -2437,6 +2437,67 @@ def test_the_treated_run_refuses_a_control_arm_that_drifted_from_protected(
                      config_sha="c", verbose=False)
 
 
+def test_every_table_row_records_the_digest_of_its_own_tally_file(tmp_path):
+    """§8.7: "**every table ledger row records the SHA-256 of its own tally
+    file**, written at the same moment as the row"."""
+    path, rows = _run_cells(tmp_path)
+    assert "tally_sha256" in ew._TABLE_ROW_FIELDS
+    assert "tally_sha256" in ew._TABLE_COLUMNS
+    for row in rows:
+        target = ew.tally_path(path, row)
+        assert target.exists()
+        assert row["tally_sha256"] == ew.sha256_file(target)
+
+
+def test_a_swapped_tally_is_refused_on_the_digest_and_on_its_invariants(
+        tmp_path):
+    """§8.7, conformance row L10. "Each is a live deciding input: §5's estimator
+    and §5.4's unanimity rule read them, and a structurally valid replacement
+    could alter the MC standard errors — and turn UNRESOLVED into PASS —
+    without changing any other digest."
+
+    v1 wrote the 32 deciding arrays as NPZ sidecars and reloaded them checking
+    "neither their digest against the ledger nor their matrix/tally invariant
+    before using them to decide P1–P5". Both checks are now on every read.
+    """
+    path, rows = _run_cells(tmp_path)
+    row = next(r for r in rows if r["treated_clubs"])
+
+    # a read of the untouched file rebinds cleanly
+    ew.load_tallies(path, row)
+
+    # ...and a STRUCTURALLY VALID replacement — a different but legal tally —
+    # is refused on the recorded digest
+    target = ew.tally_path(path, row)
+    with np.load(target) as data:
+        payload = {k: np.asarray(data[k]) for k in data.files}
+    payload["treatment"] = _tally(2)
+    np.savez_compressed(target, **payload)
+    with pytest.raises(ew.TableMCImprecise) as exc:
+        ew.load_tallies(path, row)
+    assert "digest" in str(exc.value)
+
+    # and a replacement that also forges the row's digest is still refused,
+    # because §5.1's two binding checks are re-run on every read
+    broken = dict(row)
+    broken["tally_sha256"] = ew.sha256_file(target)
+    with pytest.raises(ew.TableMCImprecise) as exc:
+        ew.load_tallies(path, broken)
+    assert "matrix" in str(exc.value) or "cluster" in str(exc.value)
+
+
+def test_an_absent_tally_file_is_a_refusal_and_never_a_smaller_bootstrap(
+        tmp_path):
+    """§7.1 lists "a tally file that is absent or fails its recorded digest"
+    under `TableMCImprecise`."""
+    path, rows = _run_cells(tmp_path)
+    row = rows[0]
+    ew.tally_path(path, row).unlink()
+    with pytest.raises(ew.TableMCImprecise) as exc:
+        ew.load_tallies(path, row)
+    assert "not on disk" in str(exc.value)
+
+
 def test_the_table_leg_writes_one_row_per_cell_and_resumes(tmp_path):
     cells = _cells()
     path = tmp_path / "table.jsonl"

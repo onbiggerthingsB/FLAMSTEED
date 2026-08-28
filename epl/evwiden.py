@@ -4171,7 +4171,10 @@ _TABLE_ROW_FIELDS = ("schema", "key", "season", "cutoff_label", "cutoff",
                      "realised_spans", "realised_points",
                      "consequence_weights", "parity",
                      "parity_digest_simretro", "config_sha256",
-                     "harness_sha256", "harness_frozen")
+                     "harness_sha256", "harness_frozen",
+                     # §7.2 and §8.7: "the SHA-256 of its own tally file",
+                     # written at the same moment as the row.
+                     "tally_sha256")
 
 
 def table_cutoffs(matches: pd.DataFrame, seasons: Sequence[str] | None = None,
@@ -4652,6 +4655,10 @@ class TableRunner:
             tally = particle_tallies(run)
             tally_check = assert_tally_binds_the_matrix(tally, run)
             tallies[name] = tally
+            # §8.7's rebinding read needs the matrix and the two counts back;
+            # they travel inside the sidecar so `load_tallies` can re-run §5.1's
+            # binding checks without a live SimRun.
+            tallies[f"matrix_{name}"] = np.asarray(run.matrix, dtype=float)
             arms[name] = {
                 "trps": float(simmetrics.trps(matrix, positions, spans=spans)),
                 "wtrps": float(simmetrics.wtrps(matrix, positions, weights,
@@ -5098,19 +5105,104 @@ def tally_path(ledger_path: Path | str, row: dict[str, Any]) -> Path:
     return tallies_dir(ledger_path) / f"{key}.npz"
 
 
+class _ReboundRun:
+    """The three fields §5.1's binding checks read, recovered from the sidecar.
+
+    :func:`assert_tally_binds_the_matrix` was written against a live
+    :class:`epl.leaguesim.SimRun`; on a reload there is no run, so the scored
+    matrix and the two counts travel INSIDE the npz and this stands in for it.
+    That is what lets §8.7's "re-runs §5.1's two binding checks before the
+    arrays are used to decide anything" be literally true rather than aspirational.
+    """
+
+    __slots__ = ("matrix", "n_sims", "n_particles")
+
+    def __init__(self, matrix, n_sims, n_particles):
+        self.matrix = np.asarray(matrix, dtype=float)
+        self.n_sims = int(n_sims)
+        self.n_particles = int(n_particles)
+
+
+def write_tallies(ledger_path: Path | str, row: dict[str, Any],
+                  arms: dict[str, Any]) -> tuple[Path, str]:
+    """Write one cell's two tallies, with the matrices that bind them.
+
+    Returns the path and its SHA-256, which §8.7 puts on the ledger row **at the
+    same moment as the row**: a digest written later is a digest of whatever the
+    file had become by then.
+    """
+    target = tally_path(ledger_path, row)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "control": np.asarray(arms["control"], dtype=float),
+        "treatment": np.asarray(arms["treatment"], dtype=float),
+    }
+    for arm in ("control", "treatment"):
+        leg = (row.get("arms") or {}).get(arm) or {}
+        payload[f"matrix_{arm}"] = np.asarray(
+            arms.get(f"matrix_{arm}",
+                     payload[arm].sum(axis=0) / float(row["n_sims"])),
+            dtype=float)
+        payload[f"n_sims_{arm}"] = np.asarray(
+            int(leg.get("n_sims", row["n_sims"])))
+        payload[f"n_particles_{arm}"] = np.asarray(
+            int(leg.get("n_particles", payload[arm].shape[0])))
+    np.savez_compressed(target, **payload)
+    return target, sha256_file(target)
+
+
 def load_tallies(ledger_path: Path | str, row: dict[str, Any],
                  ) -> dict[str, np.ndarray]:
+    """§8.7's rebinding read. **Every read rebinds.**
+
+    > The 35 per-cell tally files are written beside the table ledger [...] Each
+    > is a live deciding input: §5's estimator and §5.4's unanimity rule read
+    > them, and a structurally valid replacement could alter the MC standard
+    > errors — and turn UNRESOLVED into PASS — without changing any other
+    > digest.
+    >
+    > * **every read rebinds**: `load_tallies` recomputes the file's digest and
+    >   refuses (`TableMCImprecise`) on any disagreement, and re-runs §5.1's two
+    >   binding checks before the arrays are used to decide anything.
+
+    v1 wrote the sidecars and reloaded them checking neither. A swapped file
+    that was still a legal tally passed straight into P1–P5.
+    """
     path = tally_path(ledger_path, row)
     if not path.exists():
         raise TableMCImprecise(
             f"{paths.rel(path)} is not on disk, so cell "
             f"{cell_key(row)}'s per-particle tallies cannot be resampled. "
-            "R2-B3's estimator is jointly paired across cells and there is no "
+            "§5's estimator is jointly paired across cells and there is no "
             "per-cell fallback: a missing tally is a refusal, not a smaller "
             "bootstrap.")
+
+    recorded = row.get("tally_sha256")
+    actual = sha256_file(path)
+    if recorded and str(recorded) != actual:
+        raise TableMCImprecise(
+            f"{paths.rel(path)}'s digest is {actual[:12]}… and cell "
+            f"{cell_key(row)}'s ledger row records {str(recorded)[:12]}…. §8.7 "
+            "binds every deciding tally to the row written at the same moment: "
+            "'a structurally valid replacement could alter the MC standard "
+            "errors — and turn UNRESOLVED into PASS — without changing any "
+            "other digest'. This read rebinds, and the binding does not hold.")
+
     with np.load(path) as data:
-        return {"control": np.asarray(data["control"], dtype=float),
-                "treatment": np.asarray(data["treatment"], dtype=float)}
+        out = {"control": np.asarray(data["control"], dtype=float),
+               "treatment": np.asarray(data["treatment"], dtype=float)}
+        bound = {}
+        for arm in ("control", "treatment"):
+            if f"matrix_{arm}" in data.files:
+                bound[arm] = _ReboundRun(
+                    data[f"matrix_{arm}"],
+                    int(np.asarray(data[f"n_sims_{arm}"]).item()),
+                    int(np.asarray(data[f"n_particles_{arm}"]).item()))
+
+    # §5.1's two binding checks, re-run BEFORE the arrays decide anything.
+    for arm, run in bound.items():
+        assert_tally_binds_the_matrix(out[arm], run)
+    return out
 
 
 def run_table(cells: Sequence[dict[str, Any]],
@@ -5202,15 +5294,14 @@ def run_table(cells: Sequence[dict[str, Any]],
             ck, row["arms"]["control"]["substantive_digest"], parity[ck],
             row["provisional_control"])
         row["parity_digest_simretro"] = parity[ck]["substantive_digest"]
+        # §8.7: the tally is written and its digest goes onto the row AT THE
+        # SAME MOMENT. A digest computed later is a digest of whatever the file
+        # had become by then, which is the thing the binding exists to refuse.
+        tally_sha = None
         if arm_tallies is not None:
-            target = tally_path(ledger_path, row)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            np.savez_compressed(
-                target,
-                control=np.asarray(arm_tallies["control"], dtype=float),
-                treatment=np.asarray(arm_tallies["treatment"], dtype=float))
+            _, tally_sha = write_tallies(ledger_path, row, arm_tallies)
         row.update({"key": key, "harness_frozen": bool(harness_frozen),
-                    "config_sha256": config_sha})
+                    "config_sha256": config_sha, "tally_sha256": tally_sha})
         for field in _TABLE_ROW_FIELDS:
             if field not in row:
                 raise SchemaMismatch(
@@ -5821,6 +5912,8 @@ _TABLE_COLUMNS = (
     "substantive_digest_control", "substantive_digest_treatment",
     "parity_digest_simretro",
     "provisional_control", "provisional_treatment",
+    "effective_posterior_control", "effective_posterior_treatment",
+    "tally_sha256",
     "cov50_control", "cov90_control", "cov50_treatment", "cov90_treatment",
     "cov50_treated_control", "cov90_treated_control",
     "cov50_treated_treatment", "cov90_treated_treatment",
@@ -5939,6 +6032,14 @@ def table_evidence(rows: Sequence[dict[str, Any]],
             "provisional_control": ";".join(row.get("provisional_control") or ()),
             "provisional_treatment":
                 ";".join(row.get("provisional_treatment") or ()),
+            # §3.3: `effective_posterior_hash` left the substantive digest and
+            # "becomes a separately-recorded and separately-compared provenance
+            # field on every table row".
+            "effective_posterior_control":
+                control.get("effective_posterior_hash"),
+            "effective_posterior_treatment":
+                treatment.get("effective_posterior_hash"),
+            "tally_sha256": row.get("tally_sha256"),
             "cov50_control": cov(control, "coverage50"),
             "cov90_control": cov(control, "coverage90"),
             "cov50_treatment": cov(treatment, "coverage50"),
