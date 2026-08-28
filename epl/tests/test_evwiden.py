@@ -5807,6 +5807,16 @@ def test_a_construction_only_engine_refuses_to_fit_before_it_reaches_dcfit(
     assert "§8.2" in str(exc.value)
     assert reached == []            # the sampler was never reached
 
+    # ...and the stopping point is STRUCTURAL where §8.2 says it is: the
+    # refusal precedes the `dcfit` import, so the pass cannot reach the
+    # sampler's MODULE either. The in-tree audit's finding 7 was that v2 made
+    # exactly this claim while the import ran at entry and `can_fit` was tested
+    # after it — a false sentence about a stopping point.
+    import inspect
+
+    source = inspect.getsource(ew.Engine.fit)
+    assert source.index("if not self.can_fit") < source.index("import dcfit")
+
 
 @pinned
 def test_the_partial_engine_pass_runs_and_leaves_the_store_untouched():

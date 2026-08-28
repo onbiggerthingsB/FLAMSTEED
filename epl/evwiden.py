@@ -2031,6 +2031,24 @@ class Engine:
         therefore evaluated inside this function, before the union pass runs,
         and a mismatch raises before Arm A exists at all.
         """
+        # §8.2 pass 4's stopping point is STRUCTURAL, and this is where it is:
+        # BEFORE the `dcfit` import below, so a construction-only Engine cannot
+        # reach the sampler's module, let alone the sampler. The in-tree audit's
+        # finding 7 was that v2 claimed exactly this while the import ran at
+        # entry and `can_fit` was tested after it — a false sentence about a
+        # stopping point, in the document that authorises the pass.
+        if not self.can_fit:
+            raise EvWidenError(
+                "this Engine was constructed for §8.2's pass 4 — the PARTIAL "
+                "engine pass — and it cannot fit. The pass runs construction, "
+                "`fit_points`, the enlarged set, `assert_cutoff_clean` and "
+                "`assert_point_in_time`, and stops STRUCTURALLY before "
+                "`dcfit.fit_epl` — before this function imports `epl.dcfit` at "
+                "all; that is why §8.2 authorises it before the freeze and why "
+                "the guard lets it construct at all. A fit needs an ordinary "
+                "Engine, and an ordinary Engine is refused until §8.3's commit "
+                "lands.")
+
         from epl import dcfit
         from epl import walkforward as wf
         import warnings
@@ -2040,16 +2058,6 @@ class Engine:
         # frozen, and §8.6 makes a production path resolve it rather than
         # accept one.
         assert_not_overridable(e_star=(float(e_star), E_STAR))
-        if not self.can_fit:
-            raise EvWidenError(
-                "this Engine was constructed for §8.2's pass 4 — the PARTIAL "
-                "engine pass — and it cannot fit. The pass runs construction, "
-                "`fit_points`, the enlarged set, `assert_cutoff_clean` and "
-                "`assert_point_in_time`, and stops STRUCTURALLY before "
-                "`dcfit.fit_epl`; that is why §8.2 authorises it before the "
-                "freeze and why the guard lets it construct at all. A fit needs "
-                "an ordinary Engine, and an ordinary Engine is refused until "
-                "§8.3's commit lands.")
         # Re-checked at every fit, not only at construction: the freeze state
         # and the first-real-fit regime are properties of the moment the
         # sampler runs, and a long run must not carry a stale verdict.
