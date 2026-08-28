@@ -2101,6 +2101,17 @@ class Engine:
         # with the corpus rows." On 16 of the 78 blocks the §2.1 union adds
         # nobody, and pass 2 IS that canary — checked here rather than bought
         # with a second fit at `e* = 0`.
+        #
+        # WHAT IT CAN AND CANNOT CATCH, said plainly rather than assumed. Its
+        # refusal is unreachable while the two checks above hold: with an empty
+        # `added` every fixture is untreated, so `assert_untreated_unmoved` has
+        # already required Arm A to equal Arm B and `assert_identity_control`
+        # has already required Arm B to equal the corpus. This is a restatement
+        # whose force comes from those two, which is why §8.5's L12 tests THEM
+        # directly and why the audit was right that a constant PASS here would
+        # leave a suite green. What a committed test can assert about this line
+        # is that it RUNS where the union adds nobody and does not run where it
+        # adds somebody, and that is what one does.
         added = sorted(enlarged - incumbent)
         identity = None
         if not added:
@@ -3580,6 +3591,56 @@ def read_sequence_marker(step: str) -> dict[str, Any] | None:
             "marker is not a completed step.")
 
 
+def assert_sequence_marker_wellformed(step: str, marker: dict[str, Any]
+                                      ) -> dict[str, Any]:
+    """§8.4 fixes what a marker records, and a file that records none of it is
+    not one.
+
+    NB6: "``{}`` is accepted because ``require_sequence`` permits missing/null
+    ``freeze_commit`` and validates no step/schema/hashes/product". Nothing here
+    proves the STEP happened — a marker is a file and §8.6 says plainly what a
+    file can and cannot establish — but a marker that does not even claim to
+    describe this step of this document under this freeze cannot unlock the
+    next one.
+    """
+    absent = [name for name in ("schema", "step", "completed_at", "harness",
+                                "produced_digest")
+              if marker.get(name) in (None, "", {})]
+    head = git_head()
+    if head is not None and not marker.get("freeze_commit"):
+        absent.append("freeze_commit")
+    if absent:
+        raise SequenceViolation(
+            f"{paths.rel(sequence_marker_path(step))} lacks {absent}. §8.4 "
+            "fixes what a marker records — the step name, whether it "
+            "completed, the UTC time, the freeze commit under which it was "
+            "written, the harness file digests at that moment, and a digest of "
+            "what the step produced — and a file carrying none of it is not a "
+            "marker for this run. An empty JSON object is not a completed step.")
+    if str(marker.get("schema")) != SCHEMA_ID:
+        raise SequenceViolation(
+            f"{paths.rel(sequence_marker_path(step))} carries schema "
+            f"{marker.get('schema')!r}, not {SCHEMA_ID!r}: it describes another "
+            "document's run.")
+    if str(marker.get("step")) != step:
+        raise SequenceViolation(
+            f"{paths.rel(sequence_marker_path(step))} records step "
+            f"{marker.get('step')!r} and sits at {step}'s path: a marker "
+            "renamed into another step's slot is not that step's completion.")
+    moved = [name for name in HARNESS_FILES
+             if (marker.get("harness") or {}).get(name)
+             != (sha256_file(paths.REPO_ROOT / name)
+                 if (paths.REPO_ROOT / name).exists() else None)]
+    if moved:
+        raise SequenceViolation(
+            f"{paths.rel(sequence_marker_path(step))} records harness digests "
+            f"for {moved} that are not the current bytes. §8.4's steps run "
+            "under ONE freeze; a hashed file that moved between them means the "
+            "later step is not the step the earlier marker unlocked, and §8.7 "
+            "makes such a change an invalidation once a real fit exists.")
+    return marker
+
+
 def write_sequence_marker(step: str, *, produced: Any = None,
                           complete: bool = True) -> dict[str, Any]:
     """§8.4's marker, with everything the document asks it to carry.
@@ -3693,6 +3754,7 @@ def require_sequence(step: str, *, enforce: bool | None = None
             "steps in one order and nothing else may run on the real archive "
             "between them; each step refuses unless its predecessor's marker "
             "exists.")
+    assert_sequence_marker_wellformed(predecessor, marker)
     head = git_head()
     if head is not None and marker.get("freeze_commit") not in (None, head):
         raise SequenceViolation(
@@ -6213,7 +6275,17 @@ def load_tallies(ledger_path: Path | str, row: dict[str, Any],
 
     recorded = row.get("tally_sha256")
     actual = sha256_file(path)
-    if recorded and str(recorded) != actual:
+    if not recorded:
+        raise TableMCImprecise(
+            f"cell {cell_key(row)}'s ledger row records no `tally_sha256`, so "
+            f"{paths.rel(path)} is not bound to anything. §8.7: 'every table "
+            "ledger row records the SHA-256 of its own tally file, written at "
+            "the same moment as the row' and 'every read rebinds'. A read that "
+            "treats an absent digest as nothing to check is a read that binds "
+            "nothing, and a structurally valid replacement could then alter the "
+            "MC standard errors — and turn UNRESOLVED into PASS — without "
+            "changing any other digest.")
+    if str(recorded) != actual:
         raise TableMCImprecise(
             f"{paths.rel(path)}'s digest is {actual[:12]}… and cell "
             f"{cell_key(row)}'s ledger row records {str(recorded)[:12]}…. §8.7 "
@@ -6347,6 +6419,13 @@ def run_table(cells: Sequence[dict[str, Any]],
         tally_sha = None
         if arm_tallies is not None:
             _, tally_sha = write_tallies(ledger_path, row, arm_tallies)
+        if not tally_sha:
+            raise SchemaMismatch(
+                f"the cell {ck} produced no per-particle tallies, so its row "
+                "would carry `tally_sha256: null`. §8.7 makes every deciding "
+                "tally a live input bound to the row written at the same "
+                "moment; a row with nothing to bind is not a row this leg may "
+                "write.")
         row.update({"key": key, "harness_frozen": bool(harness_frozen),
                     "config_sha256": config_sha, "tally_sha256": tally_sha})
         for field in _TABLE_ROW_FIELDS:
@@ -10166,7 +10245,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                                              digests["keys"]["fit_openings"]),
                                   index, count)
             if args.limit:
+                # §8.4 step 2 names its opening — "the FIRST OPENING BY DATE,
+                # 2019-08-09 [...] the opening is named here, before the fit,
+                # and it is first by date and not by anything else, so it is
+                # not a selection step". A different shard's first point is a
+                # different opening, so the flag is bound to the named one
+                # rather than to whatever this worker's slice happens to start
+                # with.
                 points = points[:args.limit]
+                if not points or points[0].cutoff != PARTIAL_ENGINE_OPENING:
+                    print(f"STOP: `--run --limit 1` is §8.4 step 2 and step 2 "
+                          f"is the opening 2019-08-09, named in the document "
+                          f"before the fit. This shard's first point is "
+                          f"{points[0].cutoff if points else 'nothing'}. Run "
+                          "step 2 from the shard that holds the first opening "
+                          "by date; choosing an opening here would make step 2 "
+                          "a selection step, which §8.4 says it is not.",
+                          flush=True)
+                    return 2
             ledger_path = directory / shard_name(index, count)
             # Guard BEFORE the engine: building the store and the anchor costs
             # real time, and a run that is going to be refused should be refused
@@ -10195,12 +10291,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "n_rows": out["n_rows_written"],
                         "row_digest": out["run_digest"],
                         "scratch": paths.rel(directory)})
-                elif all((EVWIDEN_DIR / shard_name(i, SHARDS)).exists()
-                         for i in range(SHARDS)):
-                    write_sequence_marker(step, produced={
-                        "shards": {shard_name(i, SHARDS): run_digest(
-                            load_ledger(EVWIDEN_DIR / shard_name(i, SHARDS)))
-                            for i in range(SHARDS)}})
+                else:
+                    # §8.4 step 3's marker "is written only when all four
+                    # shards have exited zero AND WRITTEN THEIR EXPECTED KEY
+                    # SETS". File existence establishes neither: a shard that
+                    # crashed on its second fit leaves a file too.
+                    all_points = fit_points(corpus,
+                                            digests["keys"]["fit_openings"])
+                    complete = {}
+                    for i in range(SHARDS):
+                        path_i = EVWIDEN_DIR / shard_name(i, SHARDS)
+                        if not path_i.exists():
+                            break
+                        want_i = {fit_key(p.cutoff, config_sha=config_sha256())
+                                  for p in shard_points(all_points, i, SHARDS)}
+                        if completed_keys(path_i) != want_i:
+                            break
+                        complete[shard_name(i, SHARDS)] = run_digest(
+                            load_ledger(path_i))
+                    if len(complete) == SHARDS:
+                        write_sequence_marker(step,
+                                              produced={"shards": complete})
             print(json.dumps(out, indent=2, default=str))
 
         if args.table:

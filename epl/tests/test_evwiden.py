@@ -6121,3 +6121,93 @@ def test_the_guard_demands_equality_on_the_membership_digests():
     assert recorded == {"b" * 64, "c" * 64}       # not the harness hash, not
     assert "a" * 64 not in recorded               # the pinned artifact digest
     assert "d" * 64 not in recorded
+
+
+def test_the_real_engine_fits_identity_canary_branch_is_exercised(monkeypatch):
+    """§7.3's identity canary, in the PRODUCTION branch — the audit's A2.
+
+    "The production identity-canary branch is not directly asserted; explicit
+    identity-canary tests still use `_stub_fitter`. Replacing the production
+    branch with a constant PASS can leave the suite green."
+
+    On 16 of the 78 openings the §2.1 union adds nobody, and `Engine.fit`'s
+    pass 2 IS the canary there: Arm A must be byte-identical to the corpus.
+    This drives the real method with an evidence table that adds nobody and a
+    posterior whose widened pass moves anyway.
+    """
+    post = _FakePosterior()
+    corpus, _ = _engine_world(post)
+    # every club is evidence-rich, so `enlarged - incumbent` is empty and the
+    # canary branch — and only the canary branch — decides the fit
+    engine = _bare_engine(post, corpus, monkeypatch=monkeypatch,
+                          evidence={"2019/20|W01": {"a": 50.0, "b": 50.0}})
+    out = engine.fit(_engine_point(corpus))
+    assert out["identity_canary"] is True
+    assert out["provisional_enlarged"] == out["provisional_incumbent"]
+
+    # ...and where the union DOES add a club the branch does not run at all,
+    # which is the other half of "on 16 of the 78 blocks the §2.1 union adds
+    # nobody, and pass 2 IS that canary".
+    treated_engine = _bare_engine(post, corpus, monkeypatch=monkeypatch,
+                                  evidence={"2019/20|W01": {"a": 0.5,
+                                                            "b": 50.0}})
+    assert treated_engine.fit(_engine_point(corpus))["identity_canary"] is None
+
+    # WHAT THE BRANCH CAN AND CANNOT CATCH, stated rather than assumed. Its
+    # refusal is unreachable while the two checks before it hold: with an empty
+    # `added` every fixture is untreated, so `assert_untreated_unmoved` has
+    # already required Arm A to equal Arm B, and `assert_identity_control` has
+    # already required Arm B to equal the corpus. The branch is a restatement
+    # whose force comes from those two, and that is exactly why §8.5's L12
+    # tests THEM directly rather than resting on this canary. A drift that
+    # would move Arm A is therefore caught, but by `UntreatedMoved`.
+    drifted = np.array([[0.5, 0.25, 0.25]])
+    with pytest.raises(ew.UntreatedMoved):
+        ew.assert_untreated_unmoved("2019-08-10", ("m0",),
+                                    drifted + 1e-9, drifted, ())
+
+
+def test_an_empty_marker_is_not_a_completed_step(tmp_path, monkeypatch):
+    """§8.4, and NB6: "`{}` is accepted because `require_sequence` permits
+    missing/null `freeze_commit` and validates no step/schema/hashes/product"."""
+    monkeypatch.setattr(ew, "SEQUENCE_DIR", tmp_path / "sequence")
+    path = ew.sequence_marker_path(ew.SEQUENCE_STEPS[0])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{}")
+    with pytest.raises(ew.SequenceViolation) as exc:
+        ew.require_sequence(ew.SEQUENCE_STEPS[1], enforce=True)
+    assert "An empty JSON object is not a completed step" in str(exc.value)
+
+    path.unlink()
+    good = ew.write_sequence_marker(ew.SEQUENCE_STEPS[0], produced={"a": 1})
+    assert ew.require_sequence(ew.SEQUENCE_STEPS[1], enforce=True)["PASS"]
+
+    # a marker that names another document, another step, or harness bytes
+    # that are not the current ones is not this run's marker either
+    for over, why in ((("schema", "epl-evwiden-1"), "another document's run"),
+                      (("step", ew.SEQUENCE_STEPS[3]), "another step's slot"),
+                      (("harness", {n: "0" * 64 for n in ew.HARNESS_FILES}),
+                       "not the current bytes")):
+        path.write_text(json.dumps(dict(good, **{over[0]: over[1]})))
+        with pytest.raises(ew.SequenceViolation) as exc:
+            ew.require_sequence(ew.SEQUENCE_STEPS[1], enforce=True)
+        assert why in str(exc.value), over
+
+
+def test_a_deciding_tally_with_no_recorded_digest_is_refused(tmp_path):
+    """§8.7: "every table ledger row records the SHA-256 of its own tally
+    file" and "every read rebinds". NB7's finding was that `load_tallies`
+    "checks only truthy hashes" and `run_table` "can write
+    `tally_sha256=None`" — so an unbound tally read as if it were bound."""
+    ledger = tmp_path / "table.jsonl"
+    row = {"season": "2019/20", "cutoff_label": "MW6",
+           "n_sims": TALLY_N_SIMS, "arms": {}}
+    tally = _tally(0)
+    _, sha = ew.write_tallies(ledger, row, {"control": tally,
+                                            "treatment": tally})
+    assert ew.load_tallies(ledger, dict(row, tally_sha256=sha))
+    for unbound in (dict(row), dict(row, tally_sha256=None),
+                    dict(row, tally_sha256="")):
+        with pytest.raises(ew.TableMCImprecise) as exc:
+            ew.load_tallies(ledger, unbound)
+        assert "records no `tally_sha256`" in str(exc.value)

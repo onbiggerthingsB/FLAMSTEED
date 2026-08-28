@@ -2041,6 +2041,21 @@ would have unlocked refuses exactly as it refuses on an absent one. The point is
 not bookkeeping: it makes a failed step DURABLE, which is what closes the
 retry channel §4.4's no-file-drawer rule exists to close.
 
+**A file that records none of that is not a marker.** The next step checks the
+one it is handed: the schema identifier is `epl-evwiden-2`, the recorded step is
+the step whose path it sits at, the freeze commit is present, the harness digests
+are the current bytes, and a product digest exists. Nothing here proves the step
+*happened* — a marker is a file, and §8.6 is plain about what a file can
+establish — but a marker that does not even claim to describe this step of this
+document under this freeze cannot unlock the next one, and an empty JSON object
+is not a completed step.
+
+**Step 2's opening is the document's, not the shard's.** `--run --limit 1`
+refuses unless the point it would fit is 2019-08-09 — the opening §8.4 names,
+first by date and by nothing else. A different shard's first point is a different
+opening, and choosing one at the command line would make step 2 the selection
+step §8.4 says it is not.
+
 > **Step 1 — the post-freeze results canary. This is the first post-freeze act
 > and it performs the first real fits of this document.**
 > `python -m epl.evwiden --canary --dir <the preregistered run directory>`, run
@@ -2355,10 +2370,13 @@ other digest.
 Therefore:
 
 * **every table ledger row records the SHA-256 of its own tally file**, written
-  at the same moment as the row;
+  at the same moment as the row — a cell that produced no tally does not get a
+  row with a null digest in it, it stops the leg;
 * **every read rebinds**: `load_tallies` recomputes the file's digest and refuses
-  (`TableMCImprecise`) on any disagreement, and re-runs §5.1's two binding checks
-  before the arrays are used to decide anything;
+  (`TableMCImprecise`) on any disagreement **and on an absent recorded digest**,
+  and re-runs §5.1's two binding checks before the arrays are used to decide
+  anything. A read that treats a missing digest as nothing to check is a read
+  that binds nothing;
 * the tally files and `parity.jsonl` are **MANIFEST members** (§9.3);
 * **`--verify` recomputes the table gate from the rebound tallies** — the whole
   of §5, including the unanimity rule — and refuses if the recomputed verdict,
@@ -2573,8 +2591,13 @@ artifact is a refusal, never a silent omission.
 **`--verify` also re-derives the verdict**, per §8.7: it rebinds every tally to
 its recorded digest, re-runs §5's estimator and §5.4's unanimity rule, recomputes
 the table gate and the adoption decision, and refuses on any disagreement with
-the published values. Files 5–52 are not committed; what is committed is their
-digest and byte size, which is the point of the MANIFEST.
+the published values. **A published value it cannot find is a disagreement**, not
+a comparison skipped: a missing `gate_iv` block beside a table ledger, a standard
+error present on one side and absent on the other, and a moved unanimity dissent
+count each refuse. The adoption verdict is recomputed from the re-derived gate
+and the ledger's own estimand rather than echoed out of the JSON. Files 5–52 are
+not committed; what is committed is their digest and byte size, which is the
+point of the MANIFEST.
 
 ### 9.4 The result document
 
