@@ -3063,6 +3063,28 @@ def write_sequence_marker(step: str, *, produced: Any = None) -> dict[str, Any]:
     return marker
 
 
+def sequence_report() -> dict[str, dict[str, Any]]:
+    """§9.1's `sequence` field: the five markers, each with what it recorded.
+
+    "`sequence` — the five markers of §8.4, each with its recorded freeze commit
+    and completion time." A step that never ran says `present: false` rather
+    than being absent from the object, so a reader can see which of the five the
+    run reached.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for step in SEQUENCE_STEPS:
+        marker = read_sequence_marker(step)
+        out[step] = {
+            "present": marker is not None,
+            "path": paths.rel(sequence_marker_path(step)),
+            "freeze_commit": (marker or {}).get("freeze_commit"),
+            "completed_at": (marker or {}).get("completed_at"),
+            "produced_digest": (marker or {}).get("produced_digest"),
+            "produced": (marker or {}).get("produced"),
+        }
+    return out
+
+
 def require_sequence(step: str, *, enforce: bool | None = None
                      ) -> dict[str, Any]:
     """§8.4: a step refuses unless its predecessor's completion marker exists.
@@ -6664,6 +6686,10 @@ def evidence_object(result: dict[str, Any], *,
                     for c in (scored.get("per_cell") or [])}},
         },
         "canaries": result.get("canaries"),
+        # §9.1: "`sequence` — the five markers of §8.4, each with its recorded
+        # freeze commit and completion time". A step that never ran says so;
+        # v1 had no markers at all, so it had no field either.
+        "sequence": sequence_report(),
         "grid": [{"e_star": g["e_star"], "n_thin": g["population"],
                   "n_treated": g["treated"], "mean": g["mean"],
                   "ci": g["ci95"], "degenerate":

@@ -3496,8 +3496,14 @@ def test_the_verdict_json_carries_r_i6s_frozen_field_list(tmp_path):
         "schema", "generated_at", "prereg_commit", "prereg_blob", "pins",
         "estimand", "ci_week", "ci_season", "ci_table_mw6",
         "gate_i", "gate_ii", "gate_iii", "gate_iv", "controls", "canaries",
-        "grid", "strata", "movement", "coverage", "sunderland", "power",
-        "materiality", "verdict"}
+        "sequence", "grid", "strata", "movement", "coverage", "sunderland",
+        "power", "materiality", "verdict"}
+    # §9.1: "`sequence` — the five markers of §8.4, each with its recorded
+    # freeze commit and completion time". v1 had no markers, so no field.
+    assert set(published["sequence"]) == set(ew.SEQUENCE_STEPS)
+    for step, entry in published["sequence"].items():
+        assert set(entry) >= {"present", "freeze_commit", "completed_at",
+                              "produced_digest"}, step
     # THREE deciding intervals, each with its own frozen construction
     for name in ("ci_week", "ci_season", "ci_table_mw6"):
         assert set(published[name]) >= {"function", "n_blocks", "B", "alpha",
@@ -3515,8 +3521,17 @@ def test_the_verdict_json_carries_r_i6s_frozen_field_list(tmp_path):
                               "mc_se_mw3", "mc_se_mw10", "mc_se_per_cell",
                               "conditions", "resolved"}
     assert "mc_se_mean" not in precision
+    # §5.4: "SEVEN entries and only seven [...] There is no `P6` entry and
+    # there must not be one: a structural refusal that stops the leg cannot also
+    # be a row in a file the stopped leg never writes." v1 froze a field list
+    # naming P1-P6 while its harness emitted exactly these seven.
     assert {c["condition"] for c in precision["conditions"]} == {
         "P1", "P2", "P3.MW0", "P3.MW3", "P3.MW10", "P4", "P5"}
+    assert len(precision["conditions"]) == 7
+    assert "P6" not in json.dumps(precision["conditions"])
+    assert "no P6 and there must not be one" in precision["rule"]
+    assert set(precision) >= {"unanimity_k", "unanimity_seed",
+                              "unanimity_dissenting"}
     assert published["gate_iv"]["mw19"]["decides"] == "nothing"
     assert published["sunderland"]["club"] == "sunderland"
     assert published["materiality"]["required_sentence"] == \
