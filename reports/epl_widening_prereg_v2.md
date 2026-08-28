@@ -15,10 +15,11 @@ document is that research, both legs, preregistered.
 experiment: the rule, its one frozen constant, the estimand, the resampling,
 the secondaries, the four-part adoption rule, the Monte-Carlo estimator and its
 precision regime, the refusal semantics, the lifecycle, the evidence contract
-and the scope. **There are no repair sections and no supersession index INSIDE this document,
-because there is nothing inside it to supersede.** (This document does supersede
-v1, which is a different statement and is made in the metadata above.) Every
-clause below is the operative clause. Where this document is silent, nothing is implied.
+and the scope. **There are no repair sections and no supersession index INSIDE
+this document, because there is nothing inside it to supersede.** (This document
+does supersede v1; that is a different statement and it is made in the metadata
+above.) Every clause below is the operative clause. Where this document is
+silent, nothing is implied.
 
 **What it inherits.** Its substance is v1's law as that document actually stood
 after its two repair rounds — every ruling those rounds reached is carried here
