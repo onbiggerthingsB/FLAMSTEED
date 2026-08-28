@@ -1865,7 +1865,7 @@ repository. Pass 7 is the one exception and it is written out in full below.
 6. `python -m epl.evwiden --power`, which reads only the frozen SDs and the
    frozen structure recomputed from the pinned artifacts, and reproduces §6.3.
 7. **The `dc_native` parity feasibility pass — authorised, quarantined, once,
-   and not yet run.** See immediately below.
+   and RUN on 2026-08-28.** See immediately below; its census is in §8.9.
 
 **The rule for any further pre-freeze pass.** It must be read-only; it may not
 call `dcfit.fit_epl` or `leaguesim.simulate`, and may not build a store under
@@ -1972,8 +1972,11 @@ Under the clock above, this pass does not start §8.7's regime: it produces no
 estimand, no treatment arm, no delta, no §3.3 table cell and no published number
 — only the protected control side's own rows, which are that cell's precondition
 and which the pass deletes — and it is authorised here, by name, before it
-runs. **As this document stands the
-pass has NOT been run** and no such record exists (§8.8).
+runs. **The pass RAN on 2026-08-28, once, under this authorisation**, and its
+record exists at `data/epl/sim/evwiden_parity_feasibility.json` (§8.8 excepts it
+by name). Its census — 32 priceable, 3 unpriceable at
+`excluded_mass_ceiling` — is recorded in §8.9, and the ruling immediately below
+is the one it triggers.
 
 **What the census means, ruled now.** If **all thirty-five** cells are
 priceable, §3.3's oracle is feasible and §8.4 step 5 proceeds as written. **If
@@ -2493,7 +2496,11 @@ it is authorised by name in §8.2 and enumerated in §8.3's freeze block, and it
 carries the census and no delta, no table cell, no arm comparison and no
 estimand. The pass's own outputs — the protected oracle's `dc_native` parity
 rows — are written outside the repository and deleted when the pass closes.
-**As this document stands the pass has not been run and no such file exists.**
+**The pass ran on 2026-08-28 and that file exists** (18,128 B, SHA-256
+`07ee00d798cb0f01f29bc5bb5ba885c41e26d5494e9755c73a038a2777bad329`); it is the
+only `data/epl/sim/evwiden*` file there is, its quarantine was deleted, and the
+sentence at the head of this section is true of everything else. Its census is
+in §8.9.
 
 **This attestation is made WITH the two v1 fits of §8.1 on the record and named
 inside it:** two real ADVI fits through protected `epl.simretro.ArchiveRunner`
@@ -2541,7 +2548,7 @@ collection-time, session-fixture, subprocess or crash-time writes, and this note
 does not claim it does. §8.8's attestation is true as it stands, and it says what
 was there and why.
 
-**2026-08-28 — §8.2 pass 7 authorised in ENUMERATION form, not run.** The
+**2026-08-28 — §8.2 pass 7 authorised in ENUMERATION form.** The
 `dc_native` parity feasibility pass is authorised prospectively by §8.2 in
 response to the review's NEW-B6 and the investigator's REAL-REGRESSION verdict on
 it. It was first written as a pass "executed to whatever point it reaches", which
@@ -2555,12 +2562,77 @@ pass, as an ENUMERATION: all thirty-five cells, a per-cell catch that is
 `python -m epl.evwiden --parity-feasibility --quarantine <dir outside the
 repository>`.
 
-**IT HAS NOT BEEN EXECUTED.** No `data/epl/sim/evwiden_parity_feasibility.json`
-exists. When it is run, its census — every one of the 35 cells, priceable or not,
-each unpriceable one with its refusal kind, its fixture and its measured excluded
-mass — is recorded HERE, before the freeze commit, and §8.2 already rules what it
-means: all thirty-five priceable, or this preregistration cannot be run as
-written and the remedy is v3.
+It was executed the same day; the census is the note below, and this note stands
+as the authorisation it was run under.
+
+**2026-08-28 — §8.2 pass 7 EXECUTED, once. The census: 32 priceable, 3 not, and
+v2 cannot be run as written.** The pass opened at 14:50:24Z and closed at
+14:54:37Z (UTC), at HEAD `9adc3bc`, arm `dc_native`, into the quarantine
+`…/scratchpad/pass7-quarantine` outside the repository. All thirty-five cells
+were attempted — the enumeration, not the first refusal — each through
+`epl.evwiden.parity_feasibility_census` and protected
+`epl.simretro.ArchiveRunner`, under `run_retro`'s own typed per-cell contract.
+`cells_expected: 35`, `cells_attempted: 35`, `completed: true`, `error: null`,
+`feasible: false`. The record is
+`data/epl/sim/evwiden_parity_feasibility.json` (18,128 B, SHA-256
+`07ee00d798cb0f01f29bc5bb5ba885c41e26d5494e9755c73a038a2777bad329`), the one
+repository write §8.2 authorises for the pass and the one file §8.8's attestation
+excepts. The quarantine — the protected oracle's own `dc_native` parity rows
+included — was deleted when the pass closed, and the shared point-in-time store's
+`results.parquet` was byte-unchanged across the pass (184,115 B, SHA-256
+`c297b8b04e50d3b5451cb9aed29fcbbfdd13abc290597316f13b176c69e8ded0`, mtime
+2026-08-14 18:41), so the fits read the store they always read and rebuilt
+nothing.
+
+**The 3 UNPRICEABLE cells.** All three refuse with the same typed kind,
+`excluded_mass_ceiling` (`epl.particles.ExcludedMassTooLarge`), against the 0.02
+ceiling of amendment A1, and every one of them is a Manchester City fixture
+against a promoted side:
+
+| cell | refusal kind | fixture the protected code names | particle-mean excluded mass |
+|---|---|---|---:|
+| 2019/20 MW0 | `excluded_mass_ceiling` | man_city v sheffield_united | 0.0234 |
+| 2020/21 MW0 | `excluded_mass_ceiling` | man_city v leeds | 0.0216 |
+| 2023/24 MW3 | `excluded_mass_ceiling` | man_city v luton | 0.0328 |
+
+These are exactly the three cells §8.2 named as candidates from §8.1's two
+crashes and from `data/epl/sim/retro_r1.jsonl`'s own omissions and typed markers,
+at exactly the masses it quoted. The census neither added a fourth nor removed
+one, and no cell failed as `runner_error`.
+
+**The 32 PRICEABLE cells,** in schedule order: 2019/20 MW3, MW6, MW10, MW19;
+2020/21 MW3, MW6, MW10, MW19; 2021/22 MW0, MW3, MW6, MW10, MW19; 2022/23 MW0,
+MW3, MW6, MW10, MW19; 2023/24 MW0, MW6, MW10, MW19; 2024/25 MW0, MW3, MW6, MW10,
+MW19; 2025/26 MW0, MW3, MW6, MW10, MW19. Each carries a `substantive_digest` of
+the protected `dc_native` side — §3.3's PRECONDITION and not §3.3's cell — and
+those digests died with the quarantine, as §8.2 requires: §8.4 step 5 re-runs the
+oracle into the preregistered path from the same protected code, and none of
+these rows may be it.
+
+**What the census means, under the ruling §8.2 made before the pass.** Three
+cells are unpriceable, one is enough, and so **§3.3's 35-cell parity oracle
+cannot be executed on the shipped stack and this preregistration cannot be run as
+written.** The remedy §8.2 pre-states is a NEW preregistration (v3) whose table
+leg is scoped to what the protected runner can actually price — never a quiet
+narrowing of the 35 cells here, which §2.4 and §10 both make an amendment rather
+than an optimisation. `--freeze-block` refuses to render over this record, which
+is the ruling made mechanical: v2 cannot be frozen.
+
+**What v3 would be written against, computed on the priceable census.** Recorded
+here as the census's arithmetic, not as v3's design — v3 is a new document and
+this one does not write it. Of §3.3's 16 treated cells, **15 survive**: only
+2019/20 MW0 is lost, and it is the only treated cell among the three refusals
+(2020/21 MW0 and 2023/24 MW3 are untouched cells). The priceable census is 32
+cells — 15 treated, 17 untouched. Per label, treated over cells: MW0 2/5, MW3
+2/6, **MW6 7/7**, MW10 4/7, MW19 0/7. **MW6 remains the label at which every cell
+is treated, and remains the only one** — §4.1's stated comparative ground for
+naming MW6 the deciding horizon survives the census intact, which is the one
+thing about this result that was not guaranteed. §3.3's own constants would move
+with it: 35 → 32 cells, 16 → 15 treated, 19 → 17 untouched, and
+`EXPECTED_TREATED_BY_LABEL = {MW0: 3, MW3: 2, MW6: 7, MW10: 4, MW19: 0}` →
+`{MW0: 2, MW3: 2, MW6: 7, MW10: 4, MW19: 0}`, against a per-label cell census
+that is no longer 7 across the board but `{MW0: 5, MW3: 6, MW6: 7, MW10: 7,
+MW19: 7}`.
 
 ---
 
