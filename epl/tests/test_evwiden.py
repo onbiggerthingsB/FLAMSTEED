@@ -2,9 +2,13 @@
 
     PYTHONPATH=src:. .venv/bin/python -m pytest epl/tests/test_evwiden.py -q
 
-`reports/epl_widening_prereg_v2.md` is the SOLE LAW (§8.1: v1 is invalidated
-under its own §8.7 and "decides nothing"; `reports/epl_widening_prereg.md` is
-lineage). It fixes the rule, its one frozen constant, the estimand, both
+`reports/epl_widening_prereg_v3.md` is the SOLE LAW. v1 was invalidated under
+v1's own R-B6; v2 was defeated by the one pass it authorised for exactly
+that purpose — v2 §8.2 pass 7 ran on 2026-08-28 and measured three of its thirty-five
+mandatory parity cells as unpriceable — so v2 was closed and v3 carries its law
+against the census that pass produced (§0.6: 32 cells, 15 treated, 17 untouched,
+MW6 still 7 of 7 and still the only all-treated label). Both are lineage and
+decide nothing. v3 fixes the rule, its one frozen constant, the estimand, both
 intervals, §4.1's FOUR-condition adoption rule — the two match intervals, §5's
 table gate and §5.4's unanimity rule — the refusal semantics and the scope
 BEFORE this harness existed. These tests hold `epl.evwiden` to that document,
@@ -17,7 +21,7 @@ a number nobody should believe:
   direction canary checks that against `wcmodel.model.widening.inflate_predictive`
   itself, on a real grid, rather than against a restatement of it.
 * **A population that moved.** 85 thin fixtures, 52 treated, 51 cells, 78
-  openings, 35 table cells of which 16 are treated and 19 untouched — every one
+  openings, 32 table cells of which 15 are treated and 17 untouched — every one
   of them pre-stated. The membership tests
   compute the counts from the rule and refuse the harness's own arithmetic if it
   disagrees; the digest tests make a reordering unable to hide.
@@ -42,6 +46,13 @@ no ADVI sampler runs in this file. (`wcmodel` IS imported, transitively:
 test calls `wcmodel.model.widening.inflate_predictive`, which is arithmetic on a
 grid, not a fit.) The handful of tests that read a pinned artifact or the
 committed preregistration are guarded on the file's existence and skip.
+
+§8.5'S EIGHTEEN CONFORMANCE ROWS ARE COMMITTED TESTS HERE, one per row, with
+stable ids `test_conformance_L1` … `test_conformance_L18`. The pytest SESSION
+writes what they did to `data/epl/fit/evwiden_conformance.json`, and
+`--freeze-block` reads that artifact rather than any report this module or the
+harness computed: "the report may not be its own witness" (§8.5). A row is green
+iff its own test id is present and passed there.
 
 §5.3'S SEEDED DEFECTS RUN HERE AND ONLY HERE. "The adversarial audit seeds each
 defect class of §5.1 alone and demands red under the harness's own tests — **on
@@ -2905,7 +2916,7 @@ def test_the_parity_oracle_compares_substantive_digests_and_the_incumbent_set():
     with pytest.raises(ew.TableIdentityBreak) as exc:
         ew.assert_native_parity("2019/20|MW6", "def", oracle, ["rich"],
                                 effective_posterior="book")
-    assert "native parity at all thirty-five cells" in str(exc.value)
+    assert "native parity at all thirty-two priceable cells" in str(exc.value)
     with pytest.raises(ew.TableIdentityBreak) as exc:
         ew.assert_native_parity("2019/20|MW6", "abc", oracle, ["rich", "mid"],
                                 effective_posterior="book")
@@ -2946,7 +2957,7 @@ def test_no_require_parity_parameter_and_no_limit_on_the_oracle_exist():
     """§3.3's closures 2 and 3, conformance row L5.
 
     > **No `--limit` on the oracle.** No CLI flag, keyword or subset argument
-    > may reduce the oracle's 35 cells. "All 35" is the whole content of the
+    > may reduce the oracle's 32 cells. "All 32" is the whole content of the
     > control.
     >
     > **No `require_parity` parameter exists.** An exposed boolean that turns
@@ -3660,8 +3671,18 @@ def test_the_verdict_json_carries_r_i6s_frozen_field_list(tmp_path):
         "schema", "generated_at", "prereg_commit", "prereg_blob", "pins",
         "estimand", "ci_week", "ci_season", "ci_table_mw6",
         "gate_i", "gate_ii", "gate_iii", "gate_iv", "controls", "canaries",
-        "sequence", "grid", "strata", "movement", "coverage", "sunderland",
-        "power", "materiality", "verdict"}
+        "sequence", "conformance", "grid", "strata", "movement", "coverage",
+        "sunderland", "power", "materiality", "verdict"}
+    # §9.1: "`conformance` — §8.5's pytest artifact identity: path, SHA-256, the
+    # eighteen test ids and the pass count, as the freeze block records them."
+    assert set(published["conformance"]) >= {"path", "sha256", "test_ids",
+                                             "count", "ok"}
+    # §9.1's `pins` carry §0.6's census digest and its 32-cell priceable set,
+    # because that census is what scopes this document's table leg
+    assert set(published["pins"]) >= {"feasibility_sha256",
+                                      "feasibility_priceable"}
+    assert published["pins"]["feasibility_sha256"] == ew.FEASIBILITY_SHA256
+    assert len(published["pins"]["feasibility_priceable"]) == 32
     # §9.1: "`sequence` — the five markers of §8.4, each with its recorded
     # freeze commit and completion time". v1 had no markers, so no field.
     assert set(published["sequence"]) == set(ew.SEQUENCE_STEPS)
@@ -5535,7 +5556,7 @@ def test_the_power_simulation_runs_and_carries_its_own_construction(real):
 
 @pinned
 def test_the_freeze_block_refuses_while_a_power_number_is_unreproduced(
-        monkeypatch):
+        monkeypatch, tmp_path, unrun_feasibility):
     """§8.3: "**`--freeze-block` refuses to render** while the conformance
     report has a red row, while §7.4's ancestry test is absent, or while §6.3's
     table is unreproduced."
@@ -5556,6 +5577,13 @@ def test_the_freeze_block_refuses_while_a_power_number_is_unreproduced(
     published = [dict(r) for r in ew.PUBLISHED_POWER]
     published[0] = dict(published[0], power_at_bar=0.999)
     monkeypatch.setattr(ew, "PUBLISHED_POWER", tuple(published))
+    # §8.5's artifact stands, derived from the rows as they actually ran, so
+    # the refusal this test is about is the one it reaches
+    monkeypatch.setattr(ew, "CONFORMANCE_ARTIFACT",
+                        tmp_path / "evwiden_conformance.json")
+    ew.write_conformance_artifact(
+        {rid: ("passed" if ew.conformance_row(rid)["ok"] else "failed")
+         for rid in ew.CONFORMANCE_ROWS})
     with pytest.raises(ew.EvWidenError) as exc:
         ew.freeze_block()
     assert "does not yet implement the document" in str(exc.value)
@@ -6182,7 +6210,7 @@ def _per_cell_unanimity(cells, *, point_verdict):
 
 def test_the_unanimity_draw_is_joint_and_a_per_cell_one_disagrees():
     """§5.4: "draw **one** joint particle resample `picked_k` and apply it to
-    **all thirty-two tallies** exactly as §5.2 applies its own draw". §10 makes
+    **all thirty tallies** exactly as §5.2 applies its own draw". §10 makes
     "an MC estimator that is not §5's jointly-resampled, tie-aware estimator" an
     invalidation.
 
@@ -7381,3 +7409,23 @@ def test_the_committed_block_must_carry_exactly_the_eighteen_rows(
     status = ew.harness_freeze_status()
     assert status["frozen"] is False
     assert "exactly" in status["why"]
+
+
+def test_the_artifact_names_the_harness_it_ran_against(tmp_path, monkeypatch):
+    """§8.5: "an artifact from a different harness fails §8.6's harness-hash
+    condition alongside it" — which is true of a COMMITTED block, but a block
+    rendered NOW from a stale artifact would carry current harness digests
+    beside a run of older bytes, and condition (2) compares the block to the
+    tree rather than the artifact to either. The artifact carries its own."""
+    monkeypatch.setattr(ew, "CONFORMANCE_ARTIFACT", tmp_path / "conf.json")
+    ew.write_conformance_artifact({r: "passed" for r in ew.CONFORMANCE_ROWS})
+    assert ew.conformance_artifact_status()["ok"] is True
+
+    body = json.loads(ew.CONFORMANCE_ARTIFACT.read_text())
+    body["harness"][ew.HARNESS_FILES[0]] = "0" * 64
+    ew.CONFORMANCE_ARTIFACT.write_text(json.dumps(body))
+    status = ew.conformance_artifact_status()
+    assert status["ok"] is False
+    assert "different harness bytes" in status["why"]
+    with pytest.raises(ew.EvWidenError):
+        ew.assert_conformance_artifact()

@@ -712,9 +712,12 @@ regime comes into force.
 
 At the walk-forward's realised warm rate (≈ 8.8 s/fit) the 78 openings are
 ≈ 12 minutes; at the measured cold rate (57.24 s, `data/epl/fit/single_fit.json`)
-≈ 75 minutes. The 70 table fits are ≈ 67 minutes cold; at the ≈ 1.24 minutes per
-20,000-season simulation implied by the retro's own recorded scale, 105
-simulations are ≈ 130 minutes. **The table leg is bounded by ~4 hours.**
+≈ 75 minutes. The 64 table fits are ≈ 61 minutes cold; at the ≈ 1.24 minutes per
+20,000-season simulation implied by the retro's own recorded scale, 96
+simulations are ≈ 119 minutes. **The table leg is bounded by ~4 hours**, as it
+was at 35 cells — the census shortens it and the bound is left where it was
+rather than tightened to fit, because a clock is not a reason to redesign
+anything and a looser bound cannot license one.
 
 The parity oracle needs its own fits and cannot ride the new runner's:
 `ArchiveRunner` owns its fit (`epl/simretro.py:520-527,536`), exposes no
@@ -2505,9 +2508,15 @@ a report that simply omitted a row it could not satisfy, was green everywhere.
 >
 > **The artifact is bound, not trusted.** Its path, its SHA-256, its test-id list
 > and its pass count go into the freeze block (§8.3), so the committed block
-> records *which run* certified the freeze. A replaced artifact fails the digest;
-> an artifact from a different harness fails §8.6's harness-hash condition
-> alongside it.
+> records *which run* certified the freeze. A replaced artifact fails the digest.
+>
+> **And it names the harness it ran against.** The artifact carries the SHA-256
+> of both hashed files as the run saw them, and it is refused when they are not
+> the bytes on disk. §8.6 condition (2) compares the committed block to the
+> working tree, not the artifact to either, so without this a block rendered
+> from a stale artifact would carry current harness digests beside a run of
+> older bytes. §8.5's rows are green iff **these** bytes' scenarios passed; a
+> run of other bytes certifies nothing.
 
 The consequence is that the chain now terminates outside the reporting code: the
 report is a **reading** of a pytest run, the pytest run is committed code that

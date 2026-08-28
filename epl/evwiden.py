@@ -47,7 +47,7 @@ ADD, never REPLACE. Binary, never continuous. ``alpha`` stays 0.5 and the mix is
 the incumbent one, so a treated fixture is mechanically indistinguishable from a
 fixture the incumbent predicate already widens.
 
-WHAT THE TWO ARMS ARE (§2.3, AS §2.3 REPAIRS IT). Both arms are computed from
+WHAT THE TWO ARMS ARE (§2.3). Both arms are computed from
 the SAME newly fitted posterior and the SAME base grid, at every one of the 78
 block openings. The superseded design read Arm B out of the corpus — an old
 ROUNDED 1X2 projection — while Arm A came from a new fit; mechanism (c) acts on
@@ -326,7 +326,7 @@ ADOPT_DELTA = -0.0010
 #: own recorded scale (paired dc-family TRPS differences of "two parts in a
 #: thousand" on a TRPS of order 0.08, i.e. ~2e-4 PER CELL) and disclosed as
 #: invented. The superseded gate applied that per-cell scale to an average over
-#: 35 cells of which 19 are exact zeros, which permitted about +0.0004375 of
+#: 32 cells of which 17 are exact zeros, which permitted about +0.00042667 of
 #: average degradation across the 16 changed cells; the repaired gates apply it
 #: to treated-cell means directly, 2.19x tighter.
 TABLE_TOLERANCE = 0.0002
@@ -749,7 +749,7 @@ class TableMCImprecise(EvWidenError):
     """§5's paired Monte-Carlo error cannot be computed.
 
     §5.2 names the structural conditions: unequal per-particle season counts, or
-    an ``n_particles`` that differs across the 16 deciding cells or between a
+    an ``n_particles`` that differs across the 15 deciding cells or between a
     cell's two arms, or a tally that fails either binding check of §5.1, or —
     §8.7 — **a tally file that is absent or fails its recorded digest**. Joint
     resampling is undefined without a common index space and this document will
@@ -1397,7 +1397,7 @@ def membership_digests(corpus: pd.DataFrame, played: pd.DataFrame,
 
     "Each serialised canonically and hashed" — the 85 thin fixture keys, the 52
     treated keys, the 51 newly-flagged club-cutoff cells, the 78 fit openings and
-    the 16 treated / 19 untouched table cells. THE COUNTS ARE CHECKED HERE:
+    the 15 treated / 17 untouched table cells. THE COUNTS ARE CHECKED HERE:
     §2.2 and §2.3 pre-state them, so a recomputation that produces different
     ones is :class:`MembershipMismatch` and not a smaller experiment.
     """
@@ -2522,22 +2522,20 @@ def is_pinned_corpus(corpus: pd.DataFrame | None) -> bool:
             and counts == tuple(CORPUS_Y_COUNTS))
 
 
-#: §8.2 pass 7 — the `dc_native`-ONLY parity feasibility pass, authorised BY
-#: NAME. §8.1 records that two executions of the protected parity path both
-#: crashed on `epl.particles.ExcludedMassTooLarge` at 2019/20 MW0, and the
-#: mandatory 35-cell parity leg of §3.3 therefore cannot be assumed to complete.
-#: §8.2 authorises exactly one prospective pass to establish whether it can:
-#: protected `ArchiveRunner` at `dc_native` only, into a quarantine directory
-#: OUTSIDE the repository, its outputs discarded, and its own record the only
-#: thing that survives.
+#: v2 §8.2 pass 7 — the `dc_native`-ONLY parity feasibility pass, authorised by
+#: name UNDER v2, run once on 2026-08-28, and PRIOR HISTORY for this document
+#: (v3 §8.1). v2's §3.3 made a 35-cell parity leg mandatory and could not assume
+#: it would complete; the pass established which of the thirty-five the
+#: protected runner can price. **v3 authorises no equivalent** — §10 makes one
+#: run under this document an invalidation — and what remains here is a READER.
 FEASIBILITY_PASS_NAME = "v2 §8.2 pass 7 — the dc_native parity feasibility pass"
 
-#: The pass's one record — and its PRODUCT is the CENSUS it carries: every one
-#: of §3.3's 35 cells, priceable or not, each unpriceable one with its refusal
-#: kind, the fixture the protected code names and its measured excluded mass.
-#: §8.2 authorises this single repository write and §8.8's attestation excepts it
-#: by name; it carries no delta, no table cell, no arm comparison and no
-#: estimand.
+#: The pass's one record, and its PRODUCT is the CENSUS it carries: every one of
+#: v2 §3.3's 35 attempted cells, priceable or not, each unpriceable one with its
+#: refusal kind, the fixture the protected code names and its measured excluded
+#: mass. **v3 §0.6 is written against it and §0.1 pins it**; it is READ-ONLY to
+#: this module, §8.8's attestation excepts it by name, and it carries no delta,
+#: no table cell, no arm comparison and no estimand.
 FEASIBILITY_RECORD = paths.DATA_DIR / "sim" / "evwiden_parity_feasibility.json"
 
 #: v3 §0.1 pins the record BY DIGEST, and §8.3 binds that digest into the
@@ -5543,7 +5541,7 @@ def table_cells(matches: pd.DataFrame, played: pd.DataFrame | None = None, *,
                 e_star: float = E_STAR, check: bool = True) -> list[dict[str, Any]]:
     """Which cells the re-key changes, enumerated WITHOUT fitting anything.
 
-    §3.3 pre-states 16 treated and 19 untouched, and the 19 are "unchanged by
+    §3.3 pre-states 15 treated and 17 untouched, and the 17 are "unchanged by
     construction, and the harness must prove it". This function is the
     enumeration half of that: the incumbent predicate is read through
     ``count_volatility_arm`` at each scheduled cutoff — the same function
@@ -6269,7 +6267,7 @@ class TableRunner:
             "wall_seconds": round(time.perf_counter() - started, 2),
             #: Not written to the ledger — `run_table` lifts it out and saves
             #: the arrays beside it, because the joint bootstrap of §5 needs
-            #: all thirty-two tallies at once and a JSONL row is not where a
+            #: all thirty tallies at once and a JSONL row is not where a
             #: [1000, 20, 20] float64 array belongs.
             "_tallies": tallies,
         }
@@ -6279,7 +6277,7 @@ def assert_table_identity(treated_clubs: Sequence[str], control_digest: str,
                           treatment_digest: str, *, where: str) -> bool:
     """§3.3's two-sided cell identity, restated on ``sampler_digest``.
 
-    The 19 untouched cells are "unchanged by construction, **and the harness
+    The 17 untouched cells are "unchanged by construction, **and the harness
     must prove it**": an untouched cell whose two arms' sampler digests differ
     is :class:`TableIdentityBreak`.
 
@@ -6303,7 +6301,7 @@ def assert_table_identity(treated_clubs: Sequence[str], control_digest: str,
             f"{where} carries no treated club, so the two books are the same "
             "book and the two runs must be the same run — but their sampler "
             f"digests differ ({str(control_digest)[:12]}… vs "
-            f"{str(treatment_digest)[:12]}…). §3.3 rules the 19 untouched cells "
+            f"{str(treatment_digest)[:12]}…). §3.3 rules the 17 untouched cells "
             "unchanged BY CONSTRUCTION and requires the harness to prove it; a "
             "break here means the treatment reaches further than the rule names.")
     if treated_clubs and identical:
@@ -6341,7 +6339,7 @@ def assert_provisional_fields(treated_clubs: Sequence[str],
                 "is caught as metadata rather than smuggled into a digest.")
     elif treatment != control:
         raise TableIdentityBreak(
-            f"{where} is one of the 19 untouched cells, so the two books carry "
+            f"{where} is one of the 17 untouched cells, so the two books carry "
             f"the same provisional set — and they do not: the treatment adds "
             f"{sorted(treatment - control)} and drops "
             f"{sorted(control - treatment)}.")
@@ -6498,7 +6496,8 @@ def run_parity_oracle(cells: Sequence[dict[str, Any]],
         raise MergeIncomplete(
             f"the parity oracle is short {len(missing)} cell(s) "
             f"(first: {missing[:3]}). §3.3 requires native parity at ALL "
-            "thirty-five cells before one treated simulation is executed, and "
+            "thirty-two priceable cells before one treated simulation is "
+            "executed, and "
             "§3.3's closure 2 makes sampling it an amendment rather than an "
             "optimisation.")
     return done
@@ -6524,7 +6523,8 @@ def assert_native_parity(cell_key_: str, new_digest: str, oracle: dict[str, Any]
             f"{cell_key_}: the new runner's control arm hashes to "
             f"{str(new_digest)[:12]}… and protected epl.simretro.ArchiveRunner's "
             f"own dc_native run hashes to {want[:12]}…. §3.3 requires native "
-            "parity at all thirty-five cells before one treated simulation "
+            "parity at all thirty-two priceable cells before one treated "
+            "simulation "
             "runs: binding the schedule to protected code binds neither its "
             "semantics nor its call, and the 19-untouched-cell control cannot "
             "see a drift both arms share.")
@@ -6626,10 +6626,10 @@ def assert_parity_complete(cells: Sequence[dict[str, Any]],
                            *, where: str = "run_table") -> dict[str, Any]:
     """§3.3's closure 1: **completion, not interleaving** — and it runs FIRST.
 
-    > The parity oracle runs to completion over all 35 cells and writes
+    > The parity oracle runs to completion over all 32 priceable cells and writes
     > `data/epl/sim/evwiden/parity.jsonl` (35 rows) as its completion marker.
     > `run_table` refuses to simulate any arm until that file exists and carries
-    > all 35 cells with matching digests. **A design in which the new runner
+    > all 32 cells with matching digests. **A design in which the new runner
     > simulates control and treatment and only then compares the control against
     > protected output has already executed the treatment before establishing
     > parity, and does not satisfy this clause.**
@@ -6640,8 +6640,9 @@ def assert_parity_complete(cells: Sequence[dict[str, Any]],
     before the oracle had been checked against anything.
 
     Three demands, in order: the oracle covers **every** cell of the run; the
-    run covers **all thirty-five** cells (a 34-cell run is not this run, and
-    "all 35 is the whole content of the control"); and every oracle row carries
+    run covers **all thirty-two** priceable cells (a 31-cell run is not this
+    run, and "all 32 is the whole content of the control"); and every oracle row
+    carries
     a digest to compare against.
     """
     parity = dict(parity or {})
@@ -6659,7 +6660,7 @@ def assert_parity_complete(cells: Sequence[dict[str, Any]],
     if len(want) != EXPECTED_TABLE_CELLS:
         raise TableIdentityBreak(
             f"{where}: the table leg was handed {len(want)} cells, not the "
-            f"pre-stated {EXPECTED_TABLE_CELLS}. §3.3: 'All 35' is the whole "
+            f"pre-stated {EXPECTED_TABLE_CELLS}. §3.3: 'All 32' is the whole "
             "content of the control, and §2.4 makes dropping cells to fit a "
             "clock an amendment rather than an optimisation — expressly "
             "including sampling or truncating the parity oracle.")
@@ -6676,7 +6677,7 @@ def assert_parity_complete(cells: Sequence[dict[str, Any]],
 def tallies_dir(ledger_path: Path | str) -> Path:
     """Where the per-particle tallies live, beside the table ledger.
 
-    §5.2 applies ONE resample index to all thirty-two tallies at once,
+    §5.2 applies ONE resample index to all thirty tallies at once,
     so the estimator needs every deciding cell's tallies simultaneously and a
     JSONL row is not where a ``[1000, 20, 20]`` float64 array belongs. They are
     written beside the ledger, inside §8.3's `data/epl/sim/evwiden*` write set.
@@ -6809,7 +6810,7 @@ def run_table(cells: Sequence[dict[str, Any]],
               ) -> dict[str, Any]:
     """Run both arms at every cell and append one JSONL row per cell.
 
-    THE PARITY ORACLE RUNS TO COMPLETION FIRST, at all thirty-five cells, and
+    THE PARITY ORACLE RUNS TO COMPLETION FIRST, at all thirty-two cells, and
     :func:`assert_parity_complete` is checked **before the loop that simulates
     anything** (§3.3's closure 1). v1 checked it per cell, inside the loop and
     after the runner had already produced both arms — so the first treated
@@ -6819,7 +6820,7 @@ def run_table(cells: Sequence[dict[str, Any]],
     one. Parity is a property of the run, not an option of the caller."
 
     Resumable per cell and poisoned per cell, exactly as the match-level shard
-    is: §2.4's budget for this leg is 70 fits and 105 runs of 20,000 simulated
+    is: §2.4's budget for this leg is 64 fits and 96 runs of 20,000 simulated
     seasons — bounded by ~4 hours — and a crash two hours in should cost the
     cell in flight and nothing else.
     """
@@ -7045,7 +7046,7 @@ def paired_mc_bootstrap(cells: Sequence[dict[str, Any]], *,
     """§5's estimator: tie-aware, jointly resampled, covariance by construction.
 
     ``cells`` is one entry per DECIDING cell — §5 runs the estimator over the
-    16 treated cells and MW19 enters nothing — each carrying ``key``,
+    15 treated cells and MW19 enters nothing — each carrying ``key``,
     ``cutoff_label``, ``positions``, ``spans`` and the two arms' per-particle
     fractional rank-mass tallies.
 
@@ -7055,12 +7056,12 @@ def paired_mc_bootstrap(cells: Sequence[dict[str, Any]], *,
     common index space and this document will not approximate one, so a
     violation is :class:`TableMCImprecise` and stops the table leg.
 
-    STEP 3, one resample per replicate applied to all thirty-two tallies. The
+    STEP 3, one resample per replicate applied to all thirty tallies. The
     same ``picked`` is applied to both arms of a cell — the CRN pairing, since
     the arms share particles and streams and differ only on the D12 branch — AND
     to every other cell, which is §5's repair of v1's false
     independence: ``epl.leaguesim.streams(seed, chunk, fixture_ordinal)`` reads
-    only those three things, not the season and not the cell, and all 35 cells
+    only those three things, not the season and not the cell, and all 32 cells
     run at the same seed, so simulated season *n* of one cell consumes the same
     uniforms as simulated season *n* of another. **There is no quadrature step
     and no independence claim anywhere in this estimator**: the label means are
@@ -7087,7 +7088,7 @@ def paired_mc_bootstrap(cells: Sequence[dict[str, Any]], *,
     if not cells:
         raise TableMCImprecise(
             "the paired Monte-Carlo estimator was handed no deciding cell. "
-            "§5.2 runs it over the 16 treated cells; an empty set means the "
+            "§5.2 runs it over the 15 treated cells; an empty set means the "
             "table leg's own census disagrees with §3.3's.")
 
     particles = {int(np.asarray(c["control"]).shape[0]) for c in cells} | \
@@ -7471,7 +7472,7 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
         "structural_zero": True, "decides": "nothing",
     }
 
-    # ---- §5.2's paired Monte-Carlo error, over the 16 deciding cells ------
+    # ---- §5.2's paired Monte-Carlo error, over the 15 deciding cells ------
     deciding = [c for c in per_cell if c["treated_clubs"]]
     payload = []
     for c in deciding:
@@ -7545,7 +7546,7 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
             "pooled_delta_trps_35_cells":
                 "withdrawn by §4.1 — epl/simretro.py:41 and "
                 "epl/simmetrics.py:44 both freeze 'Never averaged across "
-                "cutoffs'; 19 of 35 cells are structural zeros and all seven "
+                "cutoffs'; 17 of 32 cells are structural zeros and all seven "
                 "MW19 cells are among them, so the average diluted harm at the "
                 "horizons where the treatment fires",
             "pooled_delta_wtrps_35_cells": "withdrawn by §4.1, same reason"},
@@ -8042,7 +8043,16 @@ def evidence_object(result: dict[str, Any], *,
             "config_sha256": CONFIG_SHA256,
             "realised_config_sha256": REALISED_CONFIG_SHA256,
             "seed": SEED, "widening": dict(FROZEN_WIDENING),
-            "e_star": E_STAR, "shards": SHARDS},
+            "e_star": E_STAR, "shards": SHARDS,
+            # §9.1 / §0.1: the census record is a PIN, because v3's table leg
+            # is SCOPED by it (§0.6) and `data/` is gitignored. The verdict
+            # file carries the digest and the 32 keys so a reader can check the
+            # scope against the freeze block rather than against a local file.
+            "feasibility_sha256": FEASIBILITY_SHA256,
+            "feasibility_bytes": FEASIBILITY_BYTES,
+            "feasibility_priceable": _v3_priceable_keys(),
+            "feasibility_unpriceable": {
+                k: dict(EXCLUDED_CELL_DETAIL[k]) for k in EXCLUDED_CELLS}},
         "estimand": {"n": result.get("n"), "mean": result.get("mean"),
                      "sd": result.get("sd"), "se_iid": result.get("se_iid"),
                      "definition": result.get("estimand")},
@@ -8118,6 +8128,14 @@ def evidence_object(result: dict[str, Any], *,
         # freeze commit and completion time". A step that never ran says so;
         # v1 had no markers at all, so it had no field either.
         "sequence": sequence_report(),
+        # §9.1: "`conformance` — §8.5's pytest artifact identity: path, SHA-256,
+        # the eighteen test ids and the pass count, as the freeze block records
+        # them." The verdict file names WHICH RUN certified the freeze the
+        # numbers beside it were produced under, so a reader is not left to
+        # take the block's word for a file the repository does not carry.
+        "conformance": {k: v for k, v in conformance_artifact_status().items()
+                        if k in ("path", "sha256", "test_ids", "count", "ok",
+                                 "produced_at", "harness")},
         "grid": [{"e_star": g["e_star"], "n_thin": g["population"],
                   "n_treated": g["treated"], "mean": g["mean"],
                   "ci": g["ci95"], "degenerate":
@@ -9278,7 +9296,7 @@ def _per_cell_resampled_unanimity(cells: Sequence[dict[str, Any]], *,
     """§5.4's rule with the joint draw DE-PAIRED — the defect, implemented here.
 
     The in-tree audit's seed (k): "K resamples skipped or made per-cell". §5.4
-    draws ONE ``picked`` per replicate and applies it to all thirty-two tallies;
+    draws ONE ``picked`` per replicate and applies it to all thirty tallies;
     this draws one per cell. It exists so L3 and L4 can require the committed
     construction to DISAGREE with it — a scenario the committed rule cannot
     pass by accident, and the one the audit found nothing testing, because the
@@ -9440,6 +9458,26 @@ def conformance_artifact_status() -> dict[str, Any]:
         return {**out, "why": (
             f"the artifact reports {body.get('passed')!r} passing and §8.5 "
             f"fixes {len(CONFORMANCE_ROWS)}.")}
+    # ...and it names the harness it ran against. §8.5 says "an artifact from a
+    # different harness fails §8.6's harness-hash condition alongside it", and
+    # that is true of a COMMITTED block — but a block rendered NOW from a stale
+    # artifact would carry current harness digests beside a run of older bytes,
+    # and condition (2) compares the block to the tree rather than the artifact
+    # to either. The artifact carries its own, so the comparison exists here.
+    now = {name: (sha256_file(paths.REPO_ROOT / name)
+                  if (paths.REPO_ROOT / name).exists() else None)
+           for name in HARNESS_FILES}
+    if dict(body.get("harness") or {}) != now:
+        return {**out, "why": (
+            "the artifact records a run of different harness bytes than the "
+            "ones on disk: it saw "
+            + ", ".join(f"{k} {str(v)[:12]}…"
+                        for k, v in sorted((body.get("harness") or {}).items()))
+            + " and the tree carries "
+            + ", ".join(f"{k} {str(v)[:12]}…" for k, v in sorted(now.items()))
+            + ". §8.5's rows are green iff THESE bytes' scenarios passed, so a "
+            "run of other bytes certifies nothing. Re-run `pytest "
+            "epl/tests/test_evwiden.py` (§8.2 pass 3).")}
     return {**out, "ok": True, "harness": body.get("harness"),
             "produced_at": body.get("produced_at")}
 
@@ -9582,7 +9620,7 @@ def implementation_report() -> list[dict[str, Any]]:
         flat_gate = table_gate(flat_scored)
 
         # ---- L2: per-horizon gate, no cross-horizon average --------------
-        # 19 structural zeros and 16 treated cells at +0.0004 pool to
+        # 17 structural zeros and 15 treated cells at +0.0004 pool to
         # +0.000183, which a 35-cell gate would pass; MW6's own mean is
         # +0.0004 and must FAIL. The object is the one `score_table` produced.
         pooled = float(np.mean([c["delta_trps"]
@@ -9748,7 +9786,7 @@ def implementation_report() -> list[dict[str, Any]]:
                                parity_row=None, provisional_control=()))
               and _no_parameter(run_table, "require_parity", "limit")
               and _no_parameter(run_parity_oracle, "limit", "sample", "subset"))
-        row("L5", "§3.3", "parity complete at all 35 cells before one treated "
+        row("L5", "§3.3", "parity complete at all 32 cells before one treated "
             "simulation, and established per cell before its treatment arm",
             "run the leg with an oracle of 34 cells and with none — each must "
             "raise TableIdentityBreak before ANY arm is simulated; run it with "
@@ -10540,8 +10578,8 @@ def freeze_block(corpus: pd.DataFrame | None = None,
     line count and SHA-256 for each of `epl/evwiden.py` and
     `epl/tests/test_evwiden.py`, and the schema identifier `epl-evwiden-2`");
     the **membership digests** ("the 85 thin fixture keys, the 52 treated keys,
-    the 51 newly-flagged club-cutoff cells, the 78 fit openings, the 16 treated
-    and 19 untouched table cells, and the per-label treated census of §3.3, each
+    the 51 newly-flagged club-cutoff cells, the 78 fit openings, the 15 treated
+    and 17 untouched table cells, and BOTH per-label censuses of §3.3, each
     serialised canonically and hashed, recomputed by the harness's own code from
     the pinned artifacts"); the four pinned artifact digests of §0.1 and
     `realised_config_sha256`; the **enumeration of every pre-freeze pass**
@@ -11002,9 +11040,10 @@ def launch_script(directory: Path | str | None = None,
         f'run_step merge $PY -u -m epl.evwiden --merge --shards '
         f'{shards} --dir "$DIR"',
         "",
-        "# STEP 5 — the parity oracle at all 35 cells to COMPLETION, and only",
-        "# then the table's 35 cells (§3.3). Refuses without step 4's marker.",
-        "# §2.4's budget for this leg: 70 fits and 105 runs of 20,000 seasons,",
+        "# STEP 5 — the parity oracle at all 32 priceable cells to COMPLETION,",
+        "# and only then the table's 32 cells (§3.3). Refuses without step 4's",
+        "# marker.",
+        "# §2.4's budget for this leg: 64 fits and 96 runs of 20,000 seasons,",
         "# bounded by ~4 hours.",
         '#   marker: sequence/step5_parity.json',
         'need_marker step4_merge "step 5, the parity oracle and the table"',
@@ -11082,7 +11121,7 @@ def write_launch_script(directory: Path | str | None = None,
 
 def default_table_cells(played: pd.DataFrame | None = None,
                         ) -> list[dict[str, Any]]:
-    """§3.3's 35 cells from the pinned archive — read-only, fits nothing.
+    """§3.3's 32 cells from the pinned archive — read-only, fits nothing.
 
     §8.2 pass 1 authorises `--membership` and `--plan` to read the pinned
     corpus, archive and ledger and compute "§2.2's cells, §2.3's population,
@@ -11246,7 +11285,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     help="Arm A's fits — the identity control runs first, "
                          "inside every fit")
     ap.add_argument("--table", action="store_true",
-                    help="§3.3's table-retro leg: 35 cells, both arms")
+                    help="§3.3's table-retro leg: 32 cells, both arms")
     ap.add_argument("--merge", action="store_true",
                     help="verify every shard, then compute the estimand")
     ap.add_argument("--verify", action="store_true",
@@ -11336,7 +11375,7 @@ def main(argv: Sequence[str] | None = None) -> int:
               "the only population this flag may name. §2.4: 'Dropping "
               "cutoffs, fixtures, cells or grid points to fit a clock is an "
               "amendment, not an optimisation', and §3.3's closure 2 makes "
-              "reducing the parity oracle's 35 cells the same thing.", flush=True)
+              "reducing the parity oracle's 32 cells the same thing.", flush=True)
         return 2
 
     if args.n_boot is not None:
@@ -11586,7 +11625,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             matches = baseline.load_matches()
             cells = table_cells(matches)
             # §3.3's closure 2: **no `--limit` on the oracle.** "No CLI flag,
-            # keyword or subset argument may reduce the oracle's 35 cells. 'All
+            # keyword or subset argument may reduce the oracle's 32 cells. 'All
             # 35' is the whole content of the control." v1's `--table --limit`
             # truncated the run AND its oracle together, so a subset looked
             # internally consistent while proving nothing about the other cells.
