@@ -3503,8 +3503,14 @@ def estimand(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
             "note": "the two-sided-test-against-zero MDE, which is NOT gate "
                     "(i)'s: gate (i) is a threshold AT the bar, so an "
                     "80%-power MDE equal to the bar is unattainable by "
-                    "construction at any SD. The joint MDE is "
-                    "power_simulation()'s.",
+                    "construction at any SD. §6.5's joint-gate MDE is a "
+                    "DISTINCT quantity and is recomputed at the realised SD — "
+                    "the §6.2 simulation re-run with s set to this value, at "
+                    "the same R, seeds, grid and interpolation rule — and it "
+                    "is published beside this one as `joint_mde` in "
+                    "reports/evidence/widening.json. §6.5: a result document "
+                    "that reports the two-sided quantity beside the realised "
+                    "SD has not discharged the obligation.",
         },
         "frozen_scenarios": [{"scenario": n, "paired_sd": s, "source": src}
                              for n, s, src in POWER_SCENARIOS],

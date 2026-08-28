@@ -1984,6 +1984,13 @@ def test_the_joint_gate_mde_is_recomputed_at_the_realised_sd(tmp_path):
     assert realised["sd_paired_treated"] == sd
     assert realised["joint_mde"]["rows"]
     assert "NOT gate" in realised["note"]
+    # §6.5: the joint MDE is RECOMPUTED at the realised SD. v1's note said it
+    # "remains the fixed-scenario simulation's", which is the obligation
+    # restated as a refusal to meet it — and §6.5 names that exact shape as not
+    # discharging it.
+    assert "power_simulation()'s" not in realised["note"]
+    assert "recomputed at the realised SD" in realised["note"]
+    assert "joint_mde" in realised["note"]
 
 
 def test_a_population_of_structural_zeros_is_degenerate_not_a_finding():
