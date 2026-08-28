@@ -7,7 +7,7 @@
 unpriceable on the shipped stack (§0.6). v2 is retained as lineage and decides
 nothing; so is
 [`reports/epl_widening_prereg.md`](epl_widening_prereg.md) (v1), invalidated the
-same day under its own R-B6 (§8.1).
+same day under v1's own R-B6 (§8.1).
 **Queued by:** the owner-pinned standing queue ("Hull widening") and the design
 record `docs/superpowers/specs/2026-08-25-evolving-model-design.md`, Part 5
 hypothesis 1 ("key widening on effective evidence mass, not promotion
@@ -1942,7 +1942,8 @@ refused; §8.2 carries all seven of v2's pre-freeze passes forward as **named
 prior history** rather than re-authorising them; and §8.8's attestation states
 the two v1 fits and the thirty-five pass-7 fits inside it rather than beside it.
 
-**v3 inherits v2's R-B6 invalidation regime unchanged** (§8.7): after the first
+**v3 inherits the invalidation regime v1's R-B6 fixed and v2 carried**
+(§8.7): after the first
 real fit **of this document**, any change to any hashed file invalidates this
 preregistration, with no note able to restore it. **v3's no-fit clock starts at
 v3's own freeze commit** (§8.3), and §8.4 step 1 is the first act that starts it.

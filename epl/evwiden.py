@@ -2,30 +2,42 @@
 keyed on the wrong quantity?
 
 This module executes the design preregistered in
-``reports/epl_widening_prereg_v2.md`` — **v2, the sole law** — and computes the
+``reports/epl_widening_prereg_v3.md`` — **v3, the sole law** — and computes the
 estimand fixed in its §2.3. It chooses nothing. The corpus, the archive, the
 walk-forward ledger and the configuration are pinned by digest; the rule, its
 one constant (``e* = 10.0``), the grid, the four-gate adoption rule, the refusal
 semantics and the scope were written down before this file existed; and §4.5
 makes adoption an owner ruling that no script may take.
 
-**v1 IS LINEAGE AND DECIDES NOTHING.** ``reports/epl_widening_prereg.md`` was
-invalidated on 2026-08-28 under its own §8.7: two real ADVI fits occurred on the
-pinned archive through protected :class:`epl.simretro.ArchiveRunner` during v1's
-conformance work — the parity leg is a mandatory leg of this experiment and
-§8.7 counts any real fit — so that document cannot be repaired into legitimacy
-(§8.1). v2 carries v1's law as its two repair rounds left it, with every text
-defect three reviews and one in-tree adversarial audit found fixed at the
-source. **There are no repair sections and no supersession index**, so this
-module cites section numbers and nothing else: where a comment used to name
-§2.3 or §3.3 it now names the §ce that says the same thing, because a citation
-to a superseding round is a citation to a document that no longer exists.
+**v1 AND v2 ARE LINEAGE AND DECIDE NOTHING.**
+``reports/epl_widening_prereg.md`` (v1) was invalidated on 2026-08-28 under
+v1's own R-B6: two real ADVI fits occurred on the pinned archive through
+protected :class:`epl.simretro.ArchiveRunner` during v1's conformance work, and
+the parity leg is a mandatory leg of this experiment.
+``reports/epl_widening_prereg_v2.md`` was **defeated by the one pass it
+authorised for exactly that purpose**: its §8.2 pass 7 ran on 2026-08-28 and
+measured three of its thirty-five mandatory parity cells as UNPRICEABLE on the
+shipped stack, all three ``excluded_mass_ceiling`` against amendment A1's 0.02
+ceiling. v2 pre-stated, before that pass ran, that one unpriceable cell is
+enough — the document cannot be run as written and the remedy is a new
+preregistration, "not a quiet narrowing of the 35 cells here". So v2 was closed
+with a dated note, nothing else in it changed, and v3 carries the whole of its
+law against the MEASURED census.
 
-**v2's NO-FIT CLOCK STARTS AT v2's OWN FREEZE COMMIT** (§8.3). The two v1 fits
-preceded this document; §8.8 names them inside the attestation rather than
-beside it, and the §8.7 regime of §8.7 binds changes to hashed files after the
-first real fit **of this document** — which §8.4 makes the results canary of
-step 1.
+**THE CENSUS, WHICH IS WHY THIS MODULE'S TABLE CONSTANTS ARE WHAT THEY ARE**
+(v3 §0.6): 32 priceable cells, 15 treated, 17 untouched; the three excluded are
+:data:`EXCLUDED_CELLS` and they are excluded by MEASUREMENT and by nothing a
+caller can name. MW6 is 7 of 7 and remains the ONLY all-treated label, so §4.1's
+ground for naming it the deciding horizon survives a measurement that was under
+no obligation to spare it.
+
+**v3's NO-FIT CLOCK STARTS AT v3's OWN FREEZE COMMIT** (§8.3), and **v3
+authorises no pre-freeze pass that fits or simulates**: the one question such a
+pass existed to answer has been answered. The two v1 fits and pass 7's
+thirty-five preceded this document; §8.8 names them inside the attestation
+rather than beside it and §2.4 counts them, and §8.7 binds changes to hashed
+files after the first real fit **of this document** — which §8.4 makes the
+results canary of step 1.
 
 THE RULE, ONCE (§2.1)::
 
@@ -96,11 +108,12 @@ PRE-FREEZE CONTACT WITH THE REAL ARTIFACTS, DISCLOSED. §8.2 states one rule and
 v2 carries no other clause to read against it: **pre-freeze, no harness code
 fits and no harness code simulates; reading the pinned artifacts is permitted,
 is read-only, and is enumerated by name in the freeze commit.**
-:data:`PRE_FREEZE_RUNS` carries all seven authorised passes — six read-only,
-plus §8.2 pass 7, the `dc_native` parity feasibility pass, which is the one
-entry that fits and simulates, is authorised by name and prospectively, is
-quarantined outside the repository, and has NOT been run — and
-:func:`freeze_block` prints them. "Read-only" is a property of code here and not
+:data:`PRE_FREEZE_RUNS` carries v3's six authorised passes, **all six
+read-only**, and :data:`PRIOR_PASSES` carries v2 §8.2 pass 7 as named prior
+HISTORY — the pass that produced §0.6's census, run under v2's authorisation on
+2026-08-28 and not repeatable here. :func:`freeze_block` prints both, in two
+sections, so the enumeration stays complete without pretending the pass was v3's
+to authorise. "Read-only" is a property of code here and not
 of intent: :func:`read_only_store` is the single route to a point-in-time store
 and it raises :class:`StoreNotBuilt` rather than building one.
 
@@ -192,7 +205,6 @@ __all__ = [
     "assert_manifest_complete", "MANIFEST_PATHS",
     "launch_script", "main",
     # §8.6's public-surface closure, and the surfaces it stands over
-    "parity_feasibility_pass", "parity_feasibility_census",
     "feasibility_status", "assert_feasibility_permits_a_freeze",
     "assert_seam_allowed", "archive_provenance", "is_pinned_archive",
     "is_derived_from_pinned_archive", "frozen_table_constants",
@@ -201,7 +213,7 @@ __all__ = [
     "assert_identity_control", "assert_untreated_unmoved",
     "assert_pass_two_three_agree",
     # §8.2's passes 4 and 7
-    "partial_engine_pass", "parity_feasibility_pass", "FEASIBILITY_PASS_NAME",
+    "partial_engine_pass",
 ]
 
 
@@ -329,7 +341,36 @@ STRUCTURAL_ZERO_LABEL = "MW19"
 
 #: §4.1's census, recomputed by the read-only pass §8.2 authorises: how many of
 #: each label's seven cells the rule treats. MW19 holds zero and enters nothing.
-EXPECTED_TREATED_BY_LABEL = {"MW0": 3, "MW3": 2, "MW6": 7, "MW10": 4, "MW19": 0}
+EXPECTED_TREATED_BY_LABEL = {"MW0": 2, "MW3": 2, "MW6": 7, "MW10": 4, "MW19": 0}
+
+#: v3 §3.3's per-label CELL census — **a pin v2 never needed**, because v2's
+#: labels held seven cells each and v3's do not. It is load-bearing rather than
+#: decorative: §4.1's ground for the deciding horizon is "MW6 is the only label
+#: at which EVERY cell is treated", and after §0.6 that is a statement about two
+#: censuses. A label could become all-treated by losing its untouched cells,
+#: which is not the same fact and would not carry the same ground.
+EXPECTED_CELLS_BY_LABEL = {"MW0": 5, "MW3": 6, "MW6": 7, "MW10": 7, "MW19": 7}
+
+#: v3 §0.6: the three cells v2 §8.2 pass 7 measured as UNPRICEABLE, named by key
+#: so that the population is decidable from the document rather than from a
+#: gitignored file. Every one is a Manchester City fixture against a promoted
+#: side and every one refuses with the same typed kind.
+EXCLUDED_CELLS: tuple[str, ...] = ("2019/20|MW0", "2020/21|MW0", "2023/24|MW3")
+
+#: ...and what the protected code said about each, so a reader can check the
+#: exclusion rather than take it. `excluded_mass` is the particle-mean mass the
+#: 10-goal truncation discards; `ceiling` is amendment A1's 0.02.
+EXCLUDED_CELL_DETAIL: dict[str, dict[str, Any]] = {
+    "2019/20|MW0": {"refusal_kind": "excluded_mass_ceiling",
+                    "fixture": "man_city v sheffield_united",
+                    "excluded_mass": 0.0234, "ceiling": 0.02},
+    "2020/21|MW0": {"refusal_kind": "excluded_mass_ceiling",
+                    "fixture": "man_city v leeds",
+                    "excluded_mass": 0.0216, "ceiling": 0.02},
+    "2023/24|MW3": {"refusal_kind": "excluded_mass_ceiling",
+                    "fixture": "man_city v luton",
+                    "excluded_mass": 0.0328, "ceiling": 0.02},
+}
 
 #: §5.3's season-block interval of the MW6 mean: `epl.score.block_bootstrap_ci`,
 #: the seven season strings one cell per block, B = 10,000, alpha = 0.05, the
@@ -387,11 +428,13 @@ EXPECTED_CONTROL_FIXTURES = 820
 EXPECTED_THIN_BY_SEASON = {"2019/20": 26, "2020/21": 11, "2021/22": 12,
                            "2022/23": 12, "2023/24": 12, "2024/25": 12}
 
-#: §3.3's table leg: `SEASONS` x `COMPARISON_CUTOFFS`, of which 16 change and
-#: 19 are unchanged BY CONSTRUCTION and the harness must prove it.
-EXPECTED_TABLE_CELLS = 35
-EXPECTED_TABLE_TREATED = 16
-EXPECTED_TABLE_UNTOUCHED = 19
+#: v3 §3.3's table leg: `SEASONS` x `COMPARISON_CUTOFFS` MINUS §0.6's three
+#: unpriceable cells, of which 15 change and 17 are unchanged BY CONSTRUCTION
+#: and the harness must prove it. v2's were 35/16/19; the difference is the
+#: census and not a choice, and exactly ONE treated cell was lost (2019/20 MW0).
+EXPECTED_TABLE_CELLS = 32
+EXPECTED_TABLE_TREATED = 15
+EXPECTED_TABLE_UNTOUCHED = 17
 
 #: §3.1's movement diagnostic prints the treatment beside the ADVI re-seed scale
 #: from `reports/epl_walkforward.md`, so "did the treatment move more than
@@ -401,11 +444,11 @@ RESEED_SCALE = {"per_match_mean": 0.0032, "per_match_p99": 0.0139,
                 "source": "reports/epl_walkforward.md"}
 
 #: The schema identifier §8.3 step 2's freeze commit must name alongside the
-#: hashes. **v2**, and the change of number is not cosmetic: v1 was invalidated
-#: under its own §8.7 by two pre-freeze parity-leg ADVI fits (§8.1), and a
-#: harness that still stamped `epl-evwiden-1` on its rows would be claiming to
-#: implement a document that decides nothing.
-SCHEMA_ID = "epl-evwiden-2"
+#: hashes. **v3**, and the change of number is not cosmetic: v2's §3.3 required
+#: a 35-cell oracle its own executed pass measured as unrunnable (§0.6), and a
+#: harness that still stamped `epl-evwiden-2` on its rows would be claiming to
+#: implement a document whose closing note says it cannot be run as written.
+SCHEMA_ID = "epl-evwiden-3"
 
 #: §8.3: "All code lands in `epl/evwiden.py` and `epl/tests/test_evwiden.py`".
 #: The document names exactly two files and this module adds no third: the
@@ -474,17 +517,13 @@ WRITES = (EVWIDEN_DIR, EVWIDEN_JSON, TABLE_DIR, TABLE_LEDGER, CANARY_JSON,
 #: partition buys resumability and per-shard poisoning, not parallelism.
 SHARDS = 4
 
-#: §8.2's SEVEN authorised pre-freeze passes, "authorised for this document,
-#: prospectively": they are v2's own pre-freeze passes, to be run under v2
-#: before v2's freeze commit. The freeze block's list stays binding and must be
-#: complete — an unenumerated pre-freeze pass is a protocol deviation whether or
-#: not it touched anything.
-#:
-#: v1's sixth entry recorded a repair round's two scratch exports, which is an
-#: EVENT rather than an authorised pass; v2's sixth is `--power`, and the list
-#: is prospective throughout. The seventh is §8.2's `dc_native` parity
-#: feasibility pass — the one entry that fits and simulates — authorised by
-#: name, quarantined outside the repository, once, and not yet run.
+#: v3 §8.2's SIX authorised pre-freeze passes, "authorised for this document,
+#: prospectively": they are v3's own pre-freeze passes, to be run under v3
+#: before v3's freeze commit. **All six are read-only** — v3 authorises no pass
+#: that fits or simulates, because the one question such a pass existed to
+#: answer has been answered (§0.6). The freeze block's list stays binding and
+#: must be complete — an unenumerated pre-freeze pass is a protocol deviation
+#: whether or not it touched anything.
 PRE_FREEZE_RUNS: tuple[str, ...] = (
     "`python -m epl.evwiden --membership` and `--plan` — read the pinned "
     "corpus, archive and ledger; compute §2.2's cells, §2.3's population, "
@@ -509,24 +548,33 @@ PRE_FREEZE_RUNS: tuple[str, ...] = (
     "`python -m epl.evwiden --power`, which reads only the frozen SDs and the "
     "frozen structure recomputed from the pinned artifacts, and reproduces "
     "§6.3",
-    "§8.2 pass 7 — the `dc_native` parity feasibility pass, in ENUMERATION "
-    "form: `python -m epl.evwiden --parity-feasibility --quarantine <dir "
-    "outside the repository>` runs protected `epl.simretro.ArchiveRunner` at "
-    "`dc_native` ONLY over ALL 35 of §3.3's cells, each under `run_retro`'s own "
-    "typed per-cell contract (ExcludedMassTooLarge -> typed record, CONTINUE), "
-    "quarantined outside the repository, outputs discarded when it closes, and "
-    "recorded ONCE at `data/epl/sim/evwiden_parity_feasibility.json`. Its "
-    "product is the CENSUS — the priceable cells and the unpriceable ones with "
-    "their refusal kind, fixture and excluded mass — and it carries no delta, "
-    "no table cell, no arm comparison and no estimand, so under §8.2's no-fit "
-    "clock it does not start §8.7's regime. NOT RUN as this document stands",
 )
 
-#: Where §8.3's freeze commit records the harness hashes. **v2 and only v2**:
-#: §8.1 invalidates v1 under its own §8.7 and rules that it "decides nothing",
-#: so a guard that read v1's freeze block would be binding this run to a dead
-#: document — and would inherit the two ADVI fits that killed it.
-PREREG_PATH = paths.REPO_ROOT / "reports" / "epl_widening_prereg_v2.md"
+#: v3 §8.2: "The seventh pass is prior history and is enumerated as such." The
+#: freeze block prints this in a HISTORY section, DISTINCT from the six above,
+#: "so that the enumeration stays complete without pretending the pass was v3's
+#: to authorise". §10 makes a feasibility pass run under THIS document — before
+#: or after its freeze commit — an invalidation.
+PRIOR_PASSES: tuple[str, ...] = (
+    "**v2 §8.2 pass 7 — the `dc_native` parity feasibility pass.** Run on "
+    "2026-08-28 under **v2's** authorisation, once, at HEAD `9adc3bc`, arm "
+    "`dc_native` only, over all 35 of v2 §3.3's cells under `run_retro`'s own "
+    "typed per-cell contract, quarantined outside the repository with its "
+    "outputs deleted on close. Product: the CENSUS — 32 priceable, 3 "
+    "unpriceable, all three `excluded_mass_ceiling` against amendment A1's "
+    "0.02 ceiling (2019/20 MW0 man_city v sheffield_united 0.0234; 2020/21 MW0 "
+    "man_city v leeds 0.0216; 2023/24 MW3 man_city v luton 0.0328). It carries "
+    "no delta, no table cell, no arm comparison and no estimand. **v3 is "
+    "SCOPED by it** (§0.6) and does not re-authorise it: the record is "
+    "read-only here and §0.1 pins it by digest",
+)
+
+#: Where §8.3's freeze commit records the harness hashes. **v3 and only v3**:
+#: §8.1 invalidates v1 under its own R-B6 and closes v2 over §0.6's census, and
+#: both "decide nothing", so a guard that read either one's freeze block would
+#: be binding this run to a document that cannot be run.
+PREREG_PATH = paths.REPO_ROOT / "reports" / "epl_widening_prereg_v3.md"
+PREREG_V2_PATH = paths.REPO_ROOT / "reports" / "epl_widening_prereg_v2.md"
 PREREG_V1_PATH = paths.REPO_ROOT / "reports" / "epl_widening_prereg.md"
 
 #: §4.5's home for an ADOPTION ruling, and **not** a freeze source. The
@@ -2439,7 +2487,7 @@ def is_pinned_corpus(corpus: pd.DataFrame | None) -> bool:
 #: protected `ArchiveRunner` at `dc_native` only, into a quarantine directory
 #: OUTSIDE the repository, its outputs discarded, and its own record the only
 #: thing that survives.
-FEASIBILITY_PASS_NAME = "§8.2 pass 7 — the dc_native parity feasibility pass"
+FEASIBILITY_PASS_NAME = "v2 §8.2 pass 7 — the dc_native parity feasibility pass"
 
 #: The pass's one record — and its PRODUCT is the CENSUS it carries: every one
 #: of §3.3's 35 cells, priceable or not, each unpriceable one with its refusal
@@ -2449,73 +2497,39 @@ FEASIBILITY_PASS_NAME = "§8.2 pass 7 — the dc_native parity feasibility pass"
 #: estimand.
 FEASIBILITY_RECORD = paths.DATA_DIR / "sim" / "evwiden_parity_feasibility.json"
 
-#: The pass's OUTPUTS, inside the quarantine and deleted with it: the protected
-#: oracle's own `dc_native` parity rows. §8.2 says what they are — cell-SHAPED,
-#: because a `substantive_digest` of the protected control side is exactly what
-#: makes them §3.3's precondition, and NOT §3.3's table cells, because a table
-#: cell is a control arm, a treatment arm and the delta between them and there is
-#: no treatment book anywhere in the pass. They are discarded when the pass
-#: closes, so step 5's oracle cannot be one of them.
-FEASIBILITY_ROWS_NAME = "parity_feasibility_rows.jsonl"
+#: v3 §0.1 pins the record BY DIGEST, and §8.3 binds that digest into the
+#: freeze block. This document's table leg is SCOPED by the census (§0.6), and
+#: `data/` is gitignored: a scope resting on an unhashed local file rests on
+#: nothing, and the review's P5-B2 found the record "non-atomic, forgeable, not
+#: bound to the archive/store/config/harness digest". A reader checks the block.
+FEASIBILITY_SHA256 = ("07ee00d798cb0f01f29bc5bb5ba885c41e26d5494e9755c73a038a2"
+                      "777bad329")
+FEASIBILITY_BYTES = 18128
 
-#: The ONE surface the pass may unlock. Not `Engine`, not `TableRunner`, not
-#: `run_fits`, not `simulate_arm`: §8.2 authorises the CONTROL side of protected
-#: code and nothing that could produce a treatment arm.
-FEASIBILITY_SURFACES: tuple[str, ...] = ("epl.evwiden.ParityRunner",)
+#: What the record has to SAY, so that a record which is not the record scopes
+#: nothing. The priceable set is v3's 32 cells; the unpriceable set is §0.6's
+#: three, and a census that suddenly prices all thirty-five is as much a refusal
+#: as one that prices thirty-one — either way this document is scoped against a
+#: measurement that is no longer the measurement.
+FEASIBILITY_EXPECTED_ATTEMPTED = 35
+FEASIBILITY_EXPECTED_UNPRICEABLE: tuple[str, ...] = EXCLUDED_CELLS
 
-_FEASIBILITY: dict[str, Any] = {}
-
-
-def _feasibility_permits(where: str, directory: Path | None) -> bool:
-    """Is §8.2 pass 7 open, at this surface, into its own quarantine?"""
-    if not _FEASIBILITY.get("active"):
-        return False
-    if str(where) not in FEASIBILITY_SURFACES:
-        return False
-    try:
-        return Path(directory).resolve().is_relative_to(
-            Path(_FEASIBILITY["quarantine"]).resolve())
-    except (OSError, ValueError, TypeError):               # pragma: no cover
-        return False
-
-
-#: §8.2 pass 7's note, fixed here rather than accepted: the pass is authorised
-#: by name for one reason and a caller who could write the reason could write a
-#: different one onto the record.
-FEASIBILITY_NOTE = (
-    "§8.2: §3.3's 35-cell parity oracle is a mandatory leg and §8.1 records two "
-    "executions of the protected path crashing on ExcludedMassTooLarge at "
-    "2019/20 MW0. This pass establishes WHICH of the 35 cells the protected "
-    "dc_native runner can price, by attempting all of them under run_retro's "
-    "own typed per-cell contract.")
-
-_EXCLUDED_MASS_RE = re.compile(
-    r"particle-mean\s+([0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)\s+of the "
-    r"probability mass")
-_REFUSED_FIXTURE_RE = re.compile(r"([a-z0-9_]+ v [a-z0-9_]+)")
-
-
-def _feasibility_excluded_mass(reason: str) -> float | None:
-    """The particle-mean excluded mass a protected refusal names, or ``None``.
-
-    `epl.particles.ExcludedMassTooLarge` carries its measurement in its message
-    and in no field (`epl/particles.py:661-667`), and §8.2's census is required
-    to record "each excluded mass". Reading it out of the protected text is the
-    only route there is, and a refusal that names none records ``None`` rather
-    than a zero.
-    """
-    m = _EXCLUDED_MASS_RE.search(str(reason))
-    return float(m.group(1)) if m else None
-
-
-def _feasibility_fixture(reason: str) -> str | None:
-    """The fixture a protected refusal names (`man_city v luton`), if it does."""
-    m = _REFUSED_FIXTURE_RE.search(str(reason))
-    return m.group(1) if m else None
+#: **v3 AUTHORISES NO PRE-FREEZE PASS THAT FITS OR SIMULATES**, so there is no
+#: `parity_feasibility_pass`, no `parity_feasibility_census`, no CLI action
+#: that could run one, no `FEASIBILITY_SURFACES` permission set and no
+#: `_FEASIBILITY` mutable state anywhere in this module. v2 §8.2 authorised one
+#: such pass; it ran on 2026-08-28 and answered the only question it existed to
+#: answer (§0.6), and §10 makes a pass run under THIS document an invalidation.
+#: The review's P5-B2 found the permission set and the pass state to be mutable
+#: module globals a caller could rebind, the record deletable and forgeable, and
+#: a constructed runner able to carry its permission out of the closed context.
+#: Deleting the surface closes all four at once: there is no permission to
+#: rebind, no context to leave open and no runner to construct under one.
+FEASIBILITY_SURFACE_CLOSED = True
 
 
 def _frozen_table_cell_keys() -> list[str] | None:
-    """§3.3's 35 cell keys, RECOMPUTED from the pinned artifacts, or ``None``.
+    """§3.3's 32 cell keys, RECOMPUTED from the pinned artifacts, or ``None``.
 
     §8.2 pass 7 recomputes them rather than accepting them, because a caller who
     could name the census could name a shorter one — and "the pass completed"
@@ -2528,228 +2542,6 @@ def _frozen_table_cell_keys() -> list[str] | None:
         return [f"{c['season']}|{c['cutoff_label']}" for c in cells]
     except Exception:                                      # noqa: BLE001
         return None
-
-
-@contextmanager
-def parity_feasibility_pass(quarantine: Path | str, *,
-                            note: str = FEASIBILITY_NOTE):
-    """§8.2 pass 7, opened by name, once, into a quarantine outside the repo.
-
-    Six conditions, all of them, or the pass does not open — and a seventh that
-    decides afterwards whether what ran was the pass at all:
-
-    1. **Pre-freeze only.** After §8.3's commit, step 5 of §8.4 runs the real
-       parity leg and there is nothing to establish.
-    2. **Quarantined.** ``quarantine`` must resolve OUTSIDE
-       ``paths.REPO_ROOT``: the pass's outputs are discarded, and a run that
-       writes them into the repository has published them. It must also not
-       exist or be empty, because condition 6 DELETES it: the pass discards its
-       own outputs and nobody else's.
-    3. **Once.** :data:`FEASIBILITY_RECORD` is written when the pass closes and
-       a second pass refuses while it exists. §8.2 authorises one.
-    4. **`dc_native` only.** :data:`FEASIBILITY_SURFACES` is the parity oracle
-       and nothing else, so no treatment arm and no estimand can be produced
-       inside the pass however it is called.
-    5. **Named.** :data:`FEASIBILITY_NOTE` records why the pass was opened; it
-       goes on the record and into the freeze block's enumeration.
-    6. **Discarded.** The quarantine directory is DELETED when the pass closes,
-       after the record is written. §8.2: the outputs are the protected oracle's
-       own `dc_native` rows, they are not §3.3's table cells, and they may not
-       become step 5's oracle — step 5 re-runs it into the preregistered path.
-    7. **Completed means the census.** ``completed: true`` is written **only**
-       when the body recorded a census covering exactly the 35 keys this module
-       recomputes from the pinned artifacts, each once. The review's P5-B1: "an
-       empty body under `parity_feasibility_pass` exits normally and is stamped
-       `completed: true`; no 35-cell census, no protected runner call, no output
-       validation". A pass that priced nothing now records that it priced
-       nothing.
-
-    §8.2's no-fit clock is written to cover **estimand and treatment fits**, so
-    this pass does not do to v2 what the two unauthorised parity fits did to v1
-    (§8.1): those were not authorised in advance, were not quarantined, and left
-    no record — which is exactly the difference this context manager makes
-    mechanical.
-    """
-    quarantine = Path(quarantine)
-    if _frozen_now():
-        raise EvWidenError(
-            f"refusing to open {FEASIBILITY_PASS_NAME}: §8.3's freeze commit "
-            "has landed, so §8.4 step 5 runs the real 35-cell parity leg and "
-            "there is nothing left to establish. The pass is a PRE-freeze "
-            "feasibility question and it has been answered by the run itself.")
-    try:
-        inside = quarantine.resolve().is_relative_to(paths.REPO_ROOT.resolve())
-    except (OSError, ValueError):                          # pragma: no cover
-        inside = True
-    if inside:
-        raise EvWidenError(
-            f"refusing to open {FEASIBILITY_PASS_NAME} into "
-            f"{quarantine}: §8.2 authorises it only into a quarantine OUTSIDE "
-            "the repository, because its outputs are discarded and a pass that "
-            "writes them into the tree has published them.")
-    if quarantine.exists() and any(quarantine.iterdir()):
-        raise EvWidenError(
-            f"refusing to open {FEASIBILITY_PASS_NAME} into {quarantine}: it "
-            "already holds files, and the pass DELETES its quarantine when it "
-            "closes. §8.2 discards the pass's outputs; it does not discard "
-            "somebody else's. Name a directory that does not exist, or an "
-            "empty one.")
-    if FEASIBILITY_RECORD.exists():
-        raise EvWidenError(
-            f"refusing to open {FEASIBILITY_PASS_NAME} a second time: "
-            f"{paths.rel(FEASIBILITY_RECORD)} already records one. §8.2 "
-            "authorises ONE, prospectively; a second is a new pre-freeze pass "
-            "and needs its own dated note and its own line in the freeze "
-            "block's enumeration before it runs.")
-    if _FEASIBILITY.get("active"):                         # pragma: no cover
-        raise EvWidenError(f"{FEASIBILITY_PASS_NAME} is already open")
-
-    _FEASIBILITY.update({"active": True, "quarantine": str(quarantine),
-                         "note": str(note),
-                         "opened_at": pd.Timestamp.now("UTC").isoformat(),
-                         "surfaces": list(FEASIBILITY_SURFACES)})
-    outcome: dict[str, Any] = {"completed": False, "error": None,
-                               "census": []}
-    try:
-        yield outcome
-    except BaseException as exc:                           # noqa: BLE001
-        outcome["error"] = f"{type(exc).__name__}: {exc}"
-        raise
-    else:
-        outcome["completed"] = True
-    finally:
-        census = [dict(e) for e in (outcome.get("census") or ())]
-        keys = [str(e.get("key")) for e in census]
-        expected = _frozen_table_cell_keys()
-        complete = bool(outcome["completed"] and expected is not None
-                        and len(set(keys)) == len(keys)
-                        and sorted(keys) == sorted(expected))
-        if outcome["completed"] and not complete:
-            outcome["error"] = (
-                f"the pass returned without pricing §3.3's cells: it recorded "
-                f"{len(census)} census entrie(s) against "
-                f"{len(expected or ())} cell(s) recomputed from the pinned "
-                "artifacts. §8.2 pass 7 IS the enumeration of all thirty-five; "
-                "a body that priced a subset — or nothing — establishes "
-                "nothing and is not recorded as completed.")
-        unpriceable = [e for e in census if not e.get("priceable")]
-        record = {
-            "schema": SCHEMA_ID, "pass": FEASIBILITY_PASS_NAME,
-            "note": str(note), "quarantine": str(quarantine),
-            "opened_at": _FEASIBILITY.get("opened_at"),
-            "closed_at": pd.Timestamp.now("UTC").isoformat(),
-            "commit": git_head(), "arm": TABLE_ARM_LABEL,
-            "completed": complete,
-            "error": outcome["error"],
-            "cells_expected": len(expected or ()),
-            "cells_attempted": len(census),
-            "priceable": [e["key"] for e in census if e.get("priceable")],
-            "unpriceable": [{k: e.get(k) for k in
-                             ("key", "refusal_kind", "fixture",
-                              "excluded_mass", "reason")}
-                            for e in unpriceable],
-            "n_unpriceable": len(unpriceable),
-            "feasible": bool(complete and not unpriceable),
-            "census": census,
-            "outputs_discarded": str(quarantine),
-            "ruling": (
-                "§8.2: all thirty-five priceable — §3.3's oracle is feasible and "
-                "§8.4 step 5 proceeds as written. ANY unpriceable cell — one is "
-                "enough — a mandatory leg cannot be executed on the shipped "
-                "stack, this preregistration cannot be run as written, and the "
-                "remedy is a NEW preregistration (v3), never a quiet narrowing "
-                "of the 35 cells."),
-            "carries": ("the census, and no delta, no table cell, no arm "
-                        "comparison and no estimand: the pass's own outputs are "
-                        "the protected oracle's dc_native rows, which are "
-                        "§3.3's PRECONDITION rather than its cells, and they are "
-                        "deleted with the quarantine"),
-        }
-        _FEASIBILITY.clear()
-        FEASIBILITY_RECORD.parent.mkdir(parents=True, exist_ok=True)
-        FEASIBILITY_RECORD.write_text(
-            json.dumps(record, indent=2, default=str) + "\n")
-        # §8.2: quarantined AND discarded, after the census is recorded.
-        shutil.rmtree(quarantine, ignore_errors=True)
-
-
-def parity_feasibility_census(quarantine: Path | str, *,
-                              verbose: bool = True) -> dict[str, Any]:
-    """§8.2 pass 7, EXECUTED — **the enumeration, not the first refusal.**
-
-    > **The pass.** Protected `epl.simretro.ArchiveRunner` at `dc_native` only,
-    > over ALL THIRTY-FIVE of §3.3's cells. Every cell is attempted, under a
-    > per-cell catch that is the protected retrospective's own contract and not a
-    > wider one: `run_retro` catches the cell's exception, types it through
-    > `_refusal_kind`, writes a TYPED refusal and CONTINUES; anything else is
-    > `runner_error`, which is recorded and then RAISED.
-
-    A pass that stops at the first refusal answers "does cell 1 price?", and the
-    question §8.2 asks is "which of the thirty-five do". §8.1's two crashes and
-    the protected ledger's own omissions and typed markers already name three
-    candidate cells — 2019/20 MW0, 2020/21 MW0 and 2023/24 MW3, at particle-mean
-    excluded masses 0.0234, 0.0216 and 0.0328 against the 0.02 ceiling — and
-    neither a v3 nor a re-scoping can be written against a census that stopped at
-    the first of them.
-
-    **The typing is the protected module's own function**, not a copy of it:
-    two contracts that are one function cannot drift apart.
-
-    **It takes nothing from its caller but the quarantine.** The 35 cells are
-    derived here from the pinned artifacts; the runner is
-    :class:`ParityRunner` at the frozen constants; there is no cell list, no
-    runner, no store, no anchor, no config, no seed and no count to pass. Its
-    product is the census, :func:`parity_feasibility_pass` writes it, and
-    everything else the pass produced is deleted with the quarantine.
-    """
-    from epl import baseline, simretro
-
-    quarantine = Path(quarantine)
-    with parity_feasibility_pass(quarantine) as outcome:
-        played = load_archive()
-        matches = baseline.load_matches()
-        cells = table_cells(matches, played)
-        assert_table_census(cells)
-        census: list[dict[str, Any]] = []
-        outcome["census"] = census
-        runner = ParityRunner(matches, verbose=verbose, directory=quarantine)
-        rows_path = quarantine / FEASIBILITY_ROWS_NAME
-        rows_path.parent.mkdir(parents=True, exist_ok=True)
-        for i, cell in enumerate(cells, 1):
-            key = f"{cell['season']}|{cell['cutoff_label']}"
-            started = time.perf_counter()
-            base = {"key": key, "season": str(cell["season"]),
-                    "cutoff_label": str(cell["cutoff_label"]),
-                    "cutoff": str(cell["cutoff"])}
-            try:
-                row = runner(cell)
-            except Exception as exc:                       # noqa: BLE001
-                kind = simretro._refusal_kind(exc)
-                reason = f"{type(exc).__name__}: {exc}"
-                census.append({
-                    **base, "priceable": False, "refusal_kind": kind,
-                    "reason": reason, "fixture": _feasibility_fixture(reason),
-                    "excluded_mass": _feasibility_excluded_mass(reason),
-                    "wall_seconds": round(time.perf_counter() - started, 2)})
-                if verbose:
-                    print(f"[evwiden-feasibility] {i}/{len(cells)} {key} "
-                          f"UNPRICEABLE ({kind})", flush=True)
-                if kind == "runner_error":
-                    # `run_retro` marks this kind and then RAISES. So does this:
-                    # an untyped failure is not a capability finding.
-                    raise
-                continue
-            with rows_path.open("a") as fh:
-                fh.write(json.dumps(row, default=str) + "\n")
-            census.append({
-                **base, "priceable": True, "refusal_kind": None, "reason": None,
-                "fixture": None, "excluded_mass": None,
-                "substantive_digest": row["substantive_digest"],
-                "wall_seconds": row["wall_seconds"]})
-            if verbose:
-                print(f"[evwiden-feasibility] {i}/{len(cells)} {key} priced",
-                      flush=True)
-    return json.loads(FEASIBILITY_RECORD.read_text())
 
 
 def _is_preregistered_target(target: Path | str | None) -> bool:
@@ -2873,9 +2665,6 @@ def assert_may_fit(where: str, *,
     harness_frozen = _frozen_now()
     provenance = archive_provenance(played)
     if not harness_frozen:
-        if _feasibility_permits(where, directory):
-            return {"guarded": True, "frozen": False, "real_artifacts": True,
-                    "feasibility_pass": dict(_FEASIBILITY)}
         reasons = []
         if played is None:
             reasons.append("no played frame was supplied, so the pinned archive "
@@ -5366,8 +5155,21 @@ _TABLE_ROW_FIELDS = ("schema", "key", "season", "cutoff_label", "cutoff",
 def table_cutoffs(matches: pd.DataFrame, seasons: Sequence[str] | None = None,
                   labels: Sequence[str] | None = None,
                   ) -> list[tuple[str, str, pd.Timestamp]]:
-    """§3.3's 35 cells, from `simretro`'s own `SEASONS`, `COMPARISON_CUTOFFS`
-    and `cutoff_schedule` — never from a remembered list of dates."""
+    """v3 §3.3's 32 cells, from `simretro`'s own `SEASONS`,
+    `COMPARISON_CUTOFFS` and `cutoff_schedule` — never from a remembered list of
+    dates — **minus §0.6's three unpriceable cells**.
+
+    > The cells are `SEASONS x COMPARISON_CUTOFFS` **minus the three §0.6's
+    > census measured as unpriceable**, and those three are named by key here so
+    > that the population is decidable from this document rather than from a
+    > file. [...] The exclusion is by measurement (§0.6) and is not a parameter:
+    > no caller may name, restore or extend it.
+
+    The exclusion happens HERE, at the one place the schedule is derived, rather
+    than at each consumer, so a caller cannot reach an excluded cell by calling
+    a different entry point. :data:`EXCLUDED_CELLS` is a module constant and not
+    an argument for the same reason §2.3's constants are not arguments.
+    """
     from epl import simretro
 
     seasons = tuple(simretro.SEASONS) if seasons is None else tuple(seasons)
@@ -5377,6 +5179,8 @@ def table_cutoffs(matches: pd.DataFrame, seasons: Sequence[str] | None = None,
     for season in seasons:
         schedule = simretro.cutoff_schedule(matches, season)
         for label in labels:
+            if f"{season}|{label}" in EXCLUDED_CELLS:
+                continue
             out.append((season, label, pd.Timestamp(schedule[label]).normalize()))
     return out
 
@@ -5509,15 +5313,36 @@ def assert_table_census(cells: Sequence[dict[str, Any]]) -> dict[str, Any]:
     both totals and is invisible to a totals-only check.
     """
     treated = [c for c in cells if c["treated_clubs"]]
+    # §10: "a cell §0.6's census measured as unpriceable is added back to the
+    # oracle" is an invalidation, and it is checked FIRST: a thirty-third cell
+    # would otherwise be reported as an arithmetic slip, and a SUBSTITUTED one
+    # keeps the total intact and would pass every other check here. Naming the
+    # cell is the whole content of the refusal.
+    back = sorted({f"{c['season']}|{c['cutoff_label']}" for c in cells}
+                  & set(EXCLUDED_CELLS))
+    if back:
+        raise MembershipMismatch(
+            f"the census carries {back}, which §0.6 measured as UNPRICEABLE on "
+            "the shipped stack: " + "; ".join(
+                f"{k} — {EXCLUDED_CELL_DETAIL[k]['fixture']}, particle-mean "
+                f"excluded mass {EXCLUDED_CELL_DETAIL[k]['excluded_mass']} "
+                f"against A1's {EXCLUDED_CELL_DETAIL[k]['ceiling']} ceiling"
+                for k in back)
+            + ". §10 makes adding one back an invalidation, and §3.3 makes the "
+            "exclusion a measurement rather than a parameter: no caller may "
+            "name, restore or extend it.")
+
     if len(cells) != EXPECTED_TABLE_CELLS or \
             len(treated) != EXPECTED_TABLE_TREATED:
         raise MembershipMismatch(
             f"{len(cells)} table cells of which {len(treated)} change; §3.3 "
             f"pre-states {EXPECTED_TABLE_CELLS} and {EXPECTED_TABLE_TREATED}")
 
+    cells_by_label: dict[str, int] = {lab: 0 for lab in EXPECTED_CELLS_BY_LABEL}
     by_label: dict[str, int] = {label: 0 for label in EXPECTED_TREATED_BY_LABEL}
     for cell in cells:
         label = str(cell["cutoff_label"])
+        cells_by_label[label] = cells_by_label.get(label, 0) + 1
         if cell["treated_clubs"]:
             by_label[label] = by_label.get(label, 0) + 1
     if by_label != dict(EXPECTED_TREATED_BY_LABEL):
@@ -5528,10 +5353,31 @@ def assert_table_census(cells: Sequence[dict[str, Any]]) -> dict[str, Any]:
             "treated' is the entire stated ground for naming MW6 the deciding "
             "horizon (§4.1), so if that stops being true the ground for the "
             "deciding horizon has moved and this harness refuses rather than "
-            "carrying on. The 35/16 totals can be intact while this is wrong — "
+            "carrying on. The 32/15 totals can be intact while this is wrong — "
             "moving one treated cell from one label to another keeps both.")
+    if cells_by_label != dict(EXPECTED_CELLS_BY_LABEL):
+        raise MembershipMismatch(
+            f"the per-label cell census is {cells_by_label} and §3.3 pins it "
+            f"at {dict(EXPECTED_CELLS_BY_LABEL)}. **Both** per-label censuses "
+            "are binding pins under v3, and this one is the pin v2 never "
+            "needed: v2's labels held seven cells each, and after §0.6's "
+            "measurement MW0 holds five and MW3 six. §4.1's ground is 'MW6 is "
+            "the only label at which EVERY cell is treated', which after the "
+            "census is a statement about two censuses rather than one — a "
+            "label could become all-treated by losing its UNTOUCHED cells, "
+            "which is not the same fact and would not carry the same ground. "
+            "The 32/15 totals and the treated census can all be intact while "
+            "this is wrong.")
+    all_treated = sorted(lab for lab, n in by_label.items()
+                         if n and n == cells_by_label[lab])
+    if all_treated != [MW6_LABEL]:
+        raise MembershipMismatch(                          # pragma: no cover
+            f"the all-treated labels are {all_treated} and §4.1's ground for "
+            f"the deciding horizon requires exactly [{MW6_LABEL!r}].")
     return {"n_cells": len(cells), "n_treated": len(treated),
-            "by_label": by_label, "PASS": True,
+            "by_label": by_label, "cells_by_label": cells_by_label,
+            "excluded": list(EXCLUDED_CELLS), "all_treated": all_treated,
+            "PASS": True,
             "ground": ("MW6 is the only label at which every cell is treated, "
                        "which is why §4.1 names it the deciding horizon")}
 
@@ -6238,10 +6084,6 @@ class ParityRunner:
             played=self.matches.loc[self.matches["played"]],
             directory=self.directory)
         self.harness_frozen = bool(self.may_fit["frozen"])
-        #: Was this runner built under §8.2 pass 7's authorisation? If it was,
-        #: `__call__` asks again: the review's P5-B2 found the permission cached
-        #: here and the runner reusable after the pass had closed.
-        self._under_feasibility = bool(self.may_fit.get("feasibility_pass"))
         # §2.3's closure: resolved from the frozen law, never accepted.
         frozen = frozen_table_constants()
         self.n_sims, self.seed = frozen["n_sims"], frozen["seed"]
@@ -6260,13 +6102,6 @@ class ParityRunner:
         season, label = str(cell["season"]), str(cell["cutoff_label"])
         cutoff = pd.Timestamp(cell["cutoff"]).normalize()
         started = time.perf_counter()
-        if self._under_feasibility and not _feasibility_permits(
-                "epl.evwiden.ParityRunner", self.directory):
-            raise EvWidenError(
-                f"{season} {label}: this ParityRunner was constructed inside "
-                f"{FEASIBILITY_PASS_NAME} and that pass is no longer open. §8.2 "
-                "authorises ONE pass, and a runner that carried its permission "
-                "out of the context would make it a permission with no end.")
         if self.may_fit["frozen"] and self.may_fit["real_artifacts"]:
             record_first_real_fit(where="epl.evwiden.ParityRunner")
         result = self._runner(season=season, cutoff_label=label, cutoff=cutoff,
@@ -6813,7 +6648,7 @@ def load_table_ledger(path: Path | str | None = None, *,
     path = Path(path) if path is not None else TABLE_LEDGER
     if expected is not None and _is_preregistered_target(path.parent):
         # §8.6: a caller-supplied census is a caller-supplied deciding
-        # population, and §3.3's is 35 cells recomputed from the pinned
+        # population, and §3.3's is 32 cells recomputed from the pinned
         # artifacts. At the PREREGISTERED ledger the supplied one has to BE
         # that census — the production caller derives it and passes what it
         # derived, and anything else is a caller choosing which cells the merge
@@ -7669,7 +7504,11 @@ MANIFEST_PATHS: tuple[str, ...] = (
     "data/epl/fit/evwiden/canary.json",
     "data/epl/sim/evwiden/parity.jsonl",
     *(f"data/epl/sim/evwiden/tallies/{season}|{label}.npz"
-      for season in TALLY_SEASONS for label in TALLY_LABELS),
+      for season in TALLY_SEASONS for label in TALLY_LABELS
+      # §9.3: "exactly 32 [...] the product of two enumerated sets MINUS three
+      # cells this document names by key". `TALLY_SEASONS` carries the season
+      # string with `/` replaced by `-`, so the key is rebuilt to compare.
+      if f"{season.replace('-', '/')}|{label}" not in EXCLUDED_CELLS),
     *(f"data/epl/fit/evwiden/sequence/{step}.json" for step in SEQUENCE_STEPS),
 )
 
@@ -8908,12 +8747,22 @@ def _conf_tally(shift: int, *, jitter: int = 0,
 
 
 def _conf_cells() -> list[dict[str, Any]]:
-    """35 cells carrying §3.3's own per-label treated census."""
+    """v3 §3.3's 32 cells, carrying BOTH per-label censuses.
+
+    The synthetic leg is built minus §0.6's three excluded keys, exactly as
+    :func:`table_cutoffs` builds the real one, so a conformance row that runs
+    over it is running over a population the production path could produce.
+    """
     out: list[dict[str, Any]] = []
     for label in TALLY_LABELS:
         for i, season in enumerate(_CONF_SEASONS):
+            if f"{season}|{label}" in EXCLUDED_CELLS:
+                continue
             treated = (["sunderland"]
-                       if i < EXPECTED_TREATED_BY_LABEL[label] else [])
+                       if len([c for c in out
+                               if c["cutoff_label"] == label
+                               and c["treated_clubs"]])
+                       < EXPECTED_TREATED_BY_LABEL[label] else [])
             out.append({
                 "season": season, "cutoff_label": label,
                 "cutoff": f"20{19 + i}-08-{10 + TALLY_LABELS.index(label):02d}",
@@ -9482,7 +9331,12 @@ def implementation_report() -> list[dict[str, Any]]:
                                                 scratch / "t.jsonl"))
             l7 = all(_refused(EvWidenError, fn) for fn in checks)
             # ...and §8.2's pass 7 unlocks the parity oracle and NOTHING else
-            l7 = l7 and FEASIBILITY_SURFACES == ("epl.evwiden.ParityRunner",)
+            # v3 §8.2 authorises NO pass that fits or simulates, so there
+            # is no feasibility surface left to unlock anything (P5-B2).
+            l7 = l7 and FEASIBILITY_SURFACE_CLOSED and not any(
+                hasattr(_sys.modules[__name__], n) for n in
+                ("parity_feasibility_pass", "parity_feasibility_census",
+                 "FEASIBILITY_SURFACES", "_FEASIBILITY"))
         row("L7", "§8.6", "the guard establishes the freeze state and never "
             "accepts it, on every surface",
             "assert no fit or simulation surface accepts a freeze-state or "
@@ -9808,11 +9662,8 @@ def implementation_report() -> list[dict[str, Any]]:
             "thin-but-incumbent-widened row with a non-zero delta; each must "
             "raise UntreatedMoved", l13)
 
-        # ---- L14: the per-label treated census is pinned ------------------
-        census = [{"season": f"20{19 + i}/2{i}", "cutoff_label": lab,
-                   "treated_clubs": (["x"] if i < EXPECTED_TREATED_BY_LABEL[lab]
-                                     else [])}
-                  for lab in TALLY_LABELS for i in range(7)]
+        # ---- L14: both per-label censuses, and §0.6's exclusion ----------
+        census = _conf_cells()
         moved_cells = [dict(c) for c in census]
         give = next(c for c in moved_cells
                     if c["cutoff_label"] == "MW0" and c["treated_clubs"])
@@ -9820,15 +9671,36 @@ def implementation_report() -> list[dict[str, Any]]:
                     if c["cutoff_label"] == "MW3" and not c["treated_clubs"])
         take["treated_clubs"], give["treated_clubs"] = \
             list(give["treated_clubs"]), []
+        # a cell moved between LABELS keeps 32/15 and the TREATED census intact
+        relabelled = [dict(c) for c in census]
+        shift = next(c for c in relabelled
+                     if c["cutoff_label"] == "MW19" and not c["treated_clubs"]
+                     and f"{c['season']}|MW10" not in EXCLUDED_CELLS
+                     and c["season"] not in ("2019/20", "2020/21"))
+        shift["cutoff_label"] = "MW10"
+        restored = [dict(c) for c in census
+                    if f"{c['season']}|{c['cutoff_label']}" != "2019/20|MW3"]
+        restored.append(dict(census[0], season="2019/20", cutoff_label="MW0",
+                             treated_clubs=list(census[0]["treated_clubs"])))
         l14 = (_accepted(lambda: assert_table_census(census))
                and _refused(MembershipMismatch,
                             lambda: assert_table_census(moved_cells))
+               and _refused(MembershipMismatch,
+                            lambda: assert_table_census(relabelled))
+               and _refused(MembershipMismatch,
+                            lambda: assert_table_census(restored))
+               and _refused(FeasibilityRecordMismatch,
+                            assert_feasibility_permits_a_freeze
+                            if not feasibility_status()["ok"] else
+                            lambda: (_ for _ in ()).throw(
+                                FeasibilityRecordMismatch("x")))
                and "assert_table_census" in _calls_made(table_cells))
-        row("L14", "§3.3", "the per-label treated census is a binding pin",
-            "perturb one cell's treated set between labels, keeping the 35/16 "
-            "totals intact; the census must raise MembershipMismatch on the "
-            "per-label pin, not only on the totals, and `table_cells` must "
-            "call it", l14)
+        row("L14", "§0.6/§3.3",
+            "both per-label censuses and the feasibility scope are pinned",
+            "perturb one cell's treated set between labels, keeping the 32/15 "
+            "totals intact; move a cell between labels keeping 32 intact; "
+            "restore one of §0.6's three excluded keys; and refuse a census "
+            "record that is not the record — each must refuse", l14)
 
         # ---- L15: the evidence contract is closed -------------------------
         manifest = scratch / "MANIFEST.sha256"
@@ -9856,7 +9728,12 @@ def implementation_report() -> list[dict[str, Any]]:
                                     scratch / "other.sha256",
                                     require=MANIFEST_PATHS))
         kept = table_projection({"per_cell": [{"key": "k"}]}, {"verdict": "PASS"})
-        l15 = (l15 and len(MANIFEST_PATHS) == 52
+        l15 = (l15 and len(MANIFEST_PATHS) == 49
+               # §9.3: exactly 32 tallies — the schedule minus §0.6's three
+               and len([m for m in MANIFEST_PATHS if "/tallies/" in m]) == 32
+               and not any(f"{k.split('|')[0].replace('/', '-')}|"
+                           f"{k.split('|')[1]}.npz" in m
+                           for k in EXCLUDED_CELLS for m in MANIFEST_PATHS)
                and bool(kept["scored"].get("per_cell"))
                and main(["--shards", "2", "--merge"]) == 2
                # every sequence marker is a manifest member, so publication
@@ -9864,7 +9741,7 @@ def implementation_report() -> list[dict[str, Any]]:
                and all(f"data/epl/fit/evwiden/sequence/{step}.json"
                        in MANIFEST_PATHS for step in SEQUENCE_STEPS))
         row("L15", "§9", "the evidence contract is closed",
-            "drop a MANIFEST path; corrupt a byte size; check "
+            "drop one of the 49 MANIFEST paths; corrupt a byte size; check "
             "`scored.per_cell` survives the projection; pass `--shards 2`; and "
             "require all five sequence markers to be manifest members — each "
             "must refuse", l15)
@@ -9991,9 +9868,9 @@ def implementation_report() -> list[dict[str, Any]]:
             "step 2", l18, detail={"frozen_budget": frozen_budget})
 
     # the refusal inventory closes the set the document wrote (§7.1)
-    if len(refusals) != 26:                            # pragma: no cover
+    if len(refusals) != 27:                            # pragma: no cover
         rows.append({"id": "L0", "section": "§7.1",
-                     "obligation": "26 named refusals",
+                     "obligation": "27 named refusals",
                      "scenario": "count the EvWidenError subclasses",
                      "ok": False, "detail": sorted(refusals)})
     assert list(inspect.signature(leaguesim.simulate).parameters)[:6] == [
@@ -10079,8 +9956,12 @@ def freeze_block(corpus: pd.DataFrame | None = None,
 
     This function READS the pinned artifacts and fits nothing.
     """
-    report = assert_implements_document()
+    # §8.3: the census is checked FIRST. It scopes this document's whole table
+    # leg (§0.6), so a block rendered over a record that is not the record is a
+    # hash table for a design the measurement no longer supports — the question
+    # comes before the conformance of the code that answers it.
     feasibility = assert_feasibility_permits_a_freeze()
+    report = assert_implements_document()
     corpus = load_corpus() if corpus is None else corpus
     played = load_archive() if played is None else played
     ledger = load_walk_ledger() if ledger is None else ledger
@@ -10140,26 +10021,38 @@ def freeze_block(corpus: pd.DataFrame | None = None,
         f"| `{paths.rel(CONFIG_PATH)}` | `{CONFIG_SHA256}` |",
         f"| the realised configuration (§0.1) | `{REALISED_CONFIG_SHA256}` |",
         "",
-        "Pre-freeze passes, enumerated (§8.2 — passes 1-6 fit nothing and "
-        "simulate nothing; pass 7 is the `dc_native` parity feasibility pass, "
-        "authorised by name and prospectively, and none of the seven can enter "
-        "an estimand):",
+        "Pre-freeze passes authorised under v3 and enumerated (§8.2 — all six "
+        "fit nothing and simulate nothing; v3 authorises no pass that could "
+        "enter an estimand):",
         "",
     ]
     for run in PRE_FREEZE_RUNS:
-        if FEASIBILITY_NOT_RUN in run and feasibility["ran"]:
-            # §8.3 asks for "the enumeration of every pre-freeze pass ACTUALLY
-            # RUN, complete", so the entry states the census rather than the
-            # sentence that was true before the pass.
-            run = run.replace(
-                FEASIBILITY_NOT_RUN,
-                f"RUN: {feasibility['cells_attempted']} of "
-                f"{feasibility['cells_expected']} cells attempted, "
-                f"{len(feasibility['unpriceable'])} unpriceable, feasible="
-                f"{feasibility['feasible']}, recorded at "
-                f"{feasibility['record']} and in §8.9")
         lines.append(f"* {run}")
     lines += [
+        "",
+        "Prior history — passes run under an EARLIER document, enumerated here "
+        "because §8.3 asks for every pre-freeze pass actually run and because "
+        "this document is scoped by what one of them measured (§0.6). They are "
+        "**not** authorised by v3 and §10 makes running one under this "
+        "document an invalidation:",
+        "",
+    ]
+    for run in PRIOR_PASSES:
+        lines.append(f"* {run}")
+    lines += [
+        "",
+        f"| §0.6's census record (§0.1's pin, bound here) | value |",
+        "|---|---|",
+        f"| path | `{feasibility['record']}` |",
+        f"| SHA-256 | `{feasibility['sha256']}` |",
+        f"| bytes | {feasibility['bytes']} |",
+        f"| cells attempted | {feasibility['cells_attempted']} |",
+        f"| priceable | {feasibility['n_priceable']} |",
+        f"| unpriceable | {feasibility['n_unpriceable']} — "
+        + "; ".join(f"{k} ({EXCLUDED_CELL_DETAIL[k]['fixture']}, mass "
+                    f"{EXCLUDED_CELL_DETAIL[k]['excluded_mass']} vs the "
+                    f"{EXCLUDED_CELL_DETAIL[k]['ceiling']} A1 ceiling)"
+                    for k in feasibility["unpriceable"]) + " |",
         "",
         "The conformance report of §8.5, every row a scenario that fails under "
         "its own defect class:",
@@ -10177,80 +10070,132 @@ def freeze_block(corpus: pd.DataFrame | None = None,
     return "\n".join(lines) + "\n"
 
 
-#: The clause §8.3's enumeration carries while §8.2 pass 7 has not been run.
-#: It is replaced by the record's own census the moment one exists, because
-#: "the enumeration of every pre-freeze pass ACTUALLY RUN, complete" is what
-#: §8.3 asks the freeze commit for, and a hardcoded "NOT RUN" becomes a false
-#: sentence the moment the pass runs.
-FEASIBILITY_NOT_RUN = "NOT RUN as this document stands"
+#: v3 §8.3: the block refuses to render while §0.6's census record is absent,
+#: digest-mismatched, incomplete, or reporting a priceable set that is not
+#: exactly this document's 32 cells. v2's block refused over an INFEASIBLE
+#: census, which was the right refusal for a document claiming thirty-five; v3
+#: claims thirty-two BECAUSE three cells are unpriceable, so the condition
+#: inverts. There is no "NOT RUN" state any more: the pass ran, under v2, and
+#: this document is scoped by what it measured.
+FEASIBILITY_ABSENT = "the census record is absent"
+
+
+class FeasibilityRecordMismatch(EvWidenError):
+    """§7.1 / §0.1: §0.6's census record is not the record this document is
+    scoped by.
+
+    > This document's table leg is SCOPED by that record, so a record that is
+    > not the record scopes nothing.
+
+    Fires when the record is absent, fails the digest §8.3's freeze block binds,
+    reports ``completed: false``, or reports a priceable census that is not
+    exactly v3's 32 cells. **A census that suddenly prices all thirty-five is as
+    much a refusal as one that prices thirty-one** — either way this document is
+    scoped against a measurement that is no longer the measurement.
+    """
 
 
 def feasibility_status() -> dict[str, Any]:
-    """§8.2 pass 7's record, as the freeze block has to read it.
+    """§0.6's census record, read and CHECKED against the pins that scope v3.
 
-    Three states, and the block says which: **absent** (the pass has not run,
-    and §8.2 rules that someone must run it before the freeze); **incomplete**
-    (it ran and did not price all thirty-five, which establishes nothing); and
-    **complete**, with a census that is either feasible or not.
+    The record is READ-ONLY to this document: nothing in this module writes it,
+    and v3 §8.2 authorises no pass that could (P5-B2). What this function does
+    is establish whether the file on disk is the file §0.1 pins and §8.3 binds,
+    and it reports rather than raises so that the freeze renderer and the
+    conformance row can each say which condition failed.
     """
+    out: dict[str, Any] = {"record": paths.rel(FEASIBILITY_RECORD),
+                           "expected_sha256": FEASIBILITY_SHA256,
+                           "expected_bytes": FEASIBILITY_BYTES}
     if not FEASIBILITY_RECORD.exists():
-        return {"ran": False, "why": FEASIBILITY_NOT_RUN}
+        return {**out, "present": False, "ok": False, "why": FEASIBILITY_ABSENT}
+    raw = FEASIBILITY_RECORD.read_bytes()
+    sha = hashlib.sha256(raw).hexdigest()
+    out.update({"present": True, "sha256": sha, "bytes": len(raw)})
+    if sha != FEASIBILITY_SHA256 or len(raw) != FEASIBILITY_BYTES:
+        return {**out, "ok": False,
+                "why": (f"the record's digest is {sha[:12]}… over {len(raw)} "
+                        f"bytes and §0.1 pins {FEASIBILITY_SHA256[:12]}… over "
+                        f"{FEASIBILITY_BYTES}")}
     try:
-        rec = json.loads(FEASIBILITY_RECORD.read_text())
-    except json.JSONDecodeError as exc:
-        raise EvWidenError(
-            f"{paths.rel(FEASIBILITY_RECORD)} is not readable JSON: {exc}. §8.2 "
-            "pass 7's record is the only thing that survives the pass, and an "
-            "unreadable one is not an absent one.")
-    return {"ran": True, "completed": bool(rec.get("completed")),
-            "feasible": bool(rec.get("feasible")),
-            "cells_attempted": rec.get("cells_attempted"),
-            "cells_expected": rec.get("cells_expected"),
-            "unpriceable": list(rec.get("unpriceable") or ()),
-            "record": paths.rel(FEASIBILITY_RECORD)}
+        rec = json.loads(raw.decode())
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:  # pragma: no cover
+        return {**out, "ok": False, "why": f"the record is not readable: {exc}"}
+    priceable = sorted(str(k) for k in (rec.get("priceable") or ()))
+    unpriceable = sorted(str(u.get("key")) for u in (rec.get("unpriceable") or ()))
+    out.update({"completed": bool(rec.get("completed")),
+                "feasible": bool(rec.get("feasible")),
+                "cells_attempted": rec.get("cells_attempted"),
+                "cells_expected": rec.get("cells_expected"),
+                "n_priceable": len(priceable), "n_unpriceable": len(unpriceable),
+                "priceable": priceable, "unpriceable": unpriceable})
+    want_priceable = sorted(_v3_priceable_keys())
+    want_unpriceable = sorted(FEASIBILITY_EXPECTED_UNPRICEABLE)
+    if not out["completed"]:
+        return {**out, "ok": False,
+                "why": (f"the record says the pass did NOT complete "
+                        f"({out['cells_attempted']} of "
+                        f"{out['cells_expected']} cells attempted)")}
+    if int(rec.get("cells_attempted") or 0) != FEASIBILITY_EXPECTED_ATTEMPTED:
+        return {**out, "ok": False,
+                "why": (f"the record attempted {out['cells_attempted']} cells "
+                        f"and v2 §8.2's pass attempted "
+                        f"{FEASIBILITY_EXPECTED_ATTEMPTED}")}
+    if priceable != want_priceable or unpriceable != want_unpriceable:
+        return {**out, "ok": False,
+                "why": (f"the record's census is {len(priceable)} priceable / "
+                        f"{len(unpriceable)} unpriceable and v3 is scoped to "
+                        f"{len(want_priceable)} / {len(want_unpriceable)}; "
+                        f"unexpected priceable "
+                        f"{sorted(set(priceable) ^ set(want_priceable))[:4]}")}
+    return {**out, "ok": True, "why": None}
+
+
+def _v3_priceable_keys() -> list[str]:
+    """v3 §3.3's 32 keys, in schedule order, from the module's own constants.
+
+    Written out here rather than derived from the archive because
+    :func:`feasibility_status` runs on machines that have the record and not the
+    parquet, and because the keys are a property of the DOCUMENT (§0.6 names the
+    three exclusions) rather than of a file.
+    """
+    from epl import simretro
+
+    return [f"{s}|{lab}" for s in simretro.SEASONS
+            for lab in simretro.COMPARISON_CUTOFFS
+            if f"{s}|{lab}" not in EXCLUDED_CELLS]
 
 
 def assert_feasibility_permits_a_freeze() -> dict[str, Any]:
-    """§8.2's pre-ruling, enforced at the one moment it decides anything.
+    """v3 §8.3, at the one moment the census decides anything.
 
-    > If **all thirty-five** cells are priceable, §3.3's oracle is feasible and
-    > §8.4 step 5 proceeds as written. **If any cell is unpriceable — one is
-    > enough** — then a mandatory leg of this experiment cannot be executed on
-    > the shipped stack, **this preregistration cannot be run as written**, and
-    > the remedy is a NEW preregistration (v3).
+    > **§0.6's feasibility census record is absent, fails its pinned digest,
+    > says it did not complete, or reports a priceable census that is not
+    > exactly this document's thirty-two cells.** v2's block refused over an
+    > *infeasible* census, which was the right refusal for a document claiming
+    > thirty-five. This document claims thirty-two **because** three cells are
+    > unpriceable, so the condition inverts: the block refuses unless the record
+    > says exactly that, cell for cell.
 
-    The review's P5-B4 found `freeze_block` indifferent to the record while the
-    feasibility context refuses to open after the freeze, so freezing first could
-    "immortalize an unrun, possibly unrunnable design". This does not force the
-    pass to have run — §8.2 and §8.9 say in words that it must, and the freeze is
-    a human act — but a freeze block rendered over a census that ALREADY ANSWERED
-    the question in the negative would be a hash table committed over a design
-    the record says cannot be executed. That is refused here.
+    The review's P5-B4 found v2's `freeze_block` indifferent to the record while
+    the feasibility context refused to open after the freeze, so freezing first
+    could "immortalize an unrun, possibly unrunnable design". Under v3 there is
+    no pass left to run, and the failure mode inverts with it: the danger is not
+    a design frozen before its census exists but a design frozen against a census
+    it is not scoped to. That is what this refuses.
     """
     status = feasibility_status()
-    if not status["ran"]:
-        return status
-    if not status["completed"]:
-        raise EvWidenError(
-            f"refusing to render §8.3's freeze block: {status['record']} "
-            f"records a pass 7 that RAN AND DID NOT COMPLETE "
-            f"({status['cells_attempted']} of {status['cells_expected']} cells). "
-            "§8.2 authorises ONE pass and it is the enumeration of all "
-            "thirty-five; a pass that priced a subset establishes nothing about "
-            "§3.3's oracle, and a second attempt needs its own dated pre-freeze "
-            "note before it runs.")
-    if not status["feasible"]:
-        first = [u.get("key") for u in status["unpriceable"]][:3]
-        raise EvWidenError(
-            f"refusing to render §8.3's freeze block: {status['record']} records "
-            f"{len(status['unpriceable'])} UNPRICEABLE cell(s) (first: {first}). "
-            "§8.2 rules this in advance — 'if any cell is unpriceable, one is "
-            "enough, then a mandatory leg of this experiment cannot be executed "
-            "on the shipped stack, this preregistration cannot be run as "
-            "written, and the remedy is a NEW preregistration (v3)'. Freezing "
-            "the harness over that census would commit a hash table for a design "
-            "the record says cannot be run. Write v3 against the census.")
+    if not status["ok"]:
+        raise FeasibilityRecordMismatch(
+            f"refusing to render §8.3's freeze block: {status['record']} — "
+            f"{status['why']}. v3 §0.6's census is what scopes this document's "
+            "table leg to 32 cells, 15 treated and 17 untouched, and §0.1 pins "
+            "the record by digest precisely because `data/` is gitignored. A "
+            "record that is not the record scopes nothing, and a hash table "
+            "committed over it would freeze a design against a measurement "
+            "that is no longer the measurement.")
     return status
+
 
 
 def require_harness_freeze(sources: Sequence[Path] | None = None,
@@ -10494,7 +10439,7 @@ def _plan(corpus: pd.DataFrame, played: pd.DataFrame,
         "blas_threads": blas_threads(),
         # §2.4's table-leg budget: `ArchiveRunner` owns its own fit and exposes
         # no posterior or ParticleBook for reuse, so the parity oracle cannot
-        # ride the new runner's fits and needs its own 35.
+        # ride the new runner's fits and needs its own 32.
         "budget": {"match_fits": len(points),
                    "table_fits": 2 * EXPECTED_TABLE_CELLS,
                    "table_parity_fits": EXPECTED_TABLE_CELLS,
@@ -10509,6 +10454,20 @@ def _plan(corpus: pd.DataFrame, played: pd.DataFrame,
                    "canary_fits": 4, "single_opening_fits": 1,
                    "total_fits": (4 + 1 + len(points)
                                   + 2 * EXPECTED_TABLE_CELLS),
+                   # v3 §2.4 states the WHOLE-LIFECYCLE figure as well as the
+                   # post-freeze one, which v2's did not: the review's P5-I1
+                   # found v2 labelling its post-freeze legs "whole experiment"
+                   # while v2 §8.2 pass 7 had already spent 35 real fits and 35
+                   # real simulations on the protected control path (§0.6).
+                   # They are PRIOR HISTORY for this document (§8.1) and they
+                   # are counted here rather than dropped.
+                   "prior_history_fits": FEASIBILITY_EXPECTED_ATTEMPTED,
+                   "prior_history_simulations": FEASIBILITY_EXPECTED_ATTEMPTED,
+                   "lifecycle_fits": (4 + 1 + len(points)
+                                      + 2 * EXPECTED_TABLE_CELLS
+                                      + FEASIBILITY_EXPECTED_ATTEMPTED),
+                   "lifecycle_simulations": (3 * EXPECTED_TABLE_CELLS
+                                             + FEASIBILITY_EXPECTED_ATTEMPTED),
                    "bound": "the table leg is bounded by ~4 hours (§2.4)",
                    "shards": SHARDS,
                    "note": "§2.4: shards run SEQUENTIALLY and the run may not "
@@ -10629,14 +10588,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     help="§8.5's conformance report: eighteen behavioural "
                          "rows, each executing a scenario that fails under its "
                          "own defect class")
-    ap.add_argument("--parity-feasibility", dest="parity_feasibility",
-                    action="store_true",
-                    help="§8.2 pass 7: the dc_native parity feasibility pass "
-                         "over all 35 cells, once, into --quarantine")
-    ap.add_argument("--quarantine", dest="quarantine", default=None,
-                    help="§8.2 pass 7's quarantine directory, which must be "
-                         "OUTSIDE the repository; its contents are deleted when "
-                         "the pass closes")
+    ap.add_argument("--feasibility", dest="feasibility", action="store_true",
+                    help="print §0.6's census record status — present, digest, "
+                         "completed, and whether its priceable set is exactly "
+                         "v3's 32 cells. READ-ONLY: v3 authorises no "
+                         "pre-freeze pass that fits or simulates, so there is "
+                         "no command here that could produce a census")
     ap.add_argument("--freeze-block", dest="freeze_block", action="store_true",
                     help="print §8.3 step 2's hash table and membership digests, "
                          "recomputed from the pinned artifacts; fits nothing")
@@ -10773,19 +10730,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.partial_engine:
             print(json.dumps(partial_engine_pass(), indent=2, default=str))
 
-        if args.parity_feasibility:
-            # §8.2 pass 7. The command takes the quarantine and nothing else:
-            # the 35 cells, the runner and every constant come from the law.
-            if not args.quarantine:
-                print("STOP: §8.2 pass 7 runs into a QUARANTINE outside the "
-                      "repository and is refused without one. Pass "
-                      "--quarantine <dir outside the repository>; its contents "
-                      "are deleted when the pass closes, and the census is "
-                      f"recorded at {paths.rel(FEASIBILITY_RECORD)}.",
-                      flush=True)
-                return 2
-            print(json.dumps(parity_feasibility_census(args.quarantine),
-                             indent=2, default=str))
+        if args.feasibility:
+            # READ-ONLY. v3 §8.2 authorises no pass that fits or simulates, so
+            # there is nothing here that could produce a census — only a report
+            # on whether the record on disk is the one §0.1 pins and §8.3 binds.
+            print(json.dumps(feasibility_status(), indent=2, default=str))
 
         if args.canary:
             frozen_now = _frozen_now()

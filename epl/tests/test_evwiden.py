@@ -71,9 +71,9 @@ PINNED_CORPUS = Path("data/epl/fit/walkforward_predictions.parquet")
 PINNED_ARCHIVE = Path("data/epl/matches.parquet")
 PINNED_LEDGER = Path("data/epl/fit/walkforward_ledger.jsonl")
 
-#: The preregistration this harness implements. v2 is the SOLE LAW; v1 is
-#: lineage and decides nothing (§8.1).
-PREREG = Path("reports/epl_widening_prereg_v2.md")
+#: The preregistration this harness implements. v3 is the SOLE LAW; v2 and v1
+#: are lineage and decide nothing (§8.1).
+PREREG = Path("reports/epl_widening_prereg_v3.md")
 PREREG_V1 = Path("reports/epl_widening_prereg.md")
 
 #: The `@pinned` tests of §7.4: they read the pinned artifacts DELIBERATELY, to
@@ -345,7 +345,7 @@ def test_the_frozen_constants_are_the_documents(monkeypatch):
     assert ew.ALPHA == 0.05
     assert ew.DECAY_HALF_LIFE_DAYS == 365.0
     assert ew.FROZEN_WIDENING == {"mechanism": "c", "strength": 0.5}
-    assert ew.SCHEMA_ID == "epl-evwiden-2"
+    assert ew.SCHEMA_ID == "epl-evwiden-3"
     assert ew.HARNESS_FILES == ("epl/evwiden.py", "epl/tests/test_evwiden.py")
 
 
@@ -360,9 +360,9 @@ def test_the_pre_stated_counts_are_the_documents():
     assert ew.EXPECTED_PRIMARY_BLOCKS == 62
     assert ew.EXPECTED_CELLS == 4240
     assert ew.EXPECTED_INCUMBENT_FIXTURES == 46
-    assert ew.EXPECTED_TABLE_CELLS == 35
-    assert ew.EXPECTED_TABLE_TREATED == 16
-    assert ew.EXPECTED_TABLE_UNTOUCHED == 19
+    assert ew.EXPECTED_TABLE_CELLS == 32
+    assert ew.EXPECTED_TABLE_TREATED == 15
+    assert ew.EXPECTED_TABLE_UNTOUCHED == 17
     assert sum(ew.EXPECTED_THIN_BY_SEASON.values()) == ew.EXPECTED_THIN
     assert (ew.EXPECTED_TABLE_TREATED + ew.EXPECTED_TABLE_UNTOUCHED
             == ew.EXPECTED_TABLE_CELLS)
@@ -2367,10 +2367,13 @@ def test_the_merge_refuses_without_a_passing_canary_record(tmp_path):
 # 11. the table-retro leg — §3.3's identity demand and §4.1 (iv)'s gate
 # ==========================================================================
 
-#: The synthetic table world mirrors §3.3's own shape: seven seasons x five
-#: labels = 35 cells, with §4.1's census of treated cells per label —
-#: MW0 3, MW3 2, MW6 **7**, MW10 4, MW19 **0**. The gates are per horizon now,
-#: so a fixture-world that flattened the labels could not exercise them.
+#: The synthetic table world mirrors v3 §3.3's own shape: seven seasons x five
+#: labels MINUS §0.6's three unpriceable cells = 32 cells, with §4.1's census
+#: of treated cells per label — MW0 2, MW3 2, MW6 **7**, MW10 4, MW19 **0** —
+#: over a per-label CELL census of MW0 5, MW3 6, MW6 7, MW10 7, MW19 7. The
+#: gates are per horizon, so a fixture-world that flattened the labels could
+#: not exercise them, and one that kept seven cells per label could not
+#: exercise the census v3 is scoped by.
 TABLE_SEASONS = tuple(f"20{19 + i}/{20 + i}" for i in range(7))
 TABLE_LABELS = ("MW0", "MW3", "MW6", "MW10", "MW19")
 TABLE_CLUBS = ("sunderland", "rich", "mid")
@@ -2402,12 +2405,17 @@ def _tally(shift: int, *, jitter: int = 0, particles: int = TALLY_PARTICLES,
 
 
 def _cells(seasons=TABLE_SEASONS, labels=TABLE_LABELS):
-    """§3.3's 35 cells, with §4.1's per-label treated census."""
-    treated_by_label = {"MW0": 3, "MW3": 2, "MW6": 7, "MW10": 4, "MW19": 0}
+    """v3 §3.3's 32 cells, with §4.1's per-label treated census."""
+    treated_by_label = dict(ew.EXPECTED_TREATED_BY_LABEL)
     out = []
     for label in labels:
+        seen = 0
         for i, season in enumerate(seasons):
-            treated = ["sunderland"] if i < treated_by_label.get(label, 0) else []
+            if f"{season}|{label}" in ew.EXCLUDED_CELLS:
+                continue
+            treated = (["sunderland"]
+                       if seen < treated_by_label.get(label, 0) else [])
+            seen += 1
             out.append({
                 "season": season, "cutoff_label": label,
                 "cutoff": f"20{19 + i}-08-{10 + TABLE_LABELS.index(label):02d}",
@@ -2928,10 +2936,10 @@ def test_the_parity_oracle_runs_every_cell_and_resumes(tmp_path):
 
     path = tmp_path / "parity.jsonl"
     out = ew.run_parity_oracle(cells, path, runner=stub, verbose=False)
-    assert len(out) == len(cells) == 35
-    assert len(seen) == 35
+    assert len(out) == len(cells) == 32
+    assert len(seen) == 32
     again = ew.run_parity_oracle(cells, path, runner=stub, verbose=False)
-    assert len(seen) == 35 and len(again) == 35     # resumed, not re-run
+    assert len(seen) == 32 and len(again) == 32     # resumed, not re-run
 
 
 def test_no_require_parity_parameter_and_no_limit_on_the_oracle_exist():
@@ -3059,7 +3067,7 @@ def test_the_table_leg_writes_one_row_per_cell_and_resumes(tmp_path):
     path = tmp_path / "table.jsonl"
     out = ew.run_table(cells, path, runner=_table_runner(),
                        parity=_parity_for(cells), config_sha="c", verbose=False)
-    assert out["n_written"] == len(cells) == 35
+    assert out["n_written"] == len(cells) == 32
     again = ew.run_table(cells, path, runner=_table_runner(),
                          parity=_parity_for(cells), config_sha="c",
                          verbose=False)
@@ -3097,7 +3105,7 @@ def test_the_deciding_statistics_are_the_named_horizon_and_the_point_gates(
     scored = ew.score_table(rows, ledger_path=path)
     assert scored["mw6"]["n"] == 7
     assert scored["mw6"]["mean"] == pytest.approx(-0.001)     # all seven treated
-    assert scored["per_label"]["MW0"]["n_treated"] == 3
+    assert scored["per_label"]["MW0"]["n_treated"] == 2
     assert scored["per_label"]["MW3"]["n_treated"] == 2
     assert scored["per_label"]["MW10"]["n_treated"] == 4
     for label in ("MW0", "MW3", "MW10"):
@@ -3494,7 +3502,7 @@ def test_the_hull_analogue_is_printed_with_no_decision_weight(tmp_path):
     assert scored["hull_analogue"]["club"] == "sunderland"
     # 2025/26's own MW6 cell is treated already (all seven MW6 cells are), and
     # the four renamed 2019/20 cells join it
-    assert scored["hull_analogue"]["n_cells"] == 5
+    assert scored["hull_analogue"]["n_cells"] == 4
     assert "no decision weight" in scored["hull_analogue"]["label"]
     detail = scored["hull_analogue"]["cells"][0]
     assert set(detail["control"]) >= {"p_relegated", "points_mean", "points_p5",
@@ -3669,7 +3677,7 @@ def test_the_verdict_json_carries_r_i6s_frozen_field_list(tmp_path):
     # the 820-fixture control has a home, with both numbers
     assert set(published["controls"]["identity"]) == {"n", "max_abs_diff",
                                                       "mean_abs_diff", "PASS"}
-    assert published["controls"]["table_parity"]["n_cells"] == 35
+    assert published["controls"]["table_parity"]["n_cells"] == 32
     # gate (iv) carries §5's precision names, not §9's superseded mc_se_mean
     precision = published["gate_iv"]["precision"]
     assert set(precision) >= {"mc_boot", "mc_seed", "n_particles",
@@ -3728,7 +3736,7 @@ def test_scored_per_cell_survives_into_the_json_projection(tmp_path):
     result["table"] = {"scored": scored, "gate": ew.table_gate(scored)}
     published = ew.evidence_object(result)
 
-    assert published["controls"]["table_parity"]["n_cells"] == 35
+    assert published["controls"]["table_parity"]["n_cells"] == 32
     assert published["controls"]["table_parity"]["per_cell_digests"]
     assert published["coverage"], "the coverage diagnostic is filled by per_cell"
 
@@ -3791,7 +3799,7 @@ def test_the_manifest_is_the_fifty_two_paths_of_9_3(tmp_path):
     sidecars, `parity.jsonl` and the five sequence markers were all absent, so a
     swapped tally changed no manifested digest.
     """
-    assert len(ew.MANIFEST_PATHS) == 52
+    assert len(ew.MANIFEST_PATHS) == 49
     assert ew.SHARDS == 4
     assert ew.MANIFEST_PATHS[:4] == (
         "reports/evidence/widening.json",
@@ -3806,18 +3814,22 @@ def test_the_manifest_is_the_fifty_two_paths_of_9_3(tmp_path):
         "data/epl/fit/evwiden/canary.json",
         "data/epl/sim/evwiden/parity.jsonl")
 
-    tallies = ew.MANIFEST_PATHS[12:47]
-    assert len(tallies) == 35
+    tallies = ew.MANIFEST_PATHS[12:44]
+    assert len(tallies) == 32
     seasons = ("2019-20", "2020-21", "2021-22", "2022-23", "2023-24",
                "2024-25", "2025-26")
-    assert set(tallies) == {f"data/epl/sim/evwiden/tallies/{s}|{lab}.npz"
-                            for s in seasons for lab in TABLE_LABELS}
+    # §9.3: "the product of two enumerated sets MINUS three cells this document
+    # names by key" — §0.6's three, and only those three
+    assert set(tallies) == {
+        f"data/epl/sim/evwiden/tallies/{s}|{lab}.npz"
+        for s in seasons for lab in TABLE_LABELS
+        if f"{s.replace('-', '/')}|{lab}" not in ew.EXCLUDED_CELLS}
     # the naming function is literal: what `tally_path` writes is what the
     # MANIFEST names
     assert ew.paths.rel(ew.tally_path(
         ew.TABLE_LEDGER, {"season": "2019/20", "cutoff_label": "MW6"})) in tallies
 
-    assert ew.MANIFEST_PATHS[47:] == tuple(
+    assert ew.MANIFEST_PATHS[44:] == tuple(
         f"data/epl/fit/evwiden/sequence/{step}.json"
         for step in ew.SEQUENCE_STEPS)
 
@@ -3943,11 +3955,11 @@ def test_the_table_evidence_file_carries_both_arms_of_every_cell(tmp_path):
                       directory=out, manifest=False)
     with (out / "widening_table_cells.csv").open() as fh:
         got = list(_csv.DictReader(fh))
-    # §9: 35 rows — one per CELL, the paired shape the deltas have
-    assert len(got) == len(table_rows) == 35
+    # §9.2: 32 rows — one per priceable CELL, the paired shape the deltas have
+    assert len(got) == len(table_rows) == 32
     assert list(got[0]) == list(ew._TABLE_COLUMNS)
     treated = [r for r in got if r["treated_clubs"]]
-    assert len(treated) == 16
+    assert len(treated) == 15
     for row in treated:
         assert row["sampler_digest_control"] != row["sampler_digest_treatment"]
         assert row["parity_digest_simretro"]
@@ -4086,29 +4098,35 @@ def test_the_table_runners_refuse_the_pinned_archive_before_the_freeze(tmp_path)
         ew.ParityRunner(matches, directory=tmp_path)
 
 
-def test_the_freeze_block_enumerates_all_seven_authorised_pre_freeze_passes():
-    """§8.2's seven passes, "authorised for this document, prospectively".
+def test_the_freeze_block_enumerates_six_passes_and_one_prior_history_entry():
+    """v3 §8.2's SIX passes, "authorised for this document, prospectively" —
+    and the seventh, "prior history and enumerated as such".
 
-    v1's sixth entry named a repair round's two scratch exports — an event, not
-    a prospective pass. v2's sixth is ``--power``; its seventh is §8.2's
-    `dc_native` parity feasibility pass, the one entry that fits and simulates,
-    authorised by name and quarantined outside the repository. The list stays
-    binding and must be complete: an unenumerated pre-freeze pass is a protocol
-    deviation whether or not it touched anything.
+    > **The seventh pass is prior history and is enumerated as such.** v2's
+    > §8.2 pass 7 [...] is not authorised here, because it is not repeatable
+    > here [...] The freeze block enumerates it in a HISTORY section, distinct
+    > from the six above [...] so that the enumeration stays complete without
+    > pretending the pass was v3's to authorise.
     """
-    assert len(ew.PRE_FREEZE_RUNS) == 7
+    assert len(ew.PRE_FREEZE_RUNS) == 6
     joined = " ".join(ew.PRE_FREEZE_RUNS)
     for marker in ("--membership", "--plan", "--canary --no-results-canary",
                    "pytest epl/tests/test_evwiden.py", "dcfit.fit_epl",
-                   "--partial-engine", "--freeze-block", "--power",
-                   "pass 7", "evwiden_parity_feasibility.json", "NOT RUN",
-                   # ...and pass 7 is a COMMAND too, in ENUMERATION form: all
-                   # 35 cells under `run_retro`'s own typed per-cell contract
-                   "--parity-feasibility", "ALL 35", "CONTINUE", "CENSUS"):
+                   "--partial-engine", "--freeze-block", "--power"):
         assert marker in joined, marker
     assert "TemporaryDirectory" in joined and "paths.STORE_DIR" in joined
-    # v1's sixth entry was a RETROSPECTIVE note about a repair round. §8.2
-    # authorises v2's own passes prospectively and nothing else.
+    # ALL SIX are read-only: v3 authorises no pass that fits or simulates
+    assert "feasibility" not in joined.lower()
+    assert "quarantine" not in joined.lower()
+    # ...and the seventh is HISTORY, in its own list, with its census
+    assert len(ew.PRIOR_PASSES) == 1
+    history = ew.PRIOR_PASSES[0]
+    for marker in ("v2 §8.2 pass 7", "2026-08-28", "9adc3bc", "dc_native",
+                   "32 priceable", "excluded_mass_ceiling",
+                   "man_city v sheffield_united", "0.0234",
+                   "man_city v leeds", "0.0216",
+                   "man_city v luton", "0.0328", "read-only"):
+        assert marker in history, marker
     assert "repair round" not in joined
     # ...and pass 4 is now a COMMAND rather than a description of one no
     # command could run (the review's NEW-B5)
@@ -4131,18 +4149,26 @@ def test_membership_and_plan_carry_the_table_cell_memberships(tmp_path, real):
 
     plan = ew._plan(corpus, played, ledger, ew.SHARDS, tmp_path, table=cells)
     assert {"table_treated", "table_untouched"} <= set(plan["digests"])
-    assert plan["budget"]["table_fits"] == 70
-    assert plan["budget"]["table_simulations"] == 105
-    # §2.4's whole-experiment budget is **153 fits**, not 148: the four
-    # results-canary fits and the single-opening exercise "are counted because
-    # they are real fits on the real archive: §8.4 makes them the first two
-    # steps of the frozen sequence, and a budget that omits them would
-    # understate both the clock and the moment §8.7's regime comes into
-    # force". v1
-    # reported 148 and was five fits short.
+    assert plan["budget"]["table_fits"] == 64
+    assert plan["budget"]["table_simulations"] == 96
+    # v3 §2.4's POST-FREEZE budget is **147 fits**: the four results-canary
+    # fits and the single-opening exercise "are counted because they are real
+    # fits on the real archive: §8.4 makes them the first two steps of the
+    # frozen sequence, and a budget that omits them would understate both the
+    # clock and the moment §8.7's regime comes into force". The census took the
+    # table leg from 35 cells to 32, so the two table legs are 64 fits and 96
+    # simulations rather than 70 and 105.
     assert plan["budget"]["canary_fits"] == 4
     assert plan["budget"]["single_opening_fits"] == 1
-    assert plan["budget"]["total_fits"] == 153 == 4 + 1 + 78 + 70
+    assert plan["budget"]["total_fits"] == 147 == 4 + 1 + 78 + 64
+    # ...and §2.4 states the WHOLE-LIFECYCLE figure too, which v2's did not:
+    # v2 §8.2 pass 7 spent 35 real fits and 35 real simulations before this
+    # document existed, and the review's P5-I1 found v2 calling 153/105 the
+    # "whole experiment" while they sat outside it.
+    assert plan["budget"]["prior_history_fits"] == 35
+    assert plan["budget"]["prior_history_simulations"] == 35
+    assert plan["budget"]["lifecycle_fits"] == 182 == 147 + 35
+    assert plan["budget"]["lifecycle_simulations"] == 131 == 96 + 35
     assert "~4 hours" in plan["budget"]["bound"]
 
 
@@ -4267,9 +4293,14 @@ def unrun_feasibility(tmp_path, monkeypatch):
     test asserting a lifecycle state no run produced, which is the class §8.6
     exists to refuse.
     """
-    monkeypatch.setattr(ew, "FEASIBILITY_RECORD", tmp_path / "absent.json")
-    assert ew.feasibility_status() == {"ran": False,
-                                       "why": ew.FEASIBILITY_NOT_RUN}
+    record = tmp_path / "evwiden_parity_feasibility.json"
+    record.write_text(json.dumps(_census_record(), indent=2))
+    raw = record.read_bytes()
+    monkeypatch.setattr(ew, "FEASIBILITY_RECORD", record)
+    monkeypatch.setattr(ew, "FEASIBILITY_SHA256",
+                        __import__("hashlib").sha256(raw).hexdigest())
+    monkeypatch.setattr(ew, "FEASIBILITY_BYTES", len(raw))
+    assert ew.feasibility_status()["ok"] is True
     return tmp_path
 
 
@@ -4786,13 +4817,15 @@ def test_the_table_leg_enumerates_the_16_cells_the_document_names():
 
     matches = baseline.load_matches()
     cells = ew.table_cells(matches)
-    assert len(cells) == len(simretro.SEASONS) * len(simretro.COMPARISON_CUTOFFS)
-    assert len(cells) == 35
+    whole = len(simretro.SEASONS) * len(simretro.COMPARISON_CUTOFFS)
+    assert whole - len(cells) == len(ew.EXCLUDED_CELLS) == 3
+    assert len(cells) == 32
     treated = {(c["season"], c["cutoff_label"]): c["treated_clubs"]
                for c in cells if c["treated_clubs"]}
-    assert len(treated) == 16
-    assert len(cells) - len(treated) == 19
-    assert treated[("2019/20", "MW0")] == ["aston_villa", "norwich"]
+    assert len(treated) == 15
+    assert len(cells) - len(treated) == 17
+    # §0.6: the ONE treated cell the census cost this design
+    assert ("2019/20", "MW0") not in treated
     assert treated[("2019/20", "MW6")] == ["aston_villa", "norwich",
                                            "sheffield_united"]
     assert treated[("2023/24", "MW0")] == ["sheffield_united"]
@@ -4800,7 +4833,9 @@ def test_the_table_leg_enumerates_the_16_cells_the_document_names():
     for label in ("MW0", "MW3", "MW6"):
         assert treated[("2025/26", label)] == ["sunderland"]
     assert ("2025/26", "MW10") not in treated
-    assert round(cells[0]["evidence"]["aston_villa"], 2) == 4.74
+    # cells[0] is now 2019/20 MW3, the first PRICEABLE cell in schedule order
+    assert cells[0]["season"] == "2019/20" and cells[0]["cutoff_label"] == "MW3"
+    assert round(cells[0]["evidence"]["aston_villa"], 2) == 7.47
 
 
 def test_the_per_label_treated_census_is_a_binding_pin(tmp_path, monkeypatch):
@@ -4815,11 +4850,16 @@ def test_the_per_label_treated_census_is_a_binding_pin(tmp_path, monkeypatch):
     has moved and the harness must refuse rather than carry on. The audit found
     the pin "referenced nowhere in the module or the tests" — a dead constant.
     """
-    assert ew.EXPECTED_TREATED_BY_LABEL == {"MW0": 3, "MW3": 2, "MW6": 7,
+    assert ew.EXPECTED_TREATED_BY_LABEL == {"MW0": 2, "MW3": 2, "MW6": 7,
                                             "MW10": 4, "MW19": 0}
     # MW6 is the only label at which EVERY cell is treated, which is the ground
+    # — and after §0.6 that is a statement about TWO censuses, because the
+    # labels no longer hold seven cells each
     assert ew.EXPECTED_TREATED_BY_LABEL[ew.MW6_LABEL] == \
-        ew.EXPECTED_TABLE_CELLS // len(ew.EXPECTED_TREATED_BY_LABEL)
+        ew.EXPECTED_CELLS_BY_LABEL[ew.MW6_LABEL]
+    assert [lab for lab in ew.EXPECTED_CELLS_BY_LABEL
+            if ew.EXPECTED_TREATED_BY_LABEL[lab]
+            == ew.EXPECTED_CELLS_BY_LABEL[lab]] == [ew.MW6_LABEL]
 
     cells = _cells()
     assert ew.assert_table_census(cells)["PASS"] is True
@@ -4833,7 +4873,7 @@ def test_the_per_label_treated_census_is_a_binding_pin(tmp_path, monkeypatch):
                 if c["cutoff_label"] == "MW3" and not c["treated_clubs"])
     take["treated_clubs"] = list(give["treated_clubs"])
     give["treated_clubs"] = []
-    assert sum(1 for c in moved if c["treated_clubs"]) == 16   # totals intact
+    assert sum(1 for c in moved if c["treated_clubs"]) == 15   # totals intact
     with pytest.raises(ew.MembershipMismatch) as exc:
         ew.assert_table_census(moved)
     assert "per-label" in str(exc.value)
@@ -4864,7 +4904,7 @@ def test_the_module_does_not_drift_from_the_document_it_implements():
     assert ew.ARCHIVE_SHA256 in text
     assert ew.WALK_LEDGER_SHA256 in text
     assert ew.CONFIG_SHA256 in text
-    assert "epl-evwiden-2" in text and ew.SCHEMA_ID == "epl-evwiden-2"
+    assert "epl-evwiden-3" in text and ew.SCHEMA_ID == "epl-evwiden-3"
     for name in ew.HARNESS_FILES:
         assert name in text
     # the numbers §4 gates on, as the document writes them
@@ -4920,18 +4960,20 @@ def test_the_harness_cites_no_clause_the_law_does_not_contain():
 
 
 @pytest.mark.skipif(not PREREG.exists(), reason="the preregistration is absent")
-def test_the_harness_is_bound_to_v2_and_v1_is_only_lineage():
-    """§8.1: v1 is invalidated by its own §8.7 and "decides nothing".
+def test_the_harness_is_bound_to_v3_and_v2_and_v1_are_only_lineage():
+    """§8.1: v1 is invalidated by its own R-B6; v2 cannot be run as written.
 
     The freeze guard, the first-fit record and the evidence object all name a
     preregistration by path. If any of them still names v1, the harness is
     binding itself to an invalidated document — and the two ADVI fits that
     ended v1 would carry into v2's regime.
     """
-    assert ew.PREREG_PATH.name == "epl_widening_prereg_v2.md"
-    assert ew.SCHEMA_ID == "epl-evwiden-2"
+    assert ew.PREREG_PATH.name == "epl_widening_prereg_v3.md"
+    assert ew.SCHEMA_ID == "epl-evwiden-3"
     text = PREREG.read_text()
-    assert "invalidated 2026-08-28 under its own R-B6" in text  # v1's rule
+    assert "invalidated the\nsame day under v1's own R-B6" in text  # v1's rule
+    # ...and v2 is closed for a different reason, stated as one
+    assert "**cannot be run as written**" in text
     # the sole law says so about itself
     assert "There are no repair sections and no supersession index" in text
 
@@ -5120,11 +5162,15 @@ def test_the_harness_invents_no_refusal_the_document_never_wrote():
              "FitFailed", "UnpriceableFixture", "ScoreMismatch",
              "SchemaMismatch", "RowConflict", "ShardFailed", "MergeIncomplete",
              "TableMCImprecise", "StoreNotBuilt", "SequenceViolation",
-             "FreezeStateUnverified"}
+             "FreezeStateUnverified",
+             # v3 §7.1: the census record is a PIN (§0.1), and this document's
+             # table leg is scoped by it — "a record that is not the record
+             # scopes nothing"
+             "FeasibilityRecordMismatch"}
     assert subclasses == named
-    # §7.1 counts it both ways so neither reading is wrong: 26 named refusals,
-    # 27 classes counting the base they all derive from.
-    assert len(subclasses) == 26 and len(subclasses | {"EvWidenError"}) == 27
+    # §7.1 counts it both ways so neither reading is wrong: 27 named refusals,
+    # 28 classes counting the base they all derive from.
+    assert len(subclasses) == 27 and len(subclasses | {"EvWidenError"}) == 28
     # the pre-freeze-fit invalidation is one of the unnamed ones, and refuses
     # as the base class
     with pytest.raises(ew.EvWidenError) as exc:
@@ -5597,9 +5643,15 @@ def test_the_freeze_block_is_harness_produced_and_round_trips(
         assert f"`{name}`" in block
         assert ew.sha256_file(ew.paths.REPO_ROOT / name) in block
     assert "| 85 |" in block and "| 52 |" in block and "| 51 |" in block
-    assert "| 78 |" in block and "| 16 |" in block and "| 19 |" in block
-    # §8.3 step 2's five contents, all of them
-    assert "Pre-freeze passes, enumerated" in block
+    assert "| 78 |" in block and "| 15 |" in block and "| 17 |" in block
+    # §8.3 step 2's contents, all of them
+    assert "Pre-freeze passes authorised under v3" in block
+    assert "Prior history" in block
+    # ...and §0.6's census record, bound by digest (§8.3)
+    assert ew.FEASIBILITY_SHA256 in block
+    for key in ew.EXCLUDED_CELLS:
+        assert key in block, key
+        assert ew.EXCLUDED_CELL_DETAIL[key]["fixture"] in block
     assert "not the run this document preregisters" in block
     assert "the per-label treated census" in block          # §3.3's pin
     for digest in (ew.CORPUS_SHA256, ew.ARCHIVE_SHA256, ew.WALK_LEDGER_SHA256,
@@ -5873,321 +5925,165 @@ def test_the_partial_engine_pass_runs_and_leaves_the_store_untouched():
 
 
 # ==========================================================================
-# §8.2 pass 7 — the dc_native parity feasibility pass
+# §0.6's census — read-only, digest-bound, and the surface that produced it
+# CLOSED. v3 §8.2 authorises no pre-freeze pass that fits or simulates.
 # ==========================================================================
 
-def test_the_feasibility_pass_is_named_quarantined_once_and_dc_native_only(
-        tmp_path, monkeypatch):
-    """§8.2 pass 7, authorised prospectively in answer to NEW-B6's
-    REAL-REGRESSION verdict: the mandatory 35-cell parity leg is expected not to
-    complete, and the only honest options are to assume or to find out.
+def test_v3_carries_no_pass_that_fits_or_simulates(tmp_path, monkeypatch):
+    """v3 §8.2: "This document authorises no pre-freeze pass that fits or
+    simulates. [...] the question it existed to answer has been answered."
 
-    Five conditions, all of them, or the pass does not open.
-    """
-    outside = tmp_path / "quarantine"
-    inside = ew.paths.REPO_ROOT / "data" / "quarantine"
-    record = tmp_path / "feasibility.json"
-    monkeypatch.setattr(ew, "FEASIBILITY_RECORD", record)
-
-    # (2) quarantined OUTSIDE the repository
-    with pytest.raises(ew.EvWidenError) as exc:
-        with ew.parity_feasibility_pass(inside, note="n"):
-            pass
-    assert "OUTSIDE the repository" in str(exc.value)
-
-    # (2b) ...and it discards its OWN outputs and nobody else's: the pass
-    # deletes the quarantine when it closes, so a directory that already holds
-    # files is refused rather than emptied
-    occupied = tmp_path / "occupied"
-    occupied.mkdir()
-    (occupied / "someone-elses.txt").write_text("not ours\n")
-    with pytest.raises(ew.EvWidenError) as exc:
-        with ew.parity_feasibility_pass(occupied):
-            pass
-    assert "somebody else's" in str(exc.value)
-    assert (occupied / "someone-elses.txt").exists()
-
-    # (4) `dc_native` only — the surface list is the parity oracle and nothing
-    # else, so no treated arm can be produced inside the pass
-    assert ew.FEASIBILITY_SURFACES == ("epl.evwiden.ParityRunner",)
-
-    with ew.parity_feasibility_pass(outside, note="NEW-B6 feasibility") as out:
-        # the pass unlocks the parity oracle at its own quarantine...
-        assert ew._feasibility_permits("epl.evwiden.ParityRunner",
-                                       outside / "cells") is True
-        # ...and NOTHING else, at no directory
-        for where in ("epl.evwiden.Engine", "epl.evwiden.Engine.fit",
-                      "epl.evwiden.TableRunner", "epl.evwiden.simulate_arm"):
-            assert ew._feasibility_permits(where, outside) is False
-        assert ew._feasibility_permits("epl.evwiden.ParityRunner",
-                                       ew.TABLE_DIR) is False
-        out["seen"] = True
-
-    # (3) once, and the record is what makes it once
-    assert record.exists()
-    written = json.loads(record.read_text())
-    assert written["pass"] == ew.FEASIBILITY_PASS_NAME
-    assert written["arm"] == ew.TABLE_ARM_LABEL == "dc_native"
-    assert "no delta" in written["carries"] and "no estimand" in written["carries"]
-
-    # (7) AND THE PASS THAT PRICED NOTHING IS NOT A COMPLETED PASS. The review's
-    # P5-B1: "an empty body under `parity_feasibility_pass` exits normally and is
-    # stamped `completed: true`; no 35-cell census, no protected runner call, no
-    # output validation. This alone makes its result unusable as feasibility
-    # evidence." The body above recorded no census, so:
-    assert written["completed"] is False
-    assert written["cells_attempted"] == 0
-    assert "priced" in written["error"] and "thirty-five" in written["error"]
-    assert written["feasible"] is False
-
-    with pytest.raises(ew.EvWidenError) as exc:
-        with ew.parity_feasibility_pass(outside, note="again"):
-            pass
-    assert "a second time" in str(exc.value)
-
-    # ...and the flag does not survive the block
-    assert ew._feasibility_permits("epl.evwiden.ParityRunner", outside) is False
-    # ...nor does the quarantine: §8.2's outputs are discarded when it closes
-    assert not outside.exists()
+    The review's P5-B2 found four holes in v2's pass — a mutable permission
+    set, mutable pass state, a forgeable/deletable record, and a runner that
+    carried its permission out of the closed context. Deleting the surface
+    closes all four at once, and this test is what says the surface is gone
+    rather than merely unused."""
+    for gone in ("parity_feasibility_pass", "parity_feasibility_census",
+                 "FEASIBILITY_SURFACES", "_FEASIBILITY", "FEASIBILITY_NOTE",
+                 "FEASIBILITY_ROWS_NAME", "_feasibility_permits"):
+        assert not hasattr(ew, gone), gone
+        assert gone not in ew.__all__
+    assert ew.FEASIBILITY_SURFACE_CLOSED is True
+    # ...and the CLI carries no way to run one
+    source = Path(ew.__file__).read_text()
+    assert "--parity-feasibility" not in source.replace(
+        "#: `--parity-feasibility`, no", "")
+    assert "--quarantine" not in source
+    # PRE_FREEZE_RUNS is six, all read-only; pass 7 is HISTORY and separate
+    assert len(ew.PRE_FREEZE_RUNS) == 6
+    assert not any("feasibility" in r.lower() for r in ew.PRE_FREEZE_RUNS)
+    assert len(ew.PRIOR_PASSES) == 1
+    assert "v2 §8.2 pass 7" in ew.PRIOR_PASSES[0]
+    assert "2026-08-28" in ew.PRIOR_PASSES[0]
+    # ...and a ParityRunner has no cached feasibility permission to carry
+    assert not hasattr(ew.ParityRunner, "_under_feasibility")
 
 
-def test_a_crashing_feasibility_pass_still_records_what_happened(tmp_path,
-                                                                 monkeypatch):
-    """§8.2 pass 7 exists to find out whether the leg completes, so the case it
-    is FOR is the one where it does not. The record is written either way."""
-    record = tmp_path / "feasibility.json"
-    monkeypatch.setattr(ew, "FEASIBILITY_RECORD", record)
-    with pytest.raises(RuntimeError):
-        with ew.parity_feasibility_pass(tmp_path / "q", note="n"):
-            raise RuntimeError("ExcludedMassTooLarge at 2019/20 MW0")
-    written = json.loads(record.read_text())
-    assert written["completed"] is False
-    assert "ExcludedMassTooLarge" in written["error"]
+def _census_record(**over):
+    """§0.6's record, as `feasibility_status` has to read it. Literal values."""
+    priceable = [k for k in ew._v3_priceable_keys()]
+    rec = {"schema": "epl-evwiden-2", "completed": True, "feasible": False,
+           "cells_expected": 35, "cells_attempted": 35, "error": None,
+           "arm": "dc_native", "priceable": priceable,
+           "unpriceable": [{"key": k,
+                            "refusal_kind": "excluded_mass_ceiling"}
+                           for k in ew.EXCLUDED_CELLS],
+           "n_unpriceable": 3}
+    rec.update(over)
+    return rec
 
 
-class _FeasibilityStub:
-    """A `ParityRunner` that prices some cells and refuses others.
-
-    It fits nothing: §8.2 pass 7 has not been run, and a test that ran it would
-    BE the pass. What is under test is the harness's per-cell contract — the one
-    `run_retro` fixes — and the census that comes out of it.
-    """
-
-    def __init__(self, refusals, *a, **k):
-        self.refusals = dict(refusals)
-        self.calls: list[str] = []
-
-    def __call__(self, cell):
-        key = f"{cell['season']}|{cell['cutoff_label']}"
-        self.calls.append(key)
-        if key in self.refusals:
-            raise self.refusals[key]
-        return {"key": key, "substantive_digest": f"sub-{key}",
-                "wall_seconds": 0.01}
+def _plant_census(tmp_path, monkeypatch, rec, *, bind=True):
+    """Write a census record and (by default) re-pin the digest onto it."""
+    path = tmp_path / "evwiden_parity_feasibility.json"
+    path.write_text(json.dumps(rec, indent=2))
+    monkeypatch.setattr(ew, "FEASIBILITY_RECORD", path)
+    if bind:
+        raw = path.read_bytes()
+        monkeypatch.setattr(ew, "FEASIBILITY_SHA256",
+                            __import__("hashlib").sha256(raw).hexdigest())
+        monkeypatch.setattr(ew, "FEASIBILITY_BYTES", len(raw))
+    return path
 
 
 @pinned
-def test_the_feasibility_pass_enumerates_all_thirty_five_and_continues(
-        tmp_path, monkeypatch):
-    """§8.2 pass 7 in ENUMERATION form: "every cell is attempted, under a
-    per-cell catch that is the protected retrospective's own contract".
-
-    `run_retro` (`epl/simretro.py:1122-1138`) types the exception, writes a typed
-    refusal and CONTINUES; the census is the product, and a pass that stopped at
-    2019/20 MW0 would answer "does cell 1 price?" when the question is "which of
-    the thirty-five do". The three cells refused here are the three the record
-    already names — §8.1's two crashes and the protected ledger's own typed
-    markers — at the excluded masses `reports/epl_sim_retro_v1_1.md` measured.
-    """
-    from epl import particles, simretro
-
-    record = tmp_path / "feasibility.json"
-    monkeypatch.setattr(ew, "FEASIBILITY_RECORD", record)
-    refusals = {
-        "2019/20|MW0": particles.ExcludedMassTooLarge(
-            "man_city v sheffield_united: the 10-goal truncation excludes a "
-            "particle-mean 0.0234 of the probability mass, over the 0.02 "
-            "ceiling pre-stated in amendment A1."),
-        "2020/21|MW0": particles.ExcludedMassTooLarge(
-            "man_city v leeds: the 10-goal truncation excludes a particle-mean "
-            "0.0216 of the probability mass, over the 0.02 ceiling."),
-        "2023/24|MW3": particles.ExcludedMassTooLarge(
-            "man_city v luton: the 10-goal truncation excludes a particle-mean "
-            "0.0328 of the probability mass, over the 0.02 ceiling."),
-    }
-    stubs: list[_FeasibilityStub] = []
-
-    def _runner(*a, **k):
-        stubs.append(_FeasibilityStub(refusals))
-        return stubs[-1]
-
-    monkeypatch.setattr(ew, "ParityRunner", _runner)
-    quarantine = tmp_path / "quarantine"
-    out = ew.parity_feasibility_census(quarantine, verbose=False)
-
-    # ALL THIRTY-FIVE were attempted, in one pass, and the refusals continued
-    assert len(stubs[0].calls) == ew.EXPECTED_TABLE_CELLS == 35
-    assert out["cells_attempted"] == 35 == out["cells_expected"]
-    assert out["completed"] is True and out["error"] is None
-    assert len(out["census"]) == 35
-    assert stubs[0].calls[0] == "2019/20|MW0"        # the cell both crashes hit
-
-    # THE PRODUCT IS THE CENSUS: priceable against unpriceable, with each
-    # excluded mass
-    assert len(out["priceable"]) == 32 and out["n_unpriceable"] == 3
-    by_key = {u["key"]: u for u in out["unpriceable"]}
-    assert sorted(by_key) == ["2019/20|MW0", "2020/21|MW0", "2023/24|MW3"]
-    assert by_key["2019/20|MW0"]["excluded_mass"] == 0.0234
-    assert by_key["2020/21|MW0"]["excluded_mass"] == 0.0216
-    assert by_key["2023/24|MW3"]["excluded_mass"] == 0.0328
-    assert by_key["2023/24|MW3"]["fixture"] == "man_city v luton"
-    assert {u["refusal_kind"] for u in out["unpriceable"]} == {
-        "excluded_mass_ceiling"}
-    assert "excluded_mass_ceiling" in simretro.REFUSAL_KINDS
-
-    # ...and §8.2's pre-ruling travels with it: ANY unpriceable cell is enough
-    assert out["feasible"] is False
-    assert "NEW preregistration (v3)" in out["ruling"]
-    assert "never a quiet narrowing" in out["ruling"]
-
-    # ...and the outputs are discarded after the census is recorded
-    assert not quarantine.exists()
-
-
-@pinned
-def test_the_feasibility_census_is_feasible_only_when_every_cell_prices(
-        tmp_path, monkeypatch):
-    """The other outcome, ruled in advance by the same clause."""
-    record = tmp_path / "feasibility.json"
-    monkeypatch.setattr(ew, "FEASIBILITY_RECORD", record)
-    monkeypatch.setattr(ew, "ParityRunner",
-                        lambda *a, **k: _FeasibilityStub({}))
-    out = ew.parity_feasibility_census(tmp_path / "q", verbose=False)
-    assert out["completed"] is True and out["feasible"] is True
-    assert out["n_unpriceable"] == 0 and len(out["priceable"]) == 35
-
-
-@pinned
-def test_an_untyped_failure_is_recorded_and_then_raised(tmp_path, monkeypatch):
-    """`run_retro`'s contract, exactly: `runner_error` "anything else — marked,
-    then RAISED" (`epl/simretro.py:125-129`, `1130-1136`). An untyped failure is
-    not a capability finding about the shipped model, and a census that swallowed
-    one would report a feasibility verdict about a bug."""
-    record = tmp_path / "feasibility.json"
-    monkeypatch.setattr(ew, "FEASIBILITY_RECORD", record)
-    boom = {"2019/20|MW0": ZeroDivisionError("not a capability limit")}
-    monkeypatch.setattr(ew, "ParityRunner",
-                        lambda *a, **k: _FeasibilityStub(boom))
-    with pytest.raises(ZeroDivisionError):
-        ew.parity_feasibility_census(tmp_path / "q", verbose=False)
-    written = json.loads(record.read_text())
-    assert written["completed"] is False
-    assert written["cells_attempted"] == 1
-    assert written["census"][0]["refusal_kind"] == "runner_error"
-    assert written["census"][0]["priceable"] is False
-
-
-@pytest.mark.skipif(not PREREG.exists(), reason="the preregistration is absent")
-def test_the_document_and_the_harness_agree_on_pass_seven():
-    """§8.2 pass 7 is law before it is code, and the two say the same thing."""
-    text = PREREG.read_text()
-    # the ENUMERATION form, and the protected contract it borrows
-    assert "the enumeration, not the first\n> refusal" in text
-    assert "`run_retro`" in text and "excluded_mass_ceiling" in text
-    assert "continues to the\n> next cell" in text
-    assert "`runner_error`, which is recorded and then\n> RAISED" in text
-    # the command, the record, and the one thing that survives
-    assert "--parity-feasibility" in text
-    assert ew.paths.rel(ew.FEASIBILITY_RECORD) in text
-    assert "The product is the census" in text
-    # §8.2's pre-ruling, unchanged: ANY unpriceable cell ends v2 as written
-    assert "NEW preregistration (v3)" in text
-    assert "one is enough" in text
-    # ...and the ruling is mechanical where it decides: the block refuses
-    assert "refuses to render at all** over a record" in text
-    assert "or while §8.2 pass 7's record says its census is incomplete or" in text
-    # ...and §8.9 records the CENSUS the pass produced on 2026-08-28, which is
-    # the fact now. The three cells and the three masses are the census itself,
-    # and they are exactly the three §8.2 named as candidates before the pass.
-    assert "§8.2 pass 7 EXECUTED, once" in text
-    for cell, mass in (("2019/20 MW0", "0.0234"), ("2020/21 MW0", "0.0216"),
-                       ("2023/24 MW3", "0.0328")):
-        assert cell in text and mass in text
-    assert "cannot be run as\nwritten" in text
-    # `data/` is gitignored, so the record itself may or may not be in a given
-    # checkout — but where it IS, it must say what §8.9 says it says, and the
-    # document may not drift away from the file it reports.
+def test_the_census_record_is_read_and_checked_never_trusted(tmp_path,
+                                                             monkeypatch):
+    """v3 §0.1: the record is a PIN, not a citation. §8.3 binds its digest into
+    the freeze block "because a scope that rests on an unhashed local file
+    rests on nothing"."""
+    _plant_census(tmp_path, monkeypatch, _census_record())
     status = ew.feasibility_status()
-    if status["ran"]:
-        assert status["completed"] is True and status["feasible"] is False
-        assert sorted(u["key"] for u in status["unpriceable"]) == [
-            "2019/20|MW0", "2020/21|MW0", "2023/24|MW3"]
-        assert all(u["refusal_kind"] == "excluded_mass_ceiling"
-                   for u in status["unpriceable"])
+    assert status["ok"] is True and status["present"] is True
+    assert status["n_priceable"] == 32 and status["n_unpriceable"] == 3
+    assert status["unpriceable"] == sorted(ew.EXCLUDED_CELLS)
+    assert ew.assert_feasibility_permits_a_freeze()["ok"] is True
 
 
-def test_the_freeze_block_refuses_over_a_census_that_answered_the_question(
-        tmp_path, monkeypatch):
-    """§8.2's pre-ruling, mechanical at the one place it decides anything, and
-    the review's P5-B4: "`freeze_block` never checks `FEASIBILITY_RECORD`, and
-    the feasibility context refuses to open after the freeze, so freezing first
-    permanently forecloses the question."
+@pinned
+def test_a_census_that_is_not_the_census_scopes_nothing(tmp_path, monkeypatch):
+    """v3 §8.3, and the condition INVERTS from v2's.
 
-    It does not force the pass to have run — §8.2 and §8.9 say in words that
-    someone must, and the freeze is a human act. What it refuses is a freeze
-    block rendered over a census that has ALREADY said a mandatory leg cannot be
-    executed.
+    > v2's block refused over an *infeasible* census, which was the right
+    > refusal for a document claiming thirty-five. This document claims
+    > thirty-two **because** three cells are unpriceable, so the condition
+    > inverts: the block refuses unless the record says exactly that, cell for
+    > cell. A census that suddenly prices all thirty-five is as much a refusal
+    > as one that prices thirty-one.
     """
-    record = tmp_path / "feasibility.json"
-    monkeypatch.setattr(ew, "FEASIBILITY_RECORD", record)
-
-    # absent: the enumeration says so, and nothing is refused for it
-    assert ew.feasibility_status() == {"ran": False,
-                                       "why": ew.FEASIBILITY_NOT_RUN}
-    assert ew.assert_feasibility_permits_a_freeze()["ran"] is False
-
-    # ran and did not price all thirty-five: establishes nothing
-    record.write_text(json.dumps({"completed": False, "feasible": False,
-                                  "cells_attempted": 1, "cells_expected": 35,
-                                  "unpriceable": []}))
-    with pytest.raises(ew.EvWidenError) as exc:
+    # (a) absent
+    monkeypatch.setattr(ew, "FEASIBILITY_RECORD",
+                        tmp_path / "nothing-here.json")
+    assert ew.feasibility_status()["ok"] is False
+    with pytest.raises(ew.FeasibilityRecordMismatch) as exc:
         ew.assert_feasibility_permits_a_freeze()
-    assert "RAN AND DID NOT COMPLETE" in str(exc.value)
+    assert ew.FEASIBILITY_ABSENT in str(exc.value)
 
-    # complete, and one cell unpriceable — one is enough
-    record.write_text(json.dumps({
-        "completed": True, "feasible": False, "cells_attempted": 35,
-        "cells_expected": 35,
-        "unpriceable": [{"key": "2019/20|MW0", "excluded_mass": 0.0234}]}))
-    with pytest.raises(ew.EvWidenError) as exc:
+    # (b) present but not the pinned bytes — the digest is the whole point
+    path = _plant_census(tmp_path, monkeypatch, _census_record(), bind=False)
+    monkeypatch.setattr(ew, "FEASIBILITY_SHA256", "0" * 64)
+    monkeypatch.setattr(ew, "FEASIBILITY_BYTES", path.stat().st_size)
+    with pytest.raises(ew.FeasibilityRecordMismatch) as exc:
         ew.assert_feasibility_permits_a_freeze()
-    assert "NEW preregistration (v3)" in str(exc.value)
-    assert "2019/20|MW0" in str(exc.value)
+    assert "digest" in str(exc.value)
 
-    # complete and feasible: the block may render, and the enumeration STATES
-    # the census rather than the sentence that was true before the pass
-    record.write_text(json.dumps({"completed": True, "feasible": True,
-                                  "cells_attempted": 35, "cells_expected": 35,
-                                  "unpriceable": []}))
-    status = ew.assert_feasibility_permits_a_freeze()
-    assert status["completed"] is True and status["feasible"] is True
+    # (c) did not complete
+    _plant_census(tmp_path, monkeypatch,
+                  _census_record(completed=False, cells_attempted=12))
+    with pytest.raises(ew.FeasibilityRecordMismatch) as exc:
+        ew.assert_feasibility_permits_a_freeze()
+    assert "did NOT complete" in str(exc.value)
+
+    # (d) ALL THIRTY-FIVE priced — v2's block would have been delighted; v3
+    #     refuses, because this document is scoped to 32 by measurement
+    every = [f"{s}|{lab}" for s in __import__(
+        "epl.simretro", fromlist=["x"]).SEASONS
+        for lab in __import__("epl.simretro", fromlist=["x"]).COMPARISON_CUTOFFS]
+    _plant_census(tmp_path, monkeypatch,
+                  _census_record(feasible=True, priceable=every,
+                                 unpriceable=[], n_unpriceable=0))
+    with pytest.raises(ew.FeasibilityRecordMismatch) as exc:
+        ew.assert_feasibility_permits_a_freeze()
+    assert "35 priceable" in str(exc.value)
+
+    # (e) one cell short of the 32
+    _plant_census(tmp_path, monkeypatch,
+                  _census_record(priceable=ew._v3_priceable_keys()[:-1]))
+    with pytest.raises(ew.FeasibilityRecordMismatch):
+        ew.assert_feasibility_permits_a_freeze()
+
+
+@pinned
+def test_the_freeze_block_binds_the_census_digest_and_refuses_without_it(
+        tmp_path, monkeypatch):
+    """v3 §8.3: the block carries "the SHA-256 and byte size of §0.6's
+    feasibility census record", and refuses to render while the record is not
+    the record."""
+    monkeypatch.setattr(ew, "FEASIBILITY_RECORD", tmp_path / "gone.json")
+    with pytest.raises(ew.FeasibilityRecordMismatch):
+        ew.freeze_block()
     assert "assert_feasibility_permits_a_freeze" in ew._calls_made(
         ew.freeze_block)
 
 
-def test_the_feasibility_pass_has_a_command_that_needs_its_quarantine():
-    """§8.2: the pass is executable by one command, and the command takes the
-    quarantine and nothing else — no cell list, no runner, no store, no seed and
-    no count. The review's P5-B2: "there is NO CLI action that executes pass 7"."""
-    import inspect
-
-    assert ew.main(["--parity-feasibility"]) == 2
-    source = inspect.getsource(ew.main)
-    assert "parity_feasibility_census(args.quarantine)" in source
-    # ...and the census function itself takes the quarantine and a verbosity flag
-    assert list(inspect.signature(
-        ew.parity_feasibility_census).parameters) == ["quarantine", "verbose"]
-
+def test_the_document_and_the_harness_agree_on_the_census():
+    """v3 §0.6's table is the harness's constants, and the three excluded cells
+    are named in both with the same fixtures and the same measured masses."""
+    if not PREREG_V3.exists():
+        pytest.skip("the preregistration is committed on the machine that "
+                    "wrote it")
+    text = PREREG_V3.read_text()
+    for key in ew.EXCLUDED_CELLS:
+        season, label = key.split("|")
+        detail = ew.EXCLUDED_CELL_DETAIL[key]
+        assert f"{season} {label}" in text, key
+        assert detail["fixture"] in text, key
+        assert str(detail["excluded_mass"]) in text, key
+    assert ew.FEASIBILITY_SHA256 in text
+    assert f"{ew.FEASIBILITY_BYTES:,}" in text
+    # ...and the census table's own numerals
+    for numeral in ("32 priceable", "15 treated", "17 untouched"):
+        assert numeral in text, numeral
 
 # ==========================================================================
 # §5.4 — the joint draw, and the de-paired one it must disagree with
@@ -6722,3 +6618,161 @@ def test_a_deciding_tally_with_no_recorded_digest_is_refused(tmp_path):
         with pytest.raises(ew.TableMCImprecise) as exc:
             ew.load_tallies(ledger, unbound)
         assert "records no `tally_sha256`" in str(exc.value)
+
+
+# --------------------------------------------------------------------------
+# v3 — the census the stack can actually price, and the law written against it
+#
+# `reports/epl_widening_prereg_v3.md` supersedes v2, which its own §8.2 pass 7
+# measured as unrunnable: three of its thirty-five mandatory parity cells
+# refuse on `epl.particles.ExcludedMassTooLarge` against amendment A1's 0.02
+# ceiling. These tests hold the harness to v3's §0.6 census and to the
+# residual-list rulings v3 made law.
+# --------------------------------------------------------------------------
+
+PREREG_V3 = Path("reports/epl_widening_prereg_v3.md")
+PREREG_V2 = Path("reports/epl_widening_prereg_v2.md")
+
+
+def test_v3_is_the_sole_law_and_v2_is_lineage():
+    """§8.1: v3 supersedes v2; v2 "is retained as lineage and decides
+    nothing". The freeze guard reads ONE source (§8.6 condition (1)) and it is
+    v3 — a guard that read v2's block would bind this run to a document its own
+    closing note says cannot be run as written."""
+    assert ew.PREREG_PATH.name == "epl_widening_prereg_v3.md"
+    assert ew.SCHEMA_ID == "epl-evwiden-3"
+    assert ew.PREREG_V2_PATH.name == "epl_widening_prereg_v2.md"
+    assert ew.PREREG_V1_PATH.name == "epl_widening_prereg.md"
+    # ...and no second source is accepted, in either direction
+    for other in (ew.PREREG_V2_PATH, ew.PREREG_V1_PATH, ew.AMENDMENTS_PATH):
+        with pytest.raises(ew.EvWidenError):
+            ew.harness_freeze_status([other])
+        with pytest.raises(ew.EvWidenError):
+            ew.harness_freeze_status([ew.PREREG_PATH, other])
+
+
+def test_the_census_constants_are_v3s_and_not_v2s():
+    """§0.6's table, transplanted: 32 cells, 15 treated, 17 untouched, and the
+    per-label CELL census v2 never needed because its labels held seven each."""
+    assert ew.EXPECTED_TABLE_CELLS == 32
+    assert ew.EXPECTED_TABLE_TREATED == 15
+    assert ew.EXPECTED_TABLE_UNTOUCHED == 17
+    assert ew.EXPECTED_TREATED_BY_LABEL == {
+        "MW0": 2, "MW3": 2, "MW6": 7, "MW10": 4, "MW19": 0}
+    assert ew.EXPECTED_CELLS_BY_LABEL == {
+        "MW0": 5, "MW3": 6, "MW6": 7, "MW10": 7, "MW19": 7}
+    assert sum(ew.EXPECTED_CELLS_BY_LABEL.values()) == ew.EXPECTED_TABLE_CELLS
+    assert sum(ew.EXPECTED_TREATED_BY_LABEL.values()) == \
+        ew.EXPECTED_TABLE_TREATED
+    # MW6 is all-treated and is the ONLY all-treated label — §4.1's ground
+    all_treated = [lab for lab, n in ew.EXPECTED_TREATED_BY_LABEL.items()
+                   if n == ew.EXPECTED_CELLS_BY_LABEL[lab]]
+    assert all_treated == ["MW6"]
+
+
+def test_the_three_unpriceable_cells_are_named_by_key_with_their_masses():
+    """§0.6: "the three excluded cells are excluded by measurement and by
+    nothing else... named here, named in §3.3, named in the freeze block, and
+    named in §10". A caller cannot name, reach or restore them."""
+    assert ew.EXCLUDED_CELLS == ("2019/20|MW0", "2020/21|MW0", "2023/24|MW3")
+    assert ew.EXCLUDED_CELL_DETAIL["2019/20|MW0"]["fixture"] == \
+        "man_city v sheffield_united"
+    assert ew.EXCLUDED_CELL_DETAIL["2019/20|MW0"]["excluded_mass"] == 0.0234
+    assert ew.EXCLUDED_CELL_DETAIL["2020/21|MW0"]["excluded_mass"] == 0.0216
+    assert ew.EXCLUDED_CELL_DETAIL["2023/24|MW3"]["excluded_mass"] == 0.0328
+    for detail in ew.EXCLUDED_CELL_DETAIL.values():
+        assert detail["refusal_kind"] == "excluded_mass_ceiling"
+        assert detail["ceiling"] == 0.02
+        assert detail["excluded_mass"] > detail["ceiling"]
+
+
+@pinned
+def test_table_cutoffs_excludes_the_three_and_nothing_else():
+    """§3.3: the cells are `SEASONS x COMPARISON_CUTOFFS` minus §0.6's three,
+    and "a thirty-third cell, or a thirty-second that is not one of these
+    thirty-two, is `MembershipMismatch`"."""
+    from epl import baseline, simretro
+
+    matches = baseline.load_matches()
+    cells = ew.table_cutoffs(matches)
+    assert len(cells) == 32
+    keys = {f"{s}|{lab}" for s, lab, _ in cells}
+    assert len(keys) == 32
+    assert keys.isdisjoint(ew.EXCLUDED_CELLS)
+    whole = {f"{s}|{lab}" for s in simretro.SEASONS
+             for lab in simretro.COMPARISON_CUTOFFS}
+    assert whole - keys == set(ew.EXCLUDED_CELLS)
+    by_label = {}
+    for _, lab, _ in cells:
+        by_label[lab] = by_label.get(lab, 0) + 1
+    assert by_label == ew.EXPECTED_CELLS_BY_LABEL
+
+
+def test_the_per_label_CELL_census_is_pinned_beside_the_treated_one():
+    """§3.3: "Both per-label censuses are binding pins". A cell moved between
+    labels keeps 32/15 intact and keeps the TREATED census intact — only the
+    CELL census sees it, and after §0.6 the labels no longer hold seven each,
+    so this pin is load-bearing rather than decorative."""
+    good = _census_cells()
+    assert ew.assert_table_census(good)["PASS"] is True
+
+    # move one UNTREATED cell from MW19 to MW0: 32/15 and the treated census
+    # are all intact, and only EXPECTED_CELLS_BY_LABEL can see it
+    moved = [dict(c) for c in good]
+    for cell in moved:
+        # a season whose MW0 is NOT one of §0.6's exclusions, so the only pin
+        # that can see the move is the per-label CELL census
+        if (cell["cutoff_label"] == "MW19" and not cell["treated_clubs"]
+                and cell["season"] not in ("2019/20", "2020/21")):
+            cell["cutoff_label"] = "MW0"
+            break
+    with pytest.raises(ew.MembershipMismatch) as exc:
+        ew.assert_table_census(moved)
+    assert "per-label cell census" in str(exc.value)
+
+
+def test_a_cell_the_census_excluded_may_not_reappear():
+    """§10: "a cell §0.6's census measured as unpriceable is added back to the
+    oracle" is an invalidation, so the harness refuses it rather than running
+    a thirty-third cell."""
+    with_excluded = _census_cells() + [
+        {"season": "2019/20", "cutoff_label": "MW0", "cutoff": "2019-08-09",
+         "clubs": [], "provisional_incumbent": [], "provisional_enlarged": [],
+         "treated_clubs": [], "evidence": {}}]
+    with pytest.raises(ew.MembershipMismatch) as exc:
+        ew.assert_table_census(with_excluded)
+    assert "2019/20|MW0" in str(exc.value)
+
+
+def _census_cells():
+    """A synthetic 32-cell census carrying §3.3's own two per-label pins.
+
+    Every value is written literally here, per §7.4."""
+    out = []
+    for label, n_cells in ew.EXPECTED_CELLS_BY_LABEL.items():
+        treated = ew.EXPECTED_TREATED_BY_LABEL[label]
+        seasons = [s for s in ("2019/20", "2020/21", "2021/22", "2022/23",
+                               "2023/24", "2024/25", "2025/26")
+                   if f"{s}|{label}" not in ew.EXCLUDED_CELLS]
+        assert len(seasons) == n_cells
+        for i, season in enumerate(seasons):
+            out.append({"season": season, "cutoff_label": label,
+                        "cutoff": "2019-08-09", "clubs": ["a", "b"],
+                        "provisional_incumbent": [],
+                        "provisional_enlarged": ["a"] if i < treated else [],
+                        "treated_clubs": ["a"] if i < treated else [],
+                        "evidence": {"a": 0.0, "b": 60.0}})
+    return out
+
+
+def test_the_manifest_is_49_paths_and_its_tallies_are_the_32():
+    """§9.3: "an exact list of 49 paths", of which 32 are tallies — "the
+    schedule minus the three cells §0.6's census measured as unpriceable"."""
+    assert len(ew.MANIFEST_PATHS) == 49
+    assert len(set(ew.MANIFEST_PATHS)) == 49
+    tallies = [p for p in ew.MANIFEST_PATHS if "/tallies/" in p]
+    assert len(tallies) == 32
+    for key in ew.EXCLUDED_CELLS:
+        season, label = key.split("|")
+        name = f"{season.replace('/', '-')}|{label}.npz"
+        assert not any(p.endswith(name) for p in tallies), key
