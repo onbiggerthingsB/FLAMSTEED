@@ -4101,7 +4101,10 @@ def test_the_freeze_block_enumerates_all_seven_authorised_pre_freeze_passes():
     for marker in ("--membership", "--plan", "--canary --no-results-canary",
                    "pytest epl/tests/test_evwiden.py", "dcfit.fit_epl",
                    "--partial-engine", "--freeze-block", "--power",
-                   "pass 7", "evwiden_parity_feasibility.json", "NOT RUN"):
+                   "pass 7", "evwiden_parity_feasibility.json", "NOT RUN",
+                   # ...and pass 7 is a COMMAND too, in ENUMERATION form: all
+                   # 35 cells under `run_retro`'s own typed per-cell contract
+                   "--parity-feasibility", "ALL 35", "CONTINUE", "CENSUS"):
         assert marker in joined, marker
     assert "TemporaryDirectory" in joined and "paths.STORE_DIR" in joined
     # v1's sixth entry was a RETROSPECTIVE note about a repair round. §8.2
@@ -5877,8 +5880,18 @@ def test_the_feasibility_pass_is_named_quarantined_once_and_dc_native_only(
     written = json.loads(record.read_text())
     assert written["pass"] == ew.FEASIBILITY_PASS_NAME
     assert written["arm"] == ew.TABLE_ARM_LABEL == "dc_native"
-    assert written["completed"] is True and written["error"] is None
     assert "no delta" in written["carries"] and "no estimand" in written["carries"]
+
+    # (7) AND THE PASS THAT PRICED NOTHING IS NOT A COMPLETED PASS. The review's
+    # P5-B1: "an empty body under `parity_feasibility_pass` exits normally and is
+    # stamped `completed: true`; no 35-cell census, no protected runner call, no
+    # output validation. This alone makes its result unusable as feasibility
+    # evidence." The body above recorded no census, so:
+    assert written["completed"] is False
+    assert written["cells_attempted"] == 0
+    assert "priced" in written["error"] and "thirty-five" in written["error"]
+    assert written["feasible"] is False
+
     with pytest.raises(ew.EvWidenError) as exc:
         with ew.parity_feasibility_pass(outside, note="again"):
             pass
@@ -5886,6 +5899,8 @@ def test_the_feasibility_pass_is_named_quarantined_once_and_dc_native_only(
 
     # ...and the flag does not survive the block
     assert ew._feasibility_permits("epl.evwiden.ParityRunner", outside) is False
+    # ...nor does the quarantine: §8.2's outputs are discarded when it closes
+    assert not outside.exists()
 
 
 def test_a_crashing_feasibility_pass_still_records_what_happened(tmp_path,
@@ -5900,6 +5915,163 @@ def test_a_crashing_feasibility_pass_still_records_what_happened(tmp_path,
     written = json.loads(record.read_text())
     assert written["completed"] is False
     assert "ExcludedMassTooLarge" in written["error"]
+
+
+class _FeasibilityStub:
+    """A `ParityRunner` that prices some cells and refuses others.
+
+    It fits nothing: §8.2 pass 7 has not been run, and a test that ran it would
+    BE the pass. What is under test is the harness's per-cell contract — the one
+    `run_retro` fixes — and the census that comes out of it.
+    """
+
+    def __init__(self, refusals, *a, **k):
+        self.refusals = dict(refusals)
+        self.calls: list[str] = []
+
+    def __call__(self, cell):
+        key = f"{cell['season']}|{cell['cutoff_label']}"
+        self.calls.append(key)
+        if key in self.refusals:
+            raise self.refusals[key]
+        return {"key": key, "substantive_digest": f"sub-{key}",
+                "wall_seconds": 0.01}
+
+
+@pinned
+def test_the_feasibility_pass_enumerates_all_thirty_five_and_continues(
+        tmp_path, monkeypatch):
+    """§8.2 pass 7 in ENUMERATION form: "every cell is attempted, under a
+    per-cell catch that is the protected retrospective's own contract".
+
+    `run_retro` (`epl/simretro.py:1122-1138`) types the exception, writes a typed
+    refusal and CONTINUES; the census is the product, and a pass that stopped at
+    2019/20 MW0 would answer "does cell 1 price?" when the question is "which of
+    the thirty-five do". The three cells refused here are the three the record
+    already names — §8.1's two crashes and the protected ledger's own typed
+    markers — at the excluded masses `reports/epl_sim_retro_v1_1.md` measured.
+    """
+    from epl import particles, simretro
+
+    record = tmp_path / "feasibility.json"
+    monkeypatch.setattr(ew, "FEASIBILITY_RECORD", record)
+    refusals = {
+        "2019/20|MW0": particles.ExcludedMassTooLarge(
+            "man_city v sheffield_united: the 10-goal truncation excludes a "
+            "particle-mean 0.0234 of the probability mass, over the 0.02 "
+            "ceiling pre-stated in amendment A1."),
+        "2020/21|MW0": particles.ExcludedMassTooLarge(
+            "man_city v leeds: the 10-goal truncation excludes a particle-mean "
+            "0.0216 of the probability mass, over the 0.02 ceiling."),
+        "2023/24|MW3": particles.ExcludedMassTooLarge(
+            "man_city v luton: the 10-goal truncation excludes a particle-mean "
+            "0.0328 of the probability mass, over the 0.02 ceiling."),
+    }
+    stubs: list[_FeasibilityStub] = []
+
+    def _runner(*a, **k):
+        stubs.append(_FeasibilityStub(refusals))
+        return stubs[-1]
+
+    monkeypatch.setattr(ew, "ParityRunner", _runner)
+    quarantine = tmp_path / "quarantine"
+    out = ew.parity_feasibility_census(quarantine, verbose=False)
+
+    # ALL THIRTY-FIVE were attempted, in one pass, and the refusals continued
+    assert len(stubs[0].calls) == ew.EXPECTED_TABLE_CELLS == 35
+    assert out["cells_attempted"] == 35 == out["cells_expected"]
+    assert out["completed"] is True and out["error"] is None
+    assert len(out["census"]) == 35
+    assert stubs[0].calls[0] == "2019/20|MW0"        # the cell both crashes hit
+
+    # THE PRODUCT IS THE CENSUS: priceable against unpriceable, with each
+    # excluded mass
+    assert len(out["priceable"]) == 32 and out["n_unpriceable"] == 3
+    by_key = {u["key"]: u for u in out["unpriceable"]}
+    assert sorted(by_key) == ["2019/20|MW0", "2020/21|MW0", "2023/24|MW3"]
+    assert by_key["2019/20|MW0"]["excluded_mass"] == 0.0234
+    assert by_key["2020/21|MW0"]["excluded_mass"] == 0.0216
+    assert by_key["2023/24|MW3"]["excluded_mass"] == 0.0328
+    assert by_key["2023/24|MW3"]["fixture"] == "man_city v luton"
+    assert {u["refusal_kind"] for u in out["unpriceable"]} == {
+        "excluded_mass_ceiling"}
+    assert "excluded_mass_ceiling" in simretro.REFUSAL_KINDS
+
+    # ...and §8.2's pre-ruling travels with it: ANY unpriceable cell is enough
+    assert out["feasible"] is False
+    assert "NEW preregistration (v3)" in out["ruling"]
+    assert "never a quiet narrowing" in out["ruling"]
+
+    # ...and the outputs are discarded after the census is recorded
+    assert not quarantine.exists()
+
+
+@pinned
+def test_the_feasibility_census_is_feasible_only_when_every_cell_prices(
+        tmp_path, monkeypatch):
+    """The other outcome, ruled in advance by the same clause."""
+    record = tmp_path / "feasibility.json"
+    monkeypatch.setattr(ew, "FEASIBILITY_RECORD", record)
+    monkeypatch.setattr(ew, "ParityRunner",
+                        lambda *a, **k: _FeasibilityStub({}))
+    out = ew.parity_feasibility_census(tmp_path / "q", verbose=False)
+    assert out["completed"] is True and out["feasible"] is True
+    assert out["n_unpriceable"] == 0 and len(out["priceable"]) == 35
+
+
+@pinned
+def test_an_untyped_failure_is_recorded_and_then_raised(tmp_path, monkeypatch):
+    """`run_retro`'s contract, exactly: `runner_error` "anything else — marked,
+    then RAISED" (`epl/simretro.py:125-129`, `1130-1136`). An untyped failure is
+    not a capability finding about the shipped model, and a census that swallowed
+    one would report a feasibility verdict about a bug."""
+    record = tmp_path / "feasibility.json"
+    monkeypatch.setattr(ew, "FEASIBILITY_RECORD", record)
+    boom = {"2019/20|MW0": ZeroDivisionError("not a capability limit")}
+    monkeypatch.setattr(ew, "ParityRunner",
+                        lambda *a, **k: _FeasibilityStub(boom))
+    with pytest.raises(ZeroDivisionError):
+        ew.parity_feasibility_census(tmp_path / "q", verbose=False)
+    written = json.loads(record.read_text())
+    assert written["completed"] is False
+    assert written["cells_attempted"] == 1
+    assert written["census"][0]["refusal_kind"] == "runner_error"
+    assert written["census"][0]["priceable"] is False
+
+
+@pytest.mark.skipif(not PREREG.exists(), reason="the preregistration is absent")
+def test_the_document_and_the_harness_agree_on_pass_seven():
+    """§8.2 pass 7 is law before it is code, and the two say the same thing."""
+    text = PREREG.read_text()
+    # the ENUMERATION form, and the protected contract it borrows
+    assert "the enumeration, not the first\n> refusal" in text
+    assert "`run_retro`" in text and "excluded_mass_ceiling" in text
+    assert "continues to the\n> next cell" in text
+    assert "`runner_error`, which is recorded and then\n> RAISED" in text
+    # the command, the record, and the one thing that survives
+    assert "--parity-feasibility" in text
+    assert ew.paths.rel(ew.FEASIBILITY_RECORD) in text
+    assert "The product is the census" in text
+    # §8.2's pre-ruling, unchanged: ANY unpriceable cell ends v2 as written
+    assert "NEW preregistration (v3)" in text
+    assert "one is enough" in text
+    # ...and §8.9 records that it has NOT been run, which is the fact
+    assert "IT HAS NOT BEEN EXECUTED" in text
+    assert not ew.FEASIBILITY_RECORD.exists()
+
+
+def test_the_feasibility_pass_has_a_command_that_needs_its_quarantine():
+    """§8.2: the pass is executable by one command, and the command takes the
+    quarantine and nothing else — no cell list, no runner, no store, no seed and
+    no count. The review's P5-B2: "there is NO CLI action that executes pass 7"."""
+    import inspect
+
+    assert ew.main(["--parity-feasibility"]) == 2
+    source = inspect.getsource(ew.main)
+    assert "parity_feasibility_census(args.quarantine)" in source
+    # ...and the census function itself takes the quarantine and a verbosity flag
+    assert list(inspect.signature(
+        ew.parity_feasibility_census).parameters) == ["quarantine", "verbose"]
 
 
 # ==========================================================================

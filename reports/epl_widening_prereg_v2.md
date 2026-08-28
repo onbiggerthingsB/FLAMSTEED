@@ -1815,6 +1815,14 @@ repeat it after the fact. It rules the scope **in advance** instead:
 > produce a treated arm, writes its outputs outside the repository and leaves a
 > record naming itself is a different act, and this document rules it one now
 > rather than later.
+>
+> **"A table cell" in that list means §3.3's cell** — a control arm, a treatment
+> arm and the delta between them. The protected oracle's own `dc_native` rows are
+> that cell's PRECONDITION and not that cell: they carry a `substantive_digest`
+> of the control side and no arm comparison, no delta and no estimand. They are
+> what pass 7 below produces, and pass 7 discards them. This is written here
+> because the exemption has to be read against what the pass actually emits, not
+> against a hope about it.
 
 **This does not reopen v1.** §8.1 stands: v1 was invalidated under its own rule,
 by its own reading, and nothing here restores it. What is ruled is v2's own
@@ -1890,19 +1898,53 @@ exactly two honest options: assume, or find out. It finds out, once, under terms
 written before the pass:
 
 > **The pass.** Protected `epl.simretro.ArchiveRunner` at `dc_native` **only**,
-> over §3.3's 35 cells, executed to whatever point it reaches.
+> over **all thirty-five** of §3.3's cells — **the enumeration, not the first
+> refusal.** Every cell is attempted, under a per-cell catch that is the
+> protected retrospective's own contract and not a wider one: `run_retro`
+> (`epl/simretro.py:1122-1138`) catches the cell's exception, types it through
+> `_refusal_kind` (`epl.particles.ExcludedMassTooLarge` →
+> `excluded_mass_ceiling`; `epl.season.UnverifiedAdjustment` →
+> `unverified_adjustment`), writes a TYPED refusal record and **continues to the
+> next cell**; anything else is `runner_error`, which is recorded and then
+> RAISED. The pass calls that same protected function, so the two contracts
+> cannot drift apart.
 >
-> **Quarantined.** Every output goes to a directory OUTSIDE the repository and is
-> discarded. Nothing is written under `data/`, `reports/` or the repository at
+> **Why the enumeration and not the first crash.** A pass that stops at the
+> first refusal answers "does cell 1 price?", and the question is "which of the
+> thirty-five do". §8.1's two crashes, and `data/epl/sim/retro_r1.jsonl`'s own
+> omissions and typed markers, already name three candidate cells — 2019/20 MW0,
+> 2020/21 MW0 and 2023/24 MW3, at particle-mean excluded masses 0.0234, 0.0216
+> and 0.0328 against the 0.02 ceiling — and neither a v3 nor a re-scoping can be
+> written against a census that stopped at the first of them.
+>
+> **The product is the census, and the census is all that survives.** The
+> complete list of PRICEABLE cells and UNPRICEABLE cells, each unpriceable one
+> with its refusal kind, the fixture the protected code names, and its measured
+> excluded mass. It is recorded in §8.9 when the pass has run.
+>
+> **Quarantined, and then discarded.** Every output — the protected oracle's own
+> `dc_native` parity rows included — goes to a directory OUTSIDE the repository,
+> and the directory is DELETED when the pass closes, after the census has been
+> recorded. Nothing is written under `data/`, `reports/` or the repository at
 > all, with one exception named next.
+>
+> **What those rows are, said exactly.** They are cell-SHAPED: each carries a
+> `substantive_digest` of the protected `dc_native` side, which is precisely what
+> makes them §3.3's precondition. They are **not §3.3's table cells** — a table
+> cell is a control arm, a treatment arm and the delta between them, and there is
+> no treatment book anywhere in this pass, so no arm comparison, no delta and no
+> estimand exists in it. They may not be reused as step 5's oracle either: step 5
+> re-runs the oracle into the preregistered path from the same protected code,
+> and the pass's rows no longer exist by then.
 >
 > **One record.** The pass writes
 > `data/epl/sim/evwiden_parity_feasibility.json`, and that file is the single
 > repository write this section authorises for it. It records the pass's name,
 > why it was opened, the quarantine path, the HEAD commit, the arm (`dc_native`),
-> whether the leg completed, and the refusal if it did not. **It carries no
-> delta, no table cell, no arm comparison and no estimand**, because the pass
-> produces none: there is no treatment book anywhere in it.
+> the CENSUS — every cell, priceable or not, with the refusal kind, fixture and
+> excluded mass of each that is not — whether all thirty-five were attempted, and
+> the resulting feasibility verdict. **It carries no delta, no table cell, no arm
+> comparison and no estimand**, for the reason written above.
 >
 > **Once.** A second pass refuses while that record exists. A second attempt is a
 > new pre-freeze pass and needs its own dated note and its own line in the freeze
@@ -1915,19 +1957,34 @@ written before the pass:
 > oracle's surface and **nothing else** — not `Engine`, not `TableRunner`, not
 > `run_fits`, not the single `leaguesim.simulate` call — so no treated arm and no
 > estimand can be produced inside the pass however it is called.
+>
+> **Executable, by one command, and it cannot report a pass it did not run.**
+> `python -m epl.evwiden --parity-feasibility --quarantine <dir outside the
+> repository>` derives the thirty-five cells itself from the pinned artifacts and
+> takes no cell list, no runner, no store, no anchor, no config, no seed and no
+> count from its caller. The record is stamped `completed: true` **only** when
+> the census it carries covers exactly those thirty-five keys, each once — a body
+> that priced nothing, or priced a subset, is recorded as not completed and
+> establishes nothing.
 
-Under the clock above, this pass does not start §8.7's regime: it cannot produce
-an estimand, a treatment arm, a delta, a table cell or any published number, and
-it is authorised here, by name, before it runs. **As this document stands the
+Under the clock above, this pass does not start §8.7's regime: it produces no
+estimand, no treatment arm, no delta, no §3.3 table cell and no published number
+— only the protected control side's own rows, which are that cell's precondition
+and which the pass deletes — and it is authorised here, by name, before it
+runs. **As this document stands the
 pass has NOT been run** and no such record exists (§8.8).
 
-**What its two outcomes mean, ruled now.** If the leg completes, §3.3's oracle is
-feasible and step 5 proceeds as written. If it crashes at 2019/20 MW0 as the two
-v1 executions did, then a mandatory leg of this experiment cannot be executed on
-the shipped stack, **this preregistration cannot be run as written**, and the
-remedy is a new preregistration whose table leg is scoped to what the protected
-runner can actually do — not a quiet narrowing of the 35 cells here, which §2.4
-and §10 both make an amendment rather than an optimisation.
+**What the census means, ruled now.** If **all thirty-five** cells are
+priceable, §3.3's oracle is feasible and §8.4 step 5 proceeds as written. **If
+any cell is unpriceable — one is enough** — then a mandatory leg of this
+experiment cannot be executed on the shipped stack, **this preregistration
+cannot be run as written**, and the remedy is a NEW preregistration (v3) whose
+table leg is scoped to what the protected runner can actually do. Not a quiet
+narrowing of the 35 cells here: §2.4 and §10 both make that an amendment rather
+than an optimisation, and §3.3's census, §4.1's comparative ground for naming
+MW6 the deciding horizon and §2.4's budget all move with it. The census is the
+document v3 would be written against, which is why this pass enumerates instead
+of stopping.
 
 #### The read-only store accessor — the mechanism, not the promise
 
@@ -2406,18 +2463,24 @@ frozen branch, no freeze block had ever been committed, so `_frozen_now()` was
 byte-untouched throughout. The file was inert under this document (§8.6's record
 lives at a different path, `data/epl/fit/evwiden_first_real_fit.json`), and it has
 been **deleted**, with the deletion and its reasoning recorded in the dated note
-of §8.9. The isolation hole is closed: `epl/tests/test_evwiden.py` carries an
-autouse fixture that asserts the preregistered directories are untouched across
-the whole suite, so a test that writes into one fails at the test rather than
-being found by an audit.
+of §8.9. The isolation hole is closed as far as a fixture can close it:
+`epl/tests/test_evwiden.py` carries an autouse fixture that snapshots the
+preregistered paths before and after **every test in that module** and fails the
+test that moved one, so this class of artifact is found at the test that creates
+it rather than by a later audit. It is function-scoped, and the review is right
+that a function-scoped fixture cannot speak for import-time, collection-time,
+session-fixture, subprocess or crash-time writes; what it establishes is that no
+test body in the module writes there.
 
 *One file may appear, and it is not a fit either.* If §8.2's pass 7 — the
 `dc_native` parity feasibility pass — is executed before the freeze, its single
 record lands at `data/epl/sim/evwiden_parity_feasibility.json`, which the sentence
 above would otherwise deny. That record is the one file this attestation excepts,
 it is authorised by name in §8.2 and enumerated in §8.3's freeze block, and it
-carries no delta, no table cell, no arm comparison and no estimand. **As this
-document stands the pass has not been run and no such file exists.**
+carries the census and no delta, no table cell, no arm comparison and no
+estimand. The pass's own outputs — the protected oracle's `dc_native` parity
+rows — are written outside the repository and deleted when the pass closes.
+**As this document stands the pass has not been run and no such file exists.**
 
 **This attestation is made WITH the two v1 fits of §8.1 on the record and named
 inside it:** two real ADVI fits through protected `epl.simretro.ArchiveRunner`
@@ -2458,15 +2521,33 @@ record lives at `data/epl/fit/evwiden_first_real_fit.json`.
 *Handled, in this order:* the isolation hole was closed first —
 `epl/tests/test_evwiden.py` now carries an autouse fixture asserting that
 `data/epl/fit/evwiden*`, `data/epl/sim/evwiden*` and the sequence directory are
-untouched by any test in the suite, so this class of artifact fails at the test
-that creates it; then the file was deleted; then this note was written. §8.8's
-attestation is true as it stands, and it says what was there and why.
+untouched around **every test in that module**, so this class of artifact fails
+at the test that creates it; then the file was deleted; then this note was
+written. The fixture is function-scoped and does not cover import-time,
+collection-time, session-fixture, subprocess or crash-time writes, and this note
+does not claim it does. §8.8's attestation is true as it stands, and it says what
+was there and why.
 
-**2026-08-28 — §8.2 pass 7 authorised, not run.** The `dc_native` parity
-feasibility pass is authorised prospectively by §8.2 in response to the review's
-NEW-B6 and the investigator's REAL-REGRESSION verdict on it. It has not been
-executed; if it is, its record and its outcome are noted here before the freeze
-commit, and §8.2 already rules what each outcome means.
+**2026-08-28 — §8.2 pass 7 authorised in ENUMERATION form, not run.** The
+`dc_native` parity feasibility pass is authorised prospectively by §8.2 in
+response to the review's NEW-B6 and the investigator's REAL-REGRESSION verdict on
+it. It was first written as a pass "executed to whatever point it reaches", which
+the closure review answered on four grounds — an empty body could be stamped
+completed, the authority and the evidence were unconfined, the no-fit exemption
+rested on a false claim about the pass's outputs, and nothing made the census a
+precondition of anything. It is rewritten here, before the freeze and before the
+pass, as an ENUMERATION: all thirty-five cells, a per-cell catch that is
+`run_retro`'s own typed contract, and a census as the product. Its runner is
+`epl.evwiden.parity_feasibility_census` and its command is
+`python -m epl.evwiden --parity-feasibility --quarantine <dir outside the
+repository>`.
+
+**IT HAS NOT BEEN EXECUTED.** No `data/epl/sim/evwiden_parity_feasibility.json`
+exists. When it is run, its census — every one of the 35 cells, priceable or not,
+each unpriceable one with its refusal kind, its fixture and its measured excluded
+mass — is recorded HERE, before the freeze commit, and §8.2 already rules what it
+means: all thirty-five priceable, or this preregistration cannot be run as
+written and the remedy is v3.
 
 ---
 
