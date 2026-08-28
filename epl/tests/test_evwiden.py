@@ -2287,7 +2287,7 @@ def test_the_substantive_digest_binds_the_whole_plan_state():
     tallies = ew.particle_tallies(run)
     kw = dict(weights=[1.0, 1.0], boundaries=run.plan.boundaries,
               realised_hash="r", realised_positions=[1, 2, 3],
-              realised_points=[40, 30, 20], effective_posterior_hash="book")
+              realised_points=[40, 30, 20])
     base = ew.substantive_digest(run, tallies, **kw)
 
     state = ew.plan_state(run)
@@ -2302,8 +2302,54 @@ def test_the_substantive_digest_binds_the_whole_plan_state():
         setattr(run.plan, field, value)
         assert ew.substantive_digest(run, ew.particle_tallies(run),
                                      **kw) != base, field
-    # ...and the provisional set is NOT in it — that is R2-B4(a)'s repair
+    # ...and the provisional set is NOT in it — that is the digest split
     assert "provisional" not in ew.plan_state(_FakeRun())
+
+
+def test_the_substantive_digest_excludes_the_effective_posterior_hash():
+    """§3.3, and the reason is arithmetic rather than taste.
+
+    > **Why `effective_posterior_hash` is excluded from the payload.** It is
+    > supplied as `ParticleBook.content_hash()`, and `content_hash` hashes
+    > `sorted(self.provisional)` (`epl/particles.py:331-358`). Embedding it
+    > would re-admit the provisional set into a digest the document says
+    > excludes it — directly contradicting the definition, whatever the
+    > downstream consequence.
+
+    v1 passed it in and listed it as item 8, so the digest that "excludes the
+    provisional set by name" hashed the provisional set at one remove.
+    """
+    import inspect
+
+    from epl import particles
+
+    params = inspect.signature(ew.substantive_digest).parameters
+    assert "effective_posterior_hash" not in params
+
+    # the mechanism, not the claim: content_hash hashes `_meta()`, and `_meta`
+    # carries `sorted(self.provisional)` — which is why embedding the hash
+    # re-admits exactly what the digest's definition excludes
+    assert "_meta()" in inspect.getsource(particles.ParticleBook.content_hash)
+    assert "sorted(self.provisional)" in inspect.getsource(
+        particles.ParticleBook._meta)
+
+    run = _FakeRun()
+    tallies = ew.particle_tallies(run)
+    kw = dict(weights=[1.0, 1.0], boundaries=run.plan.boundaries,
+              realised_hash="r", realised_positions=[1, 2, 3],
+              realised_points=[40, 30, 20])
+    assert ew.substantive_digest(run, tallies, **kw) == \
+        ew.substantive_digest(run, tallies, **kw)
+    # §3.3's replacement: the posterior identity is not discarded, it becomes a
+    # separately-recorded and separately-COMPARED provenance field
+    oracle = {"substantive_digest": "abc", "provisional_teams": ["rich"],
+              "effective_posterior_hash": "book"}
+    assert ew.assert_native_parity("2019/20|MW6", "abc", oracle, ["rich"],
+                                   effective_posterior="book")["PASS"] is True
+    with pytest.raises(ew.TableIdentityBreak) as exc:
+        ew.assert_native_parity("2019/20|MW6", "abc", oracle, ["rich"],
+                                effective_posterior="a different book")
+    assert "effective posterior" in str(exc.value)
 
 
 def test_the_table_runner_calls_protected_simulate_with_its_own_signature():

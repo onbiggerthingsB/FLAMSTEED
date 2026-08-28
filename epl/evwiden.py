@@ -4552,19 +4552,32 @@ def substantive_digest(run, tallies: np.ndarray, *, weights: Sequence[float],
                        boundaries: Sequence[Sequence[int]],
                        realised_hash: str,
                        realised_positions: Sequence[int],
-                       realised_points: Sequence[int],
-                       effective_posterior_hash: str) -> str:
+                       realised_points: Sequence[int]) -> str:
     """EVERYTHING A RERUN MUST REPRODUCE — the parity oracle's comparator.
 
-    R2-B4: ``sampler_digest``'s four items **plus** the club list, the
+    §3.3: ``sampler_digest``'s four items **plus** the club list, the
     consequence weights and the boundary definition, the realised-truth
-    identity, ``effective_posterior_hash`` / ``n_sims`` / ``n_particles`` /
-    ``seed``, and the full :class:`epl.leaguesim.SimPlan` state.
+    identity, ``n_sims`` / ``n_particles`` / ``seed``, and the full
+    :class:`epl.leaguesim.SimPlan` state.
 
-    **Excluded by name:** the arm label, the provisional set, wall clocks, host,
-    shard id, and any free-text note. The provisional set left the digest and
-    became a compared FIELD (R2-B4(a)), which is what lets the treated-cell
-    identity test fail.
+    **Excluded by name:** the arm label, the provisional set,
+    ``effective_posterior_hash``, wall clocks, host, shard id, and any free-text
+    note.
+
+    **Why ``effective_posterior_hash`` is excluded, and it is arithmetic rather
+    than taste.** It is supplied as ``ParticleBook.content_hash()``, and
+    ``content_hash`` hashes ``sorted(self.provisional)``
+    (``epl/particles.py:331-358``). Embedding it would re-admit the provisional
+    set into a digest the document says excludes it — directly contradicting the
+    definition, whatever the downstream consequence. v1 passed it in as item 8,
+    so its digest hashed the provisional set at one remove while its own
+    docstring said it did not.
+
+    The posterior identity is not discarded: it becomes a separately-recorded
+    and separately-compared provenance field on every table row
+    (``effective_posterior_control``, ``effective_posterior_treatment``),
+    checked by :func:`assert_native_parity` the way the provisional sets are.
+    **Metadata is checked as metadata; the sampler is checked by its output.**
     """
     from epl import leaguesim
 
@@ -4580,8 +4593,7 @@ def substantive_digest(run, tallies: np.ndarray, *, weights: Sequence[float],
          [[int(a), int(b)] for a, b in boundaries]],
         [str(realised_hash), [int(p) for p in realised_positions],
          [int(p) for p in realised_points]],
-        [str(effective_posterior_hash), int(run.n_sims), int(run.n_particles),
-         int(run.plan.seed)],
+        [int(run.n_sims), int(run.n_particles), int(run.plan.seed)],
         plan_state(run),
     ]
     return hashlib.sha256(
@@ -4718,8 +4730,7 @@ class TableRunner:
                     run, tally, weights=weights,
                     boundaries=run.plan.boundaries,
                     realised_hash=realised.realised_hash,
-                    realised_positions=positions, realised_points=truth,
-                    effective_posterior_hash=book.content_hash()),
+                    realised_positions=positions, realised_points=truth),
                 "effective_posterior_hash": book.content_hash(),
                 "provisional": sorted(book.provisional),
                 "coverage": simmetrics.interval_coverage(points, truth),
@@ -4937,9 +4948,7 @@ class ParityRunner:
                 boundaries=run.plan.boundaries,
                 realised_hash=realised.realised_hash,
                 realised_positions=realised.position_vector(clubs),
-                realised_points=realised.points_vector(clubs),
-                effective_posterior_hash=result.provenance[
-                    "effective_posterior_hash"]),
+                realised_points=realised.points_vector(clubs)),
             "provisional_teams": sorted(
                 str(t) for t in result.provenance["provisional_teams"]),
             "effective_posterior_hash":
@@ -4999,14 +5008,18 @@ def run_parity_oracle(cells: Sequence[dict[str, Any]],
 
 
 def assert_native_parity(cell_key_: str, new_digest: str, oracle: dict[str, Any],
-                         provisional_control: Sequence[str]) -> dict[str, Any]:
-    """One cell of R-B4's oracle: the new runner's control arm against protected.
+                         provisional_control: Sequence[str], *,
+                         effective_posterior: str | None = None,
+                         ) -> dict[str, Any]:
+    """One cell of §3.3's oracle: the new runner's control arm against protected.
 
     The comparator is the ``substantive_digest``, computed by the SAME harness
     function from the protected runner's ``SimRun`` and from the new runner's
-    control-arm ``SimRun`` (R2-B4(c)). The provisional set — which is outside
-    both digests now — is compared directly against ``ArchiveRunner``'s own
-    ``provenance["provisional_teams"]``.
+    control-arm ``SimRun``. Two things sit OUTSIDE that digest and are therefore
+    compared here, directly, as fields: the provisional set (against
+    ``ArchiveRunner``'s own ``provenance["provisional_teams"]``) and — §3.3's
+    replacement for the excluded payload item — the effective posterior hash.
+    Metadata is checked as metadata; the sampler is checked by its output.
     """
     want = str(oracle["substantive_digest"])
     if str(new_digest) != want:
@@ -5023,10 +5036,23 @@ def assert_native_parity(cell_key_: str, new_digest: str, oracle: dict[str, Any]
     if ours != theirs:
         raise TableIdentityBreak(
             f"{cell_key_}: the control book's provisional set {ours} is not "
-            f"the protected runner's {theirs}. R2-B4 takes the provisional set "
+            f"the protected runner's {theirs}. §3.3 takes the provisional set "
             "out of the digest and compares it as a field, so this is the "
             "check that the control arm IS the incumbent arm.")
-    return {"key": cell_key_, "parity_digest_simretro": want, "PASS": True}
+    their_book = oracle.get("effective_posterior_hash")
+    if effective_posterior is not None and their_book is not None \
+            and str(effective_posterior) != str(their_book):
+        raise TableIdentityBreak(
+            f"{cell_key_}: the control book's effective posterior hashes to "
+            f"{str(effective_posterior)[:12]}… and the protected runner's to "
+            f"{str(their_book)[:12]}…. §3.3 excludes this hash from the "
+            "substantive digest — `ParticleBook.content_hash()` hashes "
+            "`sorted(self.provisional)`, and embedding it would re-admit the "
+            "provisional set into a digest that excludes it — and makes it a "
+            "separately-COMPARED provenance field instead. This is that "
+            "comparison, and it is the reason excluding it costs nothing.")
+    return {"key": cell_key_, "parity_digest_simretro": want,
+            "effective_posterior_simretro": their_book, "PASS": True}
 
 
 def _coverage_for(points: np.ndarray, truth: np.ndarray, clubs: Sequence[str],
@@ -5341,7 +5367,9 @@ def run_table(cells: Sequence[dict[str, Any]],
         # there is no branch here in which a cell publishes a null parity.
         row["parity"] = assert_native_parity(
             ck, row["arms"]["control"]["substantive_digest"], parity[ck],
-            row["provisional_control"])
+            row["provisional_control"],
+            effective_posterior=(row["arms"]["control"]
+                                 .get("effective_posterior_hash")))
         row["parity_digest_simretro"] = parity[ck]["substantive_digest"]
         # §8.7: the tally is written and its digest goes onto the row AT THE
         # SAME MOMENT. A digest computed later is a digest of whatever the file
