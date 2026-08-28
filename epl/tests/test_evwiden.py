@@ -4208,7 +4208,7 @@ def test_the_freeze_needs_a_commit_that_is_an_ancestor_of_head(monkeypatch):
     artifacts: a two-hash-line stand-in is no longer a freeze, and v1's test
     accepted one.
     """
-    block = ew.freeze_block(power=_reproducing_power())
+    block = ew.freeze_block()
     monkeypatch.setattr(ew, "git_committed_bytes", _as_if_committed(block))
     status = ew.harness_freeze_status()
     assert status["frozen"] is True
@@ -5228,27 +5228,27 @@ def test_every_secondary_says_in_its_own_output_that_it_decides_nothing(
 # §6 — the power simulation, committed
 # ==========================================================================
 
-_REAL_POWER: dict = {}
+def test_the_conformance_report_computes_its_own_power_run():
+    """§6.3: "`power_reproduces()` must compare the committed run against this
+    table through the **real** comparison — not a stubbed power object."
 
-
-def _reproducing_power():
-    """The REAL `power` object, from the committed `power_simulation()`.
-
-    §6.3: "`power_reproduces()` must compare the committed run against this
-    table through the **real** comparison — not a stubbed power object — and
-    §8.5's conformance row L16 is that obligation."
-
-    v1's version returned a stub whose rows were `PUBLISHED_POWER` copied back,
-    so its conformance row compared the published numbers with themselves. L16
-    now rejects any object whose rows do not carry the 101-point power curve
-    `power_simulation` computes, which is exactly what that stub lacked. The run
-    is R = 2,000 over six scenarios and costs about twenty seconds, so it is
-    cached for the session rather than stubbed away.
+    This module's own helper used to build that object and hand it to
+    `implementation_report`/`freeze_block`, which is how the in-tree audit's
+    seed (u) got in: a fabricated six-row dict carrying `PUBLISHED_POWER`'s own
+    numbers plus a 101-long dummy curve rendered the §8.3 block in 11.5 s with
+    all eighteen rows green. There is nowhere to hand one now — the parameter is
+    gone from all three — and the comparison's default is
+    `committed_power_run()`, which takes no arguments at all.
     """
-    if "value" not in _REAL_POWER:
-        _REAL_POWER["value"] = ew.power_simulation()
-    return {k: (list(v) if isinstance(v, list) else v)
-            for k, v in _REAL_POWER["value"].items()}
+    import inspect
+
+    assert ew._no_parameter(ew.implementation_report, "power")
+    assert ew._no_parameter(ew.assert_implements_document, "power")
+    assert ew._no_parameter(ew.freeze_block, "power", "pre_freeze_runs")
+    assert not inspect.signature(ew.committed_power_run).parameters
+    # ...and it is the committed simulation, memoised because it is
+    # deterministic at the frozen constants and §8.5 runs it on every render
+    assert "power_simulation()" in inspect.getsource(ew.committed_power_run)
 
 
 def test_the_power_simulation_is_committed_code_at_the_ruled_path():
@@ -5353,7 +5353,8 @@ def test_the_power_simulation_runs_and_carries_its_own_construction(real):
 
 
 @pinned
-def test_the_freeze_block_refuses_while_a_power_number_is_unreproduced():
+def test_the_freeze_block_refuses_while_a_power_number_is_unreproduced(
+        monkeypatch):
     """§8.3: "**`--freeze-block` refuses to render** while the conformance
     report has a red row, while §7.4's ancestry test is absent, or while §6.3's
     table is unreproduced."
@@ -5362,17 +5363,25 @@ def test_the_freeze_block_refuses_while_a_power_number_is_unreproduced():
     the committed `power_simulation()` produces at the frozen constants above,
     and they are the document's numbers", so an unreproduced row is a defect in
     one of the two rather than an occasion for a dated note.
+
+    The break is made in §6.3's PUBLISHED table rather than in a supplied
+    ``power`` object, because there is no longer anywhere to supply one:
+    `freeze_block`, `assert_implements_document` and `implementation_report`
+    took a `power=` parameter, and the in-tree audit rendered this block in
+    11.5 s from a fabricated six-row object with all eighteen rows green — L16
+    among them. The comparison now runs the committed simulation itself, so the
+    only way to make the row red is to make one of the two legs wrong.
     """
-    broken = _reproducing_power()
-    broken["rows"] = list(broken["rows"])
-    broken["rows"][0] = dict(broken["rows"][0], power_at_bar=0.999)
+    published = [dict(r) for r in ew.PUBLISHED_POWER]
+    published[0] = dict(published[0], power_at_bar=0.999)
+    monkeypatch.setattr(ew, "PUBLISHED_POWER", tuple(published))
     with pytest.raises(ew.EvWidenError) as exc:
-        ew.freeze_block(power=broken)
+        ew.freeze_block()
     assert "does not yet implement the document" in str(exc.value)
     assert "the document's numbers" in str(exc.value)
     assert "L16" in str(exc.value)
 
-    report = ew.implementation_report(broken)
+    report = ew.implementation_report()
     assert [r["id"] for r in report if not r["ok"]] == ["L16"]
 
 
@@ -5388,7 +5397,7 @@ def test_the_conformance_report_is_eighteen_behavioural_rows():
     test-function name occurs in working-tree text", "subclass count". And §8.4
     had no row at all, so the frozen sequence was ungraded.
     """
-    report = ew.implementation_report(_reproducing_power())
+    report = ew.implementation_report()
     ids = [r["id"] for r in report]
     assert ids == [f"L{i}" for i in range(1, 19)], ids
     for row in report:
@@ -5504,7 +5513,7 @@ def test_the_freeze_block_is_harness_produced_and_round_trips(tmp_path):
     into a file, must make `harness_freeze_status` say frozen. A hash table the
     freeze checker cannot read is a hash table that freezes nothing.
     """
-    block = ew.freeze_block(power=_reproducing_power())
+    block = ew.freeze_block()
     assert ew.SCHEMA_ID in block
     for name in ew.HARNESS_FILES:
         assert f"`{name}`" in block
@@ -5553,8 +5562,7 @@ def test_the_freeze_block_digests_are_the_membership_digests():
 
     cells = ew.table_cells(baseline.load_matches(), played)
     digests = ew.membership_digests(corpus, played, ledger, table=cells)
-    block = ew.freeze_block(corpus, played, ledger, cells,
-                            power=_reproducing_power())
+    block = ew.freeze_block(corpus, played, ledger, cells)
     for value in digests["digests"].values():
         assert value in block
 
@@ -6027,6 +6035,88 @@ def test_a_failing_results_canary_carries_its_record_on_the_refusal():
     assert exc.value.record["max_abs_diff_before_cutoff"] == 0.5
 
 
+def _failing_canary(monkeypatch, tmp_path, *, frozen: bool):
+    """`--canary` driven to its FAILURE path, with nothing pinned underneath.
+
+    The four real fits are `_run_all_canaries`' business and this is not a test
+    of them: what is under test is the two writes `main` owes §8.4 step 1 before
+    the refusal reaches the process.
+    """
+    failed = {"schema": ew.SCHEMA_ID, "cutoff": "2019-08-09",
+              "results": {"PASS": False,
+                          "max_abs_diff_before_cutoff": 0.5},
+              "PASS": False}
+    exc = ew.CanaryFailed("the results canary moved a fixture before its cutoff")
+    exc.record = failed
+
+    def _boom(*a, **k):
+        raise exc
+
+    monkeypatch.setattr(ew, "_run_all_canaries", _boom)
+    monkeypatch.setattr(ew, "load_corpus", lambda *a, **k: None)
+    monkeypatch.setattr(ew, "load_archive", lambda *a, **k: None)
+    monkeypatch.setattr(ew, "load_walk_ledger", lambda *a, **k: None)
+    monkeypatch.setattr(ew, "_frozen_now", lambda: frozen)
+    monkeypatch.setattr(ew, "read_sequence_marker", lambda step: None)
+    # `main` turns every `EvWidenError` into `STOP: …` and exit code 2 — the
+    # refusal still reaches the process, and the publication has to have
+    # happened before it did.
+    assert ew.main(["--canary", "--dir", str(tmp_path)]) == 2
+
+
+def test_a_failed_canary_publishes_its_record_before_the_refusal_is_raised(
+        tmp_path, monkeypatch):
+    """§8.4 step 1: "`PASS: false` on any leg stops the experiment and **the
+    failure publishes**."
+
+    The in-tree audit's seed (x): deleting `main`'s entire publish-before-raise
+    block left the widening suite at 265 passed, because the only test of the
+    area asserted that the record TRAVELS on the exception and never drove
+    `main`'s failure path at all. A failed canary that leaves no durable
+    artifact can simply be attempted again, which is §4.4's file-drawer channel
+    — and §8.7 forbids repairing a hashed file after the first real fit, so an
+    untested guarantee frozen in cannot be repaired afterwards.
+
+    THIS TEST GOES RED IF THE PUBLICATION IS DELETED: it reads `canary.json`
+    off the disk after the refusal, not the exception.
+    """
+    _failing_canary(monkeypatch, tmp_path, frozen=False)
+    published = json.loads((tmp_path / ew.CANARY_NAME).read_text())
+    assert published["PASS"] is False
+    assert published["results"]["PASS"] is False
+    assert "CanaryFailed" in published["failure"]
+    assert published["results_canary_run"] is True
+    assert published["schema"] == ew.SCHEMA_ID
+
+
+def test_a_failed_canary_marks_step_one_incomplete_before_the_refusal(
+        tmp_path, monkeypatch):
+    """The other half of the same clause, under a freeze: the failure is a
+    DURABLE marker as well as a record, and `require_sequence` refuses on it
+    exactly as it refuses on an absent one — "a failure marker unlocks
+    nothing".
+
+    The marker write is captured rather than performed: §8.4's markers live at
+    one fixed path under `data/epl/fit/evwiden/sequence/`, and this module's
+    autouse fixture holds that tree untouched.
+    """
+    written: list[dict] = []
+    monkeypatch.setattr(
+        ew, "write_sequence_marker",
+        lambda step, *, produced=None, complete=True: written.append(
+            {"step": step, "produced": produced, "complete": complete}))
+    _failing_canary(monkeypatch, tmp_path, frozen=True)
+
+    assert [m["step"] for m in written] == [ew.SEQUENCE_STEPS[0]]
+    marker = written[0]
+    assert marker["complete"] is False
+    assert "CanaryFailed" in marker["produced"]["failure"]
+    # ...and what it names is the record that is ON DISK, by its digest
+    canary = tmp_path / ew.CANARY_NAME
+    assert marker["produced"]["canary"] == ew.paths.rel(canary)
+    assert marker["produced"]["digest"] == ew.sha256_file(canary)
+
+
 def test_the_script_writes_no_launcher_before_the_freeze():
     """§8.2's enumeration is complete and none of its entries writes inside the
     repository; the review found `--script` writing one under `data/` with no
@@ -6052,7 +6142,8 @@ def test_the_freeze_guard_reads_the_committed_conformance_report():
     """
     import inspect
 
-    assert ew._no_parameter(ew.freeze_block, "check_implementation")
+    assert ew._no_parameter(ew.freeze_block, "check_implementation",
+                            "power", "pre_freeze_runs")
     assert "assert_implements_document" in ew._calls_made(ew.freeze_block)
     assert "implementation_report" not in ew._calls_made(ew.freeze_block)
 

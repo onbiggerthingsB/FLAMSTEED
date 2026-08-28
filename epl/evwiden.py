@@ -182,6 +182,7 @@ __all__ = [
     "write_evidence", "verify", "freeze_block", "harness_freeze_status",
     "require_harness_freeze",
     "power_simulation", "power_structure", "power_reproduces",
+    "committed_power_run",
     "bootstrap_shortcut_matches", "implementation_report",
     "assert_implements_document", "assert_may_fit", "evidence_object",
     "assert_manifest_complete", "MANIFEST_PATHS",
@@ -4612,6 +4613,27 @@ def _mde_from_curve(grid: np.ndarray, curve: np.ndarray
                   "than extrapolating")
 
 
+_POWER_RUN: dict[str, Any] = {}
+
+
+def committed_power_run() -> dict[str, Any]:
+    """The committed :func:`power_simulation` at the frozen constants, ONCE.
+
+    §6.3's comparison is against "the numbers the committed `power_simulation()`
+    produces at the frozen constants above", and those constants are frozen, so
+    the run is deterministic: one execution per process is the same object every
+    later call would compute. It is memoised because §8.5's report runs the
+    comparison on every render and a twenty-second simulation repeated for each
+    is a reason to reach for a stub — which is the defect L16 exists to catch.
+
+    It takes no arguments. A caller who could choose the structure, the
+    replicate count or either seed would be choosing the numbers §6.3 publishes.
+    """
+    if "value" not in _POWER_RUN:
+        _POWER_RUN["value"] = power_simulation()
+    return _POWER_RUN["value"]
+
+
 def power_reproduces(power: dict[str, Any] | None = None, *,
                      places: int = 3) -> dict[str, Any]:
     """Does the committed implementation reproduce §6's six published rows?
@@ -4628,8 +4650,17 @@ def power_reproduces(power: dict[str, Any] | None = None, *,
     reads a number this function produced rather than one it hoped the supplied
     object carried — L16's own check was vacuously `all([])` on an absent
     ``rows`` key.
+
+    ``power`` survives for ONE caller — :func:`evidence_object`, which compares
+    the run's own published power object against §6.3 — and **no deciding path
+    supplies it**: :func:`implementation_report`, :func:`assert_implements_document`
+    and :func:`freeze_block` took a ``power=`` parameter and the in-tree audit
+    rendered the §8.3 block in 11.5 s with a fabricated six-row object, all
+    eighteen conformance rows green, L16 among them. The parameter is gone from
+    all three; L16 calls this function with nothing and gets
+    :func:`committed_power_run`.
     """
-    power = power_simulation() if power is None else power
+    power = committed_power_run() if power is None else power
     rows = list(power.get("rows") or ())
     if len(rows) != len(PUBLISHED_POWER):
         return {"schema": SCHEMA_ID, "checks": [], "PASS": False,
@@ -8667,9 +8698,15 @@ def _per_cell_resampled_unanimity(cells: Sequence[dict[str, Any]], *,
     return verdicts
 
 
-def implementation_report(power: dict[str, Any] | None = None,
-                          ) -> list[dict[str, Any]]:
+def implementation_report() -> list[dict[str, Any]]:
     """§8.5's conformance report — **behavioural predicates, not names**.
+
+    **It takes no arguments.** The superseded signature accepted a ``power``
+    object and handed it to :func:`power_reproduces`, so L16 graded whatever the
+    caller supplied: the in-tree audit built a six-row dict carrying
+    ``PUBLISHED_POWER``'s own numbers and a 101-long dummy curve and watched the
+    row go green without a simulation. Every row's evidence is now computed
+    here, from the committed code, or it is not evidence.
 
     > `--freeze-block` requires a green conformance report, and a conformance
     > report is worthless if its rows check that names exist. v1's fourteen rows
@@ -9008,6 +9045,14 @@ def implementation_report(power: dict[str, Any] | None = None,
         l7 = all(_no_parameter(fn, "harness_frozen", "frozen", "freeze",
                                "check_implementation")
                  for fn in surfaces if fn is not merge)
+        # ...and the renderer takes NOTHING it is supposed to compute: the
+        # audit's seed (u) rendered this block over a fabricated power object
+        # and a fabricated pre-freeze enumeration, with all eighteen rows
+        # green. Both parameters are gone, from the renderer and from the two
+        # functions it renders through.
+        l7 = l7 and all(_no_parameter(fn, "power", "pre_freeze_runs")
+                        for fn in (freeze_block, assert_implements_document,
+                                   implementation_report))
         # `merge` keeps the two lifecycle keywords the audit describes, but
         # they are seams now: §8.6's closure refuses them at a preregistered
         # target, and they are unreachable from the CLI.
@@ -9413,7 +9458,7 @@ def implementation_report(power: dict[str, Any] | None = None,
             "must refuse", l15)
 
         # ---- L16: the power table reproduces, through the REAL comparison -
-        reproduced = power_reproduces(power)
+        reproduced = power_reproduces()
         l16 = (bool(reproduced["PASS"])
                and len(reproduced["checks"]) == len(PUBLISHED_POWER)
                # ...and the object compared is a real simulation, not a stub:
@@ -9514,8 +9559,7 @@ def implementation_report(power: dict[str, Any] | None = None,
     return rows
 
 
-def assert_implements_document(power: dict[str, Any] | None = None
-                               ) -> list[dict[str, Any]]:
+def assert_implements_document() -> list[dict[str, Any]]:
     """§8.3 step 2's binding order, enforced: no freeze block before conformance.
 
     "**`--freeze-block` refuses to render** while the conformance report has a
@@ -9524,7 +9568,7 @@ def assert_implements_document(power: dict[str, Any] | None = None
     document freezes the wrong thing, which is the one thing a hash table must
     never do."
     """
-    report = implementation_report(power)
+    report = implementation_report()
     broken = [r for r in report if not r["ok"]]
     if broken:
         detail = "; ".join(f"{r['id']} ({r['section']}): {r['obligation']}"
@@ -9549,8 +9593,7 @@ def freeze_block(corpus: pd.DataFrame | None = None,
                  played: pd.DataFrame | None = None,
                  ledger: dict[str, set[str]] | None = None,
                  table: Sequence[dict[str, Any]] | None = None,
-                 *, pre_freeze_runs: Sequence[str] | None = None,
-                 power: dict[str, Any] | None = None) -> str:
+                 ) -> str:
     """§8.3 step 2's follow-up commit, RENDERED BY THE HARNESS'S OWN CODE.
 
     §8.3 asks that commit for five things: the **harness hash table** ("file,
@@ -9576,16 +9619,25 @@ def freeze_block(corpus: pd.DataFrame | None = None,
     hash table committed over code that does not implement the document freezes
     the wrong thing, which is the one thing a hash table must never do."
 
-    **There is no bypass parameter.** v2's harness carried
-    ``check_implementation=False``, which rendered the block over a red report;
-    the review's NEW-B4 named it, because a bypass-rendered block becomes the
-    committed evidence for its own freeze state. §8.5's precondition is
-    unconditional, so this function consumes the report through
-    :func:`assert_implements_document` and through nothing else.
+    **There is no bypass parameter, and this function computes every input it
+    renders.** v2's harness carried ``check_implementation=False``, which
+    rendered the block over a red report; the review's NEW-B4 named it, so it
+    went — and two survived it. ``power=`` reached
+    :func:`power_reproduces` through the conformance report, and the in-tree
+    audit rendered this block in 11.5 s from a fabricated six-row object with
+    all eighteen rows green, L16 among them. ``pre_freeze_runs=`` replaced §8.3's
+    "enumeration of every pre-freeze pass actually run, complete" with the
+    caller's own string. Both defeat §8.6 condition (5), which reads this
+    block's conformance table back to establish the freeze state: a
+    bypass-rendered block becomes the committed evidence for its own freeze
+    state. §8.5's precondition is unconditional, so this function consumes the
+    report through :func:`assert_implements_document` and through nothing else,
+    the report computes its own power run from :func:`committed_power_run`, and
+    the enumeration is :data:`PRE_FREEZE_RUNS` and cannot be anything else.
 
     This function READS the pinned artifacts and fits nothing.
     """
-    report = assert_implements_document(power)
+    report = assert_implements_document()
     corpus = load_corpus() if corpus is None else corpus
     played = load_archive() if played is None else played
     ledger = load_walk_ledger() if ledger is None else ledger
@@ -9649,7 +9701,7 @@ def freeze_block(corpus: pd.DataFrame | None = None,
         "them able to enter an estimand):",
         "",
     ]
-    for run in (pre_freeze_runs or PRE_FREEZE_RUNS):
+    for run in PRE_FREEZE_RUNS:
         lines.append(f"* {run}")
     lines += [
         "",
