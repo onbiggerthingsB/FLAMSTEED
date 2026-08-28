@@ -3260,6 +3260,53 @@ def _grid_delta(row: dict[str, Any], e_star: float) -> float:
     return rps_arm - float(row["rps_B"])
 
 
+def measured_controls(rows: Sequence[dict[str, Any]], *,
+                      e_star: float = E_STAR) -> dict[str, Any]:
+    """§9.1: the two controls v1 hard-coded, **read off the merged rows**.
+
+    > `controls.untreated_moved` and `controls.predicate_mismatch` must be
+    > **read off the merged rows** — the count of merged rows whose recomputed
+    > provisional set disagreed with the ledger's, and the count of non-treated
+    > merged rows carrying a non-zero delta — not written as
+    > `{n: 0, PASS: true}` constants. Their values are true by construction only
+    > because a refusal stops the run first; **a verdict file that always prints
+    > PASS for a control nobody measured is exactly the shape this document's
+    > own "a test that cannot fail is not a test" objects to.**
+
+    In a run that completed, both counts ARE zero — the refusals stopped
+    anything else long before the merge. The difference is that they are now the
+    answer to a question rather than the question's assumed answer.
+    """
+    moved = [str(r["match_id"]) for r in rows
+             if not bool(r.get("treated")) and float(r.get("delta") or 0.0) != 0.0]
+    mismatched = []
+    for row in rows:
+        fit = row.get("fit") or {}
+        recomputed = fit.get("provisional_incumbent")
+        recorded = fit.get("provisional_ledger")
+        if recomputed is None or recorded is None:
+            continue
+        if sorted(str(t) for t in recomputed) != sorted(str(t) for t in recorded):
+            mismatched.append(str(row.get("cutoff")))
+    return {
+        "untreated_moved": {
+            "n": len(moved), "refusal": "UntreatedMoved",
+            "PASS": not moved, "first": sorted(set(moved))[:5],
+            "measured": "the count of non-treated merged rows carrying a "
+                        "non-zero delta (§9.1), both classes of §2.3's "
+                        "two-sided guard"},
+        "predicate_mismatch": {
+            "n": len(set(mismatched)), "refusal": "PredicateMismatch",
+            "PASS": not mismatched, "first": sorted(set(mismatched))[:5],
+            "measured": "the count of merged rows whose recomputed provisional "
+                        "set disagreed with the ledger's (§9.1)"},
+        "note": ("both are true by construction only because a refusal stops "
+                 "the run first; §9.1 requires them measured rather than "
+                 "asserted, because a control nobody measured always prints "
+                 "PASS"),
+    }
+
+
 def estimand(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
              seed: int = BOOTSTRAP_SEED, e_star: float = E_STAR,
              grid: Sequence[float] = E_GRID,
@@ -3305,18 +3352,41 @@ def estimand(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
     head = _summarise(deltas, blocks, n_boot=n_boot, seed=seed)
     season_ci = _summarise(deltas, seasons, n_boot=n_boot, seed=seed)
 
-    # §2.3: every untreated fixture's delta is exactly 0.0 under ADD, so the
-    # zeros are ARITHMETIC, not an unverified assumption — and the run has
-    # already refused any that moved (UntreatedMoved).
+    # §2.3's structural-zero guard, **TWO-SIDED**. Every merged row that is NOT
+    # in the treated set must carry a delta of exactly 0.0, and that covers two
+    # classes — both refusals:
+    #
+    #   * a fixture whose `e_min >= e*`, outside the thin population entirely;
+    #   * a THIN but already incumbent-widened fixture, one of the 33 §2.3
+    #     states "carry a delta of exactly 0.0 by construction".
+    #
+    # v1 scanned only the first. "A guard that catches only the first class
+    # leaves the arithmetic §2.3 relies on unenforced, because the 33 are
+    # exactly the rows whose zero-ness makes the 85-population's mean a known
+    # multiple of the treated mean."
     stray = sorted(str(r["match_id"]) for r in rows
                    if float(r["e_min"]) >= float(e_star)
                    and float(r["delta"]) != 0.0)
     if stray:
         raise UntreatedMoved(
-            f"{len(stray)} fixture(s) outside the thin population carry a "
-            f"non-zero delta (first: {stray[:5]}). Under ADD their delta is "
-            "zero by construction, and the full-population secondary is stated "
-            "as an arithmetic identity that would be false if this were true.")
+            f"{len(stray)} fixture(s) with e_min >= e* — outside the thin "
+            f"population entirely — carry a non-zero delta (first: "
+            f"{stray[:5]}). Under ADD their delta is zero by construction, and "
+            "the full-population secondary is stated as an arithmetic identity "
+            "that would be false if this were true.")
+    already = sorted(str(r["match_id"]) for r in thin
+                     if bool(r["incumbent_widened"]) and float(r["delta"]) != 0.0)
+    if already:
+        raise UntreatedMoved(
+            f"{len(already)} thin fixture(s) that the incumbent predicate "
+            f"ALREADY WIDENS carry a non-zero delta (first: {already[:5]}). "
+            "§2.3: 33 of the 85 'carry a delta of exactly 0.0 by construction' "
+            "— they are the rows whose zero-ness makes the 85-population's mean "
+            "a known multiple of the treated mean, so a non-zero one here does "
+            "not dilute the estimand, it falsifies the arithmetic the estimand "
+            "is stated in. This is the second half of §2.3's two-sided guard, "
+            "and a guard that caught only the first half left this class "
+            "averaged straight in.")
 
     treated_deltas = np.array([float(r["delta"]) for r in treated], dtype=float)
     treated_summary = _summarise(treated_deltas, [str(r["block"]) for r in treated],
@@ -4207,6 +4277,11 @@ def merge(shards: int = 1, *, directory: Path | str | None = None,
         "config": {"path": paths.rel(CONFIG_PATH), "sha256": config_sha,
                    "seed": SEED, "widening": dict(FROZEN_WIDENING)},
         "membership": frozen,
+        # §9.1: measured off THESE rows, not asserted. Both counts are zero in
+        # a run that completed, because the refusals stopped anything else long
+        # before the merge — but they are now the answer to a question rather
+        # than the question's assumed answer.
+        "controls": measured_controls(rows),
         "identity_control": {
             "n_fixtures": len(rows),
             "max_abs_diff": max((float(r["fit"]["control_max_abs_diff"])
@@ -4378,14 +4453,53 @@ def table_cells(matches: pd.DataFrame, played: pd.DataFrame | None = None, *,
                          for c, v in sorted(evidence.items())},
         })
     if check:
-        treated = [c for c in out if c["treated_clubs"]]
-        if len(out) != EXPECTED_TABLE_CELLS or \
-                len(treated) != EXPECTED_TABLE_TREATED:
-            raise MembershipMismatch(
-                f"{len(out)} table cells of which {len(treated)} change; §3.3 "
-                f"pre-states {EXPECTED_TABLE_CELLS} and "
-                f"{EXPECTED_TABLE_TREATED}")
+        assert_table_census(out)
     return out
+
+
+def assert_table_census(cells: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """§3.3's census — the totals **and the per-label pin**.
+
+    > **This per-label census is a binding pin, not a table in prose.**
+    > `EXPECTED_TREATED_BY_LABEL = {MW0: 3, MW3: 2, MW6: 7, MW10: 4, MW19: 0}`
+    > must be verified by `table_cells(check=True)`, which today verifies only
+    > the 35/16 totals. The reason is not tidiness: **"MW6 is the only label at
+    > which every cell is treated" is the entire stated ground for naming MW6
+    > the deciding horizon** (§4.1). If that stops being true, the ground for
+    > the deciding horizon has moved and the harness must refuse rather than
+    > carry on. A departure from the pin is `MembershipMismatch`.
+
+    The audit found ``EXPECTED_TREATED_BY_LABEL`` "referenced nowhere in the
+    module or the tests" — a dead pin, correct today and unable to say so
+    tomorrow. A perturbation that moves one treated cell from MW0 to MW3 keeps
+    both totals and is invisible to a totals-only check.
+    """
+    treated = [c for c in cells if c["treated_clubs"]]
+    if len(cells) != EXPECTED_TABLE_CELLS or \
+            len(treated) != EXPECTED_TABLE_TREATED:
+        raise MembershipMismatch(
+            f"{len(cells)} table cells of which {len(treated)} change; §3.3 "
+            f"pre-states {EXPECTED_TABLE_CELLS} and {EXPECTED_TABLE_TREATED}")
+
+    by_label: dict[str, int] = {label: 0 for label in EXPECTED_TREATED_BY_LABEL}
+    for cell in cells:
+        label = str(cell["cutoff_label"])
+        if cell["treated_clubs"]:
+            by_label[label] = by_label.get(label, 0) + 1
+    if by_label != dict(EXPECTED_TREATED_BY_LABEL):
+        raise MembershipMismatch(
+            f"the per-label treated census is {by_label} and §3.3 pins it at "
+            f"{dict(EXPECTED_TREATED_BY_LABEL)}. This pin is binding and not a "
+            "table in prose: 'MW6 is the only label at which every cell is "
+            "treated' is the entire stated ground for naming MW6 the deciding "
+            "horizon (§4.1), so if that stops being true the ground for the "
+            "deciding horizon has moved and this harness refuses rather than "
+            "carrying on. The 35/16 totals can be intact while this is wrong — "
+            "moving one treated cell from one label to another keeps both.")
+    return {"n_cells": len(cells), "n_treated": len(treated),
+            "by_label": by_label, "PASS": True,
+            "ground": ("MW6 is the only label at which every cell is treated, "
+                       "which is why §4.1 names it the deciding horizon")}
 
 
 def table_key(cell: dict[str, Any], config_sha: str, n_sims: int,
@@ -6509,10 +6623,19 @@ def evidence_object(result: dict[str, Any], *,
                          "mean_abs_diff": control.get("mean_abs_diff"),
                          "PASS": (None if control.get("max_abs_diff") is None
                                   else float(control["max_abs_diff"]) == 0.0)},
-            "untreated_moved": {"n": 0, "refusal": "UntreatedMoved",
-                                "PASS": True},
-            "predicate_mismatch": {"n": 0, "refusal": "PredicateMismatch",
-                                   "PASS": True},
+            # §9.1: MEASURED off the merged rows by `measured_controls`, never
+            # written as `{n: 0, PASS: true}` constants. v1 hard-coded both, and
+            # "a verdict file that always prints PASS for a control nobody
+            # measured is exactly the shape this document's own 'a test that
+            # cannot fail is not a test' objects to".
+            "untreated_moved": (result.get("controls") or {}).get(
+                "untreated_moved",
+                {"n": None, "refusal": "UntreatedMoved", "PASS": None,
+                 "why": "no merged rows were supplied to measure it from"}),
+            "predicate_mismatch": (result.get("controls") or {}).get(
+                "predicate_mismatch",
+                {"n": None, "refusal": "PredicateMismatch", "PASS": None,
+                 "why": "no merged rows were supplied to measure it from"}),
             "table_parity": {
                 "n_cells": len(scored.get("per_cell") or []),
                 # None only when the table leg has not run; False when a cell

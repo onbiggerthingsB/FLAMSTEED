@@ -1782,14 +1782,77 @@ def test_seeded_defect_a_grid_row_with_no_widened_value_refuses(tmp_path):
     assert "widened probabilities" in str(exc.value)
 
 
-def test_seeded_defect_an_untreated_fixture_with_a_delta_refuses(tmp_path):
-    """The full-population identity would be FALSE if an untreated fixture
-    carried a delta, so the harness refuses instead of printing it."""
+def test_the_structural_zero_guard_is_two_sided_at_the_merge(tmp_path):
+    """§2.3, conformance row L13. "**The structural-zero guard is two-sided at
+    the merge.** Every merged row that is **not** in the treated set must carry
+    a delta of exactly 0.0 — this covers both classes, and both are refusals."
+
+    v1's `stray` scan refused only the first class, fixtures with
+    `e_min >= e*`. The audit found the hole: "A THIN but already-incumbent-
+    widened fixture (33 of the 85, which §2.3 states 'carry a delta of exactly
+    0.0 by construction') carrying a non-zero delta is not refused — it is
+    averaged straight into the estimand and into the treated-subset arithmetic
+    §2.3 relies on."
+
+    That arithmetic is the whole reason the 85-population's mean is a known
+    multiple of the treated mean: "the 33 are exactly the rows whose zero-ness
+    makes the 85-population's mean a known multiple of the treated mean".
+    """
+    # class one: outside the thin population entirely
     rows = _merged(tmp_path)
     stray = next(r for r in rows if float(r["e_min"]) >= ew.E_STAR)
     stray["delta"] = 1e-9
-    with pytest.raises(ew.UntreatedMoved):
+    with pytest.raises(ew.UntreatedMoved) as exc:
         ew.estimand(rows, corpus_rows=len(rows))
+    assert "e_min >= e*" in str(exc.value) or "outside the thin" in str(exc.value)
+
+    # class two: THIN, but already widened by the incumbent predicate — the
+    # class v1 averaged straight in
+    rows = _merged(tmp_path)
+    widened = next(r for r in rows if float(r["e_min"]) < ew.E_STAR
+                   and bool(r["incumbent_widened"]))
+    widened["delta"] = 1e-9
+    with pytest.raises(ew.UntreatedMoved) as exc:
+        ew.estimand(rows, corpus_rows=len(rows))
+    assert "ALREADY WIDENS" in str(exc.value)
+
+
+def test_the_two_always_pass_controls_are_measured_off_the_merged_rows(
+        tmp_path):
+    """§9.1, conformance row L17. "**The two controls that v1 hard-coded are
+    measured.** `controls.untreated_moved` and `controls.predicate_mismatch`
+    must be **read off the merged rows** [...] not written as
+    `{n: 0, PASS: true}` constants. Their values are true by construction only
+    because a refusal stops the run first; a verdict file that always prints
+    PASS for a control nobody measured is exactly the shape this document's own
+    'a test that cannot fail is not a test' objects to."
+    """
+    rows = _merged(tmp_path)
+    clean = ew.measured_controls(rows)
+    assert clean["untreated_moved"]["n"] == 0
+    assert clean["untreated_moved"]["PASS"] is True
+    assert clean["predicate_mismatch"]["n"] == 0
+    assert clean["predicate_mismatch"]["PASS"] is True
+
+    # one row of each class, each MEASURED rather than assumed away
+    dirty = [dict(r) for r in rows]
+    stray = next(r for r in dirty if not bool(r["treated"]))
+    stray["delta"] = 1e-9
+    mismatched = dirty[0]
+    mismatched["fit"] = {**mismatched["fit"],
+                         "provisional_incumbent": ["rich"],
+                         "provisional_ledger": ["mid"]}
+    measured = ew.measured_controls(dirty)
+    assert measured["untreated_moved"]["n"] >= 1
+    assert measured["untreated_moved"]["PASS"] is False
+    assert measured["predicate_mismatch"]["n"] >= 1
+    assert measured["predicate_mismatch"]["PASS"] is False
+
+    # ...and the published object carries what was measured, not a constant
+    published = ew.evidence_object({"controls": measured})
+    assert published["controls"]["untreated_moved"]["n"] >= 1
+    assert published["controls"]["untreated_moved"]["PASS"] is False
+    assert published["controls"]["predicate_mismatch"]["PASS"] is False
 
 
 def test_seeded_defect_a_population_that_is_not_the_pre_stated_one_refuses(
@@ -4452,6 +4515,43 @@ def test_the_table_leg_enumerates_the_16_cells_the_document_names():
         assert treated[("2025/26", label)] == ["sunderland"]
     assert ("2025/26", "MW10") not in treated
     assert round(cells[0]["evidence"]["aston_villa"], 2) == 4.74
+
+
+def test_the_per_label_treated_census_is_a_binding_pin(tmp_path, monkeypatch):
+    """§3.3, conformance row L14. "**This per-label census is a binding pin, not
+    a table in prose.** `EXPECTED_TREATED_BY_LABEL = {MW0: 3, MW3: 2, MW6: 7,
+    MW10: 4, MW19: 0}` must be verified by `table_cells(check=True)`, which
+    today verifies only the 35/16 totals."
+
+    The reason is not tidiness: "**'MW6 is the only label at which every cell is
+    treated' is the entire stated ground for naming MW6 the deciding
+    horizon**". If that stops being true, the ground for the deciding horizon
+    has moved and the harness must refuse rather than carry on. The audit found
+    the pin "referenced nowhere in the module or the tests" — a dead constant.
+    """
+    assert ew.EXPECTED_TREATED_BY_LABEL == {"MW0": 3, "MW3": 2, "MW6": 7,
+                                            "MW10": 4, "MW19": 0}
+    # MW6 is the only label at which EVERY cell is treated, which is the ground
+    assert ew.EXPECTED_TREATED_BY_LABEL[ew.MW6_LABEL] == \
+        ew.EXPECTED_TABLE_CELLS // len(ew.EXPECTED_TREATED_BY_LABEL)
+
+    cells = _cells()
+    assert ew.assert_table_census(cells)["PASS"] is True
+
+    # a perturbation that keeps the 35/16 TOTALS and moves one cell between
+    # labels — invisible to v1's check, and the whole point of the pin
+    moved = [dict(c) for c in cells]
+    give = next(c for c in moved
+                if c["cutoff_label"] == "MW0" and c["treated_clubs"])
+    take = next(c for c in moved
+                if c["cutoff_label"] == "MW3" and not c["treated_clubs"])
+    take["treated_clubs"] = list(give["treated_clubs"])
+    give["treated_clubs"] = []
+    assert sum(1 for c in moved if c["treated_clubs"]) == 16   # totals intact
+    with pytest.raises(ew.MembershipMismatch) as exc:
+        ew.assert_table_census(moved)
+    assert "per-label" in str(exc.value)
+    assert "MW6 is the only label" in str(exc.value)
 
 
 @pinned
