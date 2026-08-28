@@ -1073,17 +1073,21 @@ class _FakePosterior:
     """
 
     def __init__(self, mechanism: str = "c", strength: float = 0.5,
-                 log_rate: float = 0.2, n_draws: int = 2):
+                 log_rate: float = 0.2, n_draws: int = 2,
+                 teams: tuple[str, ...] = ("a", "b")):
         self.provisional_teams: set[str] = set()
         self._cfg = {"widening": {"mechanism": mechanism, "strength": strength},
                      "neutral_home_adv_fraction": 0.5}
-        self.teams = ["a", "b"]
-        self._idx = {"a": 0, "b": 1}
+        self.teams = list(teams)
+        self._idx = {t: i for i, t in enumerate(teams)}
         self.likelihood = "dixon_coles"
         s = int(n_draws)
+        n = len(teams)
+        # a spread of strengths across the clubs, so a three-club world is not
+        # three copies of one fixture
         self._params = {
-            "att": np.array([[0.05] * s, [-0.05] * s]),
-            "def": np.array([[0.02] * s, [-0.02] * s]),
+            "att": np.array([[0.05 - 0.05 * i] * s for i in range(n)]),
+            "def": np.array([[0.02 - 0.02 * i] * s for i in range(n)]),
             "mu": np.array([float(log_rate)] * s),
             "home_adv": np.array([0.25] * s),
             "rho": np.array([-0.05] * s),
@@ -1107,6 +1111,195 @@ class _FakePosterior:
         from wcmodel.model.draw_api import grid_one_x_two
 
         return grid_one_x_two(self.predict_scoreline(home, away, neutral))
+
+
+# ---- §3.2 / L12: the identity control EXERCISED, not reimplemented ---------
+
+def _engine_world(post, *, pairs=None):
+    """A one-block corpus whose stored rows ARE this posterior's own forecasts.
+
+    §3.2's control demands exact equality at eight decimals, so the corpus is
+    generated from the posterior under the incumbent set rather than invented
+    beside it: anything else would make the control fail for the wrong reason.
+    """
+    clubs = list(post.teams)
+    pairs = pairs or [(clubs[0], clubs[1]), (clubs[1], clubs[0])]
+    with ew.provisional_as(post, ()):
+        stored = ew.predict_rows(post, pairs)
+    rows = []
+    for i, ((home, away), probs) in enumerate(zip(pairs, stored)):
+        rows.append({
+            "match_id": f"m{i}", "season": "2019/20", "block": "2019/20|W01",
+            "date": pd.Timestamp("2019-08-10"), "home_key": home,
+            "away_key": away, "y": i % 3,
+            "dc_home": probs[0], "dc_draw": probs[1], "dc_away": probs[2],
+            "dc_rps": float(score_mod.rps(np.array([probs]),
+                                          np.array([i % 3]))[0]),
+        })
+    return pd.DataFrame(rows), pairs
+
+
+def _bare_engine(post, corpus, *, monkeypatch, evidence=None, ledger=None,
+                 cold=()):
+    """The REAL `Engine`, with only the sampler replaced.
+
+    §3.2, conformance row L12: "**These checks must be exercised directly, in
+    the production code path.** The in-tree audit of v1 established that
+    loosening `Engine.fit`'s exact comparison to a `1e-4` tolerance left the
+    entire suite green, because the stub fitter in the tests reimplements the
+    control rather than exercising it — and §10 makes widening that tolerance
+    after a mismatch an invalidation, so the untested site is exactly the site
+    where it would be widened."
+
+    The constructor is bypassed because it builds a store and an anchor from the
+    real archive; every attribute `Engine.fit` reads is supplied here, and the
+    body that runs is the committed one.
+    """
+    import types
+
+    from epl import dcfit
+    from epl import walkforward as wf
+
+    played = pd.DataFrame([{
+        "match_id": "h0", "date": pd.Timestamp("2019-01-01"),
+        "home_key": "a", "away_key": "b", "fthg": 1, "ftag": 0,
+        "played": True, "season": "hist"}])
+
+    class _Info:
+        provisional_teams = set()
+        cold_start_teams = list(cold)
+        n_training_matches = 1
+        n_teams = 2
+        anchor_spec = "stub"
+        seconds = 0.0
+
+    monkeypatch.setattr(dcfit, "fit_epl",
+                        lambda *a, **k: (post, _Info()))
+    monkeypatch.setattr(wf, "_health", lambda p, cfg: {
+        "all_finite": True, "sigma_positive": True, "home_adv_sane": True})
+
+    engine = object.__new__(ew.Engine)
+    engine.played = played
+    engine.corpus = corpus
+    engine.directory = None
+    engine.harness_frozen = False
+    engine.cfg = post._cfg
+    engine.store = object()
+    engine.anchor = object()
+    engine.ledger = ledger if ledger is not None else {}
+    engine.evidence = evidence or {"2019/20|W01": {"a": 50.0, "b": 50.0}}
+    engine.verbose = False
+    engine._epl_fit = types.SimpleNamespace(
+        assert_point_in_time=lambda store, cutoff: {
+            "latest_training_date": "2019-01-01"})
+    return engine
+
+
+def _engine_point(corpus):
+    return ew.FitPoint(cutoff="2019-08-10", season="2019/20",
+                       block="2019/20|W01",
+                       match_ids=tuple(corpus["match_id"].astype(str)))
+
+
+def test_the_real_engine_fit_runs_the_identity_control_first(monkeypatch):
+    """§3.2: "the control runs first, and not one treated prediction is produced
+    until it passes" — asserted against the committed `Engine.fit`, which no v1
+    test executed at all."""
+    post = _FakePosterior()
+    corpus, _ = _engine_world(post)
+    engine = _bare_engine(post, corpus, monkeypatch=monkeypatch)
+    out = engine.fit(_engine_point(corpus))
+    assert out["control_max_abs_diff"] == 0.0
+    assert out["provisional_incumbent"] == []
+
+
+def test_the_real_engine_fit_refuses_a_difference_no_tolerance_would_see(
+        monkeypatch):
+    """L12(a): "loosen the eight-decimal comparison to a tolerance — [it] must
+    turn a test red."
+
+    The corruption is 1e-9, which every plausible tolerance swallows and
+    `np.array_equal` does not. Loosening the comparison to `worst > 1e-4` —
+    the exact seed the audit ran — turns this red.
+    """
+    post = _FakePosterior()
+    corpus, _ = _engine_world(post)
+    corpus.loc[0, "dc_home"] = float(corpus.loc[0, "dc_home"]) + 1e-9
+    engine = _bare_engine(post, corpus, monkeypatch=monkeypatch)
+    with pytest.raises(ew.ControlMismatch) as exc:
+        engine.fit(_engine_point(corpus))
+    assert "EXACT equality" in str(exc.value)
+
+
+def test_the_real_engine_fit_refuses_an_untreated_fixture_that_moved(
+        monkeypatch):
+    """L12(b): "disable the `UntreatedMoved` loop — [it] must turn a test red."
+
+    The seeded defect is a predicate that is not per-fixture: this posterior
+    widens EVERY fixture as soon as its provisional set is non-empty, so a
+    fixture the rule does not name moves. That is precisely what the loop is
+    for — "a fixture that moves without being named means the predicate is not
+    per-fixture, and every untreated delta this run reports would be noise
+    dressed as zero".
+    """
+    class _Leaky(_FakePosterior):
+        def predict_scoreline(self, home, away, neutral=False):
+            from wcmodel.model.draw_api import finalize_grid
+
+            return finalize_grid(ew.pre_widening_grid(self, home, away), self,
+                                 provisional=bool(self.provisional_teams))
+
+    # THREE clubs, so the block carries a fixture the rule does not name: `a`
+    # is thin and `b` v `c` is not treated at all.
+    post = _Leaky(teams=("a", "b", "c"))
+    corpus, _ = _engine_world(post, pairs=[("a", "b"), ("b", "c")])
+    engine = _bare_engine(post, corpus, monkeypatch=monkeypatch,
+                          evidence={"2019/20|W01": {"a": 0.5, "b": 50.0,
+                                                    "c": 50.0}})
+    with pytest.raises(ew.UntreatedMoved) as exc:
+        engine.fit(_engine_point(corpus))
+    assert "outside the treated set" in str(exc.value)
+
+
+def test_the_real_engine_fit_refuses_a_pass_two_pass_three_disagreement(
+        monkeypatch):
+    """L12(c): "disable the pass-2/pass-3 agreement check — [it] must turn a
+    test red."
+
+    The seeded defect is a mix that reads WHICH club carried the flag: this
+    posterior's widening strength grows with the size of the provisional set, so
+    pass 2 (the §2.1 union) and pass 3 (every club) give a treated fixture two
+    different numbers. "Widening is a per-fixture boolean and the mix does not
+    read which club carried it; if it did, the grid secondaries assembled from
+    this pass would not be the arms they claim to be."
+    """
+    class _CountsClubs(_FakePosterior):
+        def predict_scoreline(self, home, away, neutral=False):
+            from wcmodel.model.draw_api import finalize_grid
+
+            provisional = home in self.provisional_teams \
+                or away in self.provisional_teams
+            # the defect: the mix reads HOW MANY clubs carried the flag. It is
+            # invisible to the direction canary, which always asks with a set of
+            # size one, and it is exactly what pass 2 against pass 3 catches:
+            # the §2.1 union names one club here, the all-clubs pass names two.
+            kept = self._cfg["widening"]["strength"]
+            if provisional and len(self.provisional_teams) >= 2:
+                self._cfg["widening"]["strength"] = 0.6
+            try:
+                return finalize_grid(ew.pre_widening_grid(self, home, away),
+                                     self, provisional=provisional)
+            finally:
+                self._cfg["widening"]["strength"] = kept
+
+    post = _CountsClubs()
+    corpus, _ = _engine_world(post)
+    engine = _bare_engine(post, corpus, monkeypatch=monkeypatch,
+                          evidence={"2019/20|W01": {"a": 0.5, "b": 50.0}})
+    with pytest.raises(ew.EvWidenError) as exc:
+        engine.fit(_engine_point(corpus),
+                   grid_treated=[str(m) for m in corpus["match_id"]])
+    assert "per-fixture boolean" in str(exc.value)
 
 
 def test_provisional_as_is_the_whole_treatment_and_it_restores():
