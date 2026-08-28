@@ -4972,19 +4972,27 @@ def test_every_secondary_says_in_its_own_output_that_it_decides_nothing(
 # R2-I2 — the power simulation, committed
 # ==========================================================================
 
-def _reproducing_power():
-    """A `power` object whose rows are the six published ones, exactly.
+_REAL_POWER: dict = {}
 
-    `power_simulation()` itself is R = 2,000 replicates over six scenarios and
-    costs about twenty seconds; the freeze-block tests are about the freeze
-    block, so they hand it a stub and the reproduction question gets its own
-    test.
+
+def _reproducing_power():
+    """The REAL `power` object, from the committed `power_simulation()`.
+
+    §6.3: "`power_reproduces()` must compare the committed run against this
+    table through the **real** comparison — not a stubbed power object — and
+    §8.5's conformance row L16 is that obligation."
+
+    v1's version returned a stub whose rows were `PUBLISHED_POWER` copied back,
+    so its conformance row compared the published numbers with themselves. L16
+    now rejects any object whose rows do not carry the 101-point power curve
+    `power_simulation` computes, which is exactly what that stub lacked. The run
+    is R = 2,000 over six scenarios and costs about twenty seconds, so it is
+    cached for the session rather than stubbed away.
     """
-    return {"rows": [{"scenario": r["scenario"], "rho": r["rho"],
-                      "power_at_bar": r["power_at_bar"],
-                      "mde_estimand": r["mde_estimand"],
-                      "power_at_2x_bar": r["power_at_2x"]}
-                     for r in ew.PUBLISHED_POWER]}
+    if "value" not in _REAL_POWER:
+        _REAL_POWER["value"] = ew.power_simulation()
+    return {k: (list(v) if isinstance(v, list) else v)
+            for k, v in _REAL_POWER["value"].items()}
 
 
 def test_the_power_simulation_is_committed_code_at_the_ruled_path():
@@ -5090,30 +5098,83 @@ def test_the_power_simulation_runs_and_carries_its_own_construction(real):
 
 @pinned
 def test_the_freeze_block_refuses_while_a_power_number_is_unreproduced():
-    """R2-I2: "No freeze block may be rendered while an unreproduced power
-    number stands in this document." The remedy is a dated note appended BEFORE
-    the freeze commit, and it is an owner's call rather than the harness's."""
+    """§8.3: "**`--freeze-block` refuses to render** while the conformance
+    report has a red row, while §7.4's ancestry test is absent, or while §6.3's
+    table is unreproduced."
+
+    v2 removes v1's escape hatch: §6.3 says flatly that "these are the numbers
+    the committed `power_simulation()` produces at the frozen constants above,
+    and they are the document's numbers", so an unreproduced row is a defect in
+    one of the two rather than an occasion for a dated note.
+    """
     broken = _reproducing_power()
+    broken["rows"] = list(broken["rows"])
     broken["rows"][0] = dict(broken["rows"][0], power_at_bar=0.999)
     with pytest.raises(ew.EvWidenError) as exc:
         ew.freeze_block(power=broken)
     assert "does not yet implement the document" in str(exc.value)
-    assert "dated note appended" in str(exc.value)
-    assert "R2-I2 (numbers)" in str(exc.value)
+    assert "the document's numbers" in str(exc.value)
+    assert "L16" in str(exc.value)
 
     report = ew.implementation_report(broken)
-    assert [r["id"] for r in report if not r["ok"]] == ["R2-I2 (numbers)"]
+    assert [r["id"] for r in report if not r["ok"]] == ["L16"]
 
 
-def test_the_conformance_report_covers_the_re_reviews_whole_work_order():
-    """R2-0: "§6 step 1 (the harness is written and audited) is not satisfied
-    until the harness implements this document as repaired in both rounds"."""
+@pinned
+def test_the_conformance_report_is_eighteen_behavioural_rows():
+    """§8.5: "**Every row of v2's report executes a scenario that fails under
+    its own defect class. A row that cannot go red is not a row.**"
+
+    v1's fourteen rows "checked field names, constants, callables, a subclass
+    count and a substring — they could all be green while the obligations they
+    were named for failed, and they were". The audit's table of what each row
+    actually checked is the indictment: "three field names exist", "a
+    test-function name occurs in working-tree text", "subclass count". And R2-H
+    had no row at all, so the frozen sequence was ungraded.
+    """
     report = ew.implementation_report(_reproducing_power())
     ids = [r["id"] for r in report]
-    assert set(ids) >= {"R-B1", "R-B2", "R2-B3", "R2-B4", "R2-B5", "R-B6",
-                        "R-I1", "R2-I2", "R-I4", "R2-I5", "R2-I6", "R-M2",
-                        "R2-X", "R2-I2 (numbers)"}
+    assert ids == [f"L{i}" for i in range(1, 19)], ids
+    for row in report:
+        # every row names the OBLIGATION and the SCENARIO it executes
+        assert row["obligation"] and row["scenario"], row["id"]
+        assert row["section"], row["id"]
+    # R2-H's successor, §8.4's frozen sequence, has a row of its own — v1's
+    # report had none
+    assert any("§8.4" in r["section"] for r in report)
     assert all(r["ok"] for r in report), [r for r in report if not r["ok"]]
+
+
+def test_the_report_is_not_believed_on_its_own_word():
+    """§8.5's closing clause: "The test that reads the report may **not** simply
+    assert that every self-reported row is green: it must independently execute
+    at least the seeded scenarios of L5, L6, L7, L9, L11, L12 and L13, so that a
+    report which lies about itself is caught by something other than itself."
+
+    Those seven scenarios are executed by committed tests of their own, and this
+    test is the index that binds each row to the test that re-runs it. A row
+    whose independent test is deleted fails here.
+    """
+    independent = {
+        "L5": ("test_parity_is_established_before_one_treated_simulation_runs",
+               "test_no_require_parity_parameter_and_no_limit_on_the_oracle_exist"),
+        "L6": ("test_the_pre_freeze_commands_cannot_reach_build_store",
+               "test_the_read_only_accessor_refuses_an_absent_store_and_creates_nothing"),
+        "L7": ("test_no_public_fit_surface_accepts_a_freeze_state_boolean",
+               "test_no_scratch_directory_lets_the_pinned_archive_be_fitted_unfrozen"),
+        "L9": ("test_a_step_without_its_predecessors_marker_refuses",
+               "test_the_launcher_emits_exactly_the_five_steps_in_order"),
+        "L11": ("test_the_sampler_digests_signature_is_pinned_to_run_and_tallies",
+                "test_two_books_differing_only_in_provisional_hash_the_same_sampler_output"),
+        "L12": ("test_the_real_engine_fit_refuses_a_difference_no_tolerance_would_see",
+                "test_the_real_engine_fit_refuses_an_untreated_fixture_that_moved",
+                "test_the_real_engine_fit_refuses_a_pass_two_pass_three_disagreement"),
+        "L13": ("test_the_structural_zero_guard_is_two_sided_at_the_merge",),
+    }
+    here = globals()
+    for row, names in independent.items():
+        for name in names:
+            assert callable(here.get(name)), f"{row}: {name} is missing"
 
 
 @pinned
@@ -5132,13 +5193,20 @@ def test_the_freeze_block_is_harness_produced_and_round_trips(tmp_path):
     for name in ew.HARNESS_FILES:
         assert f"`{name}`" in block
         assert ew.sha256_file(ew.paths.REPO_ROOT / name) in block
-    for digest in ("thin", "treated", "new_cells", "fit_openings",
-                   "table_treated", "table_untouched", "membership"):
-        assert digest or True                       # named below by count
     assert "| 85 |" in block and "| 52 |" in block and "| 51 |" in block
     assert "| 78 |" in block and "| 16 |" in block and "| 19 |" in block
-    assert "Pre-freeze runs, enumerated" in block
+    # §8.3 step 2's five contents, all of them
+    assert "Pre-freeze passes, enumerated" in block
     assert "not the run this document preregisters" in block
+    assert "the per-label treated census" in block          # §3.3's pin
+    for digest in (ew.CORPUS_SHA256, ew.ARCHIVE_SHA256, ew.WALK_LEDGER_SHA256,
+                   ew.CONFIG_SHA256, ew.REALISED_CONFIG_SHA256):
+        assert digest in block                              # §0.1's four + one
+    # ...and §8.5's report, every row, in the block itself
+    assert "the conformance report of §8.5" in block.lower()
+    for i in range(1, 19):
+        assert f"| L{i} |" in block, i
+    assert "| NO |" not in block
 
     assert all(name in block for name in
                ("--membership", "--freeze-block", "--power"))

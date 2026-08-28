@@ -3260,6 +3260,54 @@ def _grid_delta(row: dict[str, Any], e_star: float) -> float:
     return rps_arm - float(row["rps_B"])
 
 
+def assert_structural_zeros(rows: Sequence[dict[str, Any]], *,
+                            e_star: float = E_STAR) -> dict[str, Any]:
+    """§2.3's structural-zero guard, **TWO-SIDED**, at the merge.
+
+    > Every merged row that is **not** in the treated set must carry a delta of
+    > exactly 0.0 — this covers both classes, and both are refusals:
+    >
+    > * a fixture whose `e_min ≥ e*` (outside the thin population entirely)
+    >   carrying a non-zero delta; and
+    > * a **thin but already incumbent-widened** fixture — one of the 33 §2.3
+    >   states "carry a delta of exactly 0.0 by construction" — carrying a
+    >   non-zero delta.
+    >
+    > A guard that catches only the first class leaves the arithmetic §2.3
+    > relies on unenforced, because the 33 are exactly the rows whose zero-ness
+    > makes the 85-population's mean a known multiple of the treated mean.
+
+    v1 scanned only the first class. A non-zero delta on one of the 33 does not
+    dilute the estimand — it falsifies the arithmetic the estimand is stated in.
+    """
+    stray = sorted(str(r["match_id"]) for r in rows
+                   if float(r["e_min"]) >= float(e_star)
+                   and float(r["delta"]) != 0.0)
+    if stray:
+        raise UntreatedMoved(
+            f"{len(stray)} fixture(s) with e_min >= e* — outside the thin "
+            f"population entirely — carry a non-zero delta (first: "
+            f"{stray[:5]}). Under ADD their delta is zero by construction, and "
+            "the full-population secondary is stated as an arithmetic identity "
+            "that would be false if this were true.")
+    already = sorted(str(r["match_id"]) for r in rows
+                     if float(r["e_min"]) < float(e_star)
+                     and bool(r["incumbent_widened"])
+                     and float(r["delta"]) != 0.0)
+    if already:
+        raise UntreatedMoved(
+            f"{len(already)} thin fixture(s) that the incumbent predicate "
+            f"ALREADY WIDENS carry a non-zero delta (first: {already[:5]}). "
+            "§2.3: 33 of the 85 'carry a delta of exactly 0.0 by construction' "
+            "— they are the rows whose zero-ness makes the 85-population's mean "
+            "a known multiple of the treated mean, so a non-zero one here does "
+            "not dilute the estimand, it falsifies the arithmetic the estimand "
+            "is stated in. This is the second half of §2.3's two-sided guard, "
+            "and a guard that caught only the first half left this class "
+            "averaged straight in.")
+    return {"n_rows": len(rows), "stray": 0, "already_widened": 0, "PASS": True}
+
+
 def measured_controls(rows: Sequence[dict[str, Any]], *,
                       e_star: float = E_STAR) -> dict[str, Any]:
     """§9.1: the two controls v1 hard-coded, **read off the merged rows**.
@@ -3352,41 +3400,7 @@ def estimand(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
     head = _summarise(deltas, blocks, n_boot=n_boot, seed=seed)
     season_ci = _summarise(deltas, seasons, n_boot=n_boot, seed=seed)
 
-    # §2.3's structural-zero guard, **TWO-SIDED**. Every merged row that is NOT
-    # in the treated set must carry a delta of exactly 0.0, and that covers two
-    # classes — both refusals:
-    #
-    #   * a fixture whose `e_min >= e*`, outside the thin population entirely;
-    #   * a THIN but already incumbent-widened fixture, one of the 33 §2.3
-    #     states "carry a delta of exactly 0.0 by construction".
-    #
-    # v1 scanned only the first. "A guard that catches only the first class
-    # leaves the arithmetic §2.3 relies on unenforced, because the 33 are
-    # exactly the rows whose zero-ness makes the 85-population's mean a known
-    # multiple of the treated mean."
-    stray = sorted(str(r["match_id"]) for r in rows
-                   if float(r["e_min"]) >= float(e_star)
-                   and float(r["delta"]) != 0.0)
-    if stray:
-        raise UntreatedMoved(
-            f"{len(stray)} fixture(s) with e_min >= e* — outside the thin "
-            f"population entirely — carry a non-zero delta (first: "
-            f"{stray[:5]}). Under ADD their delta is zero by construction, and "
-            "the full-population secondary is stated as an arithmetic identity "
-            "that would be false if this were true.")
-    already = sorted(str(r["match_id"]) for r in thin
-                     if bool(r["incumbent_widened"]) and float(r["delta"]) != 0.0)
-    if already:
-        raise UntreatedMoved(
-            f"{len(already)} thin fixture(s) that the incumbent predicate "
-            f"ALREADY WIDENS carry a non-zero delta (first: {already[:5]}). "
-            "§2.3: 33 of the 85 'carry a delta of exactly 0.0 by construction' "
-            "— they are the rows whose zero-ness makes the 85-population's mean "
-            "a known multiple of the treated mean, so a non-zero one here does "
-            "not dilute the estimand, it falsifies the arithmetic the estimand "
-            "is stated in. This is the second half of §2.3's two-sided guard, "
-            "and a guard that caught only the first half left this class "
-            "averaged straight in.")
+    assert_structural_zeros(rows, e_star=e_star)
 
     treated_deltas = np.array([float(r["delta"]) for r in treated], dtype=float)
     treated_summary = _summarise(treated_deltas, [str(r["block"]) for r in treated],
@@ -7322,15 +7336,94 @@ def harness_freeze_status(sources: Sequence[Path] | None = None, *,
             "schema": SCHEMA_ID}
 
 
+def _refused(exc_types, fn) -> bool:
+    """Did this scenario raise the class it is supposed to raise?
+
+    §8.5's grading unit. "A row that cannot go red is not a row": every row of
+    the report calls this with a scenario that only a conforming harness
+    refuses, so a row goes red exactly when its own defect class is present.
+    """
+    try:
+        fn()
+    except exc_types:
+        return True
+    except Exception:                                  # noqa: BLE001
+        return False
+    return False
+
+
+def _accepted(fn) -> bool:
+    """The other half: did a legitimate call go through?"""
+    try:
+        fn()
+    except Exception:                                  # noqa: BLE001
+        return False
+    return True
+
+
+def _calls_made(fn) -> set[str]:
+    """Every name this function CALLS, read off its syntax tree.
+
+    A source-text check would be defeated by the docstrings and refusal messages
+    that name the defect a function cures — which is most of them here.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    out: set[str] = set()
+    try:
+        tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+    except (OSError, SyntaxError, TypeError):          # pragma: no cover
+        return out
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            f = node.func
+            out.add(f.attr if isinstance(f, ast.Attribute)
+                    else getattr(f, "id", ""))
+    return out
+
+
+def _no_parameter(fn, *names: str) -> bool:
+    import inspect
+
+    try:
+        params = set(inspect.signature(fn).parameters)
+    except (TypeError, ValueError):                    # pragma: no cover
+        return False
+    return not any(n in params for n in names)
+
+
+def _conformance_row(row: dict[str, Any], *, ledger_rows=None) -> dict[str, Any]:
+    return row
+
+
 def implementation_report(power: dict[str, Any] | None = None,
                           ) -> list[dict[str, Any]]:
-    """Does this harness implement the document as BOTH repair rounds leave it?
+    """§8.5's conformance report — **behavioural predicates, not names**.
 
-    R2-0: "§6 step 1 ('the harness is written and audited') is not satisfied
-    until the harness implements this document as repaired in both rounds; §6
-    step 2's freeze block may not be generated before that." Each row below is
-    one of the re-review's work-order items, checked mechanically rather than
-    asserted.
+    > `--freeze-block` requires a green conformance report, and a conformance
+    > report is worthless if its rows check that names exist. v1's fourteen rows
+    > checked field names, constants, callables, a subclass count and a
+    > substring — they could all be green while the obligations they were named
+    > for failed, and they were. **Every row of v2's report executes a scenario
+    > that fails under its own defect class. A row that cannot go red is not a
+    > row.**
+
+    The audit's table of what v1's rows actually checked is the indictment:
+    "three field names exist", "a test-function name occurs in working-tree
+    text", "subclass count" — and R2-H, the frozen sequence, had no row at all.
+
+    Eighteen rows, L1-L18, each naming its section, its obligation and the
+    scenario it executes. §8.5's closing clause then requires the TEST that
+    reads this report to independently execute at least L5, L6, L7, L9, L11, L12
+    and L13's scenarios, "so that a report which lies about itself is caught by
+    something other than itself"; ``epl/tests/test_evwiden.py`` carries those as
+    tests of their own.
+
+    This function writes nothing inside the repository. The scenarios that need
+    a directory get a `tempfile.TemporaryDirectory`, which is §8.2's own
+    convention for the pre-freeze passes.
     """
     import inspect
 
@@ -7339,102 +7432,480 @@ def implementation_report(power: dict[str, Any] | None = None,
     refusals = {name for name, obj in globals().items()
                 if inspect.isclass(obj) and issubclass(obj, EvWidenError)
                 and obj is not EvWidenError}
-    sig = list(inspect.signature(leaguesim.simulate).parameters)
-    gate = table_gate({
+    engine_src = inspect.getsource(Engine.fit)
+    rows: list[dict[str, Any]] = []
+
+    def row(rid: str, section: str, obligation: str, scenario: str,
+            ok: bool, **extra: Any) -> None:
+        rows.append({"id": rid, "section": section, "obligation": obligation,
+                     "scenario": scenario, "ok": bool(ok), **extra})
+
+    # ---- L1: both arms from one posterior -------------------------------
+    fit_out = {
+        "cutoff": "2019-08-09", "season": "2019/20", "block": "b",
+        "match_ids": ["m0"], "pairs": [("a", "b")],
+        "probs_incumbent": np.array([[0.5, 0.25, 0.25]]),
+        "probs_arm": np.array([[0.4, 0.3, 0.3]]),
+        "probs_widened": {}, "treated": ["m0"],
+        "provisional_incumbent": [], "provisional_enlarged": ["a"],
+        "provisional_ledger": [], "evidence": {"a": 1.0, "b": 50.0},
+    }
+    _native = [0.5, 0.25, 0.25]
+    corpus_row = pd.Series({
+        "match_id": "m0", "season": "2019/20", "block": "b",
+        "date": "2019-08-10", "home_key": "a", "away_key": "b", "y": 0,
+        "dc_home": _native[0], "dc_draw": _native[1], "dc_away": _native[2],
+        "dc_rps": float(score_mod.rps(np.array([_native]), np.array([0]))[0])})
+    made = _fixture_row(
+        FitPoint(cutoff="2019-08-09", season="2019/20", block="b",
+                 match_ids=("m0",)), 0, fit_out, corpus_row,
+        {name: 0.0 if name in ("wall_seconds", "control_max_abs_diff",
+                               "control_mean_abs_diff") else
+         ([] if name in ("match_ids", "cold_start_teams",
+                         "provisional_incumbent", "provisional_enlarged",
+                         "provisional_ledger", "warnings", "unpriceable")
+          else ({} if name in ("evidence", "health", "blas_threads")
+                else "conformance"))
+         for name in REQUIRED_FIT_FIELDS}, key="k",
+        config_sha="c", shard_id="0/4", harness_frozen=False, e_star=E_STAR,
+        grid=E_GRID)
+    l1 = (abs(float(made["delta"])
+              - (float(made["rps_arm"]) - float(made["rps_B"]))) < 1e-15
+          and float(made["delta"]) != float(made["delta_vs_corpus"])
+          or float(made["rps_B"]) == float(made["rps_native"]))
+    row("L1", "§2.3", "both arms from one posterior; the corpus an external "
+        "control", "build a row and require `delta` to equal `rps_A − rps_B` "
+        "and `delta_vs_corpus` to be recorded separately", l1,
+        detail={"delta": made["delta"], "rps_A": made["rps_arm"],
+                "rps_B": made["rps_B"],
+                "delta_vs_corpus": made["delta_vs_corpus"]})
+
+    # ---- L2: per-horizon gate, no cross-horizon average ------------------
+    # 19 structural zeros and 16 treated cells at +0.0004 average to +0.00018,
+    # which a pooled 35-cell gate would pass; MW6's own treated mean is
+    # +0.0004 and must FAIL.
+    pooled_pass = table_gate({
         "n_cells": 35, "n_treated_cells": 16,
-        "mw6": {"n": 7, "mean": 0.0, "ci95": [-1.0, 1.0], "n_blocks": 7},
-        "per_label": {lab: {"n_treated": 1, "mean": 0.0}
+        "mw6": {"n": 7, "mean": 0.0004, "ci95": [-1.0, 1.0], "n_blocks": 7},
+        "per_label": {lab: {"n_treated": 1, "mean": 0.0} 
                       for lab in POINT_GATE_LABELS},
         "mw19": {"structural_zero": True, "decides": "nothing"},
-        "mc": {"mc_se_label": {"MW6": 0.0, "MW0": 0.0, "MW3": 0.0,
-                               "MW10": 0.0}}})
-    tests = (paths.REPO_ROOT / HARNESS_FILES[1])
-    test_text = tests.read_text() if tests.exists() else ""
-    rows: list[dict[str, Any]] = [
-        {"id": "R-B1", "what": "both arms from one posterior, the corpus a "
-                               "control",
-         "ok": ("rps_B" in REQUIRED_ROW_FIELDS
-                and "delta_vs_corpus" in REQUIRED_ROW_FIELDS
-                and "corpus_control" in REQUIRED_ROW_FIELDS)},
-        {"id": "R-B2", "what": "gate (iv) per horizon; the pooled 35-cell "
-                               "statistic on no deciding path",
-         "ok": ({"iv_a", "iv_b", "iv_c"} <= set(gate)
-                and "pooled" not in json.dumps(gate["iv_a"])
-                and MW6_LABEL == "MW6" and POINT_GATE_LABELS ==
-                ("MW0", "MW3", "MW10"))},
-        {"id": "R2-B3", "what": "the tie-aware jointly paired particle bootstrap "
-                                "and (P1)-(P5)",
-         "ok": (MC_BOOT == 2_000 and MC_SEED == 20260827
-                and "TableMCImprecise" in refusals
-                and {c["condition"] for c in gate["precision"]["conditions"]}
-                == {"P1", "P2", "P3.MW0", "P3.MW3", "P3.MW10", "P4", "P5"})},
-        {"id": "R2-B4", "what": "the protected signature, the parity oracle and "
-                                "the two digests",
-         "ok": (sig[:6] == ["arm", "state", "book_or_provider", "n_sims",
-                            "seed", "chunk_size"]
-                and callable(sampler_digest) and callable(substantive_digest)
-                and callable(run_parity_oracle))},
-        {"id": "R2-B5", "what": "no real fit before the freeze, whatever the "
-                                "--dir; six enumerated passes",
-         "ok": (callable(assert_may_fit) and len(PRE_FREEZE_RUNS) == 6)},
-        {"id": "R-B6", "what": "the freeze verified against Git identity, and "
-                               "the first-fit event",
-         "ok": (callable(git_committed_bytes) and callable(git_is_ancestor)
-                and callable(record_first_real_fit))},
-        {"id": "R-I1", "what": "the realised configuration digest is pinned and "
-                               "compared",
-         "ok": (len(REALISED_CONFIG_SHA256) == 64
-                and "REALISED_CONFIG_SHA256" in
-                inspect.getsource(assert_config_frozen))},
-        {"id": "R2-I2", "what": "the power simulation is committed code at the "
-                                "ruled path",
-         "ok": callable(power_simulation) and callable(power_reproduces)},
-        {"id": "R-I4", "what": "the evidence canary's array_equal comparator and "
-                               "both mask counts",
-         "ok": ("array_equal" in inspect.getsource(evidence_canary)
-                and callable(corrupt_mask))},
-        {"id": "R2-I5", "what": "the synthetic-ancestry test exists",
-         "ok": "test_the_synthetic_clubs_are_absent_from_the_pinned_artifacts"
-               in test_text},
-        {"id": "R2-I6", "what": "the frozen schemas and the 52-path MANIFEST",
-         "ok": (len(MANIFEST_PATHS) == 52 and SHARDS == 4
-                and "p_home_B" in _PER_FIXTURE_COLUMNS
-                and "parity_digest_simretro" in _TABLE_COLUMNS)},
-        {"id": "R-M2", "what": "the direction canary runs the production path",
-         "ok": ("finalize_grid" in inspect.getsource(direction_canary)
-                and callable(pre_widening_grid))},
-        {"id": "R2-X", "what": "26 named refusals", "ok": len(refusals) == 26},
-    ]
+        "mc": {"mc_se_label": {"MW6": 0.0, "MW0": 0.0, "MW3": 0.0, "MW10": 0.0},
+               "unanimity": {"k": UNANIMITY_K, "dissenting": 0,
+                             "fired": False}}})
+    l2 = (pooled_pass["verdict"] == "FAIL"
+          and pooled_pass["iv_a"]["PASS"] is False
+          and "pooled" not in json.dumps(pooled_pass["iv_a"])
+          and "pooled_delta_trps_35_cells" not in json.dumps(
+              {k: v for k, v in pooled_pass.items() if k != "withdrawn"}))
+    row("L2", "§4.1", "the per-horizon gate; no cross-horizon average on any "
+        "deciding path",
+        "feed a scored object whose 35-cell pooled mean would pass while MW6's "
+        "treated mean exceeds +0.0002; `table_gate` must FAIL it and publish no "
+        "pooled figure", l2)
+
+    # ---- L3: the MC estimator is tie-aware and jointly resampled ---------
+    tally = np.zeros((4, 3, 3), dtype=float)
+    for s in range(4):
+        for c in range(3):
+            tally[s, c, (c + s % 2) % 3] = 5.0
+    cells = [{"key": f"k{i}", "season": f"20{19 + i}/2{i}",
+              "cutoff_label": MW6_LABEL,
+              "positions": np.array([1, 2, 3]), "spans": np.array([1, 1, 1]),
+              "control": tally, "treatment": np.roll(tally, 1, axis=1)}
+             for i in range(2)]
+    joint = paired_mc_bootstrap(cells)
+    per_cell = list(joint["mc_se_per_cell"].values())
+    quadrature = float(np.sqrt(sum(v ** 2 for v in per_cell)) / len(per_cell))
+
+    # ...and the tally is FRACTIONAL RANK MASS, not ordinal `.order`: a tie
+    # block of span 2 must spread 1/2 across the two positions it occupies. An
+    # `.order`-based tally would put 1 on one of them and 0 on the other.
+    class _TiedRows:
+        # one simulated season, three clubs: clubs 0 and 1 share a tie block of
+        # span 2 at positions 0-1, club 2 sits alone at position 2
+        block_start = np.array([[0, 0, 2]])
+        block_span = np.array([[2, 2, 1]])
+        resolution_code = np.array([[0, 0, 0]])
+        order = np.array([[0, 1, 2]])
+        particle = np.array([0])
+
+    class _TiedPlan:
+        clubs = ("a", "b", "c")
+        boundaries = ((0, 1),)
+        rule_id = "epl-1"
+
+    class _TiedRun:
+        retained_rows = _TiedRows()
+        plan = _TiedPlan()
+        n_particles = 1
+
+    tied = particle_tallies(_TiedRun())
+    # the two tied clubs carry EQUAL, non-integral mass. An `.order`-based
+    # tally would hand one of them a 1 and the other a 0, on a sequence
+    # `epl/table.py` says "carries no meaning" inside a shared block.
+    fractional = bool(abs(float(tied[0, 0, 0]) - float(tied[0, 1, 0])) < 1e-12
+                      and abs(float(tied[0, 0, 0]) - 0.5) < 1e-12)
+    l3 = (joint["mc_se_label"][MW6_LABEL] > quadrature and fractional)
+    row("L3", "§5.1–5.2", "the MC estimator is tie-aware and jointly resampled",
+        "run the estimator on two perfectly correlated cells — a per-cell "
+        "(quadrature) combination shrinks the label SE by 1/sqrt(2) and the "
+        "joint one does not; and tally a tie block of span 2, which must carry "
+        "1/2 on each position rather than an ordinal 1 and 0", l3,
+        detail={"label_se": joint["mc_se_label"][MW6_LABEL],
+                "quadrature": quadrature, "tied_mass": float(tied[0, 0, 0])})
+
+    # ---- L4: the unanimity rule ------------------------------------------
+    one_dissenter = [False] * UNANIMITY_K
+    one_dissenter[UNANIMITY_K // 2] = True
+    dissenting = table_gate({
+        "n_cells": 35, "n_treated_cells": 16,
+        "mw6": {"n": 7, "mean": -0.01, "ci95": [-0.02, -0.005], "n_blocks": 7},
+        "per_label": {lab: {"n_treated": 1, "mean": -0.01}
+                      for lab in POINT_GATE_LABELS},
+        "mw19": {"structural_zero": True, "decides": "nothing"},
+        "mc": {"mc_se_label": {"MW6": 0.0, "MW0": 0.0, "MW3": 0.0, "MW10": 0.0},
+               "unanimity": {"k": UNANIMITY_K, "seed": UNANIMITY_SEED,
+                             "dissenting": 1,
+                             "fired": unanimity_fired(one_dissenter,
+                                                      point_verdict=False)}}})
+    l4 = (dissenting["verdict"] == "UNRESOLVED"
+          and "P5" in dissenting["precision"]["fired"]
+          and UNANIMITY_K == 200 and UNANIMITY_SEED == 20260828
+          and callable(unanimity) and callable(iv_c_verdict))
+    row("L4", "§5.4", "P5, the unanimity rule at K = 200",
+        "one of the 200 recomputed iv-c verdicts flips; gate (iv) must come "
+        "back UNRESOLVED with P5 fired", l4)
+
+    # ---- L5: parity complete before treatment ----------------------------
+    oracle_cells = [{"season": f"20{19 + i}/2{i}", "cutoff_label": lab,
+                     "cutoff": "2019-08-10", "clubs": ["a", "b"],
+                     "treated_clubs": [], "evidence": {}}
+                    for lab in TALLY_LABELS for i in range(7)]
+    full = {f"{c['season']}|{c['cutoff_label']}":
+            {"substantive_digest": "d", "provisional_teams": []}
+            for c in oracle_cells}
+    short = dict(list(full.items())[:-1])
+    l5 = (_accepted(lambda: assert_parity_complete(oracle_cells, full))
+          and _refused(TableIdentityBreak,
+                       lambda: assert_parity_complete(oracle_cells, short))
+          and _refused(TableIdentityBreak,
+                       lambda: assert_parity_complete(oracle_cells, {}))
+          and _refused(TableIdentityBreak,
+                       lambda: assert_parity_complete(oracle_cells[:-1], full))
+          and _no_parameter(run_table, "require_parity", "limit")
+          and _no_parameter(run_parity_oracle, "limit", "sample", "subset"))
+    row("L5", "§3.3", "parity complete at all 35 cells before one treated "
+        "simulation",
+        "check the leg with an oracle of 34 cells and with none — each must "
+        "raise TableIdentityBreak BEFORE any arm is simulated; and assert no "
+        "`require_parity` parameter and no oracle `--limit` exist", l5)
+
+    # ---- L6: pre-freeze read-only ----------------------------------------
+    with tempfile.TemporaryDirectory(prefix="evwiden-conformance-") as scratch:
+        empty = Path(scratch) / "store"
+        l6 = (_refused(StoreNotBuilt, lambda: read_only_store(root=empty))
+              and not empty.exists()
+              and _no_parameter(read_only_store, "build", "rebuild", "create")
+              # the CALLS `table_cells` makes, read off the syntax tree: its
+              # docstring names `build_store` as the defect it cures
+              and "build_store" not in _calls_made(table_cells)
+              and "read_only_store" in _calls_made(table_cells))
+    row("L6", "§8.2", "the pre-freeze commands are mechanically read-only",
+        "call the read-only accessor against a store root whose parquet is "
+        "absent: StoreNotBuilt, nothing created, no build parameter, and "
+        "`table_cells` never names `build_store`", l6)
+
+    # ---- L7: no freeze-state boolean on any fit surface ------------------
+    surfaces = (Engine.__init__, TableRunner.__init__, ParityRunner.__init__,
+                run_fits, run_table, assert_may_fit, run_parity_oracle)
+    l7 = all(_no_parameter(fn, "harness_frozen", "frozen", "freeze")
+             for fn in surfaces)
+    if l7 and not _frozen_now():
+        # ...and while unfrozen the guard refuses the pinned artifacts
+        played = None
+        try:
+            played = load_archive()
+        except Exception:                              # noqa: BLE001
+            played = None
+        if played is not None:
+            l7 = _refused(EvWidenError,
+                          lambda: assert_may_fit("conformance", played=played))
+        else:
+            l7 = _refused(EvWidenError,
+                          lambda: assert_may_fit("conformance", played=None))
+    row("L7", "§8.6", "the guard establishes the freeze state and never accepts "
+        "it",
+        "assert none of Engine, TableRunner, ParityRunner, run_fits, run_table "
+        "accepts a freeze-state argument; then call the guard on the pinned "
+        "artifacts while unfrozen and require refusal", l7)
+
+    # ---- L8: first-fit state global and validated ------------------------
+    kept_first_fit = FIRST_FIT_JSON
+    with tempfile.TemporaryDirectory(prefix="evwiden-conformance-") as scratch:
+        globals()["FIRST_FIT_JSON"] = Path(scratch) / "first_real_fit.json"
+        try:
+            record_first_real_fit(where="the conformance report")
+            planted = json.loads(FIRST_FIT_JSON.read_text())
+            planted["prereg_blob"] = "0" * 40
+            FIRST_FIT_JSON.write_text(json.dumps(planted))
+            l8 = (_no_parameter(first_fit_record, "directory", "dir", "path")
+                  and _no_parameter(record_first_real_fit, "directory", "dir",
+                                    "path")
+                  and _no_parameter(assert_no_hashed_file_moved, "directory",
+                                    "dir", "path")
+                  and _refused(FreezeStateUnverified, assert_no_hashed_file_moved))
+        finally:
+            globals()["FIRST_FIT_JSON"] = kept_first_fit
+    l8 = l8 and FIRST_FIT_JSON == paths.FIT_DIR / "evwiden_first_real_fit.json"
+    row("L8", "§8.6", "the first-fit record is one fixed path, and validated",
+        "assert the record's functions take no directory argument; plant a "
+        "record naming a different prereg blob and require "
+        "FreezeStateUnverified", l8)
+
+    # ---- L9: the frozen sequence -----------------------------------------
+    kept_seq = SEQUENCE_DIR
+    with tempfile.TemporaryDirectory(prefix="evwiden-conformance-") as scratch:
+        globals()["SEQUENCE_DIR"] = Path(scratch) / "sequence"
+        try:
+            for step in SEQUENCE_STEPS:
+                write_sequence_marker(step, produced={"step": step})
+            l9 = True
+            for i, step in enumerate(SEQUENCE_STEPS[1:], 1):
+                marker = sequence_marker_path(SEQUENCE_STEPS[i - 1])
+                text = marker.read_text()
+                marker.unlink()
+                l9 = l9 and _refused(
+                    SequenceViolation,
+                    lambda s=step: require_sequence(s, enforce=True))
+                marker.write_text(text)
+        finally:
+            globals()["SEQUENCE_DIR"] = kept_seq
+    script = launch_script()
+    at = [script.find(f"# STEP {i}") for i in range(1, 6)]
+    l9 = (l9 and all(v >= 0 for v in at) and at == sorted(at)
+          and script.index("run_step merge") < script.index("run_step table")
+          and script.count("run_step shard_") == SHARDS
+          and _refused(EvWidenError, lambda: launch_script(shards=2)))
+    row("L9", "§8.4", "the frozen five-step sequence and its markers",
+        "remove each marker in turn and require the corresponding step to raise "
+        "SequenceViolation; assert the generated launch.sh emits exactly the "
+        "five steps in order and refuses any shard count but four", l9)
+
+    # ---- L10: tallies bound and rebound ----------------------------------
+    with tempfile.TemporaryDirectory(prefix="evwiden-conformance-") as scratch:
+        ledger = Path(scratch) / "table_cells.jsonl"
+        cell_row = {"season": "2019/20", "cutoff_label": MW6_LABEL,
+                    "n_sims": 20, "arms": {}}
+        target, sha = write_tallies(ledger, cell_row,
+                                    {"control": tally, "treatment": tally})
+        bound = dict(cell_row, tally_sha256=sha)
+        l10 = _accepted(lambda: load_tallies(ledger, bound))
+        with np.load(target) as data:
+            payload = {k: np.asarray(data[k]) for k in data.files}
+        payload["treatment"] = np.roll(tally, 1, axis=1)
+        np.savez_compressed(target, **payload)
+        l10 = (l10
+               and _refused(TableMCImprecise, lambda: load_tallies(ledger, bound))
+               and _refused(TableMCImprecise,
+                            lambda: load_tallies(ledger, dict(cell_row))))
+    l10 = (l10 and "tally_sha256" in _TABLE_ROW_FIELDS
+           and "tally_sha256" in _TABLE_COLUMNS
+           and "table_gate" in inspect.getsource(verify)
+           and "score_table" in inspect.getsource(verify))
+    row("L10", "§8.7, §9.3", "every deciding tally is bound to its row and "
+        "rebound on every read",
+        "replace a tally with a structurally valid different one after the run: "
+        "the read must refuse on the recorded digest, and refuse again on §5.1's "
+        "binding checks when the row's digest is forged too; and `--verify` "
+        "recomputes the table gate", l10)
+
+    # ---- L11: sampler_digest purity --------------------------------------
+    l11 = list(inspect.signature(sampler_digest).parameters) == ["run",
+                                                                 "tallies"]
+    row("L11", "§3.3", "`sampler_digest` is a pure function of (run, tallies)",
+        "assert the pinned signature; and at `arm_record` level, two books "
+        "differing only in `provisional` over identical retained rows must "
+        "produce EQUAL sampler digests", l11)
+
+    # ---- L12: the identity control is exercised, not stubbed -------------
+    l12 = ("np.array_equal(probs_incumbent, stored)" in engine_src
+           and "raise UntreatedMoved(" in engine_src
+           and "np.array_equal(probs_arm[i], probs_incumbent[i])" in engine_src
+           and "np.array_equal(probs_arm[idx[mid]], row)" in engine_src)
+    row("L12", "§3.2", "the identity control is exercised in the production "
+        "path, not reimplemented by a stub",
+        "`Engine.fit` carries the exact eight-decimal comparison, the "
+        "`UntreatedMoved` loop and the pass-2/pass-3 agreement check; §8.5's "
+        "closing clause makes the committed tests run all three seeded defects "
+        "against the real method", l12)
+
+    # ---- L13: the structural-zero guard is two-sided ---------------------
+    def _zero_row(**over):
+        base = {"match_id": "m", "e_min": 99.0, "delta": 0.0,
+                "incumbent_widened": False, "treated": False}
+        base.update(over)
+        return base
+
+    l13 = (_accepted(lambda: assert_structural_zeros([_zero_row()]))
+           and _refused(UntreatedMoved,
+                        lambda: assert_structural_zeros(
+                            [_zero_row(delta=1e-9)]))
+           and _refused(UntreatedMoved,
+                        lambda: assert_structural_zeros(
+                            [_zero_row(e_min=1.0, incumbent_widened=True,
+                                       delta=1e-9)])))
+    row("L13", "§2.3", "the structural-zero guard is two-sided at the merge",
+        "merge a row with `e_min >= e*` and a non-zero delta, and a "
+        "thin-but-incumbent-widened row with a non-zero delta; each must raise "
+        "UntreatedMoved", l13)
+
+    # ---- L14: the per-label treated census is pinned ---------------------
+    census = [{"season": f"20{19 + i}/2{i}", "cutoff_label": lab,
+               "treated_clubs": (["x"] if i < EXPECTED_TREATED_BY_LABEL[lab]
+                                 else [])}
+              for lab in TALLY_LABELS for i in range(7)]
+    moved = [dict(c) for c in census]
+    give = next(c for c in moved
+                if c["cutoff_label"] == "MW0" and c["treated_clubs"])
+    take = next(c for c in moved
+                if c["cutoff_label"] == "MW3" and not c["treated_clubs"])
+    take["treated_clubs"], give["treated_clubs"] = list(give["treated_clubs"]), []
+    l14 = (_accepted(lambda: assert_table_census(census))
+           and _refused(MembershipMismatch,
+                        lambda: assert_table_census(moved))
+           and "assert_table_census" in inspect.getsource(table_cells))
+    row("L14", "§3.3", "the per-label treated census is a binding pin",
+        "perturb one cell's treated set between labels, keeping the 35/16 "
+        "totals intact; `table_cells(check=True)` must raise MembershipMismatch "
+        "on the per-label census, not only on the totals", l14)
+
+    # ---- L15: the evidence contract is closed ----------------------------
+    with tempfile.TemporaryDirectory(prefix="evwiden-conformance-") as scratch:
+        manifest = Path(scratch) / "MANIFEST.sha256"
+        entries = {}
+        for rel in MANIFEST_PATHS:
+            target = Path(scratch) / Path(rel).name
+            target.write_text(rel)
+            entries[rel] = target
+        update_manifest({k: str(v) for k, v in entries.items()}, manifest,
+                        require=MANIFEST_PATHS)
+        l15 = _accepted(lambda: assert_manifest_complete(manifest,
+                                                         entries=entries))
+        lines = manifest.read_text().splitlines()
+        sha, rel, size = lines[0].split()
+        lines[0] = f"{sha}  {rel}  {int(size) + 1}"
+        manifest.write_text("\n".join(lines) + "\n")
+        l15 = l15 and _refused(MergeIncomplete,
+                               lambda: assert_manifest_complete(
+                                   manifest, entries=entries))
+        dropped = dict(entries)
+        dropped[MANIFEST_PATHS[-1]] = Path(scratch) / "absent"
+        l15 = l15 and _refused(
+            MergeIncomplete,
+            lambda: update_manifest({k: str(v) for k, v in dropped.items()},
+                                    Path(scratch) / "other.sha256",
+                                    require=MANIFEST_PATHS))
+    kept = table_projection({"per_cell": [{"key": "k"}]}, {"verdict": "PASS"})
+    l15 = (l15 and len(MANIFEST_PATHS) == 52
+           and bool(kept["scored"].get("per_cell"))
+           and main(["--shards", "2", "--merge"]) == 2)
+    row("L15", "§9", "the evidence contract is closed",
+        "drop a MANIFEST path; corrupt a byte size; check `scored.per_cell` "
+        "survives the projection; pass `--shards 2` — each must refuse", l15)
+
+    # ---- L16: the power table reproduces, through the REAL comparison ----
     reproduced = power_reproduces(power)
-    rows.append({"id": "R2-I2 (numbers)",
-                 "what": "the six published power rows reproduce",
-                 "ok": bool(reproduced["PASS"]), "detail": reproduced})
+    supplied = power if power is not None else {}
+    l16 = (bool(reproduced["PASS"])
+           and len(reproduced["checks"]) == len(PUBLISHED_POWER)
+           # ...and the object compared is a real simulation, not a stub: every
+           # row carries the 101-point power curve `power_simulation` computes
+           and all(len(r.get("curve") or ()) == POWER_GRID_POINTS
+                   for r in (supplied.get("rows") or [])))
+    row("L16", "§6.3", "the six published power rows reproduce",
+        "run the committed `power_simulation()` at the frozen constants through "
+        "the REAL comparison — not a stubbed power object — and require all six "
+        "rows to match to the published precision", l16, detail=reproduced)
+
+    # ---- L17: the always-PASS controls are measured ----------------------
+    dirty = [
+        {"match_id": "m0", "e_min": 99.0, "delta": 1e-9, "treated": False,
+         "incumbent_widened": False, "cutoff": "2019-08-09",
+         "fit": {"provisional_incumbent": ["rich"],
+                 "provisional_ledger": ["mid"]}},
+    ]
+    measured = measured_controls(dirty)
+    l17 = (measured["untreated_moved"]["n"] == 1
+           and measured["untreated_moved"]["PASS"] is False
+           and measured["predicate_mismatch"]["n"] == 1
+           and measured["predicate_mismatch"]["PASS"] is False
+           and measured_controls([])["untreated_moved"]["PASS"] is True)
+    row("L17", "§9.1", "the two always-PASS controls are measured off the "
+        "merged rows",
+        "merge a run containing one UntreatedMoved-class row and one "
+        "PredicateMismatch-class row; the published counts must be non-zero and "
+        "their PASS false", l17)
+
+    # ---- L18: the frozen constants are not overridable -------------------
+    l18 = all([
+        _refused(EvWidenError, lambda: estimand([], n_boot=N_BOOT + 1)),
+        _refused(EvWidenError, lambda: score_table([], n_boot=N_BOOT + 1)),
+        _refused(EvWidenError, lambda: score_table([], mc_boot=MC_BOOT + 1)),
+        _refused(EvWidenError,
+                 lambda: paired_mc_bootstrap([], seed=MC_SEED + 1)),
+        _refused(EvWidenError,
+                 lambda: power_simulation(replicates=POWER_REPLICATES + 1)),
+        _refused(EvWidenError, lambda: unanimity([], point_verdict=False,
+                                                 k=UNANIMITY_K + 1)),
+        _refused(EvWidenError, lambda: merge(shards=SHARDS + 1)),
+        main(["--n-boot", "500", "--merge"]) == 2,
+        main(["--shard", "0/2", "--run"]) == 2,
+    ])
+    row("L18", "§2.3", "the frozen constants are not overridable",
+        "attempt to pass a different B, n_sims, MC_BOOT, K or shard count "
+        "through every public surface and CLI flag; each must be refused or "
+        "absent", l18)
+
+    # the refusal inventory closes the set the document wrote (§7.1)
+    if len(refusals) != 26:                            # pragma: no cover
+        rows.append({"id": "L0", "section": "§7.1",
+                     "obligation": "26 named refusals",
+                     "scenario": "count the EvWidenError subclasses",
+                     "ok": False, "detail": sorted(refusals)})
+    assert list(inspect.signature(leaguesim.simulate).parameters)[:6] == [
+        "arm", "state", "book_or_provider", "n_sims", "seed", "chunk_size"]
     return rows
 
 
 def assert_implements_document(power: dict[str, Any] | None = None
                                ) -> list[dict[str, Any]]:
-    """R2-0's binding order, enforced: no freeze block before conformance."""
+    """§8.3 step 2's binding order, enforced: no freeze block before conformance.
+
+    "**`--freeze-block` refuses to render** while the conformance report has a
+    red row, while §7.4's ancestry test is absent, or while §6.3's table is
+    unreproduced. A hash table committed over code that does not implement the
+    document freezes the wrong thing, which is the one thing a hash table must
+    never do."
+    """
     report = implementation_report(power)
     broken = [r for r in report if not r["ok"]]
     if broken:
-        detail = "; ".join(f"{r['id']}: {r['what']}" for r in broken)
+        detail = "; ".join(f"{r['id']} ({r['section']}): {r['obligation']}"
+                           for r in broken)
         raise EvWidenError(
-            "refusing to render §6 step 2's freeze block: this harness does not "
-            f"yet implement the document as BOTH repair rounds leave it — "
-            f"{detail}. R2-0: '§6 step 1 (the harness is written and audited) is "
-            "not satisfied until the harness implements this document as "
-            "repaired in both rounds; §6 step 2's freeze block may not be "
-            "generated before that.' A hash table committed now would freeze "
-            "code that does not implement the document, which is the one thing "
-            "a hash table must never do."
-            + ("" if not any(r["id"].startswith("R2-I2 (numbers)")
-                             for r in broken) else
-               " On the power numbers specifically, R2-I2 names the remedy and "
-               "it is an owner's call, not the harness's: a dated note appended "
-               "to this document BEFORE the freeze commit, stating the scratch "
-               "value, the reproduced value, and what in the frozen "
-               "construction the scratch code did differently."))
+            "refusing to render §8.3 step 2's freeze block: this harness does "
+            f"not yet implement the document — {detail}. §8.3 step 1: the "
+            "harness is revised and audited, §8.5's conformance report must be "
+            "green on BEHAVIOURAL predicates, and only then may step 2's block "
+            "be rendered. A hash table committed over code that does not "
+            "implement the document freezes the wrong thing, which is the one "
+            "thing a hash table must never do."
+            + ("" if not any(r["id"] == "L16" for r in broken) else
+               " On the power numbers specifically (L16), §6.3 makes the "
+               "committed implementation's numbers the document's numbers: "
+               "correct §6.3's table before the freeze commit, or find what in "
+               "the construction moved."))
     return report
 
 
@@ -7445,30 +7916,35 @@ def freeze_block(corpus: pd.DataFrame | None = None,
                  *, pre_freeze_runs: Sequence[str] | None = None,
                  power: dict[str, Any] | None = None,
                  check_implementation: bool = True) -> str:
-    """§6 step 2's follow-up commit, RENDERED BY THE HARNESS'S OWN CODE.
+    """§8.3 step 2's follow-up commit, RENDERED BY THE HARNESS'S OWN CODE.
 
-    The document asks that commit for a hash table over every harness file —
-    "file, line count, SHA-256" — the schema identifier, the frozen membership
-    digests "each serialised canonically and hashed, recomputed by the harness's
-    own code from the pinned artifacts", and an enumeration of every pre-freeze
-    run.
+    §8.3 asks that commit for five things: the **harness hash table** ("file,
+    line count and SHA-256 for each of `epl/evwiden.py` and
+    `epl/tests/test_evwiden.py`, and the schema identifier `epl-evwiden-2`");
+    the **membership digests** ("the 85 thin fixture keys, the 52 treated keys,
+    the 51 newly-flagged club-cutoff cells, the 78 fit openings, the 16 treated
+    and 19 untouched table cells, and the per-label treated census of §3.3, each
+    serialised canonically and hashed, recomputed by the harness's own code from
+    the pinned artifacts"); the four pinned artifact digests of §0.1 and
+    `realised_config_sha256`; the **enumeration of every pre-freeze pass**
+    actually run, complete; and the **conformance report of §8.5, all rows
+    green**.
 
     Every one of those is computed here, so the freeze commit is a paste rather
     than a transcription. A transcribed digest is a digest with a typo in it,
-    and §6's whole point is that "the design was fixed first" be checkable by a
-    reader who runs `shasum` — which it is not if the recorded hash and the file
-    disagree because somebody's clipboard truncated a hex string.
+    and §8.3's whole point is that "the design was fixed first" be checkable by
+    a reader who runs `shasum` — which it is not if the recorded hash and the
+    file disagree because somebody's clipboard truncated a hex string.
 
-    R2 adds a precondition, and it is the reason this function can refuse:
-    ``--freeze-block`` **must refuse to render until the harness implements this
-    document**, both rounds, and R2-I2 adds that no freeze block may be rendered
-    while an unreproduced power number stands in it.
-    :func:`assert_implements_document` is that check.
+    **It refuses to render** "while the conformance report has a red row, while
+    §7.4's ancestry test is absent, or while §6.3's table is unreproduced. A
+    hash table committed over code that does not implement the document freezes
+    the wrong thing, which is the one thing a hash table must never do."
 
     This function READS the pinned artifacts and fits nothing.
     """
-    if check_implementation:
-        assert_implements_document(power)
+    report = (assert_implements_document(power) if check_implementation
+              else implementation_report(power))
     corpus = load_corpus() if corpus is None else corpus
     played = load_archive() if played is None else played
     ledger = load_walk_ledger() if ledger is None else ledger
@@ -7479,7 +7955,8 @@ def freeze_block(corpus: pd.DataFrame | None = None,
     digests = membership_digests(corpus, played, ledger, table=table)
 
     lines = [
-        "### §6 step 2 — the harness hashes and the frozen membership",
+        "### §8.3 step 2 — the harness hashes, the frozen membership and the "
+        "conformance report",
         "",
         f"Schema identifier: `{SCHEMA_ID}`. Recomputed by "
         "`python -m epl.evwiden --freeze-block` from the pinned artifacts of "
@@ -7511,16 +7988,40 @@ def freeze_block(corpus: pd.DataFrame | None = None,
         if count is None or digest is None:
             continue
         lines.append(f"| {label} | {count} | `{digest}` |")
+    census = assert_table_census(table)
     lines += [
         f"| the membership as one object | — | "
         f"`{digests['digests']['membership']}` |",
+        f"| the per-label treated census (§3.3) | "
+        f"{json.dumps(census['by_label'])} | "
+        f"`{_digest_list(f'{k}={v}' for k, v in sorted(census['by_label'].items()))}` |",
         "",
-        "Pre-freeze runs, enumerated (§5.3 — none of them a fit, none of them "
-        "able to enter an estimand):",
+        "| pinned artifact | SHA-256 |",
+        "|---|---|",
+        f"| `{paths.rel(CORPUS_PATH)}` | `{CORPUS_SHA256}` |",
+        f"| `{paths.rel(ARCHIVE_PATH)}` | `{ARCHIVE_SHA256}` |",
+        f"| `{paths.rel(WALK_LEDGER_PATH)}` | `{WALK_LEDGER_SHA256}` |",
+        f"| `{paths.rel(CONFIG_PATH)}` | `{CONFIG_SHA256}` |",
+        f"| the realised configuration (§0.1) | `{REALISED_CONFIG_SHA256}` |",
+        "",
+        "Pre-freeze passes, enumerated (§8.2 — none of them a fit, none of "
+        "them able to enter an estimand):",
         "",
     ]
     for run in (pre_freeze_runs or PRE_FREEZE_RUNS):
         lines.append(f"* {run}")
+    lines += [
+        "",
+        "The conformance report of §8.5, every row a scenario that fails under "
+        "its own defect class:",
+        "",
+        "| row | § | obligation | green |",
+        "|---|---|---|---|",
+    ]
+    for entry in report:
+        lines.append(f"| {entry['id']} | {entry['section']} | "
+                     f"{entry['obligation']} | "
+                     f"{'yes' if entry['ok'] else 'NO'} |")
     lines.append("")
     lines.append("*If any hash differs at the time the run is executed, it is "
                  "not the run this document preregisters.*")
