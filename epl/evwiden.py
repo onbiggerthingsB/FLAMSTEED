@@ -2534,7 +2534,9 @@ def parity_feasibility_pass(quarantine: Path | str, *,
        parity leg and there is nothing to establish.
     2. **Quarantined.** ``quarantine`` must resolve OUTSIDE
        ``paths.REPO_ROOT``: the pass's outputs are discarded, and a run that
-       writes them into the repository has published them.
+       writes them into the repository has published them. It must also not
+       exist or be empty, because condition 6 DELETES it: the pass discards its
+       own outputs and nobody else's.
     3. **Once.** :data:`FEASIBILITY_RECORD` is written when the pass closes and
        a second pass refuses while it exists. §8.2 authorises one.
     4. **`dc_native` only.** :data:`FEASIBILITY_SURFACES` is the parity oracle
@@ -2577,6 +2579,13 @@ def parity_feasibility_pass(quarantine: Path | str, *,
             f"{quarantine}: §8.2 authorises it only into a quarantine OUTSIDE "
             "the repository, because its outputs are discarded and a pass that "
             "writes them into the tree has published them.")
+    if quarantine.exists() and any(quarantine.iterdir()):
+        raise EvWidenError(
+            f"refusing to open {FEASIBILITY_PASS_NAME} into {quarantine}: it "
+            "already holds files, and the pass DELETES its quarantine when it "
+            "closes. §8.2 discards the pass's outputs; it does not discard "
+            "somebody else's. Name a directory that does not exist, or an "
+            "empty one.")
     if FEASIBILITY_RECORD.exists():
         raise EvWidenError(
             f"refusing to open {FEASIBILITY_PASS_NAME} a second time: "

@@ -5859,6 +5859,18 @@ def test_the_feasibility_pass_is_named_quarantined_once_and_dc_native_only(
             pass
     assert "OUTSIDE the repository" in str(exc.value)
 
+    # (2b) ...and it discards its OWN outputs and nobody else's: the pass
+    # deletes the quarantine when it closes, so a directory that already holds
+    # files is refused rather than emptied
+    occupied = tmp_path / "occupied"
+    occupied.mkdir()
+    (occupied / "someone-elses.txt").write_text("not ours\n")
+    with pytest.raises(ew.EvWidenError) as exc:
+        with ew.parity_feasibility_pass(occupied):
+            pass
+    assert "somebody else's" in str(exc.value)
+    assert (occupied / "someone-elses.txt").exists()
+
     # (4) `dc_native` only — the surface list is the parity oracle and nothing
     # else, so no treated arm can be produced inside the pass
     assert ew.FEASIBILITY_SURFACES == ("epl.evwiden.ParityRunner",)

@@ -1925,7 +1925,8 @@ written before the pass:
 > **Quarantined, and then discarded.** Every output — the protected oracle's own
 > `dc_native` parity rows included — goes to a directory OUTSIDE the repository,
 > and the directory is DELETED when the pass closes, after the census has been
-> recorded. Nothing is written under `data/`, `reports/` or the repository at
+> recorded. It must not exist or must be empty when the pass opens, because the
+> pass discards its OWN outputs and nobody else's. Nothing is written under `data/`, `reports/` or the repository at
 > all, with one exception named next.
 >
 > **What those rows are, said exactly.** They are cell-SHAPED: each carries a
