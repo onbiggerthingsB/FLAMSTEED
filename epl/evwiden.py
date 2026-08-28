@@ -6146,11 +6146,21 @@ _TABLE_COLUMNS = (
 _GRID_COLUMNS = ("e_star", "n_thin", "n_treated", "mean_delta", "ci_lo",
                  "ci_hi", "n_blocks", "degenerate", "decides")
 
-#: R2-I6's MANIFEST membership, frozen as an exact list of ELEVEN paths.
-#: R-I6's closing paragraph declared a list and then wrote a category; this is
-#: the list. Files 5-11 are the bulky local artifacts and are NOT committed —
-#: what is committed is their digest and byte size, which is the point of the
-#: manifest.
+#: §9.3's MANIFEST membership, frozen as an exact list of **FIFTY-TWO** paths.
+#: "The list is decidable from this document: the count is 52, the shard count
+#: is fixed at 4, the tally naming function is literal and its 35 members are
+#: the product of two enumerated sets, and the five markers are named
+#: individually. 'Bulky local artifacts' is not a category here; it is a list."
+#:
+#: v1's list was ELEVEN and substantively incomplete: the 35 deciding tally
+#: sidecars, `parity.jsonl` and the five sequence markers were all absent, so a
+#: swapped tally changed no manifested digest and a missing marker left no
+#: trace. Files 5-52 are not committed — what is committed is their digest AND
+#: BYTE SIZE, which is the point of the manifest.
+TALLY_SEASONS: tuple[str, ...] = ("2019-20", "2020-21", "2021-22", "2022-23",
+                                  "2023-24", "2024-25", "2025-26")
+TALLY_LABELS: tuple[str, ...] = ("MW0", "MW3", "MW6", "MW10", "MW19")
+
 MANIFEST_PATHS: tuple[str, ...] = (
     "reports/evidence/widening.json",
     "reports/evidence/widening_per_fixture.csv",
@@ -6160,12 +6170,17 @@ MANIFEST_PATHS: tuple[str, ...] = (
     "data/epl/fit/evwiden.json",
     "data/epl/sim/evwiden/table_cells.jsonl",
     "data/epl/fit/evwiden/canary.json",
+    "data/epl/sim/evwiden/parity.jsonl",
+    *(f"data/epl/sim/evwiden/tallies/{season}|{label}.npz"
+      for season in TALLY_SEASONS for label in TALLY_LABELS),
+    *(f"data/epl/fit/evwiden/sequence/{step}.json" for step in SEQUENCE_STEPS),
 )
 
-#: The namespace this experiment owns inside the SHARED manifest. R2-I6 refuses
-#: "an entry outside the eleven"; `reports/evidence/MANIFEST.sha256` is a file
-#: two earlier experiments already wrote, so the closure is scoped to the paths
-#: this experiment could have written — anything naming `widening` or `evwiden`.
+#: The namespace this experiment owns inside the SHARED manifest. §9.3 refuses
+#: "an entry inside this experiment's namespace (`widening`, `evwiden`) outside
+#: the 52"; `reports/evidence/MANIFEST.sha256` is a file two earlier experiments
+#: already wrote, so the closure is scoped to the paths this experiment could
+#: have written.
 _MANIFEST_NAMESPACE = ("widening", "evwiden")
 
 
@@ -6443,10 +6458,11 @@ MATERIALITY_SENTENCE = (
 def manifest_entries(directory: Path | str | None = None,
                      table_ledger: Path | str | None = None,
                      ) -> dict[str, Path]:
-    """R2-I6's eleven paths, resolved. The list, not a category."""
+    """§9.3's fifty-two paths, resolved. The list, not a category."""
     directory = Path(directory) if directory is not None else EVWIDEN_DIR
     table_ledger = (Path(table_ledger) if table_ledger is not None
                     else TABLE_LEDGER)
+    table_dir = table_ledger.parent
     out: dict[str, Path] = {}
     for rel in MANIFEST_PATHS:
         if rel.startswith("reports/evidence/"):
@@ -6455,6 +6471,12 @@ def manifest_entries(directory: Path | str | None = None,
             out[rel] = table_ledger
         elif rel == "data/epl/fit/evwiden.json":
             out[rel] = EVWIDEN_JSON
+        elif rel.endswith("/parity.jsonl"):
+            out[rel] = table_dir / PARITY_NAME
+        elif "/tallies/" in rel:
+            out[rel] = table_dir / "tallies" / Path(rel).name
+        elif "/sequence/" in rel:
+            out[rel] = SEQUENCE_DIR / Path(rel).name
         else:
             out[rel] = directory / Path(rel).name
     return out
@@ -6469,7 +6491,7 @@ def update_manifest(entries: dict[str, str], path: Path | str | None = None, *,
     experiments already wrote, and rewriting it from scratch would silently drop
     their entries — which is the opposite of what a manifest is for.
 
-    R2-I6: **a missing artifact is a refusal, never a silent omission.** Every
+    §9.3: **a missing artifact is a refusal, never a silent omission.** Every
     path in ``require`` must exist; the superseded writer skipped what it could
     not find, which is how a "complete" manifest ends up describing ten files.
     """
@@ -6479,9 +6501,10 @@ def update_manifest(entries: dict[str, str], path: Path | str | None = None, *,
     if absent:
         raise MergeIncomplete(
             f"the manifest is missing {len(absent)} promised artifact(s) "
-            f"(first: {absent[:3]}). R2-I6 freezes the membership as an exact "
-            "list of eleven paths and refuses to skip a file it cannot find: a "
-            "missing artifact is a refusal, never a silent omission.")
+            f"(first: {absent[:3]}). §9.3 freezes the membership as an exact "
+            f"list of {len(MANIFEST_PATHS)} paths and refuses to skip a file it "
+            "cannot find: a missing artifact is a refusal, never a silent "
+            "omission.")
     fresh: dict[str, str] = {}
     for rel, target in entries.items():
         target = Path(target)
@@ -6523,14 +6546,18 @@ def read_manifest(path: Path | str | None = None) -> dict[str, dict[str, Any]]:
 def assert_manifest_complete(path: Path | str | None = None, *,
                              entries: dict[str, Path] | None = None,
                              ) -> dict[str, Any]:
-    """R2-I6: exactly the eleven, every digest agreeing, nothing else of ours.
+    """§9.3: exactly the 52, every digest AND BYTE SIZE agreeing, nothing else
+    of ours.
 
-    ``--verify`` refuses if any of the eleven is missing from the manifest, if
-    any digest disagrees, or if the manifest carries an entry outside the
-    eleven. The closure is scoped to the namespace this experiment owns —
-    ``reports/evidence/MANIFEST.sha256`` is a shared file two earlier
-    experiments already wrote, and refusing THEIR entries would be refusing the
-    manifest for doing its job.
+    ``--verify`` refuses if any of the 52 is missing from the manifest, if any
+    digest disagrees, **if any byte size disagrees**, if the manifest carries an
+    entry inside this experiment's namespace outside the 52, or if a promised
+    file is not on disk. v1 recorded the byte sizes and never compared them,
+    which made half of every entry decoration.
+
+    The namespace closure is scoped: ``reports/evidence/MANIFEST.sha256`` is a
+    shared file two earlier experiments already wrote, and refusing THEIR
+    entries would be refusing the manifest for doing its job.
     """
     path = Path(path) if path is not None else EVIDENCE_MANIFEST
     entries = manifest_entries() if entries is None else entries
@@ -6540,27 +6567,35 @@ def assert_manifest_complete(path: Path | str | None = None, *,
             if any(tag in rel for tag in _MANIFEST_NAMESPACE)]
     extra = sorted(set(ours) - set(MANIFEST_PATHS))
     disagree: list[str] = []
+    wrong_size: list[str] = []
     absent: list[str] = []
     for rel in MANIFEST_PATHS:
         target = Path(entries.get(rel, "/nonexistent"))
         if not target.exists():
             absent.append(rel)
             continue
-        if rel in recorded and recorded[rel]["sha256"] != sha256_file(target):
+        if rel not in recorded:
+            continue
+        if recorded[rel]["sha256"] != sha256_file(target):
             disagree.append(rel)
+        size = recorded[rel].get("bytes")
+        if size is None or int(size) != int(target.stat().st_size):
+            wrong_size.append(rel)
     out = {"path": paths.rel(path), "n_required": len(MANIFEST_PATHS),
            "missing": missing, "extra": extra, "disagree": disagree,
-           "absent_on_disk": absent,
-           "PASS": not (missing or extra or disagree or absent)}
+           "wrong_size": wrong_size, "absent_on_disk": absent,
+           "PASS": not (missing or extra or disagree or wrong_size or absent)}
     if not out["PASS"]:
         raise MergeIncomplete(
-            f"{paths.rel(path)} does not carry R2-I6's eleven paths: "
-            f"{len(missing)} missing {missing[:3]}, {len(extra)} outside the "
-            f"eleven {extra[:3]}, {len(disagree)} whose digest disagrees "
-            f"{disagree[:3]}, {len(absent)} promised but absent on disk "
-            f"{absent[:3]}. "
-            "'Bulky local artifacts' is no longer a category; it is a list, and "
-            "a run that cannot produce one of them has not finished.")
+            f"{paths.rel(path)} does not carry §9.3's {len(MANIFEST_PATHS)} "
+            f"paths: {len(missing)} missing {missing[:3]}, {len(extra)} outside "
+            f"the list {extra[:3]}, {len(disagree)} whose digest disagrees "
+            f"{disagree[:3]}, {len(wrong_size)} whose recorded byte size "
+            f"disagrees or is absent {wrong_size[:3]}, {len(absent)} promised "
+            f"but absent on disk {absent[:3]}. §9.3: each entry carries a "
+            "SHA-256 AND a byte size and both are VALIDATED, not merely "
+            "recorded; 'Bulky local artifacts' is not a category here, it is a "
+            "list, and a run that cannot produce one of them has not finished.")
     return out
 
 
@@ -6622,8 +6657,27 @@ def write_evidence(result: dict[str, Any],
     return written
 
 
+def table_projection(scored: dict[str, Any],
+                     gate: dict[str, Any]) -> dict[str, Any]:
+    """What the merge carries as its ``table`` — **with ``per_cell`` intact**.
+
+    §9.1: "**`scored.per_cell` is not stripped.** The top-level per-cell
+    structure must survive into the JSON projection: it is what fills the
+    required table-parity and coverage diagnostics, and removing it before
+    projection empties fields this contract promises."
+
+    v1's ``main`` built this dictionary inline as
+    ``{k: v for k, v in scored.items() if k != "per_cell"}``, so
+    ``controls.table_parity.per_cell_digests`` and ``coverage`` were published
+    empty on every real run. It is a named function now so the omission cannot
+    come back as an inline comprehension nobody reads.
+    """
+    return {"gate": gate, "scored": scored}
+
+
 def verify(directory: Path | str | None = None, *, shards: int = SHARDS,
            evidence: Path | str | None = None,
+           table_ledger: Path | str | None = None,
            n_boot: int = N_BOOT, seed: int = BOOTSTRAP_SEED,
            tolerance: float = 1e-12,
            check_manifest: bool | None = None) -> dict[str, Any]:
@@ -6636,6 +6690,17 @@ def verify(directory: Path | str | None = None, *, shards: int = SHARDS,
     1e-12, and re-scoring the shard ledgers must reproduce it again — so the
     three ways of arriving at the number are three, and not one number copied
     twice.
+
+    **And it re-derives the VERDICT, not only the headline** (§8.7, §9.3). v1's
+    ``--verify`` "does not reproduce the table/MC/adoption decision": it
+    averaged one CSV column and compared it with one JSON field, leaving gate
+    (iv) — the half of the adoption rule that four hours of simulation paid for
+    — unchecked. This one rebinds every tally to its recorded digest, re-runs
+    §5's estimator and §5.4's unanimity rule, recomputes the table gate, and
+    refuses if the recomputed verdict, the recomputed standard errors or the
+    recomputed precision conditions differ from the published ones. **A
+    verification that re-reads a JSON file it does not re-derive verifies
+    nothing.**
 
     It fits nothing, simulates nothing and writes nothing.
     """
@@ -6681,7 +6746,56 @@ def verify(directory: Path | str | None = None, *, shards: int = SHARDS,
                        "mean": scored["mean"], "ci95": scored["ci95"],
                        "run_digest": run_digest(ledger_rows)}
 
+    # ---- §8.7: the table gate, RE-DERIVED from the rebound tallies --------
+    table_ledger_path = (Path(table_ledger) if table_ledger is not None
+                         else TABLE_LEDGER)
+    table_check: dict[str, Any] = {
+        "checked": False, "path": paths.rel(table_ledger_path),
+        "why": "the table ledger is not on disk"}
+    if table_ledger_path.exists():
+        cell_rows = load_table_ledger(table_ledger_path)
+        # `load_tallies` inside `score_table` rebinds each file to the digest
+        # its row recorded and re-runs §5.1's binding checks; `unanimity`
+        # re-derives the whole of iv-c 200 times. Nothing here is read off the
+        # published JSON.
+        rescored = score_table(cell_rows, ledger_path=table_ledger_path)
+        regate = table_gate(rescored)
+        was = (published.get("gate_iv") or {})
+        want_precision = dict(was.get("precision") or {})
+        got_precision = dict(regate["precision"])
+        differs = []
+        if was.get("PASS_or_UNRESOLVED") not in (None, regate["verdict"]):
+            differs.append(
+                f"verdict {was.get('PASS_or_UNRESOLVED')!r} != "
+                f"{regate['verdict']!r}")
+        for field in ("mc_se_mw6", "mc_se_mw0", "mc_se_mw3", "mc_se_mw10"):
+            a, b = want_precision.get(field), got_precision.get(field)
+            if a is not None and b is not None and \
+                    abs(float(a) - float(b)) > float(tolerance):
+                differs.append(f"{field} {a} != {b}")
+        fired_then = set(want_precision.get("fired") or ())
+        fired_now = set(got_precision.get("fired") or ())
+        if want_precision and fired_then != fired_now:
+            differs.append(f"precision conditions {sorted(fired_then)} != "
+                           f"{sorted(fired_now)}")
+        table_check = {
+            "checked": True, "path": paths.rel(table_ledger_path),
+            "n_cells": int(rescored["n_cells"]),
+            "recomputed": {"verdict": regate["verdict"],
+                           "mc_se_mw6": got_precision.get("mc_se_mw6"),
+                           "fired": sorted(fired_now),
+                           "unanimity_dissenting":
+                               got_precision.get("unanimity_dissenting")},
+            "published": {"verdict": was.get("PASS_or_UNRESOLVED"),
+                          "mc_se_mw6": want_precision.get("mc_se_mw6"),
+                          "fired": sorted(fired_then)},
+            "differs": differs, "PASS": not differs}
+
     checks = []
+    if table_check["checked"]:
+        checks.append({"source": "table_gate", "checked": True,
+                       "PASS": bool(table_check["PASS"]),
+                       "differs": table_check["differs"]})
     for name, got in (("per_fixture_csv", from_csv), ("shard_ledgers", from_ledger)):
         if not got.get("present"):
             checks.append({"source": name, "checked": False,
@@ -6693,8 +6807,8 @@ def verify(directory: Path | str | None = None, *, shards: int = SHARDS,
                        "delta_mean": d_mean, "delta_n": d_n,
                        "PASS": bool(d_mean <= tolerance and d_n == 0)})
 
-    # R2-I6: `--verify` validates MANIFEST completeness — the eleven paths, no
-    # digest disagreeing, and no entry of ours outside them.
+    # §9.3: `--verify` validates MANIFEST completeness — the 52 paths, no digest
+    # disagreeing, no byte size disagreeing, and no entry of ours outside them.
     if check_manifest is None:
         check_manifest = evidence.parent.resolve() == EVIDENCE_DIR.resolve()
     manifest: dict[str, Any] = {"checked": False,
@@ -6714,7 +6828,7 @@ def verify(directory: Path | str | None = None, *, shards: int = SHARDS,
                          "ci_season": published.get("ci_season"),
                          "verdict": published.get("verdict")},
            "per_fixture_csv": from_csv, "shard_ledgers": from_ledger,
-           "manifest": manifest,
+           "manifest": manifest, "table_gate": table_check,
            "checks": checks, "tolerance": tolerance,
            "PASS": bool(ran) and all(c["PASS"] for c in ran)}
     if not out["PASS"]:
@@ -6722,9 +6836,11 @@ def verify(directory: Path | str | None = None, *, shards: int = SHARDS,
             f"the published verdict does not re-derive from its own evidence: "
             f"{[c for c in checks if not c.get('PASS', True)]}. Either the "
             "committed files disagree with the ledger they were projected from, "
-            "or nothing was available to check them against — and a verdict "
-            "nobody can recompute is exactly what reports/evidence/ exists to "
-            "prevent.")
+            "the table gate does not recompute from the rebound tallies, or "
+            "nothing was available to check them against — and a verdict nobody "
+            "can recompute is exactly what reports/evidence/ exists to prevent. "
+            "§8.7: a verification that re-reads a JSON file it does not "
+            "re-derive verifies nothing.")
     return out
 
 
@@ -7045,8 +7161,8 @@ def implementation_report(power: dict[str, Any] | None = None,
         {"id": "R2-I5", "what": "the synthetic-ancestry test exists",
          "ok": "test_the_synthetic_clubs_are_absent_from_the_pinned_artifacts"
                in test_text},
-        {"id": "R2-I6", "what": "the frozen schemas and the eleven-path MANIFEST",
-         "ok": (len(MANIFEST_PATHS) == 11 and SHARDS == 4
+        {"id": "R2-I6", "what": "the frozen schemas and the 52-path MANIFEST",
+         "ok": (len(MANIFEST_PATHS) == 52 and SHARDS == 4
                 and "p_home_B" in _PER_FIXTURE_COLUMNS
                 and "parity_digest_simretro" in _TABLE_COLUMNS)},
         {"id": "R-M2", "what": "the direction canary runs the production path",
@@ -7729,20 +7845,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                 rows = load_table_ledger(table_ledger, expected=cells)
                 scored = score_table(rows, ledger_path=table_ledger,
                                      expected_cells=EXPECTED_TABLE_CELLS)
-                table_out = {"scored": scored, "gate": table_gate(scored),
+                table_out = {**table_projection(scored, table_gate(scored)),
                              "rows": rows}
             if args.verify and not args.merge:
-                print(json.dumps(verify(directory, shards=args.shards),
-                                 indent=2, default=str))
+                print(json.dumps(
+                    verify(directory, shards=args.shards,
+                           table_ledger=table_ledger), indent=2, default=str))
                 return 0
             require_run_preconditions(directory, step=SEQUENCE_STEPS[3])
             result = merge(shards=args.shards, directory=directory,
                            corpus=corpus, played=played, ledger=ledger,
+                           # §9.1: `scored.per_cell` is NOT stripped — it is
+                           # what fills the table-parity and coverage
+                           # diagnostics the evidence contract promises.
                            table=(None if table_out is None
-                                  else {"gate": table_out["gate"],
-                                        "scored": {k: v for k, v in
-                                                   table_out["scored"].items()
-                                                   if k != "per_cell"}}),
+                                  else table_projection(table_out["scored"],
+                                                        table_out["gate"])),
                            write=args.merge)
             if args.evidence:
                 merged = [r for shard in range(args.shards)

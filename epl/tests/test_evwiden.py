@@ -3149,15 +3149,148 @@ def test_the_verdict_json_carries_r_i6s_frozen_field_list(tmp_path):
     assert with_power["power"]["reproduces"]["PASS"] is False
 
 
-def test_the_manifest_is_the_eleven_paths_and_a_missing_file_is_a_refusal(
-        tmp_path):
-    """R2-I6: "'Bulky local artifacts' is no longer a category; it is a list."
-    Eleven paths, and `--verify` refuses a missing entry, a disagreeing digest,
-    or an entry of ours outside the eleven."""
-    assert len(ew.MANIFEST_PATHS) == 11
+def test_scored_per_cell_survives_into_the_json_projection(tmp_path):
+    """§9.1: "**`scored.per_cell` is not stripped.** The top-level per-cell
+    structure must survive into the JSON projection: it is what fills the
+    required table-parity and coverage diagnostics, and removing it before
+    projection empties fields this contract promises."
+
+    v1's `main` did `{k: v for k, v in scored.items() if k != "per_cell"}`
+    before handing the table to `merge`, so `controls.table_parity` and
+    `coverage` were published empty on every real run.
+    """
+    _run(tmp_path)
+    rows = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
+    result = ew.estimand(rows, corpus_rows=len(rows))
+
+    path, cell_rows = _run_cells(tmp_path)
+    scored = ew.score_table(cell_rows, ledger_path=path)
+    result["table"] = {"scored": scored, "gate": ew.table_gate(scored)}
+    published = ew.evidence_object(result)
+
+    assert published["controls"]["table_parity"]["n_cells"] == 35
+    assert published["controls"]["table_parity"]["per_cell_digests"]
+    assert published["coverage"], "the coverage diagnostic is filled by per_cell"
+
+    # ...and the projection is what `main` hands it: `table_projection` keeps
+    # per_cell rather than dropping it
+    kept = ew.table_projection(scored, ew.table_gate(scored))
+    assert "per_cell" in kept["scored"] and kept["scored"]["per_cell"]
+
+
+def test_verify_recomputes_the_table_gate_from_the_rebound_tallies(tmp_path):
+    """§8.7 and §9.3, conformance row L10: "**`--verify` recomputes the table
+    gate from the rebound tallies** — the whole of §5, including the unanimity
+    rule — and refuses if the recomputed verdict, the recomputed standard errors
+    or the recomputed precision conditions differ from the published ones. A
+    verification that re-reads a JSON file it does not re-derive verifies
+    nothing."
+
+    v1's `--verify` "does not reproduce the table/MC/adoption decision": it
+    averaged one CSV column and compared it with one JSON field.
+    """
+    path, rows = _run_cells(tmp_path)
+    rows = _freeze_cells(path)             # `verify` reads a post-freeze ledger
+    scored = ew.score_table(rows, ledger_path=path)
+    gate = ew.table_gate(scored)
+
+    _run(tmp_path)
+    ledger = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
+    result = ew.estimand(ledger, corpus_rows=len(ledger))
+    result["table"] = ew.table_projection(scored, gate)
+    out = tmp_path / "evidence"
+    ew.write_evidence(result, ledger, rows, directory=out, manifest=False)
+
+    ok = ew.verify(tmp_path, shards=1, evidence=out / "widening.json",
+                   table_ledger=path)
+    assert ok["table_gate"]["checked"] is True
+    assert ok["table_gate"]["PASS"] is True
+    assert ok["table_gate"]["recomputed"]["verdict"] == gate["verdict"]
+
+    # ...and a published verdict that the tallies do not re-derive is refused
+    published = json.loads((out / "widening.json").read_text())
+    published["gate_iv"]["PASS_or_UNRESOLVED"] = "PASS" \
+        if gate["verdict"] != "PASS" else "FAIL"
+    (out / "widening.json").write_text(json.dumps(published))
+    with pytest.raises(ew.MergeIncomplete) as exc:
+        ew.verify(tmp_path, shards=1, evidence=out / "widening.json",
+                  table_ledger=path)
+    assert "table gate" in str(exc.value)
+
+
+def test_the_manifest_is_the_fifty_two_paths_of_9_3(tmp_path):
+    """§9.3's exact list, decidable from the document.
+
+    > The list is decidable from this document: the count is 52, the shard count
+    > is fixed at 4, the tally naming function is literal and its 35 members are
+    > the product of two enumerated sets, and the five markers are named
+    > individually. "Bulky local artifacts" is not a category here; it is a
+    > list.
+
+    v1's list was eleven and "substantively incomplete": the deciding tally
+    sidecars, `parity.jsonl` and the five sequence markers were all absent, so a
+    swapped tally changed no manifested digest.
+    """
+    assert len(ew.MANIFEST_PATHS) == 52
+    assert ew.SHARDS == 4
+    assert ew.MANIFEST_PATHS[:4] == (
+        "reports/evidence/widening.json",
+        "reports/evidence/widening_per_fixture.csv",
+        "reports/evidence/widening_table_cells.csv",
+        "reports/evidence/widening_grid_means.csv")
     assert ew.MANIFEST_PATHS[4:8] == tuple(
         f"data/epl/fit/evwiden/shard_{i:02d}_of_04.jsonl" for i in range(4))
-    assert ew.SHARDS == 4
+    assert ew.MANIFEST_PATHS[8:12] == (
+        "data/epl/fit/evwiden.json",
+        "data/epl/sim/evwiden/table_cells.jsonl",
+        "data/epl/fit/evwiden/canary.json",
+        "data/epl/sim/evwiden/parity.jsonl")
+
+    tallies = ew.MANIFEST_PATHS[12:47]
+    assert len(tallies) == 35
+    seasons = ("2019-20", "2020-21", "2021-22", "2022-23", "2023-24",
+               "2024-25", "2025-26")
+    assert set(tallies) == {f"data/epl/sim/evwiden/tallies/{s}|{lab}.npz"
+                            for s in seasons for lab in TABLE_LABELS}
+    # the naming function is literal: what `tally_path` writes is what the
+    # MANIFEST names
+    assert ew.paths.rel(ew.tally_path(
+        ew.TABLE_LEDGER, {"season": "2019/20", "cutoff_label": "MW6"})) in tallies
+
+    assert ew.MANIFEST_PATHS[47:] == tuple(
+        f"data/epl/fit/evwiden/sequence/{step}.json"
+        for step in ew.SEQUENCE_STEPS)
+
+
+def test_the_manifest_validates_byte_sizes_and_not_only_digests(tmp_path):
+    """§9.3: "Each entry carries a SHA-256 **and a byte size**, and both are
+    **validated** on `--verify`, not merely recorded." v1 parsed the sizes and
+    never compared them."""
+    manifest = tmp_path / "MANIFEST.sha256"
+    entries = {}
+    for rel in ew.MANIFEST_PATHS:
+        target = tmp_path / Path(rel).name
+        target.write_text(rel)
+        entries[rel] = target
+    ew.update_manifest({k: str(v) for k, v in entries.items()}, manifest,
+                       require=ew.MANIFEST_PATHS)
+    assert ew.assert_manifest_complete(manifest, entries=entries)["PASS"]
+
+    # forge the digest line's SIZE alone: the SHA still agrees, and v1 passed
+    text = manifest.read_text().splitlines()
+    sha, rel, size = text[0].split()
+    text[0] = f"{sha}  {rel}  {int(size) + 1}"
+    manifest.write_text("\n".join(text) + "\n")
+    with pytest.raises(ew.MergeIncomplete) as exc:
+        ew.assert_manifest_complete(manifest, entries=entries)
+    assert "byte size" in str(exc.value)
+
+
+def test_the_manifest_is_the_paths_and_a_missing_file_is_a_refusal(
+        tmp_path):
+    """§9.3: "'Bulky local artifacts' is not a category here; it is a list."
+    `--verify` refuses a missing entry, a disagreeing digest, or an entry of
+    ours outside the list."""
 
     manifest = tmp_path / "MANIFEST.sha256"
     entries = {}
@@ -3185,7 +3318,7 @@ def test_the_manifest_is_the_eleven_paths_and_a_missing_file_is_a_refusal(
     assert "digest disagrees" in str(exc.value)
 
 
-def test_the_manifest_refuses_an_entry_of_ours_outside_the_eleven(tmp_path):
+def test_the_manifest_refuses_an_entry_of_ours_outside_the_list(tmp_path):
     manifest = tmp_path / "MANIFEST.sha256"
     entries = {}
     for rel in ew.MANIFEST_PATHS:
@@ -3197,7 +3330,7 @@ def test_the_manifest_refuses_an_entry_of_ours_outside_the_eleven(tmp_path):
                         + f"{'0' * 64}  reports/evidence/widening_extra.csv  1\n")
     with pytest.raises(ew.MergeIncomplete) as exc:
         ew.assert_manifest_complete(manifest, entries=entries)
-    assert "outside the eleven" in str(exc.value)
+    assert "outside the list" in str(exc.value)
 
     # ...and another experiment's entries are not ours to refuse
     manifest.write_text("\n".join(
