@@ -2697,3 +2697,34 @@ artifact of this experiment (`data/epl/fit/evwiden*` and
 `results.parquet` is byte-untouched, mtime 2026-08-14). The guard now refuses
 exactly this invocation, and the tests stub the oracle. The "no fit of this
 experiment anywhere" attestation is made WITH this event on the record.
+
+---
+
+## Closing note — 2026-08-28: this preregistration is invalidated, and superseded
+
+**This document is invalidated under its own R-B6.** The two pre-freeze ADVI
+fits disclosed in the note above ran through the **parity leg**, and the parity
+leg is a mandatory leg of this experiment — R2-B4(c) budgets it at 35 fits and
+R-B4 requires it before one treated simulation. R-B6 counts *any* real fit on
+the real archive, "whether or not it produced a delta, whether or not it was
+merged, whether or not anyone looked at it", and the fits preceded subsequent
+changes to this document's hashed files. The note above concluded that running
+"through the protected retro machinery, not through this experiment's treatment
+path" preserved the no-fit attestation; that conclusion is wrong, and an
+independent cross-model review of `f454041` ruled it so (finding NB1). Under
+R-B6's own remedy this document cannot be repaired into legitimacy.
+
+**What did and did not happen.** No freeze block was ever pasted — §6 step 2
+never landed. No estimand fit of this experiment ever ran: no
+`data/epl/fit/evwiden*` or `data/epl/sim/evwiden*` file exists, and no delta,
+table cell, evidence file or verdict of this experiment exists anywhere.
+
+**Superseded by [`reports/epl_widening_prereg_v2.md`](epl_widening_prereg_v2.md)**,
+which states the complete law in one coherent document — this document's
+effective law after both repair rounds, with every text defect found by the
+three reviews and the in-tree audit fixed at the source — and which names these
+two fits inside its own attestation.
+
+**This document is retained as lineage and decides nothing.** Nothing else in it
+changes: every word above this note stands exactly as committed, and no clause of
+it binds any run.
