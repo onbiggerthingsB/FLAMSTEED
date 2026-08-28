@@ -1500,7 +1500,7 @@ def test_the_corpus_is_the_external_control_at_full_strength(tmp_path):
 def test_the_estimand_is_the_mean_paired_delta_over_the_thin_population(tmp_path):
     rows = _merged(tmp_path)
     hand = _hand_deltas(rows)
-    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    result = ew.estimand(rows, corpus_rows=len(rows))
     assert result["n"] == len(hand) == 7
     assert result["mean"] == pytest.approx(float(np.mean(list(hand.values()))))
     assert result["estimand"].startswith("mean paired RPS delta, dc_evwiden "
@@ -1515,7 +1515,7 @@ def test_the_already_widened_fixtures_carry_a_delta_of_exactly_zero(tmp_path):
     already = [r for r in thin if r["incumbent_widened"]]
     assert already
     assert all(float(r["delta"]) == 0.0 for r in already)
-    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    result = ew.estimand(rows, corpus_rows=len(rows))
     treated = result["secondaries"]["treated_subset"]
     assert treated["n"] == len(thin) - len(already)
     assert np.sign(result["mean"]) == np.sign(treated["mean"])
@@ -1528,7 +1528,7 @@ def test_the_full_population_secondary_is_an_arithmetic_identity(tmp_path):
     IDENTITY (untreated deltas are exactly zero), printed as context, never a
     gate"."""
     rows = _merged(tmp_path)
-    result = ew.estimand(rows, n_boot=200, corpus_rows=2280)
+    result = ew.estimand(rows, corpus_rows=2280)
     full = result["secondaries"]["full_population"]
     assert full["mean"] == pytest.approx(result["mean"] * result["n"] / 2280)
     assert full["decides"] == "nothing"
@@ -1538,7 +1538,7 @@ def test_both_intervals_are_reported_and_they_use_different_blocks(tmp_path):
     """§2.3 requires both and §4.1 gates on both: the season interval's job is
     to refuse a result carried by one season."""
     rows = _merged(tmp_path)
-    result = ew.estimand(rows, n_boot=500, corpus_rows=len(rows))
+    result = ew.estimand(rows, corpus_rows=len(rows))
     assert len(result["ci95"]) == 2 and len(result["ci95_season"]) == 2
     assert result["bootstrap"]["primary_blocks"] == "season|ISO week"
     assert result["bootstrap"]["secondary_blocks"] == "season"
@@ -1555,9 +1555,9 @@ def test_the_primary_interval_reproduces_the_projects_own_bootstrap(tmp_path):
     thin = [r for r in rows if float(r["e_min"]) < ew.E_STAR]
     lo, hi, n = score_mod.block_bootstrap_ci(
         np.array([float(r["delta"]) for r in thin]),
-        [str(r["block"]) for r in thin], n_boot=500, alpha=ew.ALPHA,
+        [str(r["block"]) for r in thin], n_boot=ew.N_BOOT, alpha=ew.ALPHA,
         seed=ew.BOOTSTRAP_SEED)
-    result = ew.estimand(rows, n_boot=500, corpus_rows=len(rows))
+    result = ew.estimand(rows, corpus_rows=len(rows))
     assert result["ci95"] == [lo, hi]
     assert result["n_blocks"] == n
 
@@ -1567,7 +1567,7 @@ def test_the_grid_is_assembled_from_the_same_fits_and_agrees_at_the_primary(
     """§3.1: "each point's thin-population mean delta, treated count, and
     week-block CI, FROM THE SAME 78 FITS"."""
     rows = _merged(tmp_path)
-    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    result = ew.estimand(rows, corpus_rows=len(rows))
     grid = {g["e_star"]: g for g in result["secondaries"]["grid"]}
     assert set(grid) == {1.0, 3.0, 5.0, 8.0, 10.0, 12.0}
     assert grid[ew.E_STAR]["mean"] == pytest.approx(result["mean"])
@@ -1585,7 +1585,7 @@ def test_seeded_defect_a_grid_row_with_no_widened_value_refuses(tmp_path):
     for r in rows:
         r["probs_widened"] = None
     with pytest.raises(ew.MergeIncomplete) as exc:
-        ew.estimand(rows, n_boot=50, corpus_rows=len(rows))
+        ew.estimand(rows, corpus_rows=len(rows))
     assert "widened probabilities" in str(exc.value)
 
 
@@ -1596,7 +1596,7 @@ def test_seeded_defect_an_untreated_fixture_with_a_delta_refuses(tmp_path):
     stray = next(r for r in rows if float(r["e_min"]) >= ew.E_STAR)
     stray["delta"] = 1e-9
     with pytest.raises(ew.UntreatedMoved):
-        ew.estimand(rows, n_boot=50, corpus_rows=len(rows))
+        ew.estimand(rows, corpus_rows=len(rows))
 
 
 def test_seeded_defect_a_population_that_is_not_the_pre_stated_one_refuses(
@@ -1604,7 +1604,7 @@ def test_seeded_defect_a_population_that_is_not_the_pre_stated_one_refuses(
     """§2.3 fixes the population and forbids dropping a fixture for any reason."""
     rows = _merged(tmp_path)
     with pytest.raises(ew.MergeIncomplete) as exc:
-        ew.estimand(rows, n_boot=50, corpus_rows=len(rows), expected_thin=85)
+        ew.estimand(rows, corpus_rows=len(rows), expected_thin=85)
     assert "not the pre-stated 85" in str(exc.value)
 
 
@@ -1616,7 +1616,7 @@ def test_the_strata_read_the_category_off_the_models_own_cold_start_verdict(
     rows = _merged(tmp_path)
     cold = ew.cold_start_club_seasons(rows)
     assert ("2019/20", "cold") in cold
-    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    result = ew.estimand(rows, corpus_rows=len(rows))
     labels = {s["stratum"] for s in result["secondaries"]["strata"]["category"]}
     assert labels <= set(ew.STRATA_CATEGORIES)
     total = sum(s["n"] for s in result["secondaries"]["strata"]["category"])
@@ -1638,7 +1638,7 @@ def test_the_movement_diagnostic_prints_beside_the_reseed_scale(tmp_path):
     """§3.1: so "did the treatment move more than re-seeding does" is on the
     record whichever way the estimand lands."""
     rows = _merged(tmp_path)
-    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    result = ew.estimand(rows, corpus_rows=len(rows))
     movement = result["secondaries"]["movement"]
     assert movement["max_abs_prob_shift"] > 0
     assert movement["reseed_scale"]["pooled_shift"] == 0.000075
@@ -1652,7 +1652,7 @@ def test_the_realised_power_is_reported_beside_the_frozen_scenarios(tmp_path):
     treated deltas and the MDE recomputed at it" — which decides nothing and
     moves no threshold, beside the three frozen scenarios and R-I2's warning."""
     rows = _merged(tmp_path)
-    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    result = ew.estimand(rows, corpus_rows=len(rows))
     power = result["power"]
     realised = power["realised"]
     assert realised["mde_80pct_two_sided_5pct"] == pytest.approx(
@@ -1739,7 +1739,7 @@ def _merge(tmp_path, **kwargs):
     openings = ew.fit_openings(corpus, played, ledger)
     defaults = dict(shards=1, directory=tmp_path, corpus=corpus, played=played,
                     ledger=ledger, write=False, expected=openings,
-                    harness_frozen=True, n_boot=200, require_canaries=False)
+                    harness_frozen=True, require_canaries=False)
     defaults.update(kwargs)
     return ew.merge(**defaults)
 
@@ -2523,7 +2523,7 @@ def test_the_pooled_35_cell_statistic_is_gone_from_every_deciding_path(tmp_path)
     freezes "Never averaged across cutoffs" and publishing the average invites
     it to be quoted as a verdict."""
     path, rows = _run_cells(tmp_path)
-    scored = ew.score_table(rows, n_boot=200, ledger_path=path)
+    scored = ew.score_table(rows, ledger_path=path)
     assert "pooled_delta_trps" not in scored
     assert "pooled_delta_wtrps" not in scored
     assert "withdrawn" in scored
@@ -2539,7 +2539,7 @@ def test_the_deciding_statistics_are_the_named_horizon_and_the_point_gates(
     """R-B2 (iv-a): the equal-weight mean over the SEVEN MW6 cells. (iv-b): at
     MW0, MW3 and MW10, the mean over THAT LABEL'S TREATED CELLS ONLY."""
     path, rows = _run_cells(tmp_path, runner=_table_runner(shift=-0.001))
-    scored = ew.score_table(rows, n_boot=200, ledger_path=path)
+    scored = ew.score_table(rows, ledger_path=path)
     assert scored["mw6"]["n"] == 7
     assert scored["mw6"]["mean"] == pytest.approx(-0.001)     # all seven treated
     assert scored["per_label"]["MW0"]["n_treated"] == 3
@@ -2558,7 +2558,7 @@ def test_the_mw6_interval_is_r_b3s_frozen_construction(tmp_path):
     one cell per block, B = 10,000, alpha = 0.05, seed 20260814, NumPy's default
     linear-interpolation quantile."""
     path, rows = _run_cells(tmp_path)
-    scored = ew.score_table(rows, n_boot=500, ledger_path=path)
+    scored = ew.score_table(rows, ledger_path=path)
     mw6 = scored["mw6"]
     assert mw6["n_blocks"] == ew.TABLE_CI_BLOCKS == 7
     assert mw6["bootstrap"]["function"] == "epl.score.block_bootstrap_ci"
@@ -2566,7 +2566,7 @@ def test_the_mw6_interval_is_r_b3s_frozen_construction(tmp_path):
     assert mw6["bootstrap"]["alpha"] == ew.ALPHA
     deltas = np.array([c["delta_trps"] for c in mw6["per_cell"]], dtype=float)
     seasons = [c["season"] for c in mw6["per_cell"]]
-    lo, hi, n = score_mod.block_bootstrap_ci(deltas, seasons, n_boot=500,
+    lo, hi, n = score_mod.block_bootstrap_ci(deltas, seasons, n_boot=ew.N_BOOT,
                                              alpha=ew.ALPHA,
                                              seed=ew.BOOTSTRAP_SEED)
     assert mw6["ci95"] == [lo, hi] and n == 7
@@ -2592,7 +2592,7 @@ def test_the_paired_bootstrap_applies_one_index_to_every_tally():
     Round one's `sqrt(sum se^2)/7` would shrink a perfectly correlated pair by
     `1/sqrt(2)`; the joint estimator does not, and that is the whole repair."""
     cells = _mc_cells(n=2, jitter=1)
-    out = ew.paired_mc_bootstrap(cells, n_boot=400, seed=ew.MC_SEED)
+    out = ew.paired_mc_bootstrap(cells, seed=ew.MC_SEED)
     per_cell = list(out["mc_se_per_cell"].values())
     label = out["mc_se_label"]["MW6"]
     assert all(v > 0 for v in per_cell)
@@ -2604,13 +2604,21 @@ def test_the_paired_bootstrap_applies_one_index_to_every_tally():
 
 
 def test_the_paired_bootstrap_is_deterministic_at_its_frozen_seed():
+    """...and the frozen seed is the ONLY seed it will run at.
+
+    §2.3's closure covers the resampling seed as well as B, so the "a different
+    seed gives a different answer" half of this test is now made by the refusal
+    rather than by running the estimator twice — which is the stronger
+    statement: a second seed is not reported as this experiment (§10).
+    """
     cells = _mc_cells(n=2, jitter=1)
-    a = ew.paired_mc_bootstrap(cells, n_boot=200, seed=ew.MC_SEED)
-    b = ew.paired_mc_bootstrap(cells, n_boot=200, seed=ew.MC_SEED)
+    a = ew.paired_mc_bootstrap(cells, seed=ew.MC_SEED)
+    b = ew.paired_mc_bootstrap(cells, seed=ew.MC_SEED)
     assert a["mc_se_per_cell"] == b["mc_se_per_cell"]
     assert ew.MC_BOOT == 2000 and ew.MC_SEED == 20260827
-    c = ew.paired_mc_bootstrap(cells, n_boot=200, seed=ew.MC_SEED + 1)
-    assert c["mc_se_per_cell"] != a["mc_se_per_cell"]
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.paired_mc_bootstrap(cells, seed=ew.MC_SEED + 1)
+    assert "not overridable" in str(exc.value)
 
 
 def test_the_bootstrap_refuses_a_common_index_space_it_does_not_have():
@@ -2619,23 +2627,36 @@ def test_the_bootstrap_refuses_a_common_index_space_it_does_not_have():
     mixed = _mc_cells(n=1) + _mc_cells(n=1, particles=TALLY_PARTICLES * 2)
     mixed[1]["key"] = "other|MW6"
     with pytest.raises(ew.TableMCImprecise) as exc:
-        ew.paired_mc_bootstrap(mixed, n_boot=10)
+        ew.paired_mc_bootstrap(mixed)
     assert "ONE common index space" in str(exc.value)
 
     lopsided = _mc_cells(n=1)
     lopsided[0]["control"] = lopsided[0]["control"].copy()
     lopsided[0]["control"][0, 0, 0] += 1.0
     with pytest.raises(ew.TableMCImprecise) as exc:
-        ew.paired_mc_bootstrap(lopsided, n_boot=10)
+        ew.paired_mc_bootstrap(lopsided)
     assert "unequal season" in str(exc.value)
 
 
 # ---- gate (iv), all three parts, and the precision rule --------------------
 
-def _scored(mean_mw6=0.0, ci=(-1.0, 1.0), means=(0.0, 0.0, 0.0), se=None):
+def _scored(mean_mw6=0.0, ci=(-1.0, 1.0), means=(0.0, 0.0, 0.0), se=None,
+            unanimity=None):
     labels = dict(zip(ew.POINT_GATE_LABELS, means))
     mc_se = {"MW6": 0.0, "MW0": 0.0, "MW3": 0.0, "MW10": 0.0}
     mc_se.update(se or {})
+    if unanimity is None:
+        # §5.4's default for a scored object that carries no unanimity run at
+        # all: a P5 that was never computed is UNRESOLVED, never "small". The
+        # tests that are about P1-P4 hand in an agreed one so the gate can
+        # resolve on the condition they are actually about.
+        unanimity = {"k": ew.UNANIMITY_K, "seed": ew.UNANIMITY_SEED,
+                     "dissenting": 0, "fired": False}
+    mc = {"mc_boot": ew.MC_BOOT, "mc_seed": ew.MC_SEED,
+          "n_particles": 1000, "sims_per_particle": 20.0,
+          "mc_se_label": mc_se, "mc_se_per_cell": {}}
+    if unanimity != "absent":
+        mc["unanimity"] = unanimity
     return {
         "n_cells": 35, "n_treated_cells": 16,
         "mw6": {"cutoff_label": "MW6", "n": 7, "mean": mean_mw6,
@@ -2644,9 +2665,7 @@ def _scored(mean_mw6=0.0, ci=(-1.0, 1.0), means=(0.0, 0.0, 0.0), se=None):
                             "mean": labels[lab]}
                       for lab in ew.POINT_GATE_LABELS},
         "mw19": {"structural_zero": True, "decides": "nothing"},
-        "mc": {"mc_boot": ew.MC_BOOT, "mc_seed": ew.MC_SEED,
-               "n_particles": 1000, "sims_per_particle": 20.0,
-               "mc_se_label": mc_se, "mc_se_per_cell": {}},
+        "mc": mc,
     }
 
 
@@ -2704,13 +2723,142 @@ def test_the_precision_rule_guards_every_deciding_boundary():
     p4 = ew.table_gate(_scored(mean_mw6=1e-6, ci=(-1.0, -0.5),
                                se={"MW6": 1e-5}))
     assert "P4" in p4["precision"]["fired"]
-    # (P5) iv-c's zero boundary on the interval
-    p5 = ew.table_gate(_scored(mean_mw6=-0.01, ci=(1e-6, 0.5),
-                               se={"MW6": 1e-5}))
+    # (P5) iv-c's zero boundary on the interval — the UNANIMITY rule
+    p5 = ew.table_gate(_scored(mean_mw6=-0.01, ci=(-0.02, -0.005),
+                               unanimity={"k": ew.UNANIMITY_K,
+                                          "dissenting": 1, "fired": True}))
     assert "P5" in p5["precision"]["fired"]
     # ...and every one of them only ever REFUSES
     for out in (p1, p2, p3, p4, p5):
         assert out["PASS"] is False and out["resolved"] is False
+
+
+def test_p5_is_the_unanimity_rule_and_never_a_scale_comparison():
+    """§5.4's P5, frozen: "The whole of iv-c is recomputed on `K = 200`
+    particle-resampled tally sets. [...] **P5 fires — and gate (iv) is
+    UNRESOLVED — unless all 200 verdicts agree with each other and with the
+    point-estimate verdict.** One dissenting `k` is enough."
+
+    v1's P5 compared `|ci_lo_MW6 − 0|` with `2 × mc_se_mw6`, and §5.4 shows that
+    comparison is invalid rather than merely stylistic: `mc_se_mw6` is the MC
+    standard error of a LINEAR statistic — the equal-weight mean of seven cell
+    deltas — while `ci_lo_MW6` is a NONLINEAR quantile of a season bootstrap
+    over those same seven values. Cross-cell error proportional to
+    `(+h, −h, 0, 0, 0, 0, 0)` leaves the mean error identically zero, so
+    `mc_se_mw6` can be arbitrarily small, while unequal season-bootstrap
+    multiplicities move the lower quantile across zero. The proxy then fails to
+    fire while iv-c flips from FAIL to PASS — "precisely the direction that must
+    never be available".
+    """
+    import inspect
+
+    assert ew.UNANIMITY_K == 200 and ew.UNANIMITY_SEED == 20260828
+    src = inspect.getsource(ew.table_gate)
+    p5 = [line for line in src.splitlines() if '"P5"' in line]
+    assert p5, src
+    # the superseded proxy compared ci_lo against a multiple of mc_se_mw6
+    assert not any("ci_lo" in line and "MC_BOUNDARY_SIGMAS" in line
+                   for line in src.splitlines())
+
+    # with no unanimity object at all, P5 is UNRESOLVED and never "small"
+    absent = ew.table_gate(_scored(mean_mw6=-0.01, ci=(-0.02, -0.005),
+                                   unanimity="absent"))
+    assert "P5" in absent["precision"]["fired"]
+    # ...and unanimity across all 200 lets it resolve
+    agreed = ew.table_gate(_scored(
+        mean_mw6=-0.01, ci=(-0.02, -0.005),
+        unanimity={"k": ew.UNANIMITY_K, "dissenting": 0, "fired": False}))
+    assert "P5" not in agreed["precision"]["fired"]
+    assert agreed["precision"]["unanimity_k"] == 200
+    assert agreed["precision"]["unanimity_seed"] == 20260828
+    assert agreed["precision"]["unanimity_dissenting"] == 0
+
+
+def test_one_dissenting_draw_of_the_two_hundred_is_enough(tmp_path):
+    """§5.4, conformance row L4: "construct a tally set on which exactly one of
+    the 200 draws flips iv-c; gate (iv) must come back UNRESOLVED with `P5`
+    fired." The counting rule is `dissenting >= 1`, and this is the test that a
+    single `k` is not rounded away."""
+    verdicts = [False] * ew.UNANIMITY_K
+    assert ew.unanimity_fired(verdicts, point_verdict=False) is False
+    verdicts[137] = True                       # exactly one dissenter
+    assert ew.unanimity_fired(verdicts, point_verdict=False) is True
+    # ...and unanimous-but-disagreeing-with-the-point-estimate also fires
+    assert ew.unanimity_fired([True] * ew.UNANIMITY_K,
+                              point_verdict=False) is True
+
+
+def test_the_unanimity_rule_propagates_through_the_actual_computation(tmp_path):
+    """§5.4: it "does not bound the endpoint by a scale that does not describe
+    it; it **propagates the Monte-Carlo uncertainty through the actual
+    computation**, re-deriving the interval endpoint 200 times from resampled
+    tallies and requiring the verdict itself to be stable."
+
+    Zero-variance tallies give 200 identical verdicts; jittered ones need not,
+    and either way the rule reads the verdicts rather than a standard error.
+    """
+    # Zero-variance tallies: every one of the 200 resampled verdicts is the
+    # same, so the rule turns entirely on whether they agree with the POINT
+    # verdict — which is what "and with the point-estimate verdict" means.
+    # `_mc_cells` gives every treated cell a strictly worse treatment arm, so
+    # iv-c's verdict on the resampled tallies is FAIL at every one of the 200.
+    cells = [dict(c, season=f"20{19 + i}/2{i}")
+             for i, c in enumerate(_mc_cells(n=7, jitter=0))]
+    agreeing = ew.unanimity(cells, point_verdict=True)
+    assert agreeing["k"] == ew.UNANIMITY_K
+    assert agreeing["seed"] == ew.UNANIMITY_SEED
+    assert len(agreeing["verdicts"]) == ew.UNANIMITY_K
+    assert set(agreeing["verdicts"]) == {True}       # stable under resampling
+    assert agreeing["dissenting"] == 0 and agreeing["fired"] is False
+
+    # ...and the same 200 verdicts against the OPPOSITE point verdict fire it,
+    # because unanimity is agreement with the point estimate and not merely
+    # with each other — the direction §5.4 exists to close is a point estimate
+    # that says PASS while the resampled endpoint says FAIL
+    disagreeing = ew.unanimity(cells, point_verdict=False)
+    assert disagreeing["dissenting"] == ew.UNANIMITY_K
+    assert disagreeing["fired"] is True
+
+    # and the whole thing rides on the run's real tallies, through score_table
+    path, rows = _run_cells(tmp_path, runner=_table_runner(jitter=0))
+    scored = ew.score_table(rows, ledger_path=path)
+    u = scored["mc"]["unanimity"]
+    assert u["k"] == ew.UNANIMITY_K and u["seed"] == ew.UNANIMITY_SEED
+    assert len(u["verdicts"]) == ew.UNANIMITY_K and u["n_mw6_cells"] == 7
+    assert u["fired"] is ew.unanimity_fired(
+        u["verdicts"], point_verdict=u["point_verdict"])
+    assert ew.table_gate(scored)["precision"]["unanimity_dissenting"] == \
+        u["dissenting"]
+
+
+def test_no_deciding_constant_is_overridable_through_any_surface():
+    """§2.3, conformance row L18. "**`B = 10,000` is frozen and is not
+    overridable.** No CLI flag, keyword or environment variable may pass a
+    different `B`, `alpha`, block definition or resampling seed into any
+    deciding computation [...] The same closure applies to `n_sims` (20,000),
+    `MC_BOOT` (2,000), `SHARDS` (4) and `K` (200, §5.4)."
+
+    v1 left `--n-boot` on the CLI and passed it straight into `score_table`,
+    `merge` and `verify` "without refusal".
+    """
+    corpus, played, ledger = _world()
+
+    # the CLI flag is gone
+    assert ew.main(["--n-boot", "500", "--merge"]) == 2
+
+    # ...and the keyword refuses a different value on every deciding surface
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.estimand([], n_boot=500)
+    assert "not overridable" in str(exc.value)
+    for call in (lambda: ew.score_table([], n_boot=500),
+                 lambda: ew.score_table([], mc_boot=500),
+                 lambda: ew.paired_mc_bootstrap([], n_boot=500),
+                 lambda: ew.power_simulation(n_boot=500),
+                 lambda: ew.merge(shards=1, n_boot=500),
+                 lambda: ew.verify(n_boot=500)):
+        with pytest.raises(ew.EvWidenError) as exc:
+            call()
+        assert "not overridable" in str(exc.value), call
 
 
 def test_an_unresolved_gate_blocks_adoption_and_can_never_grant_one():
@@ -2740,7 +2888,7 @@ def test_score_table_refuses_an_untouched_cell_that_moved(tmp_path):
             row["arms"]["treatment"]["trps"] += 1e-6
             break
     with pytest.raises(ew.TableIdentityBreak):
-        ew.score_table(rows, n_boot=100, ledger_path=path)
+        ew.score_table(rows, ledger_path=path)
 
 
 def test_the_hull_analogue_is_printed_with_no_decision_weight(tmp_path):
@@ -2750,7 +2898,7 @@ def test_the_hull_analogue_is_printed_with_no_decision_weight(tmp_path):
         if cell["season"] == "2019/20" and cell["treated_clubs"]:
             cell["season"] = "2025/26"
     path, rows = _run_cells(tmp_path, cells)
-    scored = ew.score_table(rows, n_boot=100, ledger_path=path)
+    scored = ew.score_table(rows, ledger_path=path)
     assert scored["hull_analogue"]["club"] == "sunderland"
     # 2025/26's own MW6 cell is treated already (all seven MW6 cells are), and
     # the four renamed 2019/20 cells join it
@@ -2766,7 +2914,7 @@ def test_the_coverage_reading_direction_is_fixed_before_the_run(tmp_path):
     coverage already at or above nominal that the treatment pushes further above
     is evidence FOR double-counting and AGAINST this rule."""
     path, rows = _run_cells(tmp_path)
-    scored = ew.score_table(rows, n_boot=100, ledger_path=path)
+    scored = ew.score_table(rows, ledger_path=path)
     reading = scored["coverage_reading"]
     assert "double-counting" in reading and "AGAINST this rule" in reading
     treated = next(c for c in scored["per_cell"] if c["treated_clubs"])
@@ -2877,7 +3025,7 @@ def test_the_evidence_files_are_written_whichever_way_the_numbers_fall(tmp_path)
     not gitignored."""
     _run(tmp_path)
     rows = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
-    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    result = ew.estimand(rows, corpus_rows=len(rows))
     _, table_rows = _run_cells(tmp_path)
 
     out = tmp_path / "evidence"
@@ -2896,9 +3044,9 @@ def test_the_verdict_json_carries_r_i6s_frozen_field_list(tmp_path):
     coverage diagnostics no column held, and froze no MANIFEST membership."""
     _run(tmp_path)
     rows = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
-    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    result = ew.estimand(rows, corpus_rows=len(rows))
     path, table_rows = _run_cells(tmp_path)
-    scored = ew.score_table(table_rows, n_boot=200, ledger_path=path)
+    scored = ew.score_table(table_rows, ledger_path=path)
     gate = ew.table_gate(scored)
     result.update({
         "table": {"scored": scored, "gate": gate},
@@ -3021,7 +3169,7 @@ def test_the_per_fixture_file_reproduces_the_estimand_with_arithmetic_alone(
 
     _run(tmp_path)
     rows = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
-    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    result = ew.estimand(rows, corpus_rows=len(rows))
     out = tmp_path / "evidence"
     ew.write_evidence(result, rows, None, directory=out, manifest=False)
 
@@ -3049,7 +3197,7 @@ def test_the_table_evidence_file_carries_both_arms_of_every_cell(tmp_path):
     import csv as _csv
 
     path, table_rows = _run_cells(tmp_path)
-    scored = ew.score_table(table_rows, n_boot=100, ledger_path=path)
+    scored = ew.score_table(table_rows, ledger_path=path)
     out = tmp_path / "evidence"
     ew.write_evidence({"schema": ew.SCHEMA_ID,
                        "table": {"scored": scored}}, None, table_rows,
@@ -3076,7 +3224,7 @@ def test_the_grid_file_carries_every_point_including_the_degenerate_ones(
 
     _run(tmp_path)
     rows = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
-    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    result = ew.estimand(rows, corpus_rows=len(rows))
     out = tmp_path / "evidence"
     ew.write_evidence(result, None, None, directory=out, manifest=False)
     with (out / "widening_grid_means.csv").open() as fh:
@@ -4051,12 +4199,12 @@ def test_verify_re_derives_the_headline_from_the_committed_evidence(tmp_path):
     rather than one number copied twice."""
     _run(tmp_path)
     rows = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
-    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    result = ew.estimand(rows, corpus_rows=len(rows))
     out = tmp_path / "evidence"
     ew.write_evidence(result, rows, None, directory=out, manifest=False)
 
     checked = ew.verify(tmp_path, shards=1, evidence=out / "widening.json",
-                        n_boot=200)
+                        )
     assert checked["PASS"] is True
     sources = {c["source"] for c in checked["checks"] if c.get("checked")}
     assert sources == {"per_fixture_csv", "shard_ledgers"}
@@ -4069,7 +4217,7 @@ def test_verify_refuses_a_verdict_that_does_not_match_its_own_evidence(tmp_path)
     exists to prevent."""
     _run(tmp_path)
     rows = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
-    result = ew.estimand(rows, n_boot=200, corpus_rows=len(rows))
+    result = ew.estimand(rows, corpus_rows=len(rows))
     out = tmp_path / "evidence"
     ew.write_evidence(result, rows, None, directory=out, manifest=False)
 
@@ -4077,7 +4225,7 @@ def test_verify_refuses_a_verdict_that_does_not_match_its_own_evidence(tmp_path)
     published["estimand"]["mean"] = float(published["estimand"]["mean"]) + 1e-6
     (out / "widening.json").write_text(json.dumps(published))
     with pytest.raises(ew.MergeIncomplete) as exc:
-        ew.verify(tmp_path, shards=1, evidence=out / "widening.json", n_boot=200)
+        ew.verify(tmp_path, shards=1, evidence=out / "widening.json")
     assert "does not re-derive" in str(exc.value)
 
 
@@ -4209,7 +4357,7 @@ def test_every_secondary_says_in_its_own_output_that_it_decides_nothing(
     NOTHING." A claim in a document is a claim; a field in the output travels
     with the number to wherever it gets quoted."""
     rows = _merged(tmp_path)
-    result = ew.estimand(rows, n_boot=100, corpus_rows=len(rows))
+    result = ew.estimand(rows, corpus_rows=len(rows))
     assert result["secondaries_decide"] == "nothing"
     assert result["secondaries"]["full_population"]["decides"] == "nothing"
     assert result["decides"].startswith("nothing")
@@ -4320,7 +4468,7 @@ def test_the_power_simulation_runs_and_carries_its_own_construction(real):
     every frozen choice is named in it."""
     corpus, played, ledger = real
     structure = ew.power_structure(corpus, played, ledger)
-    out = ew.power_simulation(structure, replicates=50, n_boot=500)
+    out = ew.power_simulation(structure)
     assert len(out["rows"]) == 6
     assert out["bootstrap"]["seed"] == ew.BOOTSTRAP_SEED
     assert out["simulation_seed"] == ew.POWER_SEED

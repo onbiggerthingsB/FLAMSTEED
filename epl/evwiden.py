@@ -336,6 +336,14 @@ MC_PRECISION_LIMIT = MC_PRECISION_FRACTION * TABLE_TOLERANCE      # 5e-5
 #: errors of its own boundary is UNRESOLVED.
 MC_BOUNDARY_SIGMAS = 2.0
 
+#: §5.4's P5 — the unanimity rule, frozen. "The whole of iv-c is recomputed on
+#: `K = 200` particle-resampled tally sets. `rng = numpy.random.default_rng(
+#: 20260828)`. [...] **P5 fires — and gate (iv) is UNRESOLVED — unless all 200
+#: verdicts agree with each other and with the point-estimate verdict.** One
+#: dissenting `k` is enough."
+UNANIMITY_K = 200
+UNANIMITY_SEED = 20260828
+
 #: §0.1 / §0.4's counts. A corpus, archive or ledger that does not produce them
 #: is a different object, not a smaller experiment.
 EXPECTED_BLOCKS = 212
@@ -705,6 +713,39 @@ class FreezeStateUnverified(EvWidenError):
 # ==========================================================================
 # 2. DIGESTS, THE CORPUS, THE ARCHIVE, THE LEDGER, THE CONFIGURATION
 # ==========================================================================
+
+def assert_not_overridable(**supplied: Any) -> None:
+    """§2.3's closure on the frozen constants, enforced at the surface.
+
+    > **`B = 10,000` is frozen and is not overridable.** No CLI flag, keyword or
+    > environment variable may pass a different `B`, `alpha`, block definition
+    > or resampling seed into any deciding computation — the two match
+    > intervals, the MW6 table interval of §5, or the power simulation of §6. A
+    > harness that accepts one is not the harness this document preregisters.
+    > The same closure applies to `n_sims` (20,000), `MC_BOOT` (2,000),
+    > `SHARDS` (4) and `K` (200, §5.4).
+
+    v1 left ``--n-boot`` on the CLI and passed it into ``score_table``,
+    ``merge`` and ``verify`` "without refusal", which is the whole of the
+    remaining B3 code leg. The parameters survive here — a keyword that names
+    the constant is how a caller says which computation it means — but a
+    DIFFERENT value is refused rather than honoured.
+
+    Called with ``name=(got, want)`` pairs.
+    """
+    wrong = {name: pair for name, pair in supplied.items()
+             if pair is not None and pair[0] is not None and pair[0] != pair[1]}
+    if wrong:
+        detail = "; ".join(f"{n} = {got!r}, frozen at {want!r}"
+                           for n, (got, want) in sorted(wrong.items()))
+        raise EvWidenError(
+            f"a frozen constant is not overridable and one was overridden: "
+            f"{detail}. §2.3: 'No CLI flag, keyword or environment variable may "
+            "pass a different B, alpha, block definition or resampling seed "
+            "into any deciding computation [...] A harness that accepts one is "
+            "not the harness this document preregisters.' The same closure "
+            "covers n_sims, MC_BOOT, SHARDS and K.")
+
 
 def sha256_file(path: Path | str) -> str:
     """SHA-256 of a file, streamed."""
@@ -3240,6 +3281,8 @@ def estimand(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
     outcome. Everything under ``secondaries`` is §3: published with the result
     and deciding nothing.
     """
+    assert_not_overridable(n_boot=(n_boot, N_BOOT), seed=(seed, BOOTSTRAP_SEED),
+                           e_star=(e_star, E_STAR))
     if not rows:
         raise MergeIncomplete("no rows to score")
     cold = cold_start_club_seasons(rows) if cold is None else cold
@@ -3633,6 +3676,9 @@ def power_simulation(structure: dict[str, Any] | None = None, *,
     This function WRITES NOTHING. It prints the table and returns the `power`
     object `reports/evidence/widening.json` carries.
     """
+    assert_not_overridable(replicates=(replicates, POWER_REPLICATES),
+                           seed=(seed, POWER_SEED), n_boot=(n_boot, N_BOOT),
+                           bootstrap_seed=(bootstrap_seed, BOOTSTRAP_SEED))
     structure = power_structure() if structure is None else structure
     treated_mask = np.asarray(structure["treated"], dtype=bool)
     blocks = list(structure["blocks"])
@@ -3995,6 +4041,9 @@ def merge(shards: int = 1, *, directory: Path | str | None = None,
     ``reports/epl_widening_result.md`` is written afterwards, by a person, and
     §4.4 requires it to be written whichever way the numbers fall.
     """
+    assert_not_overridable(n_boot=(n_boot, N_BOOT), seed=(seed, BOOTSTRAP_SEED),
+                           shards=(int(shards), SHARDS) if expected is None
+                           else None)
     freeze = (harness_freeze_status(freeze_sources) if harness_frozen is None
               else {"frozen": bool(harness_frozen), "why": "asserted by caller",
                     "files": {}, "where": None})
@@ -5445,12 +5494,11 @@ def paired_mc_bootstrap(cells: Sequence[dict[str, Any]], *,
     gate's margin is simulation noise, not a model of the fit's own uncertainty,
     which no table statistic in this experiment sees.
     """
-    from epl import simmetrics
-
+    assert_not_overridable(n_boot=(n_boot, MC_BOOT), seed=(seed, MC_SEED))
     if not cells:
         raise TableMCImprecise(
             "the paired Monte-Carlo estimator was handed no deciding cell. "
-            "R2-B3 runs it over the 16 treated cells; an empty set means the "
+            "§5.2 runs it over the 16 treated cells; an empty set means the "
             "table leg's own census disagrees with §3.3's.")
 
     particles = {int(np.asarray(c["control"]).shape[0]) for c in cells} | \
@@ -5499,14 +5547,8 @@ def paired_mc_bootstrap(cells: Sequence[dict[str, Any]], *,
 
     for r in range(int(n_boot)):
         picked = rng.integers(0, n_particles, n_particles)
-        for cell in order:
-            scores = {}
-            for arm in ("control", "treatment"):
-                matrix = np.asarray(cell[arm], dtype=float)[picked].sum(axis=0)
-                matrix = matrix / matrix.sum(axis=1, keepdims=True)
-                scores[arm] = float(simmetrics.trps(
-                    matrix, cell["positions"], spans=cell["spans"]))
-            per_cell[str(cell["key"])][r] = scores["treatment"] - scores["control"]
+        for key, delta in _resampled_cell_deltas(order, picked).items():
+            per_cell[key][r] = delta
         for lab in labels:
             keys = [str(c["key"]) for c in order
                     if str(c["cutoff_label"]) == lab]
@@ -5527,6 +5569,130 @@ def paired_mc_bootstrap(cells: Sequence[dict[str, Any]], *,
                       "independence claim"),
         "decides": "only ever to REFUSE — an UNRESOLVED gate blocks adoption "
                    "and can never grant one",
+    }
+
+
+def _resampled_cell_deltas(cells: Sequence[dict[str, Any]],
+                           picked: np.ndarray) -> dict[str, float]:
+    """One joint particle resample, applied to every tally, scored per cell.
+
+    §5.2's inner two loops, factored out so §5.4's unanimity rule can apply its
+    own draw "**exactly as §5.2 applies its own draw**" rather than by a second
+    implementation that might drift from it.
+    """
+    from epl import simmetrics
+
+    out: dict[str, float] = {}
+    for cell in cells:
+        scores = {}
+        for arm in ("control", "treatment"):
+            matrix = np.asarray(cell[arm], dtype=float)[picked].sum(axis=0)
+            matrix = matrix / matrix.sum(axis=1, keepdims=True)
+            scores[arm] = float(simmetrics.trps(matrix, cell["positions"],
+                                                spans=cell["spans"]))
+        out[str(cell["key"])] = scores["treatment"] - scores["control"]
+    return out
+
+
+def iv_c_verdict(mw6_deltas: Sequence[float], seasons: Sequence[str], *,
+                 n_boot: int = N_BOOT, seed: int = BOOTSTRAP_SEED) -> bool:
+    """Clause (iv-c)'s own verdict: **FAIL iff `mean_MW6 > 0` and
+    `ci_lo_MW6 > 0`.**
+
+    The interval is §5.3's, exactly — same function, same seven season blocks,
+    B = 10,000, alpha = 0.05, seed 20260814 — because §5.4 recomputes *the whole
+    of iv-c*, not an approximation of it.
+    """
+    deltas = np.asarray(mw6_deltas, dtype=float)
+    if deltas.size == 0:
+        return False
+    lo, _, _ = score_mod.block_bootstrap_ci(deltas, list(seasons),
+                                            n_boot=n_boot, alpha=ALPHA,
+                                            seed=seed)
+    return bool(float(deltas.mean()) > 0.0 and float(lo) > 0.0)
+
+
+def unanimity_fired(verdicts: Sequence[bool], *, point_verdict: bool) -> bool:
+    """§5.4's counting rule, alone: **one dissenting `k` is enough.**
+
+    "P5 fires — and gate (iv) is UNRESOLVED — unless all 200 verdicts agree with
+    each other and with the point-estimate verdict."
+    """
+    return any(bool(v) != bool(point_verdict) for v in verdicts)
+
+
+def unanimity(cells: Sequence[dict[str, Any]], *, point_verdict: bool,
+              k: int = UNANIMITY_K, seed: int = UNANIMITY_SEED,
+              n_boot: int = N_BOOT, boot_seed: int = BOOTSTRAP_SEED,
+              ) -> dict[str, Any]:
+    """§5.4's P5, frozen, and it replaces a comparison that was invalid.
+
+    > **The whole of iv-c is recomputed on `K = 200` particle-resampled tally
+    > sets.** `rng = numpy.random.default_rng(20260828)`. For each `k` in
+    > `0 … 199`: draw **one** joint particle resample
+    > `picked_k = rng.integers(0, P, P)` and apply it to **all thirty-two
+    > tallies** exactly as §5.2 applies its own draw [...] From the resulting
+    > seven MW6 cell deltas compute the season-block interval of §5.3 [...] and
+    > evaluate iv-c's verdict: **FAIL iff `mean_MW6 > 0` and `ci_lo_MW6 > 0`.**
+    >
+    > **P5 fires — and gate (iv) is UNRESOLVED — unless all 200 verdicts agree
+    > with each other and with the point-estimate verdict.** One dissenting `k`
+    > is enough.
+
+    **Why this bounds what the superseded proxy could not.** v1's P5 compared
+    ``|ci_lo_MW6 − 0|`` with ``2 × mc_se_mw6``. That comparison is invalid, and
+    demonstrably rather than stylistically: ``mc_se_mw6`` is the Monte-Carlo
+    standard error of a **linear** statistic — the equal-weight mean of seven
+    cell deltas — while ``ci_lo_MW6`` is a **nonlinear quantile of a season
+    bootstrap over those same seven values**. Take cross-cell Monte-Carlo error
+    proportional to ``(+h, −h, 0, 0, 0, 0, 0)``: the mean error is identically
+    zero, so ``mc_se_mw6`` can be arbitrarily small, while the season
+    bootstrap's unequal resample multiplicities give the ``(+h, −h)`` pair
+    unequal weight in most replicates and can move the lower quantile across
+    zero. The proxy then fails to fire while iv-c flips from FAIL to PASS —
+    precisely the direction that must never be available.
+
+    This rule does not bound the endpoint by a scale that does not describe it;
+    it **propagates the Monte-Carlo uncertainty through the actual
+    computation**, re-deriving the interval endpoint 200 times from resampled
+    tallies and requiring the verdict itself to be stable. It shares §5.2's own
+    construction — one joint particle draw per replicate, applied to all 32
+    tallies — so it carries the same cross-cell covariance for free, and it can
+    only ever refuse.
+    """
+    assert_not_overridable(k=(k, UNANIMITY_K), seed=(seed, UNANIMITY_SEED),
+                           n_boot=(n_boot, N_BOOT),
+                           boot_seed=(boot_seed, BOOTSTRAP_SEED))
+    cells = list(cells)
+    mw6 = [c for c in cells if str(c["cutoff_label"]) == MW6_LABEL]
+    if not cells or not mw6:
+        return {"k": int(k), "seed": int(seed), "verdicts": [],
+                "dissenting": None, "point_verdict": bool(point_verdict),
+                "fired": True,
+                "why": "no deciding cell carried MW6, so iv-c cannot be "
+                       "recomputed and P5 cannot resolve"}
+
+    n_particles = int(np.asarray(cells[0]["control"]).shape[0])
+    seasons = [str(c["season"]) for c in mw6]
+    rng = np.random.default_rng(int(seed))
+    verdicts: list[bool] = []
+    for _ in range(int(k)):
+        picked = rng.integers(0, n_particles, n_particles)
+        deltas = _resampled_cell_deltas(cells, picked)
+        verdicts.append(iv_c_verdict([deltas[str(c["key"])] for c in mw6],
+                                     seasons, n_boot=n_boot, seed=boot_seed))
+    dissent = sum(1 for v in verdicts if bool(v) != bool(point_verdict))
+    return {
+        "k": int(k), "seed": int(seed), "n_boot": int(n_boot),
+        "boot_seed": int(boot_seed), "n_mw6_cells": len(mw6),
+        "verdicts": [bool(v) for v in verdicts],
+        "point_verdict": bool(point_verdict), "dissenting": int(dissent),
+        "fired": unanimity_fired(verdicts, point_verdict=point_verdict),
+        "rule": ("§5.4 P5: the whole of iv-c recomputed on K = 200 "
+                 "particle-resampled tally sets; P5 fires unless all 200 "
+                 "verdicts agree with each other and with the point-estimate "
+                 "verdict. One dissenting k is enough."),
+        "decides": "only ever to REFUSE",
     }
 
 
@@ -5558,6 +5724,9 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
     different correlation structure score identically; widening changes the joint
     too, and no table metric here can see that. Disclosed, not solved.
     """
+    assert_not_overridable(n_boot=(n_boot, N_BOOT), seed=(seed, BOOTSTRAP_SEED),
+                           mc_boot=(mc_boot, MC_BOOT),
+                           mc_seed=(mc_seed, MC_SEED))
     if not rows:
         raise MergeIncomplete("no table cells to score")
     if expected_cells is not None and len(rows) != int(expected_cells):
@@ -5644,7 +5813,7 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
         "structural_zero": True, "decides": "nothing",
     }
 
-    # ---- R2-B3's paired Monte-Carlo error, over the 16 deciding cells ----
+    # ---- §5.2's paired Monte-Carlo error, over the 16 deciding cells ------
     if mc is None:
         deciding = [c for c in per_cell if c["treated_clubs"]]
         payload = []
@@ -5656,17 +5825,23 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
                     raise TableMCImprecise(
                         f"{c['key']}: no per-particle tallies were supplied and "
                         "no ledger path was given to load them from. Gate (iv) "
-                        "may not be evaluated without R2-B3's paired error: "
-                        "§7 makes an MC estimator that is not the "
+                        "may not be evaluated without §5's paired error: "
+                        "§10 makes an MC estimator that is not the "
                         "jointly-resampled tie-aware one an invalidation.")
                 arms = load_tallies(ledger_path, row)
             positions, spans = _cell_positions(row)
-            payload.append({"key": c["key"],
+            payload.append({"key": c["key"], "season": c["season"],
                             "cutoff_label": c["cutoff_label"],
                             "positions": positions, "spans": spans,
                             "control": arms["control"],
                             "treatment": arms["treatment"]})
         mc = paired_mc_bootstrap(payload, n_boot=mc_boot, seed=mc_seed)
+        # §5.4's P5, computed HERE because it needs the same 32 tallies and the
+        # point-estimate verdict of iv-c that this function has just derived.
+        mc["unanimity"] = unanimity(
+            payload,
+            point_verdict=bool(mw6["mean"] > 0.0 and mw6["ci95"][0] > 0.0),
+            n_boot=n_boot, boot_seed=seed)
     for c in per_cell:
         c["mc_se_paired"] = mc["mc_se_per_cell"].get(c["key"])
 
@@ -5831,11 +6006,22 @@ def table_gate(scored: dict[str, Any]) -> dict[str, Any]:
                  bool(abs(mean_mw6) < MC_BOUNDARY_SIGMAS * float(se_mw6))),
           {"mean_MW6": mean_mw6, "mc_se_mw6": se_mw6},
           "|mean_MW6 - 0| < 2 x mc_se_mw6 — iv-c's zero boundary on the mean")
-    _cond("P5", (None if se_mw6 is None else
-                 bool(abs(lo_mw6) < MC_BOUNDARY_SIGMAS * float(se_mw6))),
-          {"ci_lo_MW6": lo_mw6, "mc_se_mw6": se_mw6},
-          "|ci_lo_MW6 - 0| < 2 x mc_se_mw6 — iv-c's zero boundary on the "
-          "interval; a CONSERVATIVE PROXY, and labelled one")
+    # (P5) — §5.4's UNANIMITY RULE, and not a scale comparison. v1 compared
+    # |ci_lo_MW6| against 2 x mc_se_mw6; §5.4 shows that comparison is invalid:
+    # mc_se_mw6 is the MC standard error of a LINEAR statistic while ci_lo_MW6
+    # is a NONLINEAR quantile of a season bootstrap over the same seven values,
+    # and cross-cell error proportional to (+h, -h, 0, ...) leaves the former
+    # arbitrarily small while moving the latter across zero.
+    unan = dict(scored.get("mc", {}).get("unanimity") or {})
+    _cond("P5", (True if not unan else bool(unan.get("fired"))),
+          {"k": unan.get("k"), "seed": unan.get("seed"),
+           "dissenting": unan.get("dissenting"),
+           "point_verdict": unan.get("point_verdict")},
+          "§5.4's unanimity rule: the WHOLE of iv-c recomputed on K = 200 "
+          "particle-resampled tally sets at seed 20260828; P5 fires unless all "
+          "200 verdicts agree with each other and with the point-estimate "
+          "verdict. One dissenting k is enough, and an absent unanimity run is "
+          "unresolved rather than small.")
 
     fired = [c["condition"] for c in conditions if c["fired"]]
     resolved = not fired
@@ -5863,10 +6049,20 @@ def table_gate(scored: dict[str, Any]) -> dict[str, Any]:
             "mc_se_mw10": mc_se.get("MW10"),
             "mc_se_per_cell": dict(
                 scored.get("mc", {}).get("mc_se_per_cell") or {}),
+            # §5.4's named precision fields, and the three the unanimity rule
+            # adds: "the precision object also carries mc_boot, mc_seed,
+            # unanimity_k, unanimity_seed, unanimity_dissenting, ..."
+            "unanimity_k": unan.get("k", UNANIMITY_K),
+            "unanimity_seed": unan.get("seed", UNANIMITY_SEED),
+            "unanimity_dissenting": unan.get("dissenting"),
             "conditions": conditions, "fired": fired, "resolved": bool(resolved),
-            "rule": "R2-B3 (P1)-(P5); (P6)'s structural conditions raise "
+            "rule": "§5.4 (P1)-(P5). The structural conditions of §5.2 raise "
                     "TableMCImprecise and stop the leg rather than publishing "
-                    "an UNRESOLVED verdict",
+                    "an UNRESOLVED verdict, so this list carries SEVEN entries "
+                    "and only seven — P1, P2, P3.MW0, P3.MW3, P3.MW10, P4, P5 "
+                    "— and there is no P6 and there must not be one: a "
+                    "structural refusal that stops the leg cannot also be a row "
+                    "in a file the stopped leg never writes",
         },
         "withdrawn": "the 35-cell pooled ΔTRPS decides nothing and is not "
                      "published at all (R-B2)",
@@ -6415,7 +6611,13 @@ def verify(directory: Path | str | None = None, *, shards: int = SHARDS,
 
     It fits nothing, simulates nothing and writes nothing.
     """
+    assert_not_overridable(n_boot=(n_boot, N_BOOT), seed=(seed, BOOTSTRAP_SEED))
     evidence = Path(evidence) if evidence is not None else EVIDENCE_JSON
+    # The shard closure binds the PREREGISTERED verification — the one that
+    # reads reports/evidence/. A synthetic audit verifying its own scratch
+    # evidence is §8.2's business and has whatever shards it made.
+    if evidence.parent.resolve() == EVIDENCE_DIR.resolve():
+        assert_not_overridable(shards=(int(shards), SHARDS))
     if not evidence.exists():
         raise MergeIncomplete(
             f"{paths.rel(evidence)} is not on disk: there is no published "
@@ -7290,7 +7492,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                     help="the run directory: the canary record and the shard "
                          f"ledgers (default {paths.rel(EVWIDEN_DIR)})")
     ap.add_argument("--table-ledger", default=None)
-    ap.add_argument("--n-boot", type=int, default=N_BOOT)
+    # §2.3: `B = 10,000` is frozen and IS NOT OVERRIDABLE. v1 carried a
+    # `--n-boot` flag and passed it straight into `score_table`, `merge` and
+    # `verify` without refusal. The flag is kept only so that passing it is a
+    # STOP rather than an unrecognised-argument traceback.
+    ap.add_argument("--n-boot", type=int, default=None,
+                    help=argparse.SUPPRESS)
     ap.add_argument("--no-results-canary", action="store_true",
                     help="skip `walkforward.point_in_time_canary` (it refits); "
                          "the evidence canary still runs and still refuses")
@@ -7313,6 +7520,13 @@ def main(argv: Sequence[str] | None = None) -> int:
               "a run at any other shard count is not the run this document "
               "preregisters, and §9.3's MANIFEST names the four shard files by "
               "name.", flush=True)
+        return 2
+
+    if args.n_boot is not None:
+        print(f"STOP: --n-boot is refused. §2.3 freezes B = {N_BOOT} and makes "
+              "it not overridable: 'No CLI flag, keyword or environment "
+              "variable may pass a different B, alpha, block definition or "
+              "resampling seed into any deciding computation.'", flush=True)
         return 2
 
     directory = Path(args.directory) if args.directory else EVWIDEN_DIR
@@ -7485,15 +7699,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
                 cells = table_cells(baseline.load_matches())
                 rows = load_table_ledger(table_ledger, expected=cells)
-                scored = score_table(rows, n_boot=args.n_boot,
-                                     ledger_path=table_ledger,
+                scored = score_table(rows, ledger_path=table_ledger,
                                      expected_cells=EXPECTED_TABLE_CELLS)
                 table_out = {"scored": scored, "gate": table_gate(scored),
                              "rows": rows}
             if args.verify and not args.merge:
-                print(json.dumps(verify(directory, shards=args.shards,
-                                        n_boot=args.n_boot), indent=2,
-                                 default=str))
+                print(json.dumps(verify(directory, shards=args.shards),
+                                 indent=2, default=str))
                 return 0
             require_run_preconditions(directory, step=SEQUENCE_STEPS[3])
             result = merge(shards=args.shards, directory=directory,
@@ -7503,7 +7715,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                                         "scored": {k: v for k, v in
                                                    table_out["scored"].items()
                                                    if k != "per_cell"}}),
-                           n_boot=args.n_boot, write=args.merge)
+                           write=args.merge)
             if args.evidence:
                 merged = [r for shard in range(args.shards)
                           for r in load_ledger(
