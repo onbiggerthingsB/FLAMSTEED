@@ -6055,9 +6055,61 @@ def test_the_document_and_the_harness_agree_on_pass_seven():
     # §8.2's pre-ruling, unchanged: ANY unpriceable cell ends v2 as written
     assert "NEW preregistration (v3)" in text
     assert "one is enough" in text
+    # ...and the ruling is mechanical where it decides: the block refuses
+    assert "refuses to render at all** over a record" in text
+    assert "or while §8.2 pass 7's record says its census is incomplete or" in text
     # ...and §8.9 records that it has NOT been run, which is the fact
     assert "IT HAS NOT BEEN EXECUTED" in text
     assert not ew.FEASIBILITY_RECORD.exists()
+
+
+def test_the_freeze_block_refuses_over_a_census_that_answered_the_question(
+        tmp_path, monkeypatch):
+    """§8.2's pre-ruling, mechanical at the one place it decides anything, and
+    the review's P5-B4: "`freeze_block` never checks `FEASIBILITY_RECORD`, and
+    the feasibility context refuses to open after the freeze, so freezing first
+    permanently forecloses the question."
+
+    It does not force the pass to have run — §8.2 and §8.9 say in words that
+    someone must, and the freeze is a human act. What it refuses is a freeze
+    block rendered over a census that has ALREADY said a mandatory leg cannot be
+    executed.
+    """
+    record = tmp_path / "feasibility.json"
+    monkeypatch.setattr(ew, "FEASIBILITY_RECORD", record)
+
+    # absent: the enumeration says so, and nothing is refused for it
+    assert ew.feasibility_status() == {"ran": False,
+                                       "why": ew.FEASIBILITY_NOT_RUN}
+    assert ew.assert_feasibility_permits_a_freeze()["ran"] is False
+
+    # ran and did not price all thirty-five: establishes nothing
+    record.write_text(json.dumps({"completed": False, "feasible": False,
+                                  "cells_attempted": 1, "cells_expected": 35,
+                                  "unpriceable": []}))
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.assert_feasibility_permits_a_freeze()
+    assert "RAN AND DID NOT COMPLETE" in str(exc.value)
+
+    # complete, and one cell unpriceable — one is enough
+    record.write_text(json.dumps({
+        "completed": True, "feasible": False, "cells_attempted": 35,
+        "cells_expected": 35,
+        "unpriceable": [{"key": "2019/20|MW0", "excluded_mass": 0.0234}]}))
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.assert_feasibility_permits_a_freeze()
+    assert "NEW preregistration (v3)" in str(exc.value)
+    assert "2019/20|MW0" in str(exc.value)
+
+    # complete and feasible: the block may render, and the enumeration STATES
+    # the census rather than the sentence that was true before the pass
+    record.write_text(json.dumps({"completed": True, "feasible": True,
+                                  "cells_attempted": 35, "cells_expected": 35,
+                                  "unpriceable": []}))
+    status = ew.assert_feasibility_permits_a_freeze()
+    assert status["completed"] is True and status["feasible"] is True
+    assert "assert_feasibility_permits_a_freeze" in ew._calls_made(
+        ew.freeze_block)
 
 
 def test_the_feasibility_pass_has_a_command_that_needs_its_quarantine():

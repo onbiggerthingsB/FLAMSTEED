@@ -193,6 +193,7 @@ __all__ = [
     "launch_script", "main",
     # §8.6's public-surface closure, and the surfaces it stands over
     "parity_feasibility_pass", "parity_feasibility_census",
+    "feasibility_status", "assert_feasibility_permits_a_freeze",
     "assert_seam_allowed", "archive_provenance", "is_pinned_archive",
     "is_derived_from_pinned_archive", "frozen_table_constants",
     "unanimity", "unanimity_is_valid", "iv_c_verdict",
@@ -10048,6 +10049,7 @@ def freeze_block(corpus: pd.DataFrame | None = None,
     This function READS the pinned artifacts and fits nothing.
     """
     report = assert_implements_document()
+    feasibility = assert_feasibility_permits_a_freeze()
     corpus = load_corpus() if corpus is None else corpus
     played = load_archive() if played is None else played
     ledger = load_walk_ledger() if ledger is None else ledger
@@ -10114,6 +10116,17 @@ def freeze_block(corpus: pd.DataFrame | None = None,
         "",
     ]
     for run in PRE_FREEZE_RUNS:
+        if FEASIBILITY_NOT_RUN in run and feasibility["ran"]:
+            # §8.3 asks for "the enumeration of every pre-freeze pass ACTUALLY
+            # RUN, complete", so the entry states the census rather than the
+            # sentence that was true before the pass.
+            run = run.replace(
+                FEASIBILITY_NOT_RUN,
+                f"RUN: {feasibility['cells_attempted']} of "
+                f"{feasibility['cells_expected']} cells attempted, "
+                f"{len(feasibility['unpriceable'])} unpriceable, feasible="
+                f"{feasibility['feasible']}, recorded at "
+                f"{feasibility['record']} and in §8.9")
         lines.append(f"* {run}")
     lines += [
         "",
@@ -10131,6 +10144,82 @@ def freeze_block(corpus: pd.DataFrame | None = None,
     lines.append("*If any hash differs at the time the run is executed, it is "
                  "not the run this document preregisters.*")
     return "\n".join(lines) + "\n"
+
+
+#: The clause §8.3's enumeration carries while §8.2 pass 7 has not been run.
+#: It is replaced by the record's own census the moment one exists, because
+#: "the enumeration of every pre-freeze pass ACTUALLY RUN, complete" is what
+#: §8.3 asks the freeze commit for, and a hardcoded "NOT RUN" becomes a false
+#: sentence the moment the pass runs.
+FEASIBILITY_NOT_RUN = "NOT RUN as this document stands"
+
+
+def feasibility_status() -> dict[str, Any]:
+    """§8.2 pass 7's record, as the freeze block has to read it.
+
+    Three states, and the block says which: **absent** (the pass has not run,
+    and §8.2 rules that someone must run it before the freeze); **incomplete**
+    (it ran and did not price all thirty-five, which establishes nothing); and
+    **complete**, with a census that is either feasible or not.
+    """
+    if not FEASIBILITY_RECORD.exists():
+        return {"ran": False, "why": FEASIBILITY_NOT_RUN}
+    try:
+        rec = json.loads(FEASIBILITY_RECORD.read_text())
+    except json.JSONDecodeError as exc:
+        raise EvWidenError(
+            f"{paths.rel(FEASIBILITY_RECORD)} is not readable JSON: {exc}. §8.2 "
+            "pass 7's record is the only thing that survives the pass, and an "
+            "unreadable one is not an absent one.")
+    return {"ran": True, "completed": bool(rec.get("completed")),
+            "feasible": bool(rec.get("feasible")),
+            "cells_attempted": rec.get("cells_attempted"),
+            "cells_expected": rec.get("cells_expected"),
+            "unpriceable": list(rec.get("unpriceable") or ()),
+            "record": paths.rel(FEASIBILITY_RECORD)}
+
+
+def assert_feasibility_permits_a_freeze() -> dict[str, Any]:
+    """§8.2's pre-ruling, enforced at the one moment it decides anything.
+
+    > If **all thirty-five** cells are priceable, §3.3's oracle is feasible and
+    > §8.4 step 5 proceeds as written. **If any cell is unpriceable — one is
+    > enough** — then a mandatory leg of this experiment cannot be executed on
+    > the shipped stack, **this preregistration cannot be run as written**, and
+    > the remedy is a NEW preregistration (v3).
+
+    The review's P5-B4 found `freeze_block` indifferent to the record while the
+    feasibility context refuses to open after the freeze, so freezing first could
+    "immortalize an unrun, possibly unrunnable design". This does not force the
+    pass to have run — §8.2 and §8.9 say in words that it must, and the freeze is
+    a human act — but a freeze block rendered over a census that ALREADY ANSWERED
+    the question in the negative would be a hash table committed over a design
+    the record says cannot be executed. That is refused here.
+    """
+    status = feasibility_status()
+    if not status["ran"]:
+        return status
+    if not status["completed"]:
+        raise EvWidenError(
+            f"refusing to render §8.3's freeze block: {status['record']} "
+            f"records a pass 7 that RAN AND DID NOT COMPLETE "
+            f"({status['cells_attempted']} of {status['cells_expected']} cells). "
+            "§8.2 authorises ONE pass and it is the enumeration of all "
+            "thirty-five; a pass that priced a subset establishes nothing about "
+            "§3.3's oracle, and a second attempt needs its own dated pre-freeze "
+            "note before it runs.")
+    if not status["feasible"]:
+        first = [u.get("key") for u in status["unpriceable"]][:3]
+        raise EvWidenError(
+            f"refusing to render §8.3's freeze block: {status['record']} records "
+            f"{len(status['unpriceable'])} UNPRICEABLE cell(s) (first: {first}). "
+            "§8.2 rules this in advance — 'if any cell is unpriceable, one is "
+            "enough, then a mandatory leg of this experiment cannot be executed "
+            "on the shipped stack, this preregistration cannot be run as "
+            "written, and the remedy is a NEW preregistration (v3)'. Freezing "
+            "the harness over that census would commit a hash table for a design "
+            "the record says cannot be run. Write v3 against the census.")
+    return status
 
 
 def require_harness_freeze(sources: Sequence[Path] | None = None,

@@ -1986,6 +1986,16 @@ MW6 the deciding horizon and §2.4's budget all move with it. The census is the
 document v3 would be written against, which is why this pass enumerates instead
 of stopping.
 
+**And that ruling is mechanical at the one place it decides anything.**
+`--freeze-block` reads the record: while it does not exist the enumeration says
+the pass has not been run, and once it does the enumeration states the census
+instead — §8.3 asks for "every pre-freeze pass **actually run**, complete", and a
+hardcoded "NOT RUN" is a false sentence the moment the pass runs. **The block
+refuses to render at all** over a record that says the pass did not price all
+thirty-five, or that says any cell is unpriceable. Freezing the harness over that
+census would commit a hash table for a design the record has already said cannot
+be executed.
+
 #### The read-only store accessor — the mechanism, not the promise
 
 "Read-only" is a property of code, not of intent, and v1's harness violated its
@@ -2047,10 +2057,12 @@ order:
    document preregisters.*
 
    **`--freeze-block` refuses to render** while the conformance report has a red
-   row, while §7.4's ancestry test is absent, or while §6.3's table is
-   unreproduced. A hash table committed over code that does not implement the
-   document freezes the wrong thing, which is the one thing a hash table must
-   never do.
+   row, while §7.4's ancestry test is absent, while §6.3's table is unreproduced,
+   or while §8.2 pass 7's record says its census is incomplete or infeasible. A
+   hash table committed over code that does not implement the document freezes
+   the wrong thing, which is the one thing a hash table must never do — and a
+   hash table committed over a census that says a mandatory leg cannot run
+   freezes a question the record has already answered.
 
 3. **Only then does the first real fit of this document run**, and it runs as
    step 1 of §8.4's sequence and in no other way.
