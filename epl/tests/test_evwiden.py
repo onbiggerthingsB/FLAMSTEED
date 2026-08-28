@@ -4249,8 +4249,33 @@ def _as_if_committed(table: str | None = None):
     return committed
 
 
+@pytest.fixture
+def unrun_feasibility(tmp_path, monkeypatch):
+    """The state §8.3's block renderer can be exercised in, after pass 7 ran.
+
+    §8.2 pass 7 RAN in this repository on 2026-08-28 and its census carries
+    three unpriceable cells, so `freeze_block` refuses in this checkout — by
+    design, and `test_the_freeze_block_refuses_over_a_census_that_answered_the_
+    question` is where that refusal is asserted, over every state of the record.
+    The obligations §8.3 puts on the block's CONTENTS are separate obligations
+    and still have to be executable; they are executable only in the state the
+    renderer was written for, which §8.2 describes: "while it does not exist the
+    enumeration says the pass has not been run", and nothing is refused for it.
+
+    So these tests render the block over an ABSENT record. What they may not do
+    is render it over a record that says the census passed — that would be a
+    test asserting a lifecycle state no run produced, which is the class §8.6
+    exists to refuse.
+    """
+    monkeypatch.setattr(ew, "FEASIBILITY_RECORD", tmp_path / "absent.json")
+    assert ew.feasibility_status() == {"ran": False,
+                                       "why": ew.FEASIBILITY_NOT_RUN}
+    return tmp_path
+
+
 @pinned
-def test_the_freeze_needs_a_commit_that_is_an_ancestor_of_head(monkeypatch):
+def test_the_freeze_needs_a_commit_that_is_an_ancestor_of_head(
+        monkeypatch, unrun_feasibility):
     """§8.6's task for the guard: verify a COMMITTED freeze — the Git identity
     of the source, not prose beside bytes.
 
@@ -5555,7 +5580,8 @@ def test_the_report_is_not_believed_on_its_own_word():
 
 
 @pinned
-def test_the_freeze_block_is_harness_produced_and_round_trips(tmp_path):
+def test_the_freeze_block_is_harness_produced_and_round_trips(
+        tmp_path, unrun_feasibility):
     """§8.3 step 2 asks its commit for the harness hashes, the schema identifier,
     the membership digests "recomputed by the harness's own code from the pinned
     artifacts", and an enumeration of every pre-freeze run.
@@ -5608,7 +5634,7 @@ def test_the_freeze_block_is_harness_produced_and_round_trips(tmp_path):
 
 
 @pinned
-def test_the_freeze_block_digests_are_the_membership_digests():
+def test_the_freeze_block_digests_are_the_membership_digests(unrun_feasibility):
     """The two must not be two computations of the same thing."""
     corpus, played, ledger = (ew.load_corpus(), ew.load_archive(),
                               ew.load_walk_ledger())
@@ -6080,9 +6106,24 @@ def test_the_document_and_the_harness_agree_on_pass_seven():
     # ...and the ruling is mechanical where it decides: the block refuses
     assert "refuses to render at all** over a record" in text
     assert "or while §8.2 pass 7's record says its census is incomplete or" in text
-    # ...and §8.9 records that it has NOT been run, which is the fact
-    assert "IT HAS NOT BEEN EXECUTED" in text
-    assert not ew.FEASIBILITY_RECORD.exists()
+    # ...and §8.9 records the CENSUS the pass produced on 2026-08-28, which is
+    # the fact now. The three cells and the three masses are the census itself,
+    # and they are exactly the three §8.2 named as candidates before the pass.
+    assert "§8.2 pass 7 EXECUTED, once" in text
+    for cell, mass in (("2019/20 MW0", "0.0234"), ("2020/21 MW0", "0.0216"),
+                       ("2023/24 MW3", "0.0328")):
+        assert cell in text and mass in text
+    assert "cannot be run as\nwritten" in text
+    # `data/` is gitignored, so the record itself may or may not be in a given
+    # checkout — but where it IS, it must say what §8.9 says it says, and the
+    # document may not drift away from the file it reports.
+    status = ew.feasibility_status()
+    if status["ran"]:
+        assert status["completed"] is True and status["feasible"] is False
+        assert sorted(u["key"] for u in status["unpriceable"]) == [
+            "2019/20|MW0", "2020/21|MW0", "2023/24|MW3"]
+        assert all(u["refusal_kind"] == "excluded_mass_ceiling"
+                   for u in status["unpriceable"])
 
 
 def test_the_freeze_block_refuses_over_a_census_that_answered_the_question(
