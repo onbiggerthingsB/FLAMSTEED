@@ -90,8 +90,8 @@ pinned = pytest.mark.skipif(
 #: §8.8's attestation names the directories that must stay empty until §8.4
 #: step 1 runs, and the harness's own guards are keyed to them.
 PREREGISTERED_TREE = (ew.EVWIDEN_DIR, ew.TABLE_DIR, ew.SEQUENCE_DIR,
-                      ew.FIRST_FIT_JSON, ew.EVWIDEN_JSON,
-                      ew.FEASIBILITY_RECORD)
+                      ew.FIRST_FIT_JSON, ew.FIRST_FIT_WITNESS,
+                      ew.EVWIDEN_JSON, ew.FEASIBILITY_RECORD)
 
 
 def _preregistered_tree_state():
@@ -4254,16 +4254,33 @@ def test_the_freeze_reads_the_committed_prose_and_the_committed_bytes():
     assert status["missing"] == list(ew.HARNESS_FILES)
 
 
-def _as_if_committed(table: str | None = None):
+def _as_if_committed(table: str | None = None, *, monkeypatch=None):
     """`git show` as it would read after the freeze commit landed.
 
     The prereg carries `table` (the rendered hash table by default) and every
     harness file's committed bytes are the working tree's, which is what a clean
     tree at the freeze commit looks like.
+
+    **And the working tree carries the same bytes**, because §8.6 condition
+    (1) now binds the document's CURRENT bytes to its committed blob
+    (IMP-POST-FIT-PROSE) and a real freeze commit leaves the two equal — the
+    block is appended to the file and then committed. A simulation in which
+    they differ is simulating the uncommitted-edit state the condition exists
+    to catch, not a landed freeze. Pass `monkeypatch` to have
+    :func:`ew.working_tree_bytes` mocked alongside `git show`; the callers that
+    are testing an unfrozen state may omit it.
     """
     text = table if table is not None else "\n".join(
         f"| `{name}` | {ew.sha256_file(ew.paths.REPO_ROOT / name)} |"
         for name in ew.HARNESS_FILES) + "\n"
+
+    def in_tree(relpath):
+        if relpath == ew.paths.rel(ew.PREREG_PATH):
+            return text.encode()
+        return (ew.paths.REPO_ROOT / relpath).read_bytes()
+
+    if monkeypatch is not None:
+        monkeypatch.setattr(ew, "working_tree_bytes", in_tree)
 
     def committed(relpath, rev="HEAD"):
         if relpath == ew.paths.rel(ew.PREREG_PATH):
@@ -4317,7 +4334,8 @@ def test_the_freeze_needs_a_commit_that_is_an_ancestor_of_head(
     accepted one.
     """
     block = ew.freeze_block()
-    monkeypatch.setattr(ew, "git_committed_bytes", _as_if_committed(block))
+    monkeypatch.setattr(ew, "git_committed_bytes",
+                        _as_if_committed(block, monkeypatch=monkeypatch))
     status = ew.harness_freeze_status()
     assert status["frozen"] is True
     assert status["is_ancestor"] is True
@@ -4388,6 +4406,10 @@ def test_the_first_real_fit_event_is_recorded_once_and_then_binds(tmp_path,
     passing a directory the harness no longer accepts.
     """
     monkeypatch.setattr(ew, "FIRST_FIT_JSON", tmp_path / "first_real_fit.json")
+    # §8.6's two artifacts are ONE mechanism: pointing the record away and
+    # leaving the witness at its real path writes into the preregistered tree
+    monkeypatch.setattr(ew, "FIRST_FIT_WITNESS",
+                        tmp_path / "first_fit_witness.jsonl")
     assert ew.first_fit_record() is None
     record = ew.record_first_real_fit(where="the results canary")
     assert record["where"] == "the results canary"
@@ -4418,6 +4440,10 @@ def test_a_first_fit_record_naming_another_prereg_blob_is_unverified(
     that decides nothing.
     """
     monkeypatch.setattr(ew, "FIRST_FIT_JSON", tmp_path / "first_real_fit.json")
+    # §8.6's two artifacts are ONE mechanism: pointing the record away and
+    # leaving the witness at its real path writes into the preregistered tree
+    monkeypatch.setattr(ew, "FIRST_FIT_WITNESS",
+                        tmp_path / "first_fit_witness.jsonl")
     ew.record_first_real_fit(where="the results canary")
     planted = json.loads((tmp_path / "first_real_fit.json").read_text())
     planted["prereg_blob"] = "0" * 40
@@ -4428,7 +4454,7 @@ def test_a_first_fit_record_naming_another_prereg_blob_is_unverified(
 
 
 def test_the_freeze_guard_checks_the_schema_and_the_membership_digests(
-        monkeypatch):
+        monkeypatch, tmp_path):
     """§8.6's four conditions, and v1's guard parsed only the first two.
 
     "Parsing two hash lines out of current prose is not a freeze"; nor is
@@ -4437,7 +4463,8 @@ def test_the_freeze_guard_checks_the_schema_and_the_membership_digests(
     recomputation from the pinned artifacts. A mocked source containing only two
     hash lines is not frozen, and v1's test accepted one that was.
     """
-    monkeypatch.setattr(ew, "git_committed_bytes", _as_if_committed())
+    monkeypatch.setattr(ew, "git_committed_bytes",
+                        _as_if_committed(monkeypatch=monkeypatch))
     status = ew.harness_freeze_status()
     assert status["frozen"] is False
     assert "schema" in status["why"] or "membership" in status["why"]
@@ -5679,7 +5706,12 @@ def test_the_freeze_block_is_harness_produced_and_round_trips(
     import unittest.mock as mock
 
     with mock.patch.object(ew, "git_committed_bytes",
-                           _as_if_committed(block)):
+                           _as_if_committed(block)), \
+            mock.patch.object(
+                ew, "working_tree_bytes",
+                lambda rel: (block.encode()
+                             if rel == ew.paths.rel(ew.PREREG_PATH)
+                             else (ew.paths.REPO_ROOT / rel).read_bytes())):
         got = ew.harness_freeze_status([ew.PREREG_PATH])
     assert got["frozen"] is True
     assert all(f["match"] for f in got["files"].values())
@@ -6399,6 +6431,8 @@ def test_a_first_fit_record_missing_an_identity_field_is_unverified(
     "conditionally accepts missing prereg/blob fields" — so a record with the
     fields stripped out passed every check by carrying none of them."""
     monkeypatch.setattr(ew, "FIRST_FIT_JSON", tmp_path / "first.json")
+    monkeypatch.setattr(ew, "FIRST_FIT_WITNESS",
+                        tmp_path / "first_witness.jsonl")
     full = ew.record_first_real_fit(where="a test")
     assert set(full) >= {"schema", "at", "where", "prereg", "prereg_blob",
                          "commit", "harness"}
@@ -6776,3 +6810,151 @@ def test_the_manifest_is_49_paths_and_its_tallies_are_the_32():
         season, label = key.split("|")
         name = f"{season.replace('/', '-')}|{label}.npz"
         assert not any(p.endswith(name) for p in tallies), key
+
+
+# --------------------------------------------------------------------------
+# §8.6 — the append-only witness, because a deletable file is not a ratchet
+# --------------------------------------------------------------------------
+
+@pytest.fixture()
+def _first_fit_paths(tmp_path, monkeypatch):
+    """Point BOTH §8.6 artifacts at a tmp_path, together.
+
+    They are one mechanism: pointing one away and leaving the other at its real
+    path would test a state the harness never produces."""
+    monkeypatch.setattr(ew, "FIRST_FIT_JSON", tmp_path / "first_real_fit.json")
+    monkeypatch.setattr(ew, "FIRST_FIT_WITNESS",
+                        tmp_path / "first_fit_witness.jsonl")
+    return tmp_path
+
+
+def test_deleting_the_first_fit_record_does_not_reset_the_regime(
+        _first_fit_paths):
+    """§8.6, B6/NB5. "Absence still returns `None` and restores the pre-fit
+    state; enforcement has no independent append-only witness. **Deletion
+    therefore still resets the lifecycle.**"
+
+    v3 §8.6: "a witness with lines and no record is a DELETED RECORD — the
+    ratchet holds, the state is post-first-fit, and the harness refuses rather
+    than quietly reverting to pre-fit."
+    """
+    assert ew.first_fit_state()["state"] == "pre_first_fit"
+    assert ew.witness_lines() == []
+
+    ew.record_first_real_fit(where="a test")
+    assert ew.FIRST_FIT_WITNESS.exists()
+    assert ew.first_fit_state()["state"] == "post_first_fit"
+    assert len(ew.witness_lines()) == 1
+
+    # THE DEFECT, seeded: delete the record and see whether the regime reopens
+    ew.FIRST_FIT_JSON.unlink()
+    assert ew.first_fit_record() is None            # the file is gone...
+    with pytest.raises(ew.FreezeStateUnverified) as exc:
+        ew.first_fit_state()                        # ...and the ratchet holds
+    assert "DELETED RECORD" in str(exc.value)
+    with pytest.raises(ew.FreezeStateUnverified):
+        ew.assert_no_hashed_file_moved()
+
+
+def test_a_record_no_witness_names_is_refused(_first_fit_paths):
+    """§8.6: "a record with no witness line naming it is a forged or
+    hand-written record and is refused"."""
+    ew.FIRST_FIT_JSON.write_text(json.dumps({
+        "schema": ew.SCHEMA_ID, "at": "2026-08-29T00:00:00Z",
+        "where": "by hand", "prereg": ew.paths.rel(ew.PREREG_PATH),
+        "prereg_blob": "0" * 40, "commit": "0" * 40, "harness": {"x": "y"}}))
+    with pytest.raises(ew.FreezeStateUnverified) as exc:
+        ew.first_fit_state()
+    assert "no witness line naming it" in str(exc.value)
+
+    # ...and a witness whose lines name a DIFFERENT fit is the same refusal
+    ew.record_first_real_fit(where="a test")        # returns the planted one
+    ew.FIRST_FIT_WITNESS.write_text(json.dumps({
+        "at": "1999-01-01T00:00:00Z", "where": "elsewhere",
+        "chain": "x"}) + "\n")
+    with pytest.raises(ew.FreezeStateUnverified):
+        ew.first_fit_state()
+
+
+def test_the_witness_is_append_only_and_its_chain_catches_a_removed_line(
+        _first_fit_paths):
+    """§8.6: "each appended line carries a CHAIN DIGEST [...] so a line removed
+    from the middle breaks every digest after it"."""
+    for i in range(3):
+        ew.FIRST_FIT_JSON.unlink(missing_ok=True)   # force three appends
+        ew.record_first_real_fit(where=f"fit {i}")
+    lines = ew.witness_lines()
+    assert len(lines) == 3
+    # the chain is a real chain: each line's digest covers the one before it
+    assert len({ln["chain"] for ln in lines}) == 3
+
+    raw = ew.FIRST_FIT_WITNESS.read_text().splitlines()
+    ew.FIRST_FIT_WITNESS.write_text("\n".join([raw[0], raw[2]]) + "\n")
+    with pytest.raises(ew.FreezeStateUnverified) as exc:
+        ew.witness_lines()
+    assert "removed from the middle" in str(exc.value)
+
+    # ...and the harness never opens the witness for truncation
+    import inspect
+    src = inspect.getsource(ew.record_first_real_fit)
+    assert '.open("a")' in src
+    assert '.open("w")' not in src and "write_text" not in src.split(
+        "FIRST_FIT_WITNESS")[1].split("FIRST_FIT_JSON")[0]
+
+
+def test_the_witness_line_is_written_before_the_record(_first_fit_paths):
+    """§8.6: "a process that dies between the two leaves a witness with no
+    record, which reads as post-first-fit — the ratchet holds. The reverse
+    order would leave a record no witness names, which reads as forged, and a
+    crash is not a forgery." """
+    import inspect
+    src = inspect.getsource(ew.record_first_real_fit)
+    assert src.index("FIRST_FIT_WITNESS.open") < src.index(
+        "FIRST_FIT_JSON.write_text")
+
+
+def test_the_record_is_written_immediately_before_the_sampler(_first_fit_paths):
+    """§8.6, IMP-FIRST-FIT-TIMESTAMP. "The old permission-check timestamp was
+    moved in `Engine.fit`. But other paths record BEFORE the operation whose
+    occurrence they attest: [...] `TableRunner` before protected
+    fit/simulation."
+
+    v3 makes the rule uniform: the record is written after the call that
+    performs the fit has been entered and immediately before the sampler is
+    invoked, at EVERY site."""
+    import inspect
+
+    for fn, sampler in ((ew.Engine.fit, "dcfit.fit_epl"),
+                        (ew.TableRunner.__call__, "dcfit.fit_epl"),
+                        (ew.ParityRunner.__call__, "self._runner("),
+                        (ew.simulate_arm, "leaguesim.simulate")):
+        src = inspect.getsource(fn)
+        rec = src.index("record_first_real_fit(where=")
+        # the sampler CALL that follows the record, not a mention of it in the
+        # docstring above
+        assert sampler in src[rec:], fn
+        between = src[rec:rec + src[rec:].index(sampler)]
+        # nothing that could REFUSE stands between the record and the sampler:
+        # a timestamp taken before a check that can raise is an attempt
+        # timestamp, which is exactly what the review found
+        for refusing in ("archive_season_state", "assert_", "raise "):
+            assert refusing not in between, (fn, refusing)
+
+
+def test_the_guard_binds_the_documents_current_bytes_not_only_its_blob():
+    """§8.6 condition (1), IMP-POST-FIT-PROSE. "`assert_no_hashed_file_moved`
+    binds the preregistration to its committed HEAD blob while current-byte
+    checks cover only the two harness files. **An uncommitted post-fit edit to
+    v2 is therefore not detected.**"
+
+    v3: "the file's CURRENT bytes must equal that committed blob's [...]
+    Committed-blob equality plus current-byte equality is what makes that
+    sentence true of a working tree as well as of a commit."
+    """
+    status = ew.harness_freeze_status()
+    assert "prereg_bytes_match_blob" in status
+    # the check is real: it compares this file's bytes against its blob
+    import inspect
+    src = inspect.getsource(ew.harness_freeze_status)
+    assert "git_committed_bytes" in src
+    assert "PREREG_PATH" in src

@@ -2359,6 +2359,24 @@ def thin_at(e_min: float, grid: Sequence[float] = (*E_GRID, E_STAR)
 #: one-way ratchet had a way back, and the way back was a flag.
 FIRST_FIT_JSON = paths.FIT_DIR / "evwiden_first_real_fit.json"
 
+#: §8.6's APPEND-ONLY WITNESS, because a deletable file is not a ratchet.
+#:
+#: Two review rounds found the same hole and neither the document nor the
+#: harness closed it: absence of :data:`FIRST_FIT_JSON` returned ``None`` and
+#: restored the pre-fit state, so **deleting the record reset the entire §8.7
+#: regime**. v3 §8.6 makes the transition durable instead: every write of the
+#: record is accompanied by an append here, the harness opens this file for
+#: APPEND and never for truncation, and each line carries a CHAIN DIGEST over
+#: the previous line's, so a line removed from the middle breaks every digest
+#: after it.
+#:
+#: What it buys, stated as v3 states it: deletion becomes VISIBLE rather than
+#: impossible. Someone who deletes the record must also delete the witness, and
+#: someone who deletes both has deleted an append-only file whose absence §8.8's
+#: attestation speaks to. That is strictly more than a single deletable file. It
+#: is **not** a global proof and §8.6 does not claim it is.
+FIRST_FIT_WITNESS = paths.FIT_DIR / "evwiden_first_fit_witness.jsonl"
+
 #: §8.6's closure, for a seam that names no directory because it WRITES
 #: nothing. ``target=None`` means "the caller is about to use the default, and
 #: the default is the preregistered run directory", which is why it is refused;
@@ -2711,6 +2729,98 @@ def assert_may_fit(where: str, *,
     return {"guarded": True, "frozen": True, "real_artifacts": bool(real)}
 
 
+def witness_lines() -> list[dict[str, Any]]:
+    """§8.6's witness, read and CHAIN-CHECKED.
+
+    A broken chain is `FreezeStateUnverified`: the whole point of the digest is
+    that a line removed from the middle cannot be hidden, so a chain that does
+    not verify is a witness that has been edited.
+    """
+    if not FIRST_FIT_WITNESS.exists():
+        return []
+    out: list[dict[str, Any]] = []
+    prev = ""
+    for i, raw in enumerate(FIRST_FIT_WITNESS.read_text().splitlines()):
+        if not raw.strip():
+            continue
+        try:
+            line = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise FreezeStateUnverified(
+                f"{paths.rel(FIRST_FIT_WITNESS)} line {i + 1} is not readable "
+                f"JSON: {exc}. §8.6's witness is what makes the first-fit "
+                "ratchet durable, and an unreadable line is not an absent one.")
+        want = _witness_chain(prev, line)
+        if str(line.get("chain")) != want:
+            raise FreezeStateUnverified(
+                f"{paths.rel(FIRST_FIT_WITNESS)} line {i + 1} carries chain "
+                f"{str(line.get('chain'))[:12]}… and the digest over the "
+                f"previous line's chain and this line's canonical form is "
+                f"{want[:12]}…. §8.6: 'a line removed from the middle breaks "
+                "every digest after it', which is the whole reason the chain "
+                "exists — a witness that does not verify has been edited.")
+        prev = want
+        out.append(line)
+    return out
+
+
+def _witness_chain(prev: str, line: dict[str, Any]) -> str:
+    """SHA-256 over the previous line's chain and this line's canonical form.
+
+    ``sort_keys`` and ``default=str`` make the form a function of the line's
+    content and not of the order a dict happened to be built in, which is the
+    same discipline :func:`canonical` applies to a ledger row.
+    """
+    body = {k: v for k, v in line.items() if k != "chain"}
+    payload = json.dumps(body, sort_keys=True, default=str,
+                         separators=(",", ":"))
+    return hashlib.sha256((str(prev) + payload).encode()).hexdigest()
+
+
+def first_fit_state() -> dict[str, Any]:
+    """§8.6: the record and its witness read TOGETHER, and disagreement refused.
+
+    > * a witness with lines and **no record** is a **deleted record** — the
+    >   ratchet holds, the state is post-first-fit, and the harness refuses
+    >   rather than quietly reverting to pre-fit;
+    > * a record with **no witness line** naming it is a forged or hand-written
+    >   record and is refused;
+    > * a broken chain digest is refused;
+    > * both absent is pre-first-fit, which is the only state in which a fit may
+    >   begin.
+    """
+    record = first_fit_record()
+    lines = witness_lines()
+    if record is None and not lines:
+        return {"state": "pre_first_fit", "record": None, "witness": []}
+    if record is None and lines:
+        raise FreezeStateUnverified(
+            f"{paths.rel(FIRST_FIT_WITNESS)} carries {len(lines)} line(s) and "
+            f"{paths.rel(FIRST_FIT_JSON)} is absent. §8.6: 'a witness with "
+            "lines and no record is a DELETED RECORD — the ratchet holds, the "
+            "state is post-first-fit, and the harness refuses rather than "
+            "quietly reverting to pre-fit'. Two review rounds found deletion "
+            "resetting the whole §8.7 regime; this is what stops it.")
+    if not lines:
+        raise FreezeStateUnverified(
+            f"{paths.rel(FIRST_FIT_JSON)} exists and "
+            f"{paths.rel(FIRST_FIT_WITNESS)} carries no line naming it. §8.6: "
+            "'a record with no witness line naming it is a forged or "
+            "hand-written record and is refused'. The harness writes the "
+            "witness line first and the record second, so this state cannot "
+            "arise from an interrupted write.")
+    matched = [ln for ln in lines
+               if str(ln.get("at")) == str(record.get("at"))
+               and str(ln.get("where")) == str(record.get("where"))]
+    if not matched:
+        raise FreezeStateUnverified(
+            f"{paths.rel(FIRST_FIT_JSON)} records a fit at "
+            f"{record.get('at')!r} from {record.get('where')!r} and no line of "
+            f"{paths.rel(FIRST_FIT_WITNESS)} names it. §8.6 reads both and "
+            "refuses their disagreement.")
+    return {"state": "post_first_fit", "record": record, "witness": lines}
+
+
 def first_fit_record() -> dict[str, Any] | None:
     """§8.6's record, read from its **one fixed repo-root-keyed path**.
 
@@ -2767,6 +2877,19 @@ def record_first_real_fit(*, where: str = "") -> dict[str, Any]:
                  "invalidated run publishes, with its numbers and with the "
                  "reason, and a new preregistration begins in a new document."),
     }
+    # §8.6: THE WITNESS LINE IS APPENDED FIRST, and the record written second.
+    # The order matters and it is the safe one: a process that dies between the
+    # two leaves a witness with no record, which :func:`first_fit_state` reads
+    # as post-first-fit — the ratchet holds. The reverse order would leave a
+    # record no witness names, which reads as forged, and a crash is not a
+    # forgery.
+    FIRST_FIT_WITNESS.parent.mkdir(parents=True, exist_ok=True)
+    prior = witness_lines()
+    prev = str(prior[-1]["chain"]) if prior else ""
+    line = {k: v for k, v in record.items() if k != "rule"}
+    line["chain"] = _witness_chain(prev, line)
+    with FIRST_FIT_WITNESS.open("a") as fh:          # APPEND, never truncate
+        fh.write(json.dumps(line, sort_keys=True, default=str) + "\n")
     FIRST_FIT_JSON.parent.mkdir(parents=True, exist_ok=True)
     FIRST_FIT_JSON.write_text(json.dumps(record, indent=2, default=str) + "\n")
     return record
@@ -2787,6 +2910,12 @@ def assert_no_hashed_file_moved() -> None:
     """
     record = first_fit_record()
     if record is None:
+        # §8.6 reads the record and its append-only witness TOGETHER: a DELETED
+        # record with a standing witness is post-first-fit and refuses, rather
+        # than quietly reverting the regime to pre-fit (B6/NB5). An absent
+        # record with an absent witness is the pre-first-fit state, and the
+        # only one in which a fit may begin.
+        first_fit_state()
         return
 
     # §8.6 fixes the record's contents. A record that omits a field cannot be
@@ -2820,6 +2949,10 @@ def assert_no_hashed_file_moved() -> None:
             "preregistration is not this document's first-fit event, and §8.1 "
             "is exactly why — v1's two ADVI fits ended v1 and v2 does not "
             "inherit them.")
+    # ...and only now the pairing: a record whose identity fields are intact
+    # but which no witness line names is forged or hand-written (B6/NB5).
+    first_fit_state()
+
     recorded_blob = record.get("prereg_blob")
     current_blob = git_blob_id(paths.rel(PREREG_PATH))
     if recorded_blob and current_blob and recorded_blob != current_blob:
@@ -5446,6 +5579,8 @@ def simulate_arm(state, book, *, played: pd.DataFrame,
     may = assert_may_fit("epl.evwiden.simulate_arm", played=played,
                          directory=directory)
     frozen = frozen_table_constants()
+    # §8.6: immediately before the sampler, and after every check that could
+    # refuse — `frozen_table_constants` above resolves the budget and can raise.
     if may["frozen"] and may["real_artifacts"]:
         record_first_real_fit(where="epl.evwiden.simulate_arm")
     return leaguesim.simulate(TABLE_ARM_LABEL, state, book,
@@ -5855,13 +5990,19 @@ class TableRunner:
         started = time.perf_counter()
         may = assert_may_fit("epl.evwiden.TableRunner", played=self.played,
                              directory=self.directory)
-        if may["frozen"] and may["real_artifacts"]:
-            record_first_real_fit(where="epl.evwiden.TableRunner")
 
         state = season_mod.archive_season_state(
             self.matches, season, cutoff,
             require_verified_adjustments=self.require_verified_adjustments)
         with self._epl_fit.config_read_once(self.config):
+            # §8.6: "the record is written after the call that performs the fit
+            # has been entered and IMMEDIATELY BEFORE THE SAMPLER IS INVOKED".
+            # It used to sit above `archive_season_state`, which can refuse on
+            # an unverified adjustment — an attempt timestamp dressed as an
+            # occurrence timestamp, which is what the review found at this site
+            # and at two others.
+            if may["frozen"] and may["real_artifacts"]:
+                record_first_real_fit(where="epl.evwiden.TableRunner")
             post, info = dcfit.fit_epl(cutoff, self.store, self.anchor,
                                        self.config, matches=self.played,
                                        feature_cache_dir=paths.FIT_CACHE_DIR)
@@ -8440,6 +8581,20 @@ def _only_the_prereg(sources: Sequence[Path] | None, rev: str, where: str
     return [PREREG_PATH]
 
 
+def working_tree_bytes(relpath: str) -> bytes | None:
+    """The bytes of a repository file as the WORKING TREE holds them.
+
+    The counterpart of :func:`git_committed_bytes`, and it exists as its own
+    function for the same reason that one does: §8.6 condition (1) compares the
+    two, and a comparison whose two halves are read by two named functions can
+    be exercised. It is a READER — it takes no argument that could alter a
+    constant, inject an implementation, attest a lifecycle state or truncate a
+    population — so §8.6's public-surface closure does not reach it.
+    """
+    path = paths.REPO_ROOT / relpath
+    return path.read_bytes() if path.exists() else None
+
+
 def harness_freeze_status(sources: Sequence[Path] | None = None, *,
                           rev: str = "HEAD") -> dict[str, Any]:
     """§8.6's guard. Has §8.3 step 2's follow-up commit landed, does it describe
@@ -8487,6 +8642,14 @@ def harness_freeze_status(sources: Sequence[Path] | None = None, *,
     where = None
     where_text = ""
     git_sources: list[dict[str, Any]] = []
+    # §8.6 condition (1), and the half v2 was missing (IMP-POST-FIT-PROSE):
+    # the document is bound to its committed blob AND its current bytes must
+    # equal that blob's. v2 bound the blob and then checked current bytes only
+    # for the two harness files, so an UNCOMMITTED post-fit edit to the
+    # preregistration itself — the one edit §8.7's whole regime exists to
+    # forbid — went undetected. A working tree in which the document has been
+    # edited is a working tree in which no further fit of it may run.
+    prereg_bytes_match_blob: bool | None = None
     for source in sources:
         rel = paths.rel(source)
         blob = git_committed_bytes(rel, rev)
@@ -8494,6 +8657,8 @@ def harness_freeze_status(sources: Sequence[Path] | None = None, *,
                             "blob": git_blob_id(rel, rev)})
         if blob is None:
             continue
+        if source.resolve() == PREREG_PATH.resolve():
+            prereg_bytes_match_blob = working_tree_bytes(rel) == blob
         text = blob.decode("utf-8", "replace")
         for line in text.splitlines():
             for name in HARNESS_FILES:
@@ -8589,7 +8754,7 @@ def harness_freeze_status(sources: Sequence[Path] | None = None, *,
                 "implement the document freezes the wrong thing, which is the "
                 "one thing a hash table must never do.'")
 
-    # ---- condition (4): the first-fit record, if present ------------------
+    # ---- condition (4): the first-fit record and its witness --------------
     record = first_fit_record()
     first_fit_ok: bool | None = None
     first_fit_why = ""
@@ -8618,6 +8783,13 @@ def harness_freeze_status(sources: Sequence[Path] | None = None, *,
     elif not ancestor:
         why = (f"the commit {commit[:12]} that carries the harness-hash table is "
                f"not an ancestor of {rev}")
+    elif prereg_bytes_match_blob is False:
+        why = (f"§8.6 condition (1): {paths.rel(PREREG_PATH)}'s CURRENT bytes "
+               f"differ from its committed blob at {rev}. The document is bound "
+               "to the blob and to the working tree both, because §8.7 forbids "
+               "any note appended after the first real fit 'prose or otherwise' "
+               "— and an UNCOMMITTED edit is exactly the note a blob-only check "
+               "cannot see")
     elif not schema_ok:
         why = (f"the committed freeze block does not carry the schema "
                f"identifier {SCHEMA_ID!r}. §8.6 condition (3): parsing two hash "
@@ -8633,8 +8805,10 @@ def harness_freeze_status(sources: Sequence[Path] | None = None, *,
     else:
         why = ""
     return {"frozen": bool(not missing and not differs and ancestor
+                           and prereg_bytes_match_blob is not False
                            and schema_ok and membership_ok and conformance_ok
                            and first_fit_ok is not False),
+            "prereg_bytes_match_blob": prereg_bytes_match_blob,
             "where": where, "files": found, "missing": missing, "why": why,
             "commit": commit, "is_ancestor": ancestor,
             "schema_ok": schema_ok, "membership_ok": membership_ok,
@@ -9348,7 +9522,9 @@ def implementation_report() -> list[dict[str, Any]]:
 
         # ---- L8: first-fit state global and validated --------------------
         kept_first_fit = FIRST_FIT_JSON
+        kept_witness = FIRST_FIT_WITNESS
         globals()["FIRST_FIT_JSON"] = scratch / "first_real_fit.json"
+        globals()["FIRST_FIT_WITNESS"] = scratch / "first_fit_witness.jsonl"
         try:
             record_first_real_fit(where="the conformance report")
             planted = json.loads(FIRST_FIT_JSON.read_text())
@@ -9366,15 +9542,46 @@ def implementation_report() -> list[dict[str, Any]]:
             FIRST_FIT_JSON.write_text(json.dumps(stripped))
             l8 = l8 and _refused(FreezeStateUnverified,
                                  assert_no_hashed_file_moved)
+            # ...and the RATCHET: deleting the record while its witness stands
+            # must NOT revert the regime to pre-fit (B6/NB5). Two review rounds
+            # found deletion resetting the whole lifecycle.
+            FIRST_FIT_JSON.unlink()
+            l8 = (l8 and first_fit_record() is None
+                  and bool(witness_lines())
+                  and _refused(FreezeStateUnverified, first_fit_state)
+                  and _refused(FreezeStateUnverified,
+                               assert_no_hashed_file_moved))
+            # a record no witness line names is forged or hand-written
+            FIRST_FIT_WITNESS.unlink()
+            FIRST_FIT_JSON.write_text(json.dumps(planted))
+            l8 = l8 and _refused(FreezeStateUnverified, first_fit_state)
+            # ...and a line removed from the middle breaks the chain after it
+            FIRST_FIT_JSON.unlink()
+            for i in range(3):
+                FIRST_FIT_JSON.unlink(missing_ok=True)
+                record_first_real_fit(where=f"the conformance report {i}")
+            raw = FIRST_FIT_WITNESS.read_text().splitlines()
+            FIRST_FIT_WITNESS.write_text("\n".join([raw[0], raw[2]]) + "\n")
+            l8 = (l8 and len(raw) == 3
+                  and _refused(FreezeStateUnverified, witness_lines))
         finally:
             globals()["FIRST_FIT_JSON"] = kept_first_fit
-        l8 = l8 and FIRST_FIT_JSON == paths.FIT_DIR / "evwiden_first_real_fit.json"
-        row("L8", "§8.6", "the first-fit record is one fixed path, and validated",
-            "assert the record's functions take no directory argument; plant a "
-            "record naming a different prereg blob and require "
-            "FreezeStateUnverified; strip the identity fields and require it "
-            "again, because a record that omits a field cannot be checked "
-            "against it", l8)
+            globals()["FIRST_FIT_WITNESS"] = kept_witness
+        l8 = (l8
+              and FIRST_FIT_JSON == paths.FIT_DIR / "evwiden_first_real_fit.json"
+              and FIRST_FIT_WITNESS == (paths.FIT_DIR
+                                        / "evwiden_first_fit_witness.jsonl")
+              and _no_parameter(witness_lines, "directory", "dir", "path")
+              and _no_parameter(first_fit_state, "directory", "dir", "path"))
+        row("L8", "§8.6",
+            "the first-fit state is one fixed path, validated, and RATCHETED",
+            "assert the record's and the witness's functions take no directory "
+            "argument; plant a record naming a different prereg blob and "
+            "require FreezeStateUnverified; strip its identity fields and "
+            "require it again; DELETE the record while its witness stands and "
+            "require the post-first-fit state to hold; plant a record with no "
+            "witness line and require refusal; and break the witness's chain "
+            "digest and require refusal", l8)
 
         # ---- L9: the frozen sequence -------------------------------------
         kept_seq = SEQUENCE_DIR
