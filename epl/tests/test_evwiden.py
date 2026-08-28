@@ -78,6 +78,62 @@ pinned = pytest.mark.skipif(
            "machine that ran the walk and nowhere else")
 
 
+#: §8.8's attestation names the directories that must stay empty until §8.4
+#: step 1 runs, and the harness's own guards are keyed to them.
+PREREGISTERED_TREE = (ew.EVWIDEN_DIR, ew.TABLE_DIR, ew.SEQUENCE_DIR,
+                      ew.FIRST_FIT_JSON, ew.EVWIDEN_JSON,
+                      ew.FEASIBILITY_RECORD)
+
+
+def _preregistered_tree_state():
+    """What §8.8's attestation covers, as a comparable snapshot."""
+    state = {}
+    for target in PREREGISTERED_TREE:
+        if target.is_dir():
+            state[str(target)] = sorted(
+                (str(p.relative_to(target)), p.stat().st_size,
+                 p.stat().st_mtime_ns)
+                for p in target.rglob("*") if p.is_file())
+        elif target.exists():
+            state[str(target)] = (target.stat().st_size,
+                                  target.stat().st_mtime_ns)
+        else:
+            state[str(target)] = None
+    return state
+
+
+@pytest.fixture(autouse=True)
+def _the_preregistered_directories_stay_untouched():
+    """§8.8, made a property of the SUITE rather than of each test's care.
+
+    A first-fit record was found in `data/epl/fit/evwiden/` while §8.8's
+    attestation said no such file could exist. It was not a fit: at `6bbacd0`
+    the record's writer still took a directory argument defaulting to the
+    preregistered run directory, and a working-tree version of that commit's own
+    test called it without a `tmp_path`, so a test wrote into the real
+    directory. §8.9 records the event, the deletion and the reasoning.
+
+    This fixture is the hole closed. Every test in this module runs inside it,
+    and a test that creates, changes or removes anything under
+    `data/epl/fit/evwiden*`, `data/epl/sim/evwiden*` or the sequence directory
+    fails AT THE TEST rather than being found later by an audit. The tests that
+    legitimately touch these paths do it by pointing the module's own constants
+    at a `tmp_path`, which is what they were already doing — this makes the ones
+    that forget impossible to miss.
+    """
+    before = _preregistered_tree_state()
+    yield
+    after = _preregistered_tree_state()
+    moved = [k for k in before if before[k] != after[k]]
+    assert not moved, (
+        "a test touched the preregistered run tree: "
+        + "; ".join(f"{k}: {before[k]!r} -> {after[k]!r}" for k in moved)
+        + ". §8.8 attests that nothing exists under data/epl/fit/evwiden* or "
+          "data/epl/sim/evwiden* before §8.4 step 1, and a test that writes "
+          "there makes that attestation false. Point the module's constants at "
+          "a tmp_path instead.")
+
+
 # ==========================================================================
 # the synthetic world: an archive whose `e` values are chosen, not discovered
 # ==========================================================================
@@ -1032,10 +1088,19 @@ def test_the_preregistered_directory_is_closed_before_the_freeze(tmp_path):
     where every row is stamped harness_frozen: false."""
     corpus, played, ledger = _world()
     points = ew.fit_points(corpus, [CUT_A], check=False)
+    # Two refusals stand over this now and both are correct. §8.6's
+    # public-surface closure refuses the injected fitter at a preregistered
+    # target before anything else runs, and the directory guard refuses the
+    # WRITE independently — which is the one that matters for a run with no
+    # seam in it at all.
     with pytest.raises(ew.EvWidenError) as exc:
         ew.run_fits(points, ew.EVWIDEN_DIR / "shard_00_of_01.jsonl", corpus,
                     fitter=_stub_fitter(corpus, played, ledger),
                     verbose=False)
+    assert "public-surface closure" in str(exc.value)
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew._guard_ledger_location(ew.EVWIDEN_DIR / "shard_00_of_01.jsonl",
+                                  harness_frozen=False)
     assert "freeze commit" in str(exc.value)
     # the canary record is guarded too: a pre-freeze canary.json left in the run
     # directory is what a later --run reads as "the canary passed"
@@ -4000,25 +4065,30 @@ def test_the_table_runners_refuse_the_pinned_archive_before_the_freeze(tmp_path)
         ew.ParityRunner(matches, directory=tmp_path)
 
 
-def test_the_freeze_block_enumerates_all_six_authorised_pre_freeze_passes():
-    """§8.2's six passes, "authorised for this document, prospectively".
+def test_the_freeze_block_enumerates_all_seven_authorised_pre_freeze_passes():
+    """§8.2's seven passes, "authorised for this document, prospectively".
 
     v1's sixth entry named a repair round's two scratch exports — an event, not
-    a prospective pass. v2's sixth is ``--power``, which reads only the frozen
-    SDs and the frozen structure and reproduces §6.3. The list stays binding and
-    must be complete: an unenumerated pre-freeze pass is a protocol deviation
-    whether or not it touched anything.
+    a prospective pass. v2's sixth is ``--power``; its seventh is §8.2's
+    `dc_native` parity feasibility pass, the one entry that fits and simulates,
+    authorised by name and quarantined outside the repository. The list stays
+    binding and must be complete: an unenumerated pre-freeze pass is a protocol
+    deviation whether or not it touched anything.
     """
-    assert len(ew.PRE_FREEZE_RUNS) == 6
+    assert len(ew.PRE_FREEZE_RUNS) == 7
     joined = " ".join(ew.PRE_FREEZE_RUNS)
     for marker in ("--membership", "--plan", "--canary --no-results-canary",
                    "pytest epl/tests/test_evwiden.py", "dcfit.fit_epl",
-                   "--freeze-block", "--power"):
+                   "--partial-engine", "--freeze-block", "--power",
+                   "pass 7", "evwiden_parity_feasibility.json", "NOT RUN"):
         assert marker in joined, marker
     assert "TemporaryDirectory" in joined and "paths.STORE_DIR" in joined
     # v1's sixth entry was a RETROSPECTIVE note about a repair round. §8.2
     # authorises v2's own passes prospectively and nothing else.
     assert "repair round" not in joined
+    # ...and pass 4 is now a COMMAND rather than a description of one no
+    # command could run (the review's NEW-B5)
+    assert any("--partial-engine" in run for run in ew.PRE_FREEZE_RUNS)
 
 
 @pinned
@@ -4329,11 +4399,28 @@ def test_the_launcher_emits_exactly_the_five_steps_in_order(tmp_path):
     assert text.index("run_step shard_03") < text.index("run_step merge")
     assert text.index("run_step merge") < text.index("run_step table")
 
-    # each step's precondition check appears BEFORE its command
+    # Each step's precondition check appears BEFORE its command — AS A
+    # COMMAND. The in-tree audit found this obligation unenforced: every
+    # `need_marker` line could be deleted and the committed test stayed green,
+    # because the marker's NAME also appears in the `#   marker:
+    # sequence/stepN_*.json` comment inside the preceding block, so an index
+    # comparison over the whole text held vacuously. Comments are dropped here.
+    commands = [line for line in text.splitlines()
+                if line.strip() and not line.lstrip().startswith("#")]
     for step, command in (("step1_results_canary", "run_step shard_00"),
+                          ("step2_single_opening", "run_step shard_00"),
                           ("step3_shards", "run_step merge"),
-                          ("step4_merge", "run_step table")):
-        assert text.index(step) < text.index(command), step
+                          ("step4_merge", "run_step table"),
+                          ("step5_parity", "run_step evidence")):
+        guards = [i for i, line in enumerate(commands)
+                  if line.startswith(f"need_marker {step} ")]
+        assert len(guards) == 1, (step, guards)
+        at = [i for i, line in enumerate(commands)
+              if line.startswith(command)]
+        assert at and guards[0] < at[0], step
+    # ...and there are exactly five of them, so deleting one is visible here
+    assert sum(1 for line in commands
+               if line.startswith("need_marker ")) == 5
 
 
 def test_the_launcher_publishes_the_evidence_after_the_table_leg(tmp_path):
@@ -4727,7 +4814,14 @@ def test_the_harness_cites_no_clause_the_law_does_not_contain():
     import re
 
     retired = re.compile(r"\bR2?-(?:B|I|M|X|H|Z)\d*\b|\bR2-0\b")
-    for path in (Path("epl/evwiden.py"), Path("epl/tests/test_evwiden.py")):
+    scanned = [Path("epl/evwiden.py"), Path("epl/tests/test_evwiden.py")]
+    # ...and THE DOCUMENT ITSELF. The cross-model review's hygiene finding was
+    # that the retired-ID test "scans code/tests, not v2 itself", while v1's
+    # own retired identifier remained operative shorthand in four places of the
+    # law — so the thing the citations are supposed to point AT carried them.
+    if PREREG.exists():
+        scanned.append(PREREG)
+    for path in scanned:
         offenders = [line.strip() for line in path.read_text().splitlines()
                      if retired.search(line) and "v1" not in line]
         assert not offenders, f"{path}: {offenders[:3]}"
@@ -5338,6 +5432,66 @@ def test_the_report_is_not_believed_on_its_own_word():
         for name in names:
             assert callable(here.get(name)), f"{row}: {name} is missing"
 
+    # ...and the index is not the check. §8.5 asks this test to EXECUTE the
+    # seven scenarios, so a report that lies about itself is caught by
+    # something other than itself. These are the seven, re-run here against the
+    # production code rather than read off the report's own `ok` fields.
+    import inspect
+
+    # L5 — parity before treatment, and no bypass parameter
+    cells = _cells()
+    with pytest.raises(ew.TableIdentityBreak):
+        ew.assert_parity_complete(cells, _parity_for(cells[:-1]))
+    assert ew._no_parameter(ew.run_table, "require_parity", "limit")
+    with pytest.raises(ew.TableIdentityBreak):
+        ew.run_cell_arms("k", simulate=lambda *a: None, record=lambda *a: {},
+                         books={}, parity_row=None, provisional_control=())
+
+    # L6 — the pre-freeze commands are mechanically read-only
+    with pytest.raises(ew.StoreNotBuilt):
+        ew.read_only_store(root=Path("/nonexistent-store-root"))
+    assert "build_store" not in ew._calls_made(ew.table_cells)
+
+    # L7 — no freeze-state boolean, and merge's seams are refused
+    for fn in (ew.Engine.__init__, ew.TableRunner.__init__,
+               ew.ParityRunner.__init__, ew.run_fits, ew.run_table,
+               ew.assert_may_fit, ew.simulate_arm, ew.run_canary,
+               ew.freeze_block):
+        assert ew._no_parameter(fn, "harness_frozen", "frozen", "freeze",
+                                "check_implementation"), fn
+    with pytest.raises(ew.EvWidenError):
+        ew.merge(shards=ew.SHARDS, harness_frozen=True, require_canaries=False)
+
+    # L9 — the launcher's preconditions are commands, and a failed step
+    # unlocks nothing
+    script = ew.launch_script()
+    assert sum(1 for line in script.splitlines()
+               if line.strip().startswith("need_marker ")) == 5
+
+    # L11 — the pinned signature
+    assert list(inspect.signature(ew.sampler_digest).parameters) == [
+        "run", "tallies"]
+
+    # L12 — the three checks, executed
+    stored = np.array([[0.5, 0.25, 0.25]])
+    drift = np.array([[0.5 + 1e-9, 0.25 - 1e-9, 0.25]])
+    with pytest.raises(ew.ControlMismatch):
+        ew.assert_identity_control("2019-08-09", ("m0",), drift, stored)
+    with pytest.raises(ew.UntreatedMoved):
+        ew.assert_untreated_unmoved("2019-08-09", ("m0",), drift, stored, ())
+    with pytest.raises(ew.EvWidenError):
+        ew.assert_pass_two_three_agree("2019-08-09", "m0", stored[0], drift[0])
+    assert {"assert_identity_control", "assert_untreated_unmoved",
+            "assert_pass_two_three_agree"} <= ew._calls_made(ew.Engine.fit)
+
+    # L13 — the structural-zero guard, both sides
+    for over in ({"delta": 1e-9},
+                 {"e_min": 1.0, "incumbent_widened": True, "delta": 1e-9}):
+        with pytest.raises(ew.UntreatedMoved):
+            ew.assert_structural_zeros([{
+                "match_id": "m", "e_min": 99.0, "delta": 0.0,
+                "incumbent_widened": False, "treated": False, **over}])
+
 
 @pinned
 def test_the_freeze_block_is_harness_produced_and_round_trips(tmp_path):
@@ -5403,3 +5557,567 @@ def test_the_freeze_block_digests_are_the_membership_digests():
                             power=_reproducing_power())
     for value in digests["digests"].values():
         assert value in block
+
+
+# ==========================================================================
+# §8.6 — THE PUBLIC-SURFACE CLOSURE, and the seams it stands over
+# ==========================================================================
+
+def test_the_closure_refuses_a_seam_at_a_preregistered_target():
+    """§8.6: "**No public surface of the harness accepts any parameter that can
+    alter a frozen constant, inject an alternative implementation, attest a
+    lifecycle state, or truncate a deciding population, when the target
+    artifacts are pinned or the directories are the preregistered ones.**"
+
+    The review's NEW-B1 through NEW-B4 were four instances of one defect, and
+    v1 and v2's first harness each closed such leaks one at a time. This is the
+    class, and it is one predicate: the guard refuses on the PINNED archive, on
+    a frame DERIVED from it, on the pinned corpus, on any preregistered
+    directory, and on a caller that named no directory at all — because the
+    default is the preregistered run directory.
+    """
+    scratch = Path("/tmp") / "evwiden-not-preregistered"
+    # a synthetic world in a directory of its own is exactly what §8.2
+    # authorises the audit to use, and the guard lets it through
+    assert ew.assert_seam_allowed("audit", played=_archive(), corpus=_corpus(),
+                                  target=scratch)["allowed"] is True
+
+    for kwargs in ({"target": None},
+                   {"target": ew.EVWIDEN_DIR},
+                   {"target": ew.EVWIDEN_DIR / "deeper" / "still"},
+                   {"target": ew.TABLE_DIR},
+                   {"target": ew.SEQUENCE_DIR},
+                   {"target": ew.EVIDENCE_DIR}):
+        with pytest.raises(ew.EvWidenError) as exc:
+            ew.assert_seam_allowed("audit", played=_archive(), **kwargs)
+        assert "preregistered directories" in str(exc.value)
+
+
+@pinned
+def test_the_closure_refuses_a_seam_on_the_pinned_and_near_real_artifacts():
+    """§8.6, and §7.4's definition of synthetic made mechanical.
+
+    NEW-B2: "a real-derived archive differing by one value is neither
+    byte-identical pinned input nor v2-literal synthetic input, yet
+    `is_pinned_archive` can classify it as non-pinned and allow it before
+    freeze". §7.4 admits only frames whose every value is written literally in
+    this module, so the ambiguous middle is REFUSED rather than allowed.
+    """
+    scratch = Path("/tmp") / "evwiden-not-preregistered"
+    played = ew.load_archive()
+    assert ew.archive_provenance(played) == "pinned"
+    assert ew.archive_provenance(_archive()) == "synthetic"
+
+    # one value changed: not the pinned archive by digest, and not synthetic
+    # by ancestry either
+    near_real = played.copy()
+    near_real.loc[near_real.index[0], "fthg"] = int(
+        near_real.loc[near_real.index[0], "fthg"]) + 7
+    assert ew.archive_provenance(near_real) == "derived"
+    assert ew.is_pinned_archive(near_real) is False
+    assert ew.is_derived_from_pinned_archive(near_real) is True
+
+    for frame in (played, near_real):
+        with pytest.raises(ew.EvWidenError):
+            ew.assert_seam_allowed("audit", played=frame, target=scratch)
+        with pytest.raises(ew.EvWidenError) as exc:
+            ew.assert_may_fit("audit", played=frame, directory=scratch)
+        assert "pinned archive" in str(exc.value)
+
+    # ...and the pinned CORPUS closes the same way
+    with pytest.raises(ew.EvWidenError):
+        ew.assert_seam_allowed("audit", corpus=ew.load_corpus(),
+                               target=scratch)
+
+
+def test_every_seam_the_review_named_asks_the_one_guard(tmp_path):
+    """The surfaces, one by one, at a preregistered target.
+
+    NEW-B1: `run_table`'s runner/parity. NEW-B2: `run_fits`'s fitter and
+    engine, `run_parity_oracle`'s runner, `run_canary`'s runner. NEW-B3:
+    `score_table`'s `mc` and `tallies`. NEW-B4: `merge`'s lifecycle Booleans.
+    """
+    corpus, played, ledger = _world()
+    cells = _cells()
+
+    def refuses(fn):
+        with pytest.raises(ew.EvWidenError) as exc:
+            fn()
+        assert "public-surface closure" in str(exc.value), str(exc.value)[:200]
+
+    refuses(lambda: ew.run_fits([], ew.EVWIDEN_DIR / "s.jsonl", corpus,
+                                fitter=lambda *a, **k: {}))
+    refuses(lambda: ew.run_table(cells, ew.TABLE_LEDGER,
+                                 runner=_table_runner(),
+                                 parity=_parity_for(cells)))
+    refuses(lambda: ew.run_parity_oracle(cells, ew.TABLE_DIR / "parity.jsonl",
+                                         runner=lambda c: {}))
+    refuses(lambda: ew.run_canary(runner=lambda: {"PASS": True},
+                                  target=ew.EVWIDEN_DIR))
+    refuses(lambda: ew.score_table([], mc={"mc_se_label": {}},
+                                   ledger_path=ew.TABLE_LEDGER))
+    refuses(lambda: ew.score_table([], tallies={}, ledger_path=ew.TABLE_LEDGER))
+    refuses(lambda: ew.merge(shards=ew.SHARDS, harness_frozen=True))
+    refuses(lambda: ew.merge(shards=ew.SHARDS, require_canaries=False))
+
+    # ...and the same seams in a scratch directory on a synthetic world are
+    # exactly what §8.2 authorises the audit to use
+    assert ew.run_parity_oracle(cells, tmp_path / "parity.jsonl",
+                                runner=lambda c: {
+                                    "key": f"{c['season']}|{c['cutoff_label']}",
+                                    "substantive_digest": "d"},
+                                verbose=False)
+
+
+def test_no_table_surface_carries_a_budget_it_could_be_given(tmp_path):
+    """§2.3's closure reaches `n_sims`, and §8.6 makes production paths RESOLVE
+    rather than accept: "there is no `n_sims`, `seed` or `chunk_size` parameter
+    on this surface and there may not be one".
+
+    The in-tree audit's finding was that §2.3 "names `n_sims` (20,000) in the
+    closure by name" while `TableRunner`, `ParityRunner`, `run_table` and
+    `simulate_arm` all accepted it and none of them called
+    `assert_not_overridable`.
+    """
+    from epl import leaguesim, simretro
+
+    frozen = ew.frozen_table_constants()
+    assert frozen == {"n_sims": simretro.DEFAULT_N_SIMS,
+                      "seed": simretro.SEED,
+                      "chunk_size": leaguesim.DEFAULT_CHUNK_SIZE}
+    assert frozen["n_sims"] == 20_000 and frozen["seed"] == 20260611
+    for fn in (ew.TableRunner.__init__, ew.ParityRunner.__init__,
+               ew.run_table, ew.simulate_arm):
+        assert ew._no_parameter(fn, "n_sims", "seed", "chunk_size"), fn
+    # ...and `e*` and the grid are refused where they still have keywords
+    for call in (lambda: ew.run_fits([], tmp_path / "s.jsonl", None,
+                                     e_star=ew.E_STAR + 1),
+                 lambda: ew.run_fits([], tmp_path / "s.jsonl", None,
+                                     grid=(1.0,)),
+                 lambda: ew.estimand([], e_star=ew.E_STAR + 1)):
+        with pytest.raises(ew.EvWidenError) as exc:
+            call()
+        assert "not overridable" in str(exc.value)
+
+
+def test_limit_names_step_two_and_nothing_else(capsys):
+    """§8.6's closure on truncation, and §2.4's refusal to thin the run.
+
+    NEW-B1: "generic `--limit` can truncate the real step-3 population". §8.4
+    step 2 is `--run --limit 1` and that is the only population the flag may
+    name.
+    """
+    for argv in (["--limit", "2", "--run"], ["--limit", "0", "--run"],
+                 ["--limit", "1", "--table"], ["--limit", "1", "--merge"],
+                 ["--limit", "3", "--merge"]):
+        assert ew.main(argv) == 2, argv
+        assert "--limit" in capsys.readouterr().out
+
+
+# ==========================================================================
+# §8.2 pass 4 — the partial engine pass, EXECUTABLE
+# ==========================================================================
+
+def test_a_construction_only_engine_refuses_to_fit_before_it_reaches_dcfit(
+        monkeypatch):
+    """§8.2 pass 4, and the review's NEW-B5: the pass was authorised and
+    unexecutable, because `Engine.__init__` called the guard and the guard
+    refused the pinned archive while unfrozen.
+
+    The mode is not a seam — it can only make the object LESS capable — and the
+    reason the guard permits it is structural: `fit` refuses on the flag BEFORE
+    it imports `dcfit` or touches the sampler. This test proves the stopping
+    point by making `dcfit.fit_epl` explode if it is ever reached.
+    """
+    from epl import dcfit
+
+    reached = []
+    monkeypatch.setattr(dcfit, "fit_epl",
+                        lambda *a, **k: reached.append(True))
+
+    post = _FakePosterior()
+    corpus, _ = _engine_world(post)
+    engine = _bare_engine(post, corpus, monkeypatch=monkeypatch)
+    engine.can_fit = False
+    with pytest.raises(ew.EvWidenError) as exc:
+        engine.fit(_engine_point(corpus))
+    assert "cannot fit" in str(exc.value)
+    assert "§8.2" in str(exc.value)
+    assert reached == []            # the sampler was never reached
+
+
+@pinned
+def test_the_partial_engine_pass_runs_and_leaves_the_store_untouched():
+    """§8.2 pass 4, executed on the REAL archive while unfrozen — which is the
+    whole point of the finding: "`Engine(corpus, played, directory=<scratch>)`
+    and `Engine(corpus, played)` both raise EvWidenError", so the enumeration
+    named a pass no command could run.
+
+    It runs construction, `fit_points`, the enlarged set, `assert_cutoff_clean`
+    and `assert_point_in_time`, stops before `dcfit.fit_epl`, and the shared
+    point-in-time store is byte-identical afterwards.
+    """
+    store = ew.paths.STORE_DIR / ew.STORE_TABLE_PARQUET
+    if not store.exists():
+        pytest.skip("the shared point-in-time store is not on this machine")
+    before = (ew.sha256_file(store), store.stat().st_mtime_ns)
+
+    out = ew.partial_engine_pass()
+    assert out["opening"] == ew.PARTIAL_ENGINE_OPENING == "2019-08-09"
+    assert out["stopped_before"] == "epl.dcfit.fit_epl"
+    assert out["fit_refused"] is True
+    assert out["cutoff_clean"] is True and out["point_in_time"] is True
+    assert out["store_unchanged"] is True
+    # §2.3 names the opening's own sets: ledger incumbent {sheffield_united},
+    # the §2.1 union adding exactly {aston_villa, norwich}
+    assert out["added"] == ["aston_villa", "norwich"], out["added"]
+    assert (ew.sha256_file(store), store.stat().st_mtime_ns) == before
+
+
+# ==========================================================================
+# §8.2 pass 7 — the dc_native parity feasibility pass
+# ==========================================================================
+
+def test_the_feasibility_pass_is_named_quarantined_once_and_dc_native_only(
+        tmp_path, monkeypatch):
+    """§8.2 pass 7, authorised prospectively in answer to NEW-B6's
+    REAL-REGRESSION verdict: the mandatory 35-cell parity leg is expected not to
+    complete, and the only honest options are to assume or to find out.
+
+    Five conditions, all of them, or the pass does not open.
+    """
+    outside = tmp_path / "quarantine"
+    inside = ew.paths.REPO_ROOT / "data" / "quarantine"
+    record = tmp_path / "feasibility.json"
+    monkeypatch.setattr(ew, "FEASIBILITY_RECORD", record)
+
+    # (2) quarantined OUTSIDE the repository
+    with pytest.raises(ew.EvWidenError) as exc:
+        with ew.parity_feasibility_pass(inside, note="n"):
+            pass
+    assert "OUTSIDE the repository" in str(exc.value)
+
+    # (4) `dc_native` only — the surface list is the parity oracle and nothing
+    # else, so no treated arm can be produced inside the pass
+    assert ew.FEASIBILITY_SURFACES == ("epl.evwiden.ParityRunner",)
+
+    with ew.parity_feasibility_pass(outside, note="NEW-B6 feasibility") as out:
+        # the pass unlocks the parity oracle at its own quarantine...
+        assert ew._feasibility_permits("epl.evwiden.ParityRunner",
+                                       outside / "cells") is True
+        # ...and NOTHING else, at no directory
+        for where in ("epl.evwiden.Engine", "epl.evwiden.Engine.fit",
+                      "epl.evwiden.TableRunner", "epl.evwiden.simulate_arm"):
+            assert ew._feasibility_permits(where, outside) is False
+        assert ew._feasibility_permits("epl.evwiden.ParityRunner",
+                                       ew.TABLE_DIR) is False
+        out["seen"] = True
+
+    # (3) once, and the record is what makes it once
+    assert record.exists()
+    written = json.loads(record.read_text())
+    assert written["pass"] == ew.FEASIBILITY_PASS_NAME
+    assert written["arm"] == ew.TABLE_ARM_LABEL == "dc_native"
+    assert written["completed"] is True and written["error"] is None
+    assert "no delta" in written["carries"] and "no estimand" in written["carries"]
+    with pytest.raises(ew.EvWidenError) as exc:
+        with ew.parity_feasibility_pass(outside, note="again"):
+            pass
+    assert "a second time" in str(exc.value)
+
+    # ...and the flag does not survive the block
+    assert ew._feasibility_permits("epl.evwiden.ParityRunner", outside) is False
+
+
+def test_a_crashing_feasibility_pass_still_records_what_happened(tmp_path,
+                                                                 monkeypatch):
+    """§8.2 pass 7 exists to find out whether the leg completes, so the case it
+    is FOR is the one where it does not. The record is written either way."""
+    record = tmp_path / "feasibility.json"
+    monkeypatch.setattr(ew, "FEASIBILITY_RECORD", record)
+    with pytest.raises(RuntimeError):
+        with ew.parity_feasibility_pass(tmp_path / "q", note="n"):
+            raise RuntimeError("ExcludedMassTooLarge at 2019/20 MW0")
+    written = json.loads(record.read_text())
+    assert written["completed"] is False
+    assert "ExcludedMassTooLarge" in written["error"]
+
+
+# ==========================================================================
+# §5.4 — the joint draw, and the de-paired one it must disagree with
+# ==========================================================================
+
+def _per_cell_unanimity(cells, *, point_verdict):
+    """§5.4's rule with the joint draw DE-PAIRED — the audit's seed (k)."""
+    from epl import simmetrics
+
+    cells = list(cells)
+    mw6 = [c for c in cells if str(c["cutoff_label"]) == ew.MW6_LABEL]
+    n_particles = int(np.asarray(cells[0]["control"]).shape[0])
+    seasons = [str(c["season"]) for c in mw6]
+    rng = np.random.default_rng(ew.UNANIMITY_SEED)
+    verdicts = []
+    for _ in range(ew.UNANIMITY_K):
+        deltas = {}
+        for cell in cells:
+            picked = rng.integers(0, n_particles, n_particles)
+            scores = {}
+            for arm in ("control", "treatment"):
+                m = np.asarray(cell[arm], dtype=float)[picked].sum(axis=0)
+                m = m / m.sum(axis=1, keepdims=True)
+                scores[arm] = float(simmetrics.trps(m, cell["positions"],
+                                                   spans=cell["spans"]))
+            deltas[str(cell["key"])] = scores["treatment"] - scores["control"]
+        verdicts.append(ew.iv_c_verdict([deltas[str(c["key"])] for c in mw6],
+                                        seasons))
+    return verdicts
+
+
+def test_the_unanimity_draw_is_joint_and_a_per_cell_one_disagrees():
+    """§5.4: "draw **one** joint particle resample `picked_k` and apply it to
+    **all thirty-two tallies** exactly as §5.2 applies its own draw". §10 makes
+    "an MC estimator that is not §5's jointly-resampled, tie-aware estimator" an
+    invalidation.
+
+    The in-tree audit found this untested and PROVED it: making the K = 200
+    resample per-cell instead of joint left 241 tests passing, because the
+    rule's only test used ZERO-VARIANCE tallies, under which every resample is
+    identical and the joint/per-cell distinction is invisible. On JITTERED
+    tallies the two constructions are different rules, and this is the test that
+    says so.
+
+    (The same property IS tested for `paired_mc_bootstrap` — see
+    `test_the_paired_bootstrap_applies_one_index_to_every_tally` — so the gap
+    was specific to P5.)
+    """
+    cells = [dict(c, season=f"20{19 + i}/2{i}")
+             for i, c in enumerate(_mc_cells(n=7, jitter=3))]
+    joint = ew.unanimity(cells, point_verdict=True)
+    depaired = _per_cell_unanimity(cells, point_verdict=True)
+    assert len(joint["verdicts"]) == len(depaired) == ew.UNANIMITY_K
+    assert list(joint["verdicts"]) != list(depaired)
+
+
+def test_the_gate_refuses_a_unanimity_run_it_cannot_verify():
+    """§5.4, and the review's NEW-B3: `table_gate` trusted "any truthy
+    `mc.unanimity` with `fired=False`" and validated "neither `K=200`, seed, 200
+    verdicts, nor dissent consistency", so a fabricated `k=1` object could
+    resolve PASS.
+
+    The check is one-directional, like everything else in §5.4: an unverifiable
+    run is UNRESOLVED, exactly as an absent one is.
+    """
+    good = _unanimous(False)
+    assert ew.unanimity_is_valid(good, point_verdict=False)["valid"] is True
+    for bad, why in (
+            (None, "no unanimity run"),
+            (dict(good, k=1), "§5.4 freezes K"),
+            (dict(good, seed=1), "§5.4 freezes"),
+            ({k: v for k, v in good.items() if k != "verdicts"}, "verdicts"),
+            (dict(good, verdicts=good["verdicts"][:10]), "verdicts"),
+            (dict(good, dissenting=4), "actually disagree"),
+            (dict(good, fired=True), "against"),
+    ):
+        checked = ew.unanimity_is_valid(bad, point_verdict=False)
+        assert checked["valid"] is False, bad
+        assert why in checked["why"], (bad, checked["why"])
+    # ...and the gate's own point verdict has to be the one the run was scored
+    # against
+    assert ew.unanimity_is_valid(good, point_verdict=True)["valid"] is False
+
+
+# ==========================================================================
+# §3.2 — the identity control, on the openings that carry treated fixtures
+# ==========================================================================
+
+def test_the_engine_control_refuses_a_drift_where_the_union_adds_somebody(
+        monkeypatch):
+    """The in-tree audit's finding, and the site §10 names.
+
+    Loosening `Engine.fit`'s exact comparison DID turn a test red — but with
+    `CanaryFailed` from the identity-canary branch, not `ControlMismatch`,
+    because that test's block had an empty `added` set. The identity-canary
+    branch only runs where the §2.1 union adds nobody: 16 of the 78 openings.
+    On the 62 that carry treated fixtures the site §10 names — "The identity
+    control's tolerance is widened after a mismatch, ANYWHERE" — was uncovered.
+
+    This is that opening: a NON-EMPTY `added` set, and a 1e-9 drift in the
+    corpus row. `Engine.fit` must refuse with `ControlMismatch`.
+    """
+    post = _FakePosterior()
+    corpus, _ = _engine_world(post)
+    corpus = corpus.copy()
+    corpus.loc[corpus.index[0], "dc_home"] = float(
+        corpus.loc[corpus.index[0], "dc_home"]) + 1e-9
+    corpus.loc[corpus.index[0], "dc_draw"] = float(
+        corpus.loc[corpus.index[0], "dc_draw"]) - 1e-9
+    corpus.loc[corpus.index[0], "dc_rps"] = float(score_mod.rps(
+        np.array([[corpus.loc[corpus.index[0], c]
+                   for c in ("dc_home", "dc_draw", "dc_away")]]),
+        np.array([int(corpus.loc[corpus.index[0], "y"])]))[0])
+
+    # `a` is evidence-thin, so the §2.1 union ADDS it: `added` is non-empty and
+    # the identity-canary branch does not run.
+    engine = _bare_engine(post, corpus, monkeypatch=monkeypatch,
+                          evidence={"2019/20|W01": {"a": 0.5, "b": 50.0}})
+    with pytest.raises(ew.ControlMismatch) as exc:
+        engine.fit(_engine_point(corpus))
+    assert "EXACT equality at the corpus's eight decimals" in str(exc.value)
+
+
+# ==========================================================================
+# §8.4 — the failed step, the once-written marker, the durable publication
+# ==========================================================================
+
+def test_a_failed_step_marker_unlocks_nothing_and_names_the_failure(
+        tmp_path, monkeypatch):
+    """§8.4, and the review's NEW-B8: "a failed first real-fit canary therefore
+    leaves no durable result or marker and can be retried, creating an
+    outcome-dependent retry/file-drawer channel"."""
+    monkeypatch.setattr(ew, "SEQUENCE_DIR", tmp_path / "sequence")
+    ew.write_sequence_marker(ew.SEQUENCE_STEPS[0], complete=False,
+                             produced={"failure": "the canary did not pass"})
+    marker = ew.read_sequence_marker(ew.SEQUENCE_STEPS[0])
+    assert marker["complete"] is False
+    with pytest.raises(ew.SequenceViolation) as exc:
+        ew.require_sequence(ew.SEQUENCE_STEPS[1], enforce=True)
+    assert "RAN AND FAILED" in str(exc.value)
+    assert "new dated pre-freeze note" in str(exc.value)
+
+
+def test_a_marker_is_written_once_and_re_verified_afterwards(tmp_path,
+                                                             monkeypatch):
+    """§8.4, and the review's NEW-B7: the markers are MANIFEST members, and the
+    publication pass rewrote `step4_merge.json` after §9.3 had hashed it.
+
+    A second write of the SAME product re-verifies and returns the marker
+    unchanged, bytes and all; a second write of a DIFFERENT one refuses.
+    """
+    monkeypatch.setattr(ew, "SEQUENCE_DIR", tmp_path / "sequence")
+    first = ew.write_sequence_marker(ew.SEQUENCE_STEPS[3],
+                                     produced={"n_fits": 78})
+    path = ew.sequence_marker_path(ew.SEQUENCE_STEPS[3])
+    before = (path.read_bytes(), path.stat().st_mtime_ns)
+    again = ew.write_sequence_marker(ew.SEQUENCE_STEPS[3],
+                                     produced={"n_fits": 78})
+    assert again == first
+    assert (path.read_bytes(), path.stat().st_mtime_ns) == before
+    with pytest.raises(ew.SequenceViolation) as exc:
+        ew.write_sequence_marker(ew.SEQUENCE_STEPS[3], produced={"n_fits": 77})
+    assert "written once" in str(exc.value)
+
+
+def test_every_sequence_marker_is_a_manifest_member():
+    """§9.3, and why the once-written rule exists: publication hashes them."""
+    for step in ew.SEQUENCE_STEPS:
+        assert f"data/epl/fit/evwiden/sequence/{step}.json" in ew.MANIFEST_PATHS
+
+
+def test_a_failing_results_canary_carries_its_record_on_the_refusal():
+    """§8.4 step 1: "`PASS: false` on any leg stops the experiment and **the
+    failure publishes**" — and it publishes BEFORE the raise, which needs the
+    record to travel on the exception."""
+    with pytest.raises(ew.CanaryFailed) as exc:
+        ew.run_canary(lambda: {"PASS": False,
+                               "max_abs_diff_before_cutoff": 0.5},
+                      played=_archive(),
+                      target=Path("/tmp") / "evwiden-not-preregistered",
+                      directory=Path("/tmp") / "evwiden-not-preregistered")
+    assert getattr(exc.value, "record", None)["PASS"] is False
+    assert exc.value.record["max_abs_diff_before_cutoff"] == 0.5
+
+
+def test_the_script_writes_no_launcher_before_the_freeze():
+    """§8.2's enumeration is complete and none of its entries writes inside the
+    repository; the review found `--script` writing one under `data/` with no
+    freeze anywhere. The launcher is a POST-freeze artifact."""
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.write_launch_script()
+    assert "before" in str(exc.value)
+    assert not (ew.EVWIDEN_DIR / ew.LAUNCH_NAME).exists()
+
+
+# ==========================================================================
+# §8.6 — the guard's remaining conditions
+# ==========================================================================
+
+def test_the_freeze_guard_reads_the_committed_conformance_report():
+    """§8.6 condition (5), and the review's NEW-B4: "`freeze_block(
+    check_implementation=False)` renders despite a red conformance report [...]
+    The later freeze guard does not validate report greenness."
+
+    The bypass is gone; this is the other half — the guard reads the report back
+    out of the committed block, so a block that was somehow rendered red cannot
+    establish the freeze state either.
+    """
+    import inspect
+
+    assert ew._no_parameter(ew.freeze_block, "check_implementation")
+    assert "assert_implements_document" in ew._calls_made(ew.freeze_block)
+    assert "implementation_report" not in ew._calls_made(ew.freeze_block)
+
+    header = "| row | § | obligation | green |"
+    green = "\n".join([header, "|---|---|---|---|",
+                       "| L1 | §2.3 | both arms | yes |",
+                       "| L2 | §4.1 | per horizon | yes |", ""])
+    red = green.replace("| L2 | §4.1 | per horizon | yes |",
+                        "| L2 | §4.1 | per horizon | NO |")
+    assert ew._recorded_conformance(green) == {"L1": True, "L2": True}
+    assert ew._recorded_conformance(red) == {"L1": True, "L2": False}
+    assert ew._recorded_conformance("no table here") == {}
+    assert inspect.isfunction(ew._recorded_conformance)
+
+
+def test_a_first_fit_record_missing_an_identity_field_is_unverified(
+        tmp_path, monkeypatch):
+    """§8.6 fixes the record's contents, and NB5's finding was that the guard
+    "conditionally accepts missing prereg/blob fields" — so a record with the
+    fields stripped out passed every check by carrying none of them."""
+    monkeypatch.setattr(ew, "FIRST_FIT_JSON", tmp_path / "first.json")
+    full = ew.record_first_real_fit(where="a test")
+    assert set(full) >= {"schema", "at", "where", "prereg", "prereg_blob",
+                         "commit", "harness"}
+    for field in ("schema", "at", "where", "prereg", "prereg_blob", "commit",
+                  "harness"):
+        ew.FIRST_FIT_JSON.write_text(json.dumps(
+            {k: v for k, v in full.items() if k != field}))
+        with pytest.raises(ew.FreezeStateUnverified) as exc:
+            ew.assert_no_hashed_file_moved()
+        assert field in str(exc.value) or "schema" in str(exc.value), field
+
+
+def test_the_first_fit_record_is_written_at_the_fit_and_not_at_the_check():
+    """§8.6: "the UTC instant of the first real fit". The review found the
+    record "written during permission checking, before an actual fit begins".
+
+    `assert_may_fit` is the permission check and no longer writes it; the call
+    sites that are about to enter the sampler do, immediately before they do.
+    """
+    assert "record_first_real_fit" not in ew._calls_made(ew.assert_may_fit)
+    for fn in (ew.Engine.fit, ew.simulate_arm, ew.run_canary,
+               ew.ParityRunner.__call__, ew.TableRunner.__call__):
+        assert "record_first_real_fit" in ew._calls_made(fn), fn
+
+
+def test_the_guard_demands_equality_on_the_membership_digests():
+    """§8.6 condition (3) asks that the recorded digests "equal a fresh
+    recomputation". The superseded reader scraped every backticked 64-hex string
+    in the block — the harness hashes and the pinned artifact digests among
+    them — so the check could only ever be a containment."""
+    block = "\n".join([
+        "| file | lines | SHA-256 |",
+        "|---|---:|---|",
+        f"| `epl/evwiden.py` | 1 | `{'a' * 64}` |",
+        "",
+        "| membership | count | SHA-256 of the canonical serialisation |",
+        "|---|---:|---|",
+        f"| the thin fixtures (§2.3) | 85 | `{'b' * 64}` |",
+        f"| the treated fixtures (§2.3) | 52 | `{'c' * 64}` |",
+        "",
+        "| pinned artifact | SHA-256 |",
+        f"| `data/epl/matches.parquet` | `{'d' * 64}` |",
+    ])
+    recorded = ew._recorded_membership_digests(block)
+    assert recorded == {"b" * 64, "c" * 64}       # not the harness hash, not
+    assert "a" * 64 not in recorded               # the pinned artifact digest
+    assert "d" * 64 not in recorded

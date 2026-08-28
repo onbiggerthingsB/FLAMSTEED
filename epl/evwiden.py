@@ -186,6 +186,15 @@ __all__ = [
     "assert_implements_document", "assert_may_fit", "evidence_object",
     "assert_manifest_complete", "MANIFEST_PATHS",
     "launch_script", "main",
+    # §8.6's public-surface closure, and the surfaces it stands over
+    "assert_seam_allowed", "archive_provenance", "is_pinned_archive",
+    "is_derived_from_pinned_archive", "frozen_table_constants",
+    "run_cell_arms", "unanimity", "unanimity_is_valid", "iv_c_verdict",
+    # §3.2's three checks, extracted so §8.5's L12 executes them
+    "assert_identity_control", "assert_untreated_unmoved",
+    "assert_pass_two_three_agree",
+    # §8.2's passes 4 and 7
+    "partial_engine_pass", "parity_feasibility_pass", "FEASIBILITY_PASS_NAME",
 ]
 
 
@@ -458,7 +467,7 @@ WRITES = (EVWIDEN_DIR, EVWIDEN_JSON, TABLE_DIR, TABLE_LEDGER, CANARY_JSON,
 #: partition buys resumability and per-shard poisoning, not parallelism.
 SHARDS = 4
 
-#: §8.2's SIX authorised pre-freeze passes, "authorised for this document,
+#: §8.2's SEVEN authorised pre-freeze passes, "authorised for this document,
 #: prospectively": they are v2's own pre-freeze passes, to be run under v2
 #: before v2's freeze commit. The freeze block's list stays binding and must be
 #: complete — an unenumerated pre-freeze pass is a protocol deviation whether or
@@ -466,7 +475,9 @@ SHARDS = 4
 #:
 #: v1's sixth entry recorded a repair round's two scratch exports, which is an
 #: EVENT rather than an authorised pass; v2's sixth is `--power`, and the list
-#: is prospective throughout.
+#: is prospective throughout. The seventh is §8.2's `dc_native` parity
+#: feasibility pass — the one entry that fits and simulates — authorised by
+#: name, quarantined outside the repository, once, and not yet run.
 PRE_FREEZE_RUNS: tuple[str, ...] = (
     "`python -m epl.evwiden --membership` and `--plan` — read the pinned "
     "corpus, archive and ledger; compute §2.2's cells, §2.3's population, "
@@ -479,16 +490,24 @@ PRE_FREEZE_RUNS: tuple[str, ...] = (
     "`pytest epl/tests/test_evwiden.py` — the synthetic corpora, plus the "
     "`@pinned` tests that re-derive the census, the grid table, the membership "
     "and the table cells",
-    "one partial engine pass at the first opening (2019-08-09): construction, "
-    "`fit_points`, the enlarged set, `assert_cutoff_clean` and "
-    "`assert_point_in_time` — the whole of the fit path EXCEPT the call to "
-    "`dcfit.fit_epl`. No sampler runs; the shared point-in-time store must be "
-    "byte-identical afterwards",
+    "`python -m epl.evwiden --partial-engine` — one partial engine pass at the "
+    "first opening (2019-08-09): construction, `fit_points`, the enlarged set, "
+    "`assert_cutoff_clean` and `assert_point_in_time` — the whole of the fit "
+    "path EXCEPT the call to `dcfit.fit_epl`. The Engine is constructed in a "
+    "mode that CANNOT fit and its store comes from the read-only accessor, so "
+    "no sampler runs; the pass compares the shared point-in-time store's bytes "
+    "and mtime before and after and refuses if either moved",
     "`python -m epl.evwiden --freeze-block`, which reads the pinned artifacts "
     "to render §8.3's commit rather than have a human transcribe digests",
     "`python -m epl.evwiden --power`, which reads only the frozen SDs and the "
     "frozen structure recomputed from the pinned artifacts, and reproduces "
     "§6.3",
+    "§8.2 pass 7 — the `dc_native` parity feasibility pass: protected "
+    "`epl.simretro.ArchiveRunner` at `dc_native` ONLY over §3.3's 35 cells, "
+    "quarantined outside the repository, outputs discarded, recorded once at "
+    "`data/epl/sim/evwiden_parity_feasibility.json`. It carries no delta, no "
+    "table cell, no arm comparison and no estimand, and under §8.2's no-fit "
+    "clock it does not start §8.7's regime. NOT RUN as this document stands",
 )
 
 #: Where §8.3's freeze commit records the harness hashes. **v2 and only v2**:
@@ -497,6 +516,13 @@ PRE_FREEZE_RUNS: tuple[str, ...] = (
 #: document — and would inherit the two ADVI fits that killed it.
 PREREG_PATH = paths.REPO_ROOT / "reports" / "epl_widening_prereg_v2.md"
 PREREG_V1_PATH = paths.REPO_ROOT / "reports" / "epl_widening_prereg.md"
+
+#: §4.5's home for an ADOPTION ruling, and **not** a freeze source. The
+#: superseded guard accepted it alongside the prereg and then checked §8.6
+#: condition (1)'s commit-and-ancestry against whichever file carried the hash
+#: table — which is not the file the law names. §8.6 condition (1) names
+#: `reports/epl_widening_prereg_v2.md` and nothing else, and §8.3 expressly
+#: forbids appending an amendment-ledger cross-reference for this document.
 AMENDMENTS_PATH = paths.REPO_ROOT / "reports" / "epl_sim_amendments.md"
 
 #: §7.2's row contract, at the two levels the ledger carries it.
@@ -2999,14 +3025,14 @@ def run_fits(points: Sequence[FitPoint], ledger_path: Path | str,
                            grid=(tuple(float(g) for g in grid),
                                  tuple(float(g) for g in (*E_GRID, E_STAR))))
     ledger_path = Path(ledger_path)
-    harness_frozen = _frozen_now()
-    _guard_ledger_location(ledger_path, harness_frozen)
-    # The directory guard above is kept — a pre-freeze `canary.json` in the run
-    # directory is exactly what a later `--run` reads as "the canary passed" —
-    # but it is no longer the only guard, and §8.2 keys the real one to the
-    # artifact identity. That guard lives in :class:`Engine`, which is the object
-    # that fits; an injected fitter fits nothing and is not gated by it, so
-    # §8.6's public-surface closure gates the INJECTION instead.
+    # §8.6's public-surface closure runs FIRST, so a seam is refused by its own
+    # name rather than by whichever guard happens to fire earliest. The
+    # directory guard below is kept beside it — a pre-freeze `canary.json` in
+    # the run directory is exactly what a later `--run` reads as "the canary
+    # passed" — but it is no longer the only guard, and §8.2 keys the real one
+    # to the artifact identity. That guard lives in :class:`Engine`, which is
+    # the object that fits; an injected fitter fits nothing and is not gated by
+    # it, so the closure gates the INJECTION instead.
     injected = [name for name, seam, ok in
                 (("fitter", fitter, fitter is None),
                  ("engine", engine, engine is None or isinstance(engine, Engine)))
@@ -3016,6 +3042,8 @@ def run_fits(points: Sequence[FitPoint], ledger_path: Path | str,
                             corpus=corpus, target=ledger_path.parent,
                             detail="an injected fitter or a substituted engine "
                                    "is not the production Engine §2.3 names")
+    harness_frozen = _frozen_now()
+    _guard_ledger_location(ledger_path, harness_frozen)
     if fitter is None:
         engine = engine or Engine(corpus, verbose=verbose,
                                   directory=ledger_path.parent)
@@ -6236,8 +6264,7 @@ def run_table(cells: Sequence[dict[str, Any]],
     cell in flight and nothing else.
     """
     ledger_path = Path(ledger_path) if ledger_path is not None else TABLE_LEDGER
-    harness_frozen = _frozen_now()
-    _guard_ledger_location(ledger_path, harness_frozen)
+    # §8.6's closure first, so a seam is refused by its own name.
     for name, seam in (("runner", runner), ("parity", parity),
                        ("parity_runner", parity_runner)):
         if seam is not None:
@@ -6246,6 +6273,8 @@ def run_table(cells: Sequence[dict[str, Any]],
                                 detail="an injected implementation or a "
                                        "supplied oracle is not the run this "
                                        "document preregisters")
+    harness_frozen = _frozen_now()
+    _guard_ledger_location(ledger_path, harness_frozen)
     if parity is None:
         parity = run_parity_oracle(
             cells, parity_path(ledger_path), runner=parity_runner,
@@ -7844,13 +7873,23 @@ def verify(directory: Path | str | None = None, *, shards: int = SHARDS,
         want_precision = dict(was.get("precision") or {})
         got_precision = dict(regate["precision"])
         differs = []
-        if was.get("PASS_or_UNRESOLVED") not in (None, regate["verdict"]):
+        # A published verdict this evidence does not carry is not a verdict
+        # that agreed: §8.7 asks `--verify` to re-derive the decision, and a
+        # missing field is a decision nobody can check.
+        if not was:
+            differs.append(
+                "the published evidence carries no `gate_iv` block while a "
+                "table ledger exists — there is no published verdict to "
+                "re-derive against")
+        elif was.get("PASS_or_UNRESOLVED") != regate["verdict"]:
             differs.append(
                 f"verdict {was.get('PASS_or_UNRESOLVED')!r} != "
                 f"{regate['verdict']!r}")
         for field in ("mc_se_mw6", "mc_se_mw0", "mc_se_mw3", "mc_se_mw10"):
             a, b = want_precision.get(field), got_precision.get(field)
-            if a is not None and b is not None and \
+            if was and (a is None) != (b is None):
+                differs.append(f"{field} {a!r} != {b!r}")
+            elif a is not None and b is not None and \
                     abs(float(a) - float(b)) > float(tolerance):
                 differs.append(f"{field} {a} != {b}")
         fired_then = set(want_precision.get("fired") or ())
@@ -7858,6 +7897,26 @@ def verify(directory: Path | str | None = None, *, shards: int = SHARDS,
         if want_precision and fired_then != fired_now:
             differs.append(f"precision conditions {sorted(fired_then)} != "
                            f"{sorted(fired_now)}")
+        # §5.4's dissent count is REPORTED by the published object and BOUND
+        # here: an unanimity run whose dissent count moved is a different run.
+        if want_precision and ("unanimity_dissenting" in want_precision) and \
+                want_precision.get("unanimity_dissenting") != \
+                got_precision.get("unanimity_dissenting"):
+            differs.append(
+                f"unanimity dissent "
+                f"{want_precision.get('unanimity_dissenting')!r} != "
+                f"{got_precision.get('unanimity_dissenting')!r}")
+        # §9.3: "`--verify` also re-derives the verdict". The ADOPTION decision
+        # is recomputed from the re-derived gate and the ledger's own estimand
+        # rather than echoed out of the JSON.
+        readoption = None
+        if from_ledger.get("present"):
+            readoption = adoption(float(scored["mean"]), scored["ci95"],
+                                  scored["ci95_season"], table=regate)
+            if published.get("verdict") not in (None, readoption["verdict"]):
+                differs.append(f"adoption verdict "
+                               f"{published.get('verdict')!r} != "
+                               f"{readoption['verdict']!r}")
         table_check = {
             "checked": True, "path": paths.rel(table_ledger_path),
             "n_cells": int(rescored["n_cells"]),
@@ -7865,10 +7924,13 @@ def verify(directory: Path | str | None = None, *, shards: int = SHARDS,
                            "mc_se_mw6": got_precision.get("mc_se_mw6"),
                            "fired": sorted(fired_now),
                            "unanimity_dissenting":
-                               got_precision.get("unanimity_dissenting")},
+                               got_precision.get("unanimity_dissenting"),
+                           "adoption": (None if readoption is None
+                                        else readoption["verdict"])},
             "published": {"verdict": was.get("PASS_or_UNRESOLVED"),
                           "mc_se_mw6": want_precision.get("mc_se_mw6"),
-                          "fired": sorted(fired_then)},
+                          "fired": sorted(fired_then),
+                          "adoption": published.get("verdict")},
             "differs": differs, "PASS": not differs}
 
     checks = []

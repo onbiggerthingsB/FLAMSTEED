@@ -15,9 +15,10 @@ document is that research, both legs, preregistered.
 experiment: the rule, its one frozen constant, the estimand, the resampling,
 the secondaries, the four-part adoption rule, the Monte-Carlo estimator and its
 precision regime, the refusal semantics, the lifecycle, the evidence contract
-and the scope. **There are no repair sections and no supersession index,
-because there is nothing to supersede.** Every clause below is the operative
-clause. Where this document is silent, nothing is implied.
+and the scope. **There are no repair sections and no supersession index INSIDE this document,
+because there is nothing inside it to supersede.** (This document does supersede
+v1, which is a different statement and is made in the metadata above.) Every
+clause below is the operative clause. Where this document is silent, nothing is implied.
 
 **What it inherits.** Its substance is v1's law as that document actually stood
 after its two repair rounds — every ruling those rounds reached is carried here
@@ -26,15 +27,17 @@ in-tree adversarial audit found in it is fixed at the source rather than
 patched by a later paragraph. The findings those reviews raised are named where
 they bite, so that a reader can check the fix against the finding.
 
-**Status when written.** The harness `epl/evwiden.py` and its tests
-`epl/tests/test_evwiden.py` exist and are green (1,292 tests at `f454041`), and
-they implement v1. **They do not yet implement this document**, and §8 forbids
-rendering a freeze block until they do. **No estimand of this experiment has
-ever been fitted**: no `data/epl/fit/evwiden*` or `data/epl/sim/evwiden*` file
-exists, no delta exists, no evidence file exists, no verdict exists. Two real
-ADVI fits *did* occur, on the protected retro machinery, during v1's
-conformance work; they are what killed v1, they are named by name in §8.1, and
-this document is written with them on the record rather than around them.
+**Status.** The harness `epl/evwiden.py` and its tests
+`epl/tests/test_evwiden.py` exist, are green, and implement **this** document;
+§8.3 forbids rendering a freeze block until §8.5's conformance report is green on
+behavioural predicates and an independent dual audit reports no blocking finding.
+**No estimand of this experiment has ever been fitted**: no
+`data/epl/fit/evwiden*` or `data/epl/sim/evwiden*` file exists, no delta exists,
+no evidence file exists, no verdict exists — §8.8 states that attestation in full,
+with the two qualifications it carries. Two real ADVI fits *did* occur, on the
+protected retro machinery, during v1's conformance work; they are what killed v1,
+they are named by name in §8.1, and this document is written with them on the
+record rather than around them.
 
 Like its three predecessors — [`reports/epl_anchoring_prereg.md`](epl_anchoring_prereg.md)
 (1b52623), [`reports/epl_freshness_prereg.md`](epl_freshness_prereg.md)
@@ -589,8 +592,8 @@ unenforced, because the 33 are exactly the rows whose zero-ness makes the
 **153 fits and 105 simulations of 20,000 seasons.** The canary's four fits and
 the single-opening exercise are counted because they are real fits on the real
 archive: §8.4 makes them the first two steps of the frozen sequence, and a
-budget that omits them would understate both the clock and the moment R-B6 comes
-into force.
+budget that omits them would understate both the clock and the moment §8.7's
+regime comes into force.
 
 At the walk-forward's realised warm rate (≈ 8.8 s/fit) the 78 openings are
 ≈ 12 minutes; at the measured cold rate (57.24 s, `data/epl/fit/single_fit.json`)
@@ -1333,6 +1336,17 @@ required for the gate to resolve, and any disagreement yields UNRESOLVED.
 Its cost is trivial beside the run it guards: 200 × (32 matrix resamples + one
 10,000-replicate bootstrap over 7 scalars).
 
+**The gate validates the unanimity run it is handed, and refuses one it cannot
+check.** P5 fires unless the object carries `K = 200`, seed 20260828, **200
+recorded verdicts**, a dissent count that equals the number of those verdicts
+that actually disagree, a `fired` flag consistent with that count, and the same
+point-estimate verdict the gate has itself just derived. This is not an extra
+condition; it is what "the whole of iv-c is recomputed on `K = 200`
+particle-resampled tally sets" means when the object reaches the gate from
+somewhere else. It is one-directional like every other part of §5.4: an
+unverifiable unanimity run is **unresolved**, exactly as an absent one is, and
+neither can ever grant a passage.
+
 #### The structural refusal, and how it is published
 
 **`TableMCImprecise` is a refusal, not a published condition.** The structural
@@ -1739,10 +1753,10 @@ v1's own dated note recorded the event but drew the wrong conclusion from it —
 that because the fits ran "through the protected retro machinery, not through
 this experiment's treatment path", the no-fit attestation survived. It does not:
 **the 35-cell parity leg is a mandatory leg of this experiment**, budgeted at 35
-fits, and R-B6 counts any real fit without requiring a delta, a ledger row or an
-artifact. The fits preceded subsequent changes to v1's hashed files. Under R-B6's
-own remedy, v1 cannot be repaired into legitimacy; a new preregistration is
-required. That is this document.
+fits, and v1's R-B6 counts any real fit without requiring a delta, a ledger row
+or an artifact. The fits preceded subsequent changes to v1's hashed files. Under
+v1's own remedy for that rule, v1 cannot be repaired into legitimacy; a new
+preregistration is required. That is this document.
 
 **Two things v1 got right and this document keeps.** No freeze block was ever
 pasted into v1, and no estimand of the experiment was ever fitted: those two
@@ -1758,7 +1772,7 @@ later.** The two fits **preceded v2's existence**. v2 does not inherit them and
 does not pretend they did not happen: it names them here, counts them as the
 event that ended v1, and states plainly that its own harness files carry code
 written both before and after them. **v2's no-fit clock starts at v2's own freeze
-commit (§8.3).** The R-B6 regime of §8.7 binds changes to hashed files after the
+commit (§8.3).** The regime of §8.7 binds changes to hashed files after the
 first real fit **of this document** — which §8.4 makes the results canary of
 step 1. And v2's attestation (§8.8) covers those two fits **by name**, rather
 than being made as though the record were clean.
@@ -1766,11 +1780,12 @@ than being made as though the record were clean.
 ### 8.2 The pre-freeze regime — read-only, enumerated, and mechanically read-only
 
 > **Before the §8.3 freeze commit, no harness code fits and no harness code
-> simulates. Reading the pinned artifacts is permitted, is read-only, and is
+> simulates, except where this section authorises a pass BY NAME, prospectively,
+> before it runs. Reading the pinned artifacts is permitted, is read-only, and is
 > enumerated by name in the freeze commit. Seeded-defect audits and the
 > canaries' adversarial legs run on synthetic corpora only, as §7.4 defines
-> "synthetic". No pre-freeze pass may enter any estimand. Not one fit and not
-> one simulation on the real archive precedes the freeze commit.**
+> "synthetic". No pre-freeze pass may enter any estimand, produce a treatment
+> arm, produce a delta, or produce any published number.**
 
 There is no synthetic-only clause anywhere else in this document to contradict
 this one, and no clause keyed to an output directory. **The refusal is keyed to
@@ -1779,13 +1794,38 @@ directory** — a `--dir` outside the default directories moves nothing, because
 `data/` is gitignored and a directory-keyed guard would let a scratch run fit the
 real archive and leave no Git trace at all.
 
-#### The six authorised read-only passes, authorised prospectively
+#### The no-fit clock, defined once, so an authorised pass does not end this document
+
+v1 died because a real fit occurred that its own R-B6 counted, and v1's dated
+note then argued that the fit did not count because it went through protected
+machinery (§8.1). That argument was wrong, and this document is not going to
+repeat it after the fact. It rules the scope **in advance** instead:
+
+> **v2's no-fit clock — the regime §8.7 opens — is started by any fit or
+> simulation that could produce an ESTIMAND, a TREATMENT arm, a delta, a table
+> cell, or any number this experiment publishes.** §8.4 step 1 is the first such
+> act and §8.7 says so.
+>
+> A pass this section authorises **by name, prospectively, before it runs**, and
+> which by construction cannot produce any of those, does not start it. The
+> authorisation is what makes the difference: v1's two fits were not authorised
+> in advance, were not quarantined, produced no record, and were discovered
+> rather than declared. A pass that is named here before it runs, refuses to
+> produce a treated arm, writes its outputs outside the repository and leaves a
+> record naming itself is a different act, and this document rules it one now
+> rather than later.
+
+**This does not reopen v1.** §8.1 stands: v1 was invalidated under its own rule,
+by its own reading, and nothing here restores it. What is ruled is v2's own
+clock, prospectively, which is the only clock v2 is entitled to define.
+
+#### The seven authorised passes, authorised prospectively
 
 These are authorised **for this document, prospectively**: they are v2's own
 pre-freeze passes, to be run under v2 before v2's freeze commit, and each must
-appear in §8.3's enumeration. Every one is read-only; none calls
+appear in §8.3's enumeration. Passes 1–6 are read-only; none of them calls
 `epl.dcfit.fit_epl` or `epl.leaguesim.simulate`; none writes inside the
-repository.
+repository. Pass 7 is the one exception and it is written out in full below.
 
 1. `python -m epl.evwiden --membership` and `--plan` — read the pinned corpus,
    archive and ledger; compute §2.2's cells, §2.3's population, §3.3's table
@@ -1795,15 +1835,28 @@ repository.
    `tempfile.TemporaryDirectory` and never under `paths.STORE_DIR`.
 3. `pytest epl/tests/test_evwiden.py`, including the `@pinned` tests that
    re-derive the census, the grid table, the membership and the table cells.
-4. One partial engine pass at the first opening (2019-08-09): construction,
-   `fit_points`, the enlarged set, `assert_cutoff_clean` and
-   `assert_point_in_time` — the whole of the fit path **except** the call to
-   `dcfit.fit_epl`. No sampler runs; the shared point-in-time store must be
-   byte-identical afterwards.
+4. `python -m epl.evwiden --partial-engine` — one partial engine pass at the
+   first opening (2019-08-09): construction, `fit_points`, the enlarged set,
+   `assert_cutoff_clean` and `assert_point_in_time` — the whole of the fit path
+   **except** the call to `dcfit.fit_epl`. No sampler runs; the shared
+   point-in-time store must be byte-identical afterwards, and the pass compares
+   its bytes and mtime before and after to say so.
+
+   **This pass is executable, and the reason the guard permits it is structural
+   rather than attested.** The review's NEW-B5 found the opposite: `Engine`'s
+   constructor called the guard, the guard refused the pinned archive while
+   unfrozen, and the freeze block enumerated a pass no command could run. The
+   Engine this pass builds is constructed in a mode that **cannot fit** —
+   `Engine.fit` refuses on that flag before it imports `dcfit` or reaches the
+   sampler — and its store comes from the read-only accessor below, which never
+   builds one. There is no argument by which the pass can fit; that is what makes
+   it a pass and not a fit, and a committed test proves the stopping point.
 5. `python -m epl.evwiden --freeze-block`, which reads the pinned artifacts to
    render §8.3's commit rather than have a human transcribe digests.
 6. `python -m epl.evwiden --power`, which reads only the frozen SDs and the
    frozen structure recomputed from the pinned artifacts, and reproduces §6.3.
+7. **The `dc_native` parity feasibility pass — authorised, quarantined, once,
+   and not yet run.** See immediately below.
 
 **The rule for any further pre-freeze pass.** It must be read-only; it may not
 call `dcfit.fit_epl` or `leaguesim.simulate`, and may not build a store under
@@ -1811,7 +1864,69 @@ call `dcfit.fit_epl` or `leaguesim.simulate`, and may not build a store under
 the repository; and it must be **added to the freeze block's enumeration before
 the freeze commit is made**. The freeze block's list stays binding and must be
 complete — an unenumerated pre-freeze pass is a protocol deviation whether or not
-it touched anything.
+it touched anything. Two consequences of that completeness, both mechanical:
+`--script` **writes the launcher only after the freeze commit** (it is a
+post-freeze operational artifact — §8.4 step 1 is the first thing it runs — and a
+pre-freeze `--script` would be a repository write this enumeration does not
+carry); and pass 7 is the only entry that fits or simulates, which is why it is
+written out rather than listed.
+
+#### Pass 7 — the `dc_native` parity feasibility pass
+
+**Why it exists.** §3.3 makes the 35-cell parity oracle a mandatory leg, budgeted
+at 35 fits and 35 simulations, and §8.4 makes it step 5. §8.1 records that two
+executions of that protected path both crashed on
+`epl.particles.ExcludedMassTooLarge` at 2019/20 MW0. The cross-model review's
+NEW-B6 concluded that the leg is therefore **expected not to complete**, and the
+investigator's verdict on that finding is **REAL-REGRESSION**: the refusal is a
+correct, deterministic property of the protected stack at that cell — the fit
+seed is fixed, the cold-start prior draws are seeded per `(seed, club)`, the
+shared store is byte-unchanged — and the cause is a published capability gap in
+the shipped model rather than a defect in this harness's invocation of it.
+
+That leaves this document with a mandatory leg it cannot assume will run, and
+exactly two honest options: assume, or find out. It finds out, once, under terms
+written before the pass:
+
+> **The pass.** Protected `epl.simretro.ArchiveRunner` at `dc_native` **only**,
+> over §3.3's 35 cells, executed to whatever point it reaches.
+>
+> **Quarantined.** Every output goes to a directory OUTSIDE the repository and is
+> discarded. Nothing is written under `data/`, `reports/` or the repository at
+> all, with one exception named next.
+>
+> **One record.** The pass writes
+> `data/epl/sim/evwiden_parity_feasibility.json`, and that file is the single
+> repository write this section authorises for it. It records the pass's name,
+> why it was opened, the quarantine path, the HEAD commit, the arm (`dc_native`),
+> whether the leg completed, and the refusal if it did not. **It carries no
+> delta, no table cell, no arm comparison and no estimand**, because the pass
+> produces none: there is no treatment book anywhere in it.
+>
+> **Once.** A second pass refuses while that record exists. A second attempt is a
+> new pre-freeze pass and needs its own dated note and its own line in the freeze
+> block's enumeration before it runs.
+>
+> **Pre-freeze only.** After §8.3's commit, §8.4 step 5 runs the real leg and
+> there is nothing left to establish.
+>
+> **`dc_native` only, mechanically.** The authorisation unlocks the parity
+> oracle's surface and **nothing else** — not `Engine`, not `TableRunner`, not
+> `run_fits`, not the single `leaguesim.simulate` call — so no treated arm and no
+> estimand can be produced inside the pass however it is called.
+
+Under the clock above, this pass does not start §8.7's regime: it cannot produce
+an estimand, a treatment arm, a delta, a table cell or any published number, and
+it is authorised here, by name, before it runs. **As this document stands the
+pass has NOT been run** and no such record exists (§8.8).
+
+**What its two outcomes mean, ruled now.** If the leg completes, §3.3's oracle is
+feasible and step 5 proceeds as written. If it crashes at 2019/20 MW0 as the two
+v1 executions did, then a mandatory leg of this experiment cannot be executed on
+the shipped stack, **this preregistration cannot be run as written**, and the
+remedy is a new preregistration whose table leg is scoped to what the protected
+runner can actually do — not a quiet narrowing of the 35 cells here, which §2.4
+and §10 both make an amendment rather than an optimisation.
 
 #### The read-only store accessor — the mechanism, not the promise
 
@@ -1884,8 +1999,9 @@ order:
 
 **The write set is closed.** All code lands in `epl/evwiden.py` and
 `epl/tests/test_evwiden.py`; the run writes only `data/epl/fit/evwiden*`,
-`data/epl/sim/evwiden*`, `reports/epl_widening_result.md` and the §9 evidence
-files. `src/`, `scripts/`, `site/`, `tools/`, `config/`, `.github/`,
+`data/epl/sim/evwiden*` — which is also where §8.2 pass 7's single authorised
+pre-freeze record lands, at `data/epl/sim/evwiden_parity_feasibility.json` —
+`reports/epl_widening_result.md` and the §9 evidence files. `src/`, `scripts/`, `site/`, `tools/`, `config/`, `.github/`,
 `epl/simretro.py`, `epl/simmetrics.py`, the season ledgers,
 `epl/season/points_adjustments.jsonl`, `data/epl/sim/retro_r1.jsonl` and the
 pinned corpus are not written. `PYTHONPATH=src scripts/oa_lock.py` must print
@@ -1905,10 +2021,25 @@ them**. Each step **refuses unless its predecessor's completion marker exists**;
 the refusal is `SequenceViolation`.
 
 Markers live at one fixed location, `data/epl/fit/evwiden/sequence/`, one JSON
-file per step. Each marker records the step name, the UTC completion time, the
-freeze commit under which it was written, the harness file digests at that
-moment, and a digest of what the step produced. A marker written under a
-different freeze commit is not a marker for this run.
+file per step. Each marker records the step name, whether the step **completed**,
+the UTC time, the freeze commit under which it was written, the harness file
+digests at that moment, and a digest of what the step produced. A marker written
+under a different freeze commit is not a marker for this run.
+
+**Markers are written once.** They are MANIFEST members (§9.3), and §9.3's
+manifest is computed at publication, so a marker rewritten after it has been
+hashed leaves the manifest describing a file that no longer exists in that form.
+A second write under the same freeze commit therefore **re-verifies**: it
+compares what the step produced against what the marker records, returns the
+marker unchanged if they agree, and refuses if they do not. A step that ran twice
+under one freeze and produced two different things has not been resumed; it has
+been re-run, and the second run is not the step the first marker unlocked.
+
+**A marker may record a FAILURE, and a failure marker unlocks nothing.** A step
+that ran and failed writes its marker with `complete: false`, and the step it
+would have unlocked refuses exactly as it refuses on an absent one. The point is
+not bookkeeping: it makes a failed step DURABLE, which is what closes the
+retry channel §4.4's no-file-drawer rule exists to close.
 
 > **Step 1 — the post-freeze results canary. This is the first post-freeze act
 > and it performs the first real fits of this document.**
@@ -1918,6 +2049,15 @@ different freeze commit is not a marker for this run.
 > and direction canaries. `PASS: false` on any leg stops the experiment and the
 > failure publishes. Record: `data/epl/fit/evwiden/canary.json`.
 > Marker: `sequence/step1_results_canary.json`.
+>
+> **The failure publishes BEFORE the refusal is raised, and step 1 runs once.**
+> The canary record is written and a `complete: false` marker is left, and only
+> then does the process stop. A failed canary that left neither would be a run
+> that could simply be attempted again, and a retry conditioned on the first
+> attempt's outcome is the file-drawer channel wearing a different name. Step 1
+> therefore refuses outright while a step-1 marker of either kind exists: a
+> continuation after a failed canary needs a **new dated pre-freeze note written
+> before the retry**, saying so, not after it.
 >
 > **Step 2 — the single-opening exercise.**
 > `python -m epl.evwiden --run --limit 1 --dir <scratch>` — one fit at the
@@ -1964,12 +2104,25 @@ generated script's step order equals the five above, that each step's preconditi
 check appears before its command, and that removing any marker makes the
 corresponding step refuse.
 
+**The precondition check is a COMMAND, and the test reads it as one.** The
+in-tree audit found the obligation unenforced in exactly the way an obligation
+about text gets unenforced: every `need_marker` line could be deleted from the
+generated script and the committed test stayed green, because the marker's NAME
+also appears in the `#   marker: sequence/stepN_*.json` comment inside the
+preceding block, so `text.index(step) < text.index(command)` held vacuously. The
+test reads the script's **command lines only**, ignoring comments, and requires
+one `need_marker <predecessor>` command before each step's own command. (The
+harness refuses independently — `--run`, `--table` and `--merge` each pass their
+step to the sequence check — so what the launcher's line buys is the early
+refusal, not the guarantee. That is a reason to test it correctly, not a reason
+not to.)
+
 **`SHARDS = 4` is enforced, not defaulted.** `--shards` may not be passed a
 different value: the CLI refuses it, the launcher generates four, and the
 MANIFEST's shard filenames are the four of §9.3. A run at any other shard count
 is not the run this document preregisters.
 
-**R-B6 comes into force at the completion of step 1**, not step 2. From the
+**§8.7's regime comes into force at the completion of step 1**, not step 2. From the
 moment the results canary's first fit completes, a real fit on the real archive
 exists, and §8.7 applies.
 
@@ -1982,33 +2135,47 @@ green while the obligations they were named for failed, and they were. **Every r
 of v2's report executes a scenario that fails under its own defect class.** A row
 that cannot go red is not a row.
 
+**The rows execute against a synthetic 35-cell table leg.** Half the obligations
+below are about the table — the scorer, the estimator, the unanimity rule, the
+parity ordering — and a row cannot execute one of those against a hand-built dict
+without becoming the shape this section condemns. The report therefore builds a
+complete synthetic leg (every value written literally in `epl/evwiden.py`, §7.4-
+synthetic for the same reason the test module's world is) and runs the production
+`run_table`, `score_table`, `table_gate`, `paired_mc_bootstrap` and `unanimity`
+over it.
+
 | row | obligation | the scenario it executes |
 |---|---|---|
-| **L1** | both arms from one posterior (§2.3) | rewire the enlarged pass to read the corpus; the produced row's `delta` must stop equalling `rps_A − rps_B`, and the predicate goes red |
-| **L2** | per-horizon gate, no cross-horizon average (§4.1) | feed a scored object whose 35-cell pooled mean passes while MW6's treated mean exceeds +0.0002; `table_gate` must FAIL it, and must publish no pooled figure |
-| **L3** | the MC estimator is tie-aware and jointly resampled (§5.1–5.2) | substitute an `.order`-based tally, then a per-cell resample; each must change the published SE and turn the row red |
-| **L4** | the unanimity rule (§5.4) | construct a tally set on which exactly one of the 200 draws flips iv-c; gate (iv) must come back UNRESOLVED with `P5` fired |
-| **L5** | parity complete before treatment (§3.3) | call the table leg with an oracle of 34 cells and with none; each must raise `TableIdentityBreak` **before** any treatment simulation runs; assert no `require_parity` parameter and no oracle `--limit` exist |
-| **L6** | pre-freeze read-only (§8.2) | run `--membership`, `--plan`, `--freeze-block` against a store root whose parquet is absent; each must raise `StoreNotBuilt`, create nothing, and leave the shared store's bytes and mtime unchanged |
-| **L7** | no freeze-state boolean on any fit surface (§8.6) | assert none of `Engine`, `TableRunner`, `ParityRunner`, `run_fits`, `run_table` accepts a freeze-state argument; then call each on the pinned artifacts while unfrozen and require refusal |
-| **L8** | first-fit state is global and validated (§8.6) | assert the record's path takes no directory argument; plant a record naming a different prereg blob and require `FreezeStateUnverified` |
-| **L9** | the frozen sequence (§8.4) | remove each marker in turn and require the corresponding step to raise `SequenceViolation`; assert the generated `launch.sh` emits exactly the five steps in order |
-| **L10** | tallies are bound and rebound (§8.7, §9.3) | replace a tally NPZ with a structurally valid different one after the run; `--verify` must refuse on the digest, and must refuse again on the recomputed table gate |
-| **L11** | `sampler_digest` purity (§3.3) | assert `list(signature(sampler_digest).parameters) == ['run','tallies']`; and at `TableRunner` level, two books differing only in `provisional` over identical retained rows must produce **equal** sampler digests |
-| **L12** | the identity control is exercised, not stubbed (§3.2) | in the real `Engine.fit`: loosen the eight-decimal comparison to a tolerance, disable the `UntreatedMoved` loop, disable the pass-2/pass-3 agreement check — each must turn a test red |
+| **L1** | both arms from one posterior (§2.3) | build a row whose **corpus probabilities differ from Arm B**, then require `delta` to equal `rps_A − rps_B` exactly, `delta_vs_corpus` to equal `rps_A − rps_native` exactly, and the two to be different numbers — so rewiring the delta to read the corpus, the defect this row names, moves it. (The superseded row's fixture set Arm B equal to the corpus, so its `or` disjunct greened from an equality its own fixture forced, and the in-tree audit proved the row stayed green under exactly the defect it names.) |
+| **L2** | per-horizon gate, no cross-horizon average (§4.1) | score a real 35-cell leg through `score_table` whose 35-cell pooled mean passes while MW6's treated mean exceeds +0.0002; `table_gate` must return **FAIL**, resolved, with iv-a failed, and no pooled figure may appear anywhere outside the `withdrawn` note |
+| **L3** | the MC estimator is tie-aware and jointly resampled (§5.1–5.2) | run the estimator over the whole **32-tally object of the 16 deciding cells**: a per-cell (quadrature) combination shrinks the MW6 label SE and the joint one does not; and tally a tie block of span 2, which must carry 1/2 on each position rather than an ordinal 1 and 0 |
+| **L4** | the unanimity rule (§5.4) | run the **real rule** over the real 32-tally object: 200 recomputed iv-c verdicts at the frozen `K` and seed; inverting the point verdict must make every one dissent and gate (iv) come back UNRESOLVED with `P5` fired; a fabricated `K = 1` object must **not** resolve it; one dissenting `k` out of 200 must fire the counting rule; and the joint per-replicate draw must **disagree** with the same rule de-paired per cell |
+| **L5** | parity complete before treatment (§3.3) | run the leg with an oracle of 34 cells and with none — each must raise `TableIdentityBreak` before **any** arm is simulated; run it with a control arm that drifted from protected output — the refusal must arrive after exactly **one** simulate call, the control's; and assert no `require_parity` parameter and no oracle `--limit` exist |
+| **L6** | pre-freeze read-only (§8.2) | point the store root at an empty directory and call both the read-only accessor and `table_cells` — the function `--membership`, `--plan` and `--freeze-block` all reach: `StoreNotBuilt` from each, nothing created, no build parameter, `table_cells` never naming `build_store` on its own syntax tree, and the shared store's bytes and mtime unchanged across the row |
+| **L7** | no freeze-state boolean on any fit surface (§8.6) | assert no fit or simulation surface accepts a freeze-state or implementation-check argument, and that `merge`'s two lifecycle keywords are refused at a preregistered target; then call `assert_may_fit`, `Engine`, `TableRunner`, `ParityRunner`, `run_fits`, `run_table`, `simulate_arm` and `run_canary` on the pinned artifacts while unfrozen and require refusal from **each**; and assert §8.2 pass 7 unlocks the parity oracle and nothing else |
+| **L8** | first-fit state is global and validated (§8.6) | assert the record's functions take no directory argument; plant a record naming a different prereg blob and require `FreezeStateUnverified`; then strip its identity fields and require it again, because a record that omits a field cannot be checked against it |
+| **L9** | the frozen sequence (§8.4) | remove each marker in turn and require the corresponding step to raise `SequenceViolation`; record a **failed** step and require it to unlock nothing; require a second, different marker write under one freeze commit to refuse; and read the generated `launch.sh` as **commands** — every precondition must be a `need_marker` command line before its step's command, not a comment naming the marker |
+| **L10** | tallies are bound and rebound (§8.7, §9.3) | replace a tally NPZ with a structurally valid different one after the run: the read must refuse on the recorded digest, and refuse **again** on §5.1's binding checks when the row's digest is forged to match; then swap one deciding cell's tally under a scored leg and require `score_table` to refuse rather than re-derive a gate |
+| **L11** | `sampler_digest` purity (§3.3) | assert `list(signature(sampler_digest).parameters) == ['run','tallies']`; and drive the runner's own paired-arm sequence with two books differing only in `provisional` over one run and one tally — the two arms' `provisional` fields must differ and their sampler digests must be **equal** |
+| **L12** | the identity control is exercised, not stubbed (§3.2) | execute all three checks `Engine.fit` makes — the exact eight-decimal comparison against a 1e-9 drift, the `UntreatedMoved` loop against a fixture that moved, and the pass-2/pass-3 agreement — and require `Engine.fit` to **call all three**, read off its own syntax tree |
 | **L13** | the structural-zero guard is two-sided (§2.3) | merge a row with `e_min ≥ e*` and a non-zero delta, and a thin-but-incumbent-widened row with a non-zero delta; each must raise `UntreatedMoved` |
-| **L14** | the per-label treated census is pinned (§3.3) | perturb one cell's treated set; `table_cells(check=True)` must raise `MembershipMismatch` on the per-label census, not only on the 35/16 totals |
-| **L15** | the evidence contract is closed (§9) | drop a MANIFEST path; corrupt a byte size; strip `scored.per_cell` before projection; pass `--shards 2` — each must refuse |
-| **L16** | the power table reproduces (§6.3) | run the committed `power_simulation()` at the frozen constants through the **real** comparison, not a stubbed power object, and require all six rows to match to the published precision |
-| **L17** | the always-PASS controls are measured (§9.1) | merge a run containing one `UntreatedMoved`-class row and one `PredicateMismatch`-class row (each caught, each recorded); the published `controls.untreated_moved.n` and `controls.predicate_mismatch.n` must be non-zero and their `PASS` false |
-| **L18** | frozen constants are not overridable (§2.3) | attempt to pass a different `B`, `n_sims`, `MC_BOOT`, `K` or shard count through every public surface and CLI flag; each must be refused or absent |
+| **L14** | the per-label treated census is pinned (§3.3) | perturb one cell's treated set between labels, keeping the 35/16 totals intact; the census must raise `MembershipMismatch` on the per-label pin, not only on the totals, and `table_cells` must call it |
+| **L15** | the evidence contract is closed (§9) | drop a MANIFEST path; corrupt a byte size; check `scored.per_cell` survives the projection; pass `--shards 2`; and require all five sequence markers to be manifest members — each must refuse |
+| **L16** | the power table reproduces (§6.3) | run the committed `power_simulation()` at the frozen constants through the **real** comparison, not a stubbed power object, and require all six rows, **every published column including `ratio`**, and a 101-point curve behind each |
+| **L17** | the always-PASS controls are measured (§9.1) | measure a run containing one `UntreatedMoved`-class row and one `PredicateMismatch`-class row, then project it through `evidence_object`: the published `controls.untreated_moved.n` and `controls.predicate_mismatch.n` must be non-zero and their `PASS` false, and `merge` must call the measurement |
+| **L18** | frozen constants are not overridable (§2.3) | attempt a different `B`, bootstrap seed, `MC_BOOT`, `MC_SEED`, `K`, `e*`, replicate count or shard count through every public surface and CLI flag; require `n_sims`, the simulation seed and the chunk size to be **absent** from every table surface and resolved from the frozen law; and require `--limit` to name nothing but §8.4 step 2 |
 
 The report is emitted by `--conformance`, embedded in the freeze block, and
-`--freeze-block` refuses while any row is red or absent. The test that reads the
-report may **not** simply assert that every self-reported row is green: it must
-independently execute at least the seeded scenarios of L5, L6, L7, L9, L11, L12
-and L13, so that a report which lies about itself is caught by something other
-than itself.
+`--freeze-block` refuses while any row is red or absent. **There is no bypass
+parameter**: the precondition is unconditional, so the renderer consumes the
+report through the assertion and through nothing else — a bypass-rendered block
+would become the committed evidence for its own freeze state, and §8.6's
+condition (5) reads the block's conformance table back for the same reason.
+
+The test that reads the report may **not** simply assert that every self-reported
+row is green: it must independently execute at least the seeded scenarios of L5,
+L6, L7, L9, L11, L12 and L13, so that a report which lies about itself is caught
+by something other than itself.
 
 ### 8.6 The freeze guard, the public-surface closure, and the first-fit record
 
@@ -2116,7 +2283,7 @@ The record lives at **one fixed repo-root-keyed path**,
 `data/epl/fit/evwiden_first_real_fit.json`, derived from `paths.REPO_ROOT` and
 from nothing else. **No function that reads or writes it takes a directory
 argument.** v1's record was written below the caller's chosen directory, so a
-fresh or deleted `--dir` reset the entire R-B6 regime.
+fresh or deleted `--dir` reset the entire §8.7 regime.
 
 It records: the schema identifier; **the UTC instant of the first real fit** —
 written by the call that performs the fit, immediately before it enters the
@@ -2159,10 +2326,20 @@ will claim otherwise.
 > run **publishes**, with its numbers and with the reason it was invalidated, and
 > a new preregistration begins in a new document with its own freeze.
 >
-> Notes appended to this document after results exist may correct **prose
-> only** — a typo, a citation, a clarification of what was already meant. A note
-> may not change a threshold, a population, a statistic, a seed, a digest, a
-> gate, or one line of code this document hashes.
+> **No note may be appended to this document after the first real fit, prose or
+> otherwise.**
+
+That last line replaces a prose-only allowance, and it is a ruling rather than a
+tightening for its own sake. The first-fit record binds this document's **Git
+blob at the freeze commit** (§8.6), and a prose note changes that blob: the guard
+would raise `FreezeStateUnverified` on the next fit whatever the note said. The
+allowance and the mechanism were incompatible, and there were only two coherent
+resolutions — bind section hashes instead of the whole blob, so a prose-only
+region could move; or drop the allowance. **This document drops the allowance.**
+Binding sections would ask the guard to distinguish a typo from a threshold, a
+judgement no digest can make and one this document has no interest in delegating.
+Corrections after results exist belong in `reports/epl_widening_result.md`, which
+is written after the numbers and is not hashed by anything.
 
 The first real fit of this document is **step 1 of §8.4**, the post-freeze
 results canary. That is when this regime begins.
@@ -2195,6 +2372,34 @@ Therefore:
 `data/epl/fit/evwiden*` or `data/epl/sim/evwiden*` file exists; no delta, no
 table cell, no evidence file and no verdict of this experiment exists anywhere.
 
+**Two qualifications on that first sentence, both of them mechanical.**
+
+*One file was there and is not.* `data/epl/fit/evwiden/first_real_fit.json` (739
+bytes, 2026-08-28 15:34) existed in the working tree while this document was
+being written, and the sentence above was false while it did. It was **not** a
+fit: it was manufactured by a test-isolation defect at `6bbacd0`, where the
+first-fit record's writer still took a directory argument that defaulted to the
+preregistered run directory, and a working-tree version of that commit's own test
+exercised the record path against the real directory instead of a `tmp_path`. No
+fit occurred — at `6bbacd0` the only call site was inside `assert_may_fit`'s
+frozen branch, no freeze block had ever been committed, so `_frozen_now()` was
+`False` and that branch could not run — and the shared point-in-time store was
+byte-untouched throughout. The file was inert under this document (§8.6's record
+lives at a different path, `data/epl/fit/evwiden_first_real_fit.json`), and it has
+been **deleted**, with the deletion and its reasoning recorded in the dated note
+of §8.9. The isolation hole is closed: `epl/tests/test_evwiden.py` carries an
+autouse fixture that asserts the preregistered directories are untouched across
+the whole suite, so a test that writes into one fails at the test rather than
+being found by an audit.
+
+*One file may appear, and it is not a fit either.* If §8.2's pass 7 — the
+`dc_native` parity feasibility pass — is executed before the freeze, its single
+record lands at `data/epl/sim/evwiden_parity_feasibility.json`, which the sentence
+above would otherwise deny. That record is the one file this attestation excepts,
+it is authorised by name in §8.2 and enumerated in §8.3's freeze block, and it
+carries no delta, no table cell, no arm comparison and no estimand. **As this
+document stands the pass has not been run and no such file exists.**
+
 **This attestation is made WITH the two v1 fits of §8.1 on the record and named
 inside it:** two real ADVI fits through protected `epl.simretro.ArchiveRunner`
 on the parity path, during v1's conformance-test construction, crashing on
@@ -2206,6 +2411,43 @@ sentence.
 **This is an attestation, not a fact the repository can prove** (§8.6). `data/`
 is gitignored, so the committed tree can establish only that nothing was
 committed, and a reader is entitled to weigh the attestation as one.
+
+### 8.9 Dated pre-freeze notes
+
+This document is pre-freeze and this section is where its pre-freeze events are
+recorded. §8.7 closes it at the first real fit, after which nothing is appended
+here or anywhere else in this document.
+
+**2026-08-28 — a false first-fit record, found and deleted.**
+`data/epl/fit/evwiden/first_real_fit.json` (739 B, mtime 2026-08-28 15:34,
+SHA-256 `146e916c8340928074d8fbf32c74f314f5b3825111a3e02558db616e49d55771`)
+recorded `{"where": "the results canary", "at": "2026-08-28T07:34:17Z",
+"commit": "6bbacd0"}`, and its `rule` field still quoted v1's R-B6 — the clearest
+sign of what it was, since v2's writer quotes §8.7. **No fit produced it.** At `6bbacd0` the record's writer
+took a directory argument defaulting to the preregistered run directory, and a
+working-tree version of that commit's own test called it without a `tmp_path`,
+so the test wrote the record into `data/epl/fit/evwiden/` — a test exercising the
+record path against the real directory. The file's timestamp is about ninety
+seconds after `6bbacd0` was committed. That the event was a test and not a fit is
+established three ways: the only module call site at that commit was inside
+`assert_may_fit`'s frozen branch and no freeze block had ever been committed, so
+the branch was unreachable; no fit artifact of any kind existed anywhere; and the
+shared point-in-time store's `results.parquet` was byte-untouched (184,115 bytes,
+mtime 2026-08-14 18:41). The file was already inert under this document, whose
+record lives at `data/epl/fit/evwiden_first_real_fit.json`.
+
+*Handled, in this order:* the isolation hole was closed first —
+`epl/tests/test_evwiden.py` now carries an autouse fixture asserting that
+`data/epl/fit/evwiden*`, `data/epl/sim/evwiden*` and the sequence directory are
+untouched by any test in the suite, so this class of artifact fails at the test
+that creates it; then the file was deleted; then this note was written. §8.8's
+attestation is true as it stands, and it says what was there and why.
+
+**2026-08-28 — §8.2 pass 7 authorised, not run.** The `dc_native` parity
+feasibility pass is authorised prospectively by §8.2 in response to the review's
+NEW-B6 and the investigator's REAL-REGRESSION verdict on it. It has not been
+executed; if it is, its record and its outcome are noted here before the freeze
+commit, and §8.2 already rules what each outcome means.
 
 ---
 
@@ -2312,6 +2554,16 @@ fixed at 4, the tally naming function is literal and its 35 members are the
 product of two enumerated sets, and the five markers are named individually.
 "Bulky local artifacts" is not a category here; it is a list.
 
+**Publication leaves this MANIFEST valid.** The five sequence markers are
+members of it, so every marker lands **before** the manifest is computed and
+nothing manifested is written afterwards. The publication pass — `--merge
+--evidence`, run after step 5 — re-verifies step 4's marker rather than rewriting
+it (§8.4), and writes no other manifest member. A run that hashed a file and then
+changed it published a manifest that was invalid the moment it was written, which
+is the one thing a manifest cannot survive; the "publication-only, not a sixth
+experiment step" reading of §8.4 does not repair that, and this clause is what
+does.
+
 **`--verify` refuses** if any of the 52 is missing from the MANIFEST; if any
 digest disagrees; if any byte size disagrees; if the MANIFEST carries an entry
 inside this experiment's namespace (`widening`, `evwiden`) outside the 52; or if
@@ -2374,6 +2626,17 @@ digest and byte size, which is the point of the MANIFEST.
 * The steps of §8.4 run out of order, or a step run without its predecessor's
   marker.
 * A deciding tally read without rebinding it to its recorded digest.
+* Any deciding number produced through a seam §8.6's public-surface closure
+  refuses — an injected fitter, engine, runner, oracle or Monte-Carlo object; a
+  caller-attested lifecycle state; a truncated deciding population; or a frozen
+  constant supplied rather than resolved.
+* A treated arm simulated at any cell before that cell's native parity against
+  protected `ArchiveRunner` has been established (§3.3's closure 1).
+* Step 1 retried after a failed results canary without a dated pre-freeze note
+  written **before** the retry (§8.4).
+* A note of any kind appended to this document after the first real fit (§8.7).
+* §8.2 pass 7 run after the freeze commit, run more than once, run without its
+  record, or run in a way that produces a treated arm.
 
 ---
 
@@ -2424,13 +2687,17 @@ untouched by design.
 
 *Preregistered 2026-08-28. This is v2: a complete, self-contained statement of
 the law of this experiment, written after `reports/epl_widening_prereg.md` was
-invalidated under its own R-B6 by two pre-freeze parity-leg ADVI fits, and
+invalidated (v1's own R-B6) by two pre-freeze parity-leg ADVI fits, and
 written with those two fits named inside its attestation rather than beside it.
 It carries the substance of v1's law as both of its repair rounds left it, with
 every text defect three independent reviews and one in-tree adversarial audit
-found in that document fixed at the source. The harness that implements it does
-not exist yet; §8.3 forbids rendering a freeze block until it does, and no real
-fit of this document runs before that commit.*
+found in that document fixed at the source, and with the defects a fourth review
+and a second in-tree audit found in its own first harness closed as a class
+rather than one at a time (§8.6). `epl/evwiden.py` and
+`epl/tests/test_evwiden.py` exist and implement this document; §8.3 forbids
+rendering a freeze block until §8.5's report is green on behavioural predicates
+and a dual audit reports no blocking finding, and no real fit of this document
+runs before that commit.*
 
 
 
