@@ -3397,7 +3397,7 @@ def test_the_freeze_guard_checks_the_schema_and_the_membership_digests(
 def test_the_launcher_is_generated_and_lives_in_the_run_directory(tmp_path):
     """§6 names two harness files. A loose `run_evwiden.sh` would be code whose
     bytes nothing hashes while being able to change which shards run."""
-    path = ew.write_launch_script(tmp_path, shards=3)
+    path = ew.write_launch_script(tmp_path)
     assert path.parent == tmp_path
     assert path.name == ew.LAUNCH_NAME
     assert not str(path).startswith(str(ew.paths.REPO_ROOT / "scripts"))
@@ -3406,7 +3406,7 @@ def test_the_launcher_is_generated_and_lives_in_the_run_directory(tmp_path):
 
 
 def test_the_launcher_pins_blas_before_python_and_runs_unbuffered(tmp_path):
-    text = ew.launch_script(tmp_path, shards=2)
+    text = ew.launch_script(tmp_path)
     for var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
         assert f"export {var}=1" in text or f"{var}=1" in text
     assert text.index("export OMP_NUM_THREADS") < text.index("$PY -u -m epl.evwiden")
@@ -3418,28 +3418,140 @@ def test_the_launcher_pins_blas_before_python_and_runs_unbuffered(tmp_path):
 def test_the_launcher_runs_shards_sequentially_and_waits_per_pid(tmp_path):
     """§2.4: parallel shards crash on the featpanel `.tmp` rename race, and a
     bare `wait` returns the LAST job's status — a failed shard would sail past."""
-    text = ew.launch_script(tmp_path, shards=3)
-    order = [text.index(f"--shard {i}/3") for i in range(3)]
+    text = ew.launch_script(tmp_path)
+    order = [text.index(f"--shard {i}/4") for i in range(4)]
     assert order == sorted(order)
     assert 'wait "$pid"' in text
     for line in text.splitlines():
         assert line.strip() != "wait"
-    assert text.count("run_step shard_") == 3
+    assert text.count("run_step shard_") == 4
     assert "exit 2" in text                   # a failed step stops the run
 
 
-def test_the_launcher_puts_the_canary_first_and_the_merge_last(tmp_path):
-    """RUN_ORDER, in the launcher as well as in the module."""
-    text = ew.launch_script(tmp_path, shards=2)
+def test_the_launcher_emits_exactly_the_five_steps_in_order(tmp_path):
+    """§8.4, conformance row L9: "**`launch.sh` must emit exactly this order.**
+    v1's launcher ran canary → shards → table → merge, with no step-2 marker,
+    and would have re-run the once-only canary after a manual step 2. A
+    committed test asserts that the generated script's step order equals the
+    five above, that each step's precondition check appears before its command,
+    and that removing any marker makes the corresponding step refuse."
+
+    The last of the three is `test_a_step_without_its_predecessors_marker_refuses`;
+    the first two are here.
+    """
+    text = ew.launch_script(tmp_path)
+    assert ew.RUN_ORDER == ("canary", "single_opening", "shards", "merge",
+                            "parity_and_table")
+
+    # step 1 the canary, step 2 the single opening (by HAND, into a scratch
+    # directory), step 3 the four shards, step 4 the merge, step 5 the parity
+    # oracle and then the table. v1 ran table BEFORE merge and had no step 2.
+    at = [text.index(m) for m in
+          ("# STEP 1", "# STEP 2", "# STEP 3", "# STEP 4", "# STEP 5")]
+    assert at == sorted(at), at
     assert text.index("run_step canary") < text.index("run_step shard_00")
-    assert text.index("run_step shard_01") < text.index("run_step table")
-    assert text.index("run_step table") < text.index("run_step merge")
-    assert ew.RUN_ORDER == ("canary", "run", "table", "merge")
+    assert text.index("run_step shard_03") < text.index("run_step merge")
+    assert text.index("run_step merge") < text.index("run_step table")
+
+    # each step's precondition check appears BEFORE its command
+    for step, command in (("step1_results_canary", "run_step shard_00"),
+                          ("step3_shards", "run_step merge"),
+                          ("step4_merge", "run_step table")):
+        assert text.index(step) < text.index(command), step
+
+
+def test_the_launcher_generates_four_shards_and_refuses_any_other_count(
+        tmp_path):
+    """§8.4: "**`SHARDS = 4` is enforced, not defaulted.** `--shards` may not be
+    passed a different value: the CLI refuses it, the launcher generates four,
+    and the MANIFEST's shard filenames are the four of §9.3."
+    """
+    assert ew.SHARDS == 4
+    text = ew.launch_script(tmp_path)
+    assert text.count("run_step shard_") == 4
+    for i in range(4):
+        assert f"--shard {i}/4" in text
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.launch_script(tmp_path, shards=2)
+    assert "not the run this document preregisters" in str(exc.value)
+    assert ew.main(["--shards", "2", "--merge"]) == 2
+
+
+def test_the_frozen_sequence_is_five_markers_at_one_fixed_location():
+    """§8.4: "Markers live at one fixed location,
+    `data/epl/fit/evwiden/sequence/`, one JSON file per step."
+    """
+    assert ew.SEQUENCE_STEPS == ("step1_results_canary", "step2_single_opening",
+                                 "step3_shards", "step4_merge", "step5_parity")
+    assert ew.SEQUENCE_DIR == ew.EVWIDEN_DIR / "sequence"
+    for step in ew.SEQUENCE_STEPS:
+        assert ew.sequence_marker_path(step).parent == ew.SEQUENCE_DIR
+
+
+def test_a_step_without_its_predecessors_marker_refuses(tmp_path, monkeypatch):
+    """§8.4: "Each step **refuses unless its predecessor's completion marker
+    exists**; the refusal is `SequenceViolation`."
+
+    v1 had no markers at all: `require_run_preconditions` checked only the
+    canary, so a merge could run without shards and a table could run before a
+    merge — and the launcher did exactly that.
+    """
+    monkeypatch.setattr(ew, "SEQUENCE_DIR", tmp_path / "sequence")
+    monkeypatch.setattr(ew, "git_head", lambda rev="HEAD": "deadbeef")
+
+    for i, step in enumerate(ew.SEQUENCE_STEPS):
+        if i == 0:
+            # step 1 has no predecessor and never refuses on the sequence
+            ew.require_sequence(step, enforce=True)
+            ew.write_sequence_marker(step, produced={"n": 0})
+            continue
+        ew.require_sequence(step, enforce=True)      # predecessor present
+        ew.write_sequence_marker(step, produced={"n": i})
+
+    for i, step in enumerate(ew.SEQUENCE_STEPS[1:], 1):
+        predecessor = ew.sequence_marker_path(ew.SEQUENCE_STEPS[i - 1])
+        kept = predecessor.read_text()
+        predecessor.unlink()
+        with pytest.raises(ew.SequenceViolation) as exc:
+            ew.require_sequence(step, enforce=True)
+        assert ew.SEQUENCE_STEPS[i - 1] in str(exc.value)
+        predecessor.write_text(kept)
+
+
+def test_a_marker_written_under_another_freeze_commit_is_not_a_marker(
+        tmp_path, monkeypatch):
+    """§8.4: "A marker written under a different freeze commit is not a marker
+    for this run."
+    """
+    monkeypatch.setattr(ew, "SEQUENCE_DIR", tmp_path / "sequence")
+    monkeypatch.setattr(ew, "git_head", lambda rev="HEAD": "commit-one")
+    ew.write_sequence_marker(ew.SEQUENCE_STEPS[0], produced={"n": 0})
+    ew.require_sequence(ew.SEQUENCE_STEPS[1], enforce=True)
+
+    monkeypatch.setattr(ew, "git_head", lambda rev="HEAD": "commit-two")
+    with pytest.raises(ew.SequenceViolation) as exc:
+        ew.require_sequence(ew.SEQUENCE_STEPS[1], enforce=True)
+    assert "different freeze commit" in str(exc.value)
+
+
+def test_the_markers_record_what_8_4_asks_them_to(tmp_path, monkeypatch):
+    """"Each marker records the step name, the UTC completion time, the freeze
+    commit under which it was written, the harness file digests at that moment,
+    and a digest of what the step produced."
+    """
+    monkeypatch.setattr(ew, "SEQUENCE_DIR", tmp_path / "sequence")
+    marker = ew.write_sequence_marker(ew.SEQUENCE_STEPS[2],
+                                      produced={"shards": ["a", "b"]})
+    assert marker["step"] == "step3_shards"
+    assert marker["completed_at"] and marker["freeze_commit"] is not None
+    assert set(marker["harness"]) == set(ew.HARNESS_FILES)
+    assert len(marker["produced_digest"]) == 64
+    assert marker["produced"] == {"shards": ["a", "b"]}
 
 
 def test_the_launcher_is_a_valid_shell_script(tmp_path):
     """`sh -n` parses it without running it."""
-    path = ew.write_launch_script(tmp_path, shards=2)
+    path = ew.write_launch_script(tmp_path)
     done = subprocess.run(["sh", "-n", str(path)], capture_output=True)
     assert done.returncode == 0, done.stderr.decode()
 
@@ -3449,7 +3561,7 @@ def test_the_launcher_is_a_valid_shell_script(tmp_path):
 # ==========================================================================
 
 def test_the_cli_writes_the_launcher_and_exits_clean(tmp_path, capsys):
-    assert ew.main(["--script", "--dir", str(tmp_path), "--shards", "2"]) == 0
+    assert ew.main(["--script", "--dir", str(tmp_path)]) == 0
     printed = json.loads(capsys.readouterr().out)
     assert printed["launch"].startswith("nohup sh ")
     assert (tmp_path / ew.LAUNCH_NAME).exists()

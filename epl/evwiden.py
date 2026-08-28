@@ -387,11 +387,20 @@ SCHEMA_ID = "epl-evwiden-2"
 #: test that stops asserting is a guard that stopped guarding.
 HARNESS_FILES = ("epl/evwiden.py", "epl/tests/test_evwiden.py")
 
-#: §3.2 runs the identity control FIRST among the fits; §5.3 puts the canaries
-#: before even that. ENFORCED by :func:`require_run_preconditions` from the
-#: written records, because an order declared in a constant and checked by
-#: nobody is a comment.
-RUN_ORDER = ("canary", "run", "table", "merge")
+#: §8.4's frozen post-freeze sequence, in its own order, and **nothing else may
+#: run on the real archive between the steps**. v1's `RUN_ORDER` was
+#: `("canary", "run", "table", "merge")` — table BEFORE merge, and no
+#: single-opening step at all — which is not the order the document names and
+#: not the order the launcher should emit.
+RUN_ORDER = ("canary", "single_opening", "shards", "merge",
+             "parity_and_table")
+
+#: The five completion markers, by file name, in order. "Each step **refuses
+#: unless its predecessor's completion marker exists**; the refusal is
+#: `SequenceViolation`."
+SEQUENCE_STEPS: tuple[str, ...] = (
+    "step1_results_canary", "step2_single_opening", "step3_shards",
+    "step4_merge", "step5_parity")
 
 #: §5.2's list, fixed in the document before any row existed: recorded on the
 #: row, excluded from the canonical form and from every digest.
@@ -407,6 +416,12 @@ TABLE_LEDGER = TABLE_DIR / "table_cells.jsonl"
 CANARY_NAME = "canary.json"
 CANARY_JSON = EVWIDEN_DIR / CANARY_NAME
 LAUNCH_NAME = "launch.sh"
+
+#: §8.4: "Markers live at ONE FIXED LOCATION, `data/epl/fit/evwiden/sequence/`,
+#: one JSON file per step." Fixed, and not under `--dir`: step 2 runs into a
+#: SCRATCH directory and writes its marker to the preregistered run directory,
+#: which only means anything if the marker location is not the run's own.
+SEQUENCE_DIR = EVWIDEN_DIR / "sequence"
 
 #: §6's evidence contract, regardless of outcome (ultra-review lesson 1: the
 #: verdict's machine-readable basis is COMMITTED, not gitignored).
@@ -2952,29 +2967,134 @@ def write_canaries(record: dict[str, Any], path: Path | str | None = None,
     return path
 
 
+def sequence_marker_path(step: str) -> Path:
+    """§8.4's marker for one step, at the one fixed location."""
+    if step not in SEQUENCE_STEPS:
+        raise SequenceViolation(
+            f"{step!r} is not one of §8.4's five steps {SEQUENCE_STEPS}. The "
+            "sequence is frozen and nothing else may run on the real archive "
+            "between its steps.")
+    return SEQUENCE_DIR / f"{step}.json"
+
+
+def read_sequence_marker(step: str) -> dict[str, Any] | None:
+    path = sequence_marker_path(step)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise SequenceViolation(
+            f"{paths.rel(path)} is not readable JSON: {exc}. An unreadable "
+            "marker is not a completed step.")
+
+
+def write_sequence_marker(step: str, *, produced: Any = None) -> dict[str, Any]:
+    """§8.4's completion marker, with everything the document asks it to carry.
+
+    > Each marker records the step name, the UTC completion time, the freeze
+    > commit under which it was written, the harness file digests at that
+    > moment, and a digest of what the step produced. **A marker written under a
+    > different freeze commit is not a marker for this run.**
+
+    The freeze commit is what makes the last sentence mechanical: a marker left
+    over from a run under an earlier freeze reads as absent, so the step it
+    would have unlocked refuses.
+    """
+    path = sequence_marker_path(step)
+    marker = {
+        "schema": SCHEMA_ID, "step": step,
+        "completed_at": pd.Timestamp.now("UTC").isoformat(),
+        "freeze_commit": git_head(),
+        "prereg": paths.rel(PREREG_PATH),
+        "harness": {name: (sha256_file(paths.REPO_ROOT / name)
+                           if (paths.REPO_ROOT / name).exists() else None)
+                    for name in HARNESS_FILES},
+        "produced": produced,
+        "produced_digest": hashlib.sha256(
+            json.dumps(produced, sort_keys=True,
+                       default=str).encode("utf-8")).hexdigest(),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(marker, indent=2, default=str) + "\n")
+    return marker
+
+
+def require_sequence(step: str, *, enforce: bool | None = None
+                     ) -> dict[str, Any]:
+    """§8.4: a step refuses unless its predecessor's completion marker exists.
+
+    ``enforce`` left at ``None`` derives from the freeze state, because §8.4 is
+    *the frozen post-freeze sequence*: before §8.3's commit there is no run for
+    the markers to describe, and the synthetic audit that §8.2 requires would
+    otherwise have to fabricate them.
+
+    v1 had no markers at all — ``require_run_preconditions`` checked only the
+    canary — so a merge could run without shards and a table could run before a
+    merge, which is precisely what its launcher did.
+    """
+    if step not in SEQUENCE_STEPS:
+        raise SequenceViolation(f"{step!r} is not one of §8.4's five steps")
+    if enforce is None:
+        enforce = bool(harness_freeze_status()["frozen"])
+    index = SEQUENCE_STEPS.index(step)
+    if index == 0 or not enforce:
+        return {"step": step, "enforced": bool(enforce), "predecessor": None,
+                "PASS": True}
+    predecessor = SEQUENCE_STEPS[index - 1]
+    marker = read_sequence_marker(predecessor)
+    if marker is None:
+        raise SequenceViolation(
+            f"{step} refuses: {predecessor}'s completion marker is not at "
+            f"{paths.rel(sequence_marker_path(predecessor))}. §8.4 freezes five "
+            "steps in one order and nothing else may run on the real archive "
+            "between them; each step refuses unless its predecessor's marker "
+            "exists.")
+    head = git_head()
+    if head is not None and marker.get("freeze_commit") not in (None, head):
+        raise SequenceViolation(
+            f"{step} refuses: {predecessor}'s marker was written under a "
+            f"different freeze commit ({str(marker.get('freeze_commit'))[:12]}… "
+            f"against {head[:12]}…). §8.4: a marker written under a different "
+            "freeze commit is not a marker for this run — it describes a step "
+            "of a run the current freeze does not cover.")
+    return {"step": step, "enforced": True, "predecessor": predecessor,
+            "marker": marker, "PASS": True}
+
+
 def require_run_preconditions(directory: Path | str | None = None, *,
                               path: Path | str | None = None,
                               require_results: bool | None = None,
+                              step: str | None = None,
+                              require_sequence_marker: bool | None = None,
                               ) -> dict[str, Any]:
-    """:data:`RUN_ORDER`, enforced rather than declared.
+    """:data:`RUN_ORDER`, enforced rather than declared — **all of it**.
+
+    v1's version "checks only the canary", which is how its launcher could run
+    the table before the merge and how a merge could score shards that never
+    ran. This one checks **both** preconditions a step has: §7.3's canary record
+    and §8.4's predecessor marker.
 
     The canaries are read from their WRITTEN record, so the order holds across
     processes and across shards — four workers each re-running them would be
     four answers to a question with one.
 
-    ``require_results`` decides whether §5.3's RESULTS canary
+    ``require_results`` decides whether §7.3's RESULTS canary
     (``walkforward.point_in_time_canary``) must be on that record. It costs real
     fits, so ``--no-results-canary`` exists for the synthetic audit — and that
     flag must not be able to follow the run past the freeze. Left at ``None`` it
-    is derived from :func:`harness_freeze_status`: once §6's commit has landed,
-    the preregistered run demands the canary §5.3 pre-states as "run once as a
-    precondition on the real archive AFTER the freeze".
+    is derived from :func:`harness_freeze_status`: once §8.3's commit has
+    landed, the preregistered run demands the canary §7.3 pre-states as "run
+    once as a precondition on the real archive AFTER the freeze".
+
+    ``step`` names which of §8.4's five steps is about to run; its predecessor's
+    marker is then required on the same terms.
     """
     directory = Path(directory) if directory is not None else EVWIDEN_DIR
     path = Path(path) if path is not None else directory / CANARY_NAME
     if not path.exists():
         raise CanaryFailed(
-            f"no canary record at {paths.rel(path)}. §5.3 makes the canaries a "
+            f"no canary record at {paths.rel(path)}. §7.3 makes the canaries a "
             "precondition of the run, and an absent canary is not a passing "
             "one: run `--canary` first.")
     try:
@@ -2994,10 +3114,16 @@ def require_run_preconditions(directory: Path | str | None = None, *,
         raise CanaryFailed(
             f"the canary record at {paths.rel(path)} was written with "
             "--no-results-canary, so `epl.walkforward.point_in_time_canary` "
-            "never ran. §5.3 makes it a precondition of the run on the REAL "
+            "never ran. §7.3 makes it a precondition of the run on the REAL "
             "archive after the freeze; skipping it is a concession to the "
-            "synthetic audit's clock and may not follow the run past §6's "
+            "synthetic audit's clock and may not follow the run past §8.3's "
             "commit. Re-run `--canary` without the flag.")
+
+    # §8.4's other half, which v1 never checked at all.
+    if step is not None:
+        rec = dict(rec)
+        rec["sequence"] = require_sequence(step,
+                                           enforce=require_sequence_marker)
     return rec
 
 
@@ -6742,10 +6868,18 @@ def require_harness_freeze(sources: Sequence[Path] | None = None,
 # ==========================================================================
 
 def launch_script(directory: Path | str | None = None, shards: int = SHARDS, *,
-                  python: str = ".venv/bin/python",
-                  table: bool = True, merge: bool = True) -> str:
-    """The nohup'd runner, as text. §6 names two harness files and this is not
+                  python: str = ".venv/bin/python") -> str:
+    """The nohup'd runner, as text. §8.3 names two harness files and this is not
     a third.
+
+    **It emits exactly §8.4's five steps, in §8.4's order** (conformance row
+    L9). v1's launcher ran canary → shards → table → merge: table BEFORE merge,
+    no step-2 marker anywhere, and — because the once-only results canary was
+    its first line — it would have re-run that canary after a manual step 2.
+
+    **`SHARDS = 4` is enforced, not defaulted.** "A run at any other shard count
+    is not the run this document preregisters", so a different count is refused
+    here rather than generated.
 
     A loose ``run_evwiden.sh`` would be code whose bytes nothing hashes, sitting
     outside the §6 hash table while being able to change which shards run and in
@@ -6766,12 +6900,21 @@ def launch_script(directory: Path | str | None = None, shards: int = SHARDS, *,
     """
     directory = Path(directory) if directory is not None else EVWIDEN_DIR
     rel_dir = paths.rel(directory) if directory.is_absolute() else str(directory)
-    shards = max(1, int(shards))
+    shards = int(shards)
+    if shards != SHARDS:
+        raise EvWidenError(
+            f"refusing to generate a launcher for {shards} shard(s). §8.4: "
+            f"'`SHARDS = {SHARDS}` is enforced, not defaulted. `--shards` may "
+            "not be passed a different value: the CLI refuses it, the launcher "
+            "generates four, and the MANIFEST's shard filenames are the four of "
+            "§9.3.' A run at any other shard count is not the run this document "
+            "preregisters.")
+    seq = f"{rel_dir}/sequence"
     lines = [
         "#!/bin/sh",
-        "# GENERATED by `python -m epl.evwiden --script`. Do not edit: §6 names",
-        "# epl/evwiden.py and epl/tests/test_evwiden.py as the harness files, and",
-        "# this launcher's bytes are a function of theirs.",
+        "# GENERATED by `python -m epl.evwiden --script`. Do not edit: §8.3",
+        "# names epl/evwiden.py and epl/tests/test_evwiden.py as the harness",
+        "# files, and this launcher's bytes are a function of theirs.",
         "#",
         "# Launch DETACHED, from a script file and never a stdin heredoc — macOS",
         "# spawn re-imports <stdin> and kills the gate's parallel leg:",
@@ -6801,43 +6944,69 @@ def launch_script(directory: Path | str | None = None, shards: int = SHARDS, *,
         "  fi",
         "}",
         "",
-        '# R2-H STEP 1 — the post-freeze RESULTS CANARY. This is the first',
+        "need_marker() {",
+        "  # §8.4: each step refuses unless its predecessor's completion marker",
+        "  # exists. The harness refuses too — this is the launcher saying WHY",
+        "  # before it spends an hour finding out.",
+        f'  if [ ! -f "{seq}/$1.json" ]; then',
+        '    echo "STOP: SequenceViolation — $2 needs $1'"'"'s completion marker at '
+        f'{seq}/$1.json."',
+        '    exit 2',
+        "  fi",
+        "}",
+        "",
+        '# STEP 1 — the post-freeze RESULTS CANARY. This is the first',
         '# post-freeze act and it performs the FIRST REAL FITS of this',
-        '# experiment: `walkforward.point_in_time_canary` calls `_forecasts`',
-        '# four times. R-B6 comes into force at its completion, not at the',
+        '# document: `walkforward.point_in_time_canary` calls `_forecasts`',
+        '# four times. §8.7 comes into force at its completion, not at the',
         '# single-opening exercise. `PASS: false` on any leg stops the',
         '# experiment and the failure publishes.',
+        '#   marker: sequence/step1_results_canary.json',
         'run_step canary $PY -u -m epl.evwiden --canary --dir "$DIR"',
         "",
-        "# R2-H STEP 3 — the four shards, then the merge, then the table leg's",
-        "# parity oracle, then the table leg's 35 cells. (Step 2, the",
-        "# single-opening exercise, is run by hand into a SCRATCH directory",
-        "# outside this one and its rows are never merged.)",
-        "# §2.4: SEQUENTIALLY. Parallel shards crash on the featpanel .tmp rename",
-        "# race in the locked path.",
+        '# STEP 2 — the single-opening exercise, BY HAND, into a SCRATCH',
+        '# directory outside this one. Its numbers enter no estimand and its',
+        '# rows are never merged; it exercises the one path no test can execute',
+        '# without a real fit. Not run here, because it is not run into "$DIR"',
+        '# — but its marker IS written to "$DIR" and step 3 refuses without it:',
+        '#     $PY -u -m epl.evwiden --run --limit 1 --dir <scratch>',
+        '#   marker: sequence/step2_single_opening.json',
+        'need_marker step1_results_canary "step 2, the single opening"',
+        "",
+        "# STEP 3 — the four shards, SEQUENTIALLY (§2.4: parallel shards crash",
+        "# on the featpanel .tmp rename race in the locked path, and the fix is",
+        "# held for lock-v11). Refuses without step 2's marker.",
+        '#   marker: sequence/step3_shards.json',
+        'need_marker step2_single_opening "step 3, the four shards"',
     ]
     for i in range(shards):
         lines.append(
             f'run_step shard_{i:02d}_of_{shards:02d} $PY -u -m epl.evwiden '
             f'--run --shard {i}/{shards} --dir "$DIR"')
-    if table:
-        lines += ["",
-                  "# §3.3's table leg, on R2-B4(c)'s budget: 70 fits and 105",
-                  "# runs of 20,000 seasons — the 35-cell parity oracle against",
-                  "# protected ArchiveRunner runs FIRST, inside --table, before",
-                  "# one treated simulation is executed.",
-                  'run_step table $PY -u -m epl.evwiden --table --dir "$DIR"']
-    if merge:
-        lines += ["", "# The merge refuses an incomplete or poisoned shard set,",
-                  "# and writes the §6 evidence files whichever way it falls.",
-                  f'run_step merge $PY -u -m epl.evwiden --merge --shards '
-                  f'{shards} --evidence --dir "$DIR"']
-    lines += ["", 'echo "[launch] done"', ""]
+    lines += [
+        "",
+        "# STEP 4 — the merge. Refuses without step 3's marker. The merged key",
+        "# set must be exactly the pre-stated keys — not a superset, not a",
+        "# subset — and §2.3's structural-zero guard runs here, in BOTH",
+        "# directions. The evidence files are written whichever way it falls.",
+        '#   marker: sequence/step4_merge.json',
+        'need_marker step3_shards "step 4, the merge"',
+        f'run_step merge $PY -u -m epl.evwiden --merge --shards '
+        f'{shards} --evidence --dir "$DIR"',
+        "",
+        "# STEP 5 — the parity oracle at all 35 cells to COMPLETION, and only",
+        "# then the table's 35 cells (§3.3). Refuses without step 4's marker.",
+        "# §2.4's budget for this leg: 70 fits and 105 runs of 20,000 seasons,",
+        "# bounded by ~4 hours.",
+        '#   marker: sequence/step5_parity.json',
+        'need_marker step4_merge "step 5, the parity oracle and the table"',
+        'run_step table $PY -u -m epl.evwiden --table --dir "$DIR"',
+        "", 'echo "[launch] done"', ""]
     return "\n".join(lines)
 
 
-def write_launch_script(directory: Path | str | None = None, shards: int = 4,
-                        **kwargs) -> Path:
+def write_launch_script(directory: Path | str | None = None,
+                        shards: int = SHARDS, **kwargs) -> Path:
     directory = Path(directory) if directory is not None else EVWIDEN_DIR
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / LAUNCH_NAME
@@ -7007,12 +7176,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--script", action="store_true",
                     help="write the detached-launch runner into the run "
                          "directory and print the nohup line")
-    ap.add_argument("--shard", default="0/1",
-                    help="i/N — this worker's slice of the fit points")
+    ap.add_argument("--shard", default=f"0/{SHARDS}",
+                    help=f"i/{SHARDS} — this worker's slice of the fit points. "
+                         f"§8.4 enforces N = {SHARDS}")
     ap.add_argument("--shards", type=int, default=SHARDS,
-                    help="how many shards the merge must find. R2-I6 freezes "
-                         f"this at {SHARDS}: a run at any other shard count is "
-                         "not the run this document preregisters")
+                    help="how many shards the merge must find. §8.4 ENFORCES "
+                         f"this at {SHARDS} rather than defaulting to it: a run "
+                         "at any other shard count is not the run this document "
+                         "preregisters")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--dir", dest="directory", default=None,
                     help="the run directory: the canary record and the shard "
@@ -7030,6 +7201,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"STOP: --shard must be i/N, not {args.shard!r}", flush=True)
         return 2
 
+    # §8.4: "**`SHARDS = 4` is enforced, not defaulted.** `--shards` may not be
+    # passed a different value: the CLI refuses it, the launcher generates four,
+    # and the MANIFEST's shard filenames are the four of §9.3." v1 accepted any
+    # count here and in the launcher, so a two-shard run would have written two
+    # ledgers the manifest's four-path list could never describe.
+    if int(args.shards) != SHARDS or count != SHARDS:
+        print(f"STOP: this experiment runs at exactly {SHARDS} shards, and was "
+              f"asked for --shards {args.shards} / --shard {args.shard}. §8.4: "
+              "a run at any other shard count is not the run this document "
+              "preregisters, and §9.3's MANIFEST names the four shard files by "
+              "name.", flush=True)
+        return 2
+
     directory = Path(args.directory) if args.directory else EVWIDEN_DIR
     table_ledger = (Path(args.table_ledger) if args.table_ledger
                     else (TABLE_LEDGER if directory == EVWIDEN_DIR
@@ -7037,7 +7221,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         if args.script:
-            path = write_launch_script(directory, max(count, args.shards))
+            path = write_launch_script(directory, args.shards)
             print(json.dumps({
                 "written": paths.rel(path),
                 "launch": f"nohup sh {paths.rel(path)} > "
@@ -7094,6 +7278,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 results_canary=not args.no_results_canary,
                 directory=directory)
             write_canaries(record, directory / CANARY_NAME)
+            # §8.4 step 1's completion marker. R-B6 comes into force HERE — the
+            # canary's four fits are the first real fits of this document — so
+            # the marker records the harness digests at that moment.
+            if record.get("PASS") and not args.no_results_canary:
+                write_sequence_marker(
+                    SEQUENCE_STEPS[0],
+                    produced={"canary": paths.rel(directory / CANARY_NAME),
+                              "digest": sha256_file(directory / CANARY_NAME)})
             print(json.dumps({k: v for k, v in record.items() if k != "detail"},
                              indent=2, default=str))
 
@@ -7103,8 +7295,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             assert_ledger_covers(corpus, ledger)
             check_corpus_scores(corpus)
             frozen = harness_freeze_status()
+            # §8.4: `--run --limit 1` IS step 2, the single-opening exercise,
+            # and a full `--run` is step 3. Each refuses without its
+            # predecessor's marker.
+            step = (SEQUENCE_STEPS[1] if args.limit == 1 else SEQUENCE_STEPS[2])
             require_run_preconditions(directory,
-                                      require_results=bool(frozen["frozen"]))
+                                      require_results=bool(frozen["frozen"]),
+                                      step=step)
             assert_blas_pinned("the evidence-widening sweep")
             digests = membership_digests(corpus, played, ledger)
             points = shard_points(fit_points(corpus,
@@ -7128,6 +7325,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                 out = run_fits(points, ledger_path, corpus, engine=engine,
                                grid_treated=grid_treated,
                                shard_id=f"{index}/{count}")
+            # Step 2's marker is written to the PREREGISTERED run directory and
+            # not to the scratch one (§8.4), which is the whole reason
+            # SEQUENCE_DIR is a fixed location rather than a function of --dir.
+            # Step 3's is written only when ALL FOUR shards have exited zero and
+            # written their expected key sets.
+            if frozen["frozen"]:
+                if step == SEQUENCE_STEPS[1]:
+                    write_sequence_marker(step, produced={
+                        "opening": points[0].cutoff if points else None,
+                        "n_rows": out["n_rows_written"],
+                        "row_digest": out["run_digest"],
+                        "scratch": paths.rel(directory)})
+                elif all((EVWIDEN_DIR / shard_name(i, SHARDS)).exists()
+                         for i in range(SHARDS)):
+                    write_sequence_marker(step, produced={
+                        "shards": {shard_name(i, SHARDS): run_digest(
+                            load_ledger(EVWIDEN_DIR / shard_name(i, SHARDS)))
+                            for i in range(SHARDS)}})
             print(json.dumps(out, indent=2, default=str))
 
         if args.table:
@@ -7136,7 +7351,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             frozen = harness_freeze_status()
             _guard_ledger_location(table_ledger, bool(frozen["frozen"]))
             require_run_preconditions(directory,
-                                      require_results=bool(frozen["frozen"]))
+                                      require_results=bool(frozen["frozen"]),
+                                      step=SEQUENCE_STEPS[4])
             assert_blas_pinned("the table-retro leg")
             matches = baseline.load_matches()
             cells = table_cells(matches)
@@ -7153,6 +7369,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                       "truncating the parity oracle.", flush=True)
                 return 2
             out = run_table(cells, table_ledger)
+            if frozen["frozen"]:
+                write_sequence_marker(SEQUENCE_STEPS[4], produced={
+                    "parity": paths.rel(parity_path(table_ledger)),
+                    "n_cells": out["n_cells"], "parity_check": out["parity"]})
             print(json.dumps(out, indent=2, default=str))
 
         if args.merge or args.verify:
@@ -7174,6 +7394,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                                         n_boot=args.n_boot), indent=2,
                                  default=str))
                 return 0
+            require_run_preconditions(directory, step=SEQUENCE_STEPS[3])
             result = merge(shards=args.shards, directory=directory,
                            corpus=corpus, played=played, ledger=ledger,
                            table=(None if table_out is None
@@ -7194,6 +7415,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     None if table_out is None else table_out["rows"],
                     power=power_simulation())
                 result["evidence"] = written
+            if args.merge and result.get("harness_freeze", {}).get("frozen"):
+                write_sequence_marker(SEQUENCE_STEPS[3], produced={
+                    "n_fits": result["n_fits"], "n_fixtures": result["n_fixtures"],
+                    "run_digest": result["run_digest"]})
             summary = {k: v for k, v in result.items()
                        if k not in ("membership", "canaries", "harness_freeze",
                                     "table")}
