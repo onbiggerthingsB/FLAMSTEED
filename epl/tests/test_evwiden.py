@@ -4475,15 +4475,26 @@ def test_the_freeze_guard_checks_the_schema_and_the_membership_digests(
 # 14. the detached launch — §2.4, generated rather than committed
 # ==========================================================================
 
-def test_the_launcher_is_generated_and_lives_in_the_run_directory(tmp_path):
+def test_the_launcher_is_generated_and_lives_in_the_run_directory(monkeypatch,
+                                                                  tmp_path):
     """§8.3 names two harness files. A loose `run_evwiden.sh` would be code whose
-    bytes nothing hashes while being able to change which shards run."""
+    bytes nothing hashes while being able to change which shards run.
+
+    v3 §8.2 gives it ONE target and one moment: the preregistered run directory,
+    after the freeze. Both are simulated here, because the launcher is a
+    post-freeze artifact and this test is about where it lands."""
+    monkeypatch.setattr(ew, "_frozen_now", lambda: True)
+    monkeypatch.setattr(ew, "EVWIDEN_DIR", tmp_path)
     path = ew.write_launch_script(tmp_path)
     assert path.parent == tmp_path
     assert path.name == ew.LAUNCH_NAME
     assert not str(path).startswith(str(ew.paths.REPO_ROOT / "scripts"))
     assert path.stat().st_mode & 0o111        # executable
     assert not (ew.paths.REPO_ROOT / "epl" / "run_evwiden.sh").exists()
+    # ...and nowhere else, even after the freeze
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.write_launch_script(tmp_path / "elsewhere")
+    assert "one target" in str(exc.value)
 
 
 def test_the_launcher_pins_blas_before_python_and_runs_unbuffered(tmp_path):
@@ -4672,7 +4683,8 @@ def test_the_markers_record_what_8_4_asks_them_to(tmp_path, monkeypatch):
 
 def test_the_launcher_is_a_valid_shell_script(tmp_path):
     """`sh -n` parses it without running it."""
-    path = ew.write_launch_script(tmp_path)
+    path = tmp_path / ew.LAUNCH_NAME
+    path.write_text(ew.launch_script(ew.EVWIDEN_DIR))
     done = subprocess.run(["sh", "-n", str(path)], capture_output=True)
     assert done.returncode == 0, done.stderr.decode()
 
@@ -4681,7 +4693,11 @@ def test_the_launcher_is_a_valid_shell_script(tmp_path):
 # 15. the CLI
 # ==========================================================================
 
-def test_the_cli_writes_the_launcher_and_exits_clean(tmp_path, capsys):
+def test_the_cli_writes_the_launcher_and_exits_clean(monkeypatch, tmp_path,
+                                                    capsys):
+    """...after the freeze, and into the preregistered run directory (§8.2)."""
+    monkeypatch.setattr(ew, "_frozen_now", lambda: True)
+    monkeypatch.setattr(ew, "EVWIDEN_DIR", tmp_path)
     assert ew.main(["--script", "--dir", str(tmp_path)]) == 0
     printed = json.loads(capsys.readouterr().out)
     assert printed["launch"].startswith("nohup sh ")
@@ -5826,9 +5842,11 @@ def test_every_seam_the_review_named_asks_the_one_guard(tmp_path):
                                          runner=lambda c: {}))
     refuses(lambda: ew.run_canary(runner=lambda: {"PASS": True},
                                   target=ew.EVWIDEN_DIR))
-    refuses(lambda: ew.score_table([], mc={"mc_se_label": {}},
-                                   ledger_path=ew.TABLE_LEDGER))
-    refuses(lambda: ew.score_table([], tallies={}, ledger_path=ew.TABLE_LEDGER))
+    # ...and `score_table` no longer has a seam to refuse: v3 §8.6 consequence
+    # 6 removed `mc=` and `tallies=` outright, because the guard over them was
+    # keyed to `ledger_path` and a scratch path bought a caller real deciding
+    # evidence (NB7)
+    assert ew._no_parameter(ew.score_table, "mc", "tallies")
     refuses(lambda: ew.merge(shards=ew.SHARDS, harness_frozen=True))
     refuses(lambda: ew.merge(shards=ew.SHARDS, require_canaries=False))
 
@@ -6611,9 +6629,12 @@ def test_the_seams_of_the_closure_ask_the_guard_by_effect(tmp_path):
                 cutoff="2019-08-09", season="2019/20", block="2019/20|W01",
                 match_ids=()), ew.load_corpus())
 
-    # an alternate point-in-time store root inside the preregistered tree
+    # an alternate point-in-time store root inside the preregistered tree.
+    # (v3 §8.6 consequence 5 narrowed the tree from all of the SHARED
+    # `paths.FIT_DIR` to this experiment's own artifacts — P5-I2 — so the
+    # target here is one of them rather than an unrelated neighbour.)
     with pytest.raises(ew.EvWidenError):
-        ew.read_only_store(root=ew.paths.FIT_DIR / "store")
+        ew.read_only_store(root=ew.EVWIDEN_DIR / "store")
 
     # the poison bypass is not a parameter at all: §7.1 makes a poison row
     # ShardFailed and §2.4 makes a poisoned shard unscorable
@@ -6958,3 +6979,243 @@ def test_the_guard_binds_the_documents_current_bytes_not_only_its_blob():
     src = inspect.getsource(ew.harness_freeze_status)
     assert "git_committed_bytes" in src
     assert "PREREG_PATH" in src
+
+
+# --------------------------------------------------------------------------
+# §8.2/§8.4/§8.6 — the residual bypasses, closed
+# --------------------------------------------------------------------------
+
+def test_the_launcher_is_refused_pre_freeze_at_every_target(tmp_path):
+    """§8.2, IMP-PREFREEZE-SCRIPT. "`write_launch_script` refuses the default
+    production target pre-freeze but permits a scratch directory and writes
+    inside the repository if that scratch path is outside the narrowly tested
+    evwiden directories. **The enumeration remains false.**"
+
+    v3: "`--script` writes the launcher only AFTER the freeze commit [...] so a
+    pre-freeze `--script` is refused at EVERY target, not only the default one.
+    The refusal is on the freeze state and not on the path."
+    """
+    assert ew.harness_freeze_status()["frozen"] is False
+    for target in (None, tmp_path, tmp_path / "deep" / "nested",
+                   ew.paths.REPO_ROOT / "reports", ew.EVWIDEN_DIR):
+        with pytest.raises(ew.EvWidenError) as exc:
+            ew.write_launch_script(target)
+        assert "before §8.3's freeze commit" in str(exc.value), target
+    assert not (tmp_path / ew.LAUNCH_NAME).exists()
+    assert not (tmp_path / "deep").exists()
+    # ...and the CLI action is the same refusal
+    assert ew.main(["--script", "--dir", str(tmp_path)]) == 2
+
+
+def test_the_launcher_takes_no_target_and_no_interpreter():
+    """§8.2: "After the freeze, `--script` writes to the preregistered run
+    directory and nowhere else. It takes no target that resolves inside the
+    repository other than `data/epl/fit/evwiden/launch.sh`, and it takes no
+    interpreter, no command prefix and no forwarded keyword arguments."
+    """
+    import inspect
+    params = list(inspect.signature(ew.write_launch_script).parameters)
+    assert params == ["directory", "shards"]
+    assert ew._no_parameter(ew.write_launch_script, "python", "kwargs")
+    assert ew._no_parameter(ew.launch_script, "python", "kwargs")
+    assert ew.LAUNCH_PYTHON in ew.launch_script(ew.EVWIDEN_DIR)
+
+
+def test_the_launcher_emits_step_twos_command_and_its_scratch_target():
+    """§8.4, N-RH-FIRST-ACT. "The generated launcher contains only comments for
+    that step, then proceeds to later commands. [...] **The sequence remains
+    non-executable as written.**"
+
+    v3: step 2 "is a COMMAND, and the launcher runs it", between a
+    `need_marker step1_results_canary` command and step 3's.
+    """
+    text = ew.launch_script(ew.EVWIDEN_DIR)
+    commands = [ln.strip() for ln in text.splitlines()
+                if ln.strip() and not ln.strip().startswith("#")]
+    joined = "\n".join(commands)
+    assert "--run --limit 1" in joined
+    # ...and it names a scratch --dir, which the launcher creates
+    step2 = next(c for c in commands if "--limit 1" in c)
+    assert "--dir" in step2
+    assert str(ew.EVWIDEN_DIR) not in step2.split("--dir")[1].split()[0]
+    # the precondition is a COMMAND before it, not a comment naming the marker
+    before = commands[:commands.index(step2)]
+    assert any(c.startswith("need_marker step1_results_canary")
+               for c in before)
+    after = commands[commands.index(step2) + 1:]
+    assert any(c.startswith("need_marker step2_single_opening") for c in after)
+
+
+def test_step_two_requires_a_scratch_directory_and_refuses_the_real_one():
+    """§8.4: "`--run --limit 1` requires a `--dir` that is NOT the preregistered
+    run directory, refuses one that is, and writes its marker to the
+    preregistered directory regardless of where its rows went. A step whose only
+    legal target the guard refuses is not a step; it is a sentence." """
+    assert ew.main(["--run", "--limit", "1", "--dir",
+                    str(ew.EVWIDEN_DIR)]) == 2
+    # ...and for the step's OWN reason, not because the pre-freeze directory
+    # guard happened to catch it first
+    import io
+    import contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        ew.main(["--run", "--limit", "1", "--dir", str(ew.EVWIDEN_DIR)])
+    assert "SCRATCH directory" in buf.getvalue()
+    # ...and the default --dir is the preregistered one, so it is refused too
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        ew.main(["--run", "--limit", "1"])
+    assert "SCRATCH directory" in buf.getvalue()
+
+
+def test_the_table_ledger_is_resolved_and_names_nothing(tmp_path):
+    """§8.4, P5-B8. "The CLI accepts an arbitrary table ledger [...] After
+    seeing the first table outcome, a caller can point to a new ledger and
+    execute another table leg; the later marker conflict occurs after the new
+    outcome exists."
+
+    v3: "The ledger is therefore resolved from the frozen law and is not a
+    parameter of any deciding path [...] And step 5 claims its marker BEFORE it
+    simulates."
+    """
+    import argparse
+    import inspect
+
+    # the flag is gone from the CLI's own surface, so argparse itself refuses it
+    parser = [n for n in inspect.getsource(ew.main).splitlines()
+              if "add_argument" in n]
+    assert not any("table-ledger" in n or "table_ledger" in n for n in parser)
+    with pytest.raises(SystemExit):
+        ew.main(["--table-ledger", str(tmp_path / "x.jsonl"), "--verify"])
+    # ...and the ledger is derived from --dir and from nothing a caller names
+    body = inspect.getsource(ew.main)
+    assert "table_ledger = (TABLE_LEDGER if directory == EVWIDEN_DIR" in body
+
+    # step 5 CLAIMS its write-once marker BEFORE the expensive run, so a second
+    # attempt dies at the claim rather than after a second outcome exists
+    branch = body[body.index("if args.table:"):]
+    assert branch.index("claim_sequence_step") < branch.index("run_table("), \
+        "the marker is claimed first"
+    assert ew._no_parameter(ew.claim_sequence_step, "produced", "complete")
+
+
+def test_merge_and_the_table_legs_enforce_the_sequence_themselves(tmp_path,
+                                                                  monkeypatch):
+    """§8.6, NB6. "`run_table` itself has no sequence requirement; `merge` is
+    callable without the CLI sequence."
+
+    v3: "`merge`, `run_table` and `run_parity_oracle` require the sequence
+    themselves. Each calls §8.4's marker check for its own step on every
+    invocation — not only when reached through `main` — so a direct API call is
+    exactly as ordered as a command line."
+    """
+    for fn, index in ((ew.merge, 3), (ew.run_table, 4),
+                      (ew.run_parity_oracle, 4)):
+        calls = ew._calls_made(fn)
+        assert "require_sequence" in calls, fn
+        # ...and it is THIS function's own step, named through SEQUENCE_STEPS
+        # so the two cannot drift
+        assert f"require_sequence(SEQUENCE_STEPS[{index}])" in \
+            inspect_source(fn), (fn, index)
+
+
+def inspect_source(fn):
+    import inspect
+    return inspect.getsource(fn)
+
+
+def test_a_marker_without_complete_unlocks_nothing(tmp_path, monkeypatch):
+    """§8.6, NB6. "Marker validation does not require `complete` [...] Missing
+    `complete` is treated as TRUE on read."
+
+    v3: "It must carry `complete: true` — a missing `complete` is FALSE, never
+    true-by-absence."
+    """
+    monkeypatch.setattr(ew, "SEQUENCE_DIR", tmp_path / "sequence")
+    monkeypatch.setattr(ew, "_frozen_now", lambda: True)
+    monkeypatch.setattr(ew, "harness_freeze_status",
+                        lambda *a, **k: {"frozen": True})
+    ew.write_sequence_marker("step1_results_canary", produced={"n": 1})
+    assert ew.require_sequence("step2_single_opening")["PASS"] is True
+
+    marker = ew.sequence_marker_path("step1_results_canary")
+    body = json.loads(marker.read_text())
+    body.pop("complete")
+    marker.write_text(json.dumps(body))
+    with pytest.raises(ew.SequenceViolation) as exc:
+        ew.require_sequence("step2_single_opening")
+    assert "complete" in str(exc.value)
+
+
+def test_score_table_derives_its_deciding_evidence_and_cannot_be_handed_it():
+    """§8.6, NB7. "`score_table(tallies=..., mc=...)` still accepts
+    caller-supplied deciding evidence. The guard is keyed to `ledger_path`, so
+    supplying tallies while pointing at a scratch path avoids the production
+    refusal."
+
+    v3: "There is no `tallies=` and no `mc=` on any deciding path, at any
+    target. §5's estimator and §5.4's unanimity rule are computed, not
+    accepted."
+    """
+    assert ew._no_parameter(ew.score_table, "tallies", "mc")
+    assert ew._no_parameter(ew.table_gate, "mc", "unanimity", "tallies")
+
+
+def test_the_guard_does_not_refuse_every_artifact_under_the_shared_fit_dir(
+        tmp_path):
+    """§8.6, P5-I2. "`PREREGISTERED_DIRS` includes all `paths.FIT_DIR`. Any
+    unrelated scratch audit below that shared directory is refused, even though
+    the document closes the evwiden artifacts, not every fit artifact."
+
+    v3: "`paths.FIT_DIR` itself is not a preregistered directory and a target
+    merely INSIDE it is not refused for that reason alone."
+    """
+    assert ew.paths.FIT_DIR not in ew.PREREGISTERED_DIRS
+    # an unrelated neighbour under the shared directory is permitted...
+    ew.assert_seam_allowed("an unrelated audit", target=ew.paths.FIT_DIR
+                           / "some_other_experiment" / "rows.jsonl")
+    # ...and this experiment's own artifacts, named individually, are not
+    for closed in (ew.EVWIDEN_DIR / "x", ew.TABLE_DIR / "x",
+                   ew.SEQUENCE_DIR / "x", ew.EVIDENCE_DIR / "x",
+                   ew.EVWIDEN_JSON, ew.FEASIBILITY_RECORD,
+                   ew.FIRST_FIT_JSON, ew.FIRST_FIT_WITNESS):
+        with pytest.raises(ew.EvWidenError):
+            ew.assert_seam_allowed("this experiment's own", target=closed)
+    # ...and the enumeration is COMPLETE: every path this experiment writes is
+    # covered by it. That is what replaces the wildcard — an exact list a test
+    # reads back, so a new evwiden artifact outside it fails here rather than
+    # being caught by a pattern nobody wrote down.
+    for written in ew.WRITES:
+        assert ew._is_preregistered_target(written), written
+    for named in ew.preregistered_files():
+        assert ew._is_preregistered_target(named), named
+
+
+def test_the_read_only_store_closes_its_check_then_construct_window(tmp_path,
+                                                                    monkeypatch):
+    """§8.2, MIN-READ-ONLY-STORE-TOCTOU. "`read_only_store` checks that
+    `results.parquet` exists and then constructs `BitemporalStore`. The
+    constructor CREATES its root directory, and existence can change between
+    check and construction."
+
+    v3: the accessor "records the root's existence, the parquet's existence, its
+    byte size and its mtime BEFORE constructing anything [...] and re-verifies
+    the same four afterwards".
+    """
+    root = tmp_path / "store"
+    root.mkdir()
+    (root / ew.STORE_TABLE_PARQUET).write_bytes(b"x")
+
+    class _Vanishing:
+        """A store whose root is removed at construction — the TOCTOU window."""
+        def __init__(self, r):
+            import shutil
+            shutil.rmtree(r)
+            Path(r).mkdir(parents=True)      # what BitemporalStore.__init__ does
+
+    import wcmodel.data.store as store_mod
+    monkeypatch.setattr(store_mod, "BitemporalStore", _Vanishing)
+    monkeypatch.setattr(ew, "PREREGISTERED_DIRS", ())    # a scratch root
+    with pytest.raises(ew.StoreNotBuilt) as exc:
+        ew.read_only_store(root=root)
+    assert "CREATED OR MOVED" in str(exc.value)

@@ -197,6 +197,7 @@ __all__ = [
     "ParityRunner", "run_parity_oracle", "assert_native_parity", "simulate_arm",
     "MC_BOOT", "MC_SEED", "MW6_LABEL", "POINT_GATE_LABELS", "SHARDS",
     "write_evidence", "verify", "freeze_block", "harness_freeze_status",
+    "claim_sequence_step",
     "require_harness_freeze",
     "power_simulation", "power_structure", "power_reproduces",
     "committed_power_run",
@@ -2388,8 +2389,26 @@ NO_TARGET = "<no directory: this seam writes nothing>"
 #: §8.6's public-surface closure: the directories this document preregisters.
 #: A seam aimed at one of them is a seam aimed at the preregistered run, and
 #: :func:`assert_seam_allowed` refuses it whatever the caller intends.
+#: v3 §8.6 consequence 5: **this experiment's artifacts, not every artifact.**
+#: The review's P5-I2 found the guard refusing unrelated scratch work anywhere
+#: beneath the SHARED ``paths.FIT_DIR``, which is where every experiment in this
+#: repository writes — over-refusal that blocks the audit passes §8.2 authorises
+#: and that gets worked around rather than obeyed. What replaces the breadth is
+#: exactness: a closed enumeration a committed test reads back, so a new evwiden
+#: artifact that is not in it is caught at the test rather than covered by a
+#: wildcard.
 PREREGISTERED_DIRS: tuple[Path, ...] = (EVWIDEN_DIR, TABLE_DIR, SEQUENCE_DIR,
-                                        EVIDENCE_DIR, paths.FIT_DIR)
+                                        EVIDENCE_DIR)
+
+#: ...and the files this document names by path, which sit beside those
+#: directories rather than inside them. It is a function rather than a tuple
+#: because :data:`FEASIBILITY_RECORD` is defined further down and because §8.5's
+#: rows rebind these constants to a scratch tree — a tuple frozen at import
+#: would name the real paths after the rebinding.
+def preregistered_files() -> tuple[Path, ...]:
+    """The individual artifacts §8.6's closure names, as they stand now."""
+    return (EVWIDEN_JSON, FIRST_FIT_JSON, FIRST_FIT_WITNESS,
+            FEASIBILITY_RECORD)
 
 _PINNED_ARCHIVE_IDENTITY: dict[str, str | None] = {}
 _PINNED_ARCHIVE_ANCESTRY: dict[str, frozenset[str] | None] = {}
@@ -2584,6 +2603,17 @@ def _is_preregistered_target(target: Path | str | None) -> bool:
             continue
         if path == root or path.is_relative_to(root):
             return True
+    # ...and the two files this document names by path, which sit BESIDE those
+    # directories rather than inside them. Enumerating them is what replaces
+    # v2's wildcard over the whole shared `paths.FIT_DIR` (P5-I2): the closure
+    # is exact, and a new evwiden artifact that is not in the list is caught by
+    # the committed test that reads it back rather than covered by a pattern.
+    for named in preregistered_files():
+        try:
+            if path == named.resolve():
+                return True
+        except (OSError, ValueError):                      # pragma: no cover
+            continue
     return False
 
 
@@ -2629,8 +2659,9 @@ def assert_seam_allowed(seam: str, *, played: pd.DataFrame | None = None,
         reasons.append("the corpus IS the pinned walk-forward corpus")
     if _is_preregistered_target(target):
         reasons.append(
-            "the target is one of the preregistered directories "
-            f"({', '.join(paths.rel(d) for d in PREREGISTERED_DIRS)})"
+            "the target is one of the preregistered directories or files "
+            f"({', '.join(paths.rel(d) for d in PREREGISTERED_DIRS)}; "
+            f"{', '.join(paths.rel(f) for f in preregistered_files())})"
             + ("" if target is not None else
                " — no target was named, and the default is the preregistered "
                "run directory"))
@@ -3784,6 +3815,14 @@ def assert_sequence_marker_wellformed(step: str, marker: dict[str, Any]
     head = git_head()
     if head is not None and not marker.get("freeze_commit"):
         absent.append("freeze_commit")
+    # v3 §8.6: "It must carry `complete: true` — a missing `complete` is FALSE,
+    # never true-by-absence." NB6 found the key optional and its absence read as
+    # completion, so a marker that never claimed to have finished unlocked the
+    # next step. It is REQUIRED here and its value is judged in
+    # :func:`require_sequence`, because `complete: false` is a legitimate marker
+    # (§8.4's durable failure) and an ABSENT key is not.
+    if "complete" not in marker or not isinstance(marker.get("complete"), bool):
+        absent.append("complete")
     if absent:
         raise SequenceViolation(
             f"{paths.rel(sequence_marker_path(step))} lacks {absent}. §8.4 "
@@ -3792,6 +3831,21 @@ def assert_sequence_marker_wellformed(step: str, marker: dict[str, Any]
             "written, the harness file digests at that moment, and a digest of "
             "what the step produced — and a file carrying none of it is not a "
             "marker for this run. An empty JSON object is not a completed step.")
+    # ...and the product digest is RECOMPUTED rather than read (v3 §8.6): a
+    # marker whose `produced` was edited while its digest was left behind
+    # describes a product that no longer exists in that form, and unlocks
+    # nothing.
+    recomputed = hashlib.sha256(
+        json.dumps(marker.get("produced"), sort_keys=True,
+                   default=str).encode("utf-8")).hexdigest()
+    if str(marker.get("produced_digest")) != recomputed:
+        raise SequenceViolation(
+            f"{paths.rel(sequence_marker_path(step))} records "
+            f"produced_digest {str(marker.get('produced_digest'))[:12]}… and "
+            f"the digest recomputed over its own `produced` field is "
+            f"{recomputed[:12]}…. §8.6: 'the product digest it names is "
+            "RECOMPUTED and compared, so a marker describing a product that no "
+            "longer exists in that form unlocks nothing'.")
     if str(marker.get("schema")) != SCHEMA_ID:
         raise SequenceViolation(
             f"{paths.rel(sequence_marker_path(step))} carries schema "
@@ -3814,6 +3868,52 @@ def assert_sequence_marker_wellformed(step: str, marker: dict[str, Any]
             "later step is not the step the earlier marker unlocked, and §8.7 "
             "makes such a change an invalidation once a real fit exists.")
     return marker
+
+
+#: The `produced` shape §8.4's OPEN CLAIM carries. A marker holding it is a
+#: step that has started and not finished: it is `complete: false`, so it
+#: unlocks nothing, and the only write that may replace it is that same step's
+#: own completion.
+_CLAIM_KEY = "claimed"
+
+
+def claim_sequence_step(step: str, *, note: str) -> dict[str, Any]:
+    """Open §8.4's write-once marker BEFORE the step spends anything.
+
+    v3 §8.4, P5-B8:
+
+    > **step 5 claims its marker BEFORE it simulates**, not after: the
+    > write-once marker is opened at the start of the step and completed at its
+    > end, so a second attempt is refused before a single fit is spent rather
+    > than after a second outcome exists.
+
+    The review found the table branch checking only that step 4 preceded step 5,
+    performing the whole expensive run, and *then* attempting the marker — so a
+    caller who had seen the first outcome could run the leg again and have the
+    second outcome exist before the conflict was raised. An open claim inverts
+    the order: the second attempt dies at the claim.
+
+    An open claim that never completes behaves exactly like §8.4's durable
+    FAILURE marker, and for the same reason: the step ran, it did not finish,
+    and a continuation needs a dated pre-freeze note rather than a retry.
+    """
+    existing = read_sequence_marker(step)
+    head = git_head()
+    if existing is not None and existing.get("freeze_commit") in (None, head):
+        state = ("an OPEN CLAIM that never completed"
+                 if not existing.get("complete")
+                 and (existing.get("produced") or {}).get(_CLAIM_KEY)
+                 else "a COMPLETED step" if existing.get("complete")
+                 else "a FAILED step")
+        raise SequenceViolation(
+            f"{step} refuses: {paths.rel(sequence_marker_path(step))} already "
+            f"records {state} under this freeze commit. §8.4's markers are "
+            "written ONCE, and this step claims its marker BEFORE it spends "
+            "anything precisely so that a second attempt is refused before a "
+            "second outcome exists rather than after. A continuation needs a "
+            "new dated pre-freeze note written before the retry, not a re-run.")
+    return _marker_bytes(step, produced={_CLAIM_KEY: str(note)},
+                         complete=False)
 
 
 def write_sequence_marker(step: str, *, produced: Any = None,
@@ -3849,8 +3949,14 @@ def write_sequence_marker(step: str, *, produced: Any = None,
     head = git_head()
     existing = read_sequence_marker(step)
     if existing is not None and existing.get("freeze_commit") in (None, head):
-        if existing.get("produced_digest") != digest or \
-                bool(existing.get("complete", True)) != bool(complete):
+        # ...unless it is this step's own OPEN CLAIM, in which case this write
+        # is the completion the claim was opened for and is the ONE legal
+        # transition (§8.4, P5-B8). Any other second write is a re-run.
+        if (not existing.get("complete")
+                and (existing.get("produced") or {}).get(_CLAIM_KEY)):
+            existing = None
+        elif existing.get("produced_digest") != digest or \
+                bool(existing.get("complete", False)) != bool(complete):
             raise SequenceViolation(
                 f"{paths.rel(path)} already records {step} under this freeze "
                 f"commit and what it recorded is not what this call produced "
@@ -3860,17 +3966,29 @@ def write_sequence_marker(step: str, *, produced: Any = None,
                 "produces two different things has not been resumed, it has "
                 "been re-run, and the second run is not the step the first "
                 "marker unlocked.")
-        return existing
+        if existing is not None:
+            return existing
+    return _marker_bytes(step, produced=produced, complete=complete)
+
+
+def _marker_bytes(step: str, *, produced: Any = None,
+                  complete: bool = True) -> dict[str, Any]:
+    """Write §8.4's marker file. The write-once decision is the caller's — it
+    belongs to :func:`write_sequence_marker` and :func:`claim_sequence_step`,
+    which make it differently."""
+    path = sequence_marker_path(step)
     marker = {
         "schema": SCHEMA_ID, "step": step, "complete": bool(complete),
         "completed_at": pd.Timestamp.now("UTC").isoformat(),
-        "freeze_commit": head,
+        "freeze_commit": git_head(),
         "prereg": paths.rel(PREREG_PATH),
         "harness": {name: (sha256_file(paths.REPO_ROOT / name)
                            if (paths.REPO_ROOT / name).exists() else None)
                     for name in HARNESS_FILES},
         "produced": produced,
-        "produced_digest": digest,
+        "produced_digest": hashlib.sha256(
+            json.dumps(produced, sort_keys=True,
+                       default=str).encode("utf-8")).hexdigest(),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(marker, indent=2, default=str) + "\n")
@@ -3952,7 +4070,10 @@ def require_sequence(step: str, *, enforce: bool | None = None
             f"against {head[:12]}…). §8.4: a marker written under a different "
             "freeze commit is not a marker for this run — it describes a step "
             "of a run the current freeze does not cover.")
-    if not bool(marker.get("complete", True)):
+    # v3 §8.6: "It must carry `complete: true` — a missing `complete` is FALSE,
+    # never true-by-absence." The review's NB6 found the opposite default, so a
+    # marker that never claimed completion unlocked the next step.
+    if not bool(marker.get("complete", False)):
         raise SequenceViolation(
             f"{step} refuses: {predecessor} RAN AND FAILED, and its marker "
             f"records the failure ({marker.get('produced', {}).get('failure')}). "
@@ -5111,6 +5232,13 @@ def merge(shards: int = 1, *, directory: Path | str | None = None,
 
     directory = Path(directory) if directory is not None else EVWIDEN_DIR
     preregistered = expected is None
+    if preregistered:
+        # v3 §8.6, NB6: step 4's own marker check, on every invocation and not
+        # only through `main`. The review found `merge` "callable without the
+        # CLI sequence", so a direct call scored a ledger that §8.4 had not
+        # unlocked. An audit merge over a caller-stated `expected` census is
+        # §8.2's own synthetic run and is not step 4.
+        require_sequence(SEQUENCE_STEPS[3])
     corpus = load_corpus() if corpus is None else corpus
     check_corpus_scores(corpus)
 
@@ -5347,8 +5475,19 @@ def read_only_store(root: Path | str | None = None):
     creates, and nothing here calls it. There is deliberately no `build=`
     parameter: an escape hatch that a caller can flip is the same defect wearing
     a keyword.
+
+    **And it may not create the store's directory as a side effect of checking
+    it** (v3 §8.2, MIN-READ-ONLY-STORE-TOCTOU). The check-then-construct shape
+    was a time-of-check/time-of-use hole and not a theoretical one:
+    ``BitemporalStore.__init__`` **creates its root directory**
+    (``src/wcmodel/data/store.py:20-23``), so an accessor that verified
+    ``results.parquet`` existed and then constructed the store would create the
+    very directory tree it had just found missing whenever the two disagreed —
+    a pre-freeze command writing into ``paths.STORE_DIR`` while the document
+    claims nothing has been touched. Four facts are recorded before anything is
+    constructed and re-verified afterwards.
     """
-    from wcmodel.data.store import BitemporalStore
+    from wcmodel.data import store as _store_mod
 
     if root is not None:
         # An alternate root is how §8.2's passes prove the accessor never
@@ -5368,7 +5507,27 @@ def read_only_store(root: Path | str | None = None):
             "missing' argument. Build the store by the ordinary route "
             "(`epl.fit.build_store`) from a command that is authorised to write "
             "one, then re-run this read-only pass.")
-    return BitemporalStore(root)
+
+    def _seen() -> tuple:
+        """The four facts §8.2 requires: both existences, the size, the mtime."""
+        stat = table.stat() if table.exists() else None
+        return (root.is_dir(), table.exists(),
+                stat.st_size if stat else None,
+                stat.st_mtime_ns if stat else None)
+
+    before = _seen()
+    store = _store_mod.BitemporalStore(root)
+    after = _seen()
+    if before != after:
+        raise StoreNotBuilt(
+            f"{paths.rel(root)} was CREATED OR MOVED between §8.2's existence "
+            f"check and the store's construction ({before} -> {after}). "
+            "`BitemporalStore.__init__` creates its root directory, so an "
+            "accessor that checked and then constructed would build the very "
+            "tree it had just found missing — a pre-freeze command writing "
+            "under paths.STORE_DIR while §8.8 attests that nothing has been "
+            "touched. The accessor never builds, so this is a refusal.")
+    return store
 
 
 def table_cells(matches: pd.DataFrame, played: pd.DataFrame | None = None, *,
@@ -6293,6 +6452,12 @@ def run_parity_oracle(cells: Sequence[dict[str, Any]],
     parity oracle" into §2.4's standing refusal to thin the run.
     """
     path = Path(path)
+    # v3 §8.6, NB6: "`merge`, `run_table` and `run_parity_oracle` require the
+    # sequence THEMSELVES. Each calls §8.4's marker check for its own step on
+    # every invocation — not only when reached through `main` — so a direct API
+    # call is exactly as ordered as a command line." The oracle is the first
+    # half of step 5.
+    require_sequence(SEQUENCE_STEPS[4])
     if runner is not None:
         assert_seam_allowed("run_parity_oracle(runner=...)", target=path.parent,
                             detail="an injected oracle is not protected "
@@ -6663,6 +6828,10 @@ def run_table(cells: Sequence[dict[str, Any]],
                                        "supplied oracle is not the run this "
                                        "document preregisters")
     harness_frozen = _frozen_now()
+    # v3 §8.6, NB6: step 5's own marker check, on every invocation and not only
+    # through `main`. A direct `run_table(...)` used to be as unordered as a
+    # function call.
+    require_sequence(SEQUENCE_STEPS[4])
     _guard_ledger_location(ledger_path, harness_frozen)
     if parity is None:
         parity = run_parity_oracle(
@@ -7176,8 +7345,6 @@ def unanimity(cells: Sequence[dict[str, Any]], *, point_verdict: bool,
 
 def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
                 seed: int = BOOTSTRAP_SEED,
-                mc: dict[str, Any] | None = None,
-                tallies: dict[str, dict[str, np.ndarray]] | None = None,
                 ledger_path: Path | str | None = None,
                 mc_boot: int = MC_BOOT, mc_seed: int = MC_SEED,
                 expected_cells: int | None = None) -> dict[str, Any]:
@@ -7205,15 +7372,13 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
     assert_not_overridable(n_boot=(n_boot, N_BOOT), seed=(seed, BOOTSTRAP_SEED),
                            mc_boot=(mc_boot, MC_BOOT),
                            mc_seed=(mc_seed, MC_SEED))
-    # §8.6's public-surface closure. A supplied `mc` skips tally loading, the
-    # paired bootstrap AND the unanimity rule — the review's NEW-B3 — and a
-    # supplied `tallies` skips the rebinding read §8.7 requires. Both are seams
-    # and both are refused at a pinned or preregistered target.
-    for name, seam in (("mc", mc), ("tallies", tallies)):
-        if seam is not None:
-            assert_seam_allowed(f"score_table({name}=...)", target=ledger_path,
-                                detail="a supplied Monte-Carlo object or tally "
-                                       "set is not one this run computed")
+    # v3 §8.6 consequence 6, NB7. There is **no `tallies=` and no `mc=`**, at
+    # any target. The guard that used to stand over them was keyed to
+    # `ledger_path`, so a caller who pointed at a scratch ledger while supplying
+    # REAL deciding evidence was permitted — "the alternative evidence path
+    # remains". §5's estimator and §5.4's unanimity rule are COMPUTED here from
+    # the rebound tally files and from nothing else, which is what makes §8.7's
+    # rebinding load-bearing rather than optional.
     if not rows:
         raise MergeIncomplete("no table cells to score")
     if expected_cells is not None and len(rows) != int(expected_cells):
@@ -7301,34 +7466,31 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
     }
 
     # ---- §5.2's paired Monte-Carlo error, over the 16 deciding cells ------
-    if mc is None:
-        deciding = [c for c in per_cell if c["treated_clubs"]]
-        payload = []
-        for c in deciding:
-            row = by_row[c["key"]]
-            arms = (tallies or {}).get(c["key"])
-            if arms is None:
-                if ledger_path is None:
-                    raise TableMCImprecise(
-                        f"{c['key']}: no per-particle tallies were supplied and "
-                        "no ledger path was given to load them from. Gate (iv) "
-                        "may not be evaluated without §5's paired error: "
-                        "§10 makes an MC estimator that is not the "
-                        "jointly-resampled tie-aware one an invalidation.")
-                arms = load_tallies(ledger_path, row)
-            positions, spans = _cell_positions(row)
-            payload.append({"key": c["key"], "season": c["season"],
-                            "cutoff_label": c["cutoff_label"],
-                            "positions": positions, "spans": spans,
-                            "control": arms["control"],
-                            "treatment": arms["treatment"]})
-        mc = paired_mc_bootstrap(payload, n_boot=mc_boot, seed=mc_seed)
-        # §5.4's P5, computed HERE because it needs the same 32 tallies and the
-        # point-estimate verdict of iv-c that this function has just derived.
-        mc["unanimity"] = unanimity(
-            payload,
-            point_verdict=bool(mw6["mean"] > 0.0 and mw6["ci95"][0] > 0.0),
-            n_boot=n_boot, boot_seed=seed)
+    deciding = [c for c in per_cell if c["treated_clubs"]]
+    payload = []
+    for c in deciding:
+        row = by_row[c["key"]]
+        if ledger_path is None:
+            raise TableMCImprecise(
+                f"{c['key']}: no ledger path was given to load the "
+                "per-particle tallies from, and there is no way to supply "
+                "them. Gate (iv) may not be evaluated without §5's paired "
+                "error: §10 makes an MC estimator that is not the "
+                "jointly-resampled tie-aware one an invalidation.")
+        arms = load_tallies(ledger_path, row)
+        positions, spans = _cell_positions(row)
+        payload.append({"key": c["key"], "season": c["season"],
+                        "cutoff_label": c["cutoff_label"],
+                        "positions": positions, "spans": spans,
+                        "control": arms["control"],
+                        "treatment": arms["treatment"]})
+    mc = paired_mc_bootstrap(payload, n_boot=mc_boot, seed=mc_seed)
+    # §5.4's P5, computed HERE because it needs the same 30 tallies and the
+    # point-estimate verdict of iv-c that this function has just derived.
+    mc["unanimity"] = unanimity(
+        payload,
+        point_verdict=bool(mw6["mean"] > 0.0 and mw6["ci95"][0] > 0.0),
+        n_boot=n_boot, boot_seed=seed)
     for c in per_cell:
         c["mc_se_paired"] = mc["mc_se_per_cell"].get(c["key"])
 
@@ -8846,6 +9008,19 @@ def _accepted(fn) -> bool:
     return True
 
 
+def _cli_arguments() -> list[str]:
+    """Every `add_argument` line of :func:`main`, as source text.
+
+    §2.3's closure is about what a CALLER can name, and the CLI's surface is
+    exactly its `add_argument` calls. Reading them is how L18 says that a
+    retired flag is gone rather than merely ignored.
+    """
+    import inspect
+
+    return [line.strip() for line in inspect.getsource(main).splitlines()
+            if "add_argument" in line]
+
+
 def _calls_made(fn) -> set[str]:
     """Every name this function CALLS, read off its syntax tree.
 
@@ -9619,6 +9794,39 @@ def implementation_report() -> list[dict[str, Any]]:
             l9 = l9 and _accepted(
                 lambda: write_sequence_marker(
                     SEQUENCE_STEPS[0], produced={"step": SEQUENCE_STEPS[0]}))
+            # ...and a marker that never CLAIMS completion unlocks nothing:
+            # NB6 found a missing `complete` read as true-by-absence
+            silent = sequence_marker_path(SEQUENCE_STEPS[0])
+            kept_silent = silent.read_text()
+            body = json.loads(kept_silent)
+            body.pop("complete")
+            silent.write_text(json.dumps(body))
+            l9 = l9 and _refused(
+                SequenceViolation,
+                lambda: require_sequence(SEQUENCE_STEPS[1], enforce=True))
+            # ...and a marker whose `produced` was edited while its digest was
+            # left behind describes a product that no longer exists in that form
+            body = json.loads(kept_silent)
+            body["produced"] = {"step": "edited after the fact"}
+            silent.write_text(json.dumps(body))
+            l9 = l9 and _refused(
+                SequenceViolation,
+                lambda: require_sequence(SEQUENCE_STEPS[1], enforce=True))
+            silent.write_text(kept_silent)
+            # ...and step 5's OPEN CLAIM refuses a second attempt BEFORE it
+            # spends anything (P5-B8): the claim is the write-once decision.
+            sequence_marker_path(SEQUENCE_STEPS[4]).unlink()
+            l9 = (l9
+                  and _accepted(lambda: claim_sequence_step(SEQUENCE_STEPS[4],
+                                                            note="opened"))
+                  and _refused(SequenceViolation,
+                               lambda: claim_sequence_step(SEQUENCE_STEPS[4],
+                                                           note="again"))
+                  # an open claim unlocks nothing while it stands...
+                  and not read_sequence_marker(SEQUENCE_STEPS[4])["complete"]
+                  # ...and the ONE legal transition is its own completion
+                  and _accepted(lambda: write_sequence_marker(
+                      SEQUENCE_STEPS[4], produced={"step": "done"})))
         finally:
             globals()["SEQUENCE_DIR"] = kept_seq
         script = launch_script(scratch / "run")
@@ -9634,7 +9842,8 @@ def implementation_report() -> list[dict[str, Any]]:
         steps_at = [script.find(f"# STEP {i}") for i in range(1, 6)]
         ordered_steps = all(v >= 0 for v in steps_at) and steps_at == sorted(steps_at)
         guarded = True
-        for predecessor, command in (("step1_results_canary", None),
+        for predecessor, command in (("step1_results_canary",
+                                      "run_step single_opening"),
                                      ("step2_single_opening", "run_step shard_00"),
                                      ("step3_shards", "run_step merge"),
                                      ("step4_merge", "run_step table"),
@@ -9646,7 +9855,16 @@ def implementation_report() -> list[dict[str, Any]]:
                 at = [i for i, line in enumerate(commands)
                       if line.startswith(command)]
                 guarded = guarded and bool(at) and marker_at[0] < at[0]
+        # v3 §8.4, N-RH-FIRST-ACT: step 2's own COMMAND is among them, with a
+        # scratch --dir the launcher creates. The review found the launcher
+        # carrying only comments for that step.
+        step2 = [line for line in commands if "--limit 1" in line]
         l9 = (l9 and ordered_steps and guarded and len(need) == 5
+              and len(step2) == 1
+              and "--dir \"$SCRATCH\"" in step2[0]
+              and any(line.startswith("SCRATCH=") for line in commands)
+              and any(line.startswith('mkdir -p "$SCRATCH"')
+                      for line in commands)
               and commands.index("run_step merge $PY -u -m epl.evwiden --merge "
                                  f"--shards {SHARDS} --dir \"$DIR\"")
               < [i for i, line in enumerate(commands)
@@ -9656,12 +9874,18 @@ def implementation_report() -> list[dict[str, Any]]:
               and _refused(EvWidenError, lambda: launch_script(scratch / "run",
                                                                shards=2)))
         row("L9", "§8.4", "the frozen five-step sequence and its markers",
-            "remove each marker in turn and require the corresponding step to "
-            "raise SequenceViolation; record a FAILED step and require it to "
-            "unlock nothing; require a second, different marker write under "
-            "one freeze commit to refuse; and read the generated launch.sh as "
+            "remove each marker in turn and require the corresponding step "
+            "to raise SequenceViolation; record a FAILED step and require it "
+            "to unlock nothing; strip a marker's `complete` key and require "
+            "the next step to refuse; edit a marker's `produced` while leaving "
+            "its digest and require the recomputation to catch it; require "
+            "step 5's OPEN CLAIM to refuse a second attempt before it spends "
+            "anything; require a second, different marker write under one "
+            "freeze commit to refuse; read the generated launch.sh as "
             "COMMANDS — every precondition must be a `need_marker` command "
-            "line before its step's command, not a comment naming the marker",
+            "line before its step's command, not a comment naming the marker — "
+            "and require step 2's own command to be among them, with the "
+            "scratch --dir the launcher creates",
             l9, detail={"need_marker_commands": len(need)})
 
         # ---- L10: tallies bound and rebound ------------------------------
@@ -10065,6 +10289,16 @@ def implementation_report() -> list[dict[str, Any]]:
             main(["--shard", "0/2", "--run"]) == 2,
             main(["--limit", "2", "--run"]) == 2,
             main(["--limit", "1", "--table"]) == 2,
+            # v3 §8.4, P5-B8: the table ledger is RESOLVED and no flag names it
+            not any("table-ledger" in line or "table_ledger" in line
+                    for line in _cli_arguments()),
+            # v3 §8.2, IMP-PREFREEZE-SCRIPT: `--script` is refused pre-freeze at
+            # EVERY target, not only the default one, and takes no interpreter
+            _refused(EvWidenError, lambda: write_launch_script(scratch)),
+            _refused(EvWidenError, lambda: write_launch_script(None)),
+            _no_parameter(write_launch_script, "python", "kwargs"),
+            _no_parameter(launch_script, "python", "kwargs"),
+            not (scratch / LAUNCH_NAME).exists(),
         ])
         row("L18", "§2.3", "the frozen constants are not overridable",
             "attempt to pass a different B, alpha seed, MC_BOOT, MC_SEED, K, "
@@ -10436,6 +10670,13 @@ def require_harness_freeze(sources: Sequence[Path] | None = None,
 #: nothing outside the hash table can decide what runs.
 LAUNCH_PYTHON = ".venv/bin/python"
 
+#: §8.4 step 2's scratch target, named here rather than left to the operator.
+#: The step writes its rows OUTSIDE the preregistered run directory and its
+#: MARKER inside it, and "a step whose only legal target the guard refuses is
+#: not a step; it is a sentence" (v3 §8.4). Naming it in the generated launcher
+#: is what makes the step a command rather than a comment.
+SCRATCH_STEP2_NAME = "data/epl/fit/evwiden_step2_scratch"
+
 
 def launch_script(directory: Path | str | None = None,
                   shards: int = SHARDS) -> str:
@@ -10534,14 +10775,20 @@ def launch_script(directory: Path | str | None = None,
         '#   marker: sequence/step1_results_canary.json',
         'run_step canary $PY -u -m epl.evwiden --canary --dir "$DIR"',
         "",
-        '# STEP 2 — the single-opening exercise, BY HAND, into a SCRATCH',
-        '# directory outside this one. Its numbers enter no estimand and its',
-        '# rows are never merged; it exercises the one path no test can execute',
-        '# without a real fit. Not run here, because it is not run into "$DIR"',
-        '# — but its marker IS written to "$DIR" and step 3 refuses without it:',
-        '#     $PY -u -m epl.evwiden --run --limit 1 --dir <scratch>',
+        '# STEP 2 — the single-opening exercise, into a SCRATCH directory',
+        '# outside this one. Its numbers enter no estimand and its rows are',
+        '# never merged; it exercises the one path no test can execute without',
+        '# a real fit. Its MARKER is written to "$DIR" and step 3 refuses',
+        '# without it. It is a COMMAND and it runs here: the review found the',
+        '# launcher carrying only comments for this step while the sequence',
+        '# guard refused the scratch --dir the step is REQUIRED to use, so the',
+        '# step was not executable as written (N-RH-FIRST-ACT).',
         '#   marker: sequence/step2_single_opening.json',
         'need_marker step1_results_canary "step 2, the single opening"',
+        f'SCRATCH="{SCRATCH_STEP2_NAME}"',
+        'mkdir -p "$SCRATCH"',
+        'run_step single_opening $PY -u -m epl.evwiden '
+        '--run --limit 1 --dir "$SCRATCH"',
         "",
         "# STEP 3 — the four shards, SEQUENTIALLY (§2.4: parallel shards crash",
         "# on the featpanel .tmp rename race in the locked path, and the fix is",
@@ -10591,18 +10838,47 @@ def write_launch_script(directory: Path | str | None = None,
     """Write the launcher — and never before §8.3's freeze commit.
 
     §8.2's enumeration of pre-freeze passes is complete and closed, and none of
-    its entries writes anything inside the repository. The review found
-    ``--script`` writing a launcher under ``data/`` with no freeze anywhere,
-    "contradicting the complete no-repository-write enumeration". The launcher
-    is a POST-freeze operational artifact — §8.4 step 1 is the first thing it
-    runs and step 1 is the first post-freeze act — so the resolution is not to
-    enumerate the write but to refuse it until the freeze exists.
-    :func:`_guard_ledger_location` is that refusal, and it leaves a scratch
-    ``--dir`` free for the audit.
+    its entries writes anything inside the repository. The review's
+    IMP-PREFREEZE-SCRIPT found the enumeration FALSE anyway: this function
+    refused the default production target pre-freeze but "permits a scratch
+    directory and writes inside the repository if that scratch path is outside
+    the narrowly tested evwiden directories". A path-keyed refusal cannot make a
+    statement about WRITES true, because the statement is not about paths.
+
+    v3 §8.2 rules it in two clauses and both are here:
+
+    > **`--script` writes the launcher only AFTER the freeze commit.** It is a
+    > post-freeze operational artifact — §8.4 step 1 is the first thing the
+    > launcher runs — so a pre-freeze `--script` is refused at **every** target,
+    > not only the default one. The refusal is on the freeze state and not on
+    > the path.
+    >
+    > **After the freeze, `--script` writes to the preregistered run directory
+    > and nowhere else.** [...] and it takes no interpreter, no command prefix
+    > and no forwarded keyword arguments: [...] a caller who could name the
+    > Python that runs it could substitute an alternative implementation into
+    > every post-freeze step at once.
     """
     directory = Path(directory) if directory is not None else EVWIDEN_DIR
+    if not _frozen_now():
+        raise EvWidenError(
+            f"refusing to write {LAUNCH_NAME} to {paths.rel(directory)} before "
+            "§8.3's freeze commit, and the refusal is on the FREEZE STATE and "
+            "not on the path: §8.2's enumeration of pre-freeze passes is "
+            "complete and none of its six entries writes anything inside the "
+            "repository, so a pre-freeze --script at ANY target is a write the "
+            "enumeration does not carry. The launcher is a post-freeze "
+            "operational artifact — §8.4 step 1 is the first thing it runs — "
+            "and there is nothing for it to run until the freeze exists.")
+    if directory.resolve() != EVWIDEN_DIR.resolve():
+        raise EvWidenError(
+            f"refusing to write {LAUNCH_NAME} to {paths.rel(directory)}: §8.2 "
+            "gives the post-freeze launcher one target, "
+            f"{paths.rel(EVWIDEN_DIR / LAUNCH_NAME)}, and no other. The "
+            "launcher's contents are a function of the frozen constants and of "
+            "the harness bytes §8.3 hashes; a copy somewhere else is a second "
+            "runner whose bytes nothing in the hash table describes.")
     path = directory / LAUNCH_NAME
-    _guard_ledger_location(path, _frozen_now())
     directory.mkdir(parents=True, exist_ok=True)
     path.write_text(launch_script(directory, shards))
     path.chmod(0o755)
@@ -10832,7 +11108,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     ap.add_argument("--dir", dest="directory", default=None,
                     help="the run directory: the canary record and the shard "
                          f"ledgers (default {paths.rel(EVWIDEN_DIR)})")
-    ap.add_argument("--table-ledger", default=None)
     # §2.3: `B = 10,000` is frozen and IS NOT OVERRIDABLE. v1 carried a
     # `--n-boot` flag and passed it straight into `score_table`, `merge` and
     # `verify` without refusal. The flag is kept only so that passing it is a
@@ -10881,9 +11156,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     directory = Path(args.directory) if args.directory else EVWIDEN_DIR
-    table_ledger = (Path(args.table_ledger) if args.table_ledger
-                    else (TABLE_LEDGER if directory == EVWIDEN_DIR
-                          else directory / TABLE_LEDGER.name))
+    # v3 §8.4, P5-B8: **the table ledger is RESOLVED and no flag names it.**
+    # The CLI used to accept an arbitrary ledger path, and the table branch
+    # checked only that step 4 preceded step 5 — performing the whole expensive
+    # run and only THEN attempting the write-once step-5 marker. A caller who
+    # had seen the first table's outcome could point at a second ledger, run the
+    # leg again, and have the second outcome exist before the marker conflict
+    # was raised: an outcome-conditioned second run of the deciding leg, wearing
+    # the clothes of a path argument. It follows `--dir` so that §8.2's
+    # synthetic audit keeps its own tree, and nothing else may name it.
+    table_ledger = (TABLE_LEDGER if directory == EVWIDEN_DIR
+                    else directory / TABLE_LEDGER.name)
 
     try:
         if args.script:
@@ -11008,6 +11291,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             # and a full `--run` is step 3. Each refuses without its
             # predecessor's marker.
             step = (SEQUENCE_STEPS[1] if args.limit == 1 else SEQUENCE_STEPS[2])
+            if args.limit == 1 and directory.resolve() == EVWIDEN_DIR.resolve():
+                # v3 §8.4, N-RH-FIRST-ACT: "**The step's own scratch target is
+                # part of the step.** `--run --limit 1` requires a `--dir` that
+                # is NOT the preregistered run directory, refuses one that is,
+                # and writes its marker to the preregistered directory
+                # regardless of where its rows went. A step whose only legal
+                # target the guard refuses is not a step; it is a sentence."
+                print("STOP: §8.4 step 2 runs into a SCRATCH directory outside "
+                      f"the preregistered run directory ({paths.rel(EVWIDEN_DIR)}) "
+                      "— 'its numbers enter no estimand; its rows are never "
+                      "merged' — and its marker is written to the preregistered "
+                      "directory regardless. Pass --dir <scratch>. The "
+                      "generated launcher names one and creates it.", flush=True)
+                return 2
             require_run_preconditions(directory,
                                       require_results=bool(frozen["frozen"]),
                                       step=step)
@@ -11104,11 +11401,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             # internally consistent while proving nothing about the other cells.
             if args.limit:
                 print("STOP: --limit does not apply to --table. §3.3 requires "
-                      "native parity at ALL THIRTY-FIVE cells with no sampling, "
-                      "and §2.4 makes thinning the run an amendment rather than "
-                      "an optimisation — expressly including sampling or "
-                      "truncating the parity oracle.", flush=True)
+                      "native parity at ALL THIRTY-TWO priceable cells with no "
+                      "sampling, and §2.4 makes thinning the run an amendment "
+                      "rather than an optimisation — expressly including "
+                      "sampling or truncating the parity oracle.", flush=True)
                 return 2
+            # v3 §8.4: **step 5 claims its write-once marker BEFORE it
+            # simulates**, so a second attempt is refused before a single fit is
+            # spent rather than after a second outcome exists (P5-B8). The claim
+            # is `complete: false` — §8.4's durable-failure shape — and the same
+            # marker is completed below once the leg finishes. A run that dies
+            # in between leaves the failure on disk, which is the file-drawer
+            # channel §4.4 exists to close.
+            if frozen["frozen"]:
+                claim_sequence_step(
+                    SEQUENCE_STEPS[4],
+                    note="step 5 opened; the parity oracle and the table leg "
+                         "have not completed")
             out = run_table(cells, table_ledger)
             if frozen["frozen"]:
                 write_sequence_marker(SEQUENCE_STEPS[4], produced={
