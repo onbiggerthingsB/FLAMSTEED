@@ -1667,6 +1667,69 @@ def test_the_realised_power_is_reported_beside_the_frozen_scenarios(tmp_path):
     assert result["secondaries_decide"] == "nothing"
 
 
+def _tiny_power_structure():
+    """A small structure of the frozen SHAPE, for tests about the machinery.
+
+    §6.2's structure is "recomputed from the pinned artifacts by the harness
+    itself, not typed in", and §6.5's realised re-run keeps `R`, both seeds, the
+    grid and the interpolation rule frozen — the structure is the thing a test
+    may shrink, and the pinned tests exercise the real one.
+    """
+    blocks = [f"b{i // 2}" for i in range(12)]
+    seasons = [f"s{i // 4}" for i in range(12)]
+    treated = np.array([i % 2 == 0 for i in range(12)], dtype=bool)
+    return {"blocks": blocks, "seasons": seasons, "treated": treated,
+            "n_thin": 12, "n_treated": int(treated.sum()),
+            "n_week_blocks": len(set(blocks)), "n_seasons": len(set(seasons))}
+
+
+def test_the_joint_gate_mde_is_recomputed_at_the_realised_sd(tmp_path):
+    """§6.5's obligation, which v1 reported the wrong quantity for.
+
+    > After the run, the **realised paired SD of the treated deltas** is
+    > reported, and **the joint-gate MDE is recomputed at that realised SD** —
+    > the fixed-scenario simulation of §6.2 re-run with `s` set to the realised
+    > value, at the same `R`, the same seeds, the same grid and the same
+    > interpolation rule, producing a realised `power@bar`, realised `MDE80` and
+    > realised ratio in the same columns as §6.3's table.
+    >
+    > It is a distinct quantity from the two-sided-test-against-zero MDE, which
+    > is not what gate (i) is; **a result document that reports the latter
+    > beside the realised SD has not discharged this obligation.**
+
+    v1 reported exactly the latter: `2.8016 × se_iid`, beside a sentence saying
+    the joint MDE "remains the fixed-scenario simulation's". The joint one is
+    now computed.
+    """
+    rows = _merged(tmp_path)
+    result = ew.estimand(rows, corpus_rows=len(rows))
+    sd = result["power"]["realised"]["sd_paired_treated"]
+    assert sd is not None
+
+    joint = ew.realised_power(sd, structure=_tiny_power_structure())
+    assert [r["rho"] for r in joint["rows"]] == list(ew.POWER_RHOS)
+    for row in joint["rows"]:
+        assert row["scenario"] == "realised"
+        assert row["sd"] == pytest.approx(float(sd))
+        # the SAME columns as §6.3's table
+        assert set(row) >= {"power_at_bar", "mde_estimand", "ratio_to_bar",
+                            "power_at_2x_bar"}
+    # the same R, the same seeds, the same grid, the same interpolation rule
+    assert joint["replicates"] == ew.POWER_REPLICATES
+    assert joint["simulation_seed"] == ew.POWER_SEED
+    assert joint["bootstrap"]["seed"] == ew.BOOTSTRAP_SEED
+    assert joint["grid"]["points"] == ew.POWER_GRID_POINTS
+
+    # ...and the evidence object carries it under `power.realised`, beside — not
+    # instead of — the two-sided quantity it is distinct from
+    obj = ew.evidence_object({**result, "table": {}},
+                             power={"structure": {}, "rows": []})
+    realised = obj["power"]["realised"]
+    assert realised["sd_paired_treated"] == sd
+    assert realised["joint_mde"]["rows"]
+    assert "NOT gate" in realised["note"]
+
+
 def test_a_population_of_structural_zeros_is_degenerate_not_a_finding():
     """§3.1 pre-states the identically zero row so it cannot be presented as
     either a finding or a failure."""

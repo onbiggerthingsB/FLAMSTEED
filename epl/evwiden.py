@@ -3629,6 +3629,7 @@ def power_simulation(structure: dict[str, Any] | None = None, *,
                      replicates: int = POWER_REPLICATES,
                      seed: int = POWER_SEED, n_boot: int = N_BOOT,
                      bootstrap_seed: int = BOOTSTRAP_SEED,
+                     scenarios: Sequence[tuple[str, float, str]] | None = None,
                      verbose: bool = False) -> dict[str, Any]:
     """R-I2's power analysis, as R2-I2 makes it committed, runnable code.
 
@@ -3705,7 +3706,11 @@ def power_simulation(structure: dict[str, Any] | None = None, *,
 
     rng = np.random.default_rng(int(seed))
     rows: list[dict[str, Any]] = []
-    for name, sd, source in POWER_SCENARIOS:
+    # §6.5 re-runs this simulation "with `s` set to the realised value, at the
+    # same R, the same seeds, the same grid and the same interpolation rule".
+    # The SD is the one thing that moves; everything §2.3 freezes is closed
+    # above by `assert_not_overridable`.
+    for name, sd, source in (scenarios or POWER_SCENARIOS):
         for rho in POWER_RHOS:
             u = rng.standard_normal((int(replicates), len(block_index)))
             z = rng.standard_normal((int(replicates), n_treated))
@@ -3792,10 +3797,40 @@ def power_simulation(structure: dict[str, Any] | None = None, *,
                             "MDE equal to the bar is unattainable by "
                             "construction, at any SD; the honest quantity is "
                             "the ratio."),
+        "scenarios": [{"scenario": n, "paired_sd": s, "source": src}
+                      for n, s, src in (scenarios or POWER_SCENARIOS)],
         "rows": rows, "published": [dict(r) for r in PUBLISHED_POWER],
         "warning": POWER_WARNING,
         "decides": "nothing — no threshold in §4 moves in response",
     }
+
+
+def realised_power(sd: float, *, structure: dict[str, Any] | None = None,
+                   verbose: bool = False) -> dict[str, Any]:
+    """§6.5: **the joint-gate MDE recomputed at the REALISED paired SD.**
+
+    > After the run, the **realised paired SD of the treated deltas** is
+    > reported, and **the joint-gate MDE is recomputed at that realised SD** —
+    > the fixed-scenario simulation of §6.2 re-run with `s` set to the realised
+    > value, at the same `R`, the same seeds, the same grid and the same
+    > interpolation rule, producing a realised `power@bar`, realised `MDE80` and
+    > realised ratio in the same columns as §6.3's table.
+
+    **It is a distinct quantity from the two-sided-test-against-zero MDE**,
+    which is not what gate (i) is: gate (i) is a threshold AT the bar, so an
+    80%-power MDE equal to the bar is unattainable by construction at any SD.
+    "A result document that reports the latter beside the realised SD has not
+    discharged this obligation" — and v1 reported exactly the latter, beside a
+    sentence saying the joint MDE "remains the fixed-scenario simulation's".
+
+    The realised numbers decide nothing and no threshold moves in response
+    (§6.5). They exist so the reader can size the null §6.3's warning
+    pre-announces.
+    """
+    return power_simulation(
+        structure, verbose=verbose,
+        scenarios=(("realised", float(sd),
+                    "the realised paired SD of the treated deltas, §6.5"),))
 
 
 def _mde_from_curve(grid: np.ndarray, curve: np.ndarray
@@ -6306,6 +6341,52 @@ def grid_evidence(result: dict[str, Any]) -> list[dict[str, Any]]:
     } for g in result["secondaries"]["grid"]]
 
 
+def realised_power_object(result: dict[str, Any], *,
+                          structure: dict[str, Any] | None = None
+                          ) -> dict[str, Any] | None:
+    """§6.5's obligation on ``widening.json``'s ``power.realised``.
+
+    The harness's ``estimand`` records the realised paired SD, which is cheap;
+    the joint-gate MDE at that SD is a 2,000-replicate simulation and is
+    computed **here**, where the evidence file is assembled, because §6.5 places
+    the obligation "on the **result document and on
+    `reports/evidence/widening.json`'s `power.realised` object**, not on the
+    pre-run harness, because the realised SD does not exist until the fits do".
+
+    The two-sided quantity stays beside it under its own name, labelled as the
+    thing gate (i) is not.
+    """
+    realised = dict((result.get("power") or {}).get("realised") or {})
+    if not realised:
+        return None
+    sd = realised.get("sd_paired_treated")
+    if sd is None:
+        realised["joint_mde"] = {
+            "computed": False,
+            "why": "no treated delta carried a paired SD, so there is no "
+                   "realised value to re-run §6.2 at"}
+        return realised
+    joint = realised_power(float(sd), structure=structure)
+    realised["joint_mde"] = {
+        "computed": True, "sd": float(sd),
+        "replicates": joint["replicates"],
+        "simulation_seed": joint["simulation_seed"],
+        "bootstrap": joint["bootstrap"], "grid": joint["grid"],
+        "bar": joint["bar"],
+        "rows": [{k: r.get(k) for k in
+                  ("scenario", "sd", "rho", "power_at_bar", "mde_treated",
+                   "mde_estimand", "ratio_to_bar", "power_at_2x_bar",
+                   "exhausted", "note")}
+                 for r in joint["rows"]],
+        "definition": joint["definition"],
+        "structural_fact": joint["structural_fact"],
+        "decides": "nothing — §6.5: the realised numbers decide nothing and no "
+                   "threshold moves in response. They exist so the reader can "
+                   "size the null §6.3's warning pre-announces.",
+    }
+    return realised
+
+
 def evidence_object(result: dict[str, Any], *,
                     power: dict[str, Any] | None = None) -> dict[str, Any]:
     """R-I6's `reports/evidence/widening.json`, frozen field by field.
@@ -6427,14 +6508,13 @@ def evidence_object(result: dict[str, Any], *,
             "treatment": c.get("coverage_treated_treatment")}
             for c in (scored.get("per_cell") or []) if c.get("treated_clubs")},
         "sunderland": scored.get("hull_analogue"),
-        # R-I2's required publication: "a `power` object holding these
-        # scenarios, the frozen structure, the MDE definition, R, both seeds,
-        # the six rows above, and — after the run — the REALISED paired SD of
-        # the treated deltas and the MDE recomputed at it. The realised numbers
-        # decide nothing and no threshold moves in response."
-        "power": ({**power, "realised": (result.get("power") or {}).get(
-            "realised"), "reproduces": power_reproduces(power)}
-            if power is not None else result.get("power")),
+        # §9.1: "`power` — §6's object: the frozen scenarios, structure, MDE
+        # definition, R, both seeds, the six rows of §6.3, and `power.realised`
+        # per §6.5" — which is the REALISED paired SD *and the joint-gate MDE
+        # recomputed at it*, not the two-sided-test-against-zero MDE beside it.
+        "power": ({**power, "realised": realised_power_object(result),
+                   "reproduces": power_reproduces(power)}
+                  if power is not None else result.get("power")),
         "materiality": {
             "pooled_corpus": (secondaries.get("full_population") or {}).get("mean"),
             "reseed_shift": RESEED_SCALE["pooled_shift"],
