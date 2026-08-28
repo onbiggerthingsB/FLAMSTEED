@@ -2506,12 +2506,13 @@ def _feasibility_fixture(reason: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _feasibility_expected_keys() -> list[str] | None:
-    """§3.3's 35 cell keys, RECOMPUTED here from the pinned artifacts.
+def _frozen_table_cell_keys() -> list[str] | None:
+    """§3.3's 35 cell keys, RECOMPUTED from the pinned artifacts, or ``None``.
 
-    The pass recomputes them rather than accepting them, because a caller who
+    §8.2 pass 7 recomputes them rather than accepting them, because a caller who
     could name the census could name a shorter one — and "the pass completed"
-    would then mean "the pass completed the cells the caller chose".
+    would then mean "the pass completed the cells the caller chose". The
+    preregistered table merge asks the same question of its own `expected=`.
     """
     try:
         cells = default_table_cells()
@@ -2602,7 +2603,7 @@ def parity_feasibility_pass(quarantine: Path | str, *,
     finally:
         census = [dict(e) for e in (outcome.get("census") or ())]
         keys = [str(e.get("key")) for e in census]
-        expected = _feasibility_expected_keys()
+        expected = _frozen_table_cell_keys()
         complete = bool(outcome["completed"] and expected is not None
                         and len(set(keys)) == len(keys)
                         and sorted(keys) == sorted(expected))
@@ -6793,13 +6794,26 @@ def load_table_ledger(path: Path | str | None = None, *,
     pooled mean over 34 cells is not the quantity §4.1 (iv) gates on.
     """
     path = Path(path) if path is not None else TABLE_LEDGER
-    if expected is not None:
+    if expected is not None and _is_preregistered_target(path.parent):
         # §8.6: a caller-supplied census is a caller-supplied deciding
-        # population. The production callers derive it; an audit may state its
-        # own, in its own directory, on its own rows.
-        assert_seam_allowed("load_table_ledger(expected=)", target=path.parent,
-                            detail="the expected cell census, supplied rather "
-                                   "than derived from the pinned artifacts")
+        # population, and §3.3's is 35 cells recomputed from the pinned
+        # artifacts. At the PREREGISTERED ledger the supplied one has to BE
+        # that census — the production caller derives it and passes what it
+        # derived, and anything else is a caller choosing which cells the merge
+        # demands. An audit reading its own rows in its own directory states
+        # its own, which is what §8.2 says an audit run is.
+        want = _frozen_table_cell_keys()
+        got = sorted(f"{c['season']}|{c['cutoff_label']}" for c in expected)
+        if want is None or sorted(want) != got:
+            raise EvWidenError(
+                f"refusing the expected cell census supplied for "
+                f"{paths.rel(path)}: it names {len(got)} cell(s) and §3.3's, "
+                f"recomputed here from the pinned artifacts, names "
+                f"{len(want or ())}. §8.6's public-surface closure covers any "
+                "parameter that can truncate a deciding population, and the "
+                "census the preregistered merge demands is the document's, not "
+                "the caller's. An audit states its own census on its own rows "
+                "in its own directory.")
     rows, poison, _ = read_jsonl(path)
     if poison:
         first = poison[0]

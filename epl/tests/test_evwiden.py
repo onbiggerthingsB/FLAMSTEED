@@ -6597,8 +6597,17 @@ def test_the_seams_of_the_closure_ask_the_guard_by_effect(tmp_path):
                              manifest=False)["widening.json"]
 
     # a caller-supplied cell census, and §9.3's manifest validation turned off
-    with pytest.raises(ew.EvWidenError):
+    with pytest.raises(ew.EvWidenError) as exc:
         ew.load_table_ledger(ew.TABLE_LEDGER, expected=[])
+    assert "truncate a deciding population" in str(exc.value)
+    if PINNED_ARCHIVE.exists():
+        # ...and the census the PRODUCTION merge derives and passes is §3.3's
+        # own, so the closure does not refuse the run it exists to protect
+        from epl import baseline
+
+        cells = ew.table_cells(baseline.load_matches())
+        with pytest.raises(ew.MergeIncomplete):      # empty ledger, not a seam
+            ew.load_table_ledger(ew.TABLE_LEDGER, expected=cells)
     with pytest.raises(ew.EvWidenError):
         ew.verify(evidence=ew.EVIDENCE_JSON, check_manifest=False)
 
