@@ -7421,10 +7421,6 @@ def _no_parameter(fn, *names: str) -> bool:
     return not any(n in params for n in names)
 
 
-def _conformance_row(row: dict[str, Any], *, ledger_rows=None) -> dict[str, Any]:
-    return row
-
-
 def implementation_report(power: dict[str, Any] | None = None,
                           ) -> list[dict[str, Any]]:
     """§8.5's conformance report — **behavioural predicates, not names**.
