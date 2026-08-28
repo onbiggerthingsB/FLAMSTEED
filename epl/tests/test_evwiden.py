@@ -2376,13 +2376,55 @@ def test_the_parity_oracle_runs_every_cell_and_resumes(tmp_path):
     assert len(seen) == 35 and len(again) == 35     # resumed, not re-run
 
 
-def test_the_treated_run_refuses_a_cell_the_oracle_never_covered(tmp_path):
+def test_no_require_parity_parameter_and_no_limit_on_the_oracle_exist():
+    """§3.3's closures 2 and 3, conformance row L5.
+
+    > **No `--limit` on the oracle.** No CLI flag, keyword or subset argument
+    > may reduce the oracle's 35 cells. "All 35" is the whole content of the
+    > control.
+    >
+    > **No `require_parity` parameter exists.** An exposed boolean that turns
+    > the oracle off is a bypass; the document does not permit one and the
+    > harness may not carry one. Parity is a property of the run, not an option
+    > of the caller.
+    """
+    import inspect
+
+    assert "require_parity" not in inspect.signature(ew.run_table).parameters
+    for fn in (ew.run_table, ew.run_parity_oracle):
+        params = set(inspect.signature(fn).parameters)
+        assert not {p for p in params
+                    if "limit" in p or "sample" in p or "subset" in p}, fn
+    # ...and `--table` no longer takes the CLI flag that truncated the 35
+    assert "--table --limit" not in ew.launch_script()
+
+
+def test_parity_is_established_before_one_treated_simulation_runs(tmp_path):
+    """§3.3's closure 1, conformance row L5: "call the table leg with an oracle
+    of 34 cells and with none; each must raise `TableIdentityBreak` **before**
+    any treatment simulation runs".
+
+    v1's `run_parity_oracle` produced protected rows first, but the new runner
+    then simulated control AND TREATMENT and only afterwards compared its
+    control against protected output. "A design in which the new runner
+    simulates control **and treatment** and only then compares the control
+    against protected output has already executed the treatment before
+    establishing parity, and does not satisfy this clause."
+    """
     cells = _cells()
-    with pytest.raises(ew.TableIdentityBreak) as exc:
-        ew.run_table(cells, tmp_path / "t.jsonl", runner=_table_runner(),
-                     parity={}, n_sims=TALLY_N_SIMS, seed=1, config_sha="c",
-                     verbose=False)
-    assert "BEFORE one treated simulation" in str(exc.value)
+    for oracle in ({}, _parity_for(cells[:-1])):
+        simulated = []
+
+        def counting(cell, _inner=_table_runner()):
+            simulated.append(cell["season"] + "|" + cell["cutoff_label"])
+            return _inner(cell)
+
+        with pytest.raises(ew.TableIdentityBreak) as exc:
+            ew.run_table(cells, tmp_path / "t.jsonl", runner=counting,
+                         parity=oracle, n_sims=TALLY_N_SIMS, seed=1,
+                         config_sha="c", verbose=False)
+        assert "before" in str(exc.value).lower()
+        assert simulated == [], simulated       # not ONE arm of ONE cell
 
 
 def test_the_treated_run_refuses_a_control_arm_that_drifted_from_protected(
@@ -2700,10 +2742,18 @@ def _freeze_cells(path):
 
 def test_the_table_ledger_refuses_a_missing_cell(tmp_path):
     """Not a superset, not a subset: a mean over 34 cells is not the quantity
-    §4.1 (iv) gates on."""
+    §4.1 (iv) gates on.
+
+    The short ledger is made by DROPPING a written row, not by running 34
+    cells: §3.3's closure 1 now refuses a 34-cell leg before it simulates
+    anything, so a truncated run can no longer be the way a truncated ledger
+    comes about — which leaves the loader's own completeness check to be tested
+    on the thing it actually guards, a ledger that lost a row.
+    """
     cells = _cells()
-    path, _ = _run_cells(tmp_path, cells[:-1])
-    _freeze_cells(path)
+    path, _ = _run_cells(tmp_path, cells)
+    rows = _freeze_cells(path)
+    path.write_text("\n".join(json.dumps(r) for r in rows[:-1]) + "\n")
     with pytest.raises(ew.MergeIncomplete) as exc:
         ew.load_table_ledger(path, expected=cells)
     assert "missing" in str(exc.value)

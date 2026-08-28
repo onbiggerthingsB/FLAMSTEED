@@ -4896,6 +4896,66 @@ def _club_detail(matrix: np.ndarray, points: np.ndarray, clubs: Sequence[str],
     return out
 
 
+PARITY_NAME = "parity.jsonl"
+
+
+def parity_path(ledger_path: Path | str) -> Path:
+    """§3.3's completion marker, beside the table ledger."""
+    return Path(ledger_path).parent / PARITY_NAME
+
+
+def assert_parity_complete(cells: Sequence[dict[str, Any]],
+                           parity: dict[str, dict[str, Any]] | None,
+                           *, where: str = "run_table") -> dict[str, Any]:
+    """§3.3's closure 1: **completion, not interleaving** — and it runs FIRST.
+
+    > The parity oracle runs to completion over all 35 cells and writes
+    > `data/epl/sim/evwiden/parity.jsonl` (35 rows) as its completion marker.
+    > `run_table` refuses to simulate any arm until that file exists and carries
+    > all 35 cells with matching digests. **A design in which the new runner
+    > simulates control and treatment and only then compares the control against
+    > protected output has already executed the treatment before establishing
+    > parity, and does not satisfy this clause.**
+
+    v1 was exactly that design: `run_parity_oracle` produced protected rows
+    first, but `TableRunner` then simulated BOTH arms and `run_table` compared
+    the control afterwards, per cell. The first treated simulation therefore ran
+    before the oracle had been checked against anything.
+
+    Three demands, in order: the oracle covers **every** cell of the run; the
+    run covers **all thirty-five** cells (a 34-cell run is not this run, and
+    "all 35 is the whole content of the control"); and every oracle row carries
+    a digest to compare against.
+    """
+    parity = dict(parity or {})
+    want = [f"{c['season']}|{c['cutoff_label']}" for c in cells]
+    short = [k for k in want if k not in parity]
+    if short:
+        raise TableIdentityBreak(
+            f"{where}: the parity oracle covers {len(parity)} of the "
+            f"{len(want)} cells about to be simulated and is short "
+            f"{len(short)} (first: {short[:3]}). §3.3 requires native parity at "
+            "ALL THIRTY-FIVE cells, established **before** one treated "
+            "simulation is executed — not interleaved with it. Run the oracle "
+            "to completion first; it writes parity.jsonl as its completion "
+            "marker, and that file is the precondition of this leg.")
+    if len(want) != EXPECTED_TABLE_CELLS:
+        raise TableIdentityBreak(
+            f"{where}: the table leg was handed {len(want)} cells, not the "
+            f"pre-stated {EXPECTED_TABLE_CELLS}. §3.3: 'All 35' is the whole "
+            "content of the control, and §2.4 makes dropping cells to fit a "
+            "clock an amendment rather than an optimisation — expressly "
+            "including sampling or truncating the parity oracle.")
+    blank = [k for k in want if not (parity[k] or {}).get("substantive_digest")]
+    if blank:
+        raise TableIdentityBreak(
+            f"{where}: {len(blank)} oracle row(s) carry no substantive digest "
+            f"(first: {blank[:3]}), so there is nothing for the control arm to "
+            "be compared against before it is simulated.")
+    return {"n_cells": len(want), "PASS": True,
+            "established": "before one treated simulation (§3.3)"}
+
+
 def tallies_dir(ledger_path: Path | str) -> Path:
     """Where the per-particle tallies live, beside the table ledger.
 
@@ -4932,34 +4992,43 @@ def run_table(cells: Sequence[dict[str, Any]],
               runner: Callable[[dict], dict] | None = None,
               parity: dict[str, dict[str, Any]] | None = None,
               parity_runner: Callable[[dict], dict] | None = None,
-              require_parity: bool = True,
               n_sims: int | None = None, seed: int | None = None,
               config_sha: str | None = None, resume: bool = True,
               verbose: bool = True,
               ) -> dict[str, Any]:
     """Run both arms at every cell and append one JSONL row per cell.
 
-    THE PARITY ORACLE RUNS FIRST, at all thirty-five cells, before one treated
-    simulation is executed (R-B4). Its digests are recorded beside the ledger
-    and every cell's control arm is checked against its own.
+    THE PARITY ORACLE RUNS TO COMPLETION FIRST, at all thirty-five cells, and
+    :func:`assert_parity_complete` is checked **before the loop that simulates
+    anything** (§3.3's closure 1). v1 checked it per cell, inside the loop and
+    after the runner had already produced both arms — so the first treated
+    simulation ran before parity was established anywhere. There is no
+    ``require_parity`` parameter: "an exposed boolean that turns the oracle off
+    is a bypass; the document does not permit one and the harness may not carry
+    one. Parity is a property of the run, not an option of the caller."
 
     Resumable per cell and poisoned per cell, exactly as the match-level shard
-    is: R2-B4(c)'s budget for this leg is 70 fits and 105 runs of 20,000
-    simulated seasons — bounded by ~4 hours, not ~2 — and a crash two hours in
-    should cost the cell in flight and nothing else.
+    is: §2.4's budget for this leg is 70 fits and 105 runs of 20,000 simulated
+    seasons — bounded by ~4 hours — and a crash two hours in should cost the
+    cell in flight and nothing else.
     """
     ledger_path = Path(ledger_path) if ledger_path is not None else TABLE_LEDGER
     harness_frozen = _frozen_now()
     _guard_ledger_location(ledger_path, harness_frozen)
+    if parity is None:
+        parity = run_parity_oracle(
+            cells, parity_path(ledger_path), runner=parity_runner,
+            resume=resume, verbose=verbose,
+            directory=ledger_path.parent)
+    parity = dict(parity)
+    # BEFORE the runner is even constructed, and long before the loop: a cell
+    # simulated without a complete oracle is `TableIdentityBreak` (§7.1), and
+    # §10 makes an oracle "established after any treated simulation" an
+    # invalidation. The check is cheap; the thing it guards costs four hours.
+    parity_check = assert_parity_complete(cells, parity)
     runner = TableRunner(n_sims=n_sims, seed=seed, verbose=verbose,
                          directory=ledger_path.parent
                          ) if runner is None else runner
-    if parity is None and require_parity:
-        parity = run_parity_oracle(
-            cells, ledger_path.parent / "parity.jsonl", runner=parity_runner,
-            resume=resume, verbose=verbose,
-            directory=ledger_path.parent)
-    parity = dict(parity or {})
     n_sims = int(getattr(runner, "n_sims", n_sims or 0))
     seed = int(getattr(runner, "seed", seed or 0))
     config_sha = (getattr(runner, "config_sha256", None) or config_sha
@@ -5000,22 +5069,13 @@ def run_table(cells: Sequence[dict[str, Any]],
 
         arm_tallies = row.pop("_tallies", None)
         ck = cell_key(row)
-        if require_parity:
-            oracle = parity.get(ck)
-            if oracle is None:
-                raise TableIdentityBreak(
-                    f"{ck} has no protected-runner parity digest. R-B4 requires "
-                    "native parity at all thirty-five cells BEFORE one treated "
-                    "simulation is executed; a cell that ran without one ran "
-                    "outside the oracle.")
-            row["parity"] = assert_native_parity(
-                ck, row["arms"]["control"]["substantive_digest"], oracle,
-                row["provisional_control"])
-            row["parity_digest_simretro"] = oracle["substantive_digest"]
-        else:
-            row["parity"] = {"key": ck, "PASS": None,
-                             "why": "the caller supplied no oracle"}
-            row["parity_digest_simretro"] = None
+        # The oracle's completeness was established before the loop; what is
+        # left per cell is the comparison itself, which cannot be skipped —
+        # there is no branch here in which a cell publishes a null parity.
+        row["parity"] = assert_native_parity(
+            ck, row["arms"]["control"]["substantive_digest"], parity[ck],
+            row["provisional_control"])
+        row["parity_digest_simretro"] = parity[ck]["substantive_digest"]
         if arm_tallies is not None:
             target = tally_path(ledger_path, row)
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -5041,7 +5101,7 @@ def run_table(cells: Sequence[dict[str, Any]],
 
     return {"n_cells": len(cells), "n_written": written,
             "n_skipped": len(cells) - written,
-            "ledger": str(ledger_path),
+            "ledger": str(ledger_path), "parity": parity_check,
             "seconds": round(time.time() - started, 1),
             "harness_frozen": bool(harness_frozen)}
 
@@ -7080,8 +7140,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             assert_blas_pinned("the table-retro leg")
             matches = baseline.load_matches()
             cells = table_cells(matches)
+            # §3.3's closure 2: **no `--limit` on the oracle.** "No CLI flag,
+            # keyword or subset argument may reduce the oracle's 35 cells. 'All
+            # 35' is the whole content of the control." v1's `--table --limit`
+            # truncated the run AND its oracle together, so a subset looked
+            # internally consistent while proving nothing about the other cells.
             if args.limit:
-                cells = cells[:args.limit]
+                print("STOP: --limit does not apply to --table. §3.3 requires "
+                      "native parity at ALL THIRTY-FIVE cells with no sampling, "
+                      "and §2.4 makes thinning the run an amendment rather than "
+                      "an optimisation — expressly including sampling or "
+                      "truncating the parity oracle.", flush=True)
+                return 2
             out = run_table(cells, table_ledger)
             print(json.dumps(out, indent=2, default=str))
 
