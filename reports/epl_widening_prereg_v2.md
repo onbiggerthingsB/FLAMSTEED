@@ -2754,7 +2754,8 @@ point of the MANIFEST.
   written **before** the retry (§8.4).
 * A note of any kind appended to this document after the first real fit (§8.7).
 * §8.2 pass 7 run after the freeze commit, run more than once, run without its
-  record, or run in a way that produces a treated arm.
+  record, run in a way that produces a treated arm, or run over fewer than all
+  thirty-five cells and reported as a census.
 
 ---
 
