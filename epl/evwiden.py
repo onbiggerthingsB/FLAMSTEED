@@ -4635,6 +4635,59 @@ def substantive_digest(run, tallies: np.ndarray, *, weights: Sequence[float],
         leaguesim.canonical_json(payload).encode("utf-8")).hexdigest()
 
 
+def arm_record(run, tallies: np.ndarray, book, *, clubs: Sequence[str],
+               positions: np.ndarray, spans: np.ndarray, truth: np.ndarray,
+               weights: Sequence[float], realised_hash: str,
+               treated_clubs: Sequence[str]) -> dict[str, Any]:
+    """One arm of one cell, as :class:`TableRunner` records it.
+
+    Factored out of ``TableRunner.__call__`` so that §3.3's second committed
+    test can be made **at TableRunner level without a real fit**, which is the
+    level the in-tree audit of v1 named. That audit's seed (o) was
+    ``sampler_digest(run, tallies, *, provisional=())`` with the runner passing
+    ``book.provisional``: at a treated cell ``control.provisional !=
+    treatment.provisional``, so the two arms' digests differed because the
+    METADATA differed, and ``assert_table_identity``'s treated-cell condition
+    became a test that could not fail. The whole suite stayed green.
+
+    The two committed tests §3.3 requires are therefore: the signature pin on
+    :func:`sampler_digest`, and a call through THIS function with two books
+    differing only in ``provisional`` over one run and one tally, which must
+    produce **equal** sampler digests. A test that only checks which *existing*
+    fields move the digest cannot see a new input channel; these two can.
+
+    The book reaches the record only as metadata — ``provisional``,
+    ``effective_posterior_hash``, ``alpha`` — and never as an input to either
+    digest.
+    """
+    from epl import simmetrics, table as table_mod
+
+    matrix = simmetrics.scored_matrix(run.matrix, len(clubs))
+    points = np.asarray(run.retained_rows.points)
+    return {
+        "trps": float(simmetrics.trps(matrix, positions, spans=spans)),
+        "wtrps": float(simmetrics.wtrps(matrix, positions, weights,
+                                        spans=spans)),
+        "flat_trps": float(simmetrics.flat_trps(positions, spans=spans)),
+        # (run, tallies) and nothing else — §3.3's pinned signature
+        "sampler_digest": sampler_digest(run, tallies),
+        "substantive_digest": substantive_digest(
+            run, tallies, weights=weights, boundaries=run.plan.boundaries,
+            realised_hash=realised_hash, realised_positions=positions,
+            realised_points=truth),
+        # metadata, checked AS metadata (§3.3)
+        "effective_posterior_hash": book.content_hash(),
+        "provisional": sorted(book.provisional),
+        "coverage": simmetrics.interval_coverage(points, truth),
+        "coverage_treated": _coverage_for(points, truth, clubs, treated_clubs),
+        "clubs_detail": _club_detail(matrix, points, clubs, treated_clubs,
+                                     truth),
+        "n_sims": int(run.n_sims), "n_particles": int(run.n_particles),
+        "tally_check": assert_tally_binds_the_matrix(tallies, run),
+        "widening_mode": f"per_fixture_bernoulli@alpha={book.alpha:g}",
+    }
+
+
 class TableRunner:
     """One fit and TWO simulations per cell, CRN-paired by construction.
 
@@ -4745,39 +4798,18 @@ class TableRunner:
             run = simulate_arm(state, book, n_sims=self.n_sims, seed=self.seed,
                                chunk_size=self.chunk_size,
                                n_particles=book.n_particles)
-            matrix = simmetrics.scored_matrix(run.matrix, len(clubs))
             table_mod.check_doubly_stochastic(run.matrix)
-            points = np.asarray(run.retained_rows.points)
             tally = particle_tallies(run)
-            tally_check = assert_tally_binds_the_matrix(tally, run)
             tallies[name] = tally
             # §8.7's rebinding read needs the matrix and the two counts back;
             # they travel inside the sidecar so `load_tallies` can re-run §5.1's
             # binding checks without a live SimRun.
             tallies[f"matrix_{name}"] = np.asarray(run.matrix, dtype=float)
-            arms[name] = {
-                "trps": float(simmetrics.trps(matrix, positions, spans=spans)),
-                "wtrps": float(simmetrics.wtrps(matrix, positions, weights,
-                                                spans=spans)),
-                "flat_trps": float(simmetrics.flat_trps(positions, spans=spans)),
-                "sampler_digest": sampler_digest(run, tally),
-                "substantive_digest": substantive_digest(
-                    run, tally, weights=weights,
-                    boundaries=run.plan.boundaries,
-                    realised_hash=realised.realised_hash,
-                    realised_positions=positions, realised_points=truth),
-                "effective_posterior_hash": book.content_hash(),
-                "provisional": sorted(book.provisional),
-                "coverage": simmetrics.interval_coverage(points, truth),
-                "coverage_treated": _coverage_for(points, truth, clubs,
-                                                  cell["treated_clubs"]),
-                "clubs_detail": _club_detail(matrix, points, clubs,
-                                             cell["treated_clubs"], truth),
-                "n_sims": int(run.n_sims), "n_particles": int(run.n_particles),
-                "tally_check": tally_check,
-                "widening_mode":
-                    f"per_fixture_bernoulli@alpha={book.alpha:g}",
-            }
+            arms[name] = arm_record(
+                run, tally, book, clubs=clubs, positions=positions, spans=spans,
+                truth=truth, weights=weights,
+                realised_hash=realised.realised_hash,
+                treated_clubs=cell["treated_clubs"])
             if self.verbose:
                 print(f"[evwiden-table] {season} {label} {name} "
                       f"TRPS={arms[name]['trps']:.6f}", flush=True)

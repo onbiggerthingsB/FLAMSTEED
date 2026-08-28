@@ -2369,6 +2369,76 @@ def test_the_substantive_digest_binds_the_whole_plan_state():
     assert "provisional" not in ew.plan_state(_FakeRun())
 
 
+def test_the_sampler_digests_signature_is_pinned_to_run_and_tallies():
+    """§3.3, conformance row L11, and it is here because a two-line change got
+    past the whole suite.
+
+    > **`sampler_digest`'s signature is pinned.** A committed test asserts
+    > `list(inspect.signature(sampler_digest).parameters) == ['run',
+    > 'tallies']`, and a second committed test at `TableRunner` level asserts
+    > that **two books differing only in `provisional`, over identical retained
+    > rows, produce EQUAL sampler digests**. Both are required because the
+    > in-tree audit of v1 showed that a two-line change adding `provisional` to
+    > the digest's payload left the whole suite green while turning the
+    > treated-cell identity test into a test that cannot fail — the exact
+    > tautology the digest split exists to end.
+
+    "A test that only checks which *existing* fields move the digest cannot see
+    a new input channel; these two can."
+    """
+    import inspect
+
+    assert list(inspect.signature(ew.sampler_digest).parameters) == [
+        "run", "tallies"]
+
+
+def test_two_books_differing_only_in_provisional_hash_the_same_sampler_output():
+    """§3.3's second committed test, at the level the audit named.
+
+    The seed that went green against v1 was `sampler_digest(run, tallies, *,
+    provisional=())` with `TableRunner` passing `book.provisional`. At a treated
+    cell `control.provisional != treatment.provisional`, so the two arms'
+    digests differ because the METADATA differs — and
+    `assert_table_identity`'s treated-cell condition becomes a test that cannot
+    fail, "reporting a zero delta as evidence of no harm when the treatment
+    never reached the sampler".
+
+    This test drives the runner's own per-arm record with two books differing in
+    nothing but `provisional`, over ONE run and ONE tally, and requires the
+    sampler digests to be EQUAL and the provisional field to differ.
+    """
+    run = _FakeRun()
+    tally = ew.particle_tallies(run)
+
+    class _Book:
+        def __init__(self, provisional):
+            self.provisional = frozenset(provisional)
+            self.alpha = 0.5
+            self.n_particles = int(run.n_particles)
+
+        def content_hash(self):
+            return "the same posterior either way"
+
+    control = ew.arm_record(run, tally, _Book({"rich"}), clubs=["a", "b", "c"],
+                            positions=np.array([1, 2, 3]),
+                            spans=np.array([1, 1, 1]),
+                            truth=np.array([40, 30, 20]),
+                            weights=[1.0, 1.0], realised_hash="r",
+                            treated_clubs=[])
+    treatment = ew.arm_record(run, tally, _Book({"rich", "sunderland"}),
+                              clubs=["a", "b", "c"],
+                              positions=np.array([1, 2, 3]),
+                              spans=np.array([1, 1, 1]),
+                              truth=np.array([40, 30, 20]),
+                              weights=[1.0, 1.0], realised_hash="r",
+                              treated_clubs=["sunderland"])
+
+    assert control["provisional"] != treatment["provisional"]
+    assert control["sampler_digest"] == treatment["sampler_digest"]
+    # ...and the substantive digest is equally blind to it, for the same reason
+    assert control["substantive_digest"] == treatment["substantive_digest"]
+
+
 def test_the_substantive_digest_excludes_the_effective_posterior_hash():
     """§3.3, and the reason is arithmetic rather than taste.
 
