@@ -8202,7 +8202,7 @@ def launch_script(directory: Path | str | None = None, shards: int = SHARDS, *,
         '#   marker: sequence/step4_merge.json',
         'need_marker step3_shards "step 4, the merge"',
         f'run_step merge $PY -u -m epl.evwiden --merge --shards '
-        f'{shards} --evidence --dir "$DIR"',
+        f'{shards} --dir "$DIR"',
         "",
         "# STEP 5 — the parity oracle at all 35 cells to COMPLETION, and only",
         "# then the table's 35 cells (§3.3). Refuses without step 4's marker.",
@@ -8211,6 +8211,17 @@ def launch_script(directory: Path | str | None = None, shards: int = SHARDS, *,
         '#   marker: sequence/step5_parity.json',
         'need_marker step4_merge "step 5, the parity oracle and the table"',
         'run_step table $PY -u -m epl.evwiden --table --dir "$DIR"',
+        "",
+        "# PUBLICATION — §9's evidence files, written once gate (iv) exists.",
+        "# The merge at step 4 writes its own product,",
+        "# data/epl/fit/evwiden.json; the evidence carries the table gate, so",
+        "# it cannot be written before step 5 has produced one. §4.4: the",
+        "# result publishes either way, and there is no file drawer. This",
+        "# fits nothing and simulates nothing — it re-scores what steps 3-5",
+        "# already wrote.",
+        'need_marker step5_parity "the evidence"',
+        f'run_step evidence $PY -u -m epl.evwiden --merge --shards '
+        f'{shards} --evidence --dir "$DIR"',
         "", 'echo "[launch] done"', ""]
     return "\n".join(lines)
 

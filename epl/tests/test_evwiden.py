@@ -4261,6 +4261,29 @@ def test_the_launcher_emits_exactly_the_five_steps_in_order(tmp_path):
         assert text.index(step) < text.index(command), step
 
 
+def test_the_launcher_publishes_the_evidence_after_the_table_leg(tmp_path):
+    """§8.4 puts the merge at step 4 and the parity oracle and table at step 5,
+    and §9 requires the evidence files to carry gate (iv).
+
+    A launcher that writes the evidence inside step 4 publishes a verdict with
+    no table gate in it and then runs the four-hour leg that decides half of
+    the adoption rule — and never publishes what it found. The merge's own
+    product, `data/epl/fit/evwiden.json`, is step 4's; the §9 evidence is
+    written by a final pass once step 5's marker exists.
+    """
+    text = ew.launch_script(tmp_path)
+    step4 = text.index("# STEP 4")
+    step5 = text.index("# STEP 5")
+    # step 4 merges and does NOT publish
+    merge_line = text.index("run_step merge ")
+    assert step4 < merge_line < step5
+    assert "--evidence" not in text[step4:step5]
+    # ...and the evidence pass comes after step 5's marker
+    evidence_line = text.index("--evidence")
+    assert evidence_line > text.index("run_step table ")
+    assert text.index("need_marker step5_parity") < evidence_line
+
+
 def test_the_launcher_generates_four_shards_and_refuses_any_other_count(
         tmp_path):
     """§8.4: "**`SHARDS = 4` is enforced, not defaulted.** `--shards` may not be
