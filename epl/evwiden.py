@@ -10,20 +10,20 @@ semantics and the scope were written down before this file existed; and §4.5
 makes adoption an owner ruling that no script may take.
 
 **v1 IS LINEAGE AND DECIDES NOTHING.** ``reports/epl_widening_prereg.md`` was
-invalidated on 2026-08-28 under its own R-B6: two real ADVI fits occurred on the
+invalidated on 2026-08-28 under its own §8.7: two real ADVI fits occurred on the
 pinned archive through protected :class:`epl.simretro.ArchiveRunner` during v1's
 conformance work — the parity leg is a mandatory leg of this experiment and
-R-B6 counts any real fit — so that document cannot be repaired into legitimacy
+§8.7 counts any real fit — so that document cannot be repaired into legitimacy
 (§8.1). v2 carries v1's law as its two repair rounds left it, with every text
 defect three reviews and one in-tree adversarial audit found fixed at the
 source. **There are no repair sections and no supersession index**, so this
 module cites section numbers and nothing else: where a comment used to name
-R-B1 or R2-B4 it now names the §ce that says the same thing, because a citation
+§2.3 or §3.3 it now names the §ce that says the same thing, because a citation
 to a superseding round is a citation to a document that no longer exists.
 
 **v2's NO-FIT CLOCK STARTS AT v2's OWN FREEZE COMMIT** (§8.3). The two v1 fits
 preceded this document; §8.8 names them inside the attestation rather than
-beside it, and the R-B6 regime of §8.7 binds changes to hashed files after the
+beside it, and the §8.7 regime of §8.7 binds changes to hashed files after the
 first real fit **of this document** — which §8.4 makes the results canary of
 step 1.
 
@@ -35,7 +35,7 @@ ADD, never REPLACE. Binary, never continuous. ``alpha`` stays 0.5 and the mix is
 the incumbent one, so a treated fixture is mechanically indistinguishable from a
 fixture the incumbent predicate already widens.
 
-WHAT THE TWO ARMS ARE (§2.3, AS R-B1 REPAIRS IT). Both arms are computed from
+WHAT THE TWO ARMS ARE (§2.3, AS §2.3 REPAIRS IT). Both arms are computed from
 the SAME newly fitted posterior and the SAME base grid, at every one of the 78
 block openings. The superseded design read Arm B out of the corpus — an old
 ROUNDED 1X2 projection — while Arm A came from a new fit; mechanism (c) acts on
@@ -90,18 +90,20 @@ fall. It does not touch the corpus, the archive, the walk-forward ledger or
 And it does not run the preregistered experiment before the harness-hash freeze
 commit of §6 exists: :func:`harness_freeze_status` reads that commit's own
 record and :func:`merge` refuses without it, because a run that precedes the
-freeze is, by §7, not the run this document preregisters.
+freeze is, by §10, not the run this document preregisters.
 
-PRE-FREEZE CONTACT WITH THE REAL ARTIFACTS, DISCLOSED. R2-B5 supersedes both
-§5.3's "except to hash them" sentence and the introduction's synthetic-only
-clause with one rule: **pre-freeze, no harness code fits and no harness code
-simulates; reading the pinned artifacts is permitted, is read-only, and is
-enumerated by name and date in the freeze commit.** :data:`PRE_FREEZE_RUNS`
-carries all six authorised passes and :func:`freeze_block` prints them.
+PRE-FREEZE CONTACT WITH THE REAL ARTIFACTS, DISCLOSED. §8.2 states one rule and
+v2 carries no other clause to read against it: **pre-freeze, no harness code
+fits and no harness code simulates; reading the pinned artifacts is permitted,
+is read-only, and is enumerated by name in the freeze commit.**
+:data:`PRE_FREEZE_RUNS` carries all six authorised passes and
+:func:`freeze_block` prints them. "Read-only" is a property of code here and not
+of intent: :func:`read_only_store` is the single route to a point-in-time store
+and it raises :class:`StoreNotBuilt` rather than building one.
 
 NOT ONE FIT ON THE REAL ARCHIVE PRECEDES THE FREEZE, AND THE GUARD IS NOT THE
-DIRECTORY. Round one's preamble claimed the harness's guards made a pre-freeze
-delta impossible; round two withdrew that sentence as FALSE, because
+DIRECTORY. v1's preamble claimed the harness's guards made a pre-freeze
+delta impossible; v1's second review withdrew that sentence as FALSE, because
 :func:`_guard_ledger_location` is keyed to the run directory and a ``--dir``
 outside the defaults escaped it. :func:`assert_may_fit` is keyed to the freeze
 state and to the ARTIFACT IDENTITY being read — the pinned archive's own
@@ -126,7 +128,7 @@ from __future__ import annotations
 # module does not pin, because a library that rewrites the process environment
 # on import changes the behaviour of code it knows nothing about. What replaces
 # the mutation is evidence: :func:`blas_threads` records what the process
-# ACTUALLY has on every ledger row (§5.2) and :func:`assert_blas_pinned` refuses
+# ACTUALLY has on every ledger row (§7.2) and :func:`assert_blas_pinned` refuses
 # to run real fits in a process that is not pinned (§2.4).
 # --------------------------------------------------------------------------
 import os as _os
@@ -225,7 +227,7 @@ SEED = 20260611
 FROZEN_WIDENING = {"mechanism": "c", "strength": 0.5}
 DECAY_HALF_LIFE_DAYS = 365.0
 
-#: R-I1's repaired pin. `epl.freeze.frozen_wcmodel_config()` loads the LIVE
+#: §0.1's repaired pin. `epl.freeze.frozen_wcmodel_config()` loads the LIVE
 #: `config/config.yaml` and overlays only the frozen EPL Elo block, so the
 #: superseded three-condition check bound `epl/config_frozen.json`, the realised
 #: seed and the realised widening block AND NOTHING ELSE — not the decay
@@ -235,7 +237,7 @@ DECAY_HALF_LIFE_DAYS = 365.0
 #:
 #: The value is the SHA-256 of `json.dumps(frozen_wcmodel_config(),
 #: sort_keys=True, default=str)`, computed 2026-08-27 under the pinned frozen
-#: file and pinned by R-I1.
+#: file and pinned by §0.1.
 REALISED_CONFIG_SHA256 = \
     "78a51cd92c48838a57e3d6832b7661aad7a5b231425572214a067c2a35edbdcd"
 
@@ -248,7 +250,7 @@ ALPHA = 0.05
 #: §2.1's ONE FROZEN CONSTANT. It is `config/config.yaml`'s
 #: `elo.volatility_window: 10` — the ten-match window this codebase already uses
 #: twice as its operational definition of the informative recent past. It is not
-#: tuned, not swept, and §7 makes moving it an invalidation.
+#: tuned, not swept, and §10 makes moving it an invalidation.
 E_STAR = 10.0
 
 #: §3.1's grid. It exists to be REPORTED and never selected from; §2.1 pre-states
@@ -269,14 +271,14 @@ WIDENING_ALPHA = 0.5
 ARM_NAME = "dc_evwiden"
 BASELINE_ARM = "dc_native"
 
-#: §4.1 (i). R-I3 renames it and R2-I3 rebuilds its justification: this is an
+#: §4.1 (i). §4.2 renames it and §4.2 rebuilds its justification: this is an
 #: **invented thin-population threshold**, not the house bar applied. It takes
 #: its numeral from `reports/epl_improved.md` §5.2's model-change bar, which was
 #: set over a full evaluation window; this one is set over 85 fixtures chosen to
 #: be where the effect is largest, a difference in system-level materiality of
 #: about 26.8x. **The numeral is borrowed, the authority is not.**
 #:
-#: R2-I3 withdraws round one's ground 1 as a unit error — `-0.0016` is a mean
+#: §4.2 withdraws v1's ground 1 as a unit error — `-0.0016` is a mean
 #: RPS demand and `0.0032 / 0.0139 / 0.0229` are absolute probability shifts —
 #: and rebuilds it in RPS against RPS: the bar sits at about 2.2 standard errors
 #: of its own estimator under the optimistic scenario and INSIDE one standard
@@ -287,7 +289,7 @@ BASELINE_ARM = "dc_native"
 #: magnitude than the +0.000075 re-seed shift.
 ADOPT_DELTA = -0.0010
 
-#: §4.1 (iv) as R-B2 repairs it — the per-horizon tolerance, invented from R1's
+#: §4.1 (iv) as §4.1 repairs it — the per-horizon tolerance, invented from R1's
 #: own recorded scale (paired dc-family TRPS differences of "two parts in a
 #: thousand" on a TRPS of order 0.08, i.e. ~2e-4 PER CELL) and disclosed as
 #: invented. The superseded gate applied that per-cell scale to an average over
@@ -296,43 +298,43 @@ ADOPT_DELTA = -0.0010
 #: to treated-cell means directly, 2.19x tighter.
 TABLE_TOLERANCE = 0.0002
 
-#: R-B2's named horizon. MW6 is the only one of the five labels at which EVERY
+#: §4.1's named horizon. MW6 is the only one of the five labels at which EVERY
 #: cell is treated, so it is the only horizon at which the do-no-harm question
 #: is asked with no structural zero in the denominator; and the early-season
 #: table forecast is where a thin-evidence club's dispersion is widest. Named
-#: before any fit exists, and §7 makes replacing it after any table run an
+#: before any fit exists, and §10 makes replacing it after any table run an
 #: invalidation.
 MW6_LABEL = "MW6"
 
-#: R-B2 (iv-b)'s point-gate labels, and the structural zero that decides nothing.
+#: §4.1 (iv-b)'s point-gate labels, and the structural zero that decides nothing.
 POINT_GATE_LABELS: tuple[str, ...] = ("MW0", "MW3", "MW10")
 STRUCTURAL_ZERO_LABEL = "MW19"
 
-#: R-B2's census, recomputed by the read-only pass R-B5 authorises: how many of
+#: §4.1's census, recomputed by the read-only pass §8.2 authorises: how many of
 #: each label's seven cells the rule treats. MW19 holds zero and enters nothing.
 EXPECTED_TREATED_BY_LABEL = {"MW0": 3, "MW3": 2, "MW6": 7, "MW10": 4, "MW19": 0}
 
-#: R-B3's season-block interval of the MW6 mean: `epl.score.block_bootstrap_ci`,
+#: §5.3's season-block interval of the MW6 mean: `epl.score.block_bootstrap_ci`,
 #: the seven season strings one cell per block, B = 10,000, alpha = 0.05, the
 #: standard resampling seed. A seven-block percentile bootstrap has poor
 #: coverage, is not claimed to have good coverage, and has the narrow job both
 #: predecessors gave season blocks: to refuse a verdict carried by one season.
 TABLE_CI_BLOCKS = 7
 
-#: R2-B3's paired particle bootstrap, pre-stated before any table run existed.
+#: §5's paired particle bootstrap, pre-stated before any table run existed.
 #: A2-N4 leaves B and the resampling seed to "the amendment that accompanies the
-#: first run to report the bootstrap SE, before that run"; R-B3 is that
+#: first run to report the bootstrap SE, before that run"; §5.3 is that
 #: statement.
 MC_BOOT = 2_000
 MC_SEED = 20260827
 
-#: R2-B3 (P1): any deciding MC SE above a quarter of the tolerance leaves gate
+#: §5 (P1): any deciding MC SE above a quarter of the tolerance leaves gate
 #: (iv) UNRESOLVED. UNRESOLVED blocks adoption and can never grant one, which is
 #: the direction that cannot be gamed.
 MC_PRECISION_FRACTION = 0.25
 MC_PRECISION_LIMIT = MC_PRECISION_FRACTION * TABLE_TOLERANCE      # 5e-5
 
-#: R2-B3 (P2)-(P5): a deciding comparison inside this many simulation standard
+#: §5 (P2)-(P5): a deciding comparison inside this many simulation standard
 #: errors of its own boundary is UNRESOLVED.
 MC_BOUNDARY_SIGMAS = 2.0
 
@@ -382,7 +384,7 @@ RESEED_SCALE = {"per_match_mean": 0.0032, "per_match_p99": 0.0139,
 
 #: The schema identifier §8.3 step 2's freeze commit must name alongside the
 #: hashes. **v2**, and the change of number is not cosmetic: v1 was invalidated
-#: under its own R-B6 by two pre-freeze parity-leg ADVI fits (§8.1), and a
+#: under its own §8.7 by two pre-freeze parity-leg ADVI fits (§8.1), and a
 #: harness that still stamped `epl-evwiden-1` on its rows would be claiming to
 #: implement a document that decides nothing.
 SCHEMA_ID = "epl-evwiden-2"
@@ -410,12 +412,12 @@ SEQUENCE_STEPS: tuple[str, ...] = (
     "step1_results_canary", "step2_single_opening", "step3_shards",
     "step4_merge", "step5_parity")
 
-#: §5.2's list, fixed in the document before any row existed: recorded on the
+#: §7.2's list, fixed in the document before any row existed: recorded on the
 #: row, excluded from the canonical form and from every digest.
 _VOLATILE = ("wall_seconds", "fit_seconds", "seconds", "shard_id",
              "started_at", "host")
 
-#: Where the run writes. §6 closes the set to `data/epl/fit/evwiden*`,
+#: Where the run writes. §8.3 closes the set to `data/epl/fit/evwiden*`,
 #: `data/epl/sim/evwiden*`, the result document and the evidence files.
 EVWIDEN_DIR = paths.FIT_DIR / "evwiden"
 EVWIDEN_JSON = paths.FIT_DIR / "evwiden.json"
@@ -431,7 +433,7 @@ LAUNCH_NAME = "launch.sh"
 #: which only means anything if the marker location is not the run's own.
 SEQUENCE_DIR = EVWIDEN_DIR / "sequence"
 
-#: §6's evidence contract, regardless of outcome (ultra-review lesson 1: the
+#: §9's evidence contract, regardless of outcome (ultra-review lesson 1: the
 #: verdict's machine-readable basis is COMMITTED, not gitignored).
 EVIDENCE_DIR = paths.REPO_ROOT / "reports" / "evidence"
 EVIDENCE_JSON = EVIDENCE_DIR / "widening.json"
@@ -444,8 +446,8 @@ WRITES = (EVWIDEN_DIR, EVWIDEN_JSON, TABLE_DIR, TABLE_LEDGER, CANARY_JSON,
           EVIDENCE_JSON, EVIDENCE_PER_FIXTURE, EVIDENCE_TABLE_CELLS,
           EVIDENCE_GRID_MEANS, EVIDENCE_MANIFEST)
 
-#: R2-I6: the shard count is a PREREGISTERED CONSTANT, not a runtime choice.
-#: R-I6's closing paragraph declared a list and then wrote a category — "each
+#: §9.3: the shard count is a PREREGISTERED CONSTANT, not a runtime choice.
+#: §9's closing paragraph declared a list and then wrote a category — "each
 #: shard ledger" names no count and no filename, while the shard count was a CLI
 #: argument and the filename a format string, so the promised MANIFEST
 #: membership was not decidable from the document. Four is the harness's own
@@ -488,14 +490,14 @@ PRE_FREEZE_RUNS: tuple[str, ...] = (
 )
 
 #: Where §8.3's freeze commit records the harness hashes. **v2 and only v2**:
-#: §8.1 invalidates v1 under its own R-B6 and rules that it "decides nothing",
+#: §8.1 invalidates v1 under its own §8.7 and rules that it "decides nothing",
 #: so a guard that read v1's freeze block would be binding this run to a dead
 #: document — and would inherit the two ADVI fits that killed it.
 PREREG_PATH = paths.REPO_ROOT / "reports" / "epl_widening_prereg_v2.md"
 PREREG_V1_PATH = paths.REPO_ROOT / "reports" / "epl_widening_prereg.md"
 AMENDMENTS_PATH = paths.REPO_ROOT / "reports" / "epl_sim_amendments.md"
 
-#: §5.2's row contract, at the two levels the ledger carries it.
+#: §7.2's row contract, at the two levels the ledger carries it.
 REQUIRED_ROW_FIELDS = (
     "schema", "key", "match_id", "season", "block", "cutoff", "date",
     "home_key", "away_key", "y", "e_home", "e_away", "e_min", "e_star",
@@ -520,7 +522,7 @@ REQUIRED_FIT_FIELDS = (
 _PROB_COLUMNS = ("dc_home", "dc_draw", "dc_away")
 
 #: The eight decimals `epl/walkforward.py::_one_cutoff` wrote the corpus with.
-#: §2.3 rules exact equality AT THEM, and §7 makes widening the tolerance after
+#: §2.3 rules exact equality AT THEM, and §10 makes widening the tolerance after
 #: a mismatch an invalidation.
 ROUND_DP = 8
 
@@ -532,9 +534,9 @@ ROUND_DP = 8
 class EvWidenError(RuntimeError):
     """Anything this experiment refuses.
 
-    §5.1 names the subclasses and this module does not invent one the document
+    §7.1 names the subclasses and this module does not invent one the document
     never wrote. A condition the preregistration pre-stated as an INVALIDATION
-    but never gave an error name — §7's "a real-archive fit runs before the §6
+    but never gave an error name — §10's "a real-archive fit runs before the §6
     freeze commit" is the one that matters in practice — is refused as this base
     class instead, which is `epl.freshsweep`'s ruling on the same question,
     applied here for the same reason: a typed name is a promise the
@@ -568,12 +570,12 @@ class LedgerDigestMismatch(EvWidenError):
 
 class ConfigNotFrozen(EvWidenError):
     """The config is not `9f2e086d…`, the seed is not 20260611, widening is not
-    `{mechanism: c, strength: 0.5}`, or — R-I1's fourth condition — the REALISED
+    `{mechanism: c, strength: 0.5}`, or — §0.1's fourth condition — the REALISED
     configuration does not hash to `78a51cd9…`."""
 
 
 class MembershipMismatch(EvWidenError):
-    """The recomputed enumeration differs from the §6 frozen digests."""
+    """The recomputed enumeration differs from the §8.3's frozen digests."""
 
 
 class PredicateMismatch(EvWidenError):
@@ -592,11 +594,11 @@ class CutoffLeak(EvWidenError):
 
 
 class CanaryFailed(EvWidenError):
-    """`epl.walkforward.point_in_time_canary` did not pass (§5.3)."""
+    """`epl.walkforward.point_in_time_canary` did not pass (§7.3)."""
 
 
 class EvidenceCanaryFailed(EvWidenError):
-    """Either leg of the two-legged evidence canary failed (§5.3).
+    """Either leg of the two-legged evidence canary failed (§7.3).
 
     A canary that cannot fail is not a canary, so the positive control is as
     much a part of this refusal as the negative leg.
@@ -761,7 +763,7 @@ def config_sha256(path: Path | str | None = None) -> str:
 
 
 def realised_config_sha256(cfg: dict) -> str:
-    """R-I1's digest of the configuration the run actually realises.
+    """§0.1's digest of the configuration the run actually realises.
 
     One definition, in one place, so the constant, the check and the ledger row
     cannot drift apart: ``sha256(json.dumps(cfg, sort_keys=True,
@@ -773,10 +775,10 @@ def realised_config_sha256(cfg: dict) -> str:
 
 def assert_config_frozen(path: Path | str | None = None,
                          cfg: dict | None = None) -> str:
-    """Refuse a configuration that is not the frozen one (§5.1, as R-I1 repairs it).
+    """Refuse a configuration that is not the frozen one (§5.1, as §0.1 repairs it).
 
     FOUR things, not three: the file's digest, the realised seed, the realised
-    widening block, and — R-I1's repair — a digest of the WHOLE realised
+    widening block, and — §0.1's repair — a digest of the WHOLE realised
     configuration.
 
     The widening block is not decoration: this experiment is defined on
@@ -784,7 +786,7 @@ def assert_config_frozen(path: Path | str | None = None,
     move into the LIKELIHOOD, the posterior would stop being arm-invariant, and
     every pairing claim in §2.3 would be false.
 
-    The fourth condition is the one R-I1 added, and it is the one that binds
+    The fourth condition is the one §0.1 added, and it is the one that binds
     everything §0.1 quoted and the superseded check held none of:
     ``windows.decay_half_life_days = 365`` (which DEFINES `e`),
     ``elo.volatility_window = 10`` (which `e* = 10.0` is taken from),
@@ -819,7 +821,7 @@ def assert_config_frozen(path: Path | str | None = None,
         if realised_digest != REALISED_CONFIG_SHA256:
             raise ConfigNotFrozen(
                 f"the realised configuration hashes to {realised_digest}, not "
-                f"the pinned {REALISED_CONFIG_SHA256}. R-I1 pins the digest of "
+                f"the pinned {REALISED_CONFIG_SHA256}. §0.1 pins the digest of "
                 "`freeze.frozen_wcmodel_config()` itself, because that function "
                 "loads the LIVE config/config.yaml and overlays only the frozen "
                 "EPL Elo block: the decay half-life that DEFINES `e`, the "
@@ -968,7 +970,7 @@ def load_walk_ledger(path: Path | str | None = None, *,
 
 
 def blas_threads() -> dict[str, Any]:
-    """What this process ACTUALLY has, recorded on every row (§5.2).
+    """What this process ACTUALLY has, recorded on every row (§7.2).
 
     Not what it asked for: the environment is read back, and
     ``pinned_before_numpy`` says whether the pin could have reached the BLAS
@@ -998,7 +1000,7 @@ def assert_blas_pinned(where: str) -> dict[str, Any]:
 
 
 #: The archive fields the module-level digest binds — the freshness §6-step-4
-#: lesson, adopted from day one (§5.2). A digest that silently narrows to the
+#: lesson, adopted from day one (§7.2). A digest that silently narrows to the
 #: columns it happens to find is not a digest, so the fields are named and their
 #: absence refuses.
 ARCHIVE_DIGEST_COLUMNS = ("match_id", "date", "fthg", "ftag")
@@ -1024,7 +1026,7 @@ def archive_digest(played: pd.DataFrame) -> str:
 def prior_rows(played: pd.DataFrame, cutoff: pd.Timestamp) -> pd.DataFrame:
     """The archive rows an evidence sum at ``cutoff`` may see: ``date < C``.
 
-    One function, one comparison, one place for §5.3's seeded defect to replace
+    One function, one comparison, one place for §7.3's seeded defect to replace
     — and one place a future reader has to look to answer "what could this fit
     see?". ``features.build`` keeps ``date < cutoff.normalize()`` and this is the
     same rule on the same frame.
@@ -1065,7 +1067,7 @@ def effective_evidence(cutoff: str | pd.Timestamp, played: pd.DataFrame,
     and a later one enters at MORE than full weight. Demanding every contributing
     age be strictly positive therefore catches a filter that admits either —
     which is exactly what :func:`prior_rows` being replaced by a ``<=`` variant
-    does, and what §5.3's seeded defect does to it.
+    does, and what §7.3's seeded defect does to it.
     """
     ts = pd.Timestamp(cutoff).normalize()
     prior = prior_rows(played, ts)
@@ -1280,7 +1282,7 @@ def fit_openings(corpus: pd.DataFrame, played: pd.DataFrame,
 
 
 def canonical_membership(m: Membership) -> str:
-    """The serialisation §6 step 2 hashes. Sorted, explicit, no dict order."""
+    """The serialisation §8.3 step 2 hashes. Sorted, explicit, no dict order."""
     return json.dumps({
         "e_star": float(m.e_star),
         "new_cells": [list(c) for c in m.new_cells],
@@ -1294,7 +1296,7 @@ def membership_digests(corpus: pd.DataFrame, played: pd.DataFrame,
                        ledger: dict[str, set[str]], *,
                        table: Sequence[dict[str, Any]] | None = None,
                        ) -> dict[str, Any]:
-    """§6 step 2's frozen membership digests, recomputed by the harness's own
+    """§8.3 step 2's frozen membership digests, recomputed by the harness's own
     code from the pinned artifacts.
 
     "Each serialised canonically and hashed" — the 85 thin fixture keys, the 52
@@ -1346,7 +1348,7 @@ def membership_digests(corpus: pd.DataFrame, played: pd.DataFrame,
     if problems:
         raise MembershipMismatch(
             "; ".join(problems) + ". §2.2 and §2.3 pre-state the membership and "
-            "§7 makes dropping a fixture after the run starts an invalidation: a "
+            "§10 makes dropping a fixture after the run starts an invalidation: a "
             "different enumeration is a different experiment, not a smaller one.")
 
     out: dict[str, Any] = {
@@ -1929,7 +1931,7 @@ class Engine:
                 f"{point.cutoff}: {len(offenders)} of {len(pairs)} identity-"
                 f"control probabilities differ from the corpus (max |Δp| = "
                 f"{worst:.3g}), first at {offenders[:5]}. §3.2 rules EXACT "
-                "equality at the corpus's eight decimals and §7 makes widening "
+                "equality at the corpus's eight decimals and §10 makes widening "
                 "the tolerance after a mismatch an invalidation. This is most "
                 "likely archive drift since the walk, and it invalidates the "
                 "pairing the whole design rests on: STOP, and write the "
@@ -1946,7 +1948,7 @@ class Engine:
         for i, mid in enumerate(point.match_ids):
             if mid in treated_here:
                 continue
-            # R-B1: against ARM B — the same posterior's incumbent pass — and
+            # §2.3: against ARM B — the same posterior's incumbent pass — and
             # not against the corpus, which is now the external control.
             if not np.array_equal(probs_arm[i], probs_incumbent[i]):
                 raise UntreatedMoved(
@@ -1959,7 +1961,7 @@ class Engine:
                     "would be noise dressed as zero.")
 
         # ---- the identity canary, on every block the union does not touch --
-        # §5.3: "An `e*` low enough to add nobody must yield `np.array_equal`
+        # §7.3: "An `e*` low enough to add nobody must yield `np.array_equal`
         # with the corpus rows." On 16 of the 78 blocks the §2.1 union adds
         # nobody, and pass 2 IS that canary — checked here rather than bought
         # with a second fit at `e* = 0`.
@@ -1977,7 +1979,7 @@ class Engine:
                     "the rule does not describe.")
 
         # ---- the direction canary, on EVERY fixture of the block ----------
-        # R-M2: the comparator is the production path, the documented edge
+        # §7.3: the comparator is the production path, the documented edge
         # branch is a correct result rather than a failure, the branch every
         # fixture took is recorded, and at least one TREATED fixture must have
         # taken the interior branch — a canary in which every fixture no-ops
@@ -1997,7 +1999,7 @@ class Engine:
                 probs_widened[str(mid)] = [float(v) for v in row]
                 # A treated fixture's union-pass value and its all-clubs value
                 # must be the SAME number: `finalize_grid` keys on a boolean and
-                # cannot see WHICH club carried it. §5.1 gives this no name, so
+                # cannot see WHICH club carried it. §7.1 gives this no name, so
                 # it refuses as the base class rather than under an invented one.
                 if mid in treated_here and \
                         not np.array_equal(probs_arm[idx[mid]], row):
@@ -2029,7 +2031,7 @@ class Engine:
             "control_max_abs_diff": worst,
             "control_mean_abs_diff": mean_diff,
             "identity_canary": identity,
-            #: R-M2 requires the branch every fixture took to be recorded, so
+            #: §7.3 requires the branch every fixture took to be recorded, so
             #: `branches` stays on the row; only the full per-fixture entropies
             #: are dropped, and they are recomputable from the grids.
             "direction_canary": (None if direction is None else
@@ -2059,7 +2061,7 @@ def thin_at(e_min: float, grid: Sequence[float] = (*E_GRID, E_STAR)
 #: **ONE FIXED REPO-ROOT-KEYED PATH** (§8.6), derived from ``paths.REPO_ROOT``
 #: and from nothing else, and **no function that reads or writes it takes a
 #: directory argument.** v1's record was written below the caller's chosen
-#: directory, so a fresh or deleted ``--dir`` reset the entire R-B6 regime: the
+#: directory, so a fresh or deleted ``--dir`` reset the entire §8.7 regime: the
 #: one-way ratchet had a way back, and the way back was a flag.
 FIRST_FIT_JSON = paths.FIT_DIR / "evwiden_first_real_fit.json"
 
@@ -2072,7 +2074,7 @@ def pinned_archive_identity() -> str | None:
     The guard of R2's binding obligation is keyed "to the freeze state and to
     the artifact identity being read, never to the output directory", so it
     needs a way to answer "is this frame the real archive?" that no ``--dir``
-    can move. It is the same digest §5.2 already records on every row — over
+    can move. It is the same digest §7.2 already records on every row — over
     ``match_id, date, fthg, ftag`` — computed once from the pinned bytes.
     """
     if "value" not in _PINNED_ARCHIVE_IDENTITY:
@@ -2298,9 +2300,9 @@ def assert_no_hashed_file_moved() -> None:
 
 
 def _guard_ledger_location(path: Path, harness_frozen: bool) -> None:
-    """The preregistered run directory is closed until §6's freeze commit.
+    """The preregistered run directory is closed until §8.3's freeze commit.
 
-    §6 step 3: "Only then does the first real fit run." §5.3 permits — and this
+    §8.3 step 3: "Only then does the first real fit run." §7.3 permits — and this
     experiment genuinely needs — pre-freeze audit runs, but on SYNTHETIC corpora
     and in their own directory, where every row is stamped
     ``harness_frozen: false`` and the merge refuses it by name.
@@ -2319,10 +2321,10 @@ def _guard_ledger_location(path: Path, harness_frozen: bool) -> None:
             inside = False
         if inside:
             raise EvWidenError(
-                f"refusing to write {paths.rel(path)} before §6's harness-hash "
-                "freeze commit exists. §7: 'A real-archive fit runs before the "
+                f"refusing to write {paths.rel(path)} before §8.3's harness-hash "
+                "freeze commit exists. §10: 'A real-archive fit runs before the "
                 "§6 freeze commit' invalidates the preregistration. Audit runs "
-                "are legitimate and §5.3 requires them — give them their own "
+                "are legitimate and §7.3 requires them — give them their own "
                 f"directory outside {paths.rel(root)} with --dir, where every "
                 "row is stamped harness_frozen: false and the merge will not "
                 "score them.")
@@ -2365,7 +2367,7 @@ def _fixture_row(point: FitPoint, index: int, out: dict, corpus_row: pd.Series,
                  fit: dict, *, key: str, config_sha: str, shard_id: str,
                  harness_frozen: bool, e_star: float,
                  grid: Sequence[float]) -> dict[str, Any]:
-    """One paired fixture: BOTH arms from the same posterior (R-B1).
+    """One paired fixture: BOTH arms from the same posterior (§2.3).
 
     Arm B is predict pass 1 — the block's fixtures under the fit's own
     recomputed incumbent provisional set — and Arm A is predict pass 2 under the
@@ -2417,7 +2419,7 @@ def _fixture_row(point: FitPoint, index: int, out: dict, corpus_row: pd.Series,
         "rps_native_recomputed": rps_native_recomputed,
         "rps_B": rps_b,
         "rps_arm": rps_arm,
-        #: R-B1's estimand delta: Arm A minus Arm B, both from ONE posterior.
+        #: §2.3's estimand delta: Arm A minus Arm B, both from ONE posterior.
         "delta": rps_arm - rps_b,
         #: The same fixture against the corpus's stored row — the external
         #: control's delta, published beside the estimand's so a reader can
@@ -2453,14 +2455,14 @@ def _fixture_row(point: FitPoint, index: int, out: dict, corpus_row: pd.Series,
             "harness_sha256": fit["harness_sha256"],
             "predict": "post.predict_1x2(home, away, neutral=False)",
             "rounding": f"round(v, {ROUND_DP})",
-            #: R-B1: Arm B IS recomputed now, and that is the repair. The
+            #: §2.3: Arm B IS recomputed now, and that is the repair. The
             #: superseded arm was an old rounded 1X2 projection the control
             #: could only bind AFTER projection, while mechanism (c) acts on the
             #: full scoreline grid before it.
             "recomputed": True,
         },
         "corpus_control": {
-            "role": "the external identity control (§3.2 as R-B1 demotes it) — "
+            "role": "the external identity control (§3.2 as §2.3 demotes it) — "
                     "the corpus enters no estimand",
             "source": paths.rel(CORPUS_PATH), "corpus_sha256": CORPUS_SHA256,
             "columns": list(_PROB_COLUMNS) + ["dc_rps"],
@@ -2499,7 +2501,7 @@ def run_fits(points: Sequence[FitPoint], ledger_path: Path | str,
              ) -> dict[str, Any]:
     """Fit every point and append one JSONL row per fixture of its block.
 
-    Resumable per fit, keyed ``cutoff|seed|config_sha256`` (§5.2): a key already
+    Resumable per fit, keyed ``cutoff|seed|config_sha256`` (§7.2): a key already
     complete in the ledger is skipped — not re-run, not re-scored, not appended
     twice. A fit's rows are written in ONE append so a crash leaves either all of
     them or a truncated tail that :func:`load_ledger` drops and this function
@@ -2648,11 +2650,11 @@ _CANARY_PREFIX = "__canary_corrupt__"
 
 def corrupt_mask(played: pd.DataFrame, cutoff: str | pd.Timestamp, *,
                  side: str) -> np.ndarray:
-    """Which rows R-I4's mutation selects, by NORMALISED date.
+    """Which rows §7.3's mutation selects, by NORMALISED date.
 
-    R-I4 froze the selection: ``after`` selects ``date >= cutoff``, ``before``
+    §7.3 froze the selection: ``after`` selects ``date >= cutoff``, ``before``
     selects ``date < cutoff``. The mask is a function of its own so both legs
-    can RECORD how many rows they selected — R-I4 requires that, and an empty
+    can RECORD how many rows they selected — §7.3 requires that, and an empty
     mask is a refusal rather than a pass.
     """
     if side not in ("before", "after"):
@@ -2699,7 +2701,7 @@ def evidence_canary(played: pd.DataFrame, cutoff: str | pd.Timestamp,
                     clubs: Sequence[str], *,
                     provisional_fn: Callable[[pd.DataFrame], set[str]] | None = None,
                     e_star: float = E_STAR) -> dict[str, Any]:
-    """§5.3's two-legged canary, because the existing one cannot see this input.
+    """§7.3's two-legged canary, because the existing one cannot see this input.
 
     ``epl.walkforward.point_in_time_canary`` rewrites RESULTS and compares
     forecasts. That is the right check for a fit and the wrong one for this
@@ -2712,7 +2714,7 @@ def evidence_canary(played: pd.DataFrame, cutoff: str | pd.Timestamp,
     * **Positive control** — corrupt the rows BEFORE the cutoff and demand ``e``
       moves by more than 1e-9.
 
-    R-I4 FREEZES THE COMPARISON, and the repair is that the negative leg is a
+    §7.3 FREEZES THE COMPARISON, and the repair is that the negative leg is a
     BOUND rather than a tolerance: the evidence vector over the corpus's clubs
     is compared with ``numpy.array_equal`` on the float64 values **before
     rounding**. Both provisional sets are compared by set equality; both legs
@@ -2733,7 +2735,7 @@ def evidence_canary(played: pd.DataFrame, cutoff: str | pd.Timestamp,
     after = corrupt_archive(played, ts, side="after")
     after_e = effective_evidence(ts, after, clubs)
     after_vec = np.array([after_e[c] for c in clubs], dtype=float)
-    #: R-I4: BIT equality on the unrounded float64 vector, not a tolerance.
+    #: §7.3: BIT equality on the unrounded float64 vector, not a tolerance.
     negative_equal = bool(np.array_equal(after_vec, base_vec))
     negative = float(np.abs(after_vec - base_vec).max()) if clubs else 0.0
 
@@ -2761,7 +2763,7 @@ def evidence_canary(played: pd.DataFrame, cutoff: str | pd.Timestamp,
         "schema": SCHEMA_ID, "cutoff": str(ts.date()), "n_clubs": len(clubs),
         "e_star": float(e_star),
         "comparator": "numpy.array_equal on the unrounded float64 evidence "
-                      "vector (R-I4: a bound, not a tolerance)",
+                      "vector (§7.3: a bound, not a tolerance)",
         "negative_leg_rows_selected": n_after,
         "positive_control_rows_selected": n_before,
         "negative_leg_array_equal": negative_equal,
@@ -2786,7 +2788,7 @@ def evidence_canary(played: pd.DataFrame, cutoff: str | pd.Timestamp,
             f"difference {negative:.3g}) over {n_after} corrupted row(s), the "
             f"positive control moved `e` by {positive:.3g} (must exceed 1e-9) "
             f"over {n_before} corrupted row(s), provisional sets identical "
-            f"= {sets_equal!r}. §5.3: a canary that cannot fail is not a canary, "
+            f"= {sets_equal!r}. §7.3: a canary that cannot fail is not a canary, "
             "and one that fails is a leak in the predicate's own input.")
     return out
 
@@ -2794,7 +2796,7 @@ def evidence_canary(played: pd.DataFrame, cutoff: str | pd.Timestamp,
 def identity_canary(fitter: Callable[..., dict], point: FitPoint,
                     corpus: pd.DataFrame, *, e_star: float = 0.0
                     ) -> dict[str, Any]:
-    """§5.3: an ``e*`` low enough to add nobody must reproduce the corpus rows.
+    """§7.3: an ``e*`` low enough to add nobody must reproduce the corpus rows.
 
     Zero widening is byte-identical, and the demand is ``np.array_equal`` rather
     than a tolerance. It is the cheapest possible statement of the experiment's
@@ -2835,7 +2837,7 @@ def pre_widening_grid(post, home: str, away: str, *,
                       neutral: bool = False) -> np.ndarray:
     """The production map's scoreline grid BEFORE ``finalize_grid`` runs on it.
 
-    R-M2 binds the direction canary to the production path, and the production
+    §7.3 binds the direction canary to the production path, and the production
     path's own last leg is ``finalize_grid(grid, posterior, provisional=…)`` —
     so the canary needs the ``grid`` that leg is handed. It is read out of
     ``wcmodel.model.draw_api``'s own functions (``per_draw_rates`` then
@@ -2861,7 +2863,7 @@ def pre_widening_grid(post, home: str, away: str, *,
 def direction_canary(post, pairs: Sequence[tuple[str, str]], *,
                      treated: Sequence[str] = (),
                      strength: float = WIDENING_ALPHA) -> dict[str, Any]:
-    """§5.3's direction canary, as R-M2 repairs it on both halves.
+    """§7.3's direction canary, as §7.3 repairs it on both halves.
 
     The superseded canary compared the widened grid with a bare
     ``inflate_predictive`` call and demanded strictly higher entropy
@@ -2971,13 +2973,13 @@ def direction_canary(post, pairs: Sequence[tuple[str, str]], *,
             f"{broken[:3]}; interior branch reached = {has_interior}, treated "
             f"fixture in the interior branch = {has_treated_interior}. §2.1 "
             "rules that a treated fixture receives EXACTLY the one incumbent "
-            "mix at the frozen alpha, and R-M2 rules that a canary in which "
+            "mix at the frozen alpha, and §7.3 rules that a canary in which "
             "every fixture took the documented edge branch proved nothing.")
     return record
 
 
 def run_canary(runner: Callable[[], dict[str, Any]] | None = None) -> dict[str, Any]:
-    """§5.3's results canary: `epl.walkforward.point_in_time_canary`.
+    """§7.3's results canary: `epl.walkforward.point_in_time_canary`.
 
     A precondition of the run, on the real archive, AFTER the freeze — never a
     result. ``PASS: false`` stops the run.
@@ -2995,7 +2997,7 @@ def run_canary(runner: Callable[[], dict[str, Any]] | None = None) -> dict[str, 
             f"the point-in-time canary did not pass: max |Δp| before the cutoff "
             f"= {out.get('max_abs_diff_before_cutoff')!r} (must be 0), positive "
             f"control = {out.get('max_abs_diff_positive_control')!r} (must "
-            "move). §5.3: the run does not start.")
+            "move). §7.3: the run does not start.")
     return out
 
 
@@ -3147,7 +3149,7 @@ def require_run_preconditions(directory: Path | str | None = None, *,
     if failed or not rec.get("PASS"):
         raise CanaryFailed(
             f"the canary record at {paths.rel(path)} did not pass "
-            f"({failed or 'no PASS field'}). §5.3: the run does not start.")
+            f"({failed or 'no PASS field'}). §7.3: the run does not start.")
 
     if require_results is None:
         require_results = bool(harness_freeze_status()["frozen"])
@@ -3241,7 +3243,7 @@ def _grid_delta(row: dict[str, Any], e_star: float) -> float:
     every arm and contributes exactly 0.0; a treated one takes the widened
     probabilities pass 3 computed. Nothing here refits anything.
 
-    R-B1: the baseline is ``rps_B`` — the same posterior's incumbent pass — and
+    §2.3: the baseline is ``rps_B`` — the same posterior's incumbent pass — and
     not the corpus's stored RPS. Every delta this experiment reports is a
     difference between two predictions of one posterior.
     """
@@ -3464,12 +3466,12 @@ def estimand(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
                   if treated_deltas.size > 1 else None)
     se = head.get("se_iid")
     power = {
-        # R-I2 supersedes §2.3's "No power claim is made in advance": the
-        # analysis was done, blind, before any delta existed, and it is committed
-        # code at `epl.evwiden.power_simulation`. What lives HERE is the other
-        # half R-I2 requires — "after the run, the REALISED paired SD of the
+        # §6 is the power analysis: done blind, before any delta existed, and
+        # committed code at `epl.evwiden.power_simulation`. What lives HERE is
+        # §6.5's other half — "after the run, the REALISED paired SD of the
         # treated deltas and the MDE recomputed at it" — which decides nothing
-        # and moves no threshold.
+        # and moves no threshold. `realised_power_object` computes the joint
+        # MDE at that SD where the evidence file is assembled.
         "realised": {
             "sd_paired_thin": head.get("sd"),
             "sd_paired_treated": treated_sd,
@@ -3518,12 +3520,12 @@ def estimand(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
 
 
 # ==========================================================================
-# 11b. THE POWER SIMULATION — R-I2's analysis, R2-I2's committed code
+# 11b. THE POWER SIMULATION — §6's analysis, §6's committed code
 # ==========================================================================
 
-#: R2-I2's frozen structure. R-I2 gave the counts; the ASSIGNMENT of the 85
+#: §6's frozen structure. §6 gave the counts; the ASSIGNMENT of the 85
 #: thin fixtures to their 62 week blocks is the pinned corpus's own, recomputed
-#: by :func:`power_structure` under R-B5's read-only authorisation and checked
+#: by :func:`power_structure` under §8.2's read-only authorisation and checked
 #: against these numbers.
 POWER_N_THIN = 85
 POWER_N_TREATED = 52
@@ -3532,7 +3534,7 @@ POWER_N_SEASONS = 6
 POWER_THIN_BY_SEASON = (26, 11, 12, 12, 12, 12)
 POWER_TREATED_BY_SEASON = (21, 4, 7, 6, 7, 7)
 
-#: R-I2's three scenarios, frozen blind: no delta of this experiment exists, so
+#: §6's three scenarios, frozen blind: no delta of this experiment exists, so
 #: none of them is informed by one.
 POWER_SCENARIOS: tuple[tuple[str, float, str], ...] = (
     ("A freshness-scale", 0.005262,
@@ -3548,17 +3550,17 @@ POWER_RHOS: tuple[float, ...] = (0.0, 0.5)
 POWER_REPLICATES = 2_000
 POWER_SEED = 20260827
 
-#: R2-I2's MDE search grid: 101 points, step 2e-4, delta the injected TREATED
+#: §6's MDE search grid: 101 points, step 2e-4, delta the injected TREATED
 #: effect in RPS.
 POWER_GRID_STEP = 2e-4
 POWER_GRID_POINTS = 101
 
-#: R-I2's bar on the treated scale, exactly: 0.0010 x 85 / 52. Evaluated at its
+#: §6's bar on the treated scale, exactly: 0.0010 x 85 / 52. Evaluated at its
 #: own seed and replicates, never interpolated from the grid.
 POWER_BAR = -(0.0010 * POWER_N_THIN / POWER_N_TREATED)
 
 #: The six published rows AS CORRECTED by the dated note of 2026-08-28 (the
-#: R2-I2 remedy: the scratch stream was unrecoverable, so the committed
+#: §6 remedy: the scratch stream was unrecoverable, so the committed
 #: implementation's numbers became the document's numbers before the freeze).
 PUBLISHED_POWER: tuple[dict[str, Any], ...] = (
     {"scenario": "A freshness-scale", "rho": 0.0, "power_at_bar": 0.451,
@@ -3588,11 +3590,11 @@ def power_structure(corpus: pd.DataFrame | None = None,
                     played: pd.DataFrame | None = None,
                     ledger: dict[str, set[str]] | None = None,
                     ) -> dict[str, Any]:
-    """R2-I2's frozen structure, recomputed from the pinned artifacts.
+    """§6's frozen structure, recomputed from the pinned artifacts.
 
     85 fixtures, 52 treated, 62 week blocks, 6 seasons; by season
     26 / 11 / 12 / 12 / 12 / 12 with treated 21 / 4 / 7 / 6 / 7 / 7. The counts
-    are R-I2's; the ASSIGNMENT of fixtures to blocks is the corpus's own, which
+    are §6's; the ASSIGNMENT of fixtures to blocks is the corpus's own, which
     is what the week-block bootstrap actually resamples, and it is checked
     against the counts rather than typed in.
     """
@@ -3630,7 +3632,7 @@ def power_structure(corpus: pd.DataFrame | None = None,
                         f"{POWER_TREATED_BY_SEASON}")
     if problems:
         raise MembershipMismatch(
-            "; ".join(problems) + ". R2-I2 freezes the power simulation's "
+            "; ".join(problems) + ". §6 freezes the power simulation's "
             "structure; a different one answers a different question.")
     return {"keys": keys, "blocks": blocks, "seasons": seasons,
             "treated": is_treated, "n_thin": len(keys),
@@ -3643,7 +3645,7 @@ def power_structure(corpus: pd.DataFrame | None = None,
 class _BlockResampler:
     """`epl.score.block_bootstrap_ci`'s own resample, precomputed once.
 
-    R2-I2 permits a vectorised inner loop **only** if a committed test asserts
+    §6 permits a vectorised inner loop **only** if a committed test asserts
     that its ``(lo, hi, n_blocks)`` equals the protected function's on the
     frozen structure, at three named noise draws, to 1e-15. This is that loop,
     and :func:`bootstrap_shortcut_matches` is that assertion.
@@ -3690,7 +3692,7 @@ def bootstrap_shortcut_matches(deltas: np.ndarray, labels: Sequence[Any], *,
                                n_boot: int = N_BOOT, alpha: float = ALPHA,
                                seed: int = BOOTSTRAP_SEED,
                                tolerance: float = 1e-15) -> dict[str, Any]:
-    """R2-I2's condition on the shortcut: equal to the protected function.
+    """§6's condition on the shortcut: equal to the protected function.
 
     "Absent that test, the shortcut is removed, not trusted."
     """
@@ -3715,9 +3717,9 @@ def power_simulation(structure: dict[str, Any] | None = None, *,
                      bootstrap_seed: int = BOOTSTRAP_SEED,
                      scenarios: Sequence[tuple[str, float, str]] | None = None,
                      verbose: bool = False) -> dict[str, Any]:
-    """R-I2's power analysis, as R2-I2 makes it committed, runnable code.
+    """§6's power analysis, as §6 makes it committed, runnable code.
 
-    R-I2's six numbers were produced by uncommitted scratch code: the
+    §6's six numbers were produced by uncommitted scratch code: the
     correlated-Gaussian construction, the correlation scope, the MDE search
     grid, the interpolation rule, the tie rule and the claimed 1e-15 shortcut
     equivalence existed nowhere a reader could run. A preregistration that
@@ -3726,7 +3728,7 @@ def power_simulation(structure: dict[str, Any] | None = None, *,
 
     THE CONSTRUCTION, FROZEN.
 
-    * **Structure** — :func:`power_structure`, checked against R-I2's counts.
+    * **Structure** — :func:`power_structure`, checked against §6's counts.
       Untreated deltas are exactly 0.0, never noisy, as the ADD design makes
       them.
     * **Noise** — for a treated fixture *i* in week block *b*, the delta is
@@ -3919,7 +3921,7 @@ def realised_power(sd: float, *, structure: dict[str, Any] | None = None,
 
 def _mde_from_curve(grid: np.ndarray, curve: np.ndarray
                     ) -> tuple[float | None, str]:
-    """R2-I2's interpolation, tie and exhaustion rules, in that order."""
+    """§6's interpolation, tie and exhaustion rules, in that order."""
     for k in range(len(grid)):
         if curve[k] == 0.80:
             return float(grid[k]), "tie rule: the grid point IS the MDE"
@@ -3935,9 +3937,9 @@ def _mde_from_curve(grid: np.ndarray, curve: np.ndarray
 
 def power_reproduces(power: dict[str, Any] | None = None, *,
                      places: int = 3) -> dict[str, Any]:
-    """Does the committed implementation reproduce R-I2's six published rows?
+    """Does the committed implementation reproduce §6's six published rows?
 
-    R2-I2: "These six rows are to be reproduced by the committed implementation
+    §6: "These six rows are to be reproduced by the committed implementation
     before the freeze commit. If they do not reproduce, this section's numbers
     are corrected by a dated note appended to this document BEFORE the freeze
     commit… No freeze block may be rendered while an unreproduced power number
@@ -3975,7 +3977,7 @@ def power_reproduces(power: dict[str, Any] | None = None, *,
             and checks[-1]["power_at_2x"]["reproduced"] == want["power_at_2x"])
     return {"schema": SCHEMA_ID, "checks": checks,
             "PASS": all(c["PASS"] for c in checks),
-            "rule": ("R2-I2: no freeze block may be rendered while an "
+            "rule": ("§6: no freeze block may be rendered while an "
                      "unreproduced power number stands in this document; the "
                      "remedy is a dated note appended BEFORE the freeze commit, "
                      "stating the scratch value, the reproduced value, and what "
@@ -3996,7 +3998,7 @@ def adoption(delta: float, ci95_block: Sequence[float],
     > FOUR: (i) the point estimate is ``Δ ≤ −0.0010`` over the 85 thin fixtures;
     > (ii) the 95% (season, ISO week) block bootstrap CI excludes zero — upper
     > bound strictly < 0; (iii) the 95% season block bootstrap CI also excludes
-    > zero; (iv) the table gate holds — **per horizon**, as R-B2 repairs it:
+    > zero; (iv) the table gate holds — **per horizon**, as §4.1 repairs it:
     > (iv-a) MW6's seven-cell mean ≤ +0.0002, (iv-b) the treated-cell means at
     > MW0, MW3 and MW10 each ≤ +0.0002, and (iv-c) the MW6 mean is not
     > resolvably positive.
@@ -4007,7 +4009,7 @@ def adoption(delta: float, ci95_block: Sequence[float],
     §4.1 makes all four necessary, so a match-level result with no table leg
     behind it cannot adopt, and this function says MISSING rather than
     quietly treating an absent gate as a passed one. An UNRESOLVED gate (iv) is
-    a published VERDICT rather than a refusal (R2-X): it blocks adoption and can
+    a published VERDICT rather than a refusal (§7.1): it blocks adoption and can
     never grant one.
     """
     i = float(delta) <= ADOPT_DELTA
@@ -4029,7 +4031,7 @@ def adoption(delta: float, ci95_block: Sequence[float],
     if iv is None:
         verdict = "INCOMPLETE — the table gate of §4.1 (iv) has not been measured"
     elif unresolved:
-        # R2-B3: UNRESOLVED is a published VERDICT, not a refusal. It blocks
+        # §5: UNRESOLVED is a published VERDICT, not a refusal. It blocks
         # adoption and can never grant one, and the result document names which
         # of (P1)-(P5) fired.
         verdict = ("UNRESOLVED — gate (iv) falls inside the simulation's own "
@@ -4113,7 +4115,7 @@ def rejoin(rows: Sequence[dict[str, Any]], corpus: pd.DataFrame,
         if native != want_native:
             raise MergeIncomplete(
                 f"{mid}: the ledger's recorded corpus row {native} is not the "
-                f"corpus's {want_native}. R-B1 demotes the corpus to an "
+                f"corpus's {want_native}. §2.3 demotes the corpus to an "
                 "EXTERNAL identity control; a row that copies different numbers "
                 "under that name has nothing left to control against.")
         arm_b = [float(v) for v in row["probs_incumbent"]]
@@ -4122,7 +4124,7 @@ def rejoin(rows: Sequence[dict[str, Any]], corpus: pd.DataFrame,
                 f"{mid}: Arm B — the same posterior's incumbent pass — is "
                 f"{arm_b} and the corpus's own row is {want_native}. §3.2 rules "
                 "EXACT equality at the corpus's eight decimals over all 820 "
-                "fixtures, and §7 makes widening that tolerance after a "
+                "fixtures, and §10 makes widening that tolerance after a "
                 "mismatch an invalidation.")
         recomputed = float(score_mod.rps(np.array([native]),
                                          np.array([int(row["y"])]))[0])
@@ -4172,7 +4174,7 @@ def merge(shards: int = 1, *, directory: Path | str | None = None,
         raise EvWidenError(
             "refusing to merge: the §6 harness-hash freeze commit does not cover "
             "this harness, so these fits are not the run the preregistration "
-            "describes (§7).")
+            "describes (§10).")
 
     directory = Path(directory) if directory is not None else EVWIDEN_DIR
     preregistered = expected is None
@@ -4239,7 +4241,7 @@ def merge(shards: int = 1, *, directory: Path | str | None = None,
         raise EvWidenError(
             f"{len(unfrozen)} fit(s) carry harness_frozen: false (first: "
             f"{unfrozen[:3]}). The freeze is a property of the ROW, not of the "
-            "merge's clock: a fit run during the §5.3 audit is not a fit of the "
+            "merge's clock: a fit run during the §7.3 audit is not a fit of the "
             "preregistered run, and re-stamping it would be exactly the "
             "back-dating §6 exists to prevent.")
 
@@ -4303,7 +4305,7 @@ def merge(shards: int = 1, *, directory: Path | str | None = None,
             "mean_abs_diff": (float(np.mean([float(r["max_abs_dp_vs_corpus"])
                                              for r in rows])) if rows else 0.0),
             "tolerance": "exact equality at the corpus's 8 decimals",
-            "role": "external — R-B1 demotes the corpus out of the contrast",
+            "role": "external — §2.3 demotes the corpus out of the contrast",
             "rps_max_abs_diff": joined["max_abs_rps_diff"]},
         "harness_freeze": freeze,
         "canaries": pre,
@@ -4532,7 +4534,7 @@ def simulate_arm(state, book, *, n_sims: int, seed: int, chunk_size: int,
                  n_particles: int | None = None):
     """THE one call into protected :func:`epl.leaguesim.simulate`, in one place.
 
-    R-B4 recorded the defect rather than fixing it quietly: at the time of that
+    §3.3 recorded the defect rather than fixing it quietly: at the time of that
     repair the harness called ``simulate`` with the particle book in ``state``'s
     argument position and no ``seed`` argument at all, while protected
     ``epl/simretro.py:555`` calls it ``simulate(arm, state, provider, n_sims,
@@ -4558,14 +4560,13 @@ def simulate_arm(state, book, *, n_sims: int, seed: int, chunk_size: int,
 
 
 # --------------------------------------------------------------------------
-# R2-B3 step 1 — the per-particle FRACTIONAL rank-mass tally
+# §5.1 — the per-particle FRACTIONAL rank-mass tally
 # --------------------------------------------------------------------------
 
 def particle_tallies(run, *, chunk_size: int = 2048) -> np.ndarray:
     """``[P, C, C]`` — each particle's share of the mass TRPS actually scores.
 
-    R2-B3 supersedes R-B3's tally bullet, and the defect it repairs is that
-    ``.order`` is the wrong object. ``epl/table.py`` says of it in its own
+    §5.1 fixes the object this bootstrap resamples, and it is not ``.order``. ``epl/table.py`` says of it in its own
     docstring that *"inside a shared block its sequence carries no meaning and
     is only the deterministic club-index order"* (`epl/table.py:374-377`). The
     matrix TRPS scores is built from FRACTIONAL RANK MASS:
@@ -4607,7 +4608,7 @@ def particle_tallies(run, *, chunk_size: int = 2048) -> np.ndarray:
 
 def assert_tally_binds_the_matrix(tallies: np.ndarray, run,
                                   *, tolerance: float = 1e-9) -> dict[str, Any]:
-    """R2-B3's two committed checks, which bind the tally to the point estimate.
+    """§5's two committed checks, which bind the tally to the point estimate.
 
     * ``max |T.sum(axis=0)/n_sims − run.matrix| ≤ 1e-9`` — the tally reproduces
       the scored matrix. The tolerance rather than bit equality is deliberate:
@@ -4627,7 +4628,7 @@ def assert_tally_binds_the_matrix(tallies: np.ndarray, run,
         raise TableMCImprecise(
             f"the per-particle tally does not reproduce the scored matrix: "
             f"max |T.sum(0)/n_sims − matrix| = {d_matrix:.3g} > {tolerance:g}. "
-            "R2-B3 binds the bootstrapped object to the object the point "
+            "§5 binds the bootstrapped object to the object the point "
             "estimate scores; a tally that describes something else would give "
             "a standard error for a statistic nobody reported.")
     k = n_sims / float(n_particles)
@@ -4638,7 +4639,7 @@ def assert_tally_binds_the_matrix(tallies: np.ndarray, run,
             f"a particle's tally is not an equal cluster of {k:g} seasons: the "
             f"worst club-row deviation is {rows_ok:.3g} and the worst rank-column "
             f"deviation {cols_ok:.3g}. A league season is a bijection between "
-            "clubs and ranks, and R2-B3 step 2 makes an unequal cluster a "
+            "clubs and ranks, and §5.2 makes an unequal cluster a "
             "refusal rather than something to reweight.")
     return {"max_abs_matrix_diff": d_matrix, "sims_per_particle": k,
             "max_abs_row_dev": rows_ok, "max_abs_col_dev": cols_ok,
@@ -4646,14 +4647,14 @@ def assert_tally_binds_the_matrix(tallies: np.ndarray, run,
 
 
 # --------------------------------------------------------------------------
-# R2-B4 — the two digests, with disjoint jobs
+# §3.3 — the two digests, with disjoint jobs
 # --------------------------------------------------------------------------
 
 def sampler_digest(run, tallies: np.ndarray) -> str:
     """SAMPLER OUTPUT ONLY — comparable within one cell, between its two arms.
 
-    R2-B4(a) ends round one's tautology. R-B4's digest INCLUDED the provisional
-    set and R-H(4) then required every treated cell's two digests to DIFFER as
+    §3.3(a) ends v1's tautology. §3.3's digest INCLUDED the provisional
+    set and §3.3(4) then required every treated cell's two digests to DIFFER as
     proof that the treatment reached the sampler; together those prove nothing,
     because the digests differ the moment the metadata names a different set,
     whether or not one scoreline changed. A test that cannot fail is not a test.
@@ -4663,7 +4664,7 @@ def sampler_digest(run, tallies: np.ndarray) -> str:
     host, no shard id, no free text:
 
     1. the scored position matrix at full stored precision;
-    2. the per-particle fractional rank-mass tallies of R2-B3 step 1;
+    2. the per-particle fractional rank-mass tallies of §5.1;
     3. the retained points, goal-difference and goals-for vectors;
     4. the tie-block record — ``block_start``, ``block_span``,
        ``resolution_code``.
@@ -4683,7 +4684,7 @@ def sampler_digest(run, tallies: np.ndarray) -> str:
 
 
 def plan_state(run) -> dict[str, Any]:
-    """R2-B4(b): the complete field set of :class:`epl.leaguesim.SimPlan`.
+    """§3.3(b): the complete field set of :class:`epl.leaguesim.SimPlan`.
 
     Season, cutoff and ``observed_by`` identity; the fixture-and-result snapshot
     the run was built on; the points adjustments; the ranking rule id; the
@@ -4899,7 +4900,7 @@ class TableRunner:
                 f"{season} {label}: the fit's own incumbent set makes the "
                 f"treated clubs {realised_treated}, and §3.3's frozen "
                 f"enumeration says {sorted(cell['treated_clubs'])}. The 16 "
-                "treated cells are pinned by the §6 commit; a run in which a "
+                "treated cells are pinned by the §8.3 commit; a run in which a "
                 "different set changes is not the run this document "
                 "preregisters.")
 
@@ -4956,7 +4957,7 @@ class TableRunner:
             "treated_clubs": sorted(cell["treated_clubs"]),
             "provisional_incumbent": sorted(incumbent),
             "provisional_enlarged": sorted(enlarged),
-            # R2-B4(a): the provisional set left both digests and became a
+            # §3.3(a): the provisional set left both digests and became a
             # COMPARED FIELD, checked three ways — against the protected
             # runner's own provenance at the parity oracle, against the frozen
             # 16/19 census here, and by `assert_provisional_fields`.
@@ -4977,7 +4978,7 @@ class TableRunner:
             "harness_sha256": self.harness_sha256,
             "wall_seconds": round(time.perf_counter() - started, 2),
             #: Not written to the ledger — `run_table` lifts it out and saves
-            #: the arrays beside it, because the joint bootstrap of R2-B3 needs
+            #: the arrays beside it, because the joint bootstrap of §5 needs
             #: all thirty-two tallies at once and a JSONL row is not where a
             #: [1000, 20, 20] float64 array belongs.
             "_tallies": tallies,
@@ -4986,13 +4987,13 @@ class TableRunner:
 
 def assert_table_identity(treated_clubs: Sequence[str], control_digest: str,
                           treatment_digest: str, *, where: str) -> bool:
-    """The two-sided cell identity, RESTATED ON ``sampler_digest`` (R2-B4(a)).
+    """The two-sided cell identity, RESTATED ON ``sampler_digest`` (§3.3(a)).
 
     The 19 untouched cells are "unchanged by construction, **and the harness
     must prove it**": an untouched cell whose two arms' sampler digests differ
     is :class:`TableIdentityBreak`.
 
-    The other direction is equally required (R-H(4)): a treated cell whose two
+    The other direction is equally required (§3.3(4)): a treated cell whose two
     arms' sampler digests are EQUAL is :class:`TableIdentityBreak` too. A
     treatment that changes no sampler output where the rule says it must is not
     a null result; it is a treatment that never reached the sampler, and
@@ -5000,7 +5001,7 @@ def assert_table_identity(treated_clubs: Sequence[str], control_digest: str,
     absence of the experiment.
 
     **The digest this reads must be ``sampler_digest``, and that is the whole
-    repair.** Round one's digest included the provisional set, so a treated
+    repair.** v1's digest included the provisional set, so a treated
     cell's two digests differed the moment the metadata named a different set —
     whether or not one scoreline changed. With the provisional set outside the
     digest the second condition is a statement about scorelines, tie blocks and
@@ -5030,7 +5031,7 @@ def assert_provisional_fields(treated_clubs: Sequence[str],
                               provisional_control: Sequence[str],
                               provisional_treatment: Sequence[str], *,
                               where: str) -> None:
-    """R2-B4(a): metadata is checked AS METADATA, the sampler by its output.
+    """§3.3(a): metadata is checked AS METADATA, the sampler by its output.
 
     The provisional set left both digests, so it is compared directly: the
     treatment's set must be a strict superset of the control's at a treated
@@ -5045,7 +5046,7 @@ def assert_provisional_fields(treated_clubs: Sequence[str],
             raise TableIdentityBreak(
                 f"{where}: the treatment book's provisional set adds "
                 f"{sorted(treatment - control)} to the control's, and §3.3's "
-                f"frozen enumeration names {sorted(treated)}. R2-B4 makes the "
+                f"frozen enumeration names {sorted(treated)}. §3.3 makes the "
                 "provisional set a compared field precisely so a mismatch here "
                 "is caught as metadata rather than smuggled into a digest.")
     elif treatment != control:
@@ -5057,13 +5058,13 @@ def assert_provisional_fields(treated_clubs: Sequence[str],
 
 
 # --------------------------------------------------------------------------
-# R-B4 / R2-B4(c) — the 35-cell native-parity oracle against PROTECTED code
+# §3.3 / §3.3(c) — the 35-cell native-parity oracle against PROTECTED code
 # --------------------------------------------------------------------------
 
 class ParityRunner:
     """Protected :class:`epl.simretro.ArchiveRunner`, `dc_native`, one cell.
 
-    R-B4: binding the SCHEDULE to protected code binds neither
+    §3.3: binding the SCHEDULE to protected code binds neither
     ``ArchiveRunner``'s semantics — verified adjustments, ``config_read_once``,
     particle-book construction, boundaries, chunking, refusal handling, ranker
     checks, provenance — nor its call. The 19-untouched-cell control compares
@@ -5072,11 +5073,10 @@ class ParityRunner:
     the protected runner's ``dc_native`` output at ALL THIRTY-FIVE cells, no
     sampling, before one treated simulation is executed.
 
-    R2-B4(c) supersedes §2.4's budget with the oracle's true cost, because
-    ``ArchiveRunner`` owns its own fit (`epl/simretro.py:520-527,536`), exposes
-    no posterior and no ``ParticleBook`` for reuse, and returns
-    ``CutoffResult``/``ArmResult`` — so the parity leg cannot ride the new
-    runner's fits and needs its own 35.
+    §2.4 budgets the oracle its own 35 fits, because ``ArchiveRunner`` owns its
+    own fit (`epl/simretro.py:520-527,536`), exposes no posterior and no
+    ``ParticleBook`` for reuse, and returns ``CutoffResult``/``ArmResult`` — so
+    the parity leg cannot ride the new runner's fits.
 
     ``data/epl/sim/retro_r1.jsonl`` stays read-only and is not the comparison
     object: the parity run is EXECUTED, not read off the archive ledger.
@@ -5127,7 +5127,7 @@ class ParityRunner:
             raise TableIdentityBreak(
                 f"{season} {label}: the protected runner returned no SimRun for "
                 f"{TABLE_ARM_LABEL}, so there is nothing to compare against and "
-                "R-B4's oracle cannot be executed.")
+                "§3.3's oracle cannot be executed.")
         realised = simretro.realised_positions(
             self.matches, season,
             require_verified=self.require_verified_adjustments)
@@ -5162,7 +5162,7 @@ def run_parity_oracle(cells: Sequence[dict[str, Any]],
                       ) -> dict[str, dict[str, Any]]:
     """Execute the protected runner at every cell and record its digest.
 
-    Resumable per cell and never sampled: R2-B4(c) folds "sampling the parity
+    Resumable per cell and never sampled: §3.3(c) folds "sampling the parity
     oracle" into §2.4's standing refusal to thin the run.
     """
     path = Path(path)
@@ -5195,9 +5195,9 @@ def run_parity_oracle(cells: Sequence[dict[str, Any]],
     if missing:
         raise MergeIncomplete(
             f"the parity oracle is short {len(missing)} cell(s) "
-            f"(first: {missing[:3]}). R-B4 requires native parity at ALL "
+            f"(first: {missing[:3]}). §3.3 requires native parity at ALL "
             "thirty-five cells before one treated simulation is executed, and "
-            "R2-B4(c) makes sampling it an amendment rather than an "
+            "§3.3(c) makes sampling it an amendment rather than an "
             "optimisation.")
     return done
 
@@ -5221,7 +5221,7 @@ def assert_native_parity(cell_key_: str, new_digest: str, oracle: dict[str, Any]
         raise TableIdentityBreak(
             f"{cell_key_}: the new runner's control arm hashes to "
             f"{str(new_digest)[:12]}… and protected epl.simretro.ArchiveRunner's "
-            f"own dc_native run hashes to {want[:12]}…. R-B4 requires native "
+            f"own dc_native run hashes to {want[:12]}…. §3.3 requires native "
             "parity at all thirty-five cells before one treated simulation "
             "runs: binding the schedule to protected code binds neither its "
             "semantics nor its call, and the 19-untouched-cell control cannot "
@@ -5362,10 +5362,10 @@ def assert_parity_complete(cells: Sequence[dict[str, Any]],
 def tallies_dir(ledger_path: Path | str) -> Path:
     """Where the per-particle tallies live, beside the table ledger.
 
-    R2-B3 step 3 applies ONE resample index to all thirty-two tallies at once,
+    §5.2 applies ONE resample index to all thirty-two tallies at once,
     so the estimator needs every deciding cell's tallies simultaneously and a
     JSONL row is not where a ``[1000, 20, 20]`` float64 array belongs. They are
-    written beside the ledger, inside §6's `data/epl/sim/evwiden*` write set.
+    written beside the ledger, inside §8.3's `data/epl/sim/evwiden*` write set.
     """
     return Path(ledger_path).parent / "tallies"
 
@@ -5662,7 +5662,7 @@ def load_table_ledger(path: Path | str | None = None, *,
 def _cell_positions(row: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
     """The cell's own realised position vector and realised block widths.
 
-    R2-B3 step 3: ``positions_c`` and ``spans_c`` are "the same two arrays the
+    §5.2: ``positions_c`` and ``spans_c`` are "the same two arrays the
     cell's point estimate is scored with" — read back off the row in the club
     order the run used, never re-derived from a schedule.
     """
@@ -5676,9 +5676,9 @@ def _cell_positions(row: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
 def paired_mc_bootstrap(cells: Sequence[dict[str, Any]], *,
                         n_boot: int = MC_BOOT, seed: int = MC_SEED,
                         ) -> dict[str, Any]:
-    """R2-B3's estimator: tie-aware, jointly resampled, covariance by construction.
+    """§5's estimator: tie-aware, jointly resampled, covariance by construction.
 
-    ``cells`` is one entry per DECIDING cell — R2-B3 runs the estimator over the
+    ``cells`` is one entry per DECIDING cell — §5 runs the estimator over the
     16 treated cells and MW19 enters nothing — each carrying ``key``,
     ``cutoff_label``, ``positions``, ``spans`` and the two arms' per-particle
     fractional rank-mass tallies.
@@ -5692,7 +5692,7 @@ def paired_mc_bootstrap(cells: Sequence[dict[str, Any]], *,
     STEP 3, one resample per replicate applied to all thirty-two tallies. The
     same ``picked`` is applied to both arms of a cell — the CRN pairing, since
     the arms share particles and streams and differ only on the D12 branch — AND
-    to every other cell, which is R2-B3's repair of round one's false
+    to every other cell, which is §5's repair of v1's false
     independence: ``epl.leaguesim.streams(seed, chunk, fixture_ordinal)`` reads
     only those three things, not the season and not the cell, and all 35 cells
     run at the same seed, so simulated season *n* of one cell consumes the same
@@ -5709,7 +5709,7 @@ def paired_mc_bootstrap(cells: Sequence[dict[str, Any]], *,
     deterministic in the season index, so two cells that share uniforms move
     together inside a replicate exactly as they move together in the run.
 
-    HONEST LIMITS, stated here as R2-B3 states them: the particle is the
+    HONEST LIMITS, stated here as §5 states them: the particle is the
     cluster, as it is in every Monte-Carlo error this repository publishes;
     within-particle match randomness at fixed particle is resampled only through
     the seasons each particle carries; and a 7-, 4-, 3- or 2-cell label mean is
@@ -5728,7 +5728,7 @@ def paired_mc_bootstrap(cells: Sequence[dict[str, Any]], *,
                 {int(np.asarray(c["treatment"]).shape[0]) for c in cells}
     if len(particles) != 1:
         raise TableMCImprecise(
-            f"the deciding cells carry {sorted(particles)} particles. R2-B3 "
+            f"the deciding cells carry {sorted(particles)} particles. §5 "
             "step 2 requires ONE common index space across all thirty-two "
             "tallies; joint resampling is undefined without it.")
     n_particles = particles.pop()
@@ -5748,13 +5748,13 @@ def paired_mc_bootstrap(cells: Sequence[dict[str, Any]], *,
             if not np.allclose(per, per.flat[0], atol=1e-9):
                 raise TableMCImprecise(
                     f"{cell['key']} {arm}: the particles carry unequal season "
-                    "counts. R2-B3 step 2 makes that a refusal, not something "
+                    "counts. §5.2 makes that a refusal, not something "
                     "to reweight.")
             seasons_per_particle.add(round(float(per.flat[0]), 9))
     if len(seasons_per_particle) != 1:
         raise TableMCImprecise(
             f"the deciding cells carry {sorted(seasons_per_particle)} simulated "
-            "seasons per particle; R2-B3 step 2 requires one whole number, "
+            "seasons per particle; §5.2 requires one whole number, "
             "shared.")
     per_particle = seasons_per_particle.pop()
     if abs(per_particle - round(per_particle)) > 1e-9:
@@ -5786,7 +5786,7 @@ def paired_mc_bootstrap(cells: Sequence[dict[str, Any]], *,
                         for lab in labels},
         "mc_se_per_cell": {k: float(np.std(v, ddof=1))
                            for k, v in per_cell.items()},
-        "estimator": ("R2-B3: tie-aware fractional rank mass, one resample "
+        "estimator": ("§5: tie-aware fractional rank mass, one resample "
                       "index per replicate applied to every tally, label means "
                       "computed inside the replicate — no quadrature, no "
                       "independence claim"),
@@ -5822,7 +5822,7 @@ def iv_c_verdict(mw6_deltas: Sequence[float], seasons: Sequence[str], *,
     """Clause (iv-c)'s own verdict: **FAIL iff `mean_MW6 > 0` and
     `ci_lo_MW6 > 0`.**
 
-    The interval is §5.3's, exactly — same function, same seven season blocks,
+    The interval is §7.3's, exactly — same function, same seven season blocks,
     B = 10,000, alpha = 0.05, seed 20260814 — because §5.4 recomputes *the whole
     of iv-c*, not an approximation of it.
     """
@@ -5855,7 +5855,7 @@ def unanimity(cells: Sequence[dict[str, Any]], *, point_verdict: bool,
     > `0 … 199`: draw **one** joint particle resample
     > `picked_k = rng.integers(0, P, P)` and apply it to **all thirty-two
     > tallies** exactly as §5.2 applies its own draw [...] From the resulting
-    > seven MW6 cell deltas compute the season-block interval of §5.3 [...] and
+    > seven MW6 cell deltas compute the season-block interval of §7.3 [...] and
     > evaluate iv-c's verdict: **FAIL iff `mean_MW6 > 0` and `ci_lo_MW6 > 0`.**
     >
     > **P5 fires — and gate (iv) is UNRESOLVED — unless all 200 verdicts agree
@@ -5926,10 +5926,10 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
                 ledger_path: Path | str | None = None,
                 mc_boot: int = MC_BOOT, mc_seed: int = MC_SEED,
                 expected_cells: int | None = None) -> dict[str, Any]:
-    """§3.4's table-side numbers, and R-B2's per-horizon deciding statistics.
+    """§3.4's table-side numbers, and §4.1's per-horizon deciding statistics.
 
     **The 35-cell pooled ΔTRPS and pooled ΔwTRPS are WITHDRAWN** — not demoted
-    to secondaries, withdrawn from the published outputs entirely (R-B2).
+    to secondaries, withdrawn from the published outputs entirely (§4.1).
     `epl/simretro.py:41` and `epl/simmetrics.py:44` both freeze *"Never averaged
     across cutoffs"*: a forecast at the opener and one at matchweek 19 answer
     different questions and their average describes neither. Publishing an
@@ -5937,7 +5937,7 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
     as one. What publishes in its place is every cell's ΔTRPS and ΔwTRPS
     individually, and the four treated-cell label means.
 
-    What decides is (iv-a) the MW6 mean over its seven cells with R-B3's frozen
+    What decides is (iv-a) the MW6 mean over its seven cells with §5.3's frozen
     season-block interval, (iv-b) the treated-cell means at MW0, MW3 and MW10,
     and (iv-c) the significance-and-precision clause. Everything else here is a
     SECONDARY and decides nothing.
@@ -6022,7 +6022,7 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
             "cutoff_label": label, "n_treated": len(idx),
             "mean": float(deltas[idx].mean()) if idx else 0.0,
             "cells": [per_cell[i]["key"] for i in idx],
-            "interval": "none — R-B2 computes no interval at these labels and "
+            "interval": "none — §4.1 computes no interval at these labels and "
                         "requires none; two cells do not carry one",
         }
 
@@ -6105,18 +6105,18 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
         "schema": SCHEMA_ID, "n_cells": len(per_cell),
         "n_treated_cells": len(per_cell) - len(untouched),
         "n_untouched_cells": len(untouched),
-        #: R-B2: the 35-cell pooled ΔTRPS and ΔwTRPS are WITHDRAWN from the
+        #: §4.1: the 35-cell pooled ΔTRPS and ΔwTRPS are WITHDRAWN from the
         #: published outputs entirely, not demoted. Protected code freezes
         #: "Never averaged across cutoffs", and publishing an aggregate that
         #: protected code forbids as a verdict invites it to be quoted as one.
         "withdrawn": {
             "pooled_delta_trps_35_cells":
-                "withdrawn by R-B2 — epl/simretro.py:41 and "
+                "withdrawn by §4.1 — epl/simretro.py:41 and "
                 "epl/simmetrics.py:44 both freeze 'Never averaged across "
                 "cutoffs'; 19 of 35 cells are structural zeros and all seven "
                 "MW19 cells are among them, so the average diluted harm at the "
                 "horizons where the treatment fires",
-            "pooled_delta_wtrps_35_cells": "withdrawn by R-B2, same reason"},
+            "pooled_delta_wtrps_35_cells": "withdrawn by §4.1, same reason"},
         "mw6": mw6, "per_label": label_means, "mw19": structural,
         "mc": mc,
         "per_cutoff_label": by_label, "per_cell": per_cell,
@@ -6140,7 +6140,7 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
 
 
 def table_gate(scored: dict[str, Any]) -> dict[str, Any]:
-    """§4.1 (iv) as R-B2 repairs it — per horizon, and nothing on an average.
+    """§4.1 (iv) as §4.1 repairs it — per horizon, and nothing on an average.
 
     > **(iv-a) The named-horizon gate — MW6.** The equal-weight mean over the
     > seven MW6 cells of ΔTRPS must be ≤ +0.0002.
@@ -6152,10 +6152,10 @@ def table_gate(scored: dict[str, Any]) -> dict[str, Any]:
     > construction, is reported as such, and decides nothing.
     >
     > **(iv-c) The significance-and-precision clause, at MW6 only.** The gate
-    > FAILS if the MW6 mean is > 0 **and** the lower bound of R-B3's frozen
+    > FAILS if the MW6 mean is > 0 **and** the lower bound of §5.3's frozen
     > season-block interval is > 0.
 
-    THE PRECISION RULE OF R2-B3, at EVERY deciding boundary. Gate (iv) is
+    THE PRECISION RULE OF §5, at EVERY deciding boundary. Gate (iv) is
     UNRESOLVED — and ADOPT is refused — if any of (P1)–(P5) holds. Every one is
     one-directional: UNRESOLVED blocks adoption and can never grant one, so
     simulation noise is only ever able to REFUSE, which is the direction that
@@ -6169,7 +6169,7 @@ def table_gate(scored: dict[str, Any]) -> dict[str, Any]:
     the scale on which each of those points is itself uncertain, so the
     comparison bounds rather than propagates.
 
-    §4.3, reissued by R-B2: R1 has no pass rule (`reports/epl_sim_retro_v1_1.md`
+    §4.3, reissued by §4.1: R1 has no pass rule (`reports/epl_sim_retro_v1_1.md`
     §10: *"Nothing, by itself"*), so both the tolerance and the significance
     construction are INVENTED, invented blind, in a place where the house had
     none. What is new is that they are invented for a SINGLE NAMED HORIZON
@@ -6288,8 +6288,8 @@ def table_gate(scored: dict[str, Any]) -> dict[str, Any]:
                     "in a file the stopped leg never writes",
         },
         "withdrawn": "the 35-cell pooled ΔTRPS decides nothing and is not "
-                     "published at all (R-B2)",
-        "disclosure": ("§4.3 as R-B2 reissues it: both the tolerance and the "
+                     "published at all (§4.1)",
+        "disclosure": ("§4.3 as §4.1 reissues it: both the tolerance and the "
                        "significance construction are invented — R1 has no pass "
                        "rule — from R1's own recorded per-cell scale, blind, in "
                        "a place where the house had none. They are now invented "
@@ -6305,10 +6305,10 @@ def table_gate(scored: dict[str, Any]) -> dict[str, Any]:
 # 15. THE EVIDENCE CONTRACT — §6, regardless of outcome
 # ==========================================================================
 
-#: R-I6's per-fixture columns, frozen field by field. `block` and `season` are
+#: §9's per-fixture columns, frozen field by field. `block` and `season` are
 #: columns because both bootstraps need them, and the corpus's own probabilities
 #: sit beside Arm B's so a reader can confirm the eight-decimal equality rather
-#: than take it (R-B1).
+#: than take it (§2.3).
 _PER_FIXTURE_COLUMNS = (
     "key", "match_id", "season", "block", "cutoff", "date",
     "home_key", "away_key", "e_home", "e_away", "e_min", "thin_at",
@@ -6319,9 +6319,9 @@ _PER_FIXTURE_COLUMNS = (
     "y", "rps_B", "rps_A", "delta", "delta_vs_corpus",
     "max_abs_dp_vs_corpus")
 
-#: R-I6's table-cell columns, one row per CELL (35, not 70): the paired shape
-#: the deltas actually have. R2-I6 adds the sampler digests and the two
-#: provisional sets, and `mc_se_paired` is R2-B3's per-cell `mc_se_cell`.
+#: §9's table-cell columns, one row per CELL (35, not 70): the paired shape
+#: the deltas actually have. §9.3 adds the sampler digests and the two
+#: provisional sets, and `mc_se_paired` is §5's per-cell `mc_se_cell`.
 _TABLE_COLUMNS = (
     "season", "cutoff_label", "cutoff", "treated_clubs", "n_treated_clubs",
     "trps_control", "trps_treatment", "delta_trps",
@@ -6432,7 +6432,7 @@ def per_fixture_evidence(rows: Sequence[dict[str, Any]], *,
 def table_evidence(rows: Sequence[dict[str, Any]],
                    mc_se: dict[str, Any] | None = None,
                    ) -> list[dict[str, Any]]:
-    """R-I6's 35 table-cell rows — one per CELL, the shape the deltas have."""
+    """§9's 35 table-cell rows — one per CELL, the shape the deltas have."""
     mc_se = dict(mc_se or {})
     out = []
     for row in sorted(rows, key=lambda r: (str(r["season"]), str(r["cutoff"]))):
@@ -6488,7 +6488,7 @@ def table_evidence(rows: Sequence[dict[str, Any]],
 
 
 def grid_evidence(result: dict[str, Any]) -> list[dict[str, Any]]:
-    """R-I6's grid file: `e_star, n_thin, n_treated, mean_delta, ci_lo, ci_hi,
+    """§9's grid file: `e_star, n_thin, n_treated, mean_delta, ci_lo, ci_hi,
     n_blocks, degenerate, decides`."""
     return [{
         "e_star": g["e_star"], "n_thin": g["population"],
@@ -6549,13 +6549,13 @@ def realised_power_object(result: dict[str, Any], *,
 
 def evidence_object(result: dict[str, Any], *,
                     power: dict[str, Any] | None = None) -> dict[str, Any]:
-    """R-I6's `reports/evidence/widening.json`, frozen field by field.
+    """§9's `reports/evidence/widening.json`, frozen field by field.
 
     The superseded contract said "both CIs" where there are **three** deciding
     intervals, left the 820-fixture control without a committed home, promised
     Sunderland and coverage diagnostics no column held, and froze no MANIFEST
-    membership. Every name below is the document's own; R2-B3 supersedes
-    `gate_iv.mc_se_mean` with its own `precision` names.
+    membership. Every name below is the document's own, and §5.4's `precision`
+    object carries the standard errors under their own names.
     """
     table = result.get("table") or {}
     scored = table.get("scored") or {}
@@ -6581,8 +6581,9 @@ def evidence_object(result: dict[str, Any], *,
         "generated_at": pd.Timestamp.now("UTC").isoformat(),
         "prereg_commit": git_commit_touching(paths.rel(PREREG_PATH)),
         "prereg_blob": git_blob_id(paths.rel(PREREG_PATH)),
-        "repairs_section": ("Repairs of 2026-08-27 (round one) and Repairs of "
-                            "2026-08-27, round two — on the re-review"),
+        # §9.1 names `prereg_commit` and `prereg_blob`; the document they
+        # identify is v2, and v1 is lineage that decides nothing (§8.1).
+        "prereg": paths.rel(PREREG_PATH),
         "pins": {
             "corpus_sha256": CORPUS_SHA256, "corpus_rows": CORPUS_ROWS,
             "corpus_seasons": list(CORPUS_SEASONS),
@@ -6697,7 +6698,7 @@ def evidence_object(result: dict[str, Any], *,
     return out
 
 
-#: R-I3's required disclosure, in the result document, in these words.
+#: §4.2's required disclosure, in the result document, in these words.
 MATERIALITY_SENTENCE = (
     "the rule's corpus-level effect is below this model's own re-seed noise, "
     "and its value is a claim about the fixtures it touches, not about the "
@@ -6854,7 +6855,7 @@ def write_evidence(result: dict[str, Any],
                    directory: Path | str | None = None,
                    manifest: bool = True, power: dict[str, Any] | None = None,
                    require_manifest_complete: bool = True) -> dict[str, str]:
-    """§6's evidence contract, written whichever way the numbers fell.
+    """§9's evidence contract, written whichever way the numbers fell.
 
     ULTRA-REVIEW LESSON 1, applied from day one: the verdict's machine-readable
     basis is COMMITTED under `reports/evidence/`, not left in a gitignored
@@ -6890,7 +6891,7 @@ def write_evidence(result: dict[str, Any],
                        table_evidence(table_rows, mc_se))
         written["widening_table_cells.csv"] = paths.rel(p)
     if manifest:
-        # R2-I6: exactly the eleven, and a missing artifact is a refusal.
+        # §9.3: exactly the eleven, and a missing artifact is a refusal.
         entries = manifest_entries()
         for rel in ("reports/evidence/widening.json",
                     "reports/evidence/widening_per_fixture.csv",
@@ -6963,7 +6964,7 @@ def verify(directory: Path | str | None = None, *, shards: int = SHARDS,
     if not evidence.exists():
         raise MergeIncomplete(
             f"{paths.rel(evidence)} is not on disk: there is no published "
-            "verdict to verify. §6's evidence contract is written by the merge "
+            "verdict to verify. §9's evidence contract is written by the merge "
             "regardless of outcome, so an absent file is a run that never "
             "finished rather than a result that went the wrong way.")
     published = json.loads(evidence.read_text())
@@ -7412,7 +7413,7 @@ def implementation_report(power: dict[str, Any] | None = None,
 
     The audit's table of what v1's rows actually checked is the indictment:
     "three field names exist", "a test-function name occurs in working-tree
-    text", "subclass count" — and R2-H, the frozen sequence, had no row at all.
+    text", "subclass count" — and §8.4, the frozen sequence, had no row at all.
 
     Eighteen rows, L1-L18, each naming its section, its obligation and the
     scenario it executes. §8.5's closing clause then requires the TEST that
@@ -8030,10 +8031,10 @@ def freeze_block(corpus: pd.DataFrame | None = None,
 
 def require_harness_freeze(sources: Sequence[Path] | None = None,
                            ) -> dict[str, Any]:
-    """Refuse anything that would score fits taken before §6's freeze commit.
+    """Refuse anything that would score fits taken before §8.3's freeze commit.
 
-    Raised as the base :class:`EvWidenError`: §7 pre-states this condition as an
-    invalidation but §5.1 never gave it a typed name, and this module does not
+    Raised as the base :class:`EvWidenError`: §10 pre-states this condition as an
+    invalidation but §7.1 never gave it a typed name, and this module does not
     invent one after the fact.
     """
     status = harness_freeze_status(sources)
@@ -8065,10 +8066,10 @@ def launch_script(directory: Path | str | None = None, shards: int = SHARDS, *,
     here rather than generated.
 
     A loose ``run_evwiden.sh`` would be code whose bytes nothing hashes, sitting
-    outside the §6 hash table while being able to change which shards run and in
+    outside the §8.3 hash table while being able to change which shards run and in
     what order. Generating it from the hashed module instead makes the launcher
     a function of the frozen harness, and the launcher itself lands under
-    ``data/epl/fit/evwiden/`` — inside §6's write set.
+    ``data/epl/fit/evwiden/`` — inside §8.3's write set.
 
     Four things §2.4 pre-states, all of them here rather than in a habit:
 
@@ -8206,7 +8207,7 @@ def default_table_cells(played: pd.DataFrame | None = None,
                         ) -> list[dict[str, Any]]:
     """§3.3's 35 cells from the pinned archive — read-only, fits nothing.
 
-    R-B5 pass 1 authorises `--membership` and `--plan` to read the pinned
+    §8.2 pass 1 authorises `--membership` and `--plan` to read the pinned
     corpus, archive and ledger and compute "§2.2's cells, §2.3's population,
     §3.3's TABLE CELLS and the digests the freeze commit records". The table
     cells were the half the CLI omitted.
@@ -8233,28 +8234,36 @@ def _plan(corpus: pd.DataFrame, played: pd.DataFrame,
         "preconditions": {"canary": (directory / CANARY_NAME).exists()},
         "harness_freeze": harness_freeze_status(),
         "blas_threads": blas_threads(),
-        # R2-B4(c) supersedes §2.4's table-leg budget: `ArchiveRunner` owns its
-        # own fit and exposes no posterior or ParticleBook for reuse, so the
-        # parity oracle cannot ride the new runner's fits and needs its own 35.
+        # §2.4's table-leg budget: `ArchiveRunner` owns its own fit and exposes
+        # no posterior or ParticleBook for reuse, so the parity oracle cannot
+        # ride the new runner's fits and needs its own 35.
         "budget": {"match_fits": len(points),
                    "table_fits": 2 * EXPECTED_TABLE_CELLS,
                    "table_parity_fits": EXPECTED_TABLE_CELLS,
                    "table_runner_fits": EXPECTED_TABLE_CELLS,
                    "table_simulations": 3 * EXPECTED_TABLE_CELLS,
-                   "total_fits": len(points) + 2 * EXPECTED_TABLE_CELLS,
+                   # §2.4 counts the results canary's four fits and the
+                   # single-opening exercise, "because they are real fits on
+                   # the real archive: §8.4 makes them the first two steps of
+                   # the frozen sequence, and a budget that omits them would
+                   # understate both the clock and the moment §8.7's regime
+                   # comes into force". v1 reported 148 and was five fits short.
+                   "canary_fits": 4, "single_opening_fits": 1,
+                   "total_fits": (4 + 1 + len(points)
+                                  + 2 * EXPECTED_TABLE_CELLS),
                    "bound": "the table leg is bounded by ~4 hours, not ~2 "
-                            "(R2-B4(c))",
+                            "(§3.3(c))",
                    "shards": SHARDS,
                    "note": "§2.4: shards run SEQUENTIALLY and the run may not "
                            "be thinned — dropping cutoffs, fixtures, cells or "
                            "grid points to fit a clock is an amendment, not an "
-                           "optimisation, and R2-B4(c) folds sampling the "
+                           "optimisation, and §3.3(c) folds sampling the "
                            "parity oracle into that refusal."},
     }
 
 
 def _frozen_now() -> bool:
-    """Has §6's freeze commit landed for THESE bytes? One place, one answer."""
+    """Has §8.3's freeze commit landed for THESE bytes? One place, one answer."""
     return bool(harness_freeze_status()["frozen"])
 
 
@@ -8290,7 +8299,7 @@ def _run_all_canaries(corpus: pd.DataFrame, played: pd.DataFrame,
                    | set(corpus.loc[corpus["season"] == season,
                                     "away_key"].astype(str)))
 
-    # The store root is a TEMPORARY directory, and that is a §6 requirement
+    # The store root is a TEMPORARY directory, and that is a §8.2 requirement
     # rather than tidiness: `epl.fit.build_store` unlinks and rewrites the
     # shared `data/epl/fit/store/results.parquet` whenever the row set differs,
     # so building a store from the CORRUPTED frame under the default root would
@@ -8330,10 +8339,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     help="print the membership, the digests and the shard "
                          "sizes; fits nothing")
     ap.add_argument("--membership", action="store_true",
-                    help="print §6 step 2's frozen membership digests, "
+                    help="print §8.3 step 2's frozen membership digests, "
                          "recomputed from the pinned artifacts; fits nothing")
     ap.add_argument("--canary", action="store_true",
-                    help="§5.3's canaries; the first thing in RUN_ORDER")
+                    help="§7.3's canaries; the first thing in RUN_ORDER")
     ap.add_argument("--run", action="store_true",
                     help="Arm A's fits — the identity control runs first, "
                          "inside every fit")
@@ -8345,16 +8354,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                     help="re-derive the published estimand from the committed "
                          "evidence and the shard ledgers; changes nothing")
     ap.add_argument("--evidence", action="store_true",
-                    help="write §6's evidence files under reports/evidence/")
+                    help="write §9's evidence files under reports/evidence/")
     ap.add_argument("--power", action="store_true",
-                    help="R2-I2's power simulation: prints the table and the "
+                    help="§6's power simulation: prints the table and the "
                          "`power` object; fits nothing, simulates no season, "
                          "writes nothing")
     ap.add_argument("--conformance", action="store_true",
-                    help="does this harness implement the document as BOTH "
-                         "repair rounds leave it? prints the work order")
+                    help="§8.5's conformance report: eighteen behavioural "
+                         "rows, each executing a scenario that fails under its "
+                         "own defect class")
     ap.add_argument("--freeze-block", dest="freeze_block", action="store_true",
-                    help="print §6 step 2's hash table and membership digests, "
+                    help="print §8.3 step 2's hash table and membership digests, "
                          "recomputed from the pinned artifacts; fits nothing")
     ap.add_argument("--script", action="store_true",
                     help="write the detached-launch runner into the run "
@@ -8450,7 +8460,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             corpus, played = load_corpus(), load_archive()
             ledger = load_walk_ledger()
             assert_ledger_covers(corpus, ledger)
-            # R-B5 pass 1: `--membership` and `--plan` compute §2.2's cells,
+            # §8.2 pass 1: `--membership` and `--plan` compute §2.2's cells,
             # §2.3's population AND §3.3's table cells. All three are what the
             # freeze commit records, so all three are computed here.
             cells = default_table_cells(played)
@@ -8473,7 +8483,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 results_canary=not args.no_results_canary,
                 directory=directory)
             write_canaries(record, directory / CANARY_NAME)
-            # §8.4 step 1's completion marker. R-B6 comes into force HERE — the
+            # §8.4 step 1's completion marker. §8.7 comes into force HERE — the
             # canary's four fits are the first real fits of this document — so
             # the marker records the harness digests at that moment.
             if record.get("PASS") and not args.no_results_canary:
@@ -8602,7 +8612,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 merged = [r for shard in range(args.shards)
                           for r in load_ledger(
                               directory / shard_name(shard, args.shards))]
-                # R-I2's `power` object is computed HERE, from committed code,
+                # §6's `power` object is computed HERE, from committed code,
                 # so the verdict file carries numbers a reader can re-run rather
                 # than numbers a scratch script once printed.
                 written = write_evidence(

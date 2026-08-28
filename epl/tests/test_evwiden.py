@@ -67,9 +67,9 @@ PINNED_LEDGER = Path("data/epl/fit/walkforward_ledger.jsonl")
 PREREG = Path("reports/epl_widening_prereg_v2.md")
 PREREG_V1 = Path("reports/epl_widening_prereg.md")
 
-#: The `@pinned` tests of R-I5: they read the pinned artifacts DELIBERATELY, to
+#: The `@pinned` tests of §7.4: they read the pinned artifacts DELIBERATELY, to
 #: re-derive the document's own census. They fit nothing and simulate nothing,
-#: they are authorised by name under R-B5, and they are not covered by R-I5's
+#: they are authorised by name under §8.2, and they are not covered by §7.4's
 #: SYNTHETIC definition.
 pinned = pytest.mark.skipif(
     not (PINNED_CORPUS.exists() and PINNED_ARCHIVE.exists()
@@ -94,11 +94,11 @@ CUT_D = "2020-01-20"          # season one, block three — `stale` sits it out
 #:   cold  — no archive rows at all       -> e = 0, the Coventry shape
 CLUBS = ("rich", "mid", "stale", "cold")
 
-#: R2-I5's corrected inventory of fact. There are THREE generators — `_archive`,
+#: §7.4's corrected inventory of fact. There are THREE generators — `_archive`,
 #: `_corpus` and `_ledger`, with `_world` returning the three together — and
 #: FIVE invented club names, not four: `other` appears in `_archive()` as the
-#: counterparty club and is not in `CLUBS`, which is why round one missed it.
-#: R2-I5 makes the ancestry claim a test rather than an assertion:
+#: counterparty club and is not in `CLUBS`, which is why v1 missed it.
+#: §7.4 makes the ancestry claim a test rather than an assertion:
 #: `test_the_synthetic_clubs_are_absent_from_the_pinned_artifacts` below.
 SYNTHETIC_CLUBS = ("rich", "mid", "stale", "cold", "other")
 SYNTHETIC_GENERATORS = ("_archive", "_corpus", "_ledger")
@@ -196,12 +196,12 @@ def _world():
 
 
 # ==========================================================================
-# R2-I5 — "synthetic" has an enforceable definition, and it is enforced HERE
+# §7.4 — "synthetic" has an enforceable definition, and it is enforced HERE
 # ==========================================================================
 
 def test_the_generator_inventory_is_the_documents():
-    """R2-I5 corrects round one's inventory of fact: three generators, five
-    invented club names. Round one asserted a check into existence and named
+    """§7.4 corrects v1's inventory of fact: three generators, five
+    invented club names. v1 asserted a check into existence and named
     two generators and four clubs; this is the check."""
     for name in SYNTHETIC_GENERATORS:
         assert callable(globals()[name]), name
@@ -218,10 +218,10 @@ def test_the_generator_inventory_is_the_documents():
 
 @pinned
 def test_the_synthetic_clubs_are_absent_from_the_pinned_artifacts():
-    """R2-I5, the ancestry check made mechanical — the test round one said
+    """§7.4, the ancestry check made mechanical — the test v1 said
     existed and did not.
 
-    R-I5 defines SYNTHETIC as "every one of its values is written literally in
+    §7.4 defines SYNTHETIC as "every one of its values is written literally in
     `epl/tests/test_evwiden.py`, or generated there by arithmetic over literals
     written there", and forbids any value read, copied, sampled or transformed
     from the pinned artifacts. Names that also occur in the real archive would
@@ -238,7 +238,7 @@ def test_the_synthetic_clubs_are_absent_from_the_pinned_artifacts():
 
 
 def test_the_generators_read_nothing_from_the_pinned_artifacts(monkeypatch):
-    """R-I5: "No value may be read, copied, sampled, transformed, or otherwise
+    """§7.4: "No value may be read, copied, sampled, transformed, or otherwise
     derived from" the pinned parquet, ledger or retro ledger.
 
     The two routes this repository reads them by are closed for the duration,
@@ -301,7 +301,7 @@ def test_the_pre_stated_counts_are_the_documents():
 
 
 def test_the_write_set_excludes_everything_the_house_protects():
-    """§6 closes the set. A harness that writes `src/` is a harness that broke
+    """§8.3 closes the set. A harness that writes `src/` is a harness that broke
     the lock chain, and the lock chain refuses silently."""
     protected = ("src/", "scripts/", "site/", "tools/", "config/", ".github/",
                  "epl/simretro.py", "epl/simmetrics.py",
@@ -384,7 +384,7 @@ def test_seeded_defect_config_under_mechanism_a_refuses(monkeypatch, tmp_path):
 
 def test_the_realised_configuration_is_pinned_and_not_only_the_frozen_file(
         monkeypatch):
-    """R-I1: `frozen_wcmodel_config()` loads the LIVE `config/config.yaml` and
+    """§0.1: `frozen_wcmodel_config()` loads the LIVE `config/config.yaml` and
     overlays only the frozen EPL Elo block, so the decay half-life that DEFINES
     `e`, the volatility window `e* = 10.0` is taken from, the likelihood and the
     whole ADVI block came from a file no check bound.
@@ -408,7 +408,7 @@ def test_the_realised_configuration_is_pinned_and_not_only_the_frozen_file(
 
 @pinned
 def test_the_pinned_realised_config_digest_is_the_documents():
-    """R-I1 pins `78a51cd9…`, computed 2026-08-27 under the pinned frozen file.
+    """§0.1 pins `78a51cd9…`, computed 2026-08-27 under the pinned frozen file.
     A drift there changes `e`, the posteriors, or reproducibility while the
     superseded three-condition check passed."""
     from epl import freeze
@@ -417,7 +417,7 @@ def test_the_pinned_realised_config_digest_is_the_documents():
         "78a51cd92c48838a57e3d6832b7661aad7a5b231425572214a067c2a35edbdcd")
     cfg = freeze.frozen_wcmodel_config()
     assert ew.realised_config_sha256(cfg) == ew.REALISED_CONFIG_SHA256
-    # and the fields R-I1 says it now binds
+    # and the fields §0.1 says it now binds
     assert cfg["windows"]["decay_half_life_days"] == 365
     assert cfg["elo"]["volatility_window"] == 10
     assert cfg["model"]["widening"] == {"mechanism": "c", "strength": 0.5}
@@ -613,7 +613,7 @@ def test_thin_at_lists_the_grid_points_a_fixture_is_thin_at():
 
 
 def test_membership_digests_do_not_depend_on_iteration_order():
-    """§6 step 2 hashes the membership; a reordering must not move a digest."""
+    """§8.3 step 2 hashes the membership; a reordering must not move a digest."""
     corpus, played, ledger = _world()
     a = ew.membership(corpus, played, ledger)
     b = ew.membership(corpus.iloc[::-1].reset_index(drop=True), played, ledger)
@@ -834,7 +834,7 @@ def test_every_row_carries_the_two_level_provenance_contract(tmp_path):
         assert field in rows[0]["fit"], field
     assert rows[0]["arm_a"]["arm"] == ew.ARM_NAME
     assert rows[0]["arm_b"]["arm"] == ew.BASELINE_ARM
-    # R-B1: Arm B IS recomputed now — from the same posterior — and the corpus
+    # §2.3: Arm B IS recomputed now — from the same posterior — and the corpus
     # is a separate block whose role says what it is.
     assert rows[0]["arm_b"]["recomputed"] is True
     assert "predict pass 1" in rows[0]["arm_b"]["source"]
@@ -886,13 +886,13 @@ def test_a_completed_key_is_skipped_not_refitted(tmp_path):
 
 
 # ==========================================================================
-# 5. §5.3's seeded defects — each class of §5.1 alone, on synthetic data
+# 5. §7.3's seeded defects — each class of §5.1 alone, on synthetic data
 # ==========================================================================
 
 def test_seeded_defect_control_mismatch_stops_the_run(tmp_path):
     """§3.2: EXACT equality at the corpus's eight decimals. A 1e-8 perturbation
     is the smallest lie the corpus can be told, and it must still be caught —
-    §7 makes widening the tolerance after a mismatch an invalidation."""
+    §10 makes widening the tolerance after a mismatch an invalidation."""
     with pytest.raises(ew.ControlMismatch):
         _run(tmp_path, defect="control")
 
@@ -1028,7 +1028,7 @@ def test_an_incomplete_fit_is_not_counted_as_complete(tmp_path):
 
 
 def test_the_preregistered_directory_is_closed_before_the_freeze(tmp_path):
-    """§6 step 3 and §7: an audit run is legitimate and gets its own directory,
+    """§8.3 step 3 and §10: an audit run is legitimate and gets its own directory,
     where every row is stamped harness_frozen: false."""
     corpus, played, ledger = _world()
     points = ew.fit_points(corpus, [CUT_A], check=False)
@@ -1058,7 +1058,7 @@ def test_every_audit_row_is_stamped_unfrozen(tmp_path):
 class _FakePosterior:
     """The smallest object the WHOLE production map will accept.
 
-    R-M2 binds the direction canary to the production path, so this double
+    §7.3 binds the direction canary to the production path, so this double
     carries the surface `draw_api.per_draw_rates` and `mean_grid_over_draws`
     actually read — a team index, `_post` for the fitted parameters, the
     covariate hook and the config — and `predict_scoreline` DELEGATES to
@@ -1330,7 +1330,7 @@ def test_the_treated_fixture_gets_a_different_forecast_and_the_base_one_does_not
 
 
 def test_the_pre_widening_grid_is_read_out_of_the_production_functions():
-    """R-M2's comparator needs the grid `finalize_grid` is HANDED, and takes it
+    """§7.3's comparator needs the grid `finalize_grid` is HANDED, and takes it
     from `draw_api`'s own two legs rather than re-deriving it: a canary built on
     a second implementation of the map checks the second implementation."""
     from wcmodel.model.draw_api import finalize_grid
@@ -1344,7 +1344,7 @@ def test_the_pre_widening_grid_is_read_out_of_the_production_functions():
 
 
 def test_direction_canary_is_bound_to_the_production_path_and_the_frozen_alpha():
-    """R-M2: the comparator is `finalize_grid(grid, posterior, provisional=…)`,
+    """§7.3: the comparator is `finalize_grid(grid, posterior, provisional=…)`,
     equality is BIT equality, and the frozen alpha stays checkable because the
     production output must also equal `inflate_predictive(grid, True, 0.5)`
     renormalised the way `finalize_grid` renormalises it."""
@@ -1367,7 +1367,7 @@ def test_direction_canary_is_bound_to_the_production_path_and_the_frozen_alpha()
 
 
 def test_the_direction_canary_accepts_the_documented_edge_branch():
-    """R-M2: `inflate_predictive` documents an edge no-op — a marginal mean at
+    """§7.3: `inflate_predictive` documents an edge no-op — a marginal mean at
     ~0 has no interior max-entropy solution and the grid is returned unchanged —
     so "strictly higher entropy" is not unconditional. An edge fixture with an
     unchanged grid and an equal entropy is the CORRECT result."""
@@ -1385,7 +1385,7 @@ def test_the_direction_canary_accepts_the_documented_edge_branch():
 
 
 def test_the_direction_canary_needs_one_treated_fixture_in_the_interior_branch():
-    """R-M2: "A direction canary in which every fixture took the edge branch is
+    """§7.3: "A direction canary in which every fixture took the edge branch is
     CanaryFailed: it proved nothing." The same holds when the interior fixtures
     are all untreated — the treated grids are the ones under test."""
     post = _FakePosterior()
@@ -1407,7 +1407,7 @@ def test_seeded_defect_a_widening_that_does_not_widen_fails_the_direction_canary
 
 def test_seeded_defect_a_mix_at_the_wrong_strength_fails_the_direction_canary():
     """§2.1 freezes alpha at 0.5. A grid mixed at another strength is a
-    different treatment from the preregistered one, and R-M2's move onto the
+    different treatment from the preregistered one, and §7.3's move onto the
     production path does not lose that check."""
     post = _FakePosterior(strength=0.25)
     with pytest.raises(ew.CanaryFailed) as exc:
@@ -1430,7 +1430,7 @@ def test_grid_entropy_is_the_shannon_entropy_of_the_pmf():
 
 
 # ==========================================================================
-# 7. the evidence canary — §5.3's two legs, and its positive control
+# 7. the evidence canary — §7.3's two legs, and its positive control
 # ==========================================================================
 
 def test_evidence_canary_passes_on_a_sound_frame():
@@ -1444,7 +1444,7 @@ def test_evidence_canary_passes_on_a_sound_frame():
 
 
 def test_the_negative_leg_is_array_equal_and_both_legs_count_their_rows():
-    """R-I4: the comparison is `numpy.array_equal` on the float64 values BEFORE
+    """§7.3: the comparison is `numpy.array_equal` on the float64 values BEFORE
     rounding — bit equality, not a tolerance — and "both legs record the number
     of rows the mask selected; an empty mask is a refusal, never a pass"."""
     played = _archive()
@@ -1456,7 +1456,7 @@ def test_the_negative_leg_is_array_equal_and_both_legs_count_their_rows():
     assert out["negative_leg_rows_selected"] == n_after > 0
     assert out["positive_control_rows_selected"] == n_before > 0
     assert n_after + n_before == len(played)
-    # R-I4's frozen mutation, on the record beside the numbers
+    # §7.3's frozen mutation, on the record beside the numbers
     assert out["mutation"]["fthg"] == 9 and out["mutation"]["ftag"] == 9
     assert out["mutation"]["dates"] == "not touched"
 
@@ -1542,7 +1542,7 @@ def test_seeded_defect_a_canary_with_nothing_to_corrupt_refuses():
 
 
 def test_the_evidence_canary_checks_both_provisional_sets_when_it_can():
-    """§5.3 demands "every `e(t, C)` and BOTH provisional sets bit-identical"."""
+    """§7.3 demands "every `e(t, C)` and BOTH provisional sets bit-identical"."""
     played = _archive()
     calls = []
 
@@ -1571,7 +1571,7 @@ def test_seeded_defect_a_provisional_set_that_moves_fails_the_canary():
 
 
 def test_identity_canary_demands_byte_equality_at_a_threshold_that_adds_nobody():
-    """§5.3: "An `e*` low enough to add nobody must yield `np.array_equal` with
+    """§7.3: "An `e*` low enough to add nobody must yield `np.array_equal` with
     the corpus rows"."""
     corpus, played, ledger = _world()
     point = ew.fit_points(corpus, [CUT_A], check=False)[0]
@@ -1604,7 +1604,7 @@ def _merged(tmp_path):
 def _hand_deltas(rows, e_star=ew.E_STAR):
     """The paired deltas, recomputed from the ROWS' own probabilities.
 
-    R-B1: Arm B is `probs_incumbent` — the SAME posterior under the fit's own
+    §2.3: Arm B is `probs_incumbent` — the SAME posterior under the fit's own
     recomputed incumbent set — and not the corpus's stored row.
     """
     out = {}
@@ -1620,7 +1620,7 @@ def _hand_deltas(rows, e_star=ew.E_STAR):
 
 
 def test_arm_b_is_the_same_posteriors_incumbent_pass_and_never_the_corpus():
-    """R-B1, the repair that makes the pairing real.
+    """§2.3, the repair that makes the pairing real.
 
     The superseded design took Arm B out of the corpus — an old ROUNDED 1X2
     projection — while Arm A came from a new fit, and mechanism (c) acts on the
@@ -1674,11 +1674,11 @@ def test_arm_b_is_the_same_posteriors_incumbent_pass_and_never_the_corpus():
 
 
 def test_the_corpus_is_the_external_control_at_full_strength(tmp_path):
-    """R-B1: "The corpus is demoted to an external identity control." All 820
+    """§2.3: "The corpus is demoted to an external identity control." All 820
     fixtures must still equal Arm B at their eight decimals, and each stored
     `dc_rps` must still re-derive from its own stored probabilities.
 
-    The consequence R-B1 pre-states, so it cannot be discovered later: because
+    The consequence §2.3 pre-states, so it cannot be discovered later: because
     the control demands eight-decimal equality and stops the run otherwise, the
     repaired delta can differ from the superseded one by at most the eighth
     decimal, per fixture. Both are published."""
@@ -1902,11 +1902,11 @@ def test_the_movement_diagnostic_prints_beside_the_reseed_scale(tmp_path):
 
 
 def test_the_realised_power_is_reported_beside_the_frozen_scenarios(tmp_path):
-    """R-I2 supersedes §2.3's "No power claim is made in advance": the analysis
+    """§6 supersedes §2.3's "No power claim is made in advance": the analysis
     was done, blind, and is committed code. What the estimand carries is the
-    other half R-I2 requires — "after the run, the REALISED paired SD of the
+    other half §6 requires — "after the run, the REALISED paired SD of the
     treated deltas and the MDE recomputed at it" — which decides nothing and
-    moves no threshold, beside the three frozen scenarios and R-I2's warning."""
+    moves no threshold, beside the three frozen scenarios and §6's warning."""
     rows = _merged(tmp_path)
     result = ew.estimand(rows, corpus_rows=len(rows))
     power = result["power"]
@@ -2075,7 +2075,7 @@ def test_the_merge_scores_a_complete_run(tmp_path):
 
 
 def test_the_merge_refuses_an_unfrozen_harness(tmp_path):
-    """§7: a run that precedes the §6 freeze commit is not this experiment."""
+    """§10: a run that precedes the §6 freeze commit is not this experiment."""
     _run(tmp_path)
     with pytest.raises(ew.EvWidenError) as exc:
         _merge(tmp_path, harness_frozen=False)
@@ -2186,7 +2186,7 @@ def test_seeded_defect_a_substituted_fixture_refuses(tmp_path):
 
 
 def test_seeded_defect_a_corpus_row_that_is_not_the_corpus_refuses(tmp_path):
-    """R-B1: the corpus is the EXTERNAL identity control. A row that copies
+    """§2.3: the corpus is the EXTERNAL identity control. A row that copies
     different numbers under that name has nothing left to control against."""
     _run(tmp_path)
     _freeze_rows(tmp_path)
@@ -2200,7 +2200,7 @@ def test_seeded_defect_a_corpus_row_that_is_not_the_corpus_refuses(tmp_path):
 
 
 def test_seeded_defect_an_arm_b_that_drifted_from_the_corpus_refuses(tmp_path):
-    """§3.2, as R-B1 restates it: all 820 fixtures of the 78 openings must equal
+    """§3.2, as §2.3 restates it: all 820 fixtures of the 78 openings must equal
     Arm B at their eight decimals, and the merge re-checks it rather than
     trusting the run's own inline control."""
     _run(tmp_path)
@@ -2242,7 +2242,7 @@ def test_seeded_defect_arm_bs_rps_is_recomputed_at_the_merge(tmp_path):
 
 
 def test_the_merge_refuses_without_a_passing_canary_record(tmp_path):
-    """§5.3 and RUN_ORDER: the preconditions gate the NUMBER, not the wall
+    """§7.3 and RUN_ORDER: the preconditions gate the NUMBER, not the wall
     clock, so they are re-read at the merge from the records beside the shards."""
     _run(tmp_path)
     _freeze_rows(tmp_path)
@@ -2274,7 +2274,7 @@ def test_the_merge_refuses_without_a_passing_canary_record(tmp_path):
 # ==========================================================================
 
 #: The synthetic table world mirrors §3.3's own shape: seven seasons x five
-#: labels = 35 cells, with R-B2's census of treated cells per label —
+#: labels = 35 cells, with §4.1's census of treated cells per label —
 #: MW0 3, MW3 2, MW6 **7**, MW10 4, MW19 **0**. The gates are per horizon now,
 #: so a fixture-world that flattened the labels could not exercise them.
 TABLE_SEASONS = tuple(f"20{19 + i}/{20 + i}" for i in range(7))
@@ -2293,7 +2293,7 @@ def _tally(shift: int, *, jitter: int = 0, particles: int = TALLY_PARTICLES,
     """A per-particle fractional rank-mass tally with honest margins.
 
     Every particle's tally is `k` times a permutation matrix, so every club row
-    and every rank column sums to `k` — the equal-cluster condition R2-B3 step 2
+    and every rank column sums to `k` — the equal-cluster condition §5.2
     enforces and `epl.simmetrics.trps_se_cluster` enforces on its own input.
     `jitter = 0` makes every particle identical, so the bootstrap has exactly
     zero variance and a gate test can be about the gate; `jitter > 0` makes the
@@ -2308,7 +2308,7 @@ def _tally(shift: int, *, jitter: int = 0, particles: int = TALLY_PARTICLES,
 
 
 def _cells(seasons=TABLE_SEASONS, labels=TABLE_LABELS):
-    """§3.3's 35 cells, with R-B2's per-label treated census."""
+    """§3.3's 35 cells, with §4.1's per-label treated census."""
     treated_by_label = {"MW0": 3, "MW3": 2, "MW6": 7, "MW10": 4, "MW19": 0}
     out = []
     for label in labels:
@@ -2419,7 +2419,7 @@ def _run_cells(tmp_path, cells=None, *, runner=None, name="table.jsonl",
 
 def test_the_untouched_cells_must_prove_they_did_not_move():
     """§3.3: "the other 19 cells are unchanged by construction, AND THE HARNESS
-    MUST PROVE IT" — on the SAMPLER digest (R2-B4(a))."""
+    MUST PROVE IT" — on the SAMPLER digest (§3.3(a))."""
     assert ew.assert_table_identity([], "d", "d", where="cell") is True
     with pytest.raises(ew.TableIdentityBreak) as exc:
         ew.assert_table_identity([], "d", "other", where="cell")
@@ -2427,7 +2427,7 @@ def test_the_untouched_cells_must_prove_they_did_not_move():
 
 
 def test_a_treated_cell_that_did_not_move_is_the_absence_of_the_experiment():
-    """R-H(4) as R2-B4(a) restates it so that it can actually FAIL: with the
+    """§3.3(4) as §3.3(a) restates it so that it can actually FAIL: with the
     provisional set outside the digest, equality is a statement about
     scorelines, tie blocks and points — the things the D12 branch moves."""
     assert ew.assert_table_identity(["x"], "d", "e", where="cell") is False
@@ -2438,8 +2438,8 @@ def test_a_treated_cell_that_did_not_move_is_the_absence_of_the_experiment():
 
 
 def test_the_provisional_set_is_a_compared_field_and_not_a_digest_ingredient():
-    """R2-B4(a) ends round one's tautology: the digest included the provisional
-    set, and R-H(4) then used digest inequality as proof that the treatment
+    """§3.3(a) ends v1's tautology: the digest included the provisional
+    set, and §3.3(4) then used digest inequality as proof that the treatment
     reached the sampler. Those two prove nothing together. Metadata is checked
     as metadata now."""
     ew.assert_provisional_fields(["x"], ["a"], ["a", "x"], where="cell")
@@ -2454,7 +2454,7 @@ def test_the_provisional_set_is_a_compared_field_and_not_a_digest_ingredient():
     assert "untouched cells" in str(exc.value)
 
 
-# ---- R2-B4: the digests, and the call into protected code ------------------
+# ---- §3.3: the digests, and the call into protected code ------------------
 
 class _FakePlan:
     def __init__(self, clubs, n_sims, n_particles, seed=20260611):
@@ -2532,7 +2532,7 @@ class _FakeRun:
 
 
 def test_the_tally_is_fractional_rank_mass_and_never_reads_order():
-    """R2-B3 supersedes R-B3's tally bullet. `.order` is "the deterministic
+    """§5 supersedes §5.3's tally bullet. `.order` is "the deterministic
     club-index order" inside a shared block and carries no meaning; the matrix
     TRPS scores is built from `position_mass`'s fractional `1/span`."""
     run = _FakeRun(tie=True)
@@ -2547,7 +2547,7 @@ def test_the_tally_is_fractional_rank_mass_and_never_reads_order():
 
 
 def test_the_chunked_tally_is_bit_identical_to_the_unchunked_one():
-    """R2-B3: "a committed test asserts that equality at 0.0". `numpy.add.at` is
+    """§5: "a committed test asserts that equality at 0.0". `numpy.add.at` is
     unbuffered and applies its indices in order, so contiguous ascending chunks
     perform the same sequence of additions as one pass."""
     run = _FakeRun(particles=4, k=8, tie=True)
@@ -2558,7 +2558,7 @@ def test_the_chunked_tally_is_bit_identical_to_the_unchunked_one():
 
 
 def test_the_tally_binds_the_matrix_and_refuses_an_unequal_cluster():
-    """R2-B3's two committed checks: the tally reproduces the scored matrix, and
+    """§5's two committed checks: the tally reproduces the scored matrix, and
     every particle is an equal cluster of complete seasons."""
     run = _FakeRun(tie=True)
     tallies = ew.particle_tallies(run)
@@ -2579,7 +2579,7 @@ def test_the_tally_binds_the_matrix_and_refuses_an_unequal_cluster():
 
 
 def test_the_sampler_digest_excludes_everything_but_the_sampler():
-    """R2-B4(a): "Nothing else. No club list, no plan, no seed, no posterior
+    """§3.3(a): "Nothing else. No club list, no plan, no seed, no posterior
     hash, NO PROVISIONAL SET, no arm label, no clocks, no host, no shard id, no
     free text." It is comparable only within one cell, between its two arms."""
     run = _FakeRun(tie=True)
@@ -2599,7 +2599,7 @@ def test_the_sampler_digest_excludes_everything_but_the_sampler():
 
 
 def test_the_substantive_digest_binds_the_whole_plan_state():
-    """R2-B4(b): season/cutoff/`observed_by` identity, the fixture-and-result
+    """§3.3(b): season/cutoff/`observed_by` identity, the fixture-and-result
     snapshot, the adjustments, the rule id, the chunking (which fixes the RNG
     chunk keys and therefore the numbers) and the results-lag state."""
     run = _FakeRun()
@@ -2742,7 +2742,7 @@ def test_the_substantive_digest_excludes_the_effective_posterior_hash():
 
 
 def test_the_table_runner_calls_protected_simulate_with_its_own_signature():
-    """R-B4 recorded the defect rather than fixing it quietly: the harness
+    """§3.3 recorded the defect rather than fixing it quietly: the harness
     called `leaguesim.simulate` with the particle book in `state`'s argument
     position and no `seed` at all, while protected `epl/simretro.py:555` calls
     it `simulate(arm, state, provider, n_sims, seed, …)`."""
@@ -2775,10 +2775,10 @@ def test_the_table_runner_calls_protected_simulate_with_its_own_signature():
     assert bound.arguments["seed"] == 11
 
 
-# ---- R-B4 / R2-B4(c): the 35-cell native-parity oracle ---------------------
+# ---- §3.3 / §3.3(c): the 35-cell native-parity oracle ---------------------
 
 def test_the_parity_oracle_compares_substantive_digests_and_the_incumbent_set():
-    """R-B4: binding the SCHEDULE to protected code binds neither its semantics
+    """§3.3: binding the SCHEDULE to protected code binds neither its semantics
     nor its call, and the 19-untouched-cell control compares two arms produced
     by the SAME new code, so shared drift passes it silently."""
     oracle = {"substantive_digest": "abc", "provisional_teams": ["rich"]}
@@ -2945,15 +2945,15 @@ def test_the_table_leg_writes_one_row_per_cell_and_resumes(tmp_path):
                          seed=20260611, config_sha="c", verbose=False)
     assert again["n_written"] == 0 and again["n_skipped"] == len(cells)
     # the tallies live beside the ledger, because a [P, C, C] array is not a
-    # JSONL field and R2-B3 needs all thirty-two at once
+    # JSONL field and §5 needs all thirty-two at once
     assert ew.tally_path(path, {"season": "2019/20",
                                 "cutoff_label": "MW6"}).exists()
 
 
-# ---- R-B2: the deciding statistics are per horizon -------------------------
+# ---- §4.1: the deciding statistics are per horizon -------------------------
 
 def test_the_pooled_35_cell_statistic_is_gone_from_every_deciding_path(tmp_path):
-    """R-B2: the 35-cell pooled ΔTRPS and ΔwTRPS are WITHDRAWN from the
+    """§4.1: the 35-cell pooled ΔTRPS and ΔwTRPS are WITHDRAWN from the
     published outputs entirely, not demoted to secondaries. Protected code
     freezes "Never averaged across cutoffs" and publishing the average invites
     it to be quoted as a verdict."""
@@ -2971,7 +2971,7 @@ def test_the_pooled_35_cell_statistic_is_gone_from_every_deciding_path(tmp_path)
 
 def test_the_deciding_statistics_are_the_named_horizon_and_the_point_gates(
         tmp_path):
-    """R-B2 (iv-a): the equal-weight mean over the SEVEN MW6 cells. (iv-b): at
+    """§4.1 (iv-a): the equal-weight mean over the SEVEN MW6 cells. (iv-b): at
     MW0, MW3 and MW10, the mean over THAT LABEL'S TREATED CELLS ONLY."""
     path, rows = _run_cells(tmp_path, runner=_table_runner(shift=-0.001))
     scored = ew.score_table(rows, ledger_path=path)
@@ -2989,7 +2989,7 @@ def test_the_deciding_statistics_are_the_named_horizon_and_the_point_gates(
 
 
 def test_the_mw6_interval_is_r_b3s_frozen_construction(tmp_path):
-    """R-B3's table: `epl.score.block_bootstrap_ci`, the seven season strings
+    """§5.3's table: `epl.score.block_bootstrap_ci`, the seven season strings
     one cell per block, B = 10,000, alpha = 0.05, seed 20260814, NumPy's default
     linear-interpolation quantile."""
     path, rows = _run_cells(tmp_path)
@@ -3007,7 +3007,7 @@ def test_the_mw6_interval_is_r_b3s_frozen_construction(tmp_path):
     assert mw6["ci95"] == [lo, hi] and n == 7
 
 
-# ---- R2-B3: the jointly resampled, tie-aware paired bootstrap --------------
+# ---- §5: the jointly resampled, tie-aware paired bootstrap --------------
 
 def _mc_cells(n=2, *, jitter=1, particles=TALLY_PARTICLES, label="MW6"):
     positions = np.array([1, 2, 3])
@@ -3020,11 +3020,11 @@ def _mc_cells(n=2, *, jitter=1, particles=TALLY_PARTICLES, label="MW6"):
 
 
 def test_the_paired_bootstrap_applies_one_index_to_every_tally():
-    """R2-B3: "There is no quadrature step and no independence claim anywhere in
+    """§5: "There is no quadrature step and no independence claim anywhere in
     this estimator." The label mean is computed INSIDE each replicate, so cells
     that move together in the run move together in the replicate.
 
-    Round one's `sqrt(sum se^2)/7` would shrink a perfectly correlated pair by
+    v1's `sqrt(sum se^2)/7` would shrink a perfectly correlated pair by
     `1/sqrt(2)`; the joint estimator does not, and that is the whole repair."""
     cells = _mc_cells(n=2, jitter=1)
     out = ew.paired_mc_bootstrap(cells, seed=ew.MC_SEED)
@@ -3057,7 +3057,7 @@ def test_the_paired_bootstrap_is_deterministic_at_its_frozen_seed():
 
 
 def test_the_bootstrap_refuses_a_common_index_space_it_does_not_have():
-    """R2-B3 step 2: "Joint resampling is undefined without a common index
+    """§5.2: "Joint resampling is undefined without a common index
     space, and this document will not approximate one." `TableMCImprecise`."""
     mixed = _mc_cells(n=1) + _mc_cells(n=1, particles=TALLY_PARTICLES * 2)
     mixed[1]["key"] = "other|MW6"
@@ -3112,7 +3112,7 @@ def test_gate_iv_a_is_the_mw6_mean_against_the_tolerance():
 
 
 def test_gate_iv_b_is_a_point_gate_at_each_of_mw0_mw3_and_mw10():
-    """R-B2: "No interval is computed at these labels and none is required; two
+    """§4.1: "No interval is computed at these labels and none is required; two
     cells do not carry one." MW19 decides nothing."""
     ok = ew.table_gate(_scored(means=(0.0, 0.0002, -0.001)))
     assert all(v["PASS"] for v in ok["iv_b"].values())
@@ -3136,7 +3136,7 @@ def test_gate_iv_c_fails_only_a_resolvable_worsening():
 
 
 def test_the_precision_rule_guards_every_deciding_boundary():
-    """R2-B3's repair of the unguarded boundary: round one guarded the
+    """§5's repair of the unguarded boundary: v1 guarded the
     comparison to +0.0002 and nothing else, while (iv-c) decides on two further
     boundaries against ZERO and (iv-b) on three more against the tolerance.
     Noise at any of them could turn a failing gate into a passing one."""
@@ -3297,7 +3297,7 @@ def test_no_deciding_constant_is_overridable_through_any_surface():
 
 
 def test_an_unresolved_gate_blocks_adoption_and_can_never_grant_one():
-    """R2-B3: "UNRESOLVED blocks adoption and can never grant one." R2-X: it is
+    """§5: "UNRESOLVED blocks adoption and can never grant one." §7.1: it is
     a published VERDICT, not a refusal, and raises nothing."""
     gate = ew.table_gate(_scored(mean_mw6=1e-6, ci=(-1.0, -0.5),
                                  se={"MW6": 1e-5}))
@@ -3358,7 +3358,7 @@ def test_the_coverage_reading_direction_is_fixed_before_the_run(tmp_path):
 
 
 def test_the_table_gate_discloses_that_its_numbers_are_invented():
-    """§4.3 as R-B2 reissues it: R1 has no pass rule, so both the tolerance and
+    """§4.3 as §4.1 reissues it: R1 has no pass rule, so both the tolerance and
     the significance construction are invented, blind, for a SINGLE NAMED
     HORIZON rather than for an average protected code forbids."""
     out = ew.table_gate(_scored())
@@ -3430,7 +3430,7 @@ def test_a_failed_cell_poisons_the_table_ledger(tmp_path):
 
 def test_the_table_leg_never_appends_to_the_protected_retro_ledger():
     """§3.3: `data/epl/sim/retro_r1.jsonl` is read-only and never appended; the
-    leg writes its own ledger. R-B4: the parity run is EXECUTED, not read off
+    leg writes its own ledger. §3.3: the parity run is EXECUTED, not read off
     the archive ledger."""
     assert "retro_r1" not in str(ew.TABLE_LEDGER)
     assert ew.paths.rel(ew.TABLE_LEDGER).startswith("data/epl/sim/evwiden")
@@ -3473,7 +3473,7 @@ def test_the_evidence_files_are_written_whichever_way_the_numbers_fall(tmp_path)
 
 
 def test_the_verdict_json_carries_r_i6s_frozen_field_list(tmp_path):
-    """R-I6: "the evidence schema, frozen field by field". The superseded table
+    """§9: "the evidence schema, frozen field by field". The superseded table
     said "both CIs" where there are THREE deciding intervals, left the
     820-fixture control without a committed home, promised Sunderland and
     coverage diagnostics no column held, and froze no MANIFEST membership."""
@@ -3493,7 +3493,7 @@ def test_the_verdict_json_carries_r_i6s_frozen_field_list(tmp_path):
     published = ew.evidence_object(result)
 
     assert set(published) >= {
-        "schema", "generated_at", "prereg_commit", "repairs_section", "pins",
+        "schema", "generated_at", "prereg_commit", "prereg_blob", "pins",
         "estimand", "ci_week", "ci_season", "ci_table_mw6",
         "gate_i", "gate_ii", "gate_iii", "gate_iv", "controls", "canaries",
         "grid", "strata", "movement", "coverage", "sunderland", "power",
@@ -3508,7 +3508,7 @@ def test_the_verdict_json_carries_r_i6s_frozen_field_list(tmp_path):
     assert set(published["controls"]["identity"]) == {"n", "max_abs_diff",
                                                       "mean_abs_diff", "PASS"}
     assert published["controls"]["table_parity"]["n_cells"] == 35
-    # gate (iv) carries R2-B3's precision names, not R-I6's superseded mc_se_mean
+    # gate (iv) carries §5's precision names, not §9's superseded mc_se_mean
     precision = published["gate_iv"]["precision"]
     assert set(precision) >= {"mc_boot", "mc_seed", "n_particles",
                               "sims_per_particle", "mc_se_mw6", "mc_se_mw0",
@@ -3524,7 +3524,7 @@ def test_the_verdict_json_carries_r_i6s_frozen_field_list(tmp_path):
     assert published["pins"]["realised_config_sha256"] == \
         ew.REALISED_CONFIG_SHA256
 
-    # R-I2's required publication: the frozen scenarios, the structure, the MDE
+    # §6's required publication: the frozen scenarios, the structure, the MDE
     # definition, R, both seeds, the six rows — AND the realised numbers, which
     # decide nothing.
     frozen = {"structure": {"n_thin": 85}, "rows": [],
@@ -3751,7 +3751,7 @@ def test_the_per_fixture_file_reproduces_the_estimand_with_arithmetic_alone(
     assert {"block", "season"} <= set(got[0])
     assert len({r["block"] for r in got}) == result["n_blocks"]
     assert len({r["season"] for r in got}) == result["n_season_blocks"]
-    # R-B1: both arms and the corpus, side by side, so a reader can confirm the
+    # §2.3: both arms and the corpus, side by side, so a reader can confirm the
     # eight-decimal equality rather than take it
     for row in got:
         assert row["p_home_B"] == row["p_home_corpus"]
@@ -3772,7 +3772,7 @@ def test_the_table_evidence_file_carries_both_arms_of_every_cell(tmp_path):
                       directory=out, manifest=False)
     with (out / "widening_table_cells.csv").open() as fh:
         got = list(_csv.DictReader(fh))
-    # R-I6: 35 rows — one per CELL, the paired shape the deltas have
+    # §9: 35 rows — one per CELL, the paired shape the deltas have
     assert len(got) == len(table_rows) == 35
     assert list(got[0]) == list(ew._TABLE_COLUMNS)
     treated = [r for r in got if r["treated_clubs"]]
@@ -3938,7 +3938,7 @@ def test_the_freeze_block_enumerates_all_six_authorised_pre_freeze_passes():
 
 @pinned
 def test_membership_and_plan_carry_the_table_cell_memberships(tmp_path, real):
-    """R-B5 pass 1 authorises `--membership` and `--plan` to compute "§2.2's
+    """§8.2 pass 1 authorises `--membership` and `--plan` to compute "§2.2's
     cells, §2.3's population, §3.3's TABLE CELLS and the digests the freeze
     commit records". The table cells were the half the CLI omitted."""
     corpus, played, ledger = real
@@ -3954,7 +3954,16 @@ def test_membership_and_plan_carry_the_table_cell_memberships(tmp_path, real):
     assert {"table_treated", "table_untouched"} <= set(plan["digests"])
     assert plan["budget"]["table_fits"] == 70
     assert plan["budget"]["table_simulations"] == 105
-    assert plan["budget"]["total_fits"] == 78 + 70
+    # §2.4's whole-experiment budget is **153 fits**, not 148: the four
+    # results-canary fits and the single-opening exercise "are counted because
+    # they are real fits on the real archive: §8.4 makes them the first two
+    # steps of the frozen sequence, and a budget that omits them would
+    # understate both the clock and the moment §8.7's regime comes into
+    # force". v1
+    # reported 148 and was five fits short.
+    assert plan["budget"]["canary_fits"] == 4
+    assert plan["budget"]["single_opening_fits"] == 1
+    assert plan["budget"]["total_fits"] == 153 == 4 + 1 + 78 + 70
     assert "~4 hours" in plan["budget"]["bound"]
 
 
@@ -3970,13 +3979,13 @@ def test_the_freeze_refuses_until_the_hash_table_lands(tmp_path):
 
 
 def test_an_uncommitted_hash_paste_freezes_nothing(tmp_path):
-    """R2, the defect that replaces round one's round-trip test: "Round one's
+    """R2, the defect that replaces v1's round-trip test: "v1's
     freeze guard parses current prose against current filesystem bytes, which an
     uncommitted two-line paste satisfies; that is not a freeze and this document
     does not accept it as one."
 
     The paste below carries the CORRECT digests of the harness files on disk —
-    it is exactly what round one's guard called frozen — and it is refused,
+    it is exactly what v1's guard called frozen — and it is refused,
     because it is not in a commit."""
     table = tmp_path / "prereg.md"
     table.write_text("\n".join(
@@ -4001,8 +4010,8 @@ def test_the_freeze_reads_the_committed_prose_and_the_committed_bytes():
     assert all(s["committed"] for s in status["sources"])
     assert all(s["blob"] for s in status["sources"])
     # the prereg is committed and the harness hash table has NOT been pasted:
-    # R-H(1) reaffirms that the freeze stays unpasted until the harness
-    # implements both repair rounds
+    # §3.3(1) reaffirms that the freeze stays unpasted until the harness
+    # implements the law
     assert status["frozen"] is False
     assert status["missing"] == list(ew.HARNESS_FILES)
 
@@ -4056,7 +4065,7 @@ def test_the_freeze_needs_a_commit_that_is_an_ancestor_of_head(monkeypatch):
 
 
 def test_the_freeze_refuses_a_hash_that_no_longer_describes_the_file(monkeypatch):
-    """§6 step 2: "if any hash differs at the time the run is executed, it is
+    """§8.3 step 2: "if any hash differs at the time the run is executed, it is
     not the run this document preregisters"."""
     monkeypatch.setattr(ew, "git_committed_bytes", _as_if_committed(
         "\n".join(f"| `{name}` | {'0' * 64} |"
@@ -4088,7 +4097,7 @@ def test_the_first_fit_record_lives_at_one_fixed_repo_root_keyed_path():
     writes it takes a directory argument.**"
 
     v1's record was written below the caller's chosen directory, so a fresh or
-    deleted `--dir` reset the entire R-B6 regime — the one-way ratchet had a way
+    deleted `--dir` reset the entire §8.7 regime — the one-way ratchet had a way
     back.
     """
     import inspect
@@ -4172,7 +4181,7 @@ def test_the_freeze_guard_checks_the_schema_and_the_membership_digests(
 # ==========================================================================
 
 def test_the_launcher_is_generated_and_lives_in_the_run_directory(tmp_path):
-    """§6 names two harness files. A loose `run_evwiden.sh` would be code whose
+    """§8.3 names two harness files. A loose `run_evwiden.sh` would be code whose
     bytes nothing hashes while being able to change which shards run."""
     path = ew.write_launch_script(tmp_path)
     assert path.parent == tmp_path
@@ -4366,9 +4375,9 @@ def test_the_cli_refuses_a_malformed_shard_spec(capsys):
 def real():
     """The pinned world, loaded once. READ-ONLY, and no fit runs here.
 
-    §7 makes a real-archive fit before the §6 freeze commit an invalidation.
+    §10 makes a real-archive fit before the §6 freeze commit an invalidation.
     Reading the archive to recompute `e` is not a fit: it is arithmetic on
-    committed bytes, and it is how §6 step 2's membership digests are produced
+    committed bytes, and it is how §8.3 step 2's membership digests are produced
     in the first place.
     """
     corpus = ew.load_corpus()
@@ -4495,7 +4504,7 @@ def test_the_fit_schedule_is_78_openings_over_820_fixtures(real):
 def test_the_table_leg_enumerates_the_16_cells_the_document_names():
     """§3.3, recomputed from the pinned archive by the §0.3 recipe and
     `count_volatility_arm` at each scheduled cutoff. No fit and no simulation:
-    this is the enumeration the §6 commit freezes."""
+    this is the enumeration the §8.3 commit freezes."""
     from epl import baseline, simretro
 
     matches = baseline.load_matches()
@@ -4586,9 +4595,49 @@ def test_the_module_does_not_drift_from_the_document_it_implements():
     assert "+0.0002" in text
 
 
+def test_the_harness_cites_no_clause_the_law_does_not_contain():
+    """§8.1 and the v2 preamble: "**There are no repair sections and no
+    supersession index, because there is nothing to supersede.** Every clause
+    below is the operative clause."
+
+    v1's law was its original text AS AMENDED by two repair rounds, so the
+    harness cited those rounds' identifiers at the code each one governed —
+    thirty-odd of them, none of which exists in v2. A reader who greps the
+    harness for the clause that justifies a line must land in the law rather
+    than in a document that decides nothing, so every citation is now a § of v2
+    and this test is what keeps it that way.
+
+    The one legitimate exception is a line that is discussing v1's death: §8.1
+    names v1's own rule when it explains what killed it, and a quotation of that
+    sentence names it too. Such a line says "v1" on its face.
+    """
+    import re
+
+    retired = re.compile(r"\bR2?-(?:B|I|M|X|H|Z)\d*\b|\bR2-0\b")
+    for path in (Path("epl/evwiden.py"), Path("epl/tests/test_evwiden.py")):
+        offenders = [line.strip() for line in path.read_text().splitlines()
+                     if retired.search(line) and "v1" not in line]
+        assert not offenders, f"{path}: {offenders[:3]}"
+
+    # ...and the round-numbering vocabulary goes with them: v2 has no rounds,
+    # so a line that uses it is either talking about v1 or is out of date
+    harness = Path("epl/evwiden.py").read_text()
+    for phrase in ("repair round", "both rounds", "round one", "round two",
+                   "the re-review"):
+        stale = [line.strip() for line in harness.splitlines()
+                 if phrase in line.lower() and "v1" not in line]
+        assert not stale, (phrase, stale[:3])
+
+    # No § of v2 supersedes another § of v2 — "every clause below is the
+    # operative clause". (Describing v1's SUPERSEDED design is fine, and is how
+    # this module records what each guard is for.)
+    self_supersession = re.findall(r"§[\d.]+(?:\([a-c]\))?\s+supersedes", harness)
+    assert not self_supersession, self_supersession
+
+
 @pytest.mark.skipif(not PREREG.exists(), reason="the preregistration is absent")
 def test_the_harness_is_bound_to_v2_and_v1_is_only_lineage():
-    """§8.1: v1 is invalidated by its own R-B6 and "decides nothing".
+    """§8.1: v1 is invalidated by its own §8.7 and "decides nothing".
 
     The freeze guard, the first-fit record and the evidence object all name a
     preregistration by path. If any of them still names v1, the harness is
@@ -4598,7 +4647,7 @@ def test_the_harness_is_bound_to_v2_and_v1_is_only_lineage():
     assert ew.PREREG_PATH.name == "epl_widening_prereg_v2.md"
     assert ew.SCHEMA_ID == "epl-evwiden-2"
     text = PREREG.read_text()
-    assert "invalidated 2026-08-28 under its own R-B6" in text
+    assert "invalidated 2026-08-28 under its own R-B6" in text  # v1's rule
     # the sole law says so about itself
     assert "There are no repair sections and no supersession index" in text
 
@@ -4706,7 +4755,7 @@ def test_the_shared_store_is_byte_untouched_by_every_pre_freeze_command(
 
 
 def test_the_canary_never_rebuilds_the_shared_point_in_time_store(monkeypatch):
-    """§6 closes the write set, and `epl.fit.build_store` UNLINKS and rewrites
+    """§8.3 closes the write set, and `epl.fit.build_store` UNLINKS and rewrites
     `data/epl/fit/store/results.parquet` whenever the row set differs.
 
     The canary builds a store from a deliberately corrupted frame. Under the
@@ -4771,8 +4820,8 @@ def test_every_refusal_type_7_1_names_exists_and_derives_from_the_base():
 
 
 def test_the_harness_invents_no_refusal_the_document_never_wrote():
-    """`epl.freshsweep`'s ruling, applied here: a condition §7 pre-states as an
-    invalidation but §5.1 never named refuses as the BASE class rather than
+    """`epl.freshsweep`'s ruling, applied here: a condition §10 pre-states as an
+    invalidation but §7.1 never named refuses as the BASE class rather than
     under a name invented after the fact."""
     import inspect
 
@@ -4841,7 +4890,7 @@ def test_verify_refuses_when_there_is_no_published_verdict(tmp_path):
 
 
 def test_no_live_2026_27_quantity_can_enter_this_experiment():
-    """§7: "The 27.9→15.9 counterfactual, or any live-2026/27 quantity, enters
+    """§10: "The 27.9→15.9 counterfactual, or any live-2026/27 quantity, enters
     any gate" is an invalidation, and §1.2 rules the counterfactual "a
     motivating observation OUTSIDE the evidence base… the harness does not
     recompute it".
@@ -4863,7 +4912,7 @@ def test_no_live_2026_27_quantity_can_enter_this_experiment():
 
 
 def test_no_results_canary_cannot_follow_the_run_past_the_freeze(tmp_path):
-    """§5.3 makes `walkforward.point_in_time_canary` a precondition on the REAL
+    """§7.3 makes `walkforward.point_in_time_canary` a precondition on the REAL
     archive after the freeze. `--no-results-canary` exists for the synthetic
     audit's clock, and a flag that saved time before the freeze must not be able
     to silently remove a precondition after it."""
@@ -4969,7 +5018,7 @@ def test_every_secondary_says_in_its_own_output_that_it_decides_nothing(
 
 
 # ==========================================================================
-# R2-I2 — the power simulation, committed
+# §6 — the power simulation, committed
 # ==========================================================================
 
 _REAL_POWER: dict = {}
@@ -4996,7 +5045,7 @@ def _reproducing_power():
 
 
 def test_the_power_simulation_is_committed_code_at_the_ruled_path():
-    """R2-I2: "R-I2's six power numbers were produced by uncommitted scratch
+    """§6: "§6's six power numbers were produced by uncommitted scratch
     code… A preregistration that publishes six deciding-adjacent numbers from
     code no one can execute is doing the thing it exists to stop."
 
@@ -5011,7 +5060,7 @@ def test_the_power_simulation_is_committed_code_at_the_ruled_path():
         assert forbidden not in source, forbidden
     cli = inspect.getsource(ew.main)
     assert "--power" in cli and "power_simulation(" in cli
-    # the constants R2-I2 freezes
+    # the constants §6 freezes
     assert ew.POWER_REPLICATES == 2000 and ew.POWER_SEED == 20260827
     assert ew.POWER_GRID_POINTS == 101 and ew.POWER_GRID_STEP == 2e-4
     assert [s[1] for s in ew.POWER_SCENARIOS] == [0.005262, 0.014449, 0.036]
@@ -5022,7 +5071,7 @@ def test_the_power_simulation_is_committed_code_at_the_ruled_path():
 
 
 def test_the_mde_rules_are_interpolation_then_tie_then_exhaustion():
-    """R2-I2 freezes all three, in that order."""
+    """§6 freezes all three, in that order."""
     grid = np.array([-2e-4 * i for i in range(5)])
     # a grid point at exactly 0.80 IS the MDE, with no interpolation
     mde, note = ew._mde_from_curve(grid, np.array([0.0, 0.5, 0.80, 0.9, 1.0]))
@@ -5038,7 +5087,7 @@ def test_the_mde_rules_are_interpolation_then_tie_then_exhaustion():
 
 @pinned
 def test_the_bootstrap_shortcut_equals_the_protected_function(real):
-    """R2-I2: "A vectorised inner loop is permitted ONLY if a committed test
+    """§6: "A vectorised inner loop is permitted ONLY if a committed test
     asserts that its `(lo, hi, n_blocks)` equals the protected function's on the
     frozen structure, at three named noise draws, to 1e-15 — and reports
     `n_blocks` of 62 and 6. Absent that test, the shortcut is removed, not
@@ -5061,7 +5110,7 @@ def test_the_bootstrap_shortcut_equals_the_protected_function(real):
 
 @pinned
 def test_the_power_structure_is_r_i2s_frozen_one(real):
-    """R2-I2's structure, and the counts are checked rather than typed in: the
+    """§6's structure, and the counts are checked rather than typed in: the
     ASSIGNMENT of the 85 fixtures to their 62 week blocks is the corpus's own,
     which is what the week-block bootstrap actually resamples."""
     corpus, played, ledger = real
@@ -5129,7 +5178,7 @@ def test_the_conformance_report_is_eighteen_behavioural_rows():
     count and a substring — they could all be green while the obligations they
     were named for failed, and they were". The audit's table of what each row
     actually checked is the indictment: "three field names exist", "a
-    test-function name occurs in working-tree text", "subclass count". And R2-H
+    test-function name occurs in working-tree text", "subclass count". And §8.4
     had no row at all, so the frozen sequence was ungraded.
     """
     report = ew.implementation_report(_reproducing_power())
@@ -5139,7 +5188,7 @@ def test_the_conformance_report_is_eighteen_behavioural_rows():
         # every row names the OBLIGATION and the SCENARIO it executes
         assert row["obligation"] and row["scenario"], row["id"]
         assert row["section"], row["id"]
-    # R2-H's successor, §8.4's frozen sequence, has a row of its own — v1's
+    # §8.4's successor, §8.4's frozen sequence, has a row of its own — v1's
     # report had none
     assert any("§8.4" in r["section"] for r in report)
     assert all(r["ok"] for r in report), [r for r in report if not r["ok"]]
@@ -5179,7 +5228,7 @@ def test_the_report_is_not_believed_on_its_own_word():
 
 @pinned
 def test_the_freeze_block_is_harness_produced_and_round_trips(tmp_path):
-    """§6 step 2 asks its commit for the harness hashes, the schema identifier,
+    """§8.3 step 2 asks its commit for the harness hashes, the schema identifier,
     the membership digests "recomputed by the harness's own code from the pinned
     artifacts", and an enumeration of every pre-freeze run.
 
@@ -5211,7 +5260,7 @@ def test_the_freeze_block_is_harness_produced_and_round_trips(tmp_path):
     assert all(name in block for name in
                ("--membership", "--freeze-block", "--power"))
 
-    # THE ROUND TRIP IS NOT A PASTE ANY MORE (R2). Round one's test dropped the
+    # THE ROUND TRIP IS NOT A PASTE ANY MORE (R2). v1's test dropped the
     # rendered block into a temporary file and demanded `harness_freeze_status`
     # say frozen; an uncommitted two-line paste satisfied that, which is not a
     # freeze. What is asserted instead is that the block a COMMIT would carry
