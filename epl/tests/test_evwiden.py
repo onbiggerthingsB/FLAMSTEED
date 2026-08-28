@@ -3201,10 +3201,19 @@ def _as_if_committed(table: str | None = None):
     return committed
 
 
+@pinned
 def test_the_freeze_needs_a_commit_that_is_an_ancestor_of_head(monkeypatch):
-    """The task R2 sets the guard: verify a COMMITTED freeze — the Git identity
-    of the source, not prose beside bytes."""
-    monkeypatch.setattr(ew, "git_committed_bytes", _as_if_committed())
+    """§8.6's task for the guard: verify a COMMITTED freeze — the Git identity
+    of the source, not prose beside bytes.
+
+    The mocked committed source is now the harness's OWN rendered freeze block,
+    because §8.6 conditions (3) and (4) read the schema identifier and the
+    membership digests out of it. That is why this test reads the pinned
+    artifacts: a two-hash-line stand-in is no longer a freeze, and v1's test
+    accepted one.
+    """
+    block = ew.freeze_block(power=_reproducing_power())
+    monkeypatch.setattr(ew, "git_committed_bytes", _as_if_committed(block))
     status = ew.harness_freeze_status()
     assert status["frozen"] is True
     assert status["is_ancestor"] is True
@@ -3245,26 +3254,90 @@ def test_a_dirty_working_tree_is_not_a_frozen_harness(monkeypatch):
         assert rec["match"] is False
 
 
-def test_the_first_real_fit_event_is_recorded_once_and_then_binds(tmp_path):
-    """R-B6, made mechanical: from the moment a real fit on the real archive
+def test_the_first_fit_record_lives_at_one_fixed_repo_root_keyed_path():
+    """§8.6, conformance row L8. "The record lives at **one fixed
+    repo-root-keyed path**, `data/epl/fit/evwiden_first_real_fit.json`, derived
+    from `paths.REPO_ROOT` and from nothing else. **No function that reads or
+    writes it takes a directory argument.**"
+
+    v1's record was written below the caller's chosen directory, so a fresh or
+    deleted `--dir` reset the entire R-B6 regime — the one-way ratchet had a way
+    back.
+    """
+    import inspect
+
+    assert ew.FIRST_FIT_JSON == (ew.paths.REPO_ROOT / "data" / "epl" / "fit"
+                                 / "evwiden_first_real_fit.json")
+    for fn in (ew.first_fit_record, ew.record_first_real_fit,
+               ew.assert_no_hashed_file_moved):
+        params = set(inspect.signature(fn).parameters)
+        assert not {p for p in params if "dir" in p or "path" in p}, (fn, params)
+
+
+def test_the_first_real_fit_event_is_recorded_once_and_then_binds(tmp_path,
+                                                                  monkeypatch):
+    """§8.7, made mechanical: from the moment a real fit on the real archive
     exists, ANY change to ANY hashed file invalidates this preregistration — no
-    note, no dated appendix, no disclosure and no owner ruling restores it."""
-    assert ew.first_fit_record(tmp_path) is None
-    record = ew.record_first_real_fit(tmp_path, where="the results canary")
+    note, no dated appendix, no disclosure and no owner ruling restores it.
+
+    The record is repo-root-keyed, so the test moves the repo root rather than
+    passing a directory the harness no longer accepts.
+    """
+    monkeypatch.setattr(ew, "FIRST_FIT_JSON", tmp_path / "first_real_fit.json")
+    assert ew.first_fit_record() is None
+    record = ew.record_first_real_fit(where="the results canary")
     assert record["where"] == "the results canary"
     assert set(record["harness"]) == set(ew.HARNESS_FILES)
     assert record["commit"] and record["prereg_blob"]
+    assert record["prereg"] == ew.paths.rel(ew.PREREG_PATH)
     # written once and never rewritten
-    again = ew.record_first_real_fit(tmp_path, where="something else")
+    again = ew.record_first_real_fit(where="something else")
     assert again["at"] == record["at"] and again["where"] == record["where"]
 
-    ew.assert_no_hashed_file_moved(tmp_path)          # nothing moved yet
-    moved = json.loads((tmp_path / ew.FIRST_FIT_NAME).read_text())
+    ew.assert_no_hashed_file_moved()                  # nothing moved yet
+    moved = json.loads((tmp_path / "first_real_fit.json").read_text())
     moved["harness"][ew.HARNESS_FILES[0]] = "0" * 64
-    (tmp_path / ew.FIRST_FIT_NAME).write_text(json.dumps(moved))
-    with pytest.raises(ew.EvWidenError) as exc:
-        ew.assert_no_hashed_file_moved(tmp_path)
+    (tmp_path / "first_real_fit.json").write_text(json.dumps(moved))
+    with pytest.raises(ew.FreezeStateUnverified) as exc:
+        ew.assert_no_hashed_file_moved()
     assert "INVALIDATES this preregistration" in str(exc.value)
+
+
+def test_a_first_fit_record_naming_another_prereg_blob_is_unverified(
+        tmp_path, monkeypatch):
+    """§8.6: "On every later fit the guard re-reads it and raises
+    `FreezeStateUnverified` if the recorded prereg blob is not the blob of the
+    freeze commit."
+
+    A record carried over from another document — v1's, say — would otherwise
+    let this run inherit a first-fit event that belongs to a preregistration
+    that decides nothing.
+    """
+    monkeypatch.setattr(ew, "FIRST_FIT_JSON", tmp_path / "first_real_fit.json")
+    ew.record_first_real_fit(where="the results canary")
+    planted = json.loads((tmp_path / "first_real_fit.json").read_text())
+    planted["prereg_blob"] = "0" * 40
+    (tmp_path / "first_real_fit.json").write_text(json.dumps(planted))
+    with pytest.raises(ew.FreezeStateUnverified) as exc:
+        ew.assert_no_hashed_file_moved()
+    assert "prereg blob" in str(exc.value)
+
+
+def test_the_freeze_guard_checks_the_schema_and_the_membership_digests(
+        monkeypatch):
+    """§8.6's four conditions, and v1's guard parsed only the first two.
+
+    "Parsing two hash lines out of current prose is not a freeze"; nor is
+    parsing two hash lines out of committed prose. The block must also carry the
+    schema identifier `epl-evwiden-2` and membership digests that equal a fresh
+    recomputation from the pinned artifacts. A mocked source containing only two
+    hash lines is not frozen, and v1's test accepted one that was.
+    """
+    monkeypatch.setattr(ew, "git_committed_bytes", _as_if_committed())
+    status = ew.harness_freeze_status()
+    assert status["frozen"] is False
+    assert "schema" in status["why"] or "membership" in status["why"]
+    assert status["schema_ok"] is False
 
 
 # ==========================================================================

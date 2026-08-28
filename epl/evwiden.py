@@ -1994,13 +1994,18 @@ def thin_at(e_min: float, grid: Sequence[float] = (*E_GRID, E_STAR)
     return [f"{g:g}" for g in sorted(float(g) for g in grid) if e_min < float(g)]
 
 
-#: R-B6's first-real-fit event. Once this file exists, a real fit on the real
+#: §8.7's first-real-fit event. Once this file exists, a real fit on the real
 #: archive exists — whether or not it produced a delta, whether or not it was
 #: merged, whether or not anyone looked at it — and any change to any hashed
 #: file invalidates the preregistration. No note, no dated appendix, no
 #: disclosure and no owner ruling restores it.
-FIRST_FIT_NAME = "first_real_fit.json"
-FIRST_FIT_JSON = EVWIDEN_DIR / FIRST_FIT_NAME
+#:
+#: **ONE FIXED REPO-ROOT-KEYED PATH** (§8.6), derived from ``paths.REPO_ROOT``
+#: and from nothing else, and **no function that reads or writes it takes a
+#: directory argument.** v1's record was written below the caller's chosen
+#: directory, so a fresh or deleted ``--dir`` reset the entire R-B6 regime: the
+#: one-way ratchet had a way back, and the way back was a flag.
+FIRST_FIT_JSON = paths.FIT_DIR / "evwiden_first_real_fit.json"
 
 _PINNED_ARCHIVE_IDENTITY: dict[str, str | None] = {}
 
@@ -2110,35 +2115,50 @@ def assert_may_fit(where: str, *,
 
     real = is_pinned_archive(played) or is_pinned_corpus(corpus)
     if real:
-        assert_no_hashed_file_moved(directory)
-        record_first_real_fit(directory, where=where)
+        # §8.6: one fixed repo-root-keyed path, no directory argument. `--dir`
+        # moves where a run WRITES; it never moved where the first-fit regime
+        # lives, and v1's version let it.
+        assert_no_hashed_file_moved()
+        record_first_real_fit(where=where)
     return {"guarded": True, "frozen": True, "real_artifacts": bool(real)}
 
 
-def first_fit_record(directory: Path | str | None = None) -> dict[str, Any] | None:
-    directory = Path(directory) if directory is not None else EVWIDEN_DIR
-    path = directory / FIRST_FIT_NAME
-    if not path.exists():
+def first_fit_record() -> dict[str, Any] | None:
+    """§8.6's record, read from its **one fixed repo-root-keyed path**.
+
+    No directory argument, deliberately. What the record's PRESENCE proves is
+    that a real fit happened in this checkout and what may change afterwards —
+    a one-way ratchet. What its ABSENCE proves is only that no fit has been
+    recorded here: `data/` is gitignored, the file can be deleted, and a fit can
+    have occurred in another checkout or on another machine. §8.6 says so in
+    those words, and §8.8 makes the global claim an attestation rather than a
+    fact the repository can prove.
+    """
+    if not FIRST_FIT_JSON.exists():
         return None
     try:
-        return json.loads(path.read_text())
+        return json.loads(FIRST_FIT_JSON.read_text())
     except json.JSONDecodeError as exc:
-        raise EvWidenError(
-            f"{paths.rel(path)} is not readable JSON: {exc}. R-B6's regime "
-            "turns on this record; an unreadable one is not an absent one.")
+        raise FreezeStateUnverified(
+            f"{paths.rel(FIRST_FIT_JSON)} is not readable JSON: {exc}. §8.7's "
+            "regime turns on this record; an unreadable one is not an absent "
+            "one, and the state it would establish cannot be established.")
 
 
-def record_first_real_fit(directory: Path | str | None = None, *,
-                          where: str = "") -> dict[str, Any]:
-    """Write R-B6's event once, and never rewrite it.
+def record_first_real_fit(*, where: str = "") -> dict[str, Any]:
+    """Write §8.7's event once, and never rewrite it.
 
-    R2-H puts the event at the completion of STEP 1 — the post-freeze results
-    canary, which performs four real fits — and not at the single-opening
-    exercise. Whatever runs first records it; the record is the harness bytes at
-    the moment a real fit on the real archive first existed.
+    §8.4 puts the event at the completion of **step 1** — the post-freeze
+    results canary, which performs four real fits — and not at the
+    single-opening exercise. Whatever runs first records it; the record is the
+    harness bytes at the moment a real fit on the real archive first existed.
+
+    §8.6 fixes the contents: "the UTC instant of the first real fit; the entry
+    point that performed it; the Git HEAD commit at that moment; **the Git blob
+    id of `reports/epl_widening_prereg_v2.md` at that commit**; and the SHA-256
+    of both hashed harness files."
     """
-    directory = Path(directory) if directory is not None else EVWIDEN_DIR
-    existing = first_fit_record(directory)
+    existing = first_fit_record()
     if existing is not None:
         return existing
     record = {
@@ -2147,25 +2167,61 @@ def record_first_real_fit(directory: Path | str | None = None, *,
         "harness": {name: (sha256_file(paths.REPO_ROOT / name)
                            if (paths.REPO_ROOT / name).exists() else None)
                     for name in HARNESS_FILES},
+        # the DOCUMENT this fit belongs to, by name and by blob, so a record
+        # carried over from another preregistration cannot be mistaken for one
+        # of this document's own (§8.6, and §8.1 on why that matters here)
+        "prereg": paths.rel(PREREG_PATH),
         "prereg_blob": git_blob_id(paths.rel(PREREG_PATH)),
         "commit": git_head(),
-        "rule": ("R-B6: from this moment, any change to any hashed file "
+        "rule": ("§8.7: from this moment, any change to any hashed file "
                  "invalidates this preregistration — no note, no dated "
                  "appendix, no disclosure and no owner ruling restores it. The "
                  "invalidated run publishes, with its numbers and with the "
                  "reason, and a new preregistration begins in a new document."),
     }
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / FIRST_FIT_NAME).write_text(
-        json.dumps(record, indent=2, default=str) + "\n")
+    FIRST_FIT_JSON.parent.mkdir(parents=True, exist_ok=True)
+    FIRST_FIT_JSON.write_text(json.dumps(record, indent=2, default=str) + "\n")
     return record
 
 
-def assert_no_hashed_file_moved(directory: Path | str | None = None) -> None:
-    """R-B6's second regime, enforced: after any real fit, nothing hashed moves."""
-    record = first_fit_record(directory)
+def assert_no_hashed_file_moved() -> None:
+    """§8.7's second regime, enforced, and §8.6's validation of the record.
+
+    Two checks, and v1 performed only the first:
+
+    * after any real fit, nothing hashed moves; and
+    * the record must be **this document's**. "On every later fit the guard
+      re-reads it and raises `FreezeStateUnverified` if the recorded prereg blob
+      is not the blob of the freeze commit, or if a hashed file's current bytes
+      differ from the recorded ones." A record naming another document's blob —
+      v1's, say — would otherwise let this run inherit a first-fit event that
+      belongs to a preregistration that decides nothing.
+    """
+    record = first_fit_record()
     if record is None:
         return
+
+    named = str(record.get("prereg") or "")
+    if named and named != paths.rel(PREREG_PATH):
+        raise FreezeStateUnverified(
+            f"{paths.rel(FIRST_FIT_JSON)} records a first real fit of "
+            f"{named!r}, and this harness implements "
+            f"{paths.rel(PREREG_PATH)!r}. §8.6 validates the record against the "
+            "document it belongs to: a record carried over from another "
+            "preregistration is not this document's first-fit event, and §8.1 "
+            "is exactly why — v1's two ADVI fits ended v1 and v2 does not "
+            "inherit them.")
+    recorded_blob = record.get("prereg_blob")
+    current_blob = git_blob_id(paths.rel(PREREG_PATH))
+    if recorded_blob and current_blob and recorded_blob != current_blob:
+        raise FreezeStateUnverified(
+            f"{paths.rel(FIRST_FIT_JSON)} records the prereg blob "
+            f"{str(recorded_blob)[:12]}… and {paths.rel(PREREG_PATH)}'s blob at "
+            f"HEAD is {str(current_blob)[:12]}…. §8.6: the guard raises when "
+            "the recorded prereg blob is not the blob of the freeze commit. "
+            "Either the document moved after the first real fit — which §8.7 "
+            "makes an invalidation — or this record belongs to another run.")
+
     moved = []
     for name in HARNESS_FILES:
         path = paths.REPO_ROOT / name
@@ -2173,9 +2229,9 @@ def assert_no_hashed_file_moved(directory: Path | str | None = None) -> None:
         if now != (record.get("harness") or {}).get(name):
             moved.append(name)
     if moved:
-        raise EvWidenError(
+        raise FreezeStateUnverified(
             f"{moved} changed after the first real fit of this experiment "
-            f"(recorded {record.get('at')}). R-B6: **after any real fit on the "
+            f"(recorded {record.get('at')}). §8.7: **after any real fit on the "
             "real archive exists — whether or not it produced a delta, whether "
             "or not it was merged, whether or not anyone looked at it — any "
             "change to any hashed file INVALIDATES this preregistration.** No "
@@ -6214,27 +6270,57 @@ def git_is_ancestor(commit: str, rev: str = "HEAD") -> bool:
     return out.returncode == 0
 
 
+def _recorded_membership_digests(text: str) -> set[str]:
+    """Every 64-hex digest the committed freeze block records for a membership.
+
+    The block writes them one per table row, in backticks. Reading them back as
+    a SET rather than by row label is deliberate: the check §8.6 asks for is
+    that the recorded digests "equal a fresh recomputation", and a recomputation
+    that produces the same six values in a different order is the same
+    membership.
+    """
+    out: set[str] = set()
+    for line in text.splitlines():
+        if line.lstrip().startswith("|") and "`" in line:
+            for m in _HEX64.finditer(line):
+                out.add(m.group(1))
+    return out
+
+
 def harness_freeze_status(sources: Sequence[Path] | None = None, *,
                           rev: str = "HEAD") -> dict[str, Any]:
-    """Has §6 step 2's follow-up commit landed, and does it describe THESE bytes?
+    """§8.6's guard. Has §8.3 step 2's follow-up commit landed, does it describe
+    THESE bytes, and does it describe THIS document?
 
-    §6 step 2: the commit appends a table of file, line count and SHA-256 for
-    every harness file plus the frozen membership digests, carrying 07b5871's
-    sentence — *if any hash differs at the time the run is executed, it is not
-    the run this document preregisters*.
+    §8.3 step 2: the commit appends a table of file, line count and SHA-256 for
+    every harness file, the schema identifier, and the frozen membership
+    digests, carrying 07b5871's sentence — *if any hash differs at the time the
+    run is executed, it is not the run this document preregisters*.
 
-    **R2 makes this a check on GIT IDENTITY, not on prose beside bytes.** Round
-    one parsed the CURRENT prose against the CURRENT filesystem, which an
-    uncommitted two-line hash paste satisfies; that is not a freeze and the
-    document does not accept it as one. This function therefore:
+    **Four conditions, all of them, or the state is not established** (§8.6):
 
-    * reads the hash table out of the source's **committed** bytes
-      (``git show <rev>:<path>``), so an uncommitted paste freezes nothing;
-    * compares the recorded digest against the harness file's **committed**
-      bytes AND against the working tree, so a dirty tree is not frozen either;
-    * resolves the commit that last touched the source and requires it to be an
-      **ancestor** of ``rev``, and records the prereg blob's object id;
-    * reports R-B6's first-real-fit event when one exists.
+    1. ``reports/epl_widening_prereg_v2.md`` is **committed**, and the commit
+       that last touched it is an **ancestor of HEAD**;
+    2. the freeze block in that **committed blob** carries a harness hash table
+       whose two SHA-256 values equal the current bytes of ``epl/evwiden.py``
+       and ``epl/tests/test_evwiden.py`` — and the committed bytes too, so a
+       dirty tree is not frozen either;
+    3. the **schema identifier** in that block is ``epl-evwiden-2``, and the
+       **membership digests** it records equal a fresh recomputation from the
+       pinned artifacts;
+    4. the first-fit record, if present, is consistent with (1)–(3).
+
+    v1's guard performed (1) and (2) and stopped: "the guard parses only the two
+    harness hashes; schema/membership are not validated and first-fit is merely
+    returned", and its own test accepted a mocked committed source containing
+    nothing but two hash lines. "Parsing two hash lines out of current prose is
+    not a freeze" — and parsing two out of committed prose is not one either.
+
+    Condition (3) needs the pinned artifacts. Where they are absent the state
+    **cannot be established**, and this function reports so rather than
+    assuming: a machine that cannot recompute the membership cannot check that
+    the frozen one is the one this run would use, and it is not going to fit
+    anything either.
 
     It asserts nothing about itself: an unfrozen harness is a fact to report,
     and the refusal is :func:`require_harness_freeze`'s job.
@@ -6242,6 +6328,7 @@ def harness_freeze_status(sources: Sequence[Path] | None = None, *,
     sources = [Path(s) for s in (sources or (PREREG_PATH, AMENDMENTS_PATH))]
     found: dict[str, dict[str, Any]] = {}
     where = None
+    where_text = ""
     git_sources: list[dict[str, Any]] = []
     for source in sources:
         rel = paths.rel(source)
@@ -6250,13 +6337,15 @@ def harness_freeze_status(sources: Sequence[Path] | None = None, *,
                             "blob": git_blob_id(rel, rev)})
         if blob is None:
             continue
-        for line in blob.decode("utf-8", "replace").splitlines():
+        text = blob.decode("utf-8", "replace")
+        for line in text.splitlines():
             for name in HARNESS_FILES:
                 if name in line and name not in found:
                     m = _HEX64.search(line)
                     if m:
                         found[name] = {"recorded": m.group(1), "source": rel}
-                        where = where or rel
+                        if where is None:
+                            where, where_text = rel, text
 
     missing = [f for f in HARNESS_FILES if f not in found]
     for name, rec in found.items():
@@ -6275,30 +6364,93 @@ def harness_freeze_status(sources: Sequence[Path] | None = None, *,
     ancestor = bool(commit and git_is_ancestor(commit, rev))
     uncommitted = [s["path"] for s in git_sources if not s["committed"]]
 
+    # ---- condition (3): the schema identifier and the membership digests ----
+    # Only computed once (1) and (2) hold, because recomputing the membership
+    # reads the pinned artifacts and a run that has already failed the hash
+    # table has no use for the answer.
+    schema_ok: bool | None = None
+    membership_ok: bool | None = None
+    membership_why = ""
+    if not missing and not differs and ancestor:
+        schema_ok = SCHEMA_ID in where_text
+    if schema_ok:
+        recorded = _recorded_membership_digests(where_text)
+        try:
+            from epl import baseline
+
+            corpus, played = load_corpus(), load_archive()
+            walk = load_walk_ledger()
+            cells = table_cells(baseline.load_matches(), played)
+            fresh = set(membership_digests(corpus, played, walk,
+                                           table=cells)["digests"].values())
+        except Exception as exc:                       # noqa: BLE001
+            membership_ok = None
+            membership_why = (
+                f"the membership could not be recomputed from the pinned "
+                f"artifacts ({type(exc).__name__}: {exc}), so §8.6 condition "
+                "(3) cannot be established here — and a machine that cannot "
+                "recompute the membership cannot check that the frozen one is "
+                "the one this run would use")
+        else:
+            short = sorted(fresh - recorded)
+            membership_ok = not short
+            if short:
+                membership_why = (
+                    f"{len(short)} recomputed membership digest(s) are not in "
+                    f"the committed freeze block (first: "
+                    f"{[d[:12] for d in short[:3]]})")
+
+    # ---- condition (4): the first-fit record, if present ------------------
+    record = first_fit_record()
+    first_fit_ok: bool | None = None
+    first_fit_why = ""
+    if record is not None:
+        try:
+            assert_no_hashed_file_moved()
+        except FreezeStateUnverified as exc:
+            first_fit_ok, first_fit_why = False, str(exc)
+        else:
+            first_fit_ok = True
+
     if missing:
-        why = (f"no COMMITTED harness-hash table names {missing} — §6 step 2's "
-               "follow-up commit has not landed, and step 3 says not one real "
-               "fit of this experiment runs before it does. R2: a hash table "
-               "that is not in a commit freezes nothing, because an uncommitted "
-               "paste satisfies a check on prose beside bytes")
+        why = (f"no COMMITTED harness-hash table names {missing} — §8.3 step "
+               "2's follow-up commit has not landed, and step 3 says not one "
+               "real fit of this document runs before it does. §8.6: a hash "
+               "table that is not in a commit freezes nothing, because an "
+               "uncommitted paste satisfies a check on prose beside bytes")
     elif differs:
         why = (f"the recorded digest for {differs} differs from the committed "
                "bytes or from the working tree: if any hash differs at the time "
                "the run is executed, it is not the run this document "
-               "preregisters (§6 step 2)")
+               "preregisters (§8.3 step 2)")
     elif not commit:
         why = ("the harness-hash table's source resolves to no commit, so there "
                "is no Git identity to bind the freeze to")
     elif not ancestor:
         why = (f"the commit {commit[:12]} that carries the harness-hash table is "
                f"not an ancestor of {rev}")
+    elif not schema_ok:
+        why = (f"the committed freeze block does not carry the schema "
+               f"identifier {SCHEMA_ID!r}. §8.6 condition (3): parsing two hash "
+               "lines out of prose is not a freeze — the block must name the "
+               "schema and the membership it froze, or it describes a different "
+               "document's run")
+    elif not membership_ok:
+        why = ("§8.6 condition (3), the membership digests: " + membership_why)
+    elif first_fit_ok is False:
+        why = ("§8.6 condition (4), the first-fit record: " + first_fit_why)
     else:
         why = ""
-    return {"frozen": not missing and not differs and ancestor,
+    return {"frozen": bool(not missing and not differs and ancestor
+                           and schema_ok and membership_ok
+                           and first_fit_ok is not False),
             "where": where, "files": found, "missing": missing, "why": why,
             "commit": commit, "is_ancestor": ancestor,
+            "schema_ok": schema_ok, "membership_ok": membership_ok,
+            "membership_why": membership_why,
+            "first_fit_ok": first_fit_ok, "first_fit_why": first_fit_why,
             "sources": git_sources, "uncommitted_sources": uncommitted,
-            "rev": rev, "first_real_fit": first_fit_record(),
+            "rev": rev, "first_real_fit": record,
             "schema": SCHEMA_ID}
 
 
