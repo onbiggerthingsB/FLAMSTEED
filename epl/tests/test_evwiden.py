@@ -62,8 +62,10 @@ PINNED_CORPUS = Path("data/epl/fit/walkforward_predictions.parquet")
 PINNED_ARCHIVE = Path("data/epl/matches.parquet")
 PINNED_LEDGER = Path("data/epl/fit/walkforward_ledger.jsonl")
 
-#: The preregistration this harness implements.
-PREREG = Path("reports/epl_widening_prereg.md")
+#: The preregistration this harness implements. v2 is the SOLE LAW; v1 is
+#: lineage and decides nothing (§8.1).
+PREREG = Path("reports/epl_widening_prereg_v2.md")
+PREREG_V1 = Path("reports/epl_widening_prereg.md")
 
 #: The `@pinned` tests of R-I5: they read the pinned artifacts DELIBERATELY, to
 #: re-derive the document's own census. They fit nothing and simulate nothing,
@@ -275,7 +277,7 @@ def test_the_frozen_constants_are_the_documents(monkeypatch):
     assert ew.ALPHA == 0.05
     assert ew.DECAY_HALF_LIFE_DAYS == 365.0
     assert ew.FROZEN_WIDENING == {"mechanism": "c", "strength": 0.5}
-    assert ew.SCHEMA_ID == "epl-evwiden-1"
+    assert ew.SCHEMA_ID == "epl-evwiden-2"
     assert ew.HARNESS_FILES == ("epl/evwiden.py", "epl/tests/test_evwiden.py")
 
 
@@ -3050,17 +3052,24 @@ def test_the_table_runners_refuse_the_pinned_archive_before_the_freeze(tmp_path)
 
 
 def test_the_freeze_block_enumerates_all_six_authorised_pre_freeze_passes():
-    """R-B5: "`epl.evwiden.freeze_block`'s default enumeration currently names
-    four runs and must be extended to name all six above before the freeze
-    commit is generated." The freeze block's list stays binding and must be
-    complete."""
+    """§8.2's six passes, "authorised for this document, prospectively".
+
+    v1's sixth entry named a repair round's two scratch exports — an event, not
+    a prospective pass. v2's sixth is ``--power``, which reads only the frozen
+    SDs and the frozen structure and reproduces §6.3. The list stays binding and
+    must be complete: an unenumerated pre-freeze pass is a protocol deviation
+    whether or not it touched anything.
+    """
     assert len(ew.PRE_FREEZE_RUNS) == 6
     joined = " ".join(ew.PRE_FREEZE_RUNS)
     for marker in ("--membership", "--plan", "--canary --no-results-canary",
                    "pytest epl/tests/test_evwiden.py", "dcfit.fit_epl",
-                   "--freeze-block", "repair round's two exports"):
+                   "--freeze-block", "--power"):
         assert marker in joined, marker
     assert "TemporaryDirectory" in joined and "paths.STORE_DIR" in joined
+    # v1's sixth entry was a RETROSPECTIVE note about a repair round. §8.2
+    # authorises v2's own passes prospectively and nothing else.
+    assert "repair round" not in joined
 
 
 @pinned
@@ -3483,12 +3492,29 @@ def test_the_module_does_not_drift_from_the_document_it_implements():
     assert ew.ARCHIVE_SHA256 in text
     assert ew.WALK_LEDGER_SHA256 in text
     assert ew.CONFIG_SHA256 in text
-    assert "epl-evwiden-1" in text and ew.SCHEMA_ID == "epl-evwiden-1"
+    assert "epl-evwiden-2" in text and ew.SCHEMA_ID == "epl-evwiden-2"
     for name in ew.HARNESS_FILES:
         assert name in text
     # the numbers §4 gates on, as the document writes them
     assert "-0.0010" in text.replace("−", "-")
     assert "+0.0002" in text
+
+
+@pytest.mark.skipif(not PREREG.exists(), reason="the preregistration is absent")
+def test_the_harness_is_bound_to_v2_and_v1_is_only_lineage():
+    """§8.1: v1 is invalidated by its own R-B6 and "decides nothing".
+
+    The freeze guard, the first-fit record and the evidence object all name a
+    preregistration by path. If any of them still names v1, the harness is
+    binding itself to an invalidated document — and the two ADVI fits that
+    ended v1 would carry into v2's regime.
+    """
+    assert ew.PREREG_PATH.name == "epl_widening_prereg_v2.md"
+    assert ew.SCHEMA_ID == "epl-evwiden-2"
+    text = PREREG.read_text()
+    assert "invalidated 2026-08-28 under its own R-B6" in text
+    # the sole law says so about itself
+    assert "There are no repair sections and no supersession index" in text
 
 
 def test_the_canary_never_rebuilds_the_shared_point_in_time_store(monkeypatch):
@@ -3530,9 +3556,16 @@ def test_the_canary_never_rebuilds_the_shared_point_in_time_store(monkeypatch):
 # 17. the refusal inventory, and `--verify`
 # ==========================================================================
 
-def test_every_refusal_type_5_1_names_exists_and_derives_from_the_base():
-    """§5.1's table, by name. A typed name is a promise the preregistration
-    made; this is the test that it was kept."""
+def test_every_refusal_type_7_1_names_exists_and_derives_from_the_base():
+    """§7.1's table, by name. A typed name is a promise the preregistration
+    made; this is the test that it was kept.
+
+    v2 adds three that v1 never had, and each one names a defect v1's own
+    reviews found: ``StoreNotBuilt`` (§8.2's read-only accessor, which never
+    builds), ``SequenceViolation`` (§8.4's completion markers) and
+    ``FreezeStateUnverified`` (§8.6's guard, which establishes the state rather
+    than accepting a caller's boolean).
+    """
     named = ("CorpusMissing", "CorpusDigestMismatch", "CorpusShapeMismatch",
              "ArchiveDigestMismatch", "LedgerDigestMismatch", "ConfigNotFrozen",
              "MembershipMismatch", "PredicateMismatch", "EvidenceLeak",
@@ -3540,8 +3573,9 @@ def test_every_refusal_type_5_1_names_exists_and_derives_from_the_base():
              "ControlMismatch", "UntreatedMoved", "TableIdentityBreak",
              "FitFailed", "UnpriceableFixture", "ScoreMismatch",
              "SchemaMismatch", "RowConflict", "ShardFailed", "MergeIncomplete",
-             "TableMCImprecise")
-    assert len(named) == 23
+             "TableMCImprecise", "StoreNotBuilt", "SequenceViolation",
+             "FreezeStateUnverified")
+    assert len(named) == 26
     for name in named:
         cls = getattr(ew, name)
         assert issubclass(cls, ew.EvWidenError), name
@@ -3564,11 +3598,12 @@ def test_the_harness_invents_no_refusal_the_document_never_wrote():
              "ControlMismatch", "UntreatedMoved", "TableIdentityBreak",
              "FitFailed", "UnpriceableFixture", "ScoreMismatch",
              "SchemaMismatch", "RowConflict", "ShardFailed", "MergeIncomplete",
-             "TableMCImprecise"}
+             "TableMCImprecise", "StoreNotBuilt", "SequenceViolation",
+             "FreezeStateUnverified"}
     assert subclasses == named
-    # R2-X counts it both ways so neither reading is wrong: 23 named refusals,
-    # 24 classes counting the base they all derive from.
-    assert len(subclasses) == 23 and len(subclasses | {"EvWidenError"}) == 24
+    # §7.1 counts it both ways so neither reading is wrong: 26 named refusals,
+    # 27 classes counting the base they all derive from.
+    assert len(subclasses) == 26 and len(subclasses | {"EvWidenError"}) == 27
     # the pre-freeze-fit invalidation is one of the unnamed ones, and refuses
     # as the base class
     with pytest.raises(ew.EvWidenError) as exc:
@@ -3918,7 +3953,7 @@ def test_the_freeze_block_is_harness_produced_and_round_trips(tmp_path):
     assert "not the run this document preregisters" in block
 
     assert all(name in block for name in
-               ("--membership", "--freeze-block", "repair round's two exports"))
+               ("--membership", "--freeze-block", "--power"))
 
     # THE ROUND TRIP IS NOT A PASTE ANY MORE (R2). Round one's test dropped the
     # rendered block into a temporary file and demanded `harness_freeze_status`

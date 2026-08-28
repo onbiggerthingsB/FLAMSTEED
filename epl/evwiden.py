@@ -2,18 +2,30 @@
 keyed on the wrong quantity?
 
 This module executes the design preregistered in
-``reports/epl_widening_prereg.md`` — the original at f26b760, its first repair
-section at 1b79cc5 and its round-two repairs at 3d3ec4a — and computes the
-estimand fixed in its §2.3 as R-B1 repairs it. It chooses nothing. The corpus,
-the archive, the walk-forward ledger and the configuration are pinned by digest;
-the rule, its one constant (``e* = 10.0``), the grid, the four-gate adoption
-rule, the refusal semantics and the scope were written down before this file
-existed; and §4.5 makes adoption an owner ruling that no script may take.
+``reports/epl_widening_prereg_v2.md`` — **v2, the sole law** — and computes the
+estimand fixed in its §2.3. It chooses nothing. The corpus, the archive, the
+walk-forward ledger and the configuration are pinned by digest; the rule, its
+one constant (``e* = 10.0``), the grid, the four-gate adoption rule, the refusal
+semantics and the scope were written down before this file existed; and §4.5
+makes adoption an owner ruling that no script may take.
 
-**WHERE A REPAIR AND THE ORIGINAL CONFLICT, THE REPAIR GOVERNS, AND ROUND TWO
-GOVERNS ROUND ONE.** Every superseded clause this module used to implement is
-named at the code that replaced it, so a reader who greps for the original's
-words finds the ruling that retired them rather than silence.
+**v1 IS LINEAGE AND DECIDES NOTHING.** ``reports/epl_widening_prereg.md`` was
+invalidated on 2026-08-28 under its own R-B6: two real ADVI fits occurred on the
+pinned archive through protected :class:`epl.simretro.ArchiveRunner` during v1's
+conformance work — the parity leg is a mandatory leg of this experiment and
+R-B6 counts any real fit — so that document cannot be repaired into legitimacy
+(§8.1). v2 carries v1's law as its two repair rounds left it, with every text
+defect three reviews and one in-tree adversarial audit found fixed at the
+source. **There are no repair sections and no supersession index**, so this
+module cites section numbers and nothing else: where a comment used to name
+R-B1 or R2-B4 it now names the §ce that says the same thing, because a citation
+to a superseding round is a citation to a document that no longer exists.
+
+**v2's NO-FIT CLOCK STARTS AT v2's OWN FREEZE COMMIT** (§8.3). The two v1 fits
+preceded this document; §8.8 names them inside the attestation rather than
+beside it, and the R-B6 regime of §8.7 binds changes to hashed files after the
+first real fit **of this document** — which §8.4 makes the results canary of
+step 1.
 
 THE RULE, ONCE (§2.1)::
 
@@ -360,9 +372,12 @@ RESEED_SCALE = {"per_match_mean": 0.0032, "per_match_p99": 0.0139,
                 "per_match_max": 0.0229, "pooled_shift": 0.000075,
                 "source": "reports/epl_walkforward.md"}
 
-#: The schema identifier §6 step 2's freeze commit must name alongside the
-#: hashes.
-SCHEMA_ID = "epl-evwiden-1"
+#: The schema identifier §8.3 step 2's freeze commit must name alongside the
+#: hashes. **v2**, and the change of number is not cosmetic: v1 was invalidated
+#: under its own R-B6 by two pre-freeze parity-leg ADVI fits (§8.1), and a
+#: harness that still stamped `epl-evwiden-1` on its rows would be claiming to
+#: implement a document that decides nothing.
+SCHEMA_ID = "epl-evwiden-2"
 
 #: §6: "all code lands in `epl/evwiden.py` and `epl/tests/test_evwiden.py`".
 #: The document names exactly two files and this module adds no third: the
@@ -416,17 +431,23 @@ WRITES = (EVWIDEN_DIR, EVWIDEN_JSON, TABLE_DIR, TABLE_LEDGER, CANARY_JSON,
 #: partition buys resumability and per-shard poisoning, not parallelism.
 SHARDS = 4
 
-#: R-B5's SIX authorised pre-freeze passes, by name and date. Round one's
-#: default enumeration named four and R-B5 rules that it "must be extended to
-#: name all six above before the freeze commit is generated". The freeze block's
-#: list stays binding and must be complete — an unenumerated pre-freeze pass is
-#: a protocol deviation whether or not it touched anything.
+#: §8.2's SIX authorised pre-freeze passes, "authorised for this document,
+#: prospectively": they are v2's own pre-freeze passes, to be run under v2
+#: before v2's freeze commit. The freeze block's list stays binding and must be
+#: complete — an unenumerated pre-freeze pass is a protocol deviation whether or
+#: not it touched anything.
+#:
+#: v1's sixth entry recorded a repair round's two scratch exports, which is an
+#: EVENT rather than an authorised pass; v2's sixth is `--power`, and the list
+#: is prospective throughout.
 PRE_FREEZE_RUNS: tuple[str, ...] = (
     "`python -m epl.evwiden --membership` and `--plan` — read the pinned "
     "corpus, archive and ledger; compute §2.2's cells, §2.3's population, "
-    "§3.3's table cells and the digests above",
+    "§3.3's table cells and the digests above. Neither reaches "
+    "`epl.fit.build_store`: §8.2's read-only store accessor opens the existing "
+    "store parquet and raises `StoreNotBuilt` if it is absent",
     "`python -m epl.evwiden --canary --no-results-canary --dir <scratch>` — "
-    "§5.3's evidence canary on the real archive, with the point-in-time store "
+    "§7.3's evidence canary on the real archive, with any point-in-time store "
     "built in a `tempfile.TemporaryDirectory` and never under `paths.STORE_DIR`",
     "`pytest epl/tests/test_evwiden.py` — the synthetic corpora, plus the "
     "`@pinned` tests that re-derive the census, the grid table, the membership "
@@ -434,19 +455,21 @@ PRE_FREEZE_RUNS: tuple[str, ...] = (
     "one partial engine pass at the first opening (2019-08-09): construction, "
     "`fit_points`, the enlarged set, `assert_cutoff_clean` and "
     "`assert_point_in_time` — the whole of the fit path EXCEPT the call to "
-    "`dcfit.fit_epl`. No sampler ran; the shared point-in-time store was "
+    "`dcfit.fit_epl`. No sampler runs; the shared point-in-time store must be "
     "byte-identical afterwards",
-    "`--freeze-block` itself, which reads the pinned artifacts to render §6's "
-    "commit rather than have a human transcribe digests",
-    "this repair round's two exports, run 2026-08-27 into the session "
-    "scratchpad: the 85-fixture block-and-season structure used by R-I2's "
-    "power simulation, and the 35-cell per-label census tabulated in R-B2. "
-    "Both call only `membership` and `table_cells`; both fit nothing and "
-    "simulate nothing; neither wrote inside the repository",
+    "`python -m epl.evwiden --freeze-block`, which reads the pinned artifacts "
+    "to render §8.3's commit rather than have a human transcribe digests",
+    "`python -m epl.evwiden --power`, which reads only the frozen SDs and the "
+    "frozen structure recomputed from the pinned artifacts, and reproduces "
+    "§6.3",
 )
 
-#: Where §6's freeze commit records the harness hashes.
-PREREG_PATH = paths.REPO_ROOT / "reports" / "epl_widening_prereg.md"
+#: Where §8.3's freeze commit records the harness hashes. **v2 and only v2**:
+#: §8.1 invalidates v1 under its own R-B6 and rules that it "decides nothing",
+#: so a guard that read v1's freeze block would be binding this run to a dead
+#: document — and would inherit the two ADVI fits that killed it.
+PREREG_PATH = paths.REPO_ROOT / "reports" / "epl_widening_prereg_v2.md"
+PREREG_V1_PATH = paths.REPO_ROOT / "reports" / "epl_widening_prereg.md"
 AMENDMENTS_PATH = paths.REPO_ROOT / "reports" / "epl_sim_amendments.md"
 
 #: §5.2's row contract, at the two levels the ledger carries it.
@@ -603,17 +626,64 @@ class MergeIncomplete(EvWidenError):
 
 
 class TableMCImprecise(EvWidenError):
-    """R-B3's paired Monte-Carlo error cannot be computed (R2-X, the 23rd).
+    """§5's paired Monte-Carlo error cannot be computed.
 
-    R2-B3 step 2 names the structural conditions: unequal per-particle season
-    counts, or an ``n_particles`` that differs across the 16 deciding cells or
-    between a cell's two arms. Joint resampling is undefined without a common
-    index space and this document will not approximate one.
+    §5.2 names the structural conditions: unequal per-particle season counts, or
+    an ``n_particles`` that differs across the 16 deciding cells or between a
+    cell's two arms, or a tally that fails either binding check of §5.1, or —
+    §8.7 — **a tally file that is absent or fails its recorded digest**. Joint
+    resampling is undefined without a common index space and this document will
+    not approximate one.
 
-    R2-X is explicit that gate (iv) being left UNRESOLVED by the precision rule
+    §5.4 is explicit that gate (iv) being left UNRESOLVED by the precision rule
     (P1)-(P5) is **not** a refusal and raises nothing: UNRESOLVED is a published
     verdict, it blocks adoption, and conflating the two would make the harness
     raise on a result it is required to publish.
+    """
+
+
+class StoreNotBuilt(EvWidenError):
+    """A read-only pass needed a point-in-time store and the parquet is absent.
+
+    §8.2, and it names a defect rather than a preference. v1's harness violated
+    its own read-only clause without anyone noticing: ``--membership``,
+    ``--plan`` and ``--freeze-block`` all reached ``table_cells``, which called
+    ``epl.fit.build_store(played)`` at the DEFAULT root, and ``build_store`` can
+    unlink and rewrite the shared ``results.parquet``
+    (``epl/fit.py:177-203``). A pre-freeze command that can delete and rebuild
+    the project's point-in-time store is not read-only in any sense the word
+    carries.
+
+    The read-only accessor "opens the existing store parquet and returns it. If
+    the store parquet is absent it raises :class:`StoreNotBuilt` and stops. It
+    never builds, never writes, never unlinks, and takes no 'build if missing'
+    argument."
+    """
+
+
+class SequenceViolation(EvWidenError):
+    """§8.4's frozen five-step sequence ran out of order.
+
+    "Each step **refuses unless its predecessor's completion marker exists**."
+    A marker written under a different freeze commit is not a marker for this
+    run, and is refused the same way an absent one is.
+    """
+
+
+class FreezeStateUnverified(EvWidenError):
+    """§8.6: the freeze / first-fit state could not be ESTABLISHED.
+
+    Not "was asserted False" — could not be established from committed bytes and
+    Git ancestry. The prereg blob is uncommitted or its commit is not an
+    ancestor of HEAD; a hashed file's bytes differ from the committed table; the
+    recorded membership or schema digests do not match a fresh recomputation; or
+    a first-fit record names a different prereg blob.
+
+    v1's guard trusted a caller-supplied ``harness_frozen=True`` on five public
+    fit surfaces and performed no verification when it was True — "a guard that
+    trusts a caller-supplied True performs no verification at exactly the moment
+    verification matters". §8.6 removes the parameter and makes the guard
+    establish the state itself, every time it is asked.
     """
 
 
@@ -6248,7 +6318,7 @@ def implementation_report(power: dict[str, Any] | None = None,
         {"id": "R-M2", "what": "the direction canary runs the production path",
          "ok": ("finalize_grid" in inspect.getsource(direction_canary)
                 and callable(pre_widening_grid))},
-        {"id": "R2-X", "what": "23 named refusals", "ok": len(refusals) == 23},
+        {"id": "R2-X", "what": "26 named refusals", "ok": len(refusals) == 26},
     ]
     reproduced = power_reproduces(power)
     rows.append({"id": "R2-I2 (numbers)",
