@@ -3997,6 +3997,52 @@ def table_cutoffs(matches: pd.DataFrame, seasons: Sequence[str] | None = None,
     return out
 
 
+#: The one table `epl.fit.build_store` materialises under `paths.STORE_DIR`.
+#: Named here so the read-only accessor can answer "is there a store?" without
+#: importing anything that could build one.
+STORE_TABLE_PARQUET = "results.parquet"
+
+
+def read_only_store(root: Path | str | None = None):
+    """§8.2's read-only store accessor — the mechanism, not the promise.
+
+    > A single **read-only store accessor** is the only route by which any
+    > pre-freeze path may obtain a point-in-time store. It opens the existing
+    > store parquet and returns it. **If the store parquet is absent it raises
+    > `StoreNotBuilt` and stops. It never builds, never writes, never unlinks,
+    > and takes no "build if missing" argument.**
+
+    "Read-only" is a property of code, not of intent, and v1's harness violated
+    its own clause without anyone noticing: ``--membership``, ``--plan`` and
+    ``--freeze-block`` all reached :func:`table_cells`, which called
+    ``epl.fit.build_store(played)`` at the **default** root, and ``build_store``
+    can unlink and rewrite the shared ``results.parquet``
+    (``epl/fit.py:177-203``). A pre-freeze command that can delete and rebuild
+    the project's point-in-time store is not read-only in any sense the word
+    carries.
+
+    This function constructs a :class:`wcmodel.data.store.BitemporalStore` over
+    an **existing** root. `BitemporalStore.__init__` opens; `write` is what
+    creates, and nothing here calls it. There is deliberately no `build=`
+    parameter: an escape hatch that a caller can flip is the same defect wearing
+    a keyword.
+    """
+    from wcmodel.data.store import BitemporalStore
+
+    root = Path(root) if root is not None else paths.STORE_DIR
+    table = root / STORE_TABLE_PARQUET
+    if not table.exists():
+        raise StoreNotBuilt(
+            f"{paths.rel(table)} is not on disk, and §8.2's read-only accessor "
+            "is the only route a pre-freeze path has to a point-in-time store. "
+            "It opens the existing store parquet and returns it; it never "
+            "builds, never writes, never unlinks, and takes no 'build if "
+            "missing' argument. Build the store by the ordinary route "
+            "(`epl.fit.build_store`) from a command that is authorised to write "
+            "one, then re-run this read-only pass.")
+    return BitemporalStore(root)
+
+
 def table_cells(matches: pd.DataFrame, played: pd.DataFrame | None = None, *,
                 store=None, cfg: dict | None = None,
                 seasons: Sequence[str] | None = None,
@@ -4009,18 +4055,24 @@ def table_cells(matches: pd.DataFrame, played: pd.DataFrame | None = None, *,
     enumeration half of that: the incumbent predicate is read through
     ``count_volatility_arm`` at each scheduled cutoff — the same function
     ``epl/dcfit.py:273-274`` calls — and the evidence rule through §0.3's recipe,
-    so the membership can be frozen by the §6 commit before a single simulated
+    so the membership can be frozen by the §8.3 commit before a single simulated
     season exists.
+
+    **The store comes from §8.2's read-only accessor and from nowhere else.**
+    This function is on the call path of every pre-freeze command, and v1's
+    version called ``epl.fit.build_store`` at the default root — which can
+    unlink and rewrite the shared ``results.parquet``. It now raises
+    :class:`StoreNotBuilt` rather than building one, at any depth, from any
+    caller. A post-freeze caller that legitimately has a store passes it in.
     """
     from epl import freeze
-    from epl import fit as epl_fit
     from wcmodel.model.volatility_diagnostic import count_volatility_arm
 
     cfg = freeze.frozen_wcmodel_config() if cfg is None else cfg
     if played is None:
         played = matches.loc[matches["played"]].copy()
         played["date"] = pd.to_datetime(played["date"]).dt.normalize()
-    store = epl_fit.build_store(played) if store is None else store
+    store = read_only_store() if store is None else store
 
     out: list[dict[str, Any]] = []
     for season, label, cutoff in table_cutoffs(matches, seasons, labels):

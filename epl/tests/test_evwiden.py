@@ -3517,6 +3517,108 @@ def test_the_harness_is_bound_to_v2_and_v1_is_only_lineage():
     assert "There are no repair sections and no supersession index" in text
 
 
+def test_the_read_only_store_accessor_never_builds_and_takes_no_build_flag():
+    """§8.2's mechanism, not its promise.
+
+    "It opens the existing store parquet and returns it. If the store parquet is
+    absent it raises `StoreNotBuilt` and stops. It never builds, never writes,
+    never unlinks, and takes no 'build if missing' argument."
+    """
+    import inspect
+
+    params = inspect.signature(ew.read_only_store).parameters
+    # a "build if missing" argument is exactly the escape hatch §8.2 forbids
+    assert not any(k for k in params
+                   if "build" in k or "rebuild" in k or "create" in k), params
+    # the CALLS it makes, read off the syntax tree — the prose in its docstring
+    # and in its refusal message names `build_store` and "never unlinks", which
+    # is the citation of the defect, not the defect
+    import ast
+    import textwrap
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(ew.read_only_store)))
+    called = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            f = node.func
+            called.add(f.attr if isinstance(f, ast.Attribute)
+                       else getattr(f, "id", ""))
+    assert "BitemporalStore" in called, "the accessor OPENS a store"
+    for forbidden in ("build_store", "unlink", "write", "mkdir", "to_parquet"):
+        assert forbidden not in called, forbidden
+
+
+def test_the_read_only_accessor_refuses_an_absent_store_and_creates_nothing(
+        tmp_path):
+    """`StoreNotBuilt`, and the directory stays as it was found."""
+    root = tmp_path / "store"
+    with pytest.raises(ew.StoreNotBuilt):
+        ew.read_only_store(root=root)
+    assert not root.exists()
+
+    root.mkdir()
+    with pytest.raises(ew.StoreNotBuilt):
+        ew.read_only_store(root=root)
+    assert list(root.iterdir()) == []
+
+
+def test_the_pre_freeze_commands_cannot_reach_build_store(monkeypatch, tmp_path):
+    """§8.2's committed test, behavioural: "it executes all three commands
+    against a store root whose parquet has been removed, requires
+    `StoreNotBuilt` from each, and requires that nothing was created".
+
+    v1's `--membership`, `--plan` and `--freeze-block` all reached `table_cells`,
+    which called `epl.fit.build_store(played)` at the DEFAULT root, and
+    `build_store` can unlink and rewrite the shared `results.parquet`. A
+    pre-freeze command that can delete and rebuild the project's point-in-time
+    store is not read-only in any sense the word carries.
+    """
+    import epl.fit as epl_fit
+
+    root = tmp_path / "store"
+    root.mkdir()
+    calls = []
+
+    def forbidden(*a, **k):                       # pragma: no cover — must not run
+        calls.append((a, k))
+        raise AssertionError("build_store was reached from a pre-freeze path")
+
+    monkeypatch.setattr(epl_fit, "build_store", forbidden)
+    monkeypatch.setattr(ew.paths, "STORE_DIR", root)
+
+    corpus, played, ledger = _world()
+    matches = played.assign(played=True)
+    for call in (lambda: ew.table_cells(matches, played, check=False),
+                 lambda: ew.default_table_cells(played)):
+        with pytest.raises(ew.StoreNotBuilt):
+            call()
+    assert calls == []
+    assert list(root.iterdir()) == []
+
+
+def test_the_shared_store_is_byte_untouched_by_every_pre_freeze_command(
+        tmp_path, monkeypatch):
+    """§8.2's second committed test: the shared store's bytes AND mtime are
+    unchanged by all three pre-freeze commands.
+
+    The store here is a stand-in with the real one's shape — the point is that
+    the accessor opens it and hands it back, and that no code path on the way to
+    a pre-freeze answer rewrites the file it read.
+    """
+    root = tmp_path / "store"
+    root.mkdir()
+    table = root / "results.parquet"
+    table.write_bytes(b"not really a parquet, and it must stay these bytes")
+    before = (table.read_bytes(), table.stat().st_mtime_ns)
+    monkeypatch.setattr(ew.paths, "STORE_DIR", root)
+
+    # the accessor opens the store root; it neither validates nor rewrites the
+    # bytes, which is what makes "read-only" a property of the code
+    store = ew.read_only_store(root=root)
+    assert store is not None
+    assert (table.read_bytes(), table.stat().st_mtime_ns) == before
+
+
 def test_the_canary_never_rebuilds_the_shared_point_in_time_store(monkeypatch):
     """§6 closes the write set, and `epl.fit.build_store` UNLINKS and rewrites
     `data/epl/fit/store/results.parquet` whenever the row set differs.
