@@ -1740,22 +1740,25 @@ class Engine:
 
     def __init__(self, corpus: pd.DataFrame, played: pd.DataFrame | None = None,
                  *, ledger: dict[str, set[str]] | None = None,
-                 verbose: bool = True, harness_frozen: bool | None = None,
+                 verbose: bool = True,
                  directory: Path | str | None = None):
         from epl import anchor as anchor_mod, freeze
         from epl import fit as epl_fit
 
-        # R2's binding obligation, BEFORE the store and the anchor are built:
+        # §8.2's binding obligation, BEFORE the store and the anchor are built:
         # the refusal is keyed to the freeze state and to the artifact identity,
         # never to the output directory, and a run that is going to be refused
         # should be refused before it spends anything.
-        self.harness_frozen = (_frozen_now() if harness_frozen is None
-                               else bool(harness_frozen))
+        #
+        # §8.6: THERE IS NO `harness_frozen` PARAMETER. The state is established
+        # by the guard from committed bytes and Git ancestry, every time it is
+        # asked, and `self.harness_frozen` records what the guard established —
+        # never what a caller asserted (§7.2).
         self.directory = Path(directory) if directory is not None else EVWIDEN_DIR
         self.may_fit = assert_may_fit("epl.evwiden.Engine",
-                                      harness_frozen=self.harness_frozen,
                                       played=played, corpus=corpus,
                                       directory=self.directory)
+        self.harness_frozen = bool(self.may_fit["frozen"])
         self._epl_fit = epl_fit
         self.cfg = freeze.frozen_wcmodel_config()
         self.config_sha256 = assert_config_frozen(cfg=self.cfg)
@@ -1816,9 +1819,9 @@ class Engine:
         # Re-checked at every fit, not only at construction: the freeze state
         # and the first-real-fit regime are properties of the moment the
         # sampler runs, and a long run must not carry a stale verdict.
-        assert_may_fit("epl.evwiden.Engine.fit",
-                       harness_frozen=self.harness_frozen, played=self.played,
-                       corpus=self.corpus, directory=self.directory)
+        self.harness_frozen = bool(assert_may_fit(
+            "epl.evwiden.Engine.fit", played=self.played, corpus=self.corpus,
+            directory=self.directory)["frozen"])
         cutoff = pd.Timestamp(point.cutoff).normalize()
         assert_cutoff_clean(cutoff, self.played, point.match_ids)
         pit = self._epl_fit.assert_point_in_time(self.store, cutoff)
@@ -2047,32 +2050,38 @@ def is_pinned_corpus(corpus: pd.DataFrame | None) -> bool:
             and counts == tuple(CORPUS_Y_COUNTS))
 
 
-def assert_may_fit(where: str, *, harness_frozen: bool,
+def assert_may_fit(where: str, *,
                    played: pd.DataFrame | None = None,
                    corpus: pd.DataFrame | None = None,
                    directory: Path | str | None = None) -> dict[str, Any]:
-    """R2's binding obligation: **no real fit or simulation before the freeze,
-    ANYWHERE.**
+    """§8.2's binding obligation: **no real fit or simulation before the freeze,
+    ANYWHERE** — and §8.6's guard, which ESTABLISHES the state it needs.
 
-    Round one's preamble claimed "the harness's own guards refuse to produce
-    [a delta] until the freeze block is committed". Round two withdrew that
-    sentence as FALSE: :func:`_guard_ledger_location` is keyed to the run
-    DIRECTORY, so a ``--run`` or ``--table`` pointed at a ``--dir`` outside the
-    default directories could fit the real archive and produce a real delta with
-    no freeze block anywhere. `data/` is gitignored, so such a run leaves no Git
-    trace at all.
+    **There is no ``harness_frozen`` parameter and there may not be one.** v1's
+    version took the freeze state from its caller and performed no verification
+    when the caller said ``True``, so a direct harness call — ``Engine(...,
+    harness_frozen=True)`` — could fit the pinned artifacts while unfrozen.
+    §8.6: "A guard that trusts a caller-supplied `True` performs no verification
+    at exactly the moment verification matters, and a direct harness call could
+    then fit the pinned artifacts while unfrozen — which is the whole of what
+    'anywhere' forbids." This function asks :func:`harness_freeze_status` itself,
+    every time it is called, and that function reads committed bytes and Git
+    ancestry.
 
-    This guard is keyed to the freeze state and to the ARTIFACT IDENTITY being
-    read. A synthetic corpus and a synthetic archive fit freely, before the
-    freeze and after; the pinned archive does not, and no ``--dir`` moves that.
-    ``played=None`` is refused too, because a caller that has not loaded a frame
-    is a caller about to load the pinned one.
+    The refusal is keyed to the freeze state and to the ARTIFACT IDENTITY being
+    read, **never to the output directory** — a ``--dir`` outside the defaults
+    moves nothing, because `data/` is gitignored and a directory-keyed guard
+    would let a scratch run fit the real archive and leave no Git trace at all.
+    A synthetic corpus and a synthetic archive fit freely, before the freeze and
+    after; the pinned archive does not. ``played=None`` is refused too, because a
+    caller that has not loaded a frame is a caller about to load the pinned one.
 
-    After the freeze it also records — and then enforces — R-B6's first-real-fit
+    After the freeze it also records — and then enforces — §8.7's first-real-fit
     event: from the moment the first real fit completes, any change to any
     hashed file invalidates this preregistration.
     """
     directory = Path(directory) if directory is not None else EVWIDEN_DIR
+    harness_frozen = _frozen_now()
     if not harness_frozen:
         reasons = []
         if played is None:
@@ -2085,16 +2094,18 @@ def assert_may_fit(where: str, *, harness_frozen: bool,
             reasons.append("the corpus IS the pinned walk-forward corpus")
         if reasons:
             raise EvWidenError(
-                f"refusing to fit or simulate in {where} before §6's "
+                f"refusing to fit or simulate in {where} before §8.3's "
                 "harness-hash freeze commit: " + "; ".join(reasons) + ". "
-                "R2's binding obligation on the harness revision is that the "
-                "refusal is keyed to the FREEZE STATE and to the ARTIFACT "
-                "IDENTITY being read, never to the output directory — round "
-                "one's directory-keyed guard let a scratch --dir fit the real "
-                "archive and produce a real delta with no freeze block "
-                "anywhere, and `data/` is gitignored so it would leave no Git "
-                "trace. Audit runs are legitimate and §5.3 requires them: run "
-                "them on SYNTHETIC corpora, as R-I5 defines synthetic.")
+                "§8.2's binding obligation is that the refusal is keyed to the "
+                "FREEZE STATE and to the ARTIFACT IDENTITY being read, never to "
+                "the output directory — a directory-keyed guard let a scratch "
+                "--dir fit the real archive and produce a real delta with no "
+                "freeze block anywhere, and `data/` is gitignored so it would "
+                "leave no Git trace. §8.6 adds that the state is ESTABLISHED "
+                "here and never accepted from a caller: there is no "
+                "harness_frozen argument to pass. Audit runs are legitimate and "
+                "§7.3 requires them: run them on SYNTHETIC corpora, as §7.4 "
+                "defines synthetic.")
         return {"guarded": True, "frozen": False, "real_artifacts": False}
 
     real = is_pinned_archive(played) or is_pinned_corpus(corpus)
@@ -2373,7 +2384,7 @@ def run_fits(points: Sequence[FitPoint], ledger_path: Path | str,
              grid_treated: Sequence[str] = (),
              e_star: float = E_STAR, grid: Sequence[float] = (*E_GRID, E_STAR),
              shard_id: str = "0/1", resume: bool = True, verbose: bool = True,
-             harness_frozen: bool = True) -> dict[str, Any]:
+             ) -> dict[str, Any]:
     """Fit every point and append one JSONL row per fixture of its block.
 
     Resumable per fit, keyed ``cutoff|seed|config_sha256`` (§5.2): a key already
@@ -2382,22 +2393,24 @@ def run_fits(points: Sequence[FitPoint], ledger_path: Path | str,
     them or a truncated tail that :func:`load_ledger` drops and this function
     re-runs.
 
-    ``harness_frozen`` is the caller's assertion about §6, not a guess this
-    function makes: the CLI computes it from :func:`harness_freeze_status` and
-    passes it, every row records it, and the merge refuses a row that says False.
-    Writing to the preregistered ledger location before the freeze is refused
-    outright, because §7 makes such a run not this experiment.
+    **§8.6: there is no ``harness_frozen`` parameter.** v1 took it from the
+    caller and stamped it on every row; §7.2 rules that ``harness_frozen``
+    "records **what the guard established**, never what a caller asserted", so
+    it is read here from :func:`harness_freeze_status` and from nowhere else.
+    Every row records it and the merge refuses a row that says False. Writing to
+    the preregistered ledger location before the freeze is refused outright,
+    because §10 makes such a run not this experiment.
     """
     ledger_path = Path(ledger_path)
+    harness_frozen = _frozen_now()
     _guard_ledger_location(ledger_path, harness_frozen)
     # The directory guard above is kept — a pre-freeze `canary.json` in the run
     # directory is exactly what a later `--run` reads as "the canary passed" —
-    # but it is no longer the only guard, and R2 withdrew the claim that it was.
-    # The artifact-identity guard lives in :class:`Engine`, which is the object
+    # but it is no longer the only guard, and §8.2 keys the real one to the
+    # artifact identity. That guard lives in :class:`Engine`, which is the object
     # that fits; an injected fitter fits nothing and is not gated by it.
     if fitter is None:
         engine = engine or Engine(corpus, verbose=verbose,
-                                  harness_frozen=harness_frozen,
                                   directory=ledger_path.parent)
         fitter = engine.fit
     if engine is not None:
@@ -4367,7 +4380,7 @@ class TableRunner:
                  config: dict | None = None, n_sims: int | None = None,
                  seed: int | None = None, chunk_size: int | None = None,
                  require_verified_adjustments: bool = True,
-                 verbose: bool = True, harness_frozen: bool | None = None,
+                 verbose: bool = True,
                  directory: Path | str | None = None):
         from epl import anchor as anchor_mod, baseline, freeze, leaguesim
         from epl import fit as epl_fit, simretro
@@ -4376,12 +4389,12 @@ class TableRunner:
         self.matches = baseline.load_matches() if matches is None else matches
         self.played = (sort_for_walk_forward(self.matches.loc[self.matches["played"]])
                        if played is None else played)
-        self.harness_frozen = (_frozen_now() if harness_frozen is None
-                               else bool(harness_frozen))
+        # §8.6: no freeze-state boolean on any public fit surface. The guard
+        # establishes the state; this object records what it established.
         self.directory = Path(directory) if directory is not None else TABLE_DIR
-        assert_may_fit("epl.evwiden.TableRunner",
-                       harness_frozen=self.harness_frozen, played=self.played,
-                       directory=self.directory)
+        self.harness_frozen = bool(assert_may_fit(
+            "epl.evwiden.TableRunner", played=self.played,
+            directory=self.directory)["frozen"])
         self.config = freeze.frozen_wcmodel_config() if config is None else config
         self.config_sha256 = assert_config_frozen(cfg=self.config)
         self.store = epl_fit.build_store(self.played) if store is None else store
@@ -4406,7 +4419,6 @@ class TableRunner:
         cutoff = pd.Timestamp(cell["cutoff"]).normalize()
         started = time.perf_counter()
         assert_may_fit("epl.evwiden.TableRunner", played=self.played,
-                       harness_frozen=self.harness_frozen,
                        directory=self.directory)
 
         state = season_mod.archive_season_state(
@@ -4631,17 +4643,19 @@ class ParityRunner:
                  n_sims: int | None = None, seed: int | None = None,
                  chunk_size: int | None = None,
                  require_verified_adjustments: bool = True,
-                 verbose: bool = True, harness_frozen: bool | None = None,
+                 verbose: bool = True,
                  directory: Path | str | None = None):
         from epl import baseline, leaguesim, simretro
 
         self.matches = baseline.load_matches() if matches is None else matches
-        self.harness_frozen = (_frozen_now() if harness_frozen is None
-                               else bool(harness_frozen))
-        assert_may_fit("epl.evwiden.ParityRunner",
-                       harness_frozen=self.harness_frozen,
-                       played=self.matches.loc[self.matches["played"]],
-                       directory=directory or TABLE_DIR)
+        # §8.6: no freeze-state boolean here either. The parity oracle runs
+        # protected `ArchiveRunner`, which performs REAL ADVI fits — and two of
+        # those, taken through this very path while v1's guard was not yet in
+        # place, are what invalidated v1 (§8.1).
+        self.harness_frozen = bool(assert_may_fit(
+            "epl.evwiden.ParityRunner",
+            played=self.matches.loc[self.matches["played"]],
+            directory=directory or TABLE_DIR)["frozen"])
         self.n_sims = int(simretro.DEFAULT_N_SIMS if n_sims is None else n_sims)
         self.seed = int(simretro.SEED if seed is None else seed)
         self.chunk_size = int(leaguesim.DEFAULT_CHUNK_SIZE if chunk_size is None
@@ -4702,7 +4716,6 @@ def run_parity_oracle(cells: Sequence[dict[str, Any]],
                       path: Path | str, *,
                       runner: Callable[[dict], dict] | None = None,
                       resume: bool = True, verbose: bool = True,
-                      harness_frozen: bool | None = None,
                       directory: Path | str | None = None,
                       ) -> dict[str, dict[str, Any]]:
     """Execute the protected runner at every cell and record its digest.
@@ -4711,7 +4724,7 @@ def run_parity_oracle(cells: Sequence[dict[str, Any]],
     oracle" into §2.4's standing refusal to thin the run.
     """
     path = Path(path)
-    runner = ParityRunner(verbose=verbose, harness_frozen=harness_frozen,
+    runner = ParityRunner(verbose=verbose,
                           directory=directory or path.parent
                           ) if runner is None else runner
     done: dict[str, dict[str, Any]] = {}
@@ -4866,7 +4879,7 @@ def run_table(cells: Sequence[dict[str, Any]],
               require_parity: bool = True,
               n_sims: int | None = None, seed: int | None = None,
               config_sha: str | None = None, resume: bool = True,
-              verbose: bool = True, harness_frozen: bool = True,
+              verbose: bool = True,
               ) -> dict[str, Any]:
     """Run both arms at every cell and append one JSONL row per cell.
 
@@ -4880,15 +4893,15 @@ def run_table(cells: Sequence[dict[str, Any]],
     should cost the cell in flight and nothing else.
     """
     ledger_path = Path(ledger_path) if ledger_path is not None else TABLE_LEDGER
+    harness_frozen = _frozen_now()
     _guard_ledger_location(ledger_path, harness_frozen)
     runner = TableRunner(n_sims=n_sims, seed=seed, verbose=verbose,
-                         harness_frozen=harness_frozen,
                          directory=ledger_path.parent
                          ) if runner is None else runner
     if parity is None and require_parity:
         parity = run_parity_oracle(
             cells, ledger_path.parent / "parity.jsonl", runner=parity_runner,
-            resume=resume, verbose=verbose, harness_frozen=harness_frozen,
+            resume=resume, verbose=verbose,
             directory=ledger_path.parent)
     parity = dict(parity or {})
     n_sims = int(getattr(runner, "n_sims", n_sims or 0))
@@ -6684,18 +6697,19 @@ def _frozen_now() -> bool:
 def _run_all_canaries(corpus: pd.DataFrame, played: pd.DataFrame,
                       ledger: dict[str, set[str]], *,
                       results_canary: bool = True,
-                      harness_frozen: bool | None = None,
                       directory: Path | str | None = None) -> dict[str, Any]:
-    """§5.3's canaries, in one record, all of them able to fail.
+    """§7.3's canaries, in one record, all of them able to fail.
 
-    R2-H: the RESULTS canary is the first post-freeze act and it performs the
-    first real fits of this experiment — `epl.walkforward.point_in_time_canary`
-    calls `_forecasts` four times. It is therefore gated by
-    :func:`assert_may_fit` exactly as the sampler legs are, and R-B6 comes into
-    force at its completion rather than at the single-opening exercise.
+    §8.4: the RESULTS canary is **step 1**, the first post-freeze act, and it
+    performs the first real fits of this document — `walkforward
+    .point_in_time_canary` calls `_forecasts` four times. It is therefore gated
+    by :func:`assert_may_fit` exactly as the sampler legs are, and §8.7's regime
+    comes into force at its completion rather than at the single-opening
+    exercise. No freeze-state boolean reaches it: §8.6 makes that the guard's
+    own finding.
 
     The EVIDENCE canary is not a fit and is authorised pre-freeze by name under
-    R-B5 (pass 2), with its point-in-time store built in a temporary root.
+    §8.2 (pass 2), with any point-in-time store built in a temporary root.
     """
     from epl import freeze
     from epl import fit as epl_fit
@@ -6736,12 +6750,9 @@ def _run_all_canaries(corpus: pd.DataFrame, played: pd.DataFrame,
             "blas_threads": blas_threads(),
         }
     if results_canary:
-        frozen = (_frozen_now() if harness_frozen is None
-                  else bool(harness_frozen))
         record["may_fit"] = assert_may_fit(
             "epl.walkforward.point_in_time_canary (four real fits)",
-            harness_frozen=frozen, played=played, corpus=corpus,
-            directory=directory)
+            played=played, corpus=corpus, directory=directory)
         record["results"] = run_canary()
     record["PASS"] = all(bool(v.get("PASS")) for v in record.values()
                          if isinstance(v, dict) and "PASS" in v)
@@ -6869,7 +6880,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             record = _run_all_canaries(
                 corpus, played, ledger,
                 results_canary=not args.no_results_canary,
-                harness_frozen=frozen_now, directory=directory)
+                directory=directory)
             write_canaries(record, directory / CANARY_NAME)
             print(json.dumps({k: v for k, v in record.items() if k != "detail"},
                              indent=2, default=str))
@@ -6901,12 +6912,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             grid_treated = membership(corpus, played, ledger,
                                       e_star=max(E_GRID)).treated
             with Engine(corpus, played, ledger=ledger,
-                        harness_frozen=bool(frozen["frozen"]),
                         directory=directory) as engine:
                 out = run_fits(points, ledger_path, corpus, engine=engine,
                                grid_treated=grid_treated,
-                               shard_id=f"{index}/{count}",
-                               harness_frozen=bool(frozen["frozen"]))
+                               shard_id=f"{index}/{count}")
             print(json.dumps(out, indent=2, default=str))
 
         if args.table:
@@ -6921,8 +6930,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             cells = table_cells(matches)
             if args.limit:
                 cells = cells[:args.limit]
-            out = run_table(cells, table_ledger,
-                            harness_frozen=bool(frozen["frozen"]))
+            out = run_table(cells, table_ledger)
             print(json.dumps(out, indent=2, default=str))
 
         if args.merge or args.verify:

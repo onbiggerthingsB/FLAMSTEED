@@ -804,7 +804,7 @@ def _run(tmp_path, *, defect=None, points=None, shard="0/1", resume=True,
                        tmp_path / ew.shard_name(index, count), corpus,
                        fitter=_stub_fitter(corpus, played, ledger, defect=defect),
                        grid_treated=grid_treated, shard_id=shard, resume=resume,
-                       verbose=False, harness_frozen=False)
+                       verbose=False)
 
 
 def test_the_stub_run_writes_one_row_per_fixture_of_every_fitted_block():
@@ -1035,7 +1035,7 @@ def test_the_preregistered_directory_is_closed_before_the_freeze(tmp_path):
     with pytest.raises(ew.EvWidenError) as exc:
         ew.run_fits(points, ew.EVWIDEN_DIR / "shard_00_of_01.jsonl", corpus,
                     fitter=_stub_fitter(corpus, played, ledger),
-                    verbose=False, harness_frozen=False)
+                    verbose=False)
     assert "freeze commit" in str(exc.value)
     # the canary record is guarded too: a pre-freeze canary.json left in the run
     # directory is what a later --run reads as "the canary passed"
@@ -2087,14 +2087,13 @@ def _table_runner(shift: float = -0.001, *, break_identity: str | None = None,
 
 
 def _run_cells(tmp_path, cells=None, *, runner=None, name="table.jsonl",
-               harness_frozen=False, **kwargs):
+               **kwargs):
     """Run the stub table leg with a stub parity oracle beside it."""
     cells = _cells() if cells is None else cells
     path = Path(tmp_path) / name
     ew.run_table(cells, path, runner=runner or _table_runner(),
                  parity=_parity_for(cells), n_sims=TALLY_N_SIMS, seed=20260611,
-                 config_sha="c", verbose=False, harness_frozen=harness_frozen,
-                 **kwargs)
+                 config_sha="c", verbose=False, **kwargs)
     rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
     return path, rows
 
@@ -2382,7 +2381,7 @@ def test_the_treated_run_refuses_a_cell_the_oracle_never_covered(tmp_path):
     with pytest.raises(ew.TableIdentityBreak) as exc:
         ew.run_table(cells, tmp_path / "t.jsonl", runner=_table_runner(),
                      parity={}, n_sims=TALLY_N_SIMS, seed=1, config_sha="c",
-                     verbose=False, harness_frozen=False)
+                     verbose=False)
     assert "BEFORE one treated simulation" in str(exc.value)
 
 
@@ -2393,7 +2392,7 @@ def test_the_treated_run_refuses_a_control_arm_that_drifted_from_protected(
         ew.run_table(cells, tmp_path / "t.jsonl",
                      runner=_table_runner(break_parity=True),
                      parity=_parity_for(cells), n_sims=TALLY_N_SIMS, seed=1,
-                     config_sha="c", verbose=False, harness_frozen=False)
+                     config_sha="c", verbose=False)
 
 
 def test_the_table_leg_writes_one_row_per_cell_and_resumes(tmp_path):
@@ -2401,13 +2400,11 @@ def test_the_table_leg_writes_one_row_per_cell_and_resumes(tmp_path):
     path = tmp_path / "table.jsonl"
     out = ew.run_table(cells, path, runner=_table_runner(),
                        parity=_parity_for(cells), n_sims=TALLY_N_SIMS,
-                       seed=20260611, config_sha="c", verbose=False,
-                       harness_frozen=False)
+                       seed=20260611, config_sha="c", verbose=False)
     assert out["n_written"] == len(cells) == 35
     again = ew.run_table(cells, path, runner=_table_runner(),
                          parity=_parity_for(cells), n_sims=TALLY_N_SIMS,
-                         seed=20260611, config_sha="c", verbose=False,
-                         harness_frozen=False)
+                         seed=20260611, config_sha="c", verbose=False)
     assert again["n_written"] == 0 and again["n_skipped"] == len(cells)
     # the tallies live beside the ledger, because a [P, C, C] array is not a
     # JSONL field and R2-B3 needs all thirty-two at once
@@ -2685,11 +2682,28 @@ def test_the_table_gate_discloses_that_its_numbers_are_invented():
     assert out["tolerance"] == ew.TABLE_TOLERANCE
 
 
+def _freeze_cells(path):
+    """Re-stamp an audit table ledger as frozen.
+
+    §8.6 removed `run_table`'s `harness_frozen` parameter — the guard
+    establishes the state and the row records what it established — so a test of
+    what comes AFTER the freeze re-stamps the written rows rather than asking
+    the runner to lie about them. This is never a thing the harness itself does.
+    """
+    rows = [json.loads(l) for l in Path(path).read_text().splitlines()
+            if l.strip()]
+    for r in rows:
+        r["harness_frozen"] = True
+    Path(path).write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    return rows
+
+
 def test_the_table_ledger_refuses_a_missing_cell(tmp_path):
     """Not a superset, not a subset: a mean over 34 cells is not the quantity
     §4.1 (iv) gates on."""
     cells = _cells()
-    path, _ = _run_cells(tmp_path, cells[:-1], harness_frozen=True)
+    path, _ = _run_cells(tmp_path, cells[:-1])
+    _freeze_cells(path)
     with pytest.raises(ew.MergeIncomplete) as exc:
         ew.load_table_ledger(path, expected=cells)
     assert "missing" in str(exc.value)
@@ -2712,13 +2726,12 @@ def test_a_failed_cell_poisons_the_table_ledger(tmp_path):
 
     with pytest.raises(ew.FitFailed):
         ew.run_table(cells, path, runner=explode, parity=_parity_for(cells),
-                     n_sims=1, seed=1, config_sha="c", verbose=False,
-                     harness_frozen=False)
+                     n_sims=1, seed=1, config_sha="c", verbose=False)
     assert ew.poison_rows(path)
     with pytest.raises(ew.ShardFailed):
         ew.run_table(cells, path, runner=_table_runner(),
                      parity=_parity_for(cells), n_sims=1, seed=1,
-                     config_sha="c", verbose=False, harness_frozen=False)
+                     config_sha="c", verbose=False)
 
 
 def test_the_table_leg_never_appends_to_the_protected_retro_ledger():
@@ -2993,6 +3006,32 @@ def test_the_manifest_updates_in_place_and_keeps_what_it_did_not_write(tmp_path)
 # 13. the §6 freeze — the commit that makes "the design was fixed first" checkable
 # ==========================================================================
 
+def test_no_public_fit_surface_accepts_a_freeze_state_boolean():
+    """§8.6, conformance row L7. "**No public fit surface accepts a freeze-state
+    boolean.** `Engine`, `TableRunner`, `ParityRunner`, `run_fits` and
+    `run_table` carry no `harness_frozen` parameter, and no other entry point
+    may introduce one."
+
+    v1's CLI obtained live freeze state and then handed it to five surfaces that
+    took the caller's word for it — and `assert_may_fit` performed NO Git
+    verification when the word was `True`. A direct harness call could therefore
+    fit the pinned artifacts while unfrozen, which is the whole of what
+    "anywhere" forbids. A guard that trusts a caller-supplied `True` performs no
+    verification at exactly the moment verification matters.
+    """
+    import inspect
+
+    surfaces = (ew.Engine.__init__, ew.TableRunner.__init__,
+                ew.ParityRunner.__init__, ew.run_fits, ew.run_table,
+                ew.assert_may_fit, ew.run_parity_oracle)
+    for fn in surfaces:
+        params = set(inspect.signature(fn).parameters)
+        assert "harness_frozen" not in params, fn
+        # and no synonym smuggles it back in
+        assert not {p for p in params
+                    if "frozen" in p or "freeze" in p}, (fn, params)
+
+
 def test_the_pre_freeze_guard_is_keyed_to_the_artifacts_not_the_directory():
     """R2's binding obligation, and the sentence it withdrew as FALSE: "the
     harness's own guards refuse to produce [a delta] until the freeze block is
@@ -3006,12 +3045,12 @@ def test_the_pre_freeze_guard_is_keyed_to_the_artifacts_not_the_directory():
     """
     corpus, played, _ = _world()
     # a synthetic world fits freely, before the freeze and after
-    assert ew.assert_may_fit("test", harness_frozen=False, played=played,
+    assert ew.assert_may_fit("test", played=played,
                              corpus=corpus)["real_artifacts"] is False
     # a caller that has not loaded a frame is a caller about to load the pinned
     # one, and is refused
     with pytest.raises(ew.EvWidenError) as exc:
-        ew.assert_may_fit("test", harness_frozen=False, played=None)
+        ew.assert_may_fit("test", played=None)
     assert "about to be loaded" in str(exc.value)
     assert "never to the output directory" in str(exc.value)
 
@@ -3028,14 +3067,12 @@ def test_no_scratch_directory_lets_the_pinned_archive_be_fitted_unfrozen(
     for kwargs in ({"played": played}, {"corpus": corpus},
                    {"played": played, "corpus": corpus}):
         with pytest.raises(ew.EvWidenError) as exc:
-            ew.assert_may_fit("test", harness_frozen=False,
-                              directory=tmp_path, **kwargs)
+            ew.assert_may_fit("test", directory=tmp_path, **kwargs)
         assert "IS the pinned" in str(exc.value)
 
     # ...and the Engine refuses at construction, before it spends a store
     with pytest.raises(ew.EvWidenError):
-        ew.Engine(corpus, played, ledger=ledger, harness_frozen=False,
-                  directory=tmp_path)
+        ew.Engine(corpus, played, ledger=ledger, directory=tmp_path)
 
 
 @pinned
@@ -3046,9 +3083,9 @@ def test_the_table_runners_refuse_the_pinned_archive_before_the_freeze(tmp_path)
 
     matches = baseline.load_matches()
     with pytest.raises(ew.EvWidenError):
-        ew.TableRunner(matches, harness_frozen=False, directory=tmp_path)
+        ew.TableRunner(matches, directory=tmp_path)
     with pytest.raises(ew.EvWidenError):
-        ew.ParityRunner(matches, harness_frozen=False, directory=tmp_path)
+        ew.ParityRunner(matches, directory=tmp_path)
 
 
 def test_the_freeze_block_enumerates_all_six_authorised_pre_freeze_passes():
