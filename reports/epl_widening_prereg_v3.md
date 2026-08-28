@@ -2476,10 +2476,14 @@ a report that simply omitted a row it could not satisfy, was green everywhere.
 
 > **The conformance report is produced FROM an artifact the harness does not
 > write.** §8.5's eighteen scenarios are **committed pytest tests**, one per row,
-> with stable test ids. They are executed by a pytest invocation that emits a
-> **machine-readable JSON report of that run** — test id, outcome and duration
-> per test, plus the totals. `--conformance` and `--freeze-block` **read that
-> artifact** and cross-check it three ways:
+> with stable test ids — `epl/tests/test_evwiden.py::test_conformance_L1`
+> through `…::test_conformance_L18`. Each executes its own row's scenario and
+> passes only if that row is green. The pytest **session** writes a
+> machine-readable JSON report of what those eighteen tests actually did to
+> `data/epl/fit/evwiden_conformance.json` — one entry per test, carrying its id
+> and its outcome, plus the pass count and the harness digests the run saw.
+> `--conformance` and `--freeze-block` **read that artifact** and cross-check it
+> three ways:
 >
 > 1. **the test ids are exactly the eighteen**, one per row L1–L18 — no more, no
 >    fewer, none renamed;
@@ -2877,6 +2881,16 @@ function-scoped, and the review is right that a function-scoped fixture cannot
 speak for import-time, collection-time, session-fixture, subprocess or crash-time
 writes; **what it establishes is that no test body in the module writes there**,
 and this document claims that and nothing wider.
+
+*One file the pytest run writes, and it is not a fit either.*
+`data/epl/fit/evwiden_conformance.json` is §8.5's artifact: the record of what
+the eighteen committed conformance tests did, written by the pytest session
+§8.2 pass 3 authorises. It carries test ids, outcomes and a pass count and no
+delta, no table cell, no arm comparison and no estimand, and §8.3 binds its
+digest into the freeze block so a reader checks the block rather than the file.
+Like every scenario it reports on, it is built from values written literally in
+`epl/evwiden.py` and `epl/tests/test_evwiden.py` (§7.4-synthetic) and touches no
+pinned artifact.
 
 *Neither the first-fit record nor its witness exists.*
 `data/epl/fit/evwiden_first_real_fit.json` and

@@ -4318,6 +4318,21 @@ def unrun_feasibility(tmp_path, monkeypatch):
                         __import__("hashlib").sha256(raw).hexdigest())
     monkeypatch.setattr(ew, "FEASIBILITY_BYTES", len(raw))
     assert ew.feasibility_status()["ok"] is True
+
+    # ...and §8.5's artifact, which the block also refuses to render without.
+    # It is DERIVED from running the eighteen scenarios here rather than
+    # planted: the outcomes it records are the outcomes those rows actually
+    # reached in this process, which is the same computation the eighteen
+    # committed tests perform. A fixture that wrote "passed" without running
+    # them would be asserting a lifecycle state no run produced — the class
+    # §8.6 refuses, and the reason this fixture does not fabricate a passing
+    # census either.
+    monkeypatch.setattr(ew, "CONFORMANCE_ARTIFACT",
+                        tmp_path / "evwiden_conformance.json")
+    ew.write_conformance_artifact(
+        {rid: ("passed" if ew.conformance_row(rid)["ok"] else "failed")
+         for rid in ew.CONFORMANCE_ROWS})
+    assert ew.conformance_artifact_status()["ok"] is True
     return tmp_path
 
 
@@ -7219,3 +7234,150 @@ def test_the_read_only_store_closes_its_check_then_construct_window(tmp_path,
     with pytest.raises(ew.StoreNotBuilt) as exc:
         ew.read_only_store(root=root)
     assert "CREATED OR MOVED" in str(exc.value)
+
+
+# ==========================================================================
+# §8.5 — the report may not be its own witness
+#
+# v3 §8.5: "§8.5's eighteen scenarios are COMMITTED PYTEST TESTS, one per row,
+# with stable test ids. They are executed by a pytest invocation that emits a
+# machine-readable JSON report of that run. `--conformance` and `--freeze-block`
+# READ that artifact and cross-check it three ways: the test ids are exactly the
+# eighteen; every one of the eighteen outcomes is `passed`; the reported count
+# is eighteen."
+#
+# The eighteen tests are below. Each executes ONE row's scenario through
+# `ew.conformance_row`, and the session fixture writes the artifact from what
+# they actually did. `_CONFORMANCE_OUTCOMES` starts each row at "failed" and is
+# only moved to "passed" after the assertion holds, so a row that raises leaves
+# the failure on the record.
+# ==========================================================================
+
+_CONFORMANCE_OUTCOMES: dict[str, str] = {}
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _the_conformance_artifact():
+    """Write §8.5's artifact at SESSION teardown, from what the runs did.
+
+    Session teardown is outside every function-scoped fixture, which is why the
+    isolation fixture does not see this write — and why the write happens once,
+    after all eighteen rows have had their chance to run.
+    """
+    yield
+    if _CONFORMANCE_OUTCOMES:
+        ew.write_conformance_artifact(_CONFORMANCE_OUTCOMES)
+
+
+def _conformance(row_id: str) -> None:
+    _CONFORMANCE_OUTCOMES[row_id] = "failed"
+    row = ew.conformance_row(row_id)
+    assert row["ok"], row
+    _CONFORMANCE_OUTCOMES[row_id] = "passed"
+
+
+def test_conformance_L1(): _conformance("L1")
+def test_conformance_L2(): _conformance("L2")
+def test_conformance_L3(): _conformance("L3")
+def test_conformance_L4(): _conformance("L4")
+def test_conformance_L5(): _conformance("L5")
+def test_conformance_L6(): _conformance("L6")
+def test_conformance_L7(): _conformance("L7")
+def test_conformance_L8(): _conformance("L8")
+def test_conformance_L9(): _conformance("L9")
+def test_conformance_L10(): _conformance("L10")
+def test_conformance_L11(): _conformance("L11")
+def test_conformance_L12(): _conformance("L12")
+def test_conformance_L13(): _conformance("L13")
+def test_conformance_L14(): _conformance("L14")
+def test_conformance_L15(): _conformance("L15")
+def test_conformance_L16(): _conformance("L16")
+def test_conformance_L17(): _conformance("L17")
+def test_conformance_L18(): _conformance("L18")
+
+
+def test_the_freeze_reads_an_artifact_it_did_not_write(tmp_path, monkeypatch):
+    """§8.5, NB8 and the L1-L18 independence problem. "`freeze_block` consumes
+    `implementation_report` and BELIEVES EACH ROW'S OWN `ok` FIELD [...] The
+    report is still capable of certifying itself."
+
+    v3: the report is a READING of a pytest run. A row is green iff its own test
+    id is present and passed in the artifact, and the harness "may not mark a row
+    green from anything it computed itself"."""
+    monkeypatch.setattr(ew, "CONFORMANCE_ARTIFACT", tmp_path / "conf.json")
+    assert ew.CONFORMANCE_ROWS == tuple(f"L{i}" for i in range(1, 19))
+
+    # (a) absent
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.assert_conformance_artifact()
+    assert "no pytest artifact" in str(exc.value)
+
+    # (b) a SUBSET, all green — the acceptance v2's guard made
+    ew.write_conformance_artifact({r: "passed" for r in ew.CONFORMANCE_ROWS[:9]})
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.assert_conformance_artifact()
+    assert "exactly" in str(exc.value)
+
+    # (c) all eighteen ids, one of them not passed — skip, error and xfail are
+    #     each a scenario that did not run
+    for outcome in ("failed", "skipped", "error", "xfailed"):
+        ew.write_conformance_artifact(
+            {**{r: "passed" for r in ew.CONFORMANCE_ROWS}, "L7": outcome})
+        with pytest.raises(ew.EvWidenError) as exc:
+            ew.assert_conformance_artifact()
+        assert "L7" in str(exc.value), outcome
+
+    # (d) a nineteenth id
+    ew.write_conformance_artifact(
+        {**{r: "passed" for r in ew.CONFORMANCE_ROWS}, "L19": "passed"})
+    with pytest.raises(ew.EvWidenError):
+        ew.assert_conformance_artifact()
+
+    # (e) exactly the eighteen, all passed
+    ew.write_conformance_artifact({r: "passed" for r in ew.CONFORMANCE_ROWS})
+    status = ew.assert_conformance_artifact()
+    assert status["count"] == 18 and status["ok"] is True
+    assert status["test_ids"] == [f"epl/tests/test_evwiden.py::test_conformance_{r}"
+                                  for r in ew.CONFORMANCE_ROWS]
+    assert len(status["sha256"]) == 64
+
+
+def test_the_freeze_block_records_which_run_certified_it(tmp_path, monkeypatch):
+    """§8.5: "Its path, its SHA-256, its test-id list and its pass count go
+    into the freeze block, so the committed block records WHICH RUN certified
+    the freeze." """
+    monkeypatch.setattr(ew, "CONFORMANCE_ARTIFACT", tmp_path / "conf.json")
+    with pytest.raises(ew.EvWidenError):
+        ew.freeze_block()                    # no artifact, no block
+    ew.write_conformance_artifact({r: "passed" for r in ew.CONFORMANCE_ROWS})
+    block = ew.freeze_block()
+    status = ew.conformance_artifact_status()
+    assert status["sha256"] in block
+    assert "18" in block
+    for row_id in ew.CONFORMANCE_ROWS:
+        assert f"test_conformance_{row_id}" in block, row_id
+
+
+@pinned
+def test_the_committed_block_must_carry_exactly_the_eighteen_rows(
+        monkeypatch, tmp_path, unrun_feasibility):
+    """§8.6 condition (5). "The committed-block guard accepts any nonempty
+    all-green SUBSET rather than exactly L1-L18."
+
+    v3: "A nonempty all-green SUBSET fails this condition" — at both ends, and
+    the redundancy is deliberate: one guards what is rendered, the other guards
+    what a later fit reads back out of the commit."""
+    block = ew.freeze_block()
+    monkeypatch.setattr(ew, "git_committed_bytes",
+                        _as_if_committed(block, monkeypatch=monkeypatch))
+    assert ew.harness_freeze_status()["frozen"] is True
+
+    # drop three rows from the COMMITTED block and keep the rest green
+    trimmed = "\n".join(line for line in block.splitlines()
+                        if not any(f"| {r} |" in line for r in ("L16", "L17",
+                                                                "L18")))
+    monkeypatch.setattr(ew, "git_committed_bytes",
+                        _as_if_committed(trimmed, monkeypatch=monkeypatch))
+    status = ew.harness_freeze_status()
+    assert status["frozen"] is False
+    assert "exactly" in status["why"]

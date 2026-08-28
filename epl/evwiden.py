@@ -202,6 +202,9 @@ __all__ = [
     "power_simulation", "power_structure", "power_reproduces",
     "committed_power_run",
     "bootstrap_shortcut_matches", "implementation_report",
+    "conformance_row", "write_conformance_artifact",
+    "conformance_artifact_status", "assert_conformance_artifact",
+    "CONFORMANCE_ROWS", "conformance_test_id",
     "assert_implements_document", "assert_may_fit", "evidence_object",
     "assert_manifest_complete", "MANIFEST_PATHS",
     "launch_script", "main",
@@ -534,9 +537,12 @@ PRE_FREEZE_RUNS: tuple[str, ...] = (
     "`python -m epl.evwiden --canary --no-results-canary --dir <scratch>` — "
     "§7.3's evidence canary on the real archive, with any point-in-time store "
     "built in a `tempfile.TemporaryDirectory` and never under `paths.STORE_DIR`",
-    "`pytest epl/tests/test_evwiden.py` — the synthetic corpora, plus the "
-    "`@pinned` tests that re-derive the census, the grid table, the membership "
-    "and the table cells",
+    "`pytest epl/tests/test_evwiden.py` — the synthetic corpora, the `@pinned` "
+    "tests that re-derive the census, the grid table, the membership and the "
+    "table cells, and §8.5's CONFORMANCE SCENARIO RUN: eighteen committed "
+    "tests, one per row L1-L18, whose JSON report at "
+    "`data/epl/fit/evwiden_conformance.json` is the artifact `--conformance` "
+    "and `--freeze-block` consume. §8.5: the report may not be its own witness",
     "`python -m epl.evwiden --partial-engine` — one partial engine pass at the "
     "first opening (2019-08-09): construction, `fit_points`, the enlarged set, "
     "`assert_cutoff_clean` and `assert_point_in_time` — the whole of the fit "
@@ -2408,7 +2414,7 @@ PREREGISTERED_DIRS: tuple[Path, ...] = (EVWIDEN_DIR, TABLE_DIR, SEQUENCE_DIR,
 def preregistered_files() -> tuple[Path, ...]:
     """The individual artifacts §8.6's closure names, as they stand now."""
     return (EVWIDEN_JSON, FIRST_FIT_JSON, FIRST_FIT_WITNESS,
-            FEASIBILITY_RECORD)
+            FEASIBILITY_RECORD, CONFORMANCE_ARTIFACT)
 
 _PINNED_ARCHIVE_IDENTITY: dict[str, str | None] = {}
 _PINNED_ARCHIVE_ANCESTRY: dict[str, frozenset[str] | None] = {}
@@ -8902,8 +8908,20 @@ def harness_freeze_status(sources: Sequence[Path] | None = None, *,
     if membership_ok:
         recorded_rows = _recorded_conformance(where_text)
         red = sorted(r for r, ok in recorded_rows.items() if not ok)
-        conformance_ok = bool(recorded_rows) and not red
-        if not recorded_rows:
+        # v3 §8.6 condition (5): **exactly** §8.5's eighteen rows, L1-L18, and
+        # a nonempty all-green SUBSET fails. v2's guard accepted one, which
+        # meant a block that had simply dropped a row it could not satisfy read
+        # back as green.
+        wrong_set = sorted(set(recorded_rows) ^ set(CONFORMANCE_ROWS))
+        conformance_ok = bool(recorded_rows) and not red and not wrong_set
+        if recorded_rows and wrong_set:
+            conformance_why = (
+                f"the committed freeze block's conformance table is not "
+                f"exactly §8.5's eighteen rows: it differs at {wrong_set}. A "
+                "nonempty all-green SUBSET is a refusal, not a pass — the "
+                "superseded guard accepted one, so a block that had dropped "
+                "the rows it could not satisfy read back as green.")
+        elif not recorded_rows:
             conformance_why = (
                 "the committed freeze block carries no §8.5 conformance table. "
                 "§8.3 step 2 requires 'the conformance report of §8.5, all rows "
@@ -9289,6 +9307,156 @@ def _per_cell_resampled_unanimity(cells: Sequence[dict[str, Any]], *,
         verdicts.append(iv_c_verdict([deltas[str(c["key"])] for c in mw6],
                                      seasons))
     return verdicts
+
+
+#: §8.5's eighteen rows, by id, in order. The set is EXACT at both ends —
+#: `--freeze-block` refuses to render over anything but these eighteen, and
+#: §8.6 condition (5) refuses to read the committed block back over anything
+#: but these eighteen. "A nonempty all-green SUBSET is a refusal, not a pass: a
+#: renderer that accepted any green subset would render over a report that had
+#: simply dropped the rows it could not satisfy, and a review found that exact
+#: acceptance in v2's harness."
+CONFORMANCE_ROWS: tuple[str, ...] = tuple(f"L{i}" for i in range(1, 19))
+
+#: Where §8.5's pytest run records what it did. v3 §8.2 pass 3 names it: the
+#: `@pinned` tests plus "§8.5's conformance scenario run, whose JSON report is
+#: the artifact `--conformance` and `--freeze-block` consume".
+CONFORMANCE_ARTIFACT = paths.FIT_DIR / "evwiden_conformance.json"
+
+#: The pytest node id of each row's committed test. Fixed here so that the
+#: harness cannot invent an id and then find it: the ids the artifact carries
+#: must be exactly these.
+def conformance_test_id(row_id: str) -> str:
+    """`epl/tests/test_evwiden.py::test_conformance_L5`, and nothing else."""
+    return f"{HARNESS_FILES[1]}::test_conformance_{row_id}"
+
+
+_CONFORMANCE_RUN: list[dict[str, Any]] | None = None
+
+
+def conformance_row(row_id: str) -> dict[str, Any]:
+    """Execute §8.5's scenarios and return ONE row — the pytest tests' entry.
+
+    The scenarios are deterministic at the frozen constants and build a
+    synthetic leg from literals, so the run is MEMOISED per process: eighteen
+    committed tests calling this share one execution rather than paying for
+    eighteen. What the eighteen tests establish is that each named row was
+    reached and was green **in a pytest process**, which is what §8.5's artifact
+    then records and the freeze reads back.
+
+    A row this function cannot find is an ERROR rather than a silent absence:
+    "a scenario that did not run" is red, and a row dropped from the report must
+    take its own test down with it rather than disappearing from a subset the
+    guard would have accepted.
+    """
+    global _CONFORMANCE_RUN
+    if _CONFORMANCE_RUN is None:
+        _CONFORMANCE_RUN = implementation_report()
+    for row in _CONFORMANCE_RUN:
+        if row["id"] == row_id:
+            return row
+    raise EvWidenError(
+        f"§8.5 has no row {row_id!r}: the report carries "
+        f"{[r['id'] for r in _CONFORMANCE_RUN]} and this document fixes "
+        f"{list(CONFORMANCE_ROWS)}. A row that is not in the report is a "
+        "scenario that did not run, which §8.5 grades red rather than absent.")
+
+
+def write_conformance_artifact(outcomes: dict[str, str]) -> Path:
+    """Record what §8.5's pytest run actually did, one line per row.
+
+    Written by the pytest session at teardown, from the outcomes its own tests
+    reached — not by the reporting code, which is the whole point: "the chain
+    now terminates outside the reporting code: the report is a READING of a
+    pytest run, the pytest run is committed code that either executed the
+    scenario or did not, and the freeze block records which run it read."
+    """
+    CONFORMANCE_ARTIFACT.parent.mkdir(parents=True, exist_ok=True)
+    body = {
+        "schema": SCHEMA_ID,
+        "produced_at": pd.Timestamp.now("UTC").isoformat(),
+        "harness": {name: (sha256_file(paths.REPO_ROOT / name)
+                           if (paths.REPO_ROOT / name).exists() else None)
+                    for name in HARNESS_FILES},
+        "tests": [{"id": conformance_test_id(rid),
+                   "row": rid, "outcome": str(outcome)}
+                  for rid, outcome in sorted(
+                      outcomes.items(),
+                      key=lambda kv: (len(kv[0]), kv[0]))],
+    }
+    body["passed"] = sum(1 for x in body["tests"] if x["outcome"] == "passed")
+    CONFORMANCE_ARTIFACT.write_text(
+        json.dumps(body, indent=2, sort_keys=True, default=str) + "\n")
+    return CONFORMANCE_ARTIFACT
+
+
+def conformance_artifact_status() -> dict[str, Any]:
+    """Read §8.5's artifact and CROSS-CHECK it three ways.
+
+    > 1. **the test ids are exactly the eighteen** — no more, no fewer, none
+    >    renamed;
+    > 2. **every one of the eighteen outcomes is `passed`** — a skip, an error,
+    >    an xfail and an absence are all red, because each is a scenario that
+    >    did not run;
+    > 3. **the reported count is eighteen.**
+    """
+    out: dict[str, Any] = {"path": paths.rel(CONFORMANCE_ARTIFACT),
+                           "ok": False, "count": 0, "test_ids": [],
+                           "sha256": None, "why": ""}
+    if not CONFORMANCE_ARTIFACT.exists():
+        return {**out, "why": (
+            f"there is no pytest artifact at {paths.rel(CONFORMANCE_ARTIFACT)}. "
+            "§8.5: a row is green IFF its own test id is present and passed in "
+            "that artifact, and the harness may not mark a row green from "
+            "anything it computed itself. Run `pytest epl/tests/test_evwiden.py` "
+            "(§8.2 pass 3) and render again.")}
+    raw = CONFORMANCE_ARTIFACT.read_bytes()
+    out["sha256"] = hashlib.sha256(raw).hexdigest()
+    try:
+        body = json.loads(raw.decode())
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:  # pragma: no cover
+        return {**out, "why": f"the artifact is not readable: {exc}"}
+    tests = list(body.get("tests") or ())
+    got = [str(x.get("id")) for x in tests]
+    want = [conformance_test_id(r) for r in CONFORMANCE_ROWS]
+    out["test_ids"] = got
+    out["count"] = len(got)
+    out["outcomes"] = {str(x.get("id")): str(x.get("outcome")) for x in tests}
+    if got != want:
+        return {**out, "why": (
+            f"the artifact carries {len(got)} test id(s) and §8.5 fixes exactly "
+            f"{len(want)}, L1-L18 in order. Missing "
+            f"{[w for w in want if w not in got]}; unexpected "
+            f"{[g for g in got if g not in want]}. A nonempty all-green SUBSET "
+            "is a refusal, not a pass — a report that simply dropped the rows "
+            "it could not satisfy would otherwise read as green.")}
+    unpassed = [x["id"] for x in tests if str(x.get("outcome")) != "passed"]
+    if unpassed:
+        return {**out, "why": (
+            f"the artifact records {unpassed} as not passed. §8.5: 'a skip, an "
+            "error, an xfail and an absence are all red, because each is a "
+            "scenario that did not run'.")}
+    if int(body.get("passed") or 0) != len(CONFORMANCE_ROWS):
+        return {**out, "why": (
+            f"the artifact reports {body.get('passed')!r} passing and §8.5 "
+            f"fixes {len(CONFORMANCE_ROWS)}.")}
+    return {**out, "ok": True, "harness": body.get("harness"),
+            "produced_at": body.get("produced_at")}
+
+
+def assert_conformance_artifact() -> dict[str, Any]:
+    """§8.3: the block does not render without §8.5's artifact behind it."""
+    status = conformance_artifact_status()
+    if not status["ok"]:
+        raise EvWidenError(
+            "refusing to render §8.3 step 2's freeze block: " + status["why"]
+            + " §8.5's report may not be its own witness — v2's arrangement "
+            "was circular in a way no amount of strengthening the rows could "
+            "fix, because `implementation_report` executed the scenarios AND "
+            "reported on itself, the principal test asserted its own `ok` "
+            "fields, `freeze_block` consumed the same object, and the "
+            "committed-block guard accepted any nonempty all-green subset.")
+    return status
 
 
 def implementation_report() -> list[dict[str, Any]]:
@@ -10328,7 +10496,19 @@ def assert_implements_document() -> list[dict[str, Any]]:
     document freezes the wrong thing, which is the one thing a hash table must
     never do."
     """
+    # v3 §8.5: a row is green IFF its own committed pytest test is present and
+    # passed in the artifact that run produced. The harness's own execution of
+    # the scenarios still happens — it is what the eighteen tests call — but it
+    # is not what certifies the freeze.
+    artifact = assert_conformance_artifact()
     report = implementation_report()
+    ids = [r["id"] for r in report]
+    if ids != list(CONFORMANCE_ROWS):
+        raise EvWidenError(
+            f"refusing to render §8.3 step 2's freeze block: §8.5's report "
+            f"carries {ids} and this document fixes exactly "
+            f"{list(CONFORMANCE_ROWS)}. A nonempty all-green SUBSET is a "
+            "refusal, not a pass.")
     broken = [r for r in report if not r["ok"]]
     if broken:
         detail = "; ".join(f"{r['id']} ({r['section']}): {r['obligation']}"
@@ -10403,6 +10583,7 @@ def freeze_block(corpus: pd.DataFrame | None = None,
     # comes before the conformance of the code that answers it.
     feasibility = assert_feasibility_permits_a_freeze()
     report = assert_implements_document()
+    artifact = conformance_artifact_status()
     corpus = load_corpus() if corpus is None else corpus
     played = load_archive() if played is None else played
     ledger = load_walk_ledger() if ledger is None else ledger
@@ -10495,8 +10676,18 @@ def freeze_block(corpus: pd.DataFrame | None = None,
                     f"{EXCLUDED_CELL_DETAIL[k]['ceiling']} A1 ceiling)"
                     for k in feasibility["unpriceable"]) + " |",
         "",
-        "The conformance report of §8.5, every row a scenario that fails under "
-        "its own defect class:",
+        "The conformance report of §8.5 — every row a scenario that fails under "
+        "its own defect class, and every row read from the pytest run below "
+        "rather than from anything this renderer computed:",
+        "",
+        f"| §8.5's pytest artifact | value |",
+        "|---|---|",
+        f"| path | `{artifact['path']}` |",
+        f"| SHA-256 | `{artifact['sha256']}` |",
+        f"| tests passed | {artifact['count']} of "
+        f"{len(CONFORMANCE_ROWS)} |",
+        f"| test ids | " + "; ".join(f"`{i}`" for i in artifact["test_ids"])
+        + " |",
         "",
         "| row | § | obligation | green |",
         "|---|---|---|---|",
