@@ -96,7 +96,10 @@ PRE-FREEZE CONTACT WITH THE REAL ARTIFACTS, DISCLOSED. §8.2 states one rule and
 v2 carries no other clause to read against it: **pre-freeze, no harness code
 fits and no harness code simulates; reading the pinned artifacts is permitted,
 is read-only, and is enumerated by name in the freeze commit.**
-:data:`PRE_FREEZE_RUNS` carries all six authorised passes and
+:data:`PRE_FREEZE_RUNS` carries all seven authorised passes — six read-only,
+plus §8.2 pass 7, the `dc_native` parity feasibility pass, which is the one
+entry that fits and simulates, is authorised by name and prospectively, is
+quarantined outside the repository, and has NOT been run — and
 :func:`freeze_block` prints them. "Read-only" is a property of code here and not
 of intent: :func:`read_only_store` is the single route to a point-in-time store
 and it raises :class:`StoreNotBuilt` rather than building one.
@@ -190,7 +193,7 @@ __all__ = [
     # §8.6's public-surface closure, and the surfaces it stands over
     "assert_seam_allowed", "archive_provenance", "is_pinned_archive",
     "is_derived_from_pinned_archive", "frozen_table_constants",
-    "run_cell_arms", "unanimity", "unanimity_is_valid", "iv_c_verdict",
+    "unanimity", "unanimity_is_valid", "iv_c_verdict",
     # §3.2's three checks, extracted so §8.5's L12 executes them
     "assert_identity_control", "assert_untreated_unmoved",
     "assert_pass_two_three_agree",
@@ -1644,9 +1647,16 @@ def repair_tail(path: Path | str) -> int:
     return 0
 
 
-def load_ledger(path: Path | str, *, allow_poison: bool = False,
-                complete_only: bool = True) -> list[dict[str, Any]]:
+def load_ledger(path: Path | str, *, complete_only: bool = True
+                ) -> list[dict[str, Any]]:
     """Every fixture row in a shard, de-duplicated, schema-checked, ordered.
+
+    **There is no `allow_poison` parameter.** §7.1 makes a poison row
+    :class:`ShardFailed` and §2.4 makes a poisoned shard unmergeable and
+    unscorable; a keyword that admits one is the refusal with an off switch. The
+    one caller that legitimately reads past poison is :func:`completed_keys`,
+    which is asking which fits are DONE and decides nothing, and it goes through
+    the private reader below.
 
     Three refusals the preregistration named, in one place: a duplicated key
     that DISAGREES is :class:`RowConflict`; a row missing a §7.2 field is
@@ -1657,6 +1667,12 @@ def load_ledger(path: Path | str, *, allow_poison: bool = False,
     rows themselves declare — the signature of a crash mid-append. It is how
     resume knows a fit is unfinished rather than trusting the file's length.
     """
+    return _load_ledger(path, allow_poison=False, complete_only=complete_only)
+
+
+def _load_ledger(path: Path | str, *, allow_poison: bool = False,
+                 complete_only: bool = True) -> list[dict[str, Any]]:
+    """:func:`load_ledger`'s body, plus the resume reader's poison tolerance."""
     path = Path(path)
     rows, poison, _ = read_jsonl(path)
     if poison and not allow_poison:
@@ -1713,7 +1729,7 @@ def load_ledger(path: Path | str, *, allow_poison: bool = False,
 def completed_keys(path: Path | str) -> set[str]:
     """The fit keys a shard has FINISHED — partial fits excluded."""
     return {str(r["key"]) for r in
-            load_ledger(path, allow_poison=True, complete_only=True)}
+            _load_ledger(path, allow_poison=True, complete_only=True)}
 
 
 # ==========================================================================
@@ -2279,6 +2295,14 @@ def thin_at(e_min: float, grid: Sequence[float] = (*E_GRID, E_STAR)
 #: one-way ratchet had a way back, and the way back was a flag.
 FIRST_FIT_JSON = paths.FIT_DIR / "evwiden_first_real_fit.json"
 
+#: §8.6's closure, for a seam that names no directory because it WRITES
+#: nothing. ``target=None`` means "the caller is about to use the default, and
+#: the default is the preregistered run directory", which is why it is refused;
+#: a seam with no directory at all is a different case and is judged on the
+#: ARTIFACTS alone. Passing this sentinel is the way a caller says so, and every
+#: use of it is a surface that produces no file.
+NO_TARGET = "<no directory: this seam writes nothing>"
+
 #: §8.6's public-surface closure: the directories this document preregisters.
 #: A seam aimed at one of them is a seam aimed at the preregistered run, and
 #: :func:`assert_seam_allowed` refuses it whatever the caller intends.
@@ -2519,6 +2543,8 @@ def _is_preregistered_target(target: Path | str | None) -> bool:
     """
     if target is None:
         return True
+    if target is NO_TARGET:
+        return False
     try:
         path = Path(target).resolve()
     except (OSError, ValueError, TypeError):               # pragma: no cover
@@ -3336,7 +3362,15 @@ def identity_canary(fitter: Callable[..., dict], point: FitPoint,
     central claim — that the treatment is a pure re-key and adds nothing on its
     own — and the one that would break loudest if the "treatment" were quietly
     doing something else as well.
+
+    ``fitter`` is a seam §8.6 names in its own words — "inject an alternative
+    implementation (fitter, engine, runner, parity, mc)" — so it asks the guard.
+    The canary writes nothing, so the artifacts alone decide: a synthetic corpus
+    is audited freely and the pinned one is not.
     """
+    assert_seam_allowed("identity_canary(fitter=)", corpus=corpus,
+                        target=NO_TARGET,
+                        detail="an injected fitter in §7.3's identity canary")
     out = fitter(point, grid_treated=(), e_star=float(e_star))
     added = sorted(set(out["provisional_enlarged"])
                    - set(out["provisional_incumbent"]))
@@ -3740,6 +3774,20 @@ def require_sequence(step: str, *, enforce: bool | None = None
     """
     if step not in SEQUENCE_STEPS:
         raise SequenceViolation(f"{step!r} is not one of §8.4's five steps")
+    if enforce is False and _frozen_now():
+        # §8.6: attesting a lifecycle state is one of the four closed effects,
+        # and "the sequence does not apply" is that attestation. It is legitimate
+        # exactly where `enforce=None` would DERIVE it — before §8.3's commit,
+        # when there is no run for the markers to describe and §8.2's synthetic
+        # audit would otherwise have to fabricate them. Under the freeze there is
+        # a run, and no caller turns §8.4 off for it.
+        raise SequenceViolation(
+            f"{step} refuses `enforce=False`: §8.3's freeze commit has landed, "
+            "so §8.4's five steps are the run this document preregisters and "
+            "their markers describe it. The flag exists for the pre-freeze "
+            "audit, where `enforce=None` derives the same answer; under the "
+            "freeze it would be a caller attesting a lifecycle state, which "
+            "§8.6 closes.")
     if enforce is None:
         enforce = bool(harness_freeze_status()["frozen"])
     index = SEQUENCE_STEPS.index(step)
@@ -4051,7 +4099,9 @@ def estimand(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
     and deciding nothing.
     """
     assert_not_overridable(n_boot=(n_boot, N_BOOT), seed=(seed, BOOTSTRAP_SEED),
-                           e_star=(e_star, E_STAR))
+                           e_star=(e_star, E_STAR),
+                           grid=(tuple(float(g) for g in grid),
+                                 tuple(float(g) for g in E_GRID)))
     if not rows:
         raise MergeIncomplete("no rows to score")
     cold = cold_start_club_seasons(rows) if cold is None else cold
@@ -5145,6 +5195,13 @@ def read_only_store(root: Path | str | None = None):
     """
     from wcmodel.data.store import BitemporalStore
 
+    if root is not None:
+        # An alternate root is how §8.2's passes prove the accessor never
+        # builds; it is not a way to point a pre-freeze read at the shared
+        # store's neighbours inside the preregistered tree.
+        assert_seam_allowed("read_only_store(root=)", target=root,
+                            detail="a point-in-time store root other than "
+                                   "paths.STORE_DIR")
     root = Path(root) if root is not None else paths.STORE_DIR
     table = root / STORE_TABLE_PARQUET
     if not table.exists():
@@ -5620,6 +5677,16 @@ def run_cell_arms(cell_key_: str, *, simulate: Callable[[str, Any], Any],
     be executed and observed without a real fit: a spy passed here records
     exactly how many arms were simulated before the refusal, which is the only
     way "before" is checkable at all.
+
+    **What that means this function can and cannot establish**, since the review
+    (P5-B5) is right that a callback labelled "control" could do treatment work
+    inside itself. What is mechanical here is the sequence of THIS function's own
+    calls — one arm, then the parity comparison, then the second arm — and that
+    each record came back labelled as the arm it was asked for; what is not
+    mechanical is the inside of a callback. It is not a public surface for that
+    reason: the production caller is :meth:`TableRunner.__call__`, whose two
+    callbacks close over the protected sampler, and §8.5's rows drive it with
+    spies that count. It is out of ``__all__``.
     """
     if not parity_row or not (parity_row or {}).get("substantive_digest"):
         raise TableIdentityBreak(
@@ -5630,13 +5697,27 @@ def run_cell_arms(cell_key_: str, *, simulate: Callable[[str, Any], Any],
             "the precondition of this leg, not its by-product.")
 
     arms: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
     control_run = simulate("control", books["control"])
+    order.append("control")
     arms["control"] = record("control", books["control"], control_run)
+    if str(arms["control"].get("arm", "control")) != "control":
+        raise TableIdentityBreak(
+            f"{cell_key_}: the record returned for the control arm calls itself "
+            f"{arms['control'].get('arm')!r}. §3.3's closure 1 orders the two "
+            "arms and an arm that is not the one it was asked for makes the "
+            "order meaningless.")
     parity = assert_native_parity(
         cell_key_, arms["control"]["substantive_digest"], parity_row,
         provisional_control,
         effective_posterior=arms["control"].get("effective_posterior_hash"))
+    if order != ["control"]:                                # pragma: no cover
+        raise TableIdentityBreak(
+            f"{cell_key_}: {len(order)} arm(s) were simulated before parity was "
+            "established, and §3.3's closure 1 permits exactly one — the "
+            "control.")
     treatment_run = simulate("treatment", books["treatment"])
+    order.append("treatment")
     arms["treatment"] = record("treatment", books["treatment"], treatment_run)
     return arms, parity
 
@@ -5939,6 +6020,10 @@ class ParityRunner:
             played=self.matches.loc[self.matches["played"]],
             directory=self.directory)
         self.harness_frozen = bool(self.may_fit["frozen"])
+        #: Was this runner built under §8.2 pass 7's authorisation? If it was,
+        #: `__call__` asks again: the review's P5-B2 found the permission cached
+        #: here and the runner reusable after the pass had closed.
+        self._under_feasibility = bool(self.may_fit.get("feasibility_pass"))
         # §2.3's closure: resolved from the frozen law, never accepted.
         frozen = frozen_table_constants()
         self.n_sims, self.seed = frozen["n_sims"], frozen["seed"]
@@ -5957,6 +6042,13 @@ class ParityRunner:
         season, label = str(cell["season"]), str(cell["cutoff_label"])
         cutoff = pd.Timestamp(cell["cutoff"]).normalize()
         started = time.perf_counter()
+        if self._under_feasibility and not _feasibility_permits(
+                "epl.evwiden.ParityRunner", self.directory):
+            raise EvWidenError(
+                f"{season} {label}: this ParityRunner was constructed inside "
+                f"{FEASIBILITY_PASS_NAME} and that pass is no longer open. §8.2 "
+                "authorises ONE pass, and a runner that carried its permission "
+                "out of the context would make it a permission with no end.")
         if self.may_fit["frozen"] and self.may_fit["real_artifacts"]:
             record_first_real_fit(where="epl.evwiden.ParityRunner")
         result = self._runner(season=season, cutoff_label=label, cutoff=cutoff,
@@ -6501,6 +6593,13 @@ def load_table_ledger(path: Path | str | None = None, *,
     pooled mean over 34 cells is not the quantity §4.1 (iv) gates on.
     """
     path = Path(path) if path is not None else TABLE_LEDGER
+    if expected is not None:
+        # §8.6: a caller-supplied census is a caller-supplied deciding
+        # population. The production callers derive it; an audit may state its
+        # own, in its own directory, on its own rows.
+        assert_seam_allowed("load_table_ledger(expected=)", target=path.parent,
+                            detail="the expected cell census, supplied rather "
+                                   "than derived from the pinned artifacts")
     rows, poison, _ = read_jsonl(path)
     if poison:
         first = poison[0]
@@ -6710,7 +6809,14 @@ def iv_c_verdict(mw6_deltas: Sequence[float], seasons: Sequence[str], *,
     The interval is §5.3's, exactly — same function, same seven season blocks,
     B = 10,000, alpha = 0.05, seed 20260814 — because §5.4 recomputes *the whole
     of iv-c*, not an approximation of it.
+
+    §2.3 names this computation inside the closure — "the two match intervals,
+    **the MW6 table interval of §5**, or the power simulation of §6" — and the
+    in-tree audit found it the one deciding surface that took ``n_boot`` and
+    ``seed`` and refused neither: ``iv_c_verdict([...], n_boot=5)`` returned a
+    verdict. Every sibling refuses; so does this now.
     """
+    assert_not_overridable(n_boot=(n_boot, N_BOOT), seed=(seed, BOOTSTRAP_SEED))
     deltas = np.asarray(mw6_deltas, dtype=float)
     if deltas.size == 0:
         return False
@@ -7834,8 +7940,20 @@ def write_evidence(result: dict[str, Any],
 
     §4.4: there is no file drawer. This function is called on a miss exactly as
     it is called on a hit, including the two embarrassing cases §4.4 pre-names.
+
+    **`manifest=False` and `require_manifest_complete=False` are SEAMS.** The
+    review's P5-B7: "a public production surface can publish `widening.json`
+    without the supposedly mandatory 52-member manifest". They survive because
+    the synthetic audits of §8.2 publish into their own directories and have no
+    manifest to complete — and §8.6's guard is what tells the two apart, at the
+    target, exactly as it does for every other seam.
     """
     directory = Path(directory) if directory is not None else EVIDENCE_DIR
+    if not manifest or not require_manifest_complete:
+        assert_seam_allowed(
+            "write_evidence(manifest=, require_manifest_complete=)",
+            target=directory,
+            detail="publishing §9's evidence without §9.3's manifest")
     directory.mkdir(parents=True, exist_ok=True)
     written: dict[str, str] = {}
 
@@ -7860,7 +7978,9 @@ def write_evidence(result: dict[str, Any],
                        table_evidence(table_rows, mc_se))
         written["widening_table_cells.csv"] = paths.rel(p)
     if manifest:
-        # §9.3: exactly the eleven, and a missing artifact is a refusal.
+        # §9.3: exactly the 52 MANIFEST_PATHS, and a missing artifact is a
+        # refusal. (The count was eleven when §9.3 was drafted and the comment
+        # outlived it by forty-one paths.)
         entries = manifest_entries()
         for rel in ("reports/evidence/widening.json",
                     "reports/evidence/widening_per_fixture.csv",
@@ -7925,6 +8045,13 @@ def verify(directory: Path | str | None = None, *, shards: int = SHARDS,
     """
     assert_not_overridable(n_boot=(n_boot, N_BOOT), seed=(seed, BOOTSTRAP_SEED))
     evidence = Path(evidence) if evidence is not None else EVIDENCE_JSON
+    if check_manifest is not None:
+        # §9.3's manifest validation is derived from WHERE the evidence is, and
+        # a caller who could turn it off at the preregistered directory could
+        # verify the published evidence without it.
+        assert_seam_allowed("verify(check_manifest=)", target=evidence.parent,
+                            detail="§9.3's MANIFEST validation, turned off by "
+                                   "a caller rather than derived")
     # The shard closure binds the PREREGISTERED verification — the one that
     # reads reports/evidence/. A synthetic audit verifying its own scratch
     # evidence is §8.2's business and has whatever shards it made.
@@ -8210,6 +8337,39 @@ def _recorded_conformance(text: str) -> dict[str, bool]:
     return out
 
 
+def _only_the_prereg(sources: Sequence[Path] | None, rev: str, where: str
+                     ) -> list[Path]:
+    """§8.6 condition (1): **this file and no other**, at HEAD and no other rev.
+
+    The in-tree audit's finding 10 and the closure review's N-FREEZE-COMMIT are
+    the same one: the guard "accepts arbitrary `sources` and `rev`", so a caller
+    could choose which blob the freeze state is read out of. §8.6 names
+    `reports/epl_widening_prereg_v2.md`; the keyword survives because a caller
+    that names the file it means is clearer than one that cannot, but a
+    DIFFERENT file is refused rather than honoured — the same treatment §2.3
+    gives a frozen constant.
+    """
+    if str(rev) != "HEAD":
+        raise EvWidenError(
+            f"{where}: the freeze state is read at HEAD and at no other "
+            f"revision, and {rev!r} was supplied. §8.6 condition (1) asks "
+            "whether the commit that last touched the preregistration is an "
+            "ancestor of HEAD; a caller-selected revision answers a different "
+            "question about a different tree.")
+    if sources is None:
+        return [PREREG_PATH]
+    got = [Path(x) for x in sources]
+    if [x.resolve() for x in got] != [PREREG_PATH.resolve()]:
+        raise EvWidenError(
+            f"{where}: §8.6 condition (1) names "
+            f"{paths.rel(PREREG_PATH)} — 'this file and no other. No second "
+            f"source is accepted' — and {[paths.rel(x) for x in got]} was "
+            "supplied. The superseded guard accepted any list of blobs and read "
+            "the harness hash table out of whichever one carried it, which is "
+            "not the file the law names.")
+    return [PREREG_PATH]
+
+
 def harness_freeze_status(sources: Sequence[Path] | None = None, *,
                           rev: str = "HEAD") -> dict[str, Any]:
     """§8.6's guard. Has §8.3 step 2's follow-up commit landed, does it describe
@@ -8220,7 +8380,9 @@ def harness_freeze_status(sources: Sequence[Path] | None = None, *,
     digests, carrying 07b5871's sentence — *if any hash differs at the time the
     run is executed, it is not the run this document preregisters*.
 
-    **Four conditions, all of them, or the state is not established** (§8.6):
+    **Five conditions, all of them, or the state is not established** — §8.6's
+    four, and (5) the committed block's own conformance table, added when the
+    renderer's bypass parameters were closed:
 
     1. ``reports/epl_widening_prereg_v2.md`` is **committed**, and the commit
        that last touched it is an **ancestor of HEAD**;
@@ -8231,7 +8393,9 @@ def harness_freeze_status(sources: Sequence[Path] | None = None, *,
     3. the **schema identifier** in that block is ``epl-evwiden-2``, and the
        **membership digests** it records equal a fresh recomputation from the
        pinned artifacts;
-    4. the first-fit record, if present, is consistent with (1)–(3).
+    4. the first-fit record, if present, is consistent with (1)–(3);
+    5. the conformance report inside that committed block is **all green** — a
+       block rendered over a red report cannot establish the state it attests.
 
     v1's guard performed (1) and (2) and stopped: "the guard parses only the two
     harness hashes; schema/membership are not validated and first-fit is merely
@@ -8248,7 +8412,7 @@ def harness_freeze_status(sources: Sequence[Path] | None = None, *,
     It asserts nothing about itself: an unfrozen harness is a fact to report,
     and the refusal is :func:`require_harness_freeze`'s job.
     """
-    sources = [Path(s) for s in (sources or (PREREG_PATH,))]
+    sources = _only_the_prereg(sources, rev, "harness_freeze_status")
     found: dict[str, dict[str, Any]] = {}
     where = None
     where_text = ""
@@ -9219,12 +9383,29 @@ def implementation_report() -> list[dict[str, Any]]:
         l10 = _accepted(lambda: load_tallies(swap, bound))
         with np.load(target) as data:
             payload_npz = {k: np.asarray(data[k]) for k in data.files}
-        payload_npz["treatment"] = _conf_tally(1)
+        # THE REPLACEMENT IS A LEGAL TALLY, BOUND TO ITS OWN MATRIX. The
+        # in-tree audit found this leg unable to fail for its own reason:
+        # disabling the recorded-digest comparison left the row green, because
+        # the swapped array no longer matched the STORED matrix and §5.1's
+        # binding check raised the same class on the same object. With the
+        # sidecar's matrix replaced too, the only thing left that can refuse
+        # this read is the recorded digest — and the proof that it is the
+        # digest is that the SAME file loads once the row records its new one.
+        replacement = _conf_tally(1)
+        payload_npz["treatment"] = replacement
+        payload_npz["matrix_treatment"] = (replacement.sum(axis=0)
+                                           / float(cell_row["n_sims"]))
         np.savez_compressed(target, **payload_npz)
         l10 = (l10
                and _refused(TableMCImprecise, lambda: load_tallies(swap, bound))
-               # ...and with the row's digest forged to match, §5.1's binding
-               # checks refuse it anyway
+               and _accepted(lambda: load_tallies(
+                   swap, dict(cell_row, tally_sha256=sha256_file(target)))))
+        # ...and now the other half of the row's own scenario: an array the
+        # sidecar's matrix does NOT bind, with the row's digest forged to match
+        # it, is refused by §5.1's binding checks instead
+        payload_npz["treatment"] = _conf_tally(2)
+        np.savez_compressed(target, **payload_npz)
+        l10 = (l10
                and _refused(TableMCImprecise,
                             lambda: load_tallies(
                                 swap, dict(cell_row,
@@ -9525,6 +9706,36 @@ def implementation_report() -> list[dict[str, Any]]:
             _refused(EvWidenError, lambda: run_fits([], scratch / "x.jsonl",
                                                     None, e_star=E_STAR + 1)),
             _refused(EvWidenError, lambda: estimand([], e_star=E_STAR + 1)),
+            _refused(EvWidenError,
+                     lambda: estimand([], grid=tuple(E_GRID) + (99.0,))),
+            # ...the MW6 table interval of §5, which §2.3 names and which took
+            # both of its constants without refusing either
+            _refused(EvWidenError,
+                     lambda: iv_c_verdict([0.0], ["s"], n_boot=N_BOOT + 1)),
+            _refused(EvWidenError,
+                     lambda: iv_c_verdict([0.0], ["s"], seed=BOOTSTRAP_SEED + 1)),
+            # ...and the seams that carried an effect §8.6 closes: an
+            # alternative freeze source, an alternative interpreter in the
+            # post-freeze launcher, evidence published without §9.3's manifest,
+            # a supplied cell census, an injected canary fitter, and the
+            # marker check turned off
+            _refused(EvWidenError,
+                     lambda: harness_freeze_status([AMENDMENTS_PATH])),
+            _refused(EvWidenError,
+                     lambda: harness_freeze_status(rev="HEAD~1")),
+            _refused(EvWidenError,
+                     lambda: require_harness_freeze([AMENDMENTS_PATH])),
+            _no_parameter(launch_script, "python"),
+            _no_parameter(write_launch_script, "python", "kwargs"),
+            _no_parameter(load_ledger, "allow_poison"),
+            _refused(EvWidenError,
+                     lambda: write_evidence({}, manifest=False)),
+            _refused(EvWidenError,
+                     lambda: load_table_ledger(TABLE_LEDGER, expected=[])),
+            # ...and `require_sequence(enforce=False)` under the freeze, which
+            # cannot be attempted here because the freeze has not landed:
+            # `epl/tests/test_evwiden.py` drives it with the freeze mocked
+            "_frozen_now" in _calls_made(require_sequence),
             # `n_sims`, the simulation seed and the chunk size are not
             # overridable because they are not PARAMETERS: every table surface
             # resolves them from the frozen law.
@@ -9697,8 +9908,10 @@ def freeze_block(corpus: pd.DataFrame | None = None,
         f"| `{paths.rel(CONFIG_PATH)}` | `{CONFIG_SHA256}` |",
         f"| the realised configuration (§0.1) | `{REALISED_CONFIG_SHA256}` |",
         "",
-        "Pre-freeze passes, enumerated (§8.2 — none of them a fit, none of "
-        "them able to enter an estimand):",
+        "Pre-freeze passes, enumerated (§8.2 — passes 1-6 fit nothing and "
+        "simulate nothing; pass 7 is the `dc_native` parity feasibility pass, "
+        "authorised by name and prospectively, and none of the seven can enter "
+        "an estimand):",
         "",
     ]
     for run in PRE_FREEZE_RUNS:
@@ -9729,6 +9942,7 @@ def require_harness_freeze(sources: Sequence[Path] | None = None,
     invalidation but §7.1 never gave it a typed name, and this module does not
     invent one after the fact.
     """
+    sources = _only_the_prereg(sources, "HEAD", "require_harness_freeze")
     status = harness_freeze_status(sources)
     if not status["frozen"]:
         raise EvWidenError(
@@ -9743,8 +9957,17 @@ def require_harness_freeze(sources: Sequence[Path] | None = None,
 # 17. THE DETACHED LAUNCH — §2.4's runner, GENERATED rather than committed
 # ==========================================================================
 
-def launch_script(directory: Path | str | None = None, shards: int = SHARDS, *,
-                  python: str = ".venv/bin/python") -> str:
+#: The interpreter the generated launcher runs, fixed. The review's P5-B6:
+#: ``launch_script(python=...)`` "accepts an arbitrary interpreter/command, and
+#: `write_launch_script(**kwargs)` forwards it into the post-freeze production
+#: launcher" — a public parameter injecting an alternative implementation into
+#: the one artifact §2.4 generates from the hashed module precisely so that
+#: nothing outside the hash table can decide what runs.
+LAUNCH_PYTHON = ".venv/bin/python"
+
+
+def launch_script(directory: Path | str | None = None,
+                  shards: int = SHARDS) -> str:
     """The nohup'd runner, as text. §8.3 names two harness files and this is not
     a third.
 
@@ -9800,7 +10023,7 @@ def launch_script(directory: Path | str | None = None, shards: int = SHARDS, *,
         "export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1",
         "export NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1",
         "export PYTHONPATH=src:.",
-        f'PY="{python}"',
+        f'PY="{LAUNCH_PYTHON}"',
         f'DIR="{rel_dir}"',
         'mkdir -p "$DIR"',
         "",
@@ -9893,7 +10116,7 @@ def launch_script(directory: Path | str | None = None, shards: int = SHARDS, *,
 
 
 def write_launch_script(directory: Path | str | None = None,
-                        shards: int = SHARDS, **kwargs) -> Path:
+                        shards: int = SHARDS) -> Path:
     """Write the launcher — and never before §8.3's freeze commit.
 
     §8.2's enumeration of pre-freeze passes is complete and closed, and none of
@@ -9910,7 +10133,7 @@ def write_launch_script(directory: Path | str | None = None,
     path = directory / LAUNCH_NAME
     _guard_ledger_location(path, _frozen_now())
     directory.mkdir(parents=True, exist_ok=True)
-    path.write_text(launch_script(directory, shards, **kwargs))
+    path.write_text(launch_script(directory, shards))
     path.chmod(0o755)
     return path
 

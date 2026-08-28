@@ -2,11 +2,14 @@
 
     PYTHONPATH=src:. .venv/bin/python -m pytest epl/tests/test_evwiden.py -q
 
-`reports/epl_widening_prereg.md` (f26b760) fixes the rule, its one frozen
-constant, the estimand, both intervals, the two-gate adoption rule, the refusal
-semantics and the scope BEFORE any harness existed. These tests hold
-`epl.evwiden` to that document, and they are shaped around the six ways this
-particular experiment could produce a number nobody should believe:
+`reports/epl_widening_prereg_v2.md` is the SOLE LAW (§8.1: v1 is invalidated
+under its own §8.7 and "decides nothing"; `reports/epl_widening_prereg.md` is
+lineage). It fixes the rule, its one frozen constant, the estimand, both
+intervals, §4.1's FOUR-condition adoption rule — the two match intervals, §5's
+table gate and §5.4's unanimity rule — the refusal semantics and the scope
+BEFORE this harness existed. These tests hold `epl.evwiden` to that document,
+and they are shaped around the six ways this particular experiment could produce
+a number nobody should believe:
 
 * **A treatment that is not the treatment.** The whole design rests on §0.2:
   mechanism (c) is a predict-time mix, the fitted posterior is arm-invariant, and
@@ -14,7 +17,8 @@ particular experiment could produce a number nobody should believe:
   direction canary checks that against `wcmodel.model.widening.inflate_predictive`
   itself, on a real grid, rather than against a restatement of it.
 * **A population that moved.** 85 thin fixtures, 52 treated, 51 cells, 78
-  openings, 16 table cells — every one of them pre-stated. The membership tests
+  openings, 35 table cells of which 16 are treated and 19 untouched — every one
+  of them pre-stated. The membership tests
   compute the counts from the rule and refuse the harness's own arithmetic if it
   disagrees; the digest tests make a reordering unable to hide.
 * **A predicate that leaks.** `e(t, C)` is a sum over archive rows and the strict
@@ -42,6 +46,11 @@ committed preregistration are guarded on the file's existence and skip.
 §5.3'S SEEDED DEFECTS RUN HERE AND ONLY HERE. "The adversarial audit seeds each
 defect class of §5.1 alone and demands red under the harness's own tests — **on
 synthetic corpora only**." Each `test_seeded_*` below is one defect class, alone.
+
+THE AUTOUSE ISOLATION FIXTURE IS FUNCTION-SCOPED, and §8.9 says so in those
+words: it snapshots §8.8's preregistered paths around **every test in this
+module** and fails the test that moved one. It does not speak for import-time,
+collection-time, session-fixture, subprocess or crash-time writes.
 """
 from __future__ import annotations
 
@@ -113,10 +122,13 @@ def _the_preregistered_directories_stay_untouched():
     test called it without a `tmp_path`, so a test wrote into the real
     directory. §8.9 records the event, the deletion and the reasoning.
 
-    This fixture is the hole closed. Every test in this module runs inside it,
-    and a test that creates, changes or removes anything under
-    `data/epl/fit/evwiden*`, `data/epl/sim/evwiden*` or the sequence directory
-    fails AT THE TEST rather than being found later by an audit. The tests that
+    This fixture is the hole closed as far as a function-scoped fixture can
+    close it. Every test in this module runs inside it, and a test that creates,
+    changes or removes anything under `data/epl/fit/evwiden*`,
+    `data/epl/sim/evwiden*` or the sequence directory fails AT THE TEST rather
+    than being found later by an audit. It cannot see a write made at import
+    time, at collection time, by a session fixture, by a subprocess or by a
+    process that dies mid-test, and §8.9 does not claim it can. The tests that
     legitimately touch these paths do it by pointing the module's own constants
     at a `tmp_path`, which is what they were already doing — this makes the ones
     that forget impossible to miss.
@@ -1287,11 +1299,20 @@ def test_the_real_engine_fit_refuses_a_difference_no_tolerance_would_see(
     The corruption is 1e-9, which every plausible tolerance swallows and
     `np.array_equal` does not. Loosening the comparison to `worst > 1e-4` —
     the exact seed the audit ran — turns this red.
+
+    THE EVIDENCE MAKES `a` THIN, so the §2.1 union ADDS a club. The audit's
+    follow-up finding was that this test went red for the wrong reason: with an
+    empty `added` set the loosened comparison fell through to the identity-canary
+    branch and raised `CanaryFailed`, so the site §10 names — "the identity
+    control's tolerance is widened after a mismatch" — was satisfied by accident.
+    With a club added that branch does not run, and the loosened comparison
+    leaves nothing to raise at all.
     """
     post = _FakePosterior()
     corpus, _ = _engine_world(post)
     corpus.loc[0, "dc_home"] = float(corpus.loc[0, "dc_home"]) + 1e-9
-    engine = _bare_engine(post, corpus, monkeypatch=monkeypatch)
+    engine = _bare_engine(post, corpus, monkeypatch=monkeypatch,
+                          evidence={"2019/20|W01": {"a": 0.5, "b": 50.0}})
     with pytest.raises(ew.ControlMismatch) as exc:
         engine.fit(_engine_point(corpus))
     assert "EXACT equality" in str(exc.value)
@@ -4122,35 +4143,63 @@ def test_membership_and_plan_carry_the_table_cell_memberships(tmp_path, real):
     assert "~4 hours" in plan["budget"]["bound"]
 
 
-def test_the_freeze_refuses_until_the_hash_table_lands(tmp_path):
-    empty = tmp_path / "prereg.md"
-    empty.write_text("# nothing here\n")
-    status = ew.harness_freeze_status([empty])
+def test_the_freeze_refuses_until_the_hash_table_lands():
+    """No freeze block is committed, so §8.6's state is not established."""
+    status = ew.harness_freeze_status()
     assert status["frozen"] is False
     assert "has not landed" in status["why"]
     with pytest.raises(ew.EvWidenError) as exc:
-        ew.require_harness_freeze([empty])
+        ew.require_harness_freeze()
     assert "SYNTHETIC" in str(exc.value)
 
 
-def test_an_uncommitted_hash_paste_freezes_nothing(tmp_path):
+def test_the_freeze_state_is_read_out_of_v2_and_out_of_nothing_else(tmp_path):
+    """§8.6 condition (1): "`reports/epl_widening_prereg_v2.md` [...] this file
+    and no other. No second source is accepted."
+
+    The in-tree audit's finding 10 and the review's N-FREEZE-COMMIT: the guard
+    "still accepts arbitrary `sources` and `rev`", so a caller could choose which
+    blob the freeze state is read out of — and `merge`'s `freeze_sources`
+    forwards straight into it. The keyword survives; a different value does not.
+    """
+    other = tmp_path / "prereg.md"
+    other.write_text("| `epl/evwiden.py` | " + "0" * 64 + " |\n")
+    for call in (lambda: ew.harness_freeze_status([other]),
+                 lambda: ew.harness_freeze_status([ew.AMENDMENTS_PATH]),
+                 lambda: ew.harness_freeze_status([ew.PREREG_V1_PATH]),
+                 lambda: ew.require_harness_freeze([other]),
+                 lambda: ew.harness_freeze_status([ew.PREREG_PATH, other])):
+        with pytest.raises(ew.EvWidenError) as exc:
+            call()
+        assert "this file and no other" in str(exc.value)
+    # ...and a caller-selected revision answers a question about another tree
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.harness_freeze_status(rev="HEAD~1")
+    assert "at no other " in str(exc.value)
+    # the ONE permitted value is the file the law names, and it behaves as the
+    # default does
+    assert (ew.harness_freeze_status([ew.PREREG_PATH])["frozen"]
+            is ew.harness_freeze_status()["frozen"])
+
+
+def test_an_uncommitted_hash_paste_freezes_nothing(monkeypatch):
     """R2, the defect that replaces v1's round-trip test: "v1's
     freeze guard parses current prose against current filesystem bytes, which an
     uncommitted two-line paste satisfies; that is not a freeze and this document
     does not accept it as one."
 
-    The paste below carries the CORRECT digests of the harness files on disk —
-    it is exactly what v1's guard called frozen — and it is refused,
-    because it is not in a commit."""
-    table = tmp_path / "prereg.md"
-    table.write_text("\n".join(
-        f"| `{name}` | {ew.sha256_file(ew.paths.REPO_ROOT / name)} |"
-        for name in ew.HARNESS_FILES) + "\n")
-    status = ew.harness_freeze_status([table])
+    A paste carrying the CORRECT digests of the harness files on disk is
+    exactly what v1's guard called frozen. There is no longer any second file to
+    put one in — §8.6 condition (1) names one source and the guard now refuses
+    every other — so what is asserted is the same fact at that one source: while
+    its committed blob is absent, nothing about the working tree freezes it."""
+    monkeypatch.setattr(ew, "git_committed_bytes",
+                        lambda relpath, rev="HEAD": None)
+    status = ew.harness_freeze_status()
     assert status["frozen"] is False
     assert status["files"] == {}
     assert "COMMITTED" in status["why"]
-    assert status["uncommitted_sources"] == [ew.paths.rel(table)]
+    assert status["uncommitted_sources"] == [ew.paths.rel(ew.PREREG_PATH)]
 
 
 def test_the_freeze_reads_the_committed_prose_and_the_committed_bytes():
@@ -5051,7 +5100,7 @@ def test_the_harness_invents_no_refusal_the_document_never_wrote():
     # the pre-freeze-fit invalidation is one of the unnamed ones, and refuses
     # as the base class
     with pytest.raises(ew.EvWidenError) as exc:
-        ew.require_harness_freeze([Path("/nonexistent-prereg.md")])
+        ew.require_harness_freeze()
     assert type(exc.value) is ew.EvWidenError
 
 
@@ -5543,7 +5592,9 @@ def test_the_freeze_block_is_harness_produced_and_round_trips(tmp_path):
     # binds the committed bytes.
     pasted = tmp_path / "prereg.md"
     pasted.write_text(block)
-    assert ew.harness_freeze_status([pasted])["frozen"] is False
+    with pytest.raises(ew.EvWidenError):
+        ew.harness_freeze_status([pasted])
+    assert ew.harness_freeze_status()["frozen"] is False
     import unittest.mock as mock
 
     with mock.patch.object(ew, "git_committed_bytes",
@@ -6283,6 +6334,79 @@ def test_an_empty_marker_is_not_a_completed_step(tmp_path, monkeypatch):
         with pytest.raises(ew.SequenceViolation) as exc:
             ew.require_sequence(ew.SEQUENCE_STEPS[1], enforce=True)
         assert why in str(exc.value), over
+
+
+def test_the_sequence_check_cannot_be_turned_off_under_the_freeze(monkeypatch):
+    """§8.6 closes "attest a lifecycle state", and `enforce=False` is that
+    attestation: it says §8.4's five steps do not apply to this call.
+
+    It exists for the pre-freeze audit, where `enforce=None` DERIVES the same
+    answer because there is no run for the markers to describe. Under the freeze
+    there is one, and no caller turns the sequence off for it.
+    """
+    assert ew.require_sequence(ew.SEQUENCE_STEPS[1], enforce=False)["PASS"]
+    monkeypatch.setattr(ew, "_frozen_now", lambda: True)
+    with pytest.raises(ew.SequenceViolation) as exc:
+        ew.require_sequence(ew.SEQUENCE_STEPS[1], enforce=False)
+    assert "attesting a lifecycle state" in str(exc.value)
+
+
+def test_the_seams_of_the_closure_ask_the_guard_by_effect(tmp_path):
+    """§8.6: "any parameter with one of those four effects is closed on those
+    terms, **named here or not**."
+
+    The closure round applied it at six call sites, and the review's Part on
+    unguarded parameters read the rest off the module by signature. These are
+    those parameters. Each is legitimate where §8.2 says an audit run is
+    legitimate — synthetic artifacts, a directory of its own — and refused at the
+    preregistered ones.
+    """
+    # publishing §9's evidence without §9.3's 52-member manifest (P5-B7)
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.write_evidence({}, manifest=False)
+    assert "public-surface closure" in str(exc.value)
+    with pytest.raises(ew.EvWidenError):
+        ew.write_evidence({}, directory=ew.EVIDENCE_DIR,
+                          require_manifest_complete=False)
+    # ...and the same call into a scratch directory is an audit, and runs
+    assert ew.write_evidence({"schema": ew.SCHEMA_ID}, directory=tmp_path,
+                             manifest=False)["widening.json"]
+
+    # a caller-supplied cell census, and §9.3's manifest validation turned off
+    with pytest.raises(ew.EvWidenError):
+        ew.load_table_ledger(ew.TABLE_LEDGER, expected=[])
+    with pytest.raises(ew.EvWidenError):
+        ew.verify(evidence=ew.EVIDENCE_JSON, check_manifest=False)
+
+    # an injected fitter in §7.3's identity canary, against the PINNED corpus
+    if PINNED_CORPUS.exists():
+        with pytest.raises(ew.EvWidenError):
+            ew.identity_canary(lambda *a, **k: {}, ew.FitPoint(
+                cutoff="2019-08-09", season="2019/20", block="2019/20|W01",
+                match_ids=()), ew.load_corpus())
+
+    # an alternate point-in-time store root inside the preregistered tree
+    with pytest.raises(ew.EvWidenError):
+        ew.read_only_store(root=ew.paths.FIT_DIR / "store")
+
+    # the poison bypass is not a parameter at all: §7.1 makes a poison row
+    # ShardFailed and §2.4 makes a poisoned shard unscorable
+    assert ew._no_parameter(ew.load_ledger, "allow_poison")
+    poisoned = tmp_path / ew.shard_name(0, 1)
+    poisoned.write_text(json.dumps({"poison": True, "error_type": "FitFailed",
+                                    "error": "x", "cutoff": "2019-08-09"})
+                        + "\n")
+    with pytest.raises(ew.ShardFailed):
+        ew.load_ledger(poisoned)
+    assert ew.completed_keys(poisoned) == set()
+
+    # the generated launcher takes no interpreter (P5-B6)
+    assert ew._no_parameter(ew.launch_script, "python")
+    assert ew._no_parameter(ew.write_launch_script, "python", "kwargs")
+    assert ew.LAUNCH_PYTHON in ew.launch_script(tmp_path)
+
+    # ...and the ordering helper is not a public surface (P5-B5)
+    assert "run_cell_arms" not in ew.__all__
 
 
 def test_a_deciding_tally_with_no_recorded_digest_is_refused(tmp_path):
