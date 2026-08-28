@@ -1182,6 +1182,7 @@ def _bare_engine(post, corpus, *, monkeypatch, evidence=None, ledger=None,
     engine.played = played
     engine.corpus = corpus
     engine.directory = None
+    engine.can_fit = True
     engine.harness_frozen = False
     engine.cfg = post._cfg
     engine.store = object()
@@ -2338,7 +2339,10 @@ def _parity_for(cells):
     return {f"{c['season']}|{c['cutoff_label']}": {
         "key": f"{c['season']}|{c['cutoff_label']}",
         "substantive_digest": f"sub-{c['season']}-{c['cutoff_label']}",
-        "provisional_teams": ["rich"]} for c in cells}
+        "provisional_teams": ["rich"],
+        # §3.3 compares this as a FIELD, and the comparison may not fail open:
+        # a side that is absent is a side that did not match.
+        "effective_posterior_hash": "book"} for c in cells}
 
 
 def _table_runner(shift: float = -0.001, *, break_identity: str | None = None,
@@ -2346,7 +2350,7 @@ def _table_runner(shift: float = -0.001, *, break_identity: str | None = None,
                   break_provisional: bool = False):
     """A stub cell runner with the repaired `TableRunner` output contract."""
 
-    def run(cell):
+    def run(cell, parity_row=None):
         treated = list(cell["treated_clubs"])
         key = f"{cell['season']}|{cell['cutoff_label']}"
         base = 0.08 + 0.0001 * TABLE_LABELS.index(cell["cutoff_label"])
@@ -2418,8 +2422,8 @@ def _run_cells(tmp_path, cells=None, *, runner=None, name="table.jsonl",
     cells = _cells() if cells is None else cells
     path = Path(tmp_path) / name
     ew.run_table(cells, path, runner=runner or _table_runner(),
-                 parity=_parity_for(cells), n_sims=TALLY_N_SIMS, seed=20260611,
-                 config_sha="c", verbose=False, **kwargs)
+                 parity=_parity_for(cells), config_sha="c", verbose=False,
+                 **kwargs)
     rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
     return path, rows
 
@@ -2769,17 +2773,29 @@ def test_the_table_runner_calls_protected_simulate_with_its_own_signature():
 
     import unittest.mock as mock
 
+    # §2.3's closure and §8.6's: `n_sims`, the simulation seed and the chunk
+    # size are not parameters of this surface — it RESOLVES them from the
+    # frozen law — and the played frame is required so the guard can key on the
+    # artifact identity, which is the whole of what the review's NEW-B2 found
+    # missing here.
+    frozen = ew.frozen_table_constants()
+    assert frozen == {"n_sims": 20_000, "seed": 20260611,
+                      "chunk_size": frozen["chunk_size"]}
+    assert not ({"n_sims", "seed", "chunk_size"}
+                & set(inspect.signature(ew.simulate_arm).parameters))
     with mock.patch.object(leaguesim, "simulate", spy):
-        out = ew.simulate_arm("STATE", "BOOK", n_sims=7, seed=11, chunk_size=3,
+        out = ew.simulate_arm("STATE", "BOOK", played=_archive(),
                               n_particles=5)
     assert out == "run"
-    assert seen["args"] == (ew.TABLE_ARM_LABEL, "STATE", "BOOK", 7, 11, 3)
+    assert seen["args"] == (ew.TABLE_ARM_LABEL, "STATE", "BOOK",
+                            frozen["n_sims"], frozen["seed"],
+                            frozen["chunk_size"])
     assert seen["kwargs"] == {"n_particles": 5}
     bound = inspect.signature(leaguesim.simulate).bind(*seen["args"],
                                                        **seen["kwargs"])
     assert bound.arguments["state"] == "STATE"
     assert bound.arguments["book_or_provider"] == "BOOK"
-    assert bound.arguments["seed"] == 11
+    assert bound.arguments["seed"] == frozen["seed"]
 
 
 # ---- §3.3 / §3.3(c): the 35-cell native-parity oracle ---------------------
@@ -2788,15 +2804,29 @@ def test_the_parity_oracle_compares_substantive_digests_and_the_incumbent_set():
     """§3.3: binding the SCHEDULE to protected code binds neither its semantics
     nor its call, and the 19-untouched-cell control compares two arms produced
     by the SAME new code, so shared drift passes it silently."""
-    oracle = {"substantive_digest": "abc", "provisional_teams": ["rich"]}
-    assert ew.assert_native_parity("2019/20|MW6", "abc", oracle,
-                                   ["rich"])["PASS"] is True
+    oracle = {"substantive_digest": "abc", "provisional_teams": ["rich"],
+              "effective_posterior_hash": "book"}
+    assert ew.assert_native_parity("2019/20|MW6", "abc", oracle, ["rich"],
+                                   effective_posterior="book")["PASS"] is True
     with pytest.raises(ew.TableIdentityBreak) as exc:
-        ew.assert_native_parity("2019/20|MW6", "def", oracle, ["rich"])
+        ew.assert_native_parity("2019/20|MW6", "def", oracle, ["rich"],
+                                effective_posterior="book")
     assert "native parity at all thirty-five cells" in str(exc.value)
     with pytest.raises(ew.TableIdentityBreak) as exc:
-        ew.assert_native_parity("2019/20|MW6", "abc", oracle, ["rich", "mid"])
+        ew.assert_native_parity("2019/20|MW6", "abc", oracle, ["rich", "mid"],
+                                effective_posterior="book")
     assert "control arm IS the incumbent arm" in str(exc.value)
+
+    # ...and the effective-posterior comparison MAY NOT FAIL OPEN. The
+    # superseded version compared "only when both hashes are non-null", so a
+    # side that carried none passed a check it never ran.
+    for ours, theirs in ((None, "book"), ("book", None), (None, None)):
+        with pytest.raises(ew.TableIdentityBreak) as exc:
+            ew.assert_native_parity(
+                "2019/20|MW6", "abc",
+                dict(oracle, effective_posterior_hash=theirs), ["rich"],
+                effective_posterior=ours)
+        assert "fails OPEN" in str(exc.value)
 
 
 def test_the_parity_oracle_runs_every_cell_and_resumes(tmp_path):
@@ -2857,14 +2887,13 @@ def test_parity_is_established_before_one_treated_simulation_runs(tmp_path):
     for oracle in ({}, _parity_for(cells[:-1])):
         simulated = []
 
-        def counting(cell, _inner=_table_runner()):
+        def counting(cell, parity_row=None, _inner=_table_runner()):
             simulated.append(cell["season"] + "|" + cell["cutoff_label"])
-            return _inner(cell)
+            return _inner(cell, parity_row)
 
         with pytest.raises(ew.TableIdentityBreak) as exc:
             ew.run_table(cells, tmp_path / "t.jsonl", runner=counting,
-                         parity=oracle, n_sims=TALLY_N_SIMS, seed=1,
-                         config_sha="c", verbose=False)
+                         parity=oracle, config_sha="c", verbose=False)
         assert "before" in str(exc.value).lower()
         assert simulated == [], simulated       # not ONE arm of ONE cell
 
@@ -2875,8 +2904,7 @@ def test_the_treated_run_refuses_a_control_arm_that_drifted_from_protected(
     with pytest.raises(ew.TableIdentityBreak):
         ew.run_table(cells, tmp_path / "t.jsonl",
                      runner=_table_runner(break_parity=True),
-                     parity=_parity_for(cells), n_sims=TALLY_N_SIMS, seed=1,
-                     config_sha="c", verbose=False)
+                     parity=_parity_for(cells), config_sha="c", verbose=False)
 
 
 def test_every_table_row_records_the_digest_of_its_own_tally_file(tmp_path):
@@ -2944,12 +2972,11 @@ def test_the_table_leg_writes_one_row_per_cell_and_resumes(tmp_path):
     cells = _cells()
     path = tmp_path / "table.jsonl"
     out = ew.run_table(cells, path, runner=_table_runner(),
-                       parity=_parity_for(cells), n_sims=TALLY_N_SIMS,
-                       seed=20260611, config_sha="c", verbose=False)
+                       parity=_parity_for(cells), config_sha="c", verbose=False)
     assert out["n_written"] == len(cells) == 35
     again = ew.run_table(cells, path, runner=_table_runner(),
-                         parity=_parity_for(cells), n_sims=TALLY_N_SIMS,
-                         seed=20260611, config_sha="c", verbose=False)
+                         parity=_parity_for(cells), config_sha="c",
+                         verbose=False)
     assert again["n_written"] == 0 and again["n_skipped"] == len(cells)
     # the tallies live beside the ledger, because a [P, C, C] array is not a
     # JSONL field and §5 needs all thirty-two at once
@@ -3082,18 +3109,38 @@ def test_the_bootstrap_refuses_a_common_index_space_it_does_not_have():
 
 # ---- gate (iv), all three parts, and the precision rule --------------------
 
+def _unanimous(point_verdict: bool, *, dissent: int = 0):
+    """A §5.4 unanimity object that could have come from a real run.
+
+    NEW-B3: `table_gate` used to trust "any truthy `mc.unanimity` with
+    `fired=False`", validating "neither `K=200`, seed, 200 verdicts, nor
+    dissent consistency" — so a fabricated `k=1` object could resolve PASS.
+    It validates all of that now, one-directionally: an object that cannot be
+    checked fires P5, which is UNRESOLVED.
+    """
+    verdicts = [point_verdict] * ew.UNANIMITY_K
+    for i in range(dissent):
+        verdicts[i] = not point_verdict
+    return {"k": ew.UNANIMITY_K, "seed": ew.UNANIMITY_SEED,
+            "verdicts": verdicts, "point_verdict": point_verdict,
+            "dissenting": dissent, "fired": bool(dissent)}
+
+
 def _scored(mean_mw6=0.0, ci=(-1.0, 1.0), means=(0.0, 0.0, 0.0), se=None,
             unanimity=None):
     labels = dict(zip(ew.POINT_GATE_LABELS, means))
     mc_se = {"MW6": 0.0, "MW0": 0.0, "MW3": 0.0, "MW10": 0.0}
     mc_se.update(se or {})
+    point_verdict = bool(mean_mw6 > 0.0 and ci[0] > 0.0)
     if unanimity is None:
         # §5.4's default for a scored object that carries no unanimity run at
         # all: a P5 that was never computed is UNRESOLVED, never "small". The
         # tests that are about P1-P4 hand in an agreed one so the gate can
-        # resolve on the condition they are actually about.
-        unanimity = {"k": ew.UNANIMITY_K, "seed": ew.UNANIMITY_SEED,
-                     "dissenting": 0, "fired": False}
+        # resolve on the condition they are actually about — and the gate now
+        # VALIDATES it (K, seed, 200 recorded verdicts, its own dissent count
+        # and this gate's own iv-c point verdict), so an agreed one has to be
+        # a run that could have happened.
+        unanimity = _unanimous(point_verdict)
     mc = {"mc_boot": ew.MC_BOOT, "mc_seed": ew.MC_SEED,
           "n_particles": 1000, "sims_per_particle": 20.0,
           "mc_se_label": mc_se, "mc_se_per_cell": {}}
@@ -3167,8 +3214,7 @@ def test_the_precision_rule_guards_every_deciding_boundary():
     assert "P4" in p4["precision"]["fired"]
     # (P5) iv-c's zero boundary on the interval — the UNANIMITY rule
     p5 = ew.table_gate(_scored(mean_mw6=-0.01, ci=(-0.02, -0.005),
-                               unanimity={"k": ew.UNANIMITY_K,
-                                          "dissenting": 1, "fired": True}))
+                               unanimity=_unanimous(False, dissent=1)))
     assert "P5" in p5["precision"]["fired"]
     # ...and every one of them only ever REFUSES
     for out in (p1, p2, p3, p4, p5):
@@ -3208,12 +3254,30 @@ def test_p5_is_the_unanimity_rule_and_never_a_scale_comparison():
     assert "P5" in absent["precision"]["fired"]
     # ...and unanimity across all 200 lets it resolve
     agreed = ew.table_gate(_scored(
-        mean_mw6=-0.01, ci=(-0.02, -0.005),
-        unanimity={"k": ew.UNANIMITY_K, "dissenting": 0, "fired": False}))
+        mean_mw6=-0.01, ci=(-0.02, -0.005), unanimity=_unanimous(False)))
     assert "P5" not in agreed["precision"]["fired"]
     assert agreed["precision"]["unanimity_k"] == 200
     assert agreed["precision"]["unanimity_seed"] == 20260828
     assert agreed["precision"]["unanimity_dissenting"] == 0
+
+    # NEW-B3: the gate used to trust "any truthy `mc.unanimity` with
+    # `fired=False`", validating "neither `K=200`, seed, 200 verdicts, nor
+    # dissent consistency" — so a FABRICATED object could resolve PASS. Every
+    # one of these says `fired: False` and none of them may resolve the gate.
+    for bad in ({"k": 1, "seed": ew.UNANIMITY_SEED, "verdicts": [False],
+                 "point_verdict": False, "dissenting": 0, "fired": False},
+                {"k": ew.UNANIMITY_K, "seed": ew.UNANIMITY_SEED + 1,
+                 "verdicts": [False] * ew.UNANIMITY_K, "point_verdict": False,
+                 "dissenting": 0, "fired": False},
+                {"k": ew.UNANIMITY_K, "seed": ew.UNANIMITY_SEED,
+                 "point_verdict": False, "dissenting": 0, "fired": False},
+                dict(_unanimous(False, dissent=3), dissenting=0, fired=False),
+                # scored against the OTHER point verdict than this gate's own
+                _unanimous(True)):
+        out = ew.table_gate(_scored(mean_mw6=-0.01, ci=(-0.02, -0.005),
+                                    unanimity=bad))
+        assert "P5" in out["precision"]["fired"], bad
+        assert out["verdict"] == "UNRESOLVED", bad
 
 
 def test_one_dissenting_draw_of_the_two_hundred_is_enough(tmp_path):
@@ -3422,17 +3486,16 @@ def test_a_failed_cell_poisons_the_table_ledger(tmp_path):
     path = tmp_path / "table.jsonl"
     cells = _cells()
 
-    def explode(cell):
+    def explode(cell, parity_row=None):
         raise RuntimeError("the simulator ran out of memory")
 
     with pytest.raises(ew.FitFailed):
         ew.run_table(cells, path, runner=explode, parity=_parity_for(cells),
-                     n_sims=1, seed=1, config_sha="c", verbose=False)
+                     config_sha="c", verbose=False)
     assert ew.poison_rows(path)
     with pytest.raises(ew.ShardFailed):
         ew.run_table(cells, path, runner=_table_runner(),
-                     parity=_parity_for(cells), n_sims=1, seed=1,
-                     config_sha="c", verbose=False)
+                     parity=_parity_for(cells), config_sha="c", verbose=False)
 
 
 def test_the_table_leg_never_appends_to_the_protected_retro_ledger():
@@ -4027,8 +4090,13 @@ def test_the_freeze_reads_the_committed_prose_and_the_committed_bytes():
     frozen either."""
     status = ew.harness_freeze_status()
     assert status["rev"] == "HEAD"
+    # §8.6 condition (1) names ONE file. The superseded guard also accepted
+    # `reports/epl_sim_amendments.md` as a freeze source and then checked the
+    # commit-and-ancestry condition against whichever file carried the hash
+    # table, which is not the file the law names — and §8.3 expressly forbids
+    # appending an amendment-ledger cross-reference for this document.
     assert [s["path"] for s in status["sources"]] == [
-        ew.paths.rel(ew.PREREG_PATH), ew.paths.rel(ew.AMENDMENTS_PATH)]
+        ew.paths.rel(ew.PREREG_PATH)]
     assert all(s["committed"] for s in status["sources"])
     assert all(s["blob"] for s in status["sources"])
     # the prereg is committed and the harness hash table has NOT been pasted:

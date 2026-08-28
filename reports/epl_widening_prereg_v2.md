@@ -549,7 +549,17 @@ environment variable may pass a different `B`, `alpha`, block definition or
 resampling seed into any deciding computation — the two match intervals, the
 MW6 table interval of §5, or the power simulation of §6. A harness that accepts
 one is not the harness this document preregisters. The same closure applies to
-`n_sims` (20,000), `MC_BOOT` (2,000), `SHARDS` (4) and `K` (200, §5.4).
+`n_sims` (20,000), the simulation seed (20260611), the chunk size, `MC_BOOT`
+(2,000), `SHARDS` (4), `K` (200, §5.4) and `e*` itself.
+
+**§8.6's public-surface closure is where that sentence is made mechanical**, and
+it is stated there once for the whole harness rather than repeated per constant:
+a production path RESOLVES `n_sims`, the simulation seed and the chunk size from
+the modules §0.1 pins them in and carries no parameter for them at all; the
+constants that keep a keyword refuse a different value; and every remaining
+seam — an injected implementation, a lifecycle attestation, a truncated
+population — is refused whenever the target artifacts are pinned or the
+directories are the preregistered ones.
 
 **The structural-zero guard is two-sided at the merge.** Every merged row that
 is **not** in the treated set must carry a delta of exactly 0.0 — this covers
@@ -792,16 +802,26 @@ row (`effective_posterior_control`, `effective_posterior_treatment`), checked
 directly the way the provisional sets are. Metadata is checked as metadata; the
 sampler is checked by its output.
 
+**That comparison may not fail open.** A hash absent on either side —
+the new runner's or the protected oracle's — is `TableIdentityBreak`, not a
+comparison skipped. A check that runs only when both sides happen to be present
+is a check a missing field passes, and the whole reason excluding the hash from
+the digest costs nothing is that it is compared somewhere else.
+
 **`sampler_digest`'s signature is pinned.** A committed test asserts
 `list(inspect.signature(sampler_digest).parameters) == ['run', 'tallies']`, and
-a second committed test at `TableRunner` level asserts that **two books
-differing only in `provisional`, over identical retained rows, produce EQUAL
-sampler digests**. Both are required because the in-tree audit of v1 showed that
-a two-line change adding `provisional` to the digest's payload left the whole
-suite green while turning the treated-cell identity test into a test that cannot
-fail — the exact tautology the digest split exists to end. A test that only
-checks which *existing* fields move the digest cannot see a new input channel;
-these two can.
+a second committed test drives **the runner's own paired-arm sequence** — the
+function `TableRunner` is built from — with two books differing only in
+`provisional` over one run and one tally, and asserts that the two arms'
+`provisional` fields differ while their **sampler digests are EQUAL**. Both are
+required because the in-tree audit of v1 showed that a two-line change adding
+`provisional` to the digest's payload left the whole suite green while turning
+the treated-cell identity test into a test that cannot fail — the exact tautology
+the digest split exists to end. A test that only checks which *existing* fields
+move the digest cannot see a new input channel; these two can. The second is
+stated at the level of the paired-arm sequence rather than at `TableRunner`
+itself because `TableRunner.__call__` cannot be entered without a real fit, and
+an obligation no test can execute is the shape §8.5 exists to refuse.
 
 #### The provisional sets, checked as fields
 
@@ -828,13 +848,23 @@ the parity run is executed, not read off the archive ledger.
 
 Three closures make "before" and "all 35" mechanical rather than aspirational:
 
-1. **Completion, not interleaving.** The parity oracle runs to completion over
-   all 35 cells and writes `data/epl/sim/evwiden/parity.jsonl` (35 rows) as its
-   completion marker. `run_table` refuses to simulate any arm until that file
-   exists and carries all 35 cells with matching digests. A design in which the
-   new runner simulates control **and treatment** and only then compares the
-   control against protected output has already executed the treatment before
-   establishing parity, and does not satisfy this clause.
+1. **Completion, not interleaving — and, within a cell, control before
+   treatment.** The parity oracle runs to completion over all 35 cells and writes
+   `data/epl/sim/evwiden/parity.jsonl` (35 rows) as its completion marker.
+   `run_table` refuses to simulate any arm until that file exists and carries all
+   35 cells, each with a digest to compare against. A design in which the new
+   runner simulates control **and treatment** and only then compares the control
+   against protected output has already executed the treatment before
+   establishing parity, and does not satisfy this clause — **including inside a
+   single cell**. The per-cell order is therefore fixed here and is a property of
+   the code rather than of a comment: simulate the control arm, establish that
+   cell's native parity against protected `ArchiveRunner`, and only then simulate
+   the treatment arm. The sequence is one named function, and it takes the
+   simulate and record steps as arguments so that the order can be **executed and
+   observed** without a real fit: a spy records exactly how many arms were
+   simulated before a refusal, which is the only way "before" is checkable at
+   all. A cell handed no parity row at all is `TableIdentityBreak` for the same
+   reason.
 2. **No `--limit` on the oracle.** No CLI flag, keyword or subset argument may
    reduce the oracle's 35 cells. "All 35" is the whole content of the control.
 3. **No `require_parity` parameter exists.** An exposed boolean that turns the
@@ -1980,7 +2010,62 @@ independently execute at least the seeded scenarios of L5, L6, L7, L9, L11, L12
 and L13, so that a report which lies about itself is caught by something other
 than itself.
 
-### 8.6 The freeze guard and the first-fit record
+### 8.6 The freeze guard, the public-surface closure, and the first-fit record
+
+#### The public-surface closure — one guard, one refusal, no exceptions
+
+> **No public surface of the harness accepts any parameter that can alter a
+> frozen constant (`B`, `n_sims`, `seed`, `chunk_size`, `MC_BOOT`, `SHARDS`,
+> `K`, `alpha`, the grid, `e*`), inject an alternative implementation (fitter,
+> engine, runner, parity, `mc`), attest a lifecycle state (`harness_frozen`,
+> `require_canaries`, `check_implementation`, `require_parity`), or truncate a
+> deciding population (`--limit` on any deciding path), when the target
+> artifacts are pinned or the directories are the preregistered ones. Test seams
+> live behind ONE module-level guard that inspects the target and REFUSES
+> pinned/preregistered targets; production paths resolve every constant from the
+> frozen law and take no overrides.**
+
+This is stated as one law rather than as a list of repairs because the defect it
+closes is a **class**, and the class is what kept reopening. v1 and v2's first
+harness each closed the leaks one at a time — a `harness_frozen` Boolean here, an
+injected runner there, an `n_sims` keyword somewhere else, a `--limit` on a third
+path — and each time a review found another surface of the same shape. The
+enumeration above is therefore illustrative and the sentence is the rule: **any**
+parameter with one of those four effects is closed on those terms, named here or
+not.
+
+Four consequences, all mechanical:
+
+1. **Constants are resolved, never accepted.** `n_sims` (20,000), the simulation
+   seed (20260611) and the chunk size are not parameters of `TableRunner`,
+   `ParityRunner`, `run_table` or the single `leaguesim.simulate` call at all:
+   the harness reads them from `epl.simretro` and `epl.leaguesim`, which is where
+   §0.1 pins them. `B`, `alpha`, `MC_BOOT`, `MC_SEED`, `K`, `SHARDS` and `e*`
+   keep their keywords — a keyword that names a constant is how a caller says
+   *which* computation it means — but a **different value** is refused.
+2. **Seams are guarded, not removed.** §7.3's seeded-defect audit needs to
+   inject; §8.2 authorises it "on SYNTHETIC corpora only", in a directory of its
+   own. The single guard is exactly that condition made mechanical: a seam is
+   refused when the played frame is the pinned archive, when it is **derived**
+   from the pinned archive, when the corpus is the pinned corpus, or when the
+   target directory is (or sits inside) one of the preregistered ones. A caller
+   that names no directory is refused too, because the default is the
+   preregistered run directory.
+3. **The ambiguous middle is refused, not allowed.** §7.4 defines SYNTHETIC as
+   *literal*: every value written in `epl/tests/test_evwiden.py`. A frame that is
+   neither byte-identical to the pinned archive nor literal — one derived from it
+   and altered — is neither, and a guard that resolves its own doubt in favour of
+   fitting is not a guard. The mechanical test is ancestry: a frame naming any of
+   the pinned archive's own club keys was derived from it.
+4. **`--limit` names one thing.** §8.4 step 2 is `--run --limit 1` and that is
+   the only population the flag may name; every other value is refused on every
+   path, including the parity oracle's 35 cells (§3.3's closure 2).
+
+One mode is **not** a seam and is named here so the distinction is not argued
+later: a construction-only `Engine` (§8.2's pass 4). It can only ever make the
+object *less* capable — `Engine.fit` refuses on it structurally, before the
+sampler is reached — and it obtains its store from §8.2's read-only accessor. A
+parameter that cannot enable anything is not a parameter that needs guarding.
 
 #### The guard establishes state; it never accepts it
 
@@ -1989,22 +2074,39 @@ than itself.
 `harness_frozen` parameter, and no other entry point may introduce one. A guard
 that trusts a caller-supplied `True` performs no verification at exactly the
 moment verification matters, and a direct harness call could then fit the pinned
-artifacts while unfrozen — which is the whole of what "anywhere" forbids.
+artifacts while unfrozen — which is the whole of what "anywhere" forbids. The
+same objection reaches `merge`, which fits and simulates nothing but would
+otherwise score a ledger past the freeze check on a caller's word: its two
+lifecycle keywords survive only as seams, under the closure above, and neither is
+reachable from the CLI.
 
 **The guard establishes the state itself, every time it is asked**, from
 committed bytes and Git ancestry:
 
-1. `reports/epl_widening_prereg_v2.md` is **committed**, and the commit that last
-   touched it is an **ancestor of HEAD**;
+1. `reports/epl_widening_prereg_v2.md` — **this file and no other** — is
+   **committed**, and the commit that last touched it is an **ancestor of
+   HEAD**. No second source is accepted: §8.3 forbids an amendment-ledger
+   cross-reference for this document, so a guard that would read one is a guard
+   checking condition (1) against a file this law does not name;
 2. the freeze block in that **committed blob** carries a harness hash table whose
    two SHA-256 values equal the current bytes of `epl/evwiden.py` and
    `epl/tests/test_evwiden.py`;
 3. the **schema identifier** in that block is `epl-evwiden-2`, and the
-   **membership digests** it records equal a fresh recomputation from the pinned
-   artifacts;
-4. the first-fit record, if present, is consistent with (1)–(3).
+   **membership digests** it records **equal** a fresh recomputation from the
+   pinned artifacts — equality in both directions, over the block's own
+   membership table: a recorded digest no recomputation produces is as much a
+   failure as a recomputed one the block does not record;
+4. the first-fit record, if present, is consistent with (1)–(3) **and carries
+   every field §8.6 fixes**. A record that omits one cannot be validated against
+   it, and a guard that reads each field "if present" passes a record with the
+   fields stripped out;
+5. the **conformance report inside that committed block** carries §8.5's rows and
+   every one of them is green. §8.5 makes a green report the precondition of
+   *rendering* the block; without this condition the guard would establish the
+   freeze state from a block that had been rendered past it, and the block would
+   then be the committed evidence for its own legitimacy.
 
-All four, or `FreezeStateUnverified`. Parsing two hash lines out of current prose
+All five, or `FreezeStateUnverified`. Parsing two hash lines out of current prose
 is not a freeze: an uncommitted paste satisfies it, and this document does not
 accept it as one.
 
@@ -2016,12 +2118,17 @@ from nothing else. **No function that reads or writes it takes a directory
 argument.** v1's record was written below the caller's chosen directory, so a
 fresh or deleted `--dir` reset the entire R-B6 regime.
 
-It records: the UTC instant of the first real fit; the entry point that performed
-it; the Git HEAD commit at that moment; **the Git blob id of
-`reports/epl_widening_prereg_v2.md` at that commit**; and the SHA-256 of both
-hashed harness files. On every later fit the guard re-reads it and raises
-`FreezeStateUnverified` if the recorded prereg blob is not the blob of the freeze
-commit, or if a hashed file's current bytes differ from the recorded ones.
+It records: the schema identifier; **the UTC instant of the first real fit** —
+written by the call that performs the fit, immediately before it enters the
+sampler, and never by the permission check that precedes it, because a timestamp
+taken while deciding whether a fit may happen is not the instant one did; the
+entry point that performed it; the Git HEAD commit at that moment; **the Git blob
+id of `reports/epl_widening_prereg_v2.md` at that commit**; and the SHA-256 of
+both hashed harness files. **All of them are required**, and a record missing one
+is `FreezeStateUnverified` rather than a record with a gap. On every later fit
+the guard re-reads it and raises `FreezeStateUnverified` if the recorded prereg
+blob is not the blob of the freeze commit, or if a hashed file's current bytes
+differ from the recorded ones.
 
 **What the record proves, and what it does not.** Its **presence** proves a real
 fit happened in this checkout and binds what may change afterwards — it is a
