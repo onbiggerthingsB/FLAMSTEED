@@ -5735,8 +5735,9 @@ def test_the_freeze_block_is_harness_produced_and_round_trips(
     assert "Prior history" in block
     # ...and §0.6's census record, bound by digest (§8.3)
     assert ew.FEASIBILITY_SHA256 in block
+    escaped = "\\|"          # a `|` inside a markdown cell splits the row
     for key in ew.EXCLUDED_CELLS:
-        assert key in block, key
+        assert key.replace("|", escaped) in block, key
         assert ew.EXCLUDED_CELL_DETAIL[key]["fixture"] in block
     assert "not the run this document preregisters" in block
     assert "the per-label treated census" in block          # §3.3's pin
@@ -7429,3 +7430,27 @@ def test_the_artifact_names_the_harness_it_ran_against(tmp_path, monkeypatch):
     assert "different harness bytes" in status["why"]
     with pytest.raises(ew.EvWidenError):
         ew.assert_conformance_artifact()
+
+
+def test_the_rendered_block_is_a_paste_and_not_a_transcription(unrun_feasibility,
+                                                               capsys):
+    """§8.3 step 2: the commit APPENDS the rendered block. Anything the render
+    prints alongside it lands in the document, so §8.5's CLI probes — each of
+    which is `main` correctly writing a `STOP:` line — must not reach stdout."""
+    capsys.readouterr()
+    block = ew.freeze_block()
+    out = capsys.readouterr().out
+    assert "STOP:" not in out, out[:400]
+    assert "STOP:" not in block
+    # ...and §8.3's membership list is complete: both per-label censuses and
+    # the three keys §0.6 measured as unpriceable
+    assert "the per-label treated census" in block
+    assert "the per-label CELL census" in block
+    assert "measured as UNPRICEABLE" in block
+    # ...each key with its `|` ESCAPED, because an unescaped pipe inside a
+    # markdown cell splits the row and §8.6 condition (3) would then read a
+    # membership table whose columns had shifted
+    escaped = "\\|"          # a `|` inside a markdown cell splits the row
+    for key in ew.EXCLUDED_CELLS:
+        assert key.replace("|", escaped) in block, key
+        assert f"| {key} |" not in block, key

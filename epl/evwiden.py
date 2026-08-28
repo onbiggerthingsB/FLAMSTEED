@@ -1505,6 +1505,20 @@ def membership_digests(corpus: pd.DataFrame, played: pd.DataFrame,
             f"{c['season']}|{c['cutoff_label']}" for c in treated_cells]
         out["keys"]["table_untouched"] = [
             f"{c['season']}|{c['cutoff_label']}" for c in untouched]
+        # v3 §8.3: the freeze block records BOTH per-label censuses and the
+        # three excluded keys, so §8.6 condition (3) — which asks for EQUALITY
+        # in both directions between the block and a fresh recomputation — has
+        # something to recompute them from. A digest the block records and no
+        # recomputation produces is as much a failure as the reverse.
+        census = assert_table_census(table)
+        out["counts"]["table_cells_by_label"] = dict(census["cells_by_label"])
+        out["counts"]["table_treated_by_label"] = dict(census["by_label"])
+        out["digests"]["table_cells_by_label"] = _digest_list(
+            f"{k}={v}" for k, v in sorted(census["cells_by_label"].items()))
+        out["digests"]["table_treated_by_label"] = _digest_list(
+            f"{k}={v}" for k, v in sorted(census["by_label"].items()))
+        out["digests"]["table_excluded"] = _digest_list(EXCLUDED_CELLS)
+        out["keys"]["table_excluded"] = list(EXCLUDED_CELLS)
     return out
 
 
@@ -9044,6 +9058,21 @@ def _accepted(fn) -> bool:
     return True
 
 
+def _silently(fn, *args, **kwargs):
+    """Call `fn` with stdout swallowed.
+
+    §8.5's L18 probes the CLI by calling :func:`main`, which prints a `STOP:`
+    line for every refusal — correct behaviour, and noise in a hash table that
+    §8.3 step 2 says is PASTED into the document rather than transcribed. The
+    return value is what the row grades; the print is not.
+    """
+    import contextlib
+    import io
+
+    with contextlib.redirect_stdout(io.StringIO()):
+        return fn(*args, **kwargs)
+
+
 def _cli_arguments() -> list[str]:
     """Every `add_argument` line of :func:`main`, as source text.
 
@@ -10372,7 +10401,7 @@ def implementation_report() -> list[dict[str, Any]]:
                            f"{k.split('|')[1]}.npz" in m
                            for k in EXCLUDED_CELLS for m in MANIFEST_PATHS)
                and bool(kept["scored"].get("per_cell"))
-               and main(["--shards", "2", "--merge"]) == 2
+               and _silently(main, ["--shards", "2", "--merge"]) == 2
                # every sequence marker is a manifest member, so publication
                # cannot rewrite one after hashing it (§9.3)
                and all(f"data/epl/fit/evwiden/sequence/{step}.json"
@@ -10491,10 +10520,14 @@ def implementation_report() -> list[dict[str, Any]]:
             frozen_budget == {"n_sims": 20_000, "seed": 20260611,
                               "chunk_size": frozen_budget["chunk_size"]},
             frozen_budget["n_sims"] == 20_000,
-            main(["--n-boot", "500", "--merge"]) == 2,
-            main(["--shard", "0/2", "--run"]) == 2,
-            main(["--limit", "2", "--run"]) == 2,
-            main(["--limit", "1", "--table"]) == 2,
+            # §8.3 step 2's block is PASTED into the document, so the rows
+            # that probe the CLI may not print their refusals onto the render.
+            # Each of these `main` calls writes a STOP line to stdout, which is
+            # the CLI behaving correctly and is noise in a hash table.
+            _silently(main, ["--n-boot", "500", "--merge"]) == 2,
+            _silently(main, ["--shard", "0/2", "--run"]) == 2,
+            _silently(main, ["--limit", "2", "--run"]) == 2,
+            _silently(main, ["--limit", "1", "--table"]) == 2,
             # v3 §8.4, P5-B8: the table ledger is RESOLVED and no flag names it
             not any("table-ledger" in line or "table_ledger" in line
                     for line in _cli_arguments()),
@@ -10672,6 +10705,21 @@ def freeze_block(corpus: pd.DataFrame | None = None,
         f"| the per-label treated census (§3.3) | "
         f"{json.dumps(census['by_label'])} | "
         f"`{_digest_list(f'{k}={v}' for k, v in sorted(census['by_label'].items()))}` |",
+        # v3 §8.3: the block carries "the three excluded cell keys of §0.6, and
+        # BOTH per-label censuses". The CELL census is the pin v2 never needed,
+        # and after §0.6 §4.1's ground is a claim about the two together.
+        f"| the per-label CELL census (§3.3) | "
+        f"{json.dumps(census['cells_by_label'])} | "
+        f"`{_digest_list(f'{k}={v}' for k, v in sorted(census['cells_by_label'].items()))}` |",
+        # ...with the `|` in each key ESCAPED. A cell key is `season|label`,
+        # and an unescaped pipe inside a markdown cell splits the row — which
+        # would leave §8.6 condition (3) reading a membership table whose
+        # columns had shifted. §9.3's tally names carry the same escape for the
+        # same reason.
+        f"| the cells §0.6 measured as UNPRICEABLE | "
+        f"{len(EXCLUDED_CELLS)} — "
+        f"{', '.join(k.replace('|', chr(92) + '|') for k in EXCLUDED_CELLS)} | "
+        f"`{_digest_list(EXCLUDED_CELLS)}` |",
         "",
         "| pinned artifact | SHA-256 |",
         "|---|---|",
@@ -10709,7 +10757,8 @@ def freeze_block(corpus: pd.DataFrame | None = None,
         f"| cells attempted | {feasibility['cells_attempted']} |",
         f"| priceable | {feasibility['n_priceable']} |",
         f"| unpriceable | {feasibility['n_unpriceable']} — "
-        + "; ".join(f"{k} ({EXCLUDED_CELL_DETAIL[k]['fixture']}, mass "
+        + "; ".join(f"{k.replace('|', chr(92) + '|')} "
+                    f"({EXCLUDED_CELL_DETAIL[k]['fixture']}, mass "
                     f"{EXCLUDED_CELL_DETAIL[k]['excluded_mass']} vs the "
                     f"{EXCLUDED_CELL_DETAIL[k]['ceiling']} A1 ceiling)"
                     for k in feasibility["unpriceable"]) + " |",
