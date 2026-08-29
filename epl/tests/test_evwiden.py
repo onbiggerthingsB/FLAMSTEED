@@ -2416,26 +2416,32 @@ def _tally(shift: int, *, jitter: int = 0, particles: int = TALLY_PARTICLES,
 
 
 def _cells(seasons=TABLE_SEASONS, labels=TABLE_LABELS):
-    """v3 §3.3's 32 cells, with §4.1's per-label treated census."""
-    treated_by_label = dict(ew.EXPECTED_TREATED_BY_LABEL)
+    """v3 §3.3's 32 cells — the FROZEN SCHEDULE, tuple by tuple.
+
+    The adjudication of 2026-08-29 (F6) binds `assert_table_census` to the exact
+    (season, label, cutoff-date, treated-club) tuples, so a synthetic leg that
+    invented its own cutoffs and gave every treated cell the same club is no
+    longer a population the production path could produce. The tuples come from
+    `ew.FROZEN_TABLE_SCHEDULE`, which is a constant written literally in the
+    harness the freeze commit hashes — §7.4 is satisfied for the same reason it
+    always was. The club UNIVERSE stays synthetic: three invented rows carry the
+    tallies, and the treated names are identities the census binds, not clubs
+    this leg simulates.
+    """
     out = []
-    for label in labels:
-        seen = 0
-        for i, season in enumerate(seasons):
-            if f"{season}|{label}" in ew.EXCLUDED_CELLS:
-                continue
-            treated = (["sunderland"]
-                       if seen < treated_by_label.get(label, 0) else [])
-            seen += 1
-            out.append({
-                "season": season, "cutoff_label": label,
-                "cutoff": f"20{19 + i}-08-{10 + TABLE_LABELS.index(label):02d}",
-                "clubs": list(TABLE_CLUBS),
-                "provisional_incumbent": ["rich"],
-                "provisional_enlarged": sorted(["rich"] + treated),
-                "treated_clubs": treated,
-                "evidence": {"sunderland": 0.17, "rich": 50.0, "mid": 5.0},
-            })
+    for season, label, cutoff, treated in ew.FROZEN_TABLE_SCHEDULE:
+        if season not in seasons or label not in labels:
+            continue
+        treated = list(treated)
+        out.append({
+            "season": season, "cutoff_label": label, "cutoff": cutoff,
+            "clubs": list(TABLE_CLUBS),
+            "provisional_incumbent": ["rich"],
+            "provisional_enlarged": sorted(["rich"] + treated),
+            "treated_clubs": treated,
+            "evidence": {**{c: 0.17 for c in treated},
+                         "sunderland": 0.17, "rich": 50.0, "mid": 5.0},
+        })
     return out
 
 
@@ -3252,7 +3258,7 @@ def _scored(mean_mw6=0.0, ci=(-1.0, 1.0), means=(0.0, 0.0, 0.0), se=None,
     if unanimity != "absent":
         mc["unanimity"] = unanimity
     return {
-        "n_cells": 35, "n_treated_cells": 16,
+        "n_cells": 32, "n_treated_cells": 15,
         "mw6": {"cutoff_label": "MW6", "n": 7, "mean": mean_mw6,
                 "ci95": list(ci), "n_blocks": 7},
         "per_label": {lab: {"cutoff_label": lab, "n_treated": 3,
@@ -3260,6 +3266,9 @@ def _scored(mean_mw6=0.0, ci=(-1.0, 1.0), means=(0.0, 0.0, 0.0), se=None,
                       for lab in ew.POINT_GATE_LABELS},
         "mw19": {"structural_zero": True, "decides": "nothing"},
         "mc": mc,
+        # the gate binds the exact thirty-two on its own object (adjudication
+        # F6), so a scored object that decides anything carries the schedule
+        "per_cell": _census_cells(),
     }
 
 
@@ -3504,16 +3513,17 @@ def test_score_table_refuses_an_untouched_cell_that_moved(tmp_path):
 
 def test_the_hull_analogue_is_printed_with_no_decision_weight(tmp_path):
     """§3.4: "the one Hull-analogue — illustrative, no decision weight"."""
-    cells = _cells()
-    for cell in cells:
-        if cell["season"] == "2019/20" and cell["treated_clubs"]:
-            cell["season"] = "2025/26"
-    path, rows = _run_cells(tmp_path, cells)
+    path, rows = _run_cells(tmp_path, _cells())
     scored = ew.score_table(rows, ledger_path=path)
     assert scored["hull_analogue"]["club"] == "sunderland"
-    # 2025/26's own MW6 cell is treated already (all seven MW6 cells are), and
-    # the four renamed 2019/20 cells join it
-    assert scored["hull_analogue"]["n_cells"] == 4
+    # The analogue is no longer manufactured by renaming seasons — after the
+    # adjudication's F6 the census binds the exact schedule, and the schedule
+    # ALREADY carries it: Sunderland is the treated club at 2025/26's MW0, MW3
+    # and MW6, which is §0.5's "Hull configuration one season early".
+    assert scored["hull_analogue"]["n_cells"] == 3
+    assert sorted(c["cutoff_label"]
+                  for c in scored["hull_analogue"]["cells"]) == [
+        "MW0", "MW3", "MW6"]
     assert "no decision weight" in scored["hull_analogue"]["label"]
     detail = scored["hull_analogue"]["cells"][0]
     assert set(detail["control"]) >= {"p_relegated", "points_mean", "points_p5",
@@ -5071,6 +5081,70 @@ def test_the_per_label_treated_census_is_a_binding_pin(tmp_path, monkeypatch):
         ew.assert_table_census(moved)
     assert "per-label" in str(exc.value)
     assert "MW6 is the only label" in str(exc.value)
+
+
+def test_the_census_binds_the_exact_thirty_two_tuples(tmp_path):
+    """The adjudication of 2026-08-29, F6 (V3-B1, the accident-defence core).
+    "The active aggregate constants are right, but no single production
+    assertion establishes the frozen exact schedule, unique keys, cutoff dates,
+    and treated-club membership. `assert_table_census` permits a bogus same-label
+    season or altered cutoff/treated club [...] This defeats the core v3 promise
+    that the experiment is exactly the measured 32, not merely any 32 with the
+    same aggregate census."
+
+    F6: "bind the EXACT 32 cells on the production path: `assert_table_census`
+    extended to the frozen (season, label, cutoff-date, treated-club) tuples,
+    called on every deciding path; membership digests include cutoff and club
+    identity."
+    """
+    assert len(ew.FROZEN_TABLE_SCHEDULE) == ew.EXPECTED_TABLE_CELLS
+    assert sum(1 for c in ew.FROZEN_TABLE_SCHEDULE if c[3]) == \
+        ew.EXPECTED_TABLE_TREATED
+    cells = _cells()
+    assert ew.assert_table_census(cells)["PASS"] is True
+
+    # (a) THE CUTOFF DATE. Same season, same label, same treated club, a
+    #     different day: the aggregate census cannot see it.
+    drifted = [dict(c) for c in cells]
+    drifted[0] = dict(drifted[0], cutoff="2019-08-30")
+    with pytest.raises(ew.MembershipMismatch) as exc:
+        ew.assert_table_census(drifted)
+    assert "2019-08-30" in str(exc.value)
+
+    # (b) THE TREATED CLUB'S IDENTITY. Same counts everywhere, a different club.
+    swapped = [dict(c) for c in cells]
+    i = next(i for i, c in enumerate(swapped) if c["treated_clubs"])
+    swapped[i] = dict(swapped[i], treated_clubs=["a_club_that_never_played"])
+    with pytest.raises(ew.MembershipMismatch) as exc:
+        ew.assert_table_census(swapped)
+    assert "a_club_that_never_played" in str(exc.value)
+
+    # (c) A BOGUS SAME-LABEL SEASON substituted for a real one keeps every
+    #     count intact and every per-label census intact.
+    bogus = [dict(c) for c in cells]
+    j = next(j for j, c in enumerate(bogus) if c["cutoff_label"] == "MW19")
+    bogus[j] = dict(bogus[j], season="2018/19")
+    with pytest.raises(ew.MembershipMismatch) as exc:
+        ew.assert_table_census(bogus)
+    assert "2018/19" in str(exc.value)
+
+    # ...and every deciding path asks. `score_table` and `table_gate` bind the
+    # rows, which is what binds §5's estimator and §5.4's unanimity rule too:
+    # NB7 closed `tallies=`/`mc=`, so those two see exactly `score_table`'s own
+    # population and no other.
+    for fn in (ew.table_cells, ew.run_table, ew.run_parity_oracle,
+               ew.score_table, ew.table_gate):
+        assert "assert_table_census" in ew._calls_made(fn), fn
+
+    # ...and the frozen membership digests carry the cutoff and the club
+    # identity, so §8.6 condition (3)'s equality is an equality about the exact
+    # schedule and not about two counts that happen to agree
+    base = ew.table_schedule_digest(cells)
+    assert base == ew.table_schedule_digest(_cells())
+    assert base != ew.table_schedule_digest(drifted)     # a moved cutoff
+    assert base != ew.table_schedule_digest(swapped)     # a different club
+    assert "table_schedule" in ew._calls_made(ew.membership_digests) or \
+        "table_schedule_digest" in ew._calls_made(ew.membership_digests)
 
 
 @pinned
@@ -7012,24 +7086,20 @@ def test_a_cell_the_census_excluded_may_not_reappear():
 
 
 def _census_cells():
-    """A synthetic 32-cell census carrying §3.3's own two per-label pins.
+    """§3.3's 32-cell census: the FROZEN SCHEDULE, tuple by tuple.
 
-    Every value is written literally here, per §7.4."""
-    out = []
-    for label, n_cells in ew.EXPECTED_CELLS_BY_LABEL.items():
-        treated = ew.EXPECTED_TREATED_BY_LABEL[label]
-        seasons = [s for s in ("2019/20", "2020/21", "2021/22", "2022/23",
-                               "2023/24", "2024/25", "2025/26")
-                   if f"{s}|{label}" not in ew.EXCLUDED_CELLS]
-        assert len(seasons) == n_cells
-        for i, season in enumerate(seasons):
-            out.append({"season": season, "cutoff_label": label,
-                        "cutoff": "2019-08-09", "clubs": ["a", "b"],
-                        "provisional_incumbent": [],
-                        "provisional_enlarged": ["a"] if i < treated else [],
-                        "treated_clubs": ["a"] if i < treated else [],
-                        "evidence": {"a": 0.0, "b": 60.0}})
-    return out
+    Every value is written literally in `ew.FROZEN_TABLE_SCHEDULE`, which the
+    freeze commit hashes, so §7.4 holds for the same reason it held when this
+    helper invented its own cutoffs — and after the adjudication's F6 the
+    census binds the exact (season, label, cutoff, treated club) tuples, so
+    inventing them is no longer describing this experiment.
+    """
+    return [{"season": season, "cutoff_label": label, "cutoff": cutoff,
+             "clubs": ["a", "b"], "provisional_incumbent": [],
+             "provisional_enlarged": ["a"] if treated else [],
+             "treated_clubs": list(treated),
+             "evidence": {"a": 0.0, "b": 60.0}}
+            for season, label, cutoff, treated in ew.FROZEN_TABLE_SCHEDULE]
 
 
 def test_the_manifest_is_49_paths_and_its_tallies_are_the_32():

@@ -376,6 +376,82 @@ EXCLUDED_CELL_DETAIL: dict[str, dict[str, Any]] = {
                     "excluded_mass": 0.0328, "ceiling": 0.02},
 }
 
+#: v3 §3.3's SCHEDULE, cell by cell: `(season, cutoff_label, cutoff date,
+#: treated clubs)` for each of the thirty-two priceable cells, recomputed from
+#: the pinned artifacts by §8.2's read-only pass and frozen here.
+#:
+#: The adjudication of 2026-08-29 (F6, V3-B1) made this a pin rather than a
+#: derivation: "the active aggregate constants are right, but no single
+#: production assertion establishes the frozen exact schedule, unique keys,
+#: cutoff dates, and treated-club membership. `assert_table_census` permits a
+#: bogus same-label season or altered cutoff/treated club [...] This defeats the
+#: core v3 promise that the experiment is exactly the measured 32, not merely
+#: any 32 with the same aggregate census."
+#:
+#: Every aggregate this document pins — 32/15/17, both per-label censuses, the
+#: three exclusions, MW6's all-treated ground — is a consequence of this table
+#: and is checked against it. A cell substituted for another at the same label,
+#: a cutoff moved by a week, or a treated club exchanged for a neighbour leaves
+#: every one of those aggregates intact, and none of them survives this.
+FROZEN_TABLE_SCHEDULE: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
+    ("2019/20", "MW3", "2019-08-31", ("aston_villa", "norwich")),
+    ("2019/20", "MW6", "2019-09-28",
+     ("aston_villa", "norwich", "sheffield_united")),
+    ("2019/20", "MW10", "2019-11-02", ("sheffield_united",)),
+    ("2019/20", "MW19", "2020-01-01", ()),
+    ("2020/21", "MW3", "2020-10-17", ()),
+    ("2020/21", "MW6", "2020-11-02", ("leeds",)),
+    ("2020/21", "MW10", "2020-12-07", ()),
+    ("2020/21", "MW19", "2021-02-02", ()),
+    ("2021/22", "MW0", "2021-08-13", ()),
+    ("2021/22", "MW3", "2021-09-11", ()),
+    ("2021/22", "MW6", "2021-10-16", ("brentford",)),
+    ("2021/22", "MW10", "2021-11-20", ("brentford",)),
+    ("2021/22", "MW19", "2022-01-03", ()),
+    ("2022/23", "MW0", "2022-08-05", ()),
+    ("2022/23", "MW3", "2022-08-30", ()),
+    ("2022/23", "MW6", "2022-09-16", ("nottm_forest",)),
+    ("2022/23", "MW10", "2022-10-24", ()),
+    ("2022/23", "MW19", "2023-01-23", ()),
+    ("2023/24", "MW0", "2023-08-11", ("sheffield_united",)),
+    ("2023/24", "MW6", "2023-10-02", ("luton",)),
+    ("2023/24", "MW10", "2023-11-04", ("luton",)),
+    ("2023/24", "MW19", "2024-01-01", ()),
+    ("2024/25", "MW0", "2024-08-16", ()),
+    ("2024/25", "MW3", "2024-09-14", ()),
+    ("2024/25", "MW6", "2024-10-19", ("ipswich",)),
+    ("2024/25", "MW10", "2024-11-23", ("ipswich",)),
+    ("2024/25", "MW19", "2025-01-06", ()),
+    ("2025/26", "MW0", "2025-08-15", ("sunderland",)),
+    ("2025/26", "MW3", "2025-09-13", ("sunderland",)),
+    ("2025/26", "MW6", "2025-10-18", ("sunderland",)),
+    ("2025/26", "MW10", "2025-11-22", ()),
+    ("2025/26", "MW19", "2026-01-06", ()),
+)
+
+
+def schedule_tuple(cell: dict[str, Any]) -> tuple[str, str, str, tuple[str, ...]]:
+    """One cell's place in :data:`FROZEN_TABLE_SCHEDULE`, from a cell or a row.
+
+    Table cells and table-ledger rows carry the same four fields, which is why
+    the same assertion can stand on the enumeration path and on every path that
+    reads the ledger back.
+    """
+    return (str(cell["season"]), str(cell["cutoff_label"]), str(cell["cutoff"]),
+            tuple(sorted(str(c) for c in (cell.get("treated_clubs") or ()))))
+
+
+def table_schedule_digest(cells: Sequence[dict[str, Any]]) -> str:
+    """The canonical digest of the exact schedule — cutoffs and clubs included.
+
+    §8.3's frozen membership digests recorded `season|cutoff_label` alone, so
+    two schedules differing only in a cutoff date or a treated club hashed the
+    same and §8.6 condition (3)'s equality could not see the difference (F6).
+    """
+    return _digest_list("|".join((s, lab, cut, ",".join(clubs)))
+                        for s, lab, cut, clubs in map(schedule_tuple, cells))
+
+
 #: §5.3's season-block interval of the MW6 mean: `epl.score.block_bootstrap_ci`,
 #: the seven season strings one cell per block, B = 10,000, alpha = 0.05, the
 #: standard resampling seed. A seven-block percentile bootstrap has poor
@@ -1497,10 +1573,13 @@ def membership_digests(corpus: pd.DataFrame, played: pd.DataFrame,
         out["counts"]["table_cells"] = len(table)
         out["counts"]["table_treated"] = len(treated_cells)
         out["counts"]["table_untouched"] = len(untouched)
-        out["digests"]["table_treated"] = _digest_list(
-            [f"{c['season']}|{c['cutoff_label']}" for c in treated_cells])
-        out["digests"]["table_untouched"] = _digest_list(
-            [f"{c['season']}|{c['cutoff_label']}" for c in untouched])
+        # ...and the two digests carry the CUTOFF DATE and the TREATED CLUBS
+        # (adjudication F6). `season|cutoff_label` alone hashed two schedules
+        # differing by a week or by a club to the same value, so §8.6 condition
+        # (3)'s equality could not see the difference it exists to see.
+        out["digests"]["table_treated"] = table_schedule_digest(treated_cells)
+        out["digests"]["table_untouched"] = table_schedule_digest(untouched)
+        out["digests"]["table_schedule"] = table_schedule_digest(table)
         out["keys"]["table_treated"] = [
             f"{c['season']}|{c['cutoff_label']}" for c in treated_cells]
         out["keys"]["table_untouched"] = [
@@ -5815,9 +5894,34 @@ def assert_table_census(cells: Sequence[dict[str, Any]]) -> dict[str, Any]:
         raise MembershipMismatch(                          # pragma: no cover
             f"the all-treated labels are {all_treated} and §4.1's ground for "
             f"the deciding horizon requires exactly [{MW6_LABEL!r}].")
+
+    # ---- THE EXACT THIRTY-TWO (adjudication F6, V3-B1) --------------------
+    # Everything above is an AGGREGATE, and V3-B1's finding is that every one of
+    # them survives a substitution: "a bogus same-label season or altered
+    # cutoff/treated club" keeps the totals, both per-label censuses and MW6's
+    # ground intact. This is the check that does not: the frozen
+    # (season, label, cutoff-date, treated-club) tuples, exactly, as §8.2's
+    # read-only pass measured them.
+    want = sorted(FROZEN_TABLE_SCHEDULE)
+    got = sorted(schedule_tuple(c) for c in cells)
+    if got != want:
+        short = [t for t in want if t not in got]
+        stray = [t for t in got if t not in want]
+        raise MembershipMismatch(
+            f"the schedule is not §3.3's exact thirty-two: {len(stray)} cell(s) "
+            f"this census carries are not in it (first: {stray[:3]}) and "
+            f"{len(short)} of its own are missing (first: {short[:3]}). Every "
+            "count above — 32/15/17, both per-label censuses, MW6's "
+            "all-treated ground — survives a substituted season, a cutoff moved "
+            "by a week or a treated club exchanged for a neighbour, and this is "
+            "the check that does not. §3.3's population is the exact thirty-two "
+            "the read-only pass measured, not any thirty-two with the same "
+            "aggregate census, and §10 makes changing one an invalidation.")
+
     return {"n_cells": len(cells), "n_treated": len(treated),
             "by_label": by_label, "cells_by_label": cells_by_label,
             "excluded": list(EXCLUDED_CELLS), "all_treated": all_treated,
+            "schedule_digest": table_schedule_digest(cells),
             "PASS": True,
             "ground": ("MW6 is the only label at which every cell is treated, "
                        "which is why §4.1 names it the deciding horizon")}
@@ -6626,6 +6730,10 @@ def run_parity_oracle(cells: Sequence[dict[str, Any]],
     parity oracle" into §2.4's standing refusal to thin the run.
     """
     path = Path(path)
+    # The EXACT thirty-two, on the oracle path too (adjudication F6): the oracle
+    # is what "all thirty-two priceable cells" names, and it was reachable with
+    # any thirty-two that hit the aggregate census.
+    assert_table_census(cells)
     # v3 §8.6, NB6: "`merge`, `run_table` and `run_parity_oracle` require the
     # sequence THEMSELVES. Each calls §8.4's marker check for its own step on
     # every invocation — not only when reached through `main` — so a direct API
@@ -7005,6 +7113,10 @@ def run_table(cells: Sequence[dict[str, Any]],
                                        "supplied oracle is not the run this "
                                        "document preregisters")
     harness_frozen = _frozen_now()
+    # The EXACT thirty-two, here and not only where they were enumerated
+    # (adjudication F6, V3-B1: "direct table/oracle paths bypass it"). A direct
+    # `run_table(cells, ...)` is the deciding leg however it was reached.
+    assert_table_census(cells)
     # v3 §8.6, NB6: step 5's own marker check, on every invocation and not only
     # through `main`. A direct `run_table(...)` used to be as unordered as a
     # function call.
@@ -7562,6 +7674,12 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
         raise MergeIncomplete(
             f"{len(rows)} table cells, not the pre-stated {expected_cells}. §10 "
             "makes dropping a cell after the run starts an invalidation.")
+    # The EXACT thirty-two (adjudication F6, V3-B1: "gate/bootstrap/unanimity
+    # accept wrong populations"). This is the choke point for all three: NB7
+    # closed `tallies=` and `mc=`, so §5's estimator and §5.4's unanimity rule
+    # are computed HERE, from these rows and from nothing else, and the label
+    # populations `table_gate` reads are these rows' own.
+    assert_table_census(rows)
 
     per_cell = []
     for row in rows:
@@ -7788,6 +7906,10 @@ def table_gate(scored: dict[str, Any]) -> dict[str, Any]:
     rather than for an average protected code forbids, and that the simulation
     error of that horizon is a published, deciding-capable quantity.
     """
+    # The EXACT thirty-two, on the gate's own object (adjudication F6). The gate
+    # reads label populations off `scored`, and a `scored` describing any other
+    # thirty-two cells would be gated as if it described these.
+    assert_table_census(scored["per_cell"])
     mw6 = scored["mw6"]
     mc_se = dict(scored.get("mc", {}).get("mc_se_label") or {})
     mean_mw6 = float(mw6["mean"])
@@ -9317,31 +9439,31 @@ def _conf_tally(shift: int, *, jitter: int = 0,
 
 
 def _conf_cells() -> list[dict[str, Any]]:
-    """v3 §3.3's 32 cells, carrying BOTH per-label censuses.
+    """v3 §3.3's 32 cells — :data:`FROZEN_TABLE_SCHEDULE`, tuple by tuple.
 
-    The synthetic leg is built minus §0.6's three excluded keys, exactly as
-    :func:`table_cutoffs` builds the real one, so a conformance row that runs
-    over it is running over a population the production path could produce.
+    The synthetic leg carries the EXACT schedule (adjudication F6): the same
+    seasons, labels, cutoff dates and treated-club identities the read-only pass
+    measured, so a conformance row running over it is running over the
+    population the production path produces, and `assert_table_census` is the
+    same assertion here as there.
+
+    The club UNIVERSE stays synthetic — three invented rows carry the tallies —
+    and every value here is still written literally in this file, which is what
+    §7.4 asks: the schedule is a constant the freeze commit hashes, not a read
+    of `data/epl/matches.parquet`.
     """
     out: list[dict[str, Any]] = []
-    for label in TALLY_LABELS:
-        for i, season in enumerate(_CONF_SEASONS):
-            if f"{season}|{label}" in EXCLUDED_CELLS:
-                continue
-            treated = (["sunderland"]
-                       if len([c for c in out
-                               if c["cutoff_label"] == label
-                               and c["treated_clubs"]])
-                       < EXPECTED_TREATED_BY_LABEL[label] else [])
-            out.append({
-                "season": season, "cutoff_label": label,
-                "cutoff": f"20{19 + i}-08-{10 + TALLY_LABELS.index(label):02d}",
-                "clubs": list(_CONF_CLUBS),
-                "provisional_incumbent": ["rich"],
-                "provisional_enlarged": sorted(["rich"] + treated),
-                "treated_clubs": treated,
-                "evidence": {"sunderland": 0.17, "rich": 50.0, "mid": 5.0},
-            })
+    for season, label, cutoff, treated_tuple in FROZEN_TABLE_SCHEDULE:
+        treated = list(treated_tuple)
+        out.append({
+            "season": season, "cutoff_label": label, "cutoff": cutoff,
+            "clubs": list(_CONF_CLUBS),
+            "provisional_incumbent": ["rich"],
+            "provisional_enlarged": sorted(["rich"] + treated),
+            "treated_clubs": treated,
+            "evidence": {**{c: 0.17 for c in treated},
+                         "sunderland": 0.17, "rich": 50.0, "mid": 5.0},
+        })
     return out
 
 
@@ -10204,20 +10326,31 @@ def implementation_report() -> list[dict[str, Any]]:
                 SequenceViolation,
                 lambda: require_sequence(SEQUENCE_STEPS[1], enforce=True))
             silent.write_text(kept_silent)
-            # ...and step 5's OPEN CLAIM refuses a second attempt BEFORE it
-            # spends anything (P5-B8): the claim is the write-once decision.
+            # ...and step 5's OPEN CLAIM is opened BEFORE it spends anything
+            # (P5-B8), unlocks nothing while it stands, and is RECLAIMABLE once
+            # per dated record (adjudication F3) — while a COMPLETED step is
+            # once-only, which is the half §4.4 rests on.
             sequence_marker_path(SEQUENCE_STEPS[4]).unlink()
             l9 = (l9
                   and _accepted(lambda: claim_sequence_step(SEQUENCE_STEPS[4],
                                                             note="opened"))
-                  and _refused(SequenceViolation,
-                               lambda: claim_sequence_step(SEQUENCE_STEPS[4],
-                                                           note="again"))
                   # an open claim unlocks nothing while it stands...
                   and not read_sequence_marker(SEQUENCE_STEPS[4])["complete"]
-                  # ...and the ONE legal transition is its own completion
+                  # ...a crash may resume, and the resumption writes itself down
+                  and _accepted(lambda: claim_sequence_step(
+                      SEQUENCE_STEPS[4], note="reopened after a crash"))
+                  and [r["note"] for r in
+                       read_sequence_marker(SEQUENCE_STEPS[4])
+                       ["produced"][_RECLAIM_KEY]] == ["reopened after a crash"]
+                  # ...the completion carries that history forward...
                   and _accepted(lambda: write_sequence_marker(
-                      SEQUENCE_STEPS[4], produced={"step": "done"})))
+                      SEQUENCE_STEPS[4], produced={"step": "done"}))
+                  and len(read_sequence_marker(SEQUENCE_STEPS[4])
+                          ["produced"][_RECLAIM_KEY]) == 1
+                  # ...and no reclaim reopens an outcome
+                  and _refused(SequenceViolation,
+                               lambda: claim_sequence_step(SEQUENCE_STEPS[4],
+                                                           note="after")))
         finally:
             globals()["SEQUENCE_DIR"] = kept_seq
         script = launch_script(scratch / "run")
@@ -10256,6 +10389,12 @@ def implementation_report() -> list[dict[str, Any]]:
               and any(line.startswith("SCRATCH=") for line in commands)
               and any(line.startswith('mkdir -p "$SCRATCH"')
                       for line in commands)
+              # ...and the canary is COPIED into it, before step 2's command:
+              # without it `require_run_preconditions` refuses the step's own
+              # scratch and the step is not executable (adjudication F2)
+              and any(line.startswith(f'cp "$DIR/{CANARY_NAME}" '
+                                      f'"$SCRATCH/{CANARY_NAME}"')
+                      for line in commands[:commands.index(step2[0])])
               and commands.index("run_step merge $PY -u -m epl.evwiden --merge "
                                  f"--shards {SHARDS} --dir \"$DIR\"")
               < [i for i, line in enumerate(commands)
@@ -10269,14 +10408,16 @@ def implementation_report() -> list[dict[str, Any]]:
             "to raise SequenceViolation; record a FAILED step and require it "
             "to unlock nothing; strip a marker's `complete` key and require "
             "the next step to refuse; edit a marker's `produced` while leaving "
-            "its digest and require the recomputation to catch it; require "
-            "step 5's OPEN CLAIM to refuse a second attempt before it spends "
-            "anything; require a second, different marker write under one "
+            "its digest and require the recomputation to catch it; open step "
+            "5's CLAIM before it spends anything, reclaim it once and require "
+            "the dated record to be appended, complete it and require the "
+            "history to survive, then require a claim after the outcome to "
+            "refuse; require a second, different marker write under one "
             "freeze commit to refuse; read the generated launch.sh as "
             "COMMANDS — every precondition must be a `need_marker` command "
             "line before its step's command, not a comment naming the marker — "
             "and require step 2's own command to be among them, with the "
-            "scratch --dir the launcher creates",
+            "scratch --dir the launcher creates and the canary copied into it",
             l9, detail={"need_marker_commands": len(need)})
 
         # ---- L10: tallies bound and rebound ------------------------------
@@ -10847,7 +10988,13 @@ def freeze_block(corpus: pd.DataFrame | None = None,
             ("the fit openings (§2.3)", "fit_openings", "fit_openings"),
             ("the treated table cells (§3.3)", "table_treated", "table_treated"),
             ("the untouched table cells (§3.3)", "table_untouched",
-             "table_untouched"))
+             "table_untouched"),
+            # the adjudication's F6: the EXACT schedule — season, label, cutoff
+            # DATE and treated-club identity — so §8.6 condition (3)'s equality
+            # is an equality about the thirty-two cells the read-only pass
+            # measured and not about counts that happen to agree
+            ("the exact schedule: season, label, cutoff date, treated clubs "
+             "(§3.3)", "table_cells", "table_schedule"))
     for label, count_key, digest_key in rows:
         count = digests["counts"].get(count_key)
         digest = digests["digests"].get(digest_key)
