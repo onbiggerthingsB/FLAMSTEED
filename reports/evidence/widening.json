@@ -1,0 +1,2148 @@
+{
+  "schema": "epl-evwiden-3",
+  "generated_at": "2026-08-29T16:01:23.846979+00:00",
+  "prereg_commit": "38be3e2d4c65ab60699fc497952f7e18c88a7853",
+  "prereg_blob": "02b6408db6ae2eb9d44512d249a1f1f36817c849",
+  "prereg": "reports/epl_widening_prereg_v3.md",
+  "pins": {
+    "corpus_sha256": "f31580073eb3a7f0deca59b45d1576fb262272efc6d1893ce8c9931b9eff451a",
+    "corpus_rows": 2280,
+    "corpus_seasons": [
+      "2019/20",
+      "2020/21",
+      "2021/22",
+      "2022/23",
+      "2023/24",
+      "2024/25"
+    ],
+    "archive_sha256": "323aa54af0a8fcf38745c9f7fccc55fe10654ff68cf38fa82cf7f498cea275cf",
+    "archive_rows": 4560,
+    "ledger_sha256": "869a558ce7f84ef0f4a4ebdd8f781a4a72213fd5946b4e7088d716d99e82ba9e",
+    "ledger_rows": 212,
+    "config_sha256": "9f2e086d39ae4b855ba21604367109e8e9ce00f96010c5ec65c380d317986abc",
+    "realised_config_sha256": "78a51cd92c48838a57e3d6832b7661aad7a5b231425572214a067c2a35edbdcd",
+    "seed": 20260611,
+    "widening": {
+      "mechanism": "c",
+      "strength": 0.5
+    },
+    "e_star": 10.0,
+    "shards": 4,
+    "feasibility_sha256": "07ee00d798cb0f01f29bc5bb5ba885c41e26d5494e9755c73a038a2777bad329",
+    "feasibility_bytes": 18128,
+    "feasibility_priceable": [
+      "2019/20|MW3",
+      "2019/20|MW6",
+      "2019/20|MW10",
+      "2019/20|MW19",
+      "2020/21|MW3",
+      "2020/21|MW6",
+      "2020/21|MW10",
+      "2020/21|MW19",
+      "2021/22|MW0",
+      "2021/22|MW3",
+      "2021/22|MW6",
+      "2021/22|MW10",
+      "2021/22|MW19",
+      "2022/23|MW0",
+      "2022/23|MW3",
+      "2022/23|MW6",
+      "2022/23|MW10",
+      "2022/23|MW19",
+      "2023/24|MW0",
+      "2023/24|MW6",
+      "2023/24|MW10",
+      "2023/24|MW19",
+      "2024/25|MW0",
+      "2024/25|MW3",
+      "2024/25|MW6",
+      "2024/25|MW10",
+      "2024/25|MW19",
+      "2025/26|MW0",
+      "2025/26|MW3",
+      "2025/26|MW6",
+      "2025/26|MW10",
+      "2025/26|MW19"
+    ],
+    "feasibility_unpriceable": {
+      "2019/20|MW0": {
+        "refusal_kind": "excluded_mass_ceiling",
+        "fixture": "man_city v sheffield_united",
+        "excluded_mass": 0.0234,
+        "ceiling": 0.02
+      },
+      "2020/21|MW0": {
+        "refusal_kind": "excluded_mass_ceiling",
+        "fixture": "man_city v leeds",
+        "excluded_mass": 0.0216,
+        "ceiling": 0.02
+      },
+      "2023/24|MW3": {
+        "refusal_kind": "excluded_mass_ceiling",
+        "fixture": "man_city v luton",
+        "excluded_mass": 0.0328,
+        "ceiling": 0.02
+      }
+    }
+  },
+  "estimand": {
+    "n": 85,
+    "mean": -0.00412976353895183,
+    "sd": 0.022751278102833457,
+    "se_iid": 0.0024677225874036148,
+    "definition": "mean paired RPS delta, dc_evwiden minus dc_native, over the thin fixtures of the pinned corpus at e* = 10; negative means the re-keyed widening helps"
+  },
+  "ci_week": {
+    "function": "epl.score.block_bootstrap_ci",
+    "blocks": "the corpus's own (season, ISO week) labels",
+    "n_blocks": 62,
+    "B": 10000,
+    "alpha": 0.05,
+    "seed": 20260814,
+    "lo": -0.009619941678210462,
+    "hi": 0.0004854873118646504
+  },
+  "ci_season": {
+    "function": "epl.score.block_bootstrap_ci",
+    "blocks": "the 6 seasons",
+    "n_blocks": 6,
+    "B": 10000,
+    "alpha": 0.05,
+    "seed": 20260814,
+    "lo": -0.006613196944608308,
+    "hi": -0.0021956407031173634
+  },
+  "ci_table_mw6": {
+    "function": "epl.score.block_bootstrap_ci",
+    "blocks": "the seven season strings, one MW6 cell per block",
+    "n_blocks": 7,
+    "B": 10000,
+    "alpha": 0.05,
+    "seed": 20260814,
+    "lo": -0.0004973333580827148,
+    "hi": 0.0005191497678571336
+  },
+  "gate_i": {
+    "value": -0.00412976353895183,
+    "bar": -0.001,
+    "PASS": true
+  },
+  "gate_ii": {
+    "value": [
+      -0.009619941678210462,
+      0.0004854873118646504
+    ],
+    "bar": "upper bound strictly < 0",
+    "PASS": false
+  },
+  "gate_iii": {
+    "value": [
+      -0.006613196944608308,
+      -0.0021956407031173634
+    ],
+    "bar": "upper bound strictly < 0",
+    "PASS": true
+  },
+  "gate_iv": {
+    "mw6": {
+      "n": 7,
+      "mean": -2.582973731203586e-05,
+      "ci": [
+        -0.0004973333580827148,
+        0.0005191497678571336
+      ],
+      "per_cell": [
+        {
+          "season": "2019/20",
+          "cutoff_label": "MW6",
+          "delta_trps": 0.0012887485361842005,
+          "delta_wtrps": 0.0008134952874999934,
+          "mc_se_paired": 0.00016078010845182097
+        },
+        {
+          "season": "2020/21",
+          "cutoff_label": "MW6",
+          "delta_trps": -0.0007470297203947263,
+          "delta_wtrps": -0.0010330762624999879,
+          "mc_se_paired": 6.0875044253794594e-05
+        },
+        {
+          "season": "2021/22",
+          "cutoff_label": "MW6",
+          "delta_trps": 0.0002547734539473656,
+          "delta_wtrps": -0.0010479527624999985,
+          "mc_se_paired": 0.00011943312858845438
+        },
+        {
+          "season": "2022/23",
+          "cutoff_label": "MW6",
+          "delta_trps": -0.0006969736250000136,
+          "delta_wtrps": -0.0002901815624999915,
+          "mc_se_paired": 8.704730803336637e-05
+        },
+        {
+          "season": "2023/24",
+          "cutoff_label": "MW6",
+          "delta_trps": -0.0004903297434210585,
+          "delta_wtrps": 0.0008423394875000101,
+          "mc_se_paired": 5.875552783975186e-05
+        },
+        {
+          "season": "2024/25",
+          "cutoff_label": "MW6",
+          "delta_trps": 0.000543920457236835,
+          "delta_wtrps": 0.0009023889250000042,
+          "mc_se_paired": 7.540713180497873e-05
+        },
+        {
+          "season": "2025/26",
+          "cutoff_label": "MW6",
+          "delta_trps": -0.0003339175197368538,
+          "delta_wtrps": 0.00019051078749998673,
+          "mc_se_paired": 0.00015585377806360106
+        }
+      ]
+    },
+    "per_label": {
+      "MW0": {
+        "n_treated": 2,
+        "mean": 0.0013543763503289646,
+        "PASS": false
+      },
+      "MW3": {
+        "n_treated": 2,
+        "mean": 0.0005005483453947232,
+        "PASS": false
+      },
+      "MW10": {
+        "n_treated": 4,
+        "mean": -0.00021352254194079157,
+        "PASS": true
+      }
+    },
+    "mw19": {
+      "cutoff_label": "MW19",
+      "n": 7,
+      "n_treated": 0,
+      "structural_zero": true,
+      "decides": "nothing"
+    },
+    "precision": {
+      "mc_boot": 2000,
+      "mc_seed": 20260827,
+      "n_particles": 1000,
+      "sims_per_particle": 20.0,
+      "mc_se_mw6": 4.254040687312021e-05,
+      "mc_se_mw0": 0.00011475681696671559,
+      "mc_se_mw3": 0.00011375236184955587,
+      "mc_se_mw10": 3.4712961904369446e-05,
+      "mc_se_per_cell": {
+        "2019/20|MW3": 0.00011705470175083833,
+        "2019/20|MW6": 0.00016078010845182097,
+        "2019/20|MW10": 7.141303910464445e-05,
+        "2020/21|MW6": 6.0875044253794594e-05,
+        "2021/22|MW6": 0.00011943312858845438,
+        "2021/22|MW10": 8.217283977848347e-05,
+        "2022/23|MW6": 8.704730803336637e-05,
+        "2023/24|MW0": 8.650693325911784e-05,
+        "2023/24|MW6": 5.875552783975186e-05,
+        "2023/24|MW10": 5.1523524307014655e-05,
+        "2024/25|MW6": 7.540713180497873e-05,
+        "2024/25|MW10": 7.232595610569167e-05,
+        "2025/26|MW0": 0.00021280189114933297,
+        "2025/26|MW3": 0.00019364986347031012,
+        "2025/26|MW6": 0.00015585377806360106
+      },
+      "unanimity_k": 200,
+      "unanimity_seed": 20260828,
+      "unanimity_dissenting": 0,
+      "conditions": [
+        {
+          "condition": "P1",
+          "value": {
+            "mc_se_label": {
+              "MW6": 4.254040687312021e-05,
+              "MW0": 0.00011475681696671559,
+              "MW3": 0.00011375236184955587,
+              "MW10": 3.4712961904369446e-05
+            },
+            "limit": 5e-05,
+            "missing": []
+          },
+          "rule": "any deciding MC SE > 0.25 x 0.0002 = 5e-5 (a missing one is treated as unresolved, never as small)",
+          "fired": true
+        },
+        {
+          "condition": "P2",
+          "value": {
+            "mean_MW6": -2.582973731203586e-05,
+            "mc_se_mw6": 4.254040687312021e-05
+          },
+          "rule": "|mean_MW6 - 0.0002| < 2 x mc_se_mw6",
+          "fired": false
+        },
+        {
+          "condition": "P3.MW0",
+          "value": {
+            "mean": 0.0013543763503289646,
+            "mc_se": 0.00011475681696671559
+          },
+          "rule": "|mean_MW0 - 0.0002| < 2 x mc_se_mw0",
+          "fired": false
+        },
+        {
+          "condition": "P3.MW3",
+          "value": {
+            "mean": 0.0005005483453947232,
+            "mc_se": 0.00011375236184955587
+          },
+          "rule": "|mean_MW3 - 0.0002| < 2 x mc_se_mw3",
+          "fired": false
+        },
+        {
+          "condition": "P3.MW10",
+          "value": {
+            "mean": -0.00021352254194079157,
+            "mc_se": 3.4712961904369446e-05
+          },
+          "rule": "|mean_MW10 - 0.0002| < 2 x mc_se_mw10",
+          "fired": false
+        },
+        {
+          "condition": "P4",
+          "value": {
+            "mean_MW6": -2.582973731203586e-05,
+            "mc_se_mw6": 4.254040687312021e-05
+          },
+          "rule": "|mean_MW6 - 0| < 2 x mc_se_mw6 \u2014 iv-c's zero boundary on the mean",
+          "fired": true
+        },
+        {
+          "condition": "P5",
+          "value": {
+            "k": 200,
+            "seed": 20260828,
+            "dissenting": 0,
+            "point_verdict": false,
+            "valid": true,
+            "why": "",
+            "n_verdicts": 200
+          },
+          "rule": "\u00a75.4's unanimity rule: the WHOLE of iv-c recomputed on K = 200 particle-resampled tally sets at seed 20260828; P5 fires unless all 200 verdicts agree with each other and with the point-estimate verdict. One dissenting k is enough. An absent unanimity run is unresolved rather than small, and so is one that cannot be verified against the frozen K, the frozen seed, 200 recorded verdicts, its own dissent count and this gate's own iv-c point verdict.",
+          "fired": false
+        }
+      ],
+      "fired": [
+        "P1",
+        "P4"
+      ],
+      "resolved": false,
+      "rule": "\u00a75.4 (P1)-(P5). The structural conditions of \u00a75.2 raise TableMCImprecise and stop the leg rather than publishing an UNRESOLVED verdict, so this list carries SEVEN entries and only seven \u2014 P1, P2, P3.MW0, P3.MW3, P3.MW10, P4, P5 \u2014 and there is no P6 and there must not be one: a structural refusal that stops the leg cannot also be a row in a file the stopped leg never writes"
+    },
+    "PASS_or_UNRESOLVED": "UNRESOLVED",
+    "withdrawn": {
+      "pooled_delta_trps": "withdrawn by \u00a74.1 \u2014 epl/simretro.py:41 and epl/simmetrics.py:44 both freeze 'Never averaged across cutoffs'; 17 of 32 cells are structural zeros and all seven MW19 cells are among them, so the average diluted harm at the horizons where the treatment fires",
+      "pooled_delta_wtrps": "withdrawn by \u00a74.1, same reason"
+    }
+  },
+  "controls": {
+    "identity": {
+      "n": 820,
+      "max_abs_diff": 0.0,
+      "mean_abs_diff": 0.0,
+      "PASS": true
+    },
+    "untreated_moved": {
+      "n": 0,
+      "refusal": "UntreatedMoved",
+      "PASS": true,
+      "first": [],
+      "measured": "the count of non-treated merged rows carrying a non-zero delta (\u00a79.1), both classes of \u00a72.3's two-sided guard"
+    },
+    "predicate_mismatch": {
+      "n": 0,
+      "refusal": "PredicateMismatch",
+      "PASS": true,
+      "first": [],
+      "measured": "the count of merged rows whose recomputed provisional set disagreed with the ledger's (\u00a79.1)"
+    },
+    "table_parity": {
+      "n_cells": 32,
+      "PASS": true,
+      "per_cell_digests": {
+        "2019/20|MW3": "2080f020c39a2e0728b456a44f320c7829022ca3b034edc99c34567d87028eb4",
+        "2019/20|MW6": "8dbc6f6d8023ef3822adedf05c675ba2351c1418139272ac1aae8a162a76f7fd",
+        "2019/20|MW10": "2b8c5ae6805cc5bd38ea463de77c3944f088aeff88febf87af6b6dcce548068d",
+        "2019/20|MW19": "e85bb76593f229a2ff9fa1fa3bff906a07cd7c2cf454ff851dbc09f2e0e77ab9",
+        "2020/21|MW3": "29f9cf580e4f64e6ed95e787d2c7ebd1215d7ef20ea566fa9795e4f6af53375f",
+        "2020/21|MW6": "675469d7731aa892c14ada86cd600a34d0f08273ec3445a602af83e4e7fa8dd3",
+        "2020/21|MW10": "0cd45129a2393f1bf344e55b616042cfe31be1dc57a47919dd239a433c5b7f07",
+        "2020/21|MW19": "600c68b199710d8b999d573743bef71056341c8a94cdede59603befb71a970e6",
+        "2021/22|MW0": "4a7ef73a87e9179dc54d6aeba68f06086e5631d137b5d0bb5b0f110420f33485",
+        "2021/22|MW3": "029275c22dfddb5bb74f443350c310cde2d99101c66e29e61977befa8a99a63f",
+        "2021/22|MW6": "f1dc2ac58fefc7dcbaece530594664787a87697e01a2d553da92fc9a90de6d73",
+        "2021/22|MW10": "7803934fdf1aaee39debce7fc8e08ac80130ecaf5fd16bfef4aa23c94eda0f07",
+        "2021/22|MW19": "fc45b9257679a5bfdb472851807c47203ba7110103fe53da072e0378fd8ec80f",
+        "2022/23|MW0": "32ac4f4375214e39405fb8377148b31bba9984cf9cc6d51acf3823b6a9ce125c",
+        "2022/23|MW3": "99ed35338c9007e6c3f0e7c2080a7661b81d112fd90dd6dbc72e46d92ff8be85",
+        "2022/23|MW6": "d7f3a46071b0cb20aacf53f8499a84d106effa1ff6113fa21d5e1531a4ee5eb9",
+        "2022/23|MW10": "8898decdcfa5d528e3146f396249b65ec951eac23302d2615b8d253293f1d9fe",
+        "2022/23|MW19": "c16e00aa37fe63c9d57fbb7051d5def130b658aaeb94f4aa8e255899bcf419da",
+        "2023/24|MW0": "dcb433a74b6945c1c830b5f0bb8671276744bea5e6b0f7f6060200a179e63f65",
+        "2023/24|MW6": "cd3e0c75d8200d02f58b93295ad1205ad93532e312b25a82ede07fab19cc706e",
+        "2023/24|MW10": "0bef65d58bcf204ad9131a46ae0bb0374e99fd47a6b7736ef775a45f1d6ca226",
+        "2023/24|MW19": "646a902208c4785caa476c86d94e4b92b334c39a7d637dd60df1128c8c4585ed",
+        "2024/25|MW0": "a0ac52b35c3180f810b1caf5788256c4e704a269ab664c16d75f737af96b86c7",
+        "2024/25|MW3": "0e6684c11b1eeac2b4b400289a55c2b97be3c3f6c2b28265dec7c280045c55cb",
+        "2024/25|MW6": "2f6f2a0fd047df3f37b041b9a4be24ceec070ede14d498f64bd65a09d52dc726",
+        "2024/25|MW10": "ba18e96716e66fa7a2b64f0be826d11c584631d7adf1996e608819166c02fd3a",
+        "2024/25|MW19": "873dea46bba1871b75abef94d1ad83ec166b2c60ad564e33a1a03385bce8b806",
+        "2025/26|MW0": "30c003b4d0155feabefe85027ebb90dbdc8608c1b293ee37c18b575e73c9f7c3",
+        "2025/26|MW3": "07b743ab617053c94c410bde850c0799fd2ac5c0bc7edd72bb17dfcc9525c60f",
+        "2025/26|MW6": "17e9059de1486f47faded41ac49ae3a2f9d5ad960e517150a9efca6381518bfc",
+        "2025/26|MW10": "9ae9362199ca400ee6ef02da139e05f919a0ac7007160fadb1d75feae5db7ddb",
+        "2025/26|MW19": "33e9b7fca34e6720c5244ddcd0d20424d7e0e1ec3c2f0a613d2577d40d13d3d3"
+      }
+    }
+  },
+  "canaries": {
+    "schema": "epl-evwiden-3",
+    "cutoff": "2022-08-13",
+    "season": "2022/23",
+    "evidence": {
+      "schema": "epl-evwiden-3",
+      "cutoff": "2022-08-13",
+      "n_clubs": 20,
+      "e_star": 10.0,
+      "comparator": "numpy.array_equal on the unrounded float64 evidence vector (\u00a77.3: a bound, not a tolerance)",
+      "negative_leg_rows_selected": 1510,
+      "positive_control_rows_selected": 3050,
+      "negative_leg_array_equal": true,
+      "negative_leg_max_abs_diff": 0.0,
+      "positive_control_max_abs_diff": 52.52740738605573,
+      "provisional_sets_identical": true,
+      "provisional_checked": true,
+      "mutation": {
+        "home_key": "__canary_corrupt__h{i}",
+        "away_key": "__canary_corrupt__a{i}",
+        "fthg": 9,
+        "ftag": 9,
+        "dates": "not touched",
+        "note": "per-row unique sentinels, because features' duplicate-match dedup collapses content-identical rows (fixed at 06bd431)"
+      },
+      "detail": {
+        "incumbent_before": [
+          "nottm_forest"
+        ],
+        "incumbent_after": [
+          "nottm_forest"
+        ],
+        "enlarged_before": [
+          "nottm_forest"
+        ],
+        "enlarged_after": [
+          "nottm_forest"
+        ]
+      },
+      "PASS": true
+    },
+    "blas_threads": {
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "MKL_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "VECLIB_MAXIMUM_THREADS": "1",
+      "pinned_before_numpy": true,
+      "entry_point": true
+    },
+    "results": {
+      "cutoff": "2022-01-01",
+      "later": "2023-01-01",
+      "n_rewritten": 1717,
+      "n_fixtures_compared": 10,
+      "forecasts_bit_identical_before_cutoff": true,
+      "positive_control_forecasts_moved_after_cutoff": true,
+      "max_abs_diff_before_cutoff": 0.0,
+      "max_abs_diff_positive_control": 0.811805376021185,
+      "PASS": true,
+      "schema": "epl-evwiden-3",
+      "blas_threads": {
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1",
+        "pinned_before_numpy": true,
+        "entry_point": true
+      },
+      "seconds": 24.5
+    },
+    "may_fit": {
+      "guarded": true,
+      "where": "epl.evwiden.run_canary"
+    },
+    "PASS": true,
+    "results_canary_run": true
+  },
+  "sequence": {
+    "step1_results_canary": {
+      "present": true,
+      "path": "data/epl/fit/evwiden/sequence/step1_results_canary.json",
+      "freeze_commit": "38be3e2d4c65ab60699fc497952f7e18c88a7853",
+      "completed_at": "2026-08-29T15:18:17.696209+00:00",
+      "produced_digest": "3fb8843e7450481fde5a73775e3b5594605f24ca46012103827e999f12eb35a2",
+      "produced": {
+        "canary": "data/epl/fit/evwiden/canary.json",
+        "digest": "d33dc2534de19b437ba8bceaa3ed961f65db4123711662bbf596e597f064e88a",
+        "products": {
+          "data/epl/fit/evwiden/canary.json": "d33dc2534de19b437ba8bceaa3ed961f65db4123711662bbf596e597f064e88a"
+        }
+      }
+    },
+    "step2_single_opening": {
+      "present": true,
+      "path": "data/epl/fit/evwiden/sequence/step2_single_opening.json",
+      "freeze_commit": "38be3e2d4c65ab60699fc497952f7e18c88a7853",
+      "completed_at": "2026-08-29T15:19:40.456089+00:00",
+      "produced_digest": "573be71e45d0a35c074cb75a351ae1969db47945de7017f2ee63ee47d01a52a1",
+      "produced": {
+        "opening": "2019-08-09",
+        "n_rows": 10,
+        "row_digest": "fdfb5bf774eecf09d55718408e5566c074c403f78d3eb68f913f36624b7660d7",
+        "scratch": "/private/tmp/claude-502/-Users-likerun-Desktop-worldcup/5eb714a7-aa7a-4e5e-a0c2-359239e63ef8/scratchpad/evwiden-step2",
+        "products": {
+          "/private/tmp/claude-502/-Users-likerun-Desktop-worldcup/5eb714a7-aa7a-4e5e-a0c2-359239e63ef8/scratchpad/evwiden-step2/shard_00_of_04.jsonl": "55bb40623b5a6a756fb06bba6aee217afdedfa8ffe3c6d28e0e96f5040a8a388"
+        }
+      }
+    },
+    "step3_shards": {
+      "present": true,
+      "path": "data/epl/fit/evwiden/sequence/step3_shards.json",
+      "freeze_commit": "38be3e2d4c65ab60699fc497952f7e18c88a7853",
+      "completed_at": "2026-08-29T15:37:07.360180+00:00",
+      "produced_digest": "9e13443302c27a02e24d466cdcd66a4800f158e8cddc74d1a7ced85130a4ad75",
+      "produced": {
+        "shards": {
+          "shard_00_of_04.jsonl": "eb8471d3dda174ae5c9b1a0c915cc9e31d2ffcf8535633efefc688ec8b4c50ec",
+          "shard_01_of_04.jsonl": "015ee1e0c39f3e842a9798fc97de244a35c730a73dc3f226e1914a71fef532af",
+          "shard_02_of_04.jsonl": "9ca9b8cb77e8a062bea1e1ca3444ba4068a71ee4f73178d465b32065a3c48277",
+          "shard_03_of_04.jsonl": "36944e612b400b9370609afdce5e423f52a5a8fe767860dd04d3b59cda7f6d5e"
+        },
+        "products": {
+          "data/epl/fit/evwiden/shard_00_of_04.jsonl": "61972a63aee7dcec970ea46e3f002fb7d5c4b266c718a90234b09465279309f7",
+          "data/epl/fit/evwiden/shard_01_of_04.jsonl": "af9bb5009f126aa3c04886b0210f89d2f45f09df9b91dd406637c58efcbbe8df",
+          "data/epl/fit/evwiden/shard_02_of_04.jsonl": "334892a26055b158cf5ade3b937409ec606b5ef8e29406780af2234ce376720b",
+          "data/epl/fit/evwiden/shard_03_of_04.jsonl": "5dfe854f5fa13d738d241c9f6a774f67c10020479796a7af3d8c878fd48ac14d"
+        }
+      }
+    },
+    "step4_merge": {
+      "present": true,
+      "path": "data/epl/fit/evwiden/sequence/step4_merge.json",
+      "freeze_commit": "38be3e2d4c65ab60699fc497952f7e18c88a7853",
+      "completed_at": "2026-08-29T15:37:25.752596+00:00",
+      "produced_digest": "02927dd92469fe76709f97635a2dcbc705377f30e4f5e87d69f04b8624919239",
+      "produced": {
+        "n_fits": 78,
+        "n_fixtures": 820,
+        "run_digest": "13c882b2b09c855312602919be6f9a41b9984b917f49240e76cb46105cd839d1",
+        "products": {
+          "data/epl/fit/evwiden/shard_00_of_04.jsonl": "61972a63aee7dcec970ea46e3f002fb7d5c4b266c718a90234b09465279309f7",
+          "data/epl/fit/evwiden/shard_01_of_04.jsonl": "af9bb5009f126aa3c04886b0210f89d2f45f09df9b91dd406637c58efcbbe8df",
+          "data/epl/fit/evwiden/shard_02_of_04.jsonl": "334892a26055b158cf5ade3b937409ec606b5ef8e29406780af2234ce376720b",
+          "data/epl/fit/evwiden/shard_03_of_04.jsonl": "5dfe854f5fa13d738d241c9f6a774f67c10020479796a7af3d8c878fd48ac14d"
+        }
+      }
+    },
+    "step5_parity": {
+      "present": true,
+      "path": "data/epl/fit/evwiden/sequence/step5_parity.json",
+      "freeze_commit": "38be3e2d4c65ab60699fc497952f7e18c88a7853",
+      "completed_at": "2026-08-29T15:56:42.464907+00:00",
+      "produced_digest": "603d1107055d9e54cf3d2f4de65e803bddc1ca7a65d9f82352003e3c4195562a",
+      "produced": {
+        "parity": "data/epl/fit/evwiden/parity.jsonl",
+        "n_cells": 32,
+        "parity_check": {
+          "n_cells": 32,
+          "PASS": true,
+          "established": "before one treated simulation (\u00a73.3)"
+        },
+        "products": {
+          "data/epl/fit/evwiden/table_cells.jsonl": "83d62c911350ca7aab1b7c1f5fa3d7e8255b1ca5814faa3a42223303e125edee",
+          "data/epl/fit/evwiden/parity.jsonl": "50115d393d7833a70b7d9df97397f48ddf72dab472c4e6718437a841ffee269d"
+        }
+      }
+    }
+  },
+  "conformance": {
+    "path": "data/epl/fit/evwiden_conformance.json",
+    "ok": true,
+    "count": 18,
+    "test_ids": [
+      "epl/tests/test_evwiden.py::test_conformance_L1",
+      "epl/tests/test_evwiden.py::test_conformance_L2",
+      "epl/tests/test_evwiden.py::test_conformance_L3",
+      "epl/tests/test_evwiden.py::test_conformance_L4",
+      "epl/tests/test_evwiden.py::test_conformance_L5",
+      "epl/tests/test_evwiden.py::test_conformance_L6",
+      "epl/tests/test_evwiden.py::test_conformance_L7",
+      "epl/tests/test_evwiden.py::test_conformance_L8",
+      "epl/tests/test_evwiden.py::test_conformance_L9",
+      "epl/tests/test_evwiden.py::test_conformance_L10",
+      "epl/tests/test_evwiden.py::test_conformance_L11",
+      "epl/tests/test_evwiden.py::test_conformance_L12",
+      "epl/tests/test_evwiden.py::test_conformance_L13",
+      "epl/tests/test_evwiden.py::test_conformance_L14",
+      "epl/tests/test_evwiden.py::test_conformance_L15",
+      "epl/tests/test_evwiden.py::test_conformance_L16",
+      "epl/tests/test_evwiden.py::test_conformance_L17",
+      "epl/tests/test_evwiden.py::test_conformance_L18"
+    ],
+    "sha256": "924ae3c64c301f01dc1278c288cce1b4b6a7acb062b509ff3012f58d4a40352b",
+    "harness": {
+      "epl/evwiden.py": "b72e30840d0aee18f2566ddef2758e36b43ed0848d7f7900195483b4988da0d4",
+      "epl/tests/test_evwiden.py": "236d31b1521575a361f420eb0465e7fe25d892147b64663f6a23b1774e4fc266"
+    },
+    "produced_at": "2026-08-29T08:12:09.242043+00:00"
+  },
+  "grid": [
+    {
+      "e_star": 1.0,
+      "n_thin": 12,
+      "n_treated": 0,
+      "mean": 0.0,
+      "ci": [
+        0.0,
+        0.0
+      ],
+      "degenerate": true,
+      "decides": "nothing"
+    },
+    {
+      "e_star": 3.0,
+      "n_thin": 24,
+      "n_treated": 0,
+      "mean": 0.0,
+      "ci": [
+        0.0,
+        0.0
+      ],
+      "degenerate": true,
+      "decides": "nothing"
+    },
+    {
+      "e_star": 5.0,
+      "n_thin": 39,
+      "n_treated": 7,
+      "mean": -0.002343886097047314,
+      "ci": [
+        -0.006061679561900132,
+        0.0007525995043958508
+      ],
+      "degenerate": false,
+      "decides": "nothing"
+    },
+    {
+      "e_star": 8.0,
+      "n_thin": 66,
+      "n_treated": 33,
+      "mean": -0.0008428807362836035,
+      "ci": [
+        -0.004998565877209475,
+        0.0028339195718365393
+      ],
+      "degenerate": false,
+      "decides": "nothing"
+    },
+    {
+      "e_star": 10.0,
+      "n_thin": 85,
+      "n_treated": 52,
+      "mean": -0.00412976353895183,
+      "ci": [
+        -0.009619941678210462,
+        0.0004854873118646504
+      ],
+      "degenerate": false,
+      "decides": "nothing"
+    },
+    {
+      "e_star": 12.0,
+      "n_thin": 110,
+      "n_treated": 77,
+      "mean": -0.001290240399581593,
+      "ci": [
+        -0.0058168020326992125,
+        0.002671157088022459
+      ],
+      "degenerate": false,
+      "decides": "nothing"
+    }
+  ],
+  "strata": {
+    "season": [
+      {
+        "stratum": "2019/20",
+        "n": 26,
+        "mean": -0.0009355140349827974,
+        "sd": 0.02389265567928993,
+        "se_iid": 0.0046857352900097245,
+        "ci95": [
+          -0.010703822838739316,
+          0.0069673285589267
+        ],
+        "n_blocks": 10,
+        "degenerate": false,
+        "decides": "nothing"
+      },
+      {
+        "stratum": "2020/21",
+        "n": 11,
+        "mean": -0.0024849143160376504,
+        "sd": 0.013203146694954556,
+        "se_iid": 0.003980898512653204,
+        "ci95": [
+          -0.010481639626970608,
+          0.004857500685788246
+        ],
+        "n_blocks": 9,
+        "degenerate": false,
+        "decides": "nothing"
+      },
+      {
+        "stratum": "2021/22",
+        "n": 12,
+        "mean": -0.007482646734744289,
+        "sd": 0.017494968296399252,
+        "se_iid": 0.005050362327695039,
+        "ci95": [
+          -0.017909778872459783,
+          0.00047196890140419057
+        ],
+        "n_blocks": 12,
+        "degenerate": false,
+        "decides": "nothing"
+      },
+      {
+        "stratum": "2022/23",
+        "n": 12,
+        "mean": -0.007248828397494006,
+        "sd": 0.03037631708547566,
+        "se_iid": 0.008768887423144401,
+        "ci95": [
+          -0.027549716259100805,
+          0.007540242855869401
+        ],
+        "n_blocks": 9,
+        "degenerate": false,
+        "decides": "nothing"
+      },
+      {
+        "stratum": "2023/24",
+        "n": 12,
+        "mean": -0.004925915150742256,
+        "sd": 0.0233053805888876,
+        "se_iid": 0.006727683878280467,
+        "ci95": [
+          -0.020192744660401524,
+          0.006556674431403309
+        ],
+        "n_blocks": 10,
+        "degenerate": false,
+        "decides": "nothing"
+      },
+      {
+        "stratum": "2024/25",
+        "n": 12,
+        "mean": -0.005290316252431006,
+        "sd": 0.02594343925755532,
+        "se_iid": 0.007489225819527135,
+        "ci95": [
+          -0.021337040723544393,
+          0.006201162431479346
+        ],
+        "n_blocks": 12,
+        "degenerate": false,
+        "decides": "nothing"
+      }
+    ],
+    "category": [
+      {
+        "stratum": "returning_thin",
+        "n": 16,
+        "mean": 0.0007234498274367989,
+        "sd": 0.02809539914951556,
+        "se_iid": 0.00702384978737889,
+        "ci95": [
+          -0.01657328419762984,
+          0.011057773238846737
+        ],
+        "n_blocks": 9,
+        "degenerate": false,
+        "decides": "nothing"
+      },
+      {
+        "stratum": "cold_start_tail",
+        "n": 69,
+        "mean": -0.0052551463485491934,
+        "sd": 0.021411794715458562,
+        "se_iid": 0.0025776771729178437,
+        "ci95": [
+          -0.01104863960486231,
+          -0.00028297056889431887
+        ],
+        "n_blocks": 62,
+        "degenerate": false,
+        "decides": "nothing"
+      }
+    ]
+  },
+  "movement": {
+    "n_treated": 52,
+    "mean_abs_prob_shift": 0.023674569487179484,
+    "max_abs_prob_shift": 0.07210951999999993,
+    "reseed_scale": {
+      "per_match_mean": 0.0032,
+      "per_match_p99": 0.0139,
+      "per_match_max": 0.0229,
+      "pooled_shift": 7.5e-05,
+      "source": "reports/epl_walkforward.md"
+    }
+  },
+  "coverage": {
+    "2019/20|MW3": {
+      "control": {
+        "aston_villa": {
+          "coverage50": 1.0,
+          "coverage90": 1.0
+        },
+        "norwich": {
+          "coverage50": 0.0,
+          "coverage90": 1.0
+        }
+      },
+      "treatment": {
+        "aston_villa": {
+          "coverage50": 1.0,
+          "coverage90": 1.0
+        },
+        "norwich": {
+          "coverage50": 0.0,
+          "coverage90": 0.0
+        }
+      }
+    },
+    "2019/20|MW6": {
+      "control": {
+        "aston_villa": {
+          "coverage50": 1.0,
+          "coverage90": 1.0
+        },
+        "norwich": {
+          "coverage50": 0.0,
+          "coverage90": 0.0
+        },
+        "sheffield_united": {
+          "coverage50": 0.0,
+          "coverage90": 1.0
+        }
+      },
+      "treatment": {
+        "aston_villa": {
+          "coverage50": 1.0,
+          "coverage90": 1.0
+        },
+        "norwich": {
+          "coverage50": 0.0,
+          "coverage90": 0.0
+        },
+        "sheffield_united": {
+          "coverage50": 0.0,
+          "coverage90": 1.0
+        }
+      }
+    },
+    "2019/20|MW10": {
+      "control": {
+        "sheffield_united": {
+          "coverage50": 1.0,
+          "coverage90": 1.0
+        }
+      },
+      "treatment": {
+        "sheffield_united": {
+          "coverage50": 1.0,
+          "coverage90": 1.0
+        }
+      }
+    },
+    "2020/21|MW6": {
+      "control": {
+        "leeds": {
+          "coverage50": 1.0,
+          "coverage90": 1.0
+        }
+      },
+      "treatment": {
+        "leeds": {
+          "coverage50": 1.0,
+          "coverage90": 1.0
+        }
+      }
+    },
+    "2021/22|MW6": {
+      "control": {
+        "brentford": {
+          "coverage50": 0.0,
+          "coverage90": 1.0
+        }
+      },
+      "treatment": {
+        "brentford": {
+          "coverage50": 0.0,
+          "coverage90": 1.0
+        }
+      }
+    },
+    "2021/22|MW10": {
+      "control": {
+        "brentford": {
+          "coverage50": 1.0,
+          "coverage90": 1.0
+        }
+      },
+      "treatment": {
+        "brentford": {
+          "coverage50": 1.0,
+          "coverage90": 1.0
+        }
+      }
+    },
+    "2022/23|MW6": {
+      "control": {
+        "nottm_forest": {
+          "coverage50": 0.0,
+          "coverage90": 1.0
+        }
+      },
+      "treatment": {
+        "nottm_forest": {
+          "coverage50": 0.0,
+          "coverage90": 1.0
+        }
+      }
+    },
+    "2023/24|MW0": {
+      "control": {
+        "sheffield_united": {
+          "coverage50": 0.0,
+          "coverage90": 0.0
+        }
+      },
+      "treatment": {
+        "sheffield_united": {
+          "coverage50": 0.0,
+          "coverage90": 0.0
+        }
+      }
+    },
+    "2023/24|MW6": {
+      "control": {
+        "luton": {
+          "coverage50": 1.0,
+          "coverage90": 1.0
+        }
+      },
+      "treatment": {
+        "luton": {
+          "coverage50": 1.0,
+          "coverage90": 1.0
+        }
+      }
+    },
+    "2023/24|MW10": {
+      "control": {
+        "luton": {
+          "coverage50": 1.0,
+          "coverage90": 1.0
+        }
+      },
+      "treatment": {
+        "luton": {
+          "coverage50": 1.0,
+          "coverage90": 1.0
+        }
+      }
+    },
+    "2024/25|MW6": {
+      "control": {
+        "ipswich": {
+          "coverage50": 0.0,
+          "coverage90": 1.0
+        }
+      },
+      "treatment": {
+        "ipswich": {
+          "coverage50": 0.0,
+          "coverage90": 1.0
+        }
+      }
+    },
+    "2024/25|MW10": {
+      "control": {
+        "ipswich": {
+          "coverage50": 0.0,
+          "coverage90": 1.0
+        }
+      },
+      "treatment": {
+        "ipswich": {
+          "coverage50": 0.0,
+          "coverage90": 0.0
+        }
+      }
+    },
+    "2025/26|MW0": {
+      "control": {
+        "sunderland": {
+          "coverage50": 0.0,
+          "coverage90": 1.0
+        }
+      },
+      "treatment": {
+        "sunderland": {
+          "coverage50": 0.0,
+          "coverage90": 0.0
+        }
+      }
+    },
+    "2025/26|MW3": {
+      "control": {
+        "sunderland": {
+          "coverage50": 0.0,
+          "coverage90": 1.0
+        }
+      },
+      "treatment": {
+        "sunderland": {
+          "coverage50": 0.0,
+          "coverage90": 1.0
+        }
+      }
+    },
+    "2025/26|MW6": {
+      "control": {
+        "sunderland": {
+          "coverage50": 0.0,
+          "coverage90": 1.0
+        }
+      },
+      "treatment": {
+        "sunderland": {
+          "coverage50": 0.0,
+          "coverage90": 1.0
+        }
+      }
+    }
+  },
+  "sunderland": {
+    "label": "the one Hull-analogue \u2014 illustrative, no decision weight",
+    "season": "2025/26",
+    "club": "sunderland",
+    "n_cells": 3,
+    "cells": [
+      {
+        "season": "2025/26",
+        "cutoff_label": "MW0",
+        "control": {
+          "p_relegated": 0.6464,
+          "points_mean": 31.04745,
+          "points_sd": 14.413430745204016,
+          "points_p5": 10.0,
+          "points_p95": 57.0,
+          "points_realised": 54
+        },
+        "treatment": {
+          "p_relegated": 0.590975,
+          "points_mean": 33.9424,
+          "points_sd": 9.582592214201604,
+          "points_p5": 19.0,
+          "points_p95": 51.0,
+          "points_realised": 54
+        }
+      },
+      {
+        "season": "2025/26",
+        "cutoff_label": "MW3",
+        "control": {
+          "p_relegated": 0.3367,
+          "points_mean": 41.52235,
+          "points_sd": 12.652474253391572,
+          "points_p5": 22.0,
+          "points_p95": 64.0,
+          "points_realised": 54
+        },
+        "treatment": {
+          "p_relegated": 0.20685,
+          "points_mean": 43.30245,
+          "points_sd": 8.945953023645666,
+          "points_p5": 29.0,
+          "points_p95": 59.0,
+          "points_realised": 54
+        }
+      },
+      {
+        "season": "2025/26",
+        "cutoff_label": "MW6",
+        "control": {
+          "p_relegated": 0.16995,
+          "points_mean": 44.56785,
+          "points_sd": 10.376144736677483,
+          "points_p5": 29.0,
+          "points_p95": 62.0,
+          "points_realised": 54
+        },
+        "treatment": {
+          "p_relegated": 0.08380000000000001,
+          "points_mean": 45.79685,
+          "points_sd": 7.805076939966828,
+          "points_p5": 33.0,
+          "points_p95": 59.0,
+          "points_realised": 54
+        }
+      }
+    ]
+  },
+  "power": {
+    "schema": "epl-evwiden-3",
+    "structure": {
+      "n_thin": 85,
+      "n_treated": 52,
+      "n_week_blocks": 62,
+      "n_seasons": 6,
+      "thin_by_season": [
+        26,
+        11,
+        12,
+        12,
+        12,
+        12
+      ],
+      "treated_by_season": [
+        21,
+        4,
+        7,
+        6,
+        7,
+        7
+      ]
+    },
+    "definition": "MDE80 is the injected treated effect at which ALL THREE deciding match gates pass with probability 0.80, reported on the estimand's scale (treated effect x 52/85)",
+    "replicates": 2000,
+    "simulation_seed": 20260827,
+    "bootstrap": {
+      "function": "epl.score.block_bootstrap_ci",
+      "B": 10000,
+      "alpha": 0.05,
+      "seed": 20260814
+    },
+    "grid": {
+      "step": 0.0002,
+      "points": 101,
+      "from": 0.0,
+      "to": -0.02,
+      "interpolation": "linear in delta between the FIRST adjacent pair bracketing 0.80, scanning from 0 downward; a grid point at exactly 0.80 IS the MDE; if 0.80 is never reached the MDE is reported as < -0.0200 with no interpolated value"
+    },
+    "bar": {
+      "treated": -0.0016346153846153847,
+      "estimand": -0.001,
+      "evaluated": "at its own seed and replicates, never interpolated from the grid"
+    },
+    "structural_fact": "gate (i) is a threshold AT the bar, not a test against zero, so at a true effect exactly equal to the bar the probability of clearing it is about one half whatever the variance is. An 80%-power MDE equal to the bar is unattainable by construction, at any SD; the honest quantity is the ratio.",
+    "scenarios": [
+      {
+        "scenario": "A freshness-scale",
+        "paired_sd": 0.005262,
+        "source": "reports/epl_freshness_result.json's own sd over its 1,699 paired deltas"
+      },
+      {
+        "scenario": "B anchoring-scale",
+        "paired_sd": 0.014449,
+        "source": "reports/epl_anchoring_result.md's past-only estimand, paired sd over 2,280 fixtures"
+      },
+      {
+        "scenario": "C mechanism-scale",
+        "paired_sd": 0.036,
+        "source": "a deliberately pessimistic extrapolation, named as invented: about 2.3x beyond the largest committed point of the anchoring weight ladder"
+      }
+    ],
+    "rows": [
+      {
+        "scenario": "A freshness-scale",
+        "sd": 0.005262,
+        "source": "reports/epl_freshness_result.json's own sd over its 1,699 paired deltas",
+        "rho": 0.0,
+        "power_at_bar": 0.451,
+        "mde_treated": -0.0023631578947368426,
+        "mde_estimand": -0.001445696594427245,
+        "ratio_to_bar": 1.445696594427245,
+        "power_at_2x_bar": 0.9755,
+        "exhausted": false,
+        "note": "linear interpolation in delta",
+        "curve": [
+          0.0105,
+          0.0225,
+          0.042,
+          0.065,
+          0.1045,
+          0.1615,
+          0.238,
+          0.338,
+          0.433,
+          0.529,
+          0.643,
+          0.738,
+          0.814,
+          0.8675,
+          0.9175,
+          0.948,
+          0.9715,
+          0.9835,
+          0.9915,
+          0.9965,
+          0.999,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "scenario": "A freshness-scale",
+        "sd": 0.005262,
+        "source": "reports/epl_freshness_result.json's own sd over its 1,699 paired deltas",
+        "rho": 0.5,
+        "power_at_bar": 0.4085,
+        "mde_treated": -0.0025674074074074076,
+        "mde_estimand": -0.001570649237472767,
+        "ratio_to_bar": 1.570649237472767,
+        "power_at_2x_bar": 0.95,
+        "exhausted": false,
+        "note": "linear interpolation in delta",
+        "curve": [
+          0.02,
+          0.027,
+          0.0405,
+          0.067,
+          0.1055,
+          0.1515,
+          0.228,
+          0.306,
+          0.3915,
+          0.478,
+          0.5715,
+          0.665,
+          0.7435,
+          0.811,
+          0.8615,
+          0.909,
+          0.9415,
+          0.9605,
+          0.981,
+          0.987,
+          0.9915,
+          0.995,
+          0.9975,
+          0.999,
+          0.9995,
+          0.9995,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "scenario": "B anchoring-scale",
+        "sd": 0.014449,
+        "source": "reports/epl_anchoring_result.md's past-only estimand, paired sd over 2,280 fixtures",
+        "rho": 0.0,
+        "power_at_bar": 0.1225,
+        "mde_treated": -0.006114285714285715,
+        "mde_estimand": -0.003740504201680673,
+        "ratio_to_bar": 3.740504201680673,
+        "power_at_2x_bar": 0.321,
+        "exhausted": false,
+        "note": "linear interpolation in delta",
+        "curve": [
+          0.0315,
+          0.038,
+          0.043,
+          0.0505,
+          0.0625,
+          0.0755,
+          0.0865,
+          0.106,
+          0.1215,
+          0.139,
+          0.1585,
+          0.1815,
+          0.2045,
+          0.23,
+          0.2595,
+          0.288,
+          0.3155,
+          0.3435,
+          0.3755,
+          0.413,
+          0.4475,
+          0.4755,
+          0.5145,
+          0.5515,
+          0.5895,
+          0.6265,
+          0.66,
+          0.694,
+          0.7275,
+          0.7535,
+          0.786,
+          0.8105,
+          0.8335,
+          0.8495,
+          0.869,
+          0.8855,
+          0.904,
+          0.9125,
+          0.926,
+          0.935,
+          0.943,
+          0.9495,
+          0.9585,
+          0.964,
+          0.9705,
+          0.975,
+          0.9805,
+          0.9835,
+          0.9845,
+          0.9885,
+          0.991,
+          0.993,
+          0.994,
+          0.996,
+          0.997,
+          0.997,
+          0.997,
+          0.998,
+          0.998,
+          0.9985,
+          0.9985,
+          0.9985,
+          0.9985,
+          0.999,
+          0.9995,
+          0.9995,
+          0.9995,
+          0.9995,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "scenario": "B anchoring-scale",
+        "sd": 0.014449,
+        "source": "reports/epl_anchoring_result.md's past-only estimand, paired sd over 2,280 fixtures",
+        "rho": 0.5,
+        "power_at_bar": 0.0915,
+        "mde_treated": -0.006832432432432433,
+        "mde_estimand": -0.004179841017488077,
+        "ratio_to_bar": 4.179841017488077,
+        "power_at_2x_bar": 0.267,
+        "exhausted": false,
+        "note": "linear interpolation in delta",
+        "curve": [
+          0.0235,
+          0.027,
+          0.033,
+          0.0385,
+          0.047,
+          0.055,
+          0.063,
+          0.076,
+          0.0895,
+          0.1055,
+          0.122,
+          0.1385,
+          0.16,
+          0.1825,
+          0.206,
+          0.2325,
+          0.257,
+          0.2875,
+          0.3165,
+          0.35,
+          0.381,
+          0.4135,
+          0.441,
+          0.475,
+          0.5075,
+          0.539,
+          0.57,
+          0.6035,
+          0.64,
+          0.6675,
+          0.695,
+          0.7215,
+          0.7555,
+          0.7775,
+          0.797,
+          0.8155,
+          0.835,
+          0.8575,
+          0.8745,
+          0.89,
+          0.901,
+          0.915,
+          0.928,
+          0.94,
+          0.9495,
+          0.956,
+          0.9615,
+          0.967,
+          0.972,
+          0.975,
+          0.979,
+          0.982,
+          0.986,
+          0.989,
+          0.991,
+          0.993,
+          0.995,
+          0.997,
+          0.997,
+          0.9975,
+          0.9985,
+          0.9985,
+          0.9985,
+          0.999,
+          0.999,
+          0.999,
+          0.999,
+          0.999,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      {
+        "scenario": "C mechanism-scale",
+        "sd": 0.036,
+        "source": "a deliberately pessimistic extrapolation, named as invented: about 2.3x beyond the largest committed point of the anchoring weight ladder",
+        "rho": 0.0,
+        "power_at_bar": 0.0495,
+        "mde_treated": -0.015216,
+        "mde_estimand": -0.009308611764705883,
+        "ratio_to_bar": 9.308611764705883,
+        "power_at_2x_bar": 0.0875,
+        "exhausted": false,
+        "note": "linear interpolation in delta",
+        "curve": [
+          0.027,
+          0.0285,
+          0.0305,
+          0.033,
+          0.0355,
+          0.039,
+          0.044,
+          0.047,
+          0.0495,
+          0.0525,
+          0.0535,
+          0.0575,
+          0.06,
+          0.0665,
+          0.0715,
+          0.078,
+          0.0855,
+          0.0915,
+          0.097,
+          0.105,
+          0.112,
+          0.1165,
+          0.1205,
+          0.127,
+          0.1405,
+          0.15,
+          0.161,
+          0.168,
+          0.178,
+          0.185,
+          0.193,
+          0.2075,
+          0.219,
+          0.229,
+          0.239,
+          0.2485,
+          0.259,
+          0.272,
+          0.2855,
+          0.2975,
+          0.312,
+          0.322,
+          0.335,
+          0.3495,
+          0.372,
+          0.383,
+          0.3955,
+          0.4105,
+          0.4235,
+          0.4375,
+          0.4565,
+          0.4705,
+          0.484,
+          0.5015,
+          0.512,
+          0.5255,
+          0.539,
+          0.5535,
+          0.567,
+          0.584,
+          0.599,
+          0.613,
+          0.627,
+          0.6415,
+          0.661,
+          0.6745,
+          0.6885,
+          0.6975,
+          0.7075,
+          0.718,
+          0.73,
+          0.74,
+          0.7535,
+          0.768,
+          0.778,
+          0.7885,
+          0.799,
+          0.8115,
+          0.8205,
+          0.827,
+          0.8335,
+          0.8425,
+          0.8485,
+          0.8555,
+          0.8665,
+          0.878,
+          0.8845,
+          0.8885,
+          0.8945,
+          0.9005,
+          0.9055,
+          0.912,
+          0.9165,
+          0.9205,
+          0.9235,
+          0.931,
+          0.937,
+          0.941,
+          0.944,
+          0.9485,
+          0.9505
+        ]
+      },
+      {
+        "scenario": "C mechanism-scale",
+        "sd": 0.036,
+        "source": "a deliberately pessimistic extrapolation, named as invented: about 2.3x beyond the largest committed point of the anchoring weight ladder",
+        "rho": 0.5,
+        "power_at_bar": 0.047,
+        "mde_treated": -0.0172,
+        "mde_estimand": -0.010522352941176472,
+        "ratio_to_bar": 10.522352941176472,
+        "power_at_2x_bar": 0.08,
+        "exhausted": false,
+        "note": "tie rule: the grid point IS the MDE",
+        "curve": [
+          0.024,
+          0.0265,
+          0.029,
+          0.03,
+          0.0325,
+          0.037,
+          0.0395,
+          0.042,
+          0.046,
+          0.0495,
+          0.0535,
+          0.0565,
+          0.06,
+          0.0655,
+          0.068,
+          0.0725,
+          0.079,
+          0.085,
+          0.0895,
+          0.0965,
+          0.104,
+          0.111,
+          0.116,
+          0.121,
+          0.126,
+          0.132,
+          0.137,
+          0.1465,
+          0.1495,
+          0.16,
+          0.1675,
+          0.1765,
+          0.1825,
+          0.1945,
+          0.2005,
+          0.2115,
+          0.2205,
+          0.227,
+          0.2395,
+          0.252,
+          0.264,
+          0.2715,
+          0.2835,
+          0.294,
+          0.306,
+          0.3165,
+          0.3275,
+          0.3375,
+          0.347,
+          0.359,
+          0.3705,
+          0.3865,
+          0.397,
+          0.408,
+          0.4195,
+          0.4315,
+          0.4425,
+          0.4535,
+          0.4685,
+          0.4795,
+          0.4955,
+          0.5125,
+          0.525,
+          0.54,
+          0.5545,
+          0.5705,
+          0.583,
+          0.597,
+          0.605,
+          0.615,
+          0.6305,
+          0.6445,
+          0.658,
+          0.6715,
+          0.686,
+          0.7005,
+          0.7075,
+          0.7165,
+          0.725,
+          0.7335,
+          0.743,
+          0.7535,
+          0.763,
+          0.771,
+          0.783,
+          0.7915,
+          0.8,
+          0.8085,
+          0.816,
+          0.825,
+          0.832,
+          0.8405,
+          0.8495,
+          0.8545,
+          0.862,
+          0.8685,
+          0.8735,
+          0.881,
+          0.8855,
+          0.888,
+          0.894
+        ]
+      }
+    ],
+    "published": [
+      {
+        "scenario": "A freshness-scale",
+        "rho": 0.0,
+        "power_at_bar": 0.451,
+        "mde_estimand": -0.001446,
+        "ratio": 1.45,
+        "power_at_2x": 0.976
+      },
+      {
+        "scenario": "A freshness-scale",
+        "rho": 0.5,
+        "power_at_bar": 0.408,
+        "mde_estimand": -0.001571,
+        "ratio": 1.57,
+        "power_at_2x": 0.95
+      },
+      {
+        "scenario": "B anchoring-scale",
+        "rho": 0.0,
+        "power_at_bar": 0.122,
+        "mde_estimand": -0.003741,
+        "ratio": 3.74,
+        "power_at_2x": 0.321
+      },
+      {
+        "scenario": "B anchoring-scale",
+        "rho": 0.5,
+        "power_at_bar": 0.091,
+        "mde_estimand": -0.00418,
+        "ratio": 4.18,
+        "power_at_2x": 0.267
+      },
+      {
+        "scenario": "C mechanism-scale",
+        "rho": 0.0,
+        "power_at_bar": 0.05,
+        "mde_estimand": -0.009309,
+        "ratio": 9.31,
+        "power_at_2x": 0.087
+      },
+      {
+        "scenario": "C mechanism-scale",
+        "rho": 0.5,
+        "power_at_bar": 0.047,
+        "mde_estimand": -0.010522,
+        "ratio": 10.52,
+        "power_at_2x": 0.08
+      }
+    ],
+    "warning": "This design is underpowered against effects near its own bar unless the realised paired SD comes in at or below the freshness scale. At the anchoring scale a true treated effect of -0.0016 would be missed about nine times in ten. A MISS IS THEREFORE SUBSTANTIALLY UNINFORMATIVE: 'no adoption' here means 'not detected at this power', not 'no effect', and the result document must say so in those words.",
+    "decides": "nothing \u2014 no threshold in \u00a74 moves in response",
+    "realised": {
+      "sd_paired_thin": 0.022751278102833457,
+      "sd_paired_treated": 0.028887934876731913,
+      "se_iid": 0.0024677225874036148,
+      "mde_80pct_two_sided_5pct": 0.006913559755801548,
+      "multiplier": 2.8015952,
+      "note": "the two-sided-test-against-zero MDE, which is NOT gate (i)'s: gate (i) is a threshold AT the bar, so an 80%-power MDE equal to the bar is unattainable by construction at any SD. \u00a76.5's joint-gate MDE is a DISTINCT quantity and is recomputed at the realised SD \u2014 the \u00a76.2 simulation re-run with s set to this value, at the same R, seeds, grid and interpolation rule \u2014 and it is published beside this one as `joint_mde` in reports/evidence/widening.json. \u00a76.5: a result document that reports the two-sided quantity beside the realised SD has not discharged the obligation.",
+      "joint_mde": {
+        "computed": true,
+        "sd": 0.028887934876731913,
+        "replicates": 2000,
+        "simulation_seed": 20260827,
+        "bootstrap": {
+          "function": "epl.score.block_bootstrap_ci",
+          "B": 10000,
+          "alpha": 0.05,
+          "seed": 20260814
+        },
+        "grid": {
+          "step": 0.0002,
+          "points": 101,
+          "from": 0.0,
+          "to": -0.02,
+          "interpolation": "linear in delta between the FIRST adjacent pair bracketing 0.80, scanning from 0 downward; a grid point at exactly 0.80 IS the MDE; if 0.80 is never reached the MDE is reported as < -0.0200 with no interpolated value"
+        },
+        "bar": {
+          "treated": -0.0016346153846153847,
+          "estimand": -0.001,
+          "evaluated": "at its own seed and replicates, never interpolated from the grid"
+        },
+        "rows": [
+          {
+            "scenario": "realised",
+            "sd": 0.028887934876731913,
+            "rho": 0.0,
+            "power_at_bar": 0.0535,
+            "mde_treated": -0.012092857142857145,
+            "mde_estimand": -0.007397983193277313,
+            "ratio_to_bar": 7.397983193277312,
+            "power_at_2x_bar": 0.115,
+            "exhausted": false,
+            "note": "linear interpolation in delta"
+          },
+          {
+            "scenario": "realised",
+            "sd": 0.028887934876731913,
+            "rho": 0.5,
+            "power_at_bar": 0.0435,
+            "mde_treated": -0.013636363636363637,
+            "mde_estimand": -0.008342245989304813,
+            "ratio_to_bar": 8.342245989304812,
+            "power_at_2x_bar": 0.0895,
+            "exhausted": false,
+            "note": "linear interpolation in delta"
+          }
+        ],
+        "definition": "MDE80 is the injected treated effect at which ALL THREE deciding match gates pass with probability 0.80, reported on the estimand's scale (treated effect x 52/85)",
+        "structural_fact": "gate (i) is a threshold AT the bar, not a test against zero, so at a true effect exactly equal to the bar the probability of clearing it is about one half whatever the variance is. An 80%-power MDE equal to the bar is unattainable by construction, at any SD; the honest quantity is the ratio.",
+        "decides": "nothing \u2014 \u00a76.5: the realised numbers decide nothing and no threshold moves in response. They exist so the reader can size the null \u00a76.3's warning pre-announces."
+      }
+    },
+    "reproduces": {
+      "schema": "epl-evwiden-3",
+      "checks": [
+        {
+          "scenario": "A freshness-scale",
+          "rho": 0.0,
+          "row_matches": true,
+          "curve_points": 101,
+          "power_at_bar": {
+            "published": 0.451,
+            "reproduced": 0.451
+          },
+          "mde_estimand": {
+            "published": -0.001446,
+            "reproduced": -0.001446
+          },
+          "ratio": {
+            "published": 1.45,
+            "reproduced": 1.45
+          },
+          "power_at_2x": {
+            "published": 0.976,
+            "reproduced": 0.976
+          },
+          "PASS": true
+        },
+        {
+          "scenario": "A freshness-scale",
+          "rho": 0.5,
+          "row_matches": true,
+          "curve_points": 101,
+          "power_at_bar": {
+            "published": 0.408,
+            "reproduced": 0.408
+          },
+          "mde_estimand": {
+            "published": -0.001571,
+            "reproduced": -0.001571
+          },
+          "ratio": {
+            "published": 1.57,
+            "reproduced": 1.57
+          },
+          "power_at_2x": {
+            "published": 0.95,
+            "reproduced": 0.95
+          },
+          "PASS": true
+        },
+        {
+          "scenario": "B anchoring-scale",
+          "rho": 0.0,
+          "row_matches": true,
+          "curve_points": 101,
+          "power_at_bar": {
+            "published": 0.122,
+            "reproduced": 0.122
+          },
+          "mde_estimand": {
+            "published": -0.003741,
+            "reproduced": -0.003741
+          },
+          "ratio": {
+            "published": 3.74,
+            "reproduced": 3.74
+          },
+          "power_at_2x": {
+            "published": 0.321,
+            "reproduced": 0.321
+          },
+          "PASS": true
+        },
+        {
+          "scenario": "B anchoring-scale",
+          "rho": 0.5,
+          "row_matches": true,
+          "curve_points": 101,
+          "power_at_bar": {
+            "published": 0.091,
+            "reproduced": 0.091
+          },
+          "mde_estimand": {
+            "published": -0.00418,
+            "reproduced": -0.00418
+          },
+          "ratio": {
+            "published": 4.18,
+            "reproduced": 4.18
+          },
+          "power_at_2x": {
+            "published": 0.267,
+            "reproduced": 0.267
+          },
+          "PASS": true
+        },
+        {
+          "scenario": "C mechanism-scale",
+          "rho": 0.0,
+          "row_matches": true,
+          "curve_points": 101,
+          "power_at_bar": {
+            "published": 0.05,
+            "reproduced": 0.05
+          },
+          "mde_estimand": {
+            "published": -0.009309,
+            "reproduced": -0.009309
+          },
+          "ratio": {
+            "published": 9.31,
+            "reproduced": 9.31
+          },
+          "power_at_2x": {
+            "published": 0.087,
+            "reproduced": 0.087
+          },
+          "PASS": true
+        },
+        {
+          "scenario": "C mechanism-scale",
+          "rho": 0.5,
+          "row_matches": true,
+          "curve_points": 101,
+          "power_at_bar": {
+            "published": 0.047,
+            "reproduced": 0.047
+          },
+          "mde_estimand": {
+            "published": -0.010522,
+            "reproduced": -0.010522
+          },
+          "ratio": {
+            "published": 10.52,
+            "reproduced": 10.52
+          },
+          "power_at_2x": {
+            "published": 0.08,
+            "reproduced": 0.08
+          },
+          "PASS": true
+        }
+      ],
+      "PASS": true,
+      "rule": "\u00a78.3: `--freeze-block` refuses to render while \u00a76.3's table is unreproduced. \u00a76.3 makes the committed implementation's numbers the document's numbers, so the remedy is to correct \u00a76.3 before the freeze commit or to find what in the construction moved \u2014 v1's dated-note remedy is retired with v1."
+    }
+  },
+  "materiality": {
+    "pooled_corpus": -0.00015396048281180068,
+    "reseed_shift": 7.5e-05,
+    "required_sentence": "the rule's corpus-level effect is below this model's own re-seed noise, and its value is a claim about the fixtures it touches, not about the model's aggregate accuracy"
+  },
+  "verdict": "UNRESOLVED \u2014 gate (iv) falls inside the simulation's own error; ADOPT is refused and dc_native stands",
+  "which_gate_decided": [
+    "ii_block_ci_excludes_zero",
+    "iv_table_gate"
+  ],
+  "secondaries_decide": "nothing"
+}
