@@ -6089,6 +6089,13 @@ def test_the_freeze_block_is_harness_produced_and_round_trips(
         assert key.replace("|", escaped) in block, key
         assert ew.EXCLUDED_CELL_DETAIL[key]["fixture"] in block
     assert "not the run this document preregisters" in block
+    # ...and the DISSENT the adjudication of 2026-08-29 requires the block to
+    # carry: §8.3 step 1's dual audit reported blocking findings on both halves,
+    # and a block that recorded the ruling without the dissent would be the
+    # summary this experiment exists not to write
+    assert "DO-NOT-FREEZE" in block and "FAIL" in block
+    assert "OVERRULES both" in block
+    assert "reports/evidence/" in block
     assert "the per-label treated census" in block          # §3.3's pin
     for digest in (ew.CORPUS_SHA256, ew.ARCHIVE_SHA256, ew.WALK_LEDGER_SHA256,
                    ew.CONFIG_SHA256, ew.REALISED_CONFIG_SHA256):

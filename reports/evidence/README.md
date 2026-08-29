@@ -110,3 +110,31 @@ github.com/onbiggerthingsB/flamsteed-vault at commit **482c1fa**
 (426eed7 → 482c1fa, ls-remote verified), under
 `data/epl/fit-evidence-2026-08-26/`, with MANIFEST.sha256 extended
 2,574 → 2,596 and re-verified 2,596/2,596 before the push.
+
+
+## The evidence-mass widening experiment — its census and its adversarial record (2026-08-29)
+
+Seven files here belong to a **third** experiment,
+[`reports/epl_widening_prereg_v3.md`](../epl_widening_prereg_v3.md), and they
+arrived before its run rather than after it. Nothing among them is a new
+measurement.
+
+| File | Bytes | What it is |
+|---|---:|---|
+| `widening_parity_feasibility.json` | 18,128 | `data/epl/sim/evwiden_parity_feasibility.json`, **verbatim**. The census v2 §8.2's pass 7 measured on 2026-08-28: which of the protected retro stack's 35 cells it can price. v3's whole table leg is scoped by it (v3 §0.6), and `data/` is gitignored, so the bytes are committed here — a scope resting on a file one machine holds rests on that machine. SHA-256 `07ee00d7…`, pinned by v3 §0.1 and bound in its freeze block. |
+| `widening_review_round6_codex.md` | 34,866 | Cross-model deciding review of the v1→v2 harness (Codex `gpt-5.6-sol`, ultra). |
+| `widening_review_v2_codex.md` | 43,593 | Cross-model deciding review of v2. |
+| `widening_review_v2closure_codex.md` | 46,307 | Cross-model review of v2's closure round. |
+| `widening_review_round7_codex.md` | 58,297 | Cross-model deciding review of **v3**, pinned to Git objects at HEAD `11159b1`. Verdict: **DO-NOT-FREEZE**. |
+| `widening_audit_v2_intree.md` | 15,944 | In-tree adversarial seed audit of the v2 harness. |
+| `widening_audit_v3_seeds.md` | 21,691 | In-tree adversarial seed audit of the **v3** harness, 30 seeded defects replayed. Verdict: **FAIL**, 28 of 30 red. |
+
+The last two are the dissent. Both halves of v3 §8.3's required dual audit
+reported blocking findings; the owner ruled **ADJUDICATED FREEZE** on
+2026-08-29 and v3 §8.9 rules each finding one by one — twenty-three fixed
+before the freeze block could render, eight recorded as known limitations under
+a stated threat model. The reports are committed **in full and unedited**, with
+byte sizes and SHA-256s in v3 §8.9, precisely so that a reader can weigh the
+adjudication against what it overruled. They are **not** members of v3 §9.3's
+MANIFEST, which is an exact list of the 49 artifacts that run will produce;
+these are lineage records of the review that preceded it.

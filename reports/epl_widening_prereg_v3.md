@@ -37,7 +37,13 @@ the fix against the finding.
 `epl/tests/test_evwiden.py` exist, are green, and implement **this** document;
 §8.3 forbids rendering a freeze block until §8.5's conformance report is green on
 behavioural predicates **produced by an independent pytest artifact**, and until
-an independent dual audit reports no blocking finding.
+an independent dual audit reports no blocking finding — **or until an
+adjudication rules on what it found**. The dual audit ran on 2026-08-29 and both
+halves reported blocking findings; the owner ruled **ADJUDICATED FREEZE** the
+same day, and §8.9's dated adjudication section rules every finding one by one,
+records the threat model that governs the rest, and publishes the dissent in
+full. **Codex `gpt-5.6-sol` (ultra) ruled DO-NOT-FREEZE and the in-tree seed
+audit ruled FAIL; the adjudication overrules both, with the reasons there.**
 **No estimand of this experiment has ever been fitted**: no
 `data/epl/fit/evwiden*` or `data/epl/sim/evwiden*` file exists, no delta exists,
 no evidence file exists, no verdict exists — §8.8 states that attestation in full,
@@ -909,6 +915,29 @@ its untouched cells, which is not the same fact and would not carry the same
 ground. Pinning both is what makes the claim checkable. If either stops being
 true, the ground for the deciding horizon has moved and the harness must refuse
 rather than carry on. A departure from either pin is `MembershipMismatch`.
+
+**AND THE EXACT THIRTY-TWO ARE PINNED, TUPLE BY TUPLE** (adjudication of
+2026-08-29, F6). Every count above is an AGGREGATE, and the v3 review found that
+each of them survives a substitution: "`assert_table_census` permits a bogus
+same-label season or altered cutoff/treated club [...] This defeats the core v3
+promise that the experiment is exactly the measured 32, not merely any 32 with
+the same aggregate census." So the schedule itself is the pin —
+`FROZEN_TABLE_SCHEDULE`, thirty-two `(season, cutoff_label, cutoff date, treated
+clubs)` tuples, recomputed from the pinned artifacts by §8.2's read-only pass
+and frozen in the harness the freeze commit hashes. A cell substituted for
+another at the same label, a cutoff moved by a week, or a treated club exchanged
+for a neighbour leaves 32/15/17, both per-label censuses and MW6's all-treated
+ground intact, and none of them survives this.
+
+**It is asked on every deciding path**, not only where the cells are
+enumerated: `table_cells`, `run_parity_oracle`, `run_table`, `score_table` and
+`table_gate` each call it, and `score_table` is the choke point for the rest —
+§8.6 closed `tallies=` and `mc=`, so §5's estimator, §5.4's unanimity rule and
+the gate's label populations are computed from exactly the rows it binds. And
+**§8.3's frozen membership digests carry the cutoff date and the treated-club
+identity**: `season|cutoff_label` alone hashed two schedules differing by a week
+or by a club to the same value, so §8.6 condition (3)'s equality could not see
+the difference it exists to see.
 
 #### The two-sided cell identity
 
@@ -2221,7 +2250,13 @@ order:
    report must be green on behavioural predicates **and must be backed by the
    independent pytest artifact §8.5 requires**, and an independent dual audit —
    one cross-model review and one in-tree adversarial seed audit — must report no
-   blocking finding.
+   blocking finding, **or the owner must adjudicate what it reported**. Both
+   halves ran on 2026-08-29 and both reported blocking findings; §8.9's dated
+   adjudication section is the ruling, and the freeze block carries this line:
+   *Codex `gpt-5.6-sol` (ultra) ruled DO-NOT-FREEZE and the in-tree seed audit
+   ruled FAIL; the adjudication of 2026-08-29 overrules both, with the reasons
+   there.* The adjudication does not relax the block's own mechanical gates,
+   which still bind unconditionally below.
 
 2. **A follow-up commit appends the freeze block to this document**, rendered by
    `--freeze-block`, carrying:
@@ -2333,6 +2368,46 @@ that ran and failed writes its marker with `complete: false`, and the step it
 would have unlocked refuses exactly as it refuses on an absent one. The point is
 not bookkeeping: it makes a failed step DURABLE, which is what closes the
 retry channel §4.4's no-file-drawer rule exists to close.
+
+**A marker names its PRODUCT by path and by digest, and every read re-hashes
+it** (adjudication of 2026-08-29, F10). The v3 draft required "a digest of what
+the step produced", and the review found the revalidation recomputing a digest
+of the marker's own embedded dictionary rather than of the named file: "product
+deletion or mutation therefore leaves the marker valid", and step 5's marker
+carried a path, a cell count and a parity check but no ledger SHA at all. Each
+marker therefore carries `products`, a map from repo-relative path to the
+SHA-256 of what that file held when the step finished, and
+`assert_sequence_marker_wellformed` re-hashes every entry against the bytes on
+disk on every read. Step 1 names the canary record; step 2 the scratch ledger it
+wrote; step 3 the four shard ledgers; step 5 **the table ledger and the parity
+ledger**. Step 4 names the four shard ledgers it scored rather than
+`data/epl/fit/evwiden.json`: §8.4's own order runs the merge twice — once as
+step 4, before the table exists, and once at publication with §3.3's gate in
+it — so the merged verdict's bytes are not a constant of step 4 while the
+ledgers it scored are, and its `run_digest` is recomputable from exactly those
+bytes. A marker is a claim that a step produced something; a claim about a file
+that is gone, or is no longer that file, unlocks nothing.
+
+**THE RECLAIM RULE: a crashed step may resume, and every resumption is on the
+record** (adjudication of 2026-08-29, F3). The v3 draft refused a second claim
+of a step whose claim was still open, and the review found that this made §7.2's
+promise unkeepable: "an open `complete: false` claim permanently refuses the
+official retry while §7.2 promises resumability", and §8.4's step 5 says a crash
+costs the cell in flight and nothing else. The marker separates the two cases
+and the rule follows it:
+
+> * a **COMPLETED** step produced an outcome, and the sequence stays ONCE-ONLY
+>   for it: re-running a step after seeing what it produced is the
+>   outcome-conditioned second run §4.4 closes, and no reclaim reopens it;
+> * a **FAILED** step — `complete: false` with no open claim on it — has
+>   published its failure, and a continuation after it still needs a new dated
+>   pre-freeze note written BEFORE the retry;
+> * an **OPEN CLAIM** is a step that started and did not finish. It produced no
+>   complete product, so there is no outcome to condition a retry on and nothing
+>   to put in a file drawer. It may be re-claimed **once per dated reclaim
+>   record appended to the claim file** — appended, never overwritten — and the
+>   completion marker carries the whole reclaim list forward, so a resumed
+>   step's history survives the step and a reader can count the resumptions.
 
 **A file that records none of that is not a marker.** The next step checks the
 one it is handed: the schema identifier is `epl-evwiden-3`, the recorded step is
@@ -2466,10 +2541,12 @@ expensive and its target was a parameter:
 > any deciding path: `data/epl/sim/evwiden/table_cells.jsonl` and nothing else.
 > **And step 5 claims its marker BEFORE it simulates**, not after: the write-once
 > marker is opened at the start of the step and completed at its end, so a second
-> attempt is refused before a single fit is spent rather than after a second
-> outcome exists. A step-5 marker whose run did not complete records
-> `complete: false` and unlocks nothing (§8.4's failure rule), which is the same
-> durability the canary has and for the same reason.
+> attempt after an OUTCOME is refused before a single fit is spent rather than
+> after a second outcome exists. A step-5 marker whose run did not complete
+> records `complete: false` and unlocks nothing (§8.4's failure rule), which is
+> the same durability the canary has and for the same reason — and a crash that
+> leaves the claim open is resumable under the reclaim rule above, which is what
+> §7.2 promises and what an unconditional refusal here would have taken away.
 
 **§8.7's regime comes into force at the completion of step 1**, not step 2. From the
 moment the results canary's first fit completes, a real fit on the real archive
@@ -3133,6 +3210,123 @@ many are treated and how many tallies §5 resamples — and it carries no delta,
 arm comparison and no estimand, so there was no effect for any of them to be
 chosen against. That is a weaker claim than "nothing moved", and it is the true
 one.
+
+**2026-08-29 — THE ADJUDICATION. A seventh review round ruled DO-NOT-FREEZE; the
+owner ruled ADJUDICATED FREEZE and this section is the ruling.**
+
+The dual audit §8.3 step 1 requires was run against the harness at HEAD
+`11159b1`: a cross-model deciding review (Codex `gpt-5.6-sol`, ultra, pinned to
+Git objects at that commit) and an in-tree adversarial seed audit replaying
+thirty seeded defects. The review returned **DO-NOT-FREEZE** — twenty-three of
+forty-one unique prior findings still open and three new blocking classes — and
+the seed audit returned **FAIL**, twenty-eight of thirty seeds red with two
+green, one of them a seed the brief mandated. Both are committed in full under
+`reports/evidence/` and named in §8.3's dissent line; neither is summarised away
+here.
+
+The owner, asked to choose, ruled **ADJUDICATED FREEZE** on 2026-08-29: the
+science is settled, and the residual findings are adjudicated one by one rather
+than answered with another round. No further review round gates the freeze. The
+freeze block's own mechanical gates still bind — eighteen of eighteen
+conformance rows green from the committed pytest artifact, the census record and
+its committed copy at the pinned digest, and §6.3's power table reproduced by the
+committed simulation.
+
+#### The threat model, stated once and applied throughout
+
+> **The operator is the experimenter.** Mechanical operator-proofing beyond a
+> point cannot succeed — the operator can rebind Python, edit gitignored bytes,
+> or fabricate inputs upstream of any guard — and it is NOT this
+> preregistration's defence. External verifiability rests on the committed
+> evidence contract, the committed census, the frozen hashes, CI, and the
+> complete cross-model dissent published in `reports/evidence/`. Findings whose
+> only exploit path is deliberate operator action are recorded below as KNOWN
+> LIMITATIONS, with this paragraph as the reason.
+
+#### Fixed before the freeze — real integrity, executability, or self-contradictory law
+
+Each of these was implemented against a test verified RED first, at the file and
+line the reviews named, and each is in the commit history under the prefix
+`epl(widen): adjudication — `.
+
+| # | finding | what changed |
+|---|---|---|
+| **F1** | V3-B2 | §8.2 forbade all pre-freeze repository writes while §8.5 required the conformance artifact to be written pre-freeze: **self-contradictory**, with no legal sequence. §8.2 now authorises that write **by name** — path, writer, moment — so the protocol is executable. |
+| **F2** | N-RH-FIRST-ACT | Step 2 was not executable: the launcher never copied step 1's canary into the scratch directory and `require_run_preconditions` refused its absence. The launcher copies it, and the test is an **executed sequence** rather than a source grep. |
+| **F3** | P5-B8 (crash-recovery half) | An open `complete: false` claim permanently refused the official retry while §7.2 promises resumability. §8.4 now carries the **reclaim rule**: a claim whose step produced no complete product may be re-claimed once per dated reclaim record appended to the claim file; COMPLETED steps stay once-only. |
+| **F4** | V3-I2 | Output-bearing v2 residues removed from the harness AND from this document, including the false `*_35_cells` keys `score_table` published into `widening.json`. |
+| **F5 / F21** | V3-I1 | §2.4 states **both** figures: 182 fits / 131 simulations for the v2 → v3 lifecycle, 184 / 131 for the whole lineage with v1's two disclosed fits. §2.4, §8.8, §8.9's diff list and v2's closing note agree. |
+| **F6** | V3-B1 | The **exact thirty-two** are bound on every deciding path: `assert_table_census` extended to the frozen `(season, label, cutoff date, treated clubs)` tuples and called by `table_cells`, `run_parity_oracle`, `run_table`, `score_table` and `table_gate`; §8.3's membership digests carry cutoff and club identity (§3.3). |
+| **F7** | IMP-FIRST-FIT-TIMESTAMP | `simulate_arm` recorded a "first real fit" before a simulation that fits nothing. The record lives only at true fit sites, immediately before sampler entry, and the AST test covers `run_canary` — §8.4 step 1, the first four real fits of this document — which it had omitted. |
+| **F8** | IMP-POST-FIT-PROSE (cache half) | `ParityRunner` cached one `assert_may_fit` and ran all thirty-two cells on it. The permit is re-established **per cell**, immediately before the protected runner. |
+| **F9** | V3-B3 | The `_POWER_RUN` module cache is **deleted**. It was an unbound authority over L16, a mandatory freeze row whose whole obligation is that the numbers came out of the committed `power_simulation()`; the simulation re-runs whenever it is asked for. |
+| **F10** | NB6 (product-digest core) | Sequence markers record the SHA-256 of the **actual product bytes** — step 5's marker carries the ledger SHA — and every marker read re-hashes the named files (§8.4). |
+| **F11** | MIN-READ-ONLY-STORE-TOCTOU | The read-only store accessor's refusal path **removes** a directory the constructor created; re-checking made the write visible, it did not undo it (§8.2). |
+| **F12** | P5-I2 | The guard's scope is narrowed to this experiment's evidence **filenames**, not the shared `reports/evidence/` tree, and §8.6 consequence 5's enumeration is corrected to match the code exactly — three directories, eleven files, path by path. |
+| **F13** | V3-I3 | The census is **committed**: `reports/evidence/widening_parity_feasibility.json`, byte-identical to the gitignored record, checked on the same terms, bound in the freeze block beside it, and §8.3's overstated sentence corrected. |
+| **F14** | NB8 (text half) | §8.5 stops claiming the harness *cannot* mark rows green — the seed audit demonstrated that it can. The claim is now the one that holds: the artifact is produced by the committed pytest invocation, and its forgery is an operator act under the threat model (L3). |
+| **F15** | I6 | `verify()` refuses on ANY missing published field it is defined to check — the conditional skips are gone — and names in its report the fields it cannot check. |
+| **F16** | seed (ff) | A test that goes RED when the current-bytes-versus-blob binding is disabled: it builds the landed freeze, appends one uncommitted line to this document, and requires the guard to stop calling the harness frozen. |
+| **F17** | seed (d) | A test that goes RED under `recomputed = row["rps_native"]`: the corpus is wrong about its own `dc_rps`, the ledger copies that value, and only the merge's recomputation can refuse. The two comparisons are separate refusals. |
+| **F18** | seed audit | The abolished census leaves the outputs entirely — **no `*_35_cells` key anywhere**, under any name — and the conformance, docstring and blockquote stale numbers are swept. |
+| **F19** | seed audit | The three stale v2 numbers (§3.3's 19 untouched, §5.4's 32 tallies, §9.3's "outside the 52") and §8.9's false "No threshold, seed, population or gate moved" sentence, rewritten to the truth. |
+| **F20** | seed audit | §8.2's read-only clause authorises by name the two writes its own protocol requires — same class as F1. |
+| **F22** | seed audit | `write_conformance_artifact` leaves `__all__`, and the artifact binds the **pytest session id**; a process with no session is refused. Residue is L3. |
+| **F23** | seed audit | §8.9's witness one-liner is restated to §8.6's actual concession: the record-deleted state holds post-fit; the full-deletion residue is L1. |
+
+#### Known limitations — recorded, not fixed
+
+Each is a finding whose only exploit path is deliberate operator action, or a
+thing unattainable in principle. They are recorded here, in the law, so that a
+reader weighs them rather than discovers them.
+
+* **L1.** B6 / NB5 — the first-fit record and its witness live under gitignored
+  `data/` and are deletable by the operator. The witness is hash-chained and
+  record-deletion-with-witness-standing refuses; deleting both reads as pre-fit,
+  and that is an operator act.
+* **L2.** IMP-POST-FIT-PROSE (global half) — `working_tree_bytes` and any Python
+  global are rebindable at runtime by the operator.
+* **L3.** NB8 (mechanism half) — `write_conformance_artifact` accepts arbitrary
+  outcomes if called directly by an operator inside a pytest process. The
+  committed pytest route is the lawful one.
+* **L4.** A1 — `run_cell_arms` remains a callable module attribute with
+  injectable effects.
+* **L5.** Closure residue — `--dir` alternate locations, `resume=False`,
+  caller-supplied objects on `merge` and `freeze_block`, `LAUNCH_PYTHON`, cached
+  implementation reports: operator channels. The CLI sequence is the lawful
+  route and the generated launcher uses only it.
+* **L6.** P5-B8 (atomicity half) — `claim_sequence_step` is not atomic under
+  concurrent callers. §2.4 already forbids concurrent execution (sequential
+  shards, one launcher); concurrent invocation is an operator act.
+* **L7.** V3-B1 (residue) — beyond F6's binding, proving that the pinned bytes
+  were produced by the claimed harness run is unattainable in principle for
+  gitignored inputs. F13 mitigates it by committing the census.
+* **L8.** `EXCLUDED_CELLS` is **frozen historical scope**, not a standing claim
+  that those three fixtures can never become priceable. If the protected stack
+  changes and one of them does, §10 treats adding it back as a **new design**;
+  this one does not silently enlarge.
+
+#### The dissent, published
+
+Codex `gpt-5.6-sol` (ultra) ruled **DO-NOT-FREEZE**, and the in-tree seed audit
+ruled **FAIL**. This adjudication overrules both, with the reasons above. Their
+complete text is committed — not excerpted, not summarised — under
+`reports/evidence/`, with byte sizes and SHA-256s here so that a later reader can
+check that what is in the tree is what was ruled on:
+
+| record | bytes | SHA-256 |
+|---|---:|---|
+| `reports/evidence/widening_review_round6_codex.md` | 34,866 | `8602d21505fbe5cefab5039ad48abbc3f7edc5375c62e4b94c2722baf0cd328e` |
+| `reports/evidence/widening_review_v2_codex.md` | 43,593 | `918e2481f33e9e48f49d23da8d0909eba4c7b1165f6cb4ae0784b78090e7db73` |
+| `reports/evidence/widening_review_v2closure_codex.md` | 46,307 | `c2c2e9bb4831d58c906e2b60e81ad146aa73c00afb3c6aa6e33cb6046b38e1cf` |
+| `reports/evidence/widening_review_round7_codex.md` | 58,297 | `17abbd6cef10fc25459cbbcd66da95f5cd633c58f46d3ef071af7f8a157a885c` |
+| `reports/evidence/widening_audit_v2_intree.md` | 15,944 | `cc0041d1b69cc8a54c68d403ac2b55fb8aa05ec5b9282005cfcf4493e1303305` |
+| `reports/evidence/widening_audit_v3_seeds.md` | 21,691 | `164819eaca0fb760c6f9648d1425cbccadfebed92b9ab865198b4fec520d7278` |
+
+They are **not** members of §9.3's MANIFEST and must not become members: that
+list is an exact 49 and these are lineage records rather than artifacts of the
+run. §8.3's freeze block names the dissent in one line. A reader who disagrees
+with this adjudication has everything needed to say so.
 
 ---
 

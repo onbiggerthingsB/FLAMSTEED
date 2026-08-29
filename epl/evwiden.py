@@ -660,6 +660,26 @@ PRIOR_PASSES: tuple[str, ...] = (
     "read-only here and §0.1 pins it by digest",
 )
 
+#: v3 §8.3 / §8.9: the freeze block NAMES THE DISSENT. §8.3 step 1 requires a
+#: dual audit and both halves of it reported blocking findings on 2026-08-29 —
+#: the cross-model review ruled DO-NOT-FREEZE, the in-tree seed audit ruled
+#: FAIL. The owner ruled ADJUDICATED FREEZE the same day and §8.9 rules every
+#: finding one by one, records the threat model that governs the rest, and
+#: publishes both reports in full under `reports/evidence/`. A block that
+#: recorded the ruling and not the dissent would be the summary this experiment
+#: exists not to write, so the sentence travels with the hash table.
+ADJUDICATION_DISSENT = (
+    "**The dissent, named here because §8.3 asks the block to carry it.** "
+    "Codex `gpt-5.6-sol` (ultra) ruled **DO-NOT-FREEZE** on the harness this "
+    "table hashes, and the in-tree adversarial seed audit ruled **FAIL** at "
+    "28 of 30 seeds red. The adjudication of 2026-08-29 (§8.9) OVERRULES both, "
+    "with the reasons there: twenty-three findings fixed before this block "
+    "could render, eight recorded as known limitations under a stated threat "
+    "model. Both reports are committed in full under `reports/evidence/`, with "
+    "their byte sizes and SHA-256s in §8.9. A reader who disagrees has "
+    "everything needed to say so."
+)
+
 #: Where §8.3's freeze commit records the harness hashes. **v3 and only v3**:
 #: §8.1 invalidates v1 under its own R-B6 and closes v2 over §0.6's census, and
 #: both "decide nothing", so a guard that read either one's freeze block would
@@ -11271,6 +11291,13 @@ def freeze_block(corpus: pd.DataFrame | None = None,
         lines.append(f"| {entry['id']} | {entry['section']} | "
                      f"{entry['obligation']} | "
                      f"{'yes' if entry['ok'] else 'NO'} |")
+    lines.append("")
+    # v3 §8.3 / §8.9, the adjudication of 2026-08-29: the block NAMES THE
+    # DISSENT. Both halves of §8.3 step 1's dual audit reported blocking
+    # findings; the owner ruled ADJUDICATED FREEZE and §8.9 rules each finding
+    # one by one. A freeze block that recorded only the ruling and not the
+    # dissent would be the summary this experiment exists not to write.
+    lines.append(ADJUDICATION_DISSENT)
     lines.append("")
     lines.append("*If any hash differs at the time the run is executed, it is "
                  "not the run this document preregisters.*")
