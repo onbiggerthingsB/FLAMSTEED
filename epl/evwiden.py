@@ -4942,25 +4942,27 @@ def _mde_from_curve(grid: np.ndarray, curve: np.ndarray
                   "than extrapolating")
 
 
-_POWER_RUN: dict[str, Any] = {}
-
-
 def committed_power_run() -> dict[str, Any]:
-    """The committed :func:`power_simulation` at the frozen constants, ONCE.
+    """The committed :func:`power_simulation` at the frozen constants, EXECUTED.
 
     §6.3's comparison is against "the numbers the committed `power_simulation()`
-    produces at the frozen constants above", and those constants are frozen, so
-    the run is deterministic: one execution per process is the same object every
-    later call would compute. It is memoised because §8.5's report runs the
-    comparison on every render and a twenty-second simulation repeated for each
-    is a reason to reach for a stub — which is the defect L16 exists to catch.
+    produces at the frozen constants above", and L16's whole obligation is that
+    those numbers came out of that code on this occasion.
+
+    **There is no memo.** The adjudication of 2026-08-29 (F9, V3-B3) removed the
+    module-level ``_POWER_RUN`` cache: it was "an unbound authority over
+    `committed_power_run()` — pre-populating it skips the committed power
+    simulation and supplies L16's result", and the conformance artifact recorded
+    only the wrapper's passed outcome, never whether the simulation ran. A cache
+    is a place to put numbers the committed code did not produce, and the one
+    thing this row exists to catch is numbers the committed code did not
+    produce. The simulation costs about twenty seconds and is paid every time it
+    is asked for.
 
     It takes no arguments. A caller who could choose the structure, the
     replicate count or either seed would be choosing the numbers §6.3 publishes.
     """
-    if "value" not in _POWER_RUN:
-        _POWER_RUN["value"] = power_simulation()
-    return _POWER_RUN["value"]
+    return power_simulation()
 
 
 def power_reproduces(power: dict[str, Any] | None = None, *,
@@ -5503,7 +5505,10 @@ def read_only_store(root: Path | str | None = None):
     very directory tree it had just found missing whenever the two disagreed —
     a pre-freeze command writing into ``paths.STORE_DIR`` while the document
     claims nothing has been touched. Four facts are recorded before anything is
-    constructed and re-verified afterwards.
+    constructed and re-verified afterwards, **and the refusal path removes a
+    directory the constructor created** (adjudication F11): re-checking makes
+    the write visible, it does not undo it, and §8.2's clause is that an absent
+    store stays absent.
     """
     from wcmodel.data import store as _store_mod
 
@@ -5537,14 +5542,32 @@ def read_only_store(root: Path | str | None = None):
     store = _store_mod.BitemporalStore(root)
     after = _seen()
     if before != after:
+        # ...and the refusal UNDOES the construction's write (adjudication F11).
+        # Re-checking makes the write visible; it does not undo it, and §8.2's
+        # clause is that an absent store stays absent. A refusal that leaves
+        # `paths.STORE_DIR` standing where the accessor found nothing has built
+        # one and then complained about it. Only a tree this call caused to
+        # appear is removed, and only while it is empty: `rmdir` refuses a
+        # directory with contents, so nothing anybody else wrote can be lost
+        # here.
+        removed = "the store parquet is still there, so nothing was removed"
+        try:
+            if not after[1] and root.is_dir():
+                root.rmdir()
+                removed = (f"the empty tree at {paths.rel(root)} was REMOVED on "
+                           "the way out")
+        except OSError as exc:                             # pragma: no cover
+            removed = (f"{paths.rel(root)} could not be removed ({exc}); it is "
+                       "not empty, so this call is not what created it")
         raise StoreNotBuilt(
             f"{paths.rel(root)} was CREATED OR MOVED between §8.2's existence "
-            f"check and the store's construction ({before} -> {after}). "
-            "`BitemporalStore.__init__` creates its root directory, so an "
-            "accessor that checked and then constructed would build the very "
-            "tree it had just found missing — a pre-freeze command writing "
+            f"check and the store's construction ({before} -> {after}) — "
+            f"{removed}. `BitemporalStore.__init__` creates its root directory, "
+            "so an accessor that checked and then constructed would build the "
+            "very tree it had just found missing — a pre-freeze command writing "
             "under paths.STORE_DIR while §8.8 attests that nothing has been "
-            "touched. The accessor never builds, so this is a refusal.")
+            "touched. The accessor never builds, so this is a refusal, and the "
+            "refusal leaves the disk as it found it.")
     return store
 
 
@@ -5753,13 +5776,18 @@ def simulate_arm(state, book, *, played: pd.DataFrame,
     """
     from epl import leaguesim
 
-    may = assert_may_fit("epl.evwiden.simulate_arm", played=played,
-                         directory=directory)
+    assert_may_fit("epl.evwiden.simulate_arm", played=played,
+                   directory=directory)
     frozen = frozen_table_constants()
-    # §8.6: immediately before the sampler, and after every check that could
-    # refuse — `frozen_table_constants` above resolves the budget and can raise.
-    if may["frozen"] and may["real_artifacts"]:
-        record_first_real_fit(where="epl.evwiden.simulate_arm")
+    # §8.6's first-fit record is NOT written here (adjudication F7). This
+    # function draws seasons from a posterior somebody else fitted: it performs
+    # no fit, and a clock named "the UTC instant of the first real fit" that a
+    # non-fitting surface can start is recording something other than what it
+    # names. On the table leg it would always be started by the wrong one of the
+    # two — `TableRunner` fits and then simulates, so the instant recorded would
+    # be the simulation's rather than the fit's. The record is written at the
+    # true fit sites: `Engine.fit`, `TableRunner.__call__`,
+    # `ParityRunner.__call__` and §8.4 step 1's results canary.
     return leaguesim.simulate(TABLE_ARM_LABEL, state, book,
                               frozen["n_sims"], frozen["seed"],
                               frozen["chunk_size"], n_particles=n_particles)
@@ -6396,12 +6424,14 @@ class ParityRunner:
         # protected `ArchiveRunner`, which performs REAL ADVI fits — and two of
         # those, taken through this very path while v1's guard was not yet in
         # place, are what invalidated v1 (§8.1).
-        self.directory = Path(directory) if directory is not None else TABLE_DIR
-        self.may_fit = assert_may_fit(
-            "epl.evwiden.ParityRunner",
-            played=self.matches.loc[self.matches["played"]],
-            directory=self.directory)
-        self.harness_frozen = bool(self.may_fit["frozen"])
+        self.directory = (directory if directory is NO_TARGET
+                          else Path(directory) if directory is not None
+                          else TABLE_DIR)
+        # Asked HERE so that a run which cannot be permitted dies before it
+        # builds a store and an anchor — and asked AGAIN at every cell (see
+        # :meth:`__call__`). The verdict is deliberately NOT stored.
+        may = self._permit()
+        self.harness_frozen = bool(may["frozen"])
         # §2.3's closure: resolved from the frozen law, never accepted.
         frozen = frozen_table_constants()
         self.n_sims, self.seed = frozen["n_sims"], frozen["seed"]
@@ -6414,13 +6444,31 @@ class ParityRunner:
             require_verified_adjustments=self.require_verified_adjustments,
             verbose=verbose)
 
+    def _permit(self) -> dict[str, Any]:
+        """§8.6's permission, asked fresh. Nothing here is cached (F8).
+
+        The adjudication of 2026-08-29 found ``__init__`` caching one
+        ``assert_may_fit`` and one instance then executing all thirty-two cells
+        "without rereading the current document, witness, or record", against
+        §8.6's every-fit promise. `assert_may_fit` re-reads the preregistration's
+        current bytes, its committed blob, the first-fit record and the witness
+        on every call; a stored verdict is a verdict from before the fits began.
+        """
+        return assert_may_fit(
+            "epl.evwiden.ParityRunner",
+            played=self.matches.loc[self.matches["played"]],
+            directory=self.directory)
+
     def __call__(self, cell: dict[str, Any]) -> dict[str, Any]:
         from epl import simmetrics, simretro
 
         season, label = str(cell["season"]), str(cell["cutoff_label"])
         cutoff = pd.Timestamp(cell["cutoff"]).normalize()
         started = time.perf_counter()
-        if self.may_fit["frozen"] and self.may_fit["real_artifacts"]:
+        # §8.6, at THIS cell and not at construction (adjudication F8).
+        may = self._permit()
+        self.harness_frozen = bool(may["frozen"])
+        if may["frozen"] and may["real_artifacts"]:
             record_first_real_fit(where="epl.evwiden.ParityRunner")
         result = self._runner(season=season, cutoff_label=label, cutoff=cutoff,
                               arms=(TABLE_ARM_LABEL,), nulls=(),

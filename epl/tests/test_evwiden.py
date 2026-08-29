@@ -4119,6 +4119,54 @@ def test_the_table_runners_refuse_the_pinned_archive_before_the_freeze(tmp_path)
         ew.ParityRunner(matches, directory=tmp_path)
 
 
+def test_the_parity_runner_re_establishes_the_permit_at_every_cell(monkeypatch):
+    """The adjudication of 2026-08-29, F8 (IMP-POST-FIT-PROSE, cache half).
+    "`ParityRunner.__init__` caches `assert_may_fit` once, and one instance
+    executes all 32 cells without rereading the current document, witness, or
+    record. That contradicts the every-fit promise."
+
+    §8.6 asks the permit at the moment the sampler runs, "not only at
+    construction: the freeze state and the first-real-fit regime are properties
+    of the moment the sampler runs, and a long run must not carry a stale
+    verdict." One construction and thirty-two protected ADVI fits is exactly the
+    long run the clause is about.
+    """
+    import pandas as pd
+
+    permits = {"n": 0, "raise_from": None}
+
+    def gate(where, **kw):
+        permits["n"] += 1
+        if permits["raise_from"] is not None and \
+                permits["n"] >= permits["raise_from"]:
+            raise ew.FreezeStateUnverified("the document moved under the run")
+        return {"frozen": False, "real_artifacts": False, "where": where}
+
+    monkeypatch.setattr(ew, "assert_may_fit", gate)
+
+    class _Runner:
+        def __call__(self, **kw):
+            raise AssertionError("the permit must be asked BEFORE the runner")
+
+    from epl import simretro
+    monkeypatch.setattr(simretro, "ArchiveRunner",
+                        lambda *a, **kw: _Runner())
+    frame = pd.DataFrame({"season": [], "home_key": [], "away_key": [],
+                          "played": []})
+    runner = ew.ParityRunner(frame, verbose=False, directory=ew.NO_TARGET)
+    assert permits["n"] == 1                       # construction asked once
+
+    cell = {"season": "2019/20", "cutoff_label": "MW6", "cutoff": "2019-09-28"}
+    permits["raise_from"] = 2
+    with pytest.raises(ew.FreezeStateUnverified):
+        runner(cell)
+    assert permits["n"] == 2, "the call re-asked rather than reading a cache"
+    # ...and it is not a stored verdict the constructor left behind
+    assert not hasattr(runner, "may_fit")
+    assert "_permit" in ew._calls_made(ew.ParityRunner.__call__)
+    assert "assert_may_fit" in ew._calls_made(ew.ParityRunner._permit)
+
+
 def test_the_freeze_block_enumerates_six_passes_and_one_prior_history_entry():
     """v3 §8.2's SIX passes, "authorised for this document, prospectively" —
     and the seventh, "prior history and enumerated as such".
@@ -5448,9 +5496,44 @@ def test_the_conformance_report_computes_its_own_power_run():
     assert ew._no_parameter(ew.assert_implements_document, "power")
     assert ew._no_parameter(ew.freeze_block, "power", "pre_freeze_runs")
     assert not inspect.signature(ew.committed_power_run).parameters
-    # ...and it is the committed simulation, memoised because it is
-    # deterministic at the frozen constants and §8.5 runs it on every render
+    # ...and it is the committed simulation, EXECUTED — see the test below,
+    # which is the one that binds the obligation
     assert "power_simulation()" in inspect.getsource(ew.committed_power_run)
+
+
+def test_no_process_state_may_stand_in_for_the_power_simulation(monkeypatch):
+    """The adjudication of 2026-08-29, F9 (V3-B3). "The module-level
+    `_POWER_RUN` cache is an unbound authority over `committed_power_run()`.
+    Pre-populating it skips the committed power simulation and supplies L16's
+    result. The conformance artifact records only the wrapper's passed outcome,
+    not whether the simulation executed."
+
+    F9: "remove the `_POWER_RUN` module cache entirely; the power simulation
+    re-runs when asked (~20s); no process state may substitute for it." L16's
+    whole obligation is that the numbers came out of the committed
+    `power_simulation()`, and a memo is a place to put numbers that did not.
+    """
+    import inspect
+
+    calls: list[int] = []
+
+    def counted(*a, **kw):
+        calls.append(1)
+        return {"rows": [], "counted": True}
+
+    monkeypatch.setattr(ew, "power_simulation", counted)
+    assert ew.committed_power_run() == {"rows": [], "counted": True}
+    assert ew.committed_power_run() == {"rows": [], "counted": True}
+    # the simulation RAN both times: nothing between the caller and the
+    # committed code holds an answer from before
+    assert calls == [1, 1]
+    # ...and there is no module-level container to plant one in
+    assert not hasattr(ew, "_POWER_RUN")
+    # the BODY reads one global and it is the committed simulation — a name
+    # check on the compiled code rather than on the prose around it
+    assert ew.committed_power_run.__code__.co_names == ("power_simulation",)
+    assert "return power_simulation()" in inspect.getsource(
+        ew.committed_power_run)
 
 
 def test_the_power_simulation_is_committed_code_at_the_ruled_path():
@@ -6515,9 +6598,28 @@ def test_the_first_fit_record_is_written_at_the_fit_and_not_at_the_check():
     sites that are about to enter the sampler do, immediately before they do.
     """
     assert "record_first_real_fit" not in ew._calls_made(ew.assert_may_fit)
-    for fn in (ew.Engine.fit, ew.simulate_arm, ew.run_canary,
+    for fn in (ew.Engine.fit, ew.run_canary,
                ew.ParityRunner.__call__, ew.TableRunner.__call__):
         assert "record_first_real_fit" in ew._calls_made(fn), fn
+
+
+def test_a_simulation_that_fits_nothing_records_no_first_real_fit():
+    """The adjudication of 2026-08-29, F7 (IMP-FIRST-FIT-TIMESTAMP).
+    "`simulate_arm` records a 'first real fit' before a simulation that performs
+    no fit."
+
+    F7: "record at true fit sites, immediately before sampler entry". §8.6's
+    record is "the UTC instant of the FIRST REAL FIT", and `simulate_arm` is the
+    one call into `epl.leaguesim.simulate` — it draws seasons from a posterior
+    somebody else fitted. A fit clock that a non-fitting surface can start is
+    recording something other than what it names, and on the table leg it would
+    always be started by the wrong one of the two: `TableRunner` fits and then
+    simulates, so the instant would be the simulation's, not the fit's.
+    """
+    assert "record_first_real_fit" not in ew._calls_made(ew.simulate_arm)
+    # it is still GATED — F7 moves the clock, it does not open the surface
+    assert "assert_may_fit" in ew._calls_made(ew.simulate_arm)
+    assert "simulate" in ew._calls_made(ew.simulate_arm)
 
 
 def test_the_guard_demands_equality_on_the_membership_digests():
@@ -6986,13 +7088,18 @@ def test_the_record_is_written_immediately_before_the_sampler(_first_fit_paths):
 
     v3 makes the rule uniform: the record is written after the call that
     performs the fit has been entered and immediately before the sampler is
-    invoked, at EVERY site."""
+    invoked, at EVERY site.
+
+    The adjudication of 2026-08-29 (F7) adds `run_canary` to the loop — the
+    review found the AST test omitting §8.4 step 1, which is the site that
+    performs the FIRST four real fits of the whole document — and drops
+    `simulate_arm`, which performs no fit and no longer records one."""
     import inspect
 
     for fn, sampler in ((ew.Engine.fit, "dcfit.fit_epl"),
                         (ew.TableRunner.__call__, "dcfit.fit_epl"),
                         (ew.ParityRunner.__call__, "self._runner("),
-                        (ew.simulate_arm, "leaguesim.simulate")):
+                        (ew.run_canary, "runner()")):
         src = inspect.getsource(fn)
         rec = src.index("record_first_real_fit(where=")
         # the sampler CALL that follows the record, not a mention of it in the
@@ -7263,6 +7370,55 @@ def test_the_read_only_store_closes_its_check_then_construct_window(tmp_path,
     with pytest.raises(ew.StoreNotBuilt) as exc:
         ew.read_only_store(root=root)
     assert "CREATED OR MOVED" in str(exc.value)
+
+
+def test_the_read_only_store_removes_the_tree_it_was_made_to_create(
+        tmp_path, monkeypatch):
+    """The adjudication of 2026-08-29, F11 (MIN-READ-ONLY-STORE-TOCTOU).
+    "Re-check after construction; REMOVE a directory the constructor created on
+    the refusal path; test asserts removal."
+
+    Re-checking makes the write VISIBLE; it does not undo it. §8.2's clause is
+    that an absent store stays absent — "it never builds, never writes, never
+    unlinks" — and a refusal that leaves `paths.STORE_DIR` standing where the
+    accessor found nothing has built one and then complained about it.
+    """
+    root = tmp_path / "absent_store"          # the store is NOT on disk
+
+    class _Creating:
+        """`BitemporalStore.__init__` as it really is: it creates its root."""
+        def __init__(self, r):
+            Path(r).mkdir(parents=True, exist_ok=True)
+
+    import wcmodel.data.store as store_mod
+    monkeypatch.setattr(store_mod, "BitemporalStore", _Creating)
+    monkeypatch.setattr(ew, "PREREGISTERED_DIRS", ())    # a scratch root
+
+    # the parquet is absent, so the accessor refuses before constructing —
+    # and nothing was created
+    with pytest.raises(ew.StoreNotBuilt):
+        ew.read_only_store(root=root)
+    assert not root.exists()
+
+    # ...and when the parquet vanishes between the check and the construction,
+    # the constructor's directory is REMOVED on the way out
+    parquet = root / ew.STORE_TABLE_PARQUET
+    root.mkdir()
+    parquet.write_bytes(b"x")
+
+    class _Eating(_Creating):
+        def __init__(self, r):
+            parquet.unlink()
+            import shutil
+            shutil.rmtree(r)
+            super().__init__(r)
+
+    monkeypatch.setattr(store_mod, "BitemporalStore", _Eating)
+    with pytest.raises(ew.StoreNotBuilt) as exc:
+        ew.read_only_store(root=root)
+    assert "CREATED OR MOVED" in str(exc.value)
+    assert "REMOVED on the way out" in str(exc.value)
+    assert not root.exists(), "the refusal left the tree the constructor built"
 
 
 # ==========================================================================
