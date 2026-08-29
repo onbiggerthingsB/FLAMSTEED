@@ -4392,11 +4392,18 @@ def unrun_feasibility(tmp_path, monkeypatch):
     record = tmp_path / "evwiden_parity_feasibility.json"
     record.write_text(json.dumps(_census_record(), indent=2))
     raw = record.read_bytes()
+    # ...and its COMMITTED copy, which the reader checks on the same terms
+    # (adjudication F13): the census scopes the whole table leg, and the
+    # repository holds the bytes so a reader of it can inspect and recover them
+    committed = tmp_path / "widening_parity_feasibility.json"
+    committed.write_bytes(raw)
     monkeypatch.setattr(ew, "FEASIBILITY_RECORD", record)
+    monkeypatch.setattr(ew, "FEASIBILITY_COMMITTED", committed)
     monkeypatch.setattr(ew, "FEASIBILITY_SHA256",
                         __import__("hashlib").sha256(raw).hexdigest())
     monkeypatch.setattr(ew, "FEASIBILITY_BYTES", len(raw))
     assert ew.feasibility_status()["ok"] is True
+    assert ew.feasibility_status()["committed_ok"] is True
 
     # ...and §8.5's artifact, which the block also refuses to render without.
     # It is DERIVED from running the eighteen scenarios here rather than
@@ -6042,7 +6049,11 @@ def test_the_closure_refuses_a_seam_at_a_preregistered_target():
                    {"target": ew.EVWIDEN_DIR / "deeper" / "still"},
                    {"target": ew.TABLE_DIR},
                    {"target": ew.SEQUENCE_DIR},
-                   {"target": ew.EVIDENCE_DIR}):
+                   # `reports/evidence/` itself is SHARED and no longer a
+                   # preregistered directory (adjudication F12); this
+                   # document's own published files inside it still are
+                   {"target": ew.EVIDENCE_JSON},
+                   {"target": ew.EVIDENCE_MANIFEST}):
         with pytest.raises(ew.EvWidenError) as exc:
             ew.assert_seam_allowed("audit", played=_archive(), **kwargs)
         assert "preregistered directories" in str(exc.value)
@@ -6291,10 +6302,18 @@ def _census_record(**over):
 
 
 def _plant_census(tmp_path, monkeypatch, rec, *, bind=True):
-    """Write a census record and (by default) re-pin the digest onto it."""
+    """Write a census record and (by default) re-pin the digest onto it.
+
+    The adjudication's F13 commits the same bytes under `reports/evidence/`, and
+    `feasibility_status` checks both against the one pin, so a planted census
+    plants both copies.
+    """
     path = tmp_path / "evwiden_parity_feasibility.json"
     path.write_text(json.dumps(rec, indent=2))
+    committed = tmp_path / "widening_parity_feasibility.json"
+    committed.write_bytes(path.read_bytes())
     monkeypatch.setattr(ew, "FEASIBILITY_RECORD", path)
+    monkeypatch.setattr(ew, "FEASIBILITY_COMMITTED", committed)
     if bind:
         raw = path.read_bytes()
         monkeypatch.setattr(ew, "FEASIBILITY_SHA256",
@@ -6315,6 +6334,52 @@ def test_the_census_record_is_read_and_checked_never_trusted(tmp_path,
     assert status["n_priceable"] == 32 and status["n_unpriceable"] == 3
     assert status["unpriceable"] == sorted(ew.EXCLUDED_CELLS)
     assert ew.assert_feasibility_permits_a_freeze()["ok"] is True
+
+
+def test_the_census_is_committed_and_the_freeze_binds_the_committed_copy(
+        tmp_path, monkeypatch):
+    """The adjudication of 2026-08-29, F13 (V3-I3). "The SHA/size/exact-key
+    reader is sound against accidental mutation or deletion. But a
+    repository-only reader has neither the evidence bytes nor an archival
+    locator. Git cannot independently inspect the masses, execution commit,
+    completion, timings, or provenance, and cannot recover the file if deleted.
+    The claim that the hash makes the census checkable by a repository reader is
+    overstated."
+
+    F13: "commit the census: copy `data/epl/sim/evwiden_parity_feasibility.json`
+    to `reports/evidence/widening_parity_feasibility.json` (committed,
+    repo-auditable), bind THAT path (and its sha) in the freeze block alongside
+    the local file; fix the overstated sentence."
+    """
+    # THE BYTES ARE IN THE REPOSITORY, and they are the pinned bytes
+    assert ew.FEASIBILITY_COMMITTED.exists()
+    raw = ew.FEASIBILITY_COMMITTED.read_bytes()
+    assert __import__("hashlib").sha256(raw).hexdigest() == ew.FEASIBILITY_SHA256
+    assert len(raw) == ew.FEASIBILITY_BYTES
+    assert ew.paths.rel(ew.FEASIBILITY_COMMITTED) == \
+        "reports/evidence/widening_parity_feasibility.json"
+    # ...and a reader of the repository alone can inspect the census: the three
+    # unpriceable cells, their fixtures and their measured excluded masses
+    census = json.loads(raw.decode())
+    unpriceable = {str(u["key"]): u for u in census["unpriceable"]}
+    assert sorted(unpriceable) == sorted(ew.EXCLUDED_CELLS)
+    for key, detail in ew.EXCLUDED_CELL_DETAIL.items():
+        assert unpriceable[key]["fixture"] == detail["fixture"]
+
+    # ...and the reader REFUSES when the committed copy is absent or is not
+    # those bytes, so the census cannot quietly become a one-machine fact again
+    _plant_census(tmp_path, monkeypatch, _census_record())
+    assert ew.feasibility_status()["ok"] is True
+    ew.FEASIBILITY_COMMITTED.unlink()
+    status = ew.feasibility_status()
+    assert status["ok"] is False and status["committed_ok"] is False
+    assert "COMMITTED copy" in status["why"]
+    ew.FEASIBILITY_COMMITTED.write_text("not the census\n")
+    status = ew.feasibility_status()
+    assert status["ok"] is False and status["committed_ok"] is False
+    assert "committed copy's digest" in status["why"]
+    with pytest.raises(ew.FeasibilityRecordMismatch):
+        ew.assert_feasibility_permits_a_freeze()
 
 
 @pinned
@@ -7593,16 +7658,37 @@ def test_the_guard_does_not_refuse_every_artifact_under_the_shared_fit_dir(
     merely INSIDE it is not refused for that reason alone."
     """
     assert ew.paths.FIT_DIR not in ew.PREREGISTERED_DIRS
-    # an unrelated neighbour under the shared directory is permitted...
+    # ...and neither is the SHARED reports/evidence/ tree (adjudication F12):
+    # two earlier experiments publish there and their README, MANIFEST and CSVs
+    # are not this document's artifacts
+    assert ew.EVIDENCE_DIR not in ew.PREREGISTERED_DIRS
+    # an unrelated neighbour under either shared directory is permitted...
     ew.assert_seam_allowed("an unrelated audit", target=ew.paths.FIT_DIR
                            / "some_other_experiment" / "rows.jsonl")
+    for neighbour in ("anchoring.json", "freshness.json", "README.md",
+                      "anchoring_per_fixture.csv"):
+        ew.assert_seam_allowed("an unrelated experiment's evidence",
+                               target=ew.EVIDENCE_DIR / neighbour)
     # ...and this experiment's own artifacts, named individually, are not
     for closed in (ew.EVWIDEN_DIR / "x", ew.TABLE_DIR / "x",
-                   ew.SEQUENCE_DIR / "x", ew.EVIDENCE_DIR / "x",
+                   ew.SEQUENCE_DIR / "x",
                    ew.EVWIDEN_JSON, ew.FEASIBILITY_RECORD,
-                   ew.FIRST_FIT_JSON, ew.FIRST_FIT_WITNESS):
+                   ew.FIRST_FIT_JSON, ew.FIRST_FIT_WITNESS,
+                   ew.EVIDENCE_JSON, ew.EVIDENCE_PER_FIXTURE,
+                   ew.EVIDENCE_TABLE_CELLS, ew.EVIDENCE_GRID_MEANS,
+                   ew.EVIDENCE_MANIFEST):
         with pytest.raises(ew.EvWidenError):
             ew.assert_seam_allowed("this experiment's own", target=closed)
+    # ...and the enumeration the PROSE gives is the enumeration the CODE gives:
+    # §8.6 consequence 5 said "four directories plus two individual files" while
+    # the code listed five (adjudication F12, the prose half)
+    assert len(ew.PREREGISTERED_DIRS) == 3
+    prose = (ew.paths.REPO_ROOT / "reports" / "epl_widening_prereg_v3.md"
+             ).read_text()
+    for named in ew.preregistered_files():
+        assert ew.paths.rel(named) in prose, named
+    assert "The preregistered set is therefore **three directories**" in prose
+    assert "**plus the eleven files this document\n   names by path**" in prose
     # ...and the enumeration is COMPLETE: every path this experiment writes is
     # covered by it. That is what replaces the wildcard — an exact list a test
     # reads back, so a new evwiden artifact outside it fails here rather than

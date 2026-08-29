@@ -2496,8 +2496,15 @@ NO_TARGET = "<no directory: this seam writes nothing>"
 #: exactness: a closed enumeration a committed test reads back, so a new evwiden
 #: artifact that is not in it is caught at the test rather than covered by a
 #: wildcard.
-PREREGISTERED_DIRS: tuple[Path, ...] = (EVWIDEN_DIR, TABLE_DIR, SEQUENCE_DIR,
-                                        EVIDENCE_DIR)
+#:
+#: The adjudication of 2026-08-29 (F12) took ``reports/evidence/`` out of this
+#: tuple for the same reason v2's version had to give up ``paths.FIT_DIR``: it
+#: is a SHARED tree. The anchoring and freshness experiments publish there, its
+#: README and its MANIFEST are theirs as much as this document's, and refusing
+#: every seam beneath it is over-refusal that blocks work §8.2 authorises. What
+#: replaces the breadth is the same exactness: this experiment's evidence files
+#: are named one by one below.
+PREREGISTERED_DIRS: tuple[Path, ...] = (EVWIDEN_DIR, TABLE_DIR, SEQUENCE_DIR)
 
 #: ...and the files this document names by path, which sit beside those
 #: directories rather than inside them. It is a function rather than a tuple
@@ -2505,9 +2512,19 @@ PREREGISTERED_DIRS: tuple[Path, ...] = (EVWIDEN_DIR, TABLE_DIR, SEQUENCE_DIR,
 #: rows rebind these constants to a scratch tree — a tuple frozen at import
 #: would name the real paths after the rebinding.
 def preregistered_files() -> tuple[Path, ...]:
-    """The individual artifacts §8.6's closure names, as they stand now."""
+    """The individual artifacts §8.6's closure names, as they stand now.
+
+    Eleven: the merged verdict, the first-fit record and its witness, §0.6's
+    census record and the committed copy of it, §8.5's conformance artifact, and
+    this experiment's five published files inside the shared
+    ``reports/evidence/`` tree (adjudication F12). The list is what a committed
+    test reads back, so a new evwiden artifact outside it is caught at the test
+    rather than covered by a wildcard over somebody else's directory.
+    """
     return (EVWIDEN_JSON, FIRST_FIT_JSON, FIRST_FIT_WITNESS,
-            FEASIBILITY_RECORD, CONFORMANCE_ARTIFACT)
+            FEASIBILITY_RECORD, FEASIBILITY_COMMITTED, CONFORMANCE_ARTIFACT,
+            EVIDENCE_JSON, EVIDENCE_PER_FIXTURE, EVIDENCE_TABLE_CELLS,
+            EVIDENCE_GRID_MEANS, EVIDENCE_MANIFEST)
 
 _PINNED_ARCHIVE_IDENTITY: dict[str, str | None] = {}
 _PINNED_ARCHIVE_ANCESTRY: dict[str, frozenset[str] | None] = {}
@@ -2639,6 +2656,19 @@ FEASIBILITY_RECORD = paths.DATA_DIR / "sim" / "evwiden_parity_feasibility.json"
 FEASIBILITY_SHA256 = ("07ee00d798cb0f01f29bc5bb5ba885c41e26d5494e9755c73a038a2"
                       "777bad329")
 FEASIBILITY_BYTES = 18128
+
+#: ...and the COMMITTED COPY of those bytes (adjudication F13, V3-I3). The
+#: digest makes the local record tamper-evident and nothing more: "a
+#: repository-only reader has neither the evidence bytes nor an archival
+#: locator. Git cannot independently inspect the masses, execution commit,
+#: completion, timings, or provenance, and cannot recover the file if deleted."
+#: The census is the scope of this document's whole table leg, so the bytes
+#: themselves are committed here, under version control, byte-identical to the
+#: gitignored record; the freeze block binds BOTH paths and the one digest they
+#: share. This is a copy of an existing measurement, not a new one — v3
+#: authorises no pass that could produce a census (§8.2).
+FEASIBILITY_COMMITTED = (paths.REPO_ROOT / "reports" / "evidence"
+                         / "widening_parity_feasibility.json")
 
 #: What the record has to SAY, so that a record which is not the record scopes
 #: nothing. The priceable set is v3's 32 cells; the unpriceable set is §0.6's
@@ -8639,9 +8669,12 @@ def write_evidence(result: dict[str, Any],
     """
     directory = Path(directory) if directory is not None else EVIDENCE_DIR
     if not manifest or not require_manifest_complete:
+        # Keyed to the FILE this call would write and not to the directory
+        # holding it (adjudication F12): `reports/evidence/` is shared with two
+        # earlier experiments, so the closed target is `widening.json` itself.
         assert_seam_allowed(
             "write_evidence(manifest=, require_manifest_complete=)",
-            target=directory,
+            target=directory / EVIDENCE_JSON.name,
             detail="publishing §9's evidence without §9.3's manifest")
     directory.mkdir(parents=True, exist_ok=True)
     written: dict[str, str] = {}
@@ -11054,8 +11087,13 @@ def freeze_block(corpus: pd.DataFrame | None = None,
         "",
         f"| §0.6's census record (§0.1's pin, bound here) | value |",
         "|---|---|",
-        f"| path | `{feasibility['record']}` |",
-        f"| SHA-256 | `{feasibility['sha256']}` |",
+        f"| path (gitignored, on this machine) | `{feasibility['record']}` |",
+        # adjudication F13: the committed copy of the same bytes, so a reader of
+        # the REPOSITORY can inspect the census this document is scoped by —
+        # and recover it — rather than take a digest of a file only one machine
+        # holds
+        f"| path (COMMITTED, byte-identical) | `{feasibility['committed']}` |",
+        f"| SHA-256 (both) | `{feasibility['sha256']}` |",
         f"| bytes | {feasibility['bytes']} |",
         f"| cells attempted | {feasibility['cells_attempted']} |",
         f"| priceable | {feasibility['n_priceable']} |",
@@ -11127,6 +11165,7 @@ def feasibility_status() -> dict[str, Any]:
     conformance row can each say which condition failed.
     """
     out: dict[str, Any] = {"record": paths.rel(FEASIBILITY_RECORD),
+                           "committed": paths.rel(FEASIBILITY_COMMITTED),
                            "expected_sha256": FEASIBILITY_SHA256,
                            "expected_bytes": FEASIBILITY_BYTES}
     if not FEASIBILITY_RECORD.exists():
@@ -11170,7 +11209,33 @@ def feasibility_status() -> dict[str, Any]:
                         f"{len(want_priceable)} / {len(want_unpriceable)}; "
                         f"unexpected priceable "
                         f"{sorted(set(priceable) ^ set(want_priceable))[:4]}")}
-    return {**out, "ok": True, "why": None}
+    # ---- the COMMITTED copy (adjudication F13, V3-I3) --------------------
+    # The pinned digest makes the gitignored record tamper-evident and nothing
+    # more: a repository-only reader "has neither the evidence bytes nor an
+    # archival locator [...] and cannot recover the file if deleted". The same
+    # bytes are committed under `reports/evidence/`, checked here on the same
+    # terms, and bound beside the local path in the freeze block — because a
+    # scope that rests on a file only one machine holds rests on that machine.
+    if not FEASIBILITY_COMMITTED.exists():
+        return {**out, "committed_ok": False, "ok": False,
+                "why": (f"{paths.rel(FEASIBILITY_COMMITTED)} is not on disk. "
+                        "§0.6's census scopes this document's whole table leg, "
+                        "and the COMMITTED copy is what lets a reader of the "
+                        "repository inspect and recover it rather than take a "
+                        "digest of a file only this machine holds.")}
+    committed_raw = FEASIBILITY_COMMITTED.read_bytes()
+    committed_sha = hashlib.sha256(committed_raw).hexdigest()
+    out.update({"committed_sha256": committed_sha,
+                "committed_bytes": len(committed_raw)})
+    if committed_sha != FEASIBILITY_SHA256 or \
+            len(committed_raw) != FEASIBILITY_BYTES:
+        return {**out, "committed_ok": False, "ok": False,
+                "why": (f"the committed copy's digest is {committed_sha[:12]}… "
+                        f"over {len(committed_raw)} bytes and §0.1 pins "
+                        f"{FEASIBILITY_SHA256[:12]}… over {FEASIBILITY_BYTES}: "
+                        f"{paths.rel(FEASIBILITY_COMMITTED)} is not the census "
+                        "this document is scoped to.")}
+    return {**out, "committed_ok": True, "ok": True, "why": None}
 
 
 def _v3_priceable_keys() -> list[str]:

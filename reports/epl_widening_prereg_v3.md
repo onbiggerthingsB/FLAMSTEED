@@ -2184,11 +2184,19 @@ order:
      **both** per-label censuses of §3.3, each serialised canonically and hashed,
      recomputed by the harness's own code from the pinned artifacts;
    * the four pinned artifact digests of §0.1 and `realised_config_sha256`;
-   * **the SHA-256 and byte size of §0.6's feasibility census record** — this
-     document's table leg is scoped by that file, `data/` is gitignored, and a
-     scope that rests on an unhashed local file rests on nothing. Binding it into
-     the block is what makes the census checkable by a reader of the repository
-     rather than only by a reader of this machine;
+   * **the SHA-256 and byte size of §0.6's feasibility census record, and BOTH
+     paths that hold those bytes** — this document's table leg is scoped by that
+     file, `data/` is gitignored, and a scope that rests on an unhashed local
+     file rests on nothing. The adjudication of 2026-08-29 (F13) found the
+     digest necessary and not sufficient: it makes the local record
+     tamper-evident, but "a repository-only reader has neither the evidence
+     bytes nor an archival locator [...] and cannot recover the file if
+     deleted". The bytes are therefore **committed**, byte-identical, at
+     `reports/evidence/widening_parity_feasibility.json`, the freeze block names
+     both paths and the one digest they share, and the harness refuses to render
+     while either copy is absent or fails the pin. Copying an existing
+     measurement is not running a new one: §8.2 authorises no pass that could
+     produce a census, and this file is the census pass 7 already produced;
    * the **enumeration of every pre-freeze pass actually run**, complete, in two
      parts — the six of §8.2 authorised under this document, and the HISTORY
      entry for v2's pass 7 with its date, HEAD, census and record digest;
@@ -2585,15 +2593,36 @@ Four consequences, all mechanical:
    **shared** `paths.FIT_DIR`, which is where every experiment in this repository
    writes. That is over-refusal, and over-refusal is not conservatism: it blocks
    the audit passes §8.2 authorises, and a guard that stops legitimate work gets
-   worked around. The preregistered set is the four directories this document
-   names — `data/epl/fit/evwiden/`, `data/epl/sim/evwiden/`, the sequence
-   directory and `reports/evidence/` — **plus the two files it names by path**,
-   `data/epl/fit/evwiden.json` and §0.6's feasibility record. `paths.FIT_DIR`
-   itself is not a preregistered directory and a target merely *inside* it is not
-   refused for that reason alone. What replaces the breadth is exactness: the
-   guard's list is a closed enumeration a committed test reads back, so a new
-   evwiden artifact that is not in it is caught at the test rather than covered
-   by a wildcard.
+   worked around.
+
+   **`reports/evidence/` is a shared tree too, and the adjudication of
+   2026-08-29 (F12) took it out of the directory list for the same reason.** The
+   anchoring and freshness experiments publish there; its `README.md` and its
+   `MANIFEST.sha256` are theirs as much as this document's, and a guard that
+   refuses every seam beneath it over-refuses exactly as the `paths.FIT_DIR`
+   version did.
+
+   The preregistered set is therefore **three directories** —
+   `data/epl/fit/evwiden/`, `data/epl/sim/evwiden/` and
+   `data/epl/fit/evwiden/sequence/` — **plus the eleven files this document
+   names by path**, which are, exactly and in the order the harness enumerates
+   them: `data/epl/fit/evwiden.json`;
+   `data/epl/fit/evwiden_first_real_fit.json`;
+   `data/epl/fit/evwiden_first_fit_witness.jsonl`;
+   `data/epl/sim/evwiden_parity_feasibility.json`;
+   `reports/evidence/widening_parity_feasibility.json`;
+   `data/epl/fit/evwiden_conformance.json`;
+   `reports/evidence/widening.json`;
+   `reports/evidence/widening_per_fixture.csv`;
+   `reports/evidence/widening_table_cells.csv`;
+   `reports/evidence/widening_grid_means.csv`; and
+   `reports/evidence/MANIFEST.sha256`. Neither `paths.FIT_DIR` nor
+   `reports/evidence/` is a preregistered directory, and a target merely
+   *inside* either is not refused for that reason alone. What replaces the
+   breadth is exactness: the guard's list is a closed enumeration a committed
+   test reads back — **against this paragraph**, path by path — so a new evwiden
+   artifact that is not in both is caught at the test rather than covered by a
+   wildcard over somebody else's directory.
 6. **Deciding evidence is derived, never supplied — including through a scratch
    target.** Two surfaces escaped the closure by taking their deciding inputs as
    arguments rather than as constants: `score_table(tallies=…, mc=…)` accepted
