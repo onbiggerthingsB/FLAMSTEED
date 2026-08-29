@@ -3610,3 +3610,93 @@ no real fit of this document runs before that commit.*
 
 
 
+
+---
+
+### §8.3 step 2 — the harness hashes, the frozen membership and the conformance report
+
+Schema identifier: `epl-evwiden-3`. Recomputed by `python -m epl.evwiden --freeze-block` from the pinned artifacts of §0.1, whose digests are unchanged.
+
+| file | lines | SHA-256 |
+|---|---:|---|
+| `epl/evwiden.py` | 12347 | `b72e30840d0aee18f2566ddef2758e36b43ed0848d7f7900195483b4988da0d4` |
+| `epl/tests/test_evwiden.py` | 8182 | `236d31b1521575a361f420eb0465e7fe25d892147b64663f6a23b1774e4fc266` |
+
+| membership | count | SHA-256 of the canonical serialisation |
+|---|---:|---|
+| the thin fixtures (§2.3) | 85 | `38d18d4d96b4eed0391d167d1bf7be6b95de83db6f8fda2846ad97c3fb368d5a` |
+| the treated fixtures (§2.3) | 52 | `0507ff5eecdefad72021f459c26a090b471b9b1dd4f5ecc53cbafe46fd320538` |
+| the newly-flagged club-cutoff cells (§2.2) | 51 | `35d11fb7ecd8e05fe27ff9e8fc6bdafa03a94b3e6cd24b8742f119937e1d32fb` |
+| the fit openings (§2.3) | 78 | `9d739c98efa78928ed75f723216f7d16604cf5a05f8e83fc4b026a201460f294` |
+| the treated table cells (§3.3) | 15 | `fd10fcc185a7ce86906f37db5c4ae9aa49e536e39e7f0794e8b4baf599f3c9b1` |
+| the untouched table cells (§3.3) | 17 | `10b79bf733c86b39a0d648bfbc9ff16c608e4b57ae560c7b7b83f220e3b93bfa` |
+| the exact schedule: season, label, cutoff date, treated clubs (§3.3) | 32 | `63502656418e5c27bf0dbf10f4a56c51eabb2bf91aa3ab06122377a6a9993e59` |
+| the membership as one object | — | `85cae2b46785f2c8d611b4702f20163b2c96bd8a2253b24ef230152df53058be` |
+| the per-label treated census (§3.3) | {"MW0": 2, "MW3": 2, "MW6": 7, "MW10": 4, "MW19": 0} | `81930a5c72346291ced0a4aa7b5adf1bbf58731d458dd8255d8a53ae9fdfc2c7` |
+| the per-label CELL census (§3.3) | {"MW0": 5, "MW3": 6, "MW6": 7, "MW10": 7, "MW19": 7} | `0ed40c47d57d9c87b781a6d780092a041e9fc38f79754aab1e5505ebfb236151` |
+| the cells §0.6 measured as UNPRICEABLE | 3 — 2019/20\|MW0, 2020/21\|MW0, 2023/24\|MW3 | `03817424f95be2e6829e3dd29298ad9a78656620fca1d59d8704f2c727f9a780` |
+
+| pinned artifact | SHA-256 |
+|---|---|
+| `data/epl/fit/walkforward_predictions.parquet` | `f31580073eb3a7f0deca59b45d1576fb262272efc6d1893ce8c9931b9eff451a` |
+| `data/epl/matches.parquet` | `323aa54af0a8fcf38745c9f7fccc55fe10654ff68cf38fa82cf7f498cea275cf` |
+| `data/epl/fit/walkforward_ledger.jsonl` | `869a558ce7f84ef0f4a4ebdd8f781a4a72213fd5946b4e7088d716d99e82ba9e` |
+| `epl/config_frozen.json` | `9f2e086d39ae4b855ba21604367109e8e9ce00f96010c5ec65c380d317986abc` |
+| the realised configuration (§0.1) | `78a51cd92c48838a57e3d6832b7661aad7a5b231425572214a067c2a35edbdcd` |
+
+Pre-freeze passes authorised under v3 and enumerated (§8.2 — all six fit nothing and simulate nothing; v3 authorises no pass that could enter an estimand):
+
+* `python -m epl.evwiden --membership` and `--plan` — read the pinned corpus, archive and ledger; compute §2.2's cells, §2.3's population, §3.3's table cells and the digests above. Neither reaches `epl.fit.build_store`: §8.2's read-only store accessor opens the existing store parquet and raises `StoreNotBuilt` if it is absent
+* `python -m epl.evwiden --canary --no-results-canary --dir <scratch>` — §7.3's evidence canary on the real archive, with any point-in-time store built in a `tempfile.TemporaryDirectory` and never under `paths.STORE_DIR`
+* `pytest epl/tests/test_evwiden.py` — the synthetic corpora, the `@pinned` tests that re-derive the census, the grid table, the membership and the table cells, and §8.5's CONFORMANCE SCENARIO RUN: eighteen committed tests, one per row L1-L18, whose JSON report at `data/epl/fit/evwiden_conformance.json` is the artifact `--conformance` and `--freeze-block` consume. §8.5: the report may not be its own witness
+* `python -m epl.evwiden --partial-engine` — one partial engine pass at the first opening (2019-08-09): construction, `fit_points`, the enlarged set, `assert_cutoff_clean` and `assert_point_in_time` — the whole of the fit path EXCEPT the call to `dcfit.fit_epl`. The Engine is constructed in a mode that CANNOT fit and its store comes from the read-only accessor, so no sampler runs; the pass compares the shared point-in-time store's bytes and mtime before and after and refuses if either moved
+* `python -m epl.evwiden --freeze-block`, which reads the pinned artifacts to render §8.3's commit rather than have a human transcribe digests
+* `python -m epl.evwiden --power`, which reads only the frozen SDs and the frozen structure recomputed from the pinned artifacts, and reproduces §6.3
+
+Prior history — passes run under an EARLIER document, enumerated here because §8.3 asks for every pre-freeze pass actually run and because this document is scoped by what one of them measured (§0.6). They are **not** authorised by v3 and §10 makes running one under this document an invalidation:
+
+* **v2 §8.2 pass 7 — the `dc_native` parity feasibility pass.** Run on 2026-08-28 under **v2's** authorisation, once, at HEAD `9adc3bc`, arm `dc_native` only, over all 35 of v2 §3.3's cells under `run_retro`'s own typed per-cell contract, quarantined outside the repository with its outputs deleted on close. Product: the CENSUS — 32 priceable, 3 unpriceable, all three `excluded_mass_ceiling` against amendment A1's 0.02 ceiling (2019/20 MW0 man_city v sheffield_united 0.0234; 2020/21 MW0 man_city v leeds 0.0216; 2023/24 MW3 man_city v luton 0.0328). It carries no delta, no table cell, no arm comparison and no estimand. **v3 is SCOPED by it** (§0.6) and does not re-authorise it: the record is read-only here and §0.1 pins it by digest
+
+| §0.6's census record (§0.1's pin, bound here) | value |
+|---|---|
+| path (gitignored, on this machine) | `data/epl/sim/evwiden_parity_feasibility.json` |
+| path (COMMITTED, byte-identical) | `reports/evidence/widening_parity_feasibility.json` |
+| SHA-256 (both) | `07ee00d798cb0f01f29bc5bb5ba885c41e26d5494e9755c73a038a2777bad329` |
+| bytes | 18128 |
+| cells attempted | 35 |
+| priceable | 32 |
+| unpriceable | 3 — 2019/20\|MW0 (man_city v sheffield_united, mass 0.0234 vs the 0.02 A1 ceiling); 2020/21\|MW0 (man_city v leeds, mass 0.0216 vs the 0.02 A1 ceiling); 2023/24\|MW3 (man_city v luton, mass 0.0328 vs the 0.02 A1 ceiling) |
+
+The conformance report of §8.5 — every row a scenario that fails under its own defect class, and every row read from the pytest run below rather than from anything this renderer computed:
+
+| §8.5's pytest artifact | value |
+|---|---|
+| path | `data/epl/fit/evwiden_conformance.json` |
+| SHA-256 | `924ae3c64c301f01dc1278c288cce1b4b6a7acb062b509ff3012f58d4a40352b` |
+| tests passed | 18 of 18 |
+| test ids | `epl/tests/test_evwiden.py::test_conformance_L1`; `epl/tests/test_evwiden.py::test_conformance_L2`; `epl/tests/test_evwiden.py::test_conformance_L3`; `epl/tests/test_evwiden.py::test_conformance_L4`; `epl/tests/test_evwiden.py::test_conformance_L5`; `epl/tests/test_evwiden.py::test_conformance_L6`; `epl/tests/test_evwiden.py::test_conformance_L7`; `epl/tests/test_evwiden.py::test_conformance_L8`; `epl/tests/test_evwiden.py::test_conformance_L9`; `epl/tests/test_evwiden.py::test_conformance_L10`; `epl/tests/test_evwiden.py::test_conformance_L11`; `epl/tests/test_evwiden.py::test_conformance_L12`; `epl/tests/test_evwiden.py::test_conformance_L13`; `epl/tests/test_evwiden.py::test_conformance_L14`; `epl/tests/test_evwiden.py::test_conformance_L15`; `epl/tests/test_evwiden.py::test_conformance_L16`; `epl/tests/test_evwiden.py::test_conformance_L17`; `epl/tests/test_evwiden.py::test_conformance_L18` |
+
+| row | § | obligation | green |
+|---|---|---|---|
+| L1 | §2.3 | both arms from one posterior; the corpus an external control | yes |
+| L2 | §4.1 | the per-horizon gate; no cross-horizon average on any deciding path | yes |
+| L3 | §5.1–5.2 | the MC estimator is tie-aware and jointly resampled | yes |
+| L4 | §5.4 | P5, the unanimity rule at K = 200 | yes |
+| L5 | §3.3 | parity complete at all 32 cells before one treated simulation, and established per cell before its treatment arm | yes |
+| L6 | §8.2 | the pre-freeze commands are mechanically read-only | yes |
+| L7 | §8.6 | the guard establishes the freeze state and never accepts it, on every surface | yes |
+| L8 | §8.6 | the first-fit state is one fixed path, validated, and RATCHETED | yes |
+| L9 | §8.4 | the frozen five-step sequence and its markers | yes |
+| L10 | §8.7, §9.3 | every deciding tally is bound to its row and rebound on every read | yes |
+| L11 | §3.3 | `sampler_digest` is a pure function of (run, tallies) | yes |
+| L12 | §3.2 | the identity control is exercised in the production path, not reimplemented by a stub | yes |
+| L13 | §2.3 | the structural-zero guard is two-sided at the merge | yes |
+| L14 | §0.6/§3.3 | both per-label censuses and the feasibility scope are pinned | yes |
+| L15 | §9 | the evidence contract is closed | yes |
+| L16 | §6.3 | the six published power rows reproduce | yes |
+| L17 | §9.1 | the two always-PASS controls are measured off the merged rows and published | yes |
+| L18 | §2.3 | the frozen constants are not overridable | yes |
+
+**The dissent, named here because §8.3 asks the block to carry it.** Codex `gpt-5.6-sol` (ultra) ruled **DO-NOT-FREEZE** on the harness this table hashes, and the in-tree adversarial seed audit ruled **FAIL** at 28 of 30 seeds red. The adjudication of 2026-08-29 (§8.9) OVERRULES both, with the reasons there: twenty-three findings fixed before this block could render, eight recorded as known limitations under a stated threat model. Both reports are committed in full under `reports/evidence/`, with their byte sizes and SHA-256s in §8.9. A reader who disagrees has everything needed to say so.
+
+*If any hash differs at the time the run is executed, it is not the run this document preregisters.*
