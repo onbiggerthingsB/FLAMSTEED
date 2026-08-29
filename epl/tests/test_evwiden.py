@@ -98,6 +98,40 @@ pinned = pytest.mark.skipif(
            "machine that ran the walk and nowhere else")
 
 
+#: §8.4's five steps have run. The preregistered sequence directory carries
+#: `step5_parity`'s COMPLETION marker and §9's evidence record sits beside it,
+#: which is this module's read-only way of asking whether the run it certifies
+#: is still ahead of it or already behind it. It reads the marker through the
+#: harness's own reader and writes nothing.
+#:
+#: The tests marked `@concluded` below certify the PRE-FREEZE lifecycle: the
+#: refusals that stand while no freeze block is committed, the once-only
+#: sequence markers before any step has filed one, and the `--freeze-block`
+#: render that had not yet happened. §8.4 step 6 commits the result document
+#: and the evidence files, and `epl/evwiden.py:4328-4335` compares a marker's
+#: `freeze_commit` against `git_head()` for EQUALITY — so the publication
+#: commit the sequence itself requires is what turns those tests red. They are
+#: history from that commit onward, and the frozen record they certified is
+#: verifiable where it was frozen, at `38be3e2`.
+def _the_run_has_concluded() -> bool:
+    """Has §8.4's last step filed a completion marker? Read-only."""
+    try:
+        marker = ew.read_sequence_marker(ew.SEQUENCE_STEPS[-1])
+    except Exception:                                          # noqa: BLE001
+        return False
+    return (bool(marker) and marker.get("complete") is True
+            and ew.EVIDENCE_JSON.exists())
+
+
+RUN_CONCLUDED = _the_run_has_concluded()
+
+concluded = pytest.mark.skipif(
+    RUN_CONCLUDED,
+    reason="the widening run concluded 2026-08-30; these certify the "
+           "pre-freeze lifecycle, which is now history — the frozen record is "
+           "verifiable at commit 38be3e2")
+
+
 #: §8.8's attestation names the directories that must stay empty until §8.4
 #: step 1 runs, and the harness's own guards are keyed to them.
 PREREGISTERED_TREE = (ew.EVWIDEN_DIR, ew.TABLE_DIR, ew.SEQUENCE_DIR,
@@ -1133,6 +1167,7 @@ def test_the_preregistered_directory_is_closed_before_the_freeze(tmp_path):
     ew._guard_ledger_location(tmp_path / "shard_00_of_01.jsonl", False)
 
 
+@concluded
 def test_every_audit_row_is_stamped_unfrozen(tmp_path):
     _run(tmp_path)
     rows = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
@@ -2187,6 +2222,7 @@ def test_the_merge_refuses_an_unfrozen_harness(tmp_path):
     assert "freeze" in str(exc.value)
 
 
+@concluded
 def test_the_merge_refuses_rows_stamped_unfrozen(tmp_path):
     """The freeze is a property of the ROW, not of the merge's clock — the
     predecessors' back-dating guard, kept."""
@@ -2984,6 +3020,7 @@ def test_the_parity_oracle_compares_substantive_digests_and_the_incumbent_set():
         assert "fails OPEN" in str(exc.value)
 
 
+@concluded
 def test_the_parity_oracle_runs_every_cell_and_resumes(tmp_path):
     cells = _cells()
     seen = []
@@ -3026,6 +3063,7 @@ def test_no_require_parity_parameter_and_no_limit_on_the_oracle_exist():
     assert "--table --limit" not in ew.launch_script()
 
 
+@concluded
 def test_parity_is_established_before_one_treated_simulation_runs(tmp_path):
     """§3.3's closure 1, conformance row L5: "call the table leg with an oracle
     of 34 cells and with none; each must raise `TableIdentityBreak` **before**
@@ -3053,6 +3091,7 @@ def test_parity_is_established_before_one_treated_simulation_runs(tmp_path):
         assert simulated == [], simulated       # not ONE arm of ONE cell
 
 
+@concluded
 def test_the_treated_run_refuses_a_control_arm_that_drifted_from_protected(
         tmp_path):
     cells = _cells()
@@ -3062,6 +3101,7 @@ def test_the_treated_run_refuses_a_control_arm_that_drifted_from_protected(
                      parity=_parity_for(cells), config_sha="c", verbose=False)
 
 
+@concluded
 def test_every_table_row_records_the_digest_of_its_own_tally_file(tmp_path):
     """§8.7: "**every table ledger row records the SHA-256 of its own tally
     file**, written at the same moment as the row"."""
@@ -3074,6 +3114,7 @@ def test_every_table_row_records_the_digest_of_its_own_tally_file(tmp_path):
         assert row["tally_sha256"] == ew.sha256_file(target)
 
 
+@concluded
 def test_a_swapped_tally_is_refused_on_the_digest_and_on_its_invariants(
         tmp_path):
     """§8.7, conformance row L10. "Each is a live deciding input: §5's estimator
@@ -3111,6 +3152,7 @@ def test_a_swapped_tally_is_refused_on_the_digest_and_on_its_invariants(
     assert "matrix" in str(exc.value) or "cluster" in str(exc.value)
 
 
+@concluded
 def test_an_absent_tally_file_is_a_refusal_and_never_a_smaller_bootstrap(
         tmp_path):
     """§7.1 lists "a tally file that is absent or fails its recorded digest"
@@ -3123,6 +3165,7 @@ def test_an_absent_tally_file_is_a_refusal_and_never_a_smaller_bootstrap(
     assert "not on disk" in str(exc.value)
 
 
+@concluded
 def test_the_table_leg_writes_one_row_per_cell_and_resumes(tmp_path):
     cells = _cells()
     path = tmp_path / "table.jsonl"
@@ -3141,6 +3184,7 @@ def test_the_table_leg_writes_one_row_per_cell_and_resumes(tmp_path):
 
 # ---- §4.1: the deciding statistics are per horizon -------------------------
 
+@concluded
 def test_the_pooled_statistic_is_gone_from_every_deciding_path(tmp_path):
     """§4.1: the pooled ΔTRPS and ΔwTRPS are WITHDRAWN from the
     published outputs entirely, not demoted to secondaries. Protected code
@@ -3158,6 +3202,7 @@ def test_the_pooled_statistic_is_gone_from_every_deciding_path(tmp_path):
     assert "decides nothing" in gate["withdrawn"]
 
 
+@concluded
 def test_the_deciding_statistics_are_the_named_horizon_and_the_point_gates(
         tmp_path):
     """§4.1 (iv-a): the equal-weight mean over the SEVEN MW6 cells. (iv-b): at
@@ -3177,6 +3222,7 @@ def test_the_deciding_statistics_are_the_named_horizon_and_the_point_gates(
     assert scored["mw19"]["decides"] == "nothing"
 
 
+@concluded
 def test_the_mw6_interval_is_r_b3s_frozen_construction(tmp_path):
     """§5.3's table: `epl.score.block_bootstrap_ci`, the seven season strings
     one cell per block, B = 10,000, alpha = 0.05, seed 20260814, NumPy's default
@@ -3452,6 +3498,7 @@ def test_one_dissenting_draw_of_the_two_hundred_is_enough(tmp_path):
                               point_verdict=False) is True
 
 
+@concluded
 def test_the_unanimity_rule_propagates_through_the_actual_computation(tmp_path):
     """§5.4: it "does not bound the endpoint by a scale that does not describe
     it; it **propagates the Monte-Carlo uncertainty through the actual
@@ -3545,6 +3592,7 @@ def test_a_missing_monte_carlo_error_is_unresolved_and_never_small():
     assert "P1" in out["precision"]["fired"]
 
 
+@concluded
 def test_score_table_refuses_an_untouched_cell_that_moved(tmp_path):
     path, rows = _run_cells(tmp_path)
     for row in rows:
@@ -3555,6 +3603,7 @@ def test_score_table_refuses_an_untouched_cell_that_moved(tmp_path):
         ew.score_table(rows, ledger_path=path)
 
 
+@concluded
 def test_the_hull_analogue_is_printed_with_no_decision_weight(tmp_path):
     """§3.4: "the one Hull-analogue — illustrative, no decision weight"."""
     path, rows = _run_cells(tmp_path, _cells())
@@ -3574,6 +3623,7 @@ def test_the_hull_analogue_is_printed_with_no_decision_weight(tmp_path):
                                       "points_p95"}
 
 
+@concluded
 def test_the_coverage_reading_direction_is_fixed_before_the_run(tmp_path):
     """§1.3: the counter-hypothesis, with its reading direction pre-stated —
     coverage already at or above nominal that the treatment pushes further above
@@ -3614,6 +3664,7 @@ def _freeze_cells(path):
     return rows
 
 
+@concluded
 def test_the_table_ledger_refuses_a_missing_cell(tmp_path):
     """Not a superset, not a subset: a mean over 34 cells is not the quantity
     §4.1 (iv) gates on.
@@ -3633,6 +3684,7 @@ def test_the_table_ledger_refuses_a_missing_cell(tmp_path):
     assert "missing" in str(exc.value)
 
 
+@concluded
 def test_the_table_ledger_refuses_unfrozen_rows(tmp_path):
     cells = _cells()
     path, _ = _run_cells(tmp_path, cells)
@@ -3641,6 +3693,7 @@ def test_the_table_ledger_refuses_unfrozen_rows(tmp_path):
     assert "not a cell of the preregistered run" in str(exc.value)
 
 
+@concluded
 def test_a_failed_cell_poisons_the_table_ledger(tmp_path):
     path = tmp_path / "table.jsonl"
     cells = _cells()
@@ -3683,6 +3736,7 @@ def test_the_merge_carries_the_table_gate_into_the_adoption_rule(tmp_path):
 # 12. the evidence contract — §6, and the ultra-review lesson behind it
 # ==========================================================================
 
+@concluded
 def test_the_evidence_files_are_written_whichever_way_the_numbers_fall(tmp_path):
     """§4.4: "The result publishes either way… There is no file drawer." And
     ultra-review lesson 1: the verdict's machine-readable basis is COMMITTED,
@@ -3701,6 +3755,7 @@ def test_the_evidence_files_are_written_whichever_way_the_numbers_fall(tmp_path)
         assert (out / name).exists()
 
 
+@concluded
 def test_the_verdict_json_carries_r_i6s_frozen_field_list(tmp_path):
     """§9: "the evidence schema, frozen field by field". The superseded table
     said "both CIs" where there are THREE deciding intervals, left the
@@ -3792,6 +3847,7 @@ def test_the_verdict_json_carries_r_i6s_frozen_field_list(tmp_path):
     assert with_power["power"]["reproduces"]["PASS"] is False
 
 
+@concluded
 def test_scored_per_cell_survives_into_the_json_projection(tmp_path):
     """§9.1: "**`scored.per_cell` is not stripped.** The top-level per-cell
     structure must survive into the JSON projection: it is what fills the
@@ -3821,6 +3877,7 @@ def test_scored_per_cell_survives_into_the_json_projection(tmp_path):
     assert "per_cell" in kept["scored"] and kept["scored"]["per_cell"]
 
 
+@concluded
 def test_verify_recomputes_the_table_gate_from_the_rebound_tallies(tmp_path):
     """§8.7 and §9.3, conformance row L10: "**`--verify` recomputes the table
     gate from the rebound tallies** — the whole of §5, including the unanimity
@@ -3867,6 +3924,7 @@ def test_verify_recomputes_the_table_gate_from_the_rebound_tallies(tmp_path):
     assert "table gate" in str(exc.value)
 
 
+@concluded
 def test_verify_refuses_a_published_field_it_is_defined_to_check_and_cannot(
         tmp_path):
     """The adjudication of 2026-08-29, F15 (I6). "The evidence contract says
@@ -4094,6 +4152,7 @@ def test_the_per_fixture_file_reproduces_the_estimand_with_arithmetic_alone(
         assert float(row["delta_vs_corpus"]) == pytest.approx(float(row["delta"]))
 
 
+@concluded
 def test_the_table_evidence_file_carries_both_arms_of_every_cell(tmp_path):
     import csv as _csv
 
@@ -4192,6 +4251,7 @@ def test_no_public_fit_surface_accepts_a_freeze_state_boolean():
                     if "frozen" in p or "freeze" in p}, (fn, params)
 
 
+@concluded
 def test_the_pre_freeze_guard_is_keyed_to_the_artifacts_not_the_directory():
     """R2's binding obligation, and the sentence it withdrew as FALSE: "the
     harness's own guards refuse to produce [a delta] until the freeze block is
@@ -4215,6 +4275,7 @@ def test_the_pre_freeze_guard_is_keyed_to_the_artifacts_not_the_directory():
     assert "never to the output directory" in str(exc.value)
 
 
+@concluded
 @pinned
 def test_no_scratch_directory_lets_the_pinned_archive_be_fitted_unfrozen(
         tmp_path, real):
@@ -4235,6 +4296,7 @@ def test_no_scratch_directory_lets_the_pinned_archive_be_fitted_unfrozen(
         ew.Engine(corpus, played, ledger=ledger, directory=tmp_path)
 
 
+@concluded
 @pinned
 def test_the_table_runners_refuse_the_pinned_archive_before_the_freeze(tmp_path):
     """`--table` had the analogous directory-keyed hole, and both the new runner
@@ -4370,6 +4432,7 @@ def test_membership_and_plan_carry_the_table_cell_memberships(tmp_path, real):
     assert "~4 hours" in plan["budget"]["bound"]
 
 
+@concluded
 def test_the_freeze_refuses_until_the_hash_table_lands():
     """No freeze block is committed, so §8.6's state is not established."""
     status = ew.harness_freeze_status()
@@ -4429,6 +4492,7 @@ def test_an_uncommitted_hash_paste_freezes_nothing(monkeypatch):
     assert status["uncommitted_sources"] == [ew.paths.rel(ew.PREREG_PATH)]
 
 
+@concluded
 def test_the_freeze_reads_the_committed_prose_and_the_committed_bytes():
     """R2: the guard verifies "the Git object identity of the prereg blob whose
     hash table it reads". Both sides come out of Git — the prose AND the harness
@@ -4541,6 +4605,7 @@ def unrun_feasibility(tmp_path, monkeypatch):
     return tmp_path
 
 
+@concluded
 @pinned
 def test_the_freeze_needs_a_commit_that_is_an_ancestor_of_head(
         monkeypatch, unrun_feasibility):
@@ -5538,6 +5603,7 @@ def test_every_refusal_type_7_1_names_exists_and_derives_from_the_base():
         assert issubclass(cls, RuntimeError), name
 
 
+@concluded
 def test_the_harness_invents_no_refusal_the_document_never_wrote():
     """`epl.freshsweep`'s ruling, applied here: a condition §10 pre-states as an
     invalidation but §7.1 never named refuses as the BASE class rather than
@@ -5571,6 +5637,7 @@ def test_the_harness_invents_no_refusal_the_document_never_wrote():
     assert type(exc.value) is ew.EvWidenError
 
 
+@concluded
 def test_verify_re_derives_the_headline_from_the_committed_evidence(tmp_path):
     """The check a reader of the repository can run: three routes to the number
     rather than one number copied twice."""
@@ -5903,6 +5970,7 @@ def test_the_power_simulation_runs_and_carries_its_own_construction(real):
         assert all(b >= a for a, b in zip(row["curve"], row["curve"][1:]))
 
 
+@concluded
 @pinned
 def test_the_freeze_block_refuses_while_a_power_number_is_unreproduced(
         monkeypatch, tmp_path, unrun_feasibility):
@@ -5943,6 +6011,7 @@ def test_the_freeze_block_refuses_while_a_power_number_is_unreproduced(
     assert [r["id"] for r in report if not r["ok"]] == ["L16"]
 
 
+@concluded
 @pinned
 def test_the_conformance_report_is_eighteen_behavioural_rows():
     """§8.5: "**Every row of v2's report executes a scenario that fails under
@@ -6060,6 +6129,7 @@ def test_the_report_is_not_believed_on_its_own_word():
                 "incumbent_widened": False, "treated": False, **over}])
 
 
+@concluded
 @pinned
 def test_the_freeze_block_is_harness_produced_and_round_trips(
         tmp_path, unrun_feasibility):
@@ -6133,6 +6203,7 @@ def test_the_freeze_block_is_harness_produced_and_round_trips(
     assert all(f["match"] for f in got["files"].values())
 
 
+@concluded
 @pinned
 def test_the_freeze_block_digests_are_the_membership_digests(unrun_feasibility):
     """The two must not be two computations of the same thing."""
@@ -6185,6 +6256,7 @@ def test_the_closure_refuses_a_seam_at_a_preregistered_target():
         assert "preregistered directories" in str(exc.value)
 
 
+@concluded
 @pinned
 def test_the_closure_refuses_a_seam_on_the_pinned_and_near_real_artifacts():
     """§8.6, and §7.4's definition of synthetic made mechanical.
@@ -6222,6 +6294,7 @@ def test_the_closure_refuses_a_seam_on_the_pinned_and_near_real_artifacts():
                                target=scratch)
 
 
+@concluded
 def test_every_seam_the_review_named_asks_the_one_guard(tmp_path):
     """The surfaces, one by one, at a preregistered target.
 
@@ -6859,6 +6932,7 @@ def test_a_failed_canary_marks_step_one_incomplete_before_the_refusal(
     assert marker["produced"]["digest"] == ew.sha256_file(canary)
 
 
+@concluded
 def test_the_script_writes_no_launcher_before_the_freeze():
     """§8.2's enumeration is complete and none of its entries writes inside the
     repository; the review found `--script` writing one under `data/` with no
@@ -7048,6 +7122,7 @@ def test_an_empty_marker_is_not_a_completed_step(tmp_path, monkeypatch):
         assert why in str(exc.value), over
 
 
+@concluded
 def test_the_sequence_check_cannot_be_turned_off_under_the_freeze(monkeypatch):
     """§8.6 closes "attest a lifecycle state", and `enforce=False` is that
     attestation: it says §8.4's five steps do not apply to this call.
@@ -7063,6 +7138,7 @@ def test_the_sequence_check_cannot_be_turned_off_under_the_freeze(monkeypatch):
     assert "attesting a lifecycle state" in str(exc.value)
 
 
+@concluded
 def test_the_seams_of_the_closure_ask_the_guard_by_effect(tmp_path):
     """§8.6: "any parameter with one of those four effects is closed on those
     terms, **named here or not**."
@@ -7459,6 +7535,7 @@ def test_the_guard_binds_the_documents_current_bytes_not_only_its_blob():
     assert "PREREG_PATH" in src
 
 
+@concluded
 @pinned
 def test_an_uncommitted_edit_to_this_document_unfreezes_the_harness(
         monkeypatch, unrun_feasibility):
@@ -7513,6 +7590,7 @@ def test_an_uncommitted_edit_to_this_document_unfreezes_the_harness(
 # §8.2/§8.4/§8.6 — the residual bypasses, closed
 # --------------------------------------------------------------------------
 
+@concluded
 def test_the_launcher_is_refused_pre_freeze_at_every_target(tmp_path):
     """§8.2, IMP-PREFREEZE-SCRIPT. "`write_launch_script` refuses the default
     production target pre-freeze but permits a scratch directory and writes
@@ -7574,6 +7652,7 @@ def test_the_launcher_emits_step_twos_command_and_its_scratch_target():
     assert any(c.startswith("need_marker step2_single_opening") for c in after)
 
 
+@concluded
 def test_step_twos_scratch_carries_step_ones_canary_when_the_script_runs(
         tmp_path, monkeypatch):
     """The adjudication of 2026-08-29, F2 (N-RH-FIRST-ACT). "Step 2 is not
@@ -7994,23 +8073,41 @@ def _conformance(row_id: str) -> None:
     _CONFORMANCE_OUTCOMES[row_id] = "passed"
 
 
+@concluded
 def test_conformance_L1(): _conformance("L1")
+@concluded
 def test_conformance_L2(): _conformance("L2")
+@concluded
 def test_conformance_L3(): _conformance("L3")
+@concluded
 def test_conformance_L4(): _conformance("L4")
+@concluded
 def test_conformance_L5(): _conformance("L5")
+@concluded
 def test_conformance_L6(): _conformance("L6")
+@concluded
 def test_conformance_L7(): _conformance("L7")
+@concluded
 def test_conformance_L8(): _conformance("L8")
+@concluded
 def test_conformance_L9(): _conformance("L9")
+@concluded
 def test_conformance_L10(): _conformance("L10")
+@concluded
 def test_conformance_L11(): _conformance("L11")
+@concluded
 def test_conformance_L12(): _conformance("L12")
+@concluded
 def test_conformance_L13(): _conformance("L13")
+@concluded
 def test_conformance_L14(): _conformance("L14")
+@concluded
 def test_conformance_L15(): _conformance("L15")
+@concluded
 def test_conformance_L16(): _conformance("L16")
+@concluded
 def test_conformance_L17(): _conformance("L17")
+@concluded
 def test_conformance_L18(): _conformance("L18")
 
 
@@ -8097,6 +8194,7 @@ def test_the_conformance_writer_is_not_a_public_surface(tmp_path, monkeypatch):
     assert not (tmp_path / "conf.json").exists()
 
 
+@concluded
 def test_the_freeze_block_records_which_run_certified_it(tmp_path, monkeypatch):
     """§8.5: "Its path, its SHA-256, its test-id list and its pass count go
     into the freeze block, so the committed block records WHICH RUN certified
@@ -8113,6 +8211,7 @@ def test_the_freeze_block_records_which_run_certified_it(tmp_path, monkeypatch):
         assert f"test_conformance_{row_id}" in block, row_id
 
 
+@concluded
 @pinned
 def test_the_committed_block_must_carry_exactly_the_eighteen_rows(
         monkeypatch, tmp_path, unrun_feasibility):
@@ -8158,6 +8257,7 @@ def test_the_artifact_names_the_harness_it_ran_against(tmp_path, monkeypatch):
         ew.assert_conformance_artifact()
 
 
+@concluded
 def test_the_rendered_block_is_a_paste_and_not_a_transcription(unrun_feasibility,
                                                                capsys):
     """§8.3 step 2: the commit APPENDS the rendered block. Anything the render
