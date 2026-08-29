@@ -2346,6 +2346,50 @@ def test_seeded_defect_arm_bs_rps_is_recomputed_at_the_merge(tmp_path):
         _merge(tmp_path)
 
 
+def test_seeded_defect_arm_bs_rps_is_recomputed_and_not_read_back():
+    """The adjudication of 2026-08-29, F17 (seed d). The seed audit found the
+    recomputation UNBOUND: "replacing the merge's Arm B RPS recomputation with
+    `recomputed = row['rps_native']` makes the first term of the `worst_rps`
+    comparison identically zero, so §2.3's clause 'recomputes it at the merge
+    and refuses past 1e-12' becomes vacuous and nothing detects it. It survives
+    only because the surviving corpus comparison plus §3.2's exact-equality
+    identity control make it redundant — but that means the law's recomputation
+    clause has no independent test."
+
+    The test above cannot see it, because it perturbs the ledger against a
+    CORRECT corpus: the corpus comparison then catches the same row for a
+    different reason. This one takes that fallback away. The corpus's own
+    `dc_rps` is wrong, the ledger copies exactly that wrong value, and every
+    other check in `rejoin` is satisfied — so the only thing left that can
+    refuse is the recomputation from the stored probabilities.
+    """
+    corpus = _corpus().copy()
+    i = corpus.index[0]
+    stored = corpus.loc[i]
+    probs = [float(stored[c]) for c in ("dc_home", "dc_draw", "dc_away")]
+    wrong = float(stored["dc_rps"]) + 1e-6
+    corpus.loc[i, "dc_rps"] = wrong          # the corpus is wrong about itself
+    openings = ew.block_openings(corpus)
+    row = {
+        "match_id": str(stored["match_id"]), "season": str(stored["season"]),
+        "block": str(stored["block"]), "home_key": str(stored["home_key"]),
+        "away_key": str(stored["away_key"]), "y": int(stored["y"]),
+        "cutoff": openings[str(stored["block"])],
+        "probs_native": probs, "probs_incumbent": probs,
+        "rps_native": wrong,                 # ...and the ledger copies it
+    }
+    with pytest.raises(ew.ScoreMismatch) as exc:
+        ew.rejoin([row], corpus)
+    assert "does not re-derive from Arm B's own" in str(exc.value)
+    assert "identity control" in str(exc.value)
+
+    # ...and the same row against a corpus that agrees with itself passes, so
+    # the refusal above is about the arithmetic and not about the scaffolding
+    good = _corpus().copy()
+    row["rps_native"] = float(good.loc[i, "dc_rps"])
+    assert ew.rejoin([row], good)["n"] == 1
+
+
 def test_the_merge_refuses_without_a_passing_canary_record(tmp_path):
     """§7.3 and RUN_ORDER: the preconditions gate the NUMBER, not the wall
     clock, so they are re-read at the merge from the records beside the shards."""
@@ -3797,6 +3841,12 @@ def test_verify_recomputes_the_table_gate_from_the_rebound_tallies(tmp_path):
     ledger = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
     result = ew.estimand(ledger, corpus_rows=len(ledger))
     result["table"] = ew.table_projection(scored, gate)
+    # §4.1's decision, as `merge` puts it on the result. After the
+    # adjudication's F15 `verify` refuses a published evidence file whose
+    # adoption verdict is absent, because that is a field it is defined to
+    # re-derive and a publisher must not pass by publishing less.
+    result["adoption"] = ew.adoption(result["mean"], result["ci95"],
+                                     result["ci95_season"], table=gate)
     out = tmp_path / "evidence"
     ew.write_evidence(result, ledger, rows, directory=out, manifest=False)
 
@@ -3815,6 +3865,75 @@ def test_verify_recomputes_the_table_gate_from_the_rebound_tallies(tmp_path):
         ew.verify(tmp_path, shards=1, evidence=out / "widening.json",
                   table_ledger=path)
     assert "table gate" in str(exc.value)
+
+
+def test_verify_refuses_a_published_field_it_is_defined_to_check_and_cannot(
+        tmp_path):
+    """The adjudication of 2026-08-29, F15 (I6). "The evidence contract says
+    every missing or disagreeing published value refuses. `verify` checks only a
+    selected subset of verdict, SE, fired-boundary, and dissent fields, often
+    CONDITIONALLY: population and several gate subfields can be omitted without
+    refusal. The implementation remains weaker than the text."
+
+    F15: "`verify()` refuses on ANY missing published field it is defined to
+    check (drop the conditional skips); fields it cannot check are named in the
+    report it prints." A verification whose checks switch themselves off when
+    the thing to check is absent is a verification a publisher can pass by
+    publishing less.
+    """
+    path, rows = _run_cells(tmp_path)
+    rows = _freeze_cells(path)
+    scored = ew.score_table(rows, ledger_path=path)
+    gate = ew.table_gate(scored)
+    _run(tmp_path)
+    ledger = ew.load_ledger(tmp_path / ew.shard_name(0, 1))
+    result = ew.estimand(ledger, corpus_rows=len(ledger))
+    result["table"] = ew.table_projection(scored, gate)
+    # §4.1's decision, as `merge` puts it on the result. After the
+    # adjudication's F15 `verify` refuses a published evidence file whose
+    # adoption verdict is absent, because that is a field it is defined to
+    # re-derive and a publisher must not pass by publishing less.
+    result["adoption"] = ew.adoption(result["mean"], result["ci95"],
+                                     result["ci95_season"], table=gate)
+    out = tmp_path / "evidence"
+    ew.write_evidence(result, ledger, rows, directory=out, manifest=False)
+
+    full = json.loads((out / "widening.json").read_text())
+    ok = ew.verify(tmp_path, shards=1, evidence=out / "widening.json",
+                   table_ledger=path)
+    assert ok["PASS"] is True
+    # the report NAMES what it checked and what it could not, rather than
+    # silently checking less
+    assert ok["table_gate"]["checked_fields"]
+    assert ok["table_gate"]["unchecked_fields"] == []
+
+    # DROP one published field at a time. Each is a field `verify` is defined
+    # to re-derive, and each omission used to pass.
+    for drop in ("mc_se_mw6", "mc_se_mw0", "mc_se_mw3", "mc_se_mw10",
+                 "fired", "unanimity_dissenting"):
+        published = json.loads(json.dumps(full))
+        published["gate_iv"]["precision"].pop(drop, None)
+        (out / "widening.json").write_text(json.dumps(published))
+        with pytest.raises(ew.MergeIncomplete) as exc:
+            ew.verify(tmp_path, shards=1, evidence=out / "widening.json",
+                      table_ledger=path)
+        assert drop in str(exc.value), drop
+
+    # ...and the whole precision block, and the adoption verdict
+    for pop in ("precision", "PASS_or_UNRESOLVED"):
+        published = json.loads(json.dumps(full))
+        published["gate_iv"].pop(pop, None)
+        (out / "widening.json").write_text(json.dumps(published))
+        with pytest.raises(ew.MergeIncomplete):
+            ew.verify(tmp_path, shards=1, evidence=out / "widening.json",
+                      table_ledger=path)
+    published = json.loads(json.dumps(full))
+    published.pop("verdict", None)
+    (out / "widening.json").write_text(json.dumps(published))
+    with pytest.raises(ew.MergeIncomplete) as exc:
+        ew.verify(tmp_path, shards=1, evidence=out / "widening.json",
+                  table_ledger=path)
+    assert "verdict" in str(exc.value)
 
 
 def test_the_manifest_is_the_fifty_two_paths_of_9_3(tmp_path):
@@ -7333,6 +7452,56 @@ def test_the_guard_binds_the_documents_current_bytes_not_only_its_blob():
     assert "PREREG_PATH" in src
 
 
+@pinned
+def test_an_uncommitted_edit_to_this_document_unfreezes_the_harness(
+        monkeypatch, unrun_feasibility):
+    """The adjudication of 2026-08-29, F16 (seed ff). The seed audit found this
+    mechanism GREEN: "patching `prereg_bytes_match_blob = working_tree_bytes(rel)
+    == blob` to `= True` leaves the module at 320 passed. This is the exact
+    mechanism §8.9 advertises as newly ruled law [...] Its one test asserts only
+    that the key is present in the status dict and that two strings occur
+    somewhere in the function source — all three survive the defect. This is
+    precisely the 'names, not obligations' shape §8.5's opening paragraph
+    condemns, reintroduced in the guard that §8.7's whole regime depends on."
+
+    So this test does not read the source. It builds the landed-freeze state,
+    and then edits the document in the working tree without committing it —
+    which is the one edit §8.7 exists to forbid — and requires the guard to stop
+    calling the harness frozen.
+    """
+    import unittest.mock as mock
+
+    block = ew.freeze_block()
+
+    # (a) the landed freeze: committed blob and working tree agree
+    with mock.patch.object(ew, "git_committed_bytes",
+                           _as_if_committed(block)), \
+            mock.patch.object(
+                ew, "working_tree_bytes",
+                lambda rel: (block.encode()
+                             if rel == ew.paths.rel(ew.PREREG_PATH)
+                             else (ew.paths.REPO_ROOT / rel).read_bytes())):
+        landed = ew.harness_freeze_status([ew.PREREG_PATH])
+    assert landed["frozen"] is True
+    assert landed["prereg_bytes_match_blob"] is True
+
+    # (b) the SAME commit, with one uncommitted line appended to the document
+    edited = block + "\n<!-- a note appended after the first real fit -->\n"
+    with mock.patch.object(ew, "git_committed_bytes",
+                           _as_if_committed(block)), \
+            mock.patch.object(
+                ew, "working_tree_bytes",
+                lambda rel: (edited.encode()
+                             if rel == ew.paths.rel(ew.PREREG_PATH)
+                             else (ew.paths.REPO_ROOT / rel).read_bytes())):
+        dirty = ew.harness_freeze_status([ew.PREREG_PATH])
+    assert dirty["prereg_bytes_match_blob"] is False
+    assert dirty["frozen"] is False, \
+        "an uncommitted post-fit edit left the harness frozen"
+    assert "condition (1)" in dirty["why"]
+    assert "CURRENT bytes" in dirty["why"]
+
+
 # --------------------------------------------------------------------------
 # §8.2/§8.4/§8.6 — the residual bypasses, closed
 # --------------------------------------------------------------------------
@@ -7882,6 +8051,43 @@ def test_the_freeze_reads_an_artifact_it_did_not_write(tmp_path, monkeypatch):
     assert status["test_ids"] == [f"epl/tests/test_evwiden.py::test_conformance_{r}"
                                   for r in ew.CONFORMANCE_ROWS]
     assert len(status["sha256"]) == 64
+
+    # (f) the adjudication's F22: the artifact BINDS THE PYTEST SESSION that
+    #     wrote it, and one with no session on it is not a pytest run's report
+    body = json.loads((tmp_path / "conf.json").read_text())
+    assert len(str(body["session"]["id"])) == 64
+    assert body["session"]["runner"] == "pytest"
+    body["session"] = {}
+    (tmp_path / "conf.json").write_text(json.dumps(body))
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.assert_conformance_artifact()
+    assert "written by a pytest SESSION" in str(exc.value)
+
+
+def test_the_conformance_writer_is_not_a_public_surface(tmp_path, monkeypatch):
+    """The adjudication of 2026-08-29, F22 (NB8, mechanism half). The seed audit
+    verified it: "in a fresh process that ran no L-row,
+    `write_conformance_artifact({r: 'passed' for r in ew.CONFORMANCE_ROWS})`
+    followed by `assert_conformance_artifact()` returns ok=True, count=18. The
+    harness-digest cross-check cannot catch it, because the writer stamps the
+    CURRENT file hashes at write time, so a fabrication always matches."
+
+    F22: "`write_conformance_artifact` out of `__all__`, artifact binds the
+    pytest session id." §8.5's artifact is what a pytest SESSION did; a writer
+    that any process can call, exported as part of the module's public surface,
+    is not that. The residue — an operator calling it from inside a pytest
+    process — is recorded as limitation L3 under the threat model, and the
+    committed pytest route is the lawful one.
+    """
+    assert "write_conformance_artifact" not in ew.__all__
+    # ...and it is the pytest session that identifies it
+    assert len(str(ew.pytest_session_id())) == 64      # we ARE in one
+    monkeypatch.setattr(ew, "CONFORMANCE_ARTIFACT", tmp_path / "conf.json")
+    monkeypatch.setattr(ew, "pytest_session_id", lambda: None)
+    with pytest.raises(ew.EvWidenError) as exc:
+        ew.write_conformance_artifact({r: "passed" for r in ew.CONFORMANCE_ROWS})
+    assert "pytest session" in str(exc.value)
+    assert not (tmp_path / "conf.json").exists()
 
 
 def test_the_freeze_block_records_which_run_certified_it(tmp_path, monkeypatch):

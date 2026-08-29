@@ -202,7 +202,12 @@ __all__ = [
     "power_simulation", "power_structure", "power_reproduces",
     "committed_power_run",
     "bootstrap_shortcut_matches", "implementation_report",
-    "conformance_row", "write_conformance_artifact",
+    # `write_conformance_artifact` is deliberately ABSENT (adjudication F22):
+    # §8.5's artifact is a record of what a pytest SESSION did, and a writer
+    # exported as part of this module's public surface is an invitation to
+    # produce one without a session. It is called by the committed pytest
+    # session fixture and by nothing else.
+    "conformance_row", "pytest_session_id",
     "conformance_artifact_status", "assert_conformance_artifact",
     "CONFORMANCE_ROWS", "conformance_test_id",
     "assert_implements_document", "assert_may_fit", "evidence_object",
@@ -5396,15 +5401,35 @@ def rejoin(rows: Sequence[dict[str, Any]], corpus: pd.DataFrame,
                 "EXACT equality at the corpus's eight decimals over all 820 "
                 "fixtures, and §10 makes widening that tolerance after a "
                 "mismatch an invalidation.")
+        # §2.3's own demand: Arm B's RPS is RECOMPUTED here from Arm B's own
+        # stored probabilities, and the two comparisons that follow are kept
+        # apart (adjudication F17, seed d). The audit found the recomputation
+        # unbound: replacing `recomputed` with the stored `rps_native` left the
+        # first term identically zero, and the leg still refused — but only
+        # through the corpus comparison beside it, which is a different clause
+        # answering a different question. A conjunction that survives its own
+        # first half being deleted has not tested that half, and §2.3's
+        # "recomputes it at the merge" is precisely that half.
         recomputed = float(score_mod.rps(np.array([native]),
                                          np.array([int(row["y"])]))[0])
-        worst_rps = max(worst_rps, abs(recomputed - float(row["rps_native"])),
-                        abs(recomputed - float(stored["dc_rps"])))
-        if worst_rps > 1e-12:
+        drift_stored = abs(recomputed - float(row["rps_native"]))
+        drift_corpus = abs(recomputed - float(stored["dc_rps"]))
+        worst_rps = max(worst_rps, drift_stored, drift_corpus)
+        if drift_stored > 1e-12:
             raise ScoreMismatch(
                 f"{mid}: Arm B's stored RPS does not re-derive from Arm B's own "
-                f"stored probabilities (worst |ΔRPS| = {worst_rps:.3g}). §2.3 "
-                "recomputes it at the merge and refuses past 1e-12.")
+                f"stored probabilities (|ΔRPS| = {drift_stored:.3g}). §2.3 "
+                "recomputes it at the merge and refuses past 1e-12. This is a "
+                "check on the LEDGER ROW alone: what the corpus recorded for "
+                "the same fixture is the separate identity control below, and "
+                "a ledger that copied a wrong number from a wrong corpus would "
+                "satisfy that one.")
+        if drift_corpus > 1e-12:
+            raise ScoreMismatch(
+                f"{mid}: the RPS recomputed from Arm B's stored probabilities "
+                f"is not the corpus's own `dc_rps` (|ΔRPS| = "
+                f"{drift_corpus:.3g}). §2.3 demotes the corpus to an EXTERNAL "
+                "identity control and refuses past 1e-12.")
     return {"n": len(seen), "max_abs_rps_diff": worst_rps,
             "rows": [seen[m] for m in sorted(seen)]}
 
@@ -8832,6 +8857,20 @@ def verify(directory: Path | str | None = None, *, shards: int = SHARDS,
         want_precision = dict(was.get("precision") or {})
         got_precision = dict(regate["precision"])
         differs = []
+        # ---- F15 (I6): NO CONDITIONAL SKIPS ------------------------------
+        # §9's contract is that "every missing or disagreeing published value
+        # refuses", and the review found this loop weaker than that text: the SE
+        # comparisons, the fired set and the dissent count each switched
+        # themselves OFF when the published side was absent, so a publisher
+        # could pass this verification by publishing less. Every field this
+        # function is DEFINED to re-derive is listed once, here, and a field
+        # that is absent from the published evidence is a refusal in exactly the
+        # way a field that disagrees is. What it genuinely cannot check — the
+        # adoption verdict with no shard ledgers on disk — is NAMED in the
+        # report rather than silently dropped.
+        checked_fields: list[str] = []
+        unchecked_fields: list[dict[str, str]] = []
+
         # A published verdict this evidence does not carry is not a verdict
         # that agreed: §8.7 asks `--verify` to re-derive the decision, and a
         # missing field is a decision nobody can check.
@@ -8840,45 +8879,86 @@ def verify(directory: Path | str | None = None, *, shards: int = SHARDS,
                 "the published evidence carries no `gate_iv` block while a "
                 "table ledger exists — there is no published verdict to "
                 "re-derive against")
-        elif was.get("PASS_or_UNRESOLVED") != regate["verdict"]:
-            differs.append(
-                f"verdict {was.get('PASS_or_UNRESOLVED')!r} != "
-                f"{regate['verdict']!r}")
+        else:
+            checked_fields.append("gate_iv.PASS_or_UNRESOLVED")
+            if "PASS_or_UNRESOLVED" not in was:
+                differs.append(
+                    "gate_iv.PASS_or_UNRESOLVED is ABSENT from the published "
+                    f"evidence and re-derives to {regate['verdict']!r}")
+            elif was.get("PASS_or_UNRESOLVED") != regate["verdict"]:
+                differs.append(
+                    f"verdict {was.get('PASS_or_UNRESOLVED')!r} != "
+                    f"{regate['verdict']!r}")
+            if "precision" not in was:
+                differs.append(
+                    "gate_iv.precision is ABSENT from the published evidence, "
+                    "so §5's precision conditions and standard errors have "
+                    "nothing to be re-derived against")
         for field in ("mc_se_mw6", "mc_se_mw0", "mc_se_mw3", "mc_se_mw10"):
+            if not was:
+                continue
+            checked_fields.append(f"gate_iv.precision.{field}")
             a, b = want_precision.get(field), got_precision.get(field)
-            if was and (a is None) != (b is None):
+            if field not in want_precision:
+                differs.append(f"{field} is ABSENT from the published "
+                               f"evidence and re-derives to {b!r}")
+            elif (a is None) != (b is None):
                 differs.append(f"{field} {a!r} != {b!r}")
             elif a is not None and b is not None and \
                     abs(float(a) - float(b)) > float(tolerance):
                 differs.append(f"{field} {a} != {b}")
         fired_then = set(want_precision.get("fired") or ())
         fired_now = set(got_precision.get("fired") or ())
-        if want_precision and fired_then != fired_now:
-            differs.append(f"precision conditions {sorted(fired_then)} != "
-                           f"{sorted(fired_now)}")
-        # §5.4's dissent count is REPORTED by the published object and BOUND
-        # here: an unanimity run whose dissent count moved is a different run.
-        if want_precision and ("unanimity_dissenting" in want_precision) and \
-                want_precision.get("unanimity_dissenting") != \
-                got_precision.get("unanimity_dissenting"):
-            differs.append(
-                f"unanimity dissent "
-                f"{want_precision.get('unanimity_dissenting')!r} != "
-                f"{got_precision.get('unanimity_dissenting')!r}")
+        if was:
+            checked_fields.append("gate_iv.precision.fired")
+            if "fired" not in want_precision:
+                differs.append("fired is ABSENT from the published evidence "
+                               f"and re-derives to {sorted(fired_now)}")
+            elif fired_then != fired_now:
+                differs.append(f"precision conditions {sorted(fired_then)} != "
+                               f"{sorted(fired_now)}")
+            # §5.4's dissent count is REPORTED by the published object and BOUND
+            # here: an unanimity run whose dissent count moved is a different
+            # run, and one that omits the count is a run nobody can check.
+            checked_fields.append("gate_iv.precision.unanimity_dissenting")
+            if "unanimity_dissenting" not in want_precision:
+                differs.append(
+                    "unanimity_dissenting is ABSENT from the published evidence "
+                    f"and re-derives to "
+                    f"{got_precision.get('unanimity_dissenting')!r}")
+            elif want_precision.get("unanimity_dissenting") != \
+                    got_precision.get("unanimity_dissenting"):
+                differs.append(
+                    f"unanimity dissent "
+                    f"{want_precision.get('unanimity_dissenting')!r} != "
+                    f"{got_precision.get('unanimity_dissenting')!r}")
         # §9.3: "`--verify` also re-derives the verdict". The ADOPTION decision
         # is recomputed from the re-derived gate and the ledger's own estimand
         # rather than echoed out of the JSON.
         readoption = None
         if from_ledger.get("present"):
+            checked_fields.append("verdict")
             readoption = adoption(float(scored["mean"]), scored["ci95"],
                                   scored["ci95_season"], table=regate)
-            if published.get("verdict") not in (None, readoption["verdict"]):
+            if "verdict" not in published:
+                differs.append(
+                    "the published adoption verdict is ABSENT and re-derives "
+                    f"to {readoption['verdict']!r}")
+            elif published.get("verdict") != readoption["verdict"]:
                 differs.append(f"adoption verdict "
                                f"{published.get('verdict')!r} != "
                                f"{readoption['verdict']!r}")
+        else:
+            unchecked_fields.append({
+                "field": "verdict",
+                "why": ("the shard ledgers are not on disk, so §4.1's adoption "
+                        "rule has no re-derived estimand to be evaluated "
+                        "against")})
         table_check = {
             "checked": True, "path": paths.rel(table_ledger_path),
             "n_cells": int(rescored["n_cells"]),
+            "checked_fields": checked_fields,
+            "unchecked_fields": unchecked_fields,
             "recomputed": {"verdict": regate["verdict"],
                            "mc_se_mw6": got_precision.get("mc_se_mw6"),
                            "fired": sorted(fired_now),
@@ -8923,7 +9003,18 @@ def verify(directory: Path | str | None = None, *, shards: int = SHARDS,
                        "PASS": bool(manifest["PASS"])})
 
     ran = [c for c in checks if c.get("checked")]
+    # F15: what this verification could NOT check is named in what it prints,
+    # so "PASS" never quietly means "there was less to look at than the contract
+    # promises". The two sources that are simply absent from disk are already on
+    # `checks` as `checked: false`; this collects them beside the gate's own.
+    unchecked = [{"field": c["source"], "why": c.get("why", "not on disk")}
+                 for c in checks if not c.get("checked")]
+    unchecked += list(table_check.get("unchecked_fields") or ())
+    if not table_check.get("checked"):
+        unchecked.append({"field": "gate_iv",
+                          "why": table_check.get("why", "")})
     out = {"schema": SCHEMA_ID, "evidence": paths.rel(evidence),
+           "unchecked": unchecked,
            "published": {"mean": headline.get("mean"), "n": headline.get("n"),
                          "ci_week": published.get("ci_week"),
                          "ci_season": published.get("ci_season"),
@@ -9720,6 +9811,32 @@ def conformance_row(row_id: str) -> dict[str, Any]:
         "scenario that did not run, which §8.5 grades red rather than absent.")
 
 
+def pytest_session_id() -> str | None:
+    """The identity of the pytest session running in THIS process, or ``None``.
+
+    §8.5's artifact is a record of what a pytest **session** did, and the seed
+    audit demonstrated that nothing tied it to one: "in a fresh process that ran
+    no L-row, `write_conformance_artifact({r: 'passed' …})` followed by
+    `assert_conformance_artifact()` returns ok=True, count=18". The writer
+    stamped the current harness hashes, so the digest cross-check could never
+    catch a fabrication.
+
+    The id is a digest of the running process and its invocation. It does not —
+    and cannot — prove that the eighteen scenarios executed; an operator inside
+    a pytest process remains able to call the writer, which is recorded as
+    limitation **L3** under the adjudication's threat model. What it does is
+    make the artifact a claim about a session, refusable when there is no
+    session at all, so the fabrication route the audit actually walked is shut.
+    """
+    if _sys.modules.get("pytest") is None or \
+            _sys.modules.get("_pytest.config") is None:
+        return None
+    return hashlib.sha256(json.dumps(
+        {"pid": _os.getpid(), "argv": [str(a) for a in _sys.argv],
+         "pytest": str(getattr(_sys.modules["pytest"], "__version__", ""))},
+        sort_keys=True).encode("utf-8")).hexdigest()
+
+
 def write_conformance_artifact(outcomes: dict[str, str]) -> Path:
     """Record what §8.5's pytest run actually did, one line per row.
 
@@ -9728,11 +9845,25 @@ def write_conformance_artifact(outcomes: dict[str, str]) -> Path:
     now terminates outside the reporting code: the report is a READING of a
     pytest run, the pytest run is committed code that either executed the
     scenario or did not, and the freeze block records which run it read."
+
+    **It is not part of this module's public surface** and it refuses outside a
+    pytest session (adjudication F22): see :func:`pytest_session_id`.
     """
+    session = pytest_session_id()
+    if session is None:
+        raise EvWidenError(
+            "refusing to write §8.5's conformance artifact: there is no pytest "
+            "session in this process. The artifact records what a pytest "
+            "SESSION did — §8.2 pass 3 is `pytest epl/tests/test_evwiden.py`, "
+            "and §8.5's rows are green iff their own committed tests passed in "
+            "that run. A process that ran no row has nothing to report, and an "
+            "artifact it wrote would be a claim about a session that never "
+            "existed.")
     CONFORMANCE_ARTIFACT.parent.mkdir(parents=True, exist_ok=True)
     body = {
         "schema": SCHEMA_ID,
         "produced_at": pd.Timestamp.now("UTC").isoformat(),
+        "session": {"id": session, "runner": "pytest"},
         "harness": {name: (sha256_file(paths.REPO_ROOT / name)
                            if (paths.REPO_ROOT / name).exists() else None)
                     for name in HARNESS_FILES},
@@ -9798,6 +9929,19 @@ def conformance_artifact_status() -> dict[str, Any]:
         return {**out, "why": (
             f"the artifact reports {body.get('passed')!r} passing and §8.5 "
             f"fixes {len(CONFORMANCE_ROWS)}.")}
+    # ...and it names the PYTEST SESSION that produced it (adjudication F22).
+    # §8.5's rows are green iff their own committed tests passed in a pytest
+    # run; an artifact carrying no session is not a report of one.
+    session = dict(body.get("session") or {})
+    out["session"] = session
+    if str(session.get("runner")) != "pytest" or \
+            not re.fullmatch(r"[0-9a-f]{64}", str(session.get("id") or "")):
+        return {**out, "why": (
+            f"the artifact records session {session!r} and §8.5's artifact is "
+            "written by a pytest SESSION at teardown, from the outcomes its own "
+            "eighteen tests reached. An artifact with no session on it is not a "
+            "report of a pytest run; run `pytest epl/tests/test_evwiden.py` "
+            "(§8.2 pass 3) and render again.")}
     # ...and it names the harness it ran against. §8.5 says "an artifact from a
     # different harness fails §8.6's harness-hash condition alongside it", and
     # that is true of a COMMITTED block — but a block rendered NOW from a stale
