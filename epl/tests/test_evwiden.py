@@ -2953,7 +2953,7 @@ def test_the_table_runner_calls_protected_simulate_with_its_own_signature():
     assert bound.arguments["seed"] == frozen["seed"]
 
 
-# ---- §3.3 / §3.3(c): the 35-cell native-parity oracle ---------------------
+# ---- §3.3 / §3.3(c): the 32-cell native-parity oracle ---------------------
 
 def test_the_parity_oracle_compares_substantive_digests_and_the_incumbent_set():
     """§3.3: binding the SCHEDULE to protected code binds neither its semantics
@@ -3141,8 +3141,8 @@ def test_the_table_leg_writes_one_row_per_cell_and_resumes(tmp_path):
 
 # ---- §4.1: the deciding statistics are per horizon -------------------------
 
-def test_the_pooled_35_cell_statistic_is_gone_from_every_deciding_path(tmp_path):
-    """§4.1: the 35-cell pooled ΔTRPS and ΔwTRPS are WITHDRAWN from the
+def test_the_pooled_statistic_is_gone_from_every_deciding_path(tmp_path):
+    """§4.1: the pooled ΔTRPS and ΔwTRPS are WITHDRAWN from the
     published outputs entirely, not demoted to secondaries. Protected code
     freezes "Never averaged across cutoffs" and publishing the average invites
     it to be quoted as a verdict."""
@@ -3936,7 +3936,7 @@ def test_verify_refuses_a_published_field_it_is_defined_to_check_and_cannot(
     assert "verdict" in str(exc.value)
 
 
-def test_the_manifest_is_the_fifty_two_paths_of_9_3(tmp_path):
+def test_the_manifest_is_the_forty_nine_paths_of_9_3(tmp_path):
     """§9.3's exact list, decidable from the document.
 
     > The list is decidable from this document: the count is 52, the shard count

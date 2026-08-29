@@ -332,8 +332,11 @@ ADOPT_DELTA = -0.0010
 #: thousand" on a TRPS of order 0.08, i.e. ~2e-4 PER CELL) and disclosed as
 #: invented. The superseded gate applied that per-cell scale to an average over
 #: 32 cells of which 17 are exact zeros, which permitted about +0.00042667 of
-#: average degradation across the 16 changed cells; the repaired gates apply it
-#: to treated-cell means directly, 2.19x tighter.
+#: average degradation across the 15 treated cells; the repaired gates apply it
+#: to treated-cell means directly, 2.13x tighter. (The 16-cell / 2.19x figures
+#: this comment carried were v2's, computed over v2's 35-cell census; §4.3's
+#: arithmetic is 0.0002 x 32/15 = 0.00042667, ratio 32/15 = 2.1333.
+#: Adjudication F18.)
 TABLE_TOLERANCE = 0.0002
 
 #: §4.1's named horizon. MW6 is the only one of the five labels at which EVERY
@@ -6020,7 +6023,7 @@ def simulate_arm(state, book, *, played: pd.DataFrame,
     argument position and no ``seed`` argument at all, while protected
     ``epl/simretro.py:555`` calls it ``simulate(arm, state, provider, n_sims,
     seed, …)``. No test exercised the real call and no fit had run, so the
-    35-cell parity oracle would have caught it on its first cell and nothing
+    parity oracle would have caught it on its first cell and nothing
     else in the harness would have.
 
     Funnelling the call through one function is what lets a test bind the
@@ -6655,7 +6658,7 @@ def assert_provisional_fields(treated_clubs: Sequence[str],
 
 
 # --------------------------------------------------------------------------
-# §3.3 — the 35-cell native-parity oracle against PROTECTED code
+# §3.3 — the 32-cell native-parity oracle against PROTECTED code
 # --------------------------------------------------------------------------
 
 class ParityRunner:
@@ -7621,7 +7624,7 @@ def unanimity(cells: Sequence[dict[str, Any]], *, point_verdict: bool,
     > **The whole of iv-c is recomputed on `K = 200` particle-resampled tally
     > sets.** `rng = numpy.random.default_rng(20260828)`. For each `k` in
     > `0 … 199`: draw **one** joint particle resample
-    > `picked_k = rng.integers(0, P, P)` and apply it to **all thirty-two
+    > `picked_k = rng.integers(0, P, P)` and apply it to **all thirty
     > tallies** exactly as §5.2 applies its own draw [...] From the resulting
     > seven MW6 cell deltas compute the season-block interval of §5.3 [...] and
     > evaluate iv-c's verdict: **FAIL iff `mean_MW6 > 0` and `ci_lo_MW6 > 0`.**
@@ -7647,7 +7650,7 @@ def unanimity(cells: Sequence[dict[str, Any]], *, point_verdict: bool,
     it **propagates the Monte-Carlo uncertainty through the actual
     computation**, re-deriving the interval endpoint 200 times from resampled
     tallies and requiring the verdict itself to be stable. It shares §5.2's own
-    construction — one joint particle draw per replicate, applied to all 32
+    construction — one joint particle draw per replicate, applied to all 30
     tallies — so it carries the same cross-cell covariance for free, and it can
     only ever refuse.
     """
@@ -7694,7 +7697,7 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
                 expected_cells: int | None = None) -> dict[str, Any]:
     """§3.4's table-side numbers, and §4.1's per-horizon deciding statistics.
 
-    **The 35-cell pooled ΔTRPS and pooled ΔwTRPS are WITHDRAWN** — not demoted
+    **The pooled ΔTRPS and pooled ΔwTRPS are WITHDRAWN** — not demoted
     to secondaries, withdrawn from the published outputs entirely (§4.1).
     `epl/simretro.py:41` and `epl/simmetrics.py:44` both freeze *"Never averaged
     across cutoffs"*: a forecast at the opener and one at matchweek 19 answer
@@ -7881,18 +7884,18 @@ def score_table(rows: Sequence[dict[str, Any]], *, n_boot: int = N_BOOT,
         "schema": SCHEMA_ID, "n_cells": len(per_cell),
         "n_treated_cells": len(per_cell) - len(untouched),
         "n_untouched_cells": len(untouched),
-        #: §4.1: the 35-cell pooled ΔTRPS and ΔwTRPS are WITHDRAWN from the
+        #: §4.1: the pooled ΔTRPS and ΔwTRPS are WITHDRAWN from the
         #: published outputs entirely, not demoted. Protected code freezes
         #: "Never averaged across cutoffs", and publishing an aggregate that
         #: protected code forbids as a verdict invites it to be quoted as one.
         "withdrawn": {
-            "pooled_delta_trps_35_cells":
+            "pooled_delta_trps":
                 "withdrawn by §4.1 — epl/simretro.py:41 and "
                 "epl/simmetrics.py:44 both freeze 'Never averaged across "
                 "cutoffs'; 17 of 32 cells are structural zeros and all seven "
                 "MW19 cells are among them, so the average diluted harm at the "
                 "horizons where the treatment fires",
-            "pooled_delta_wtrps_35_cells": "withdrawn by §4.1, same reason"},
+            "pooled_delta_wtrps": "withdrawn by §4.1, same reason"},
         "mw6": mw6, "per_label": label_means, "mw19": structural,
         "mc": mc,
         "per_cutoff_label": by_label, "per_cell": per_cell,
@@ -8081,8 +8084,8 @@ def table_gate(scored: dict[str, Any]) -> dict[str, Any]:
                     "structural refusal that stops the leg cannot also be a row "
                     "in a file the stopped leg never writes",
         },
-        "withdrawn": "the 35-cell pooled ΔTRPS decides nothing and is not "
-                     "published at all (§4.1)",
+        "withdrawn": "the pooled ΔTRPS over the 32 cells decides nothing and "
+                     "is not published at all (§4.1)",
         "disclosure": ("§4.3 as §4.1 reissues it: both the tolerance and the "
                        "significance construction are invented — R1 has no pass "
                        "rule — from R1's own recorded per-cell scale, blind, in "
@@ -8171,7 +8174,7 @@ MANIFEST_PATHS: tuple[str, ...] = (
 
 #: The namespace this experiment owns inside the SHARED manifest. §9.3 refuses
 #: "an entry inside this experiment's namespace (`widening`, `evwiden`) outside
-#: the 52"; `reports/evidence/MANIFEST.sha256` is a file two earlier experiments
+#: the 49"; `reports/evidence/MANIFEST.sha256` is a file two earlier experiments
 #: already wrote, so the closure is scoped to the paths this experiment could
 #: have written.
 _MANIFEST_NAMESPACE = ("widening", "evwiden")
@@ -8527,7 +8530,7 @@ MATERIALITY_SENTENCE = (
 def manifest_entries(directory: Path | str | None = None,
                      table_ledger: Path | str | None = None,
                      ) -> dict[str, Path]:
-    """§9.3's fifty-two paths, resolved. The list, not a category."""
+    """§9.3's forty-nine paths, resolved. The list, not a category."""
     directory = Path(directory) if directory is not None else EVWIDEN_DIR
     table_ledger = (Path(table_ledger) if table_ledger is not None
                     else TABLE_LEDGER)
@@ -8615,12 +8618,12 @@ def read_manifest(path: Path | str | None = None) -> dict[str, dict[str, Any]]:
 def assert_manifest_complete(path: Path | str | None = None, *,
                              entries: dict[str, Path] | None = None,
                              ) -> dict[str, Any]:
-    """§9.3: exactly the 52, every digest AND BYTE SIZE agreeing, nothing else
+    """§9.3: exactly the 49, every digest AND BYTE SIZE agreeing, nothing else
     of ours.
 
-    ``--verify`` refuses if any of the 52 is missing from the manifest, if any
+    ``--verify`` refuses if any of the 49 is missing from the manifest, if any
     digest disagrees, **if any byte size disagrees**, if the manifest carries an
-    entry inside this experiment's namespace outside the 52, or if a promised
+    entry inside this experiment's namespace outside the 49, or if a promised
     file is not on disk. v1 recorded the byte sizes and never compared them,
     which made half of every entry decoration.
 
@@ -8725,7 +8728,7 @@ def write_evidence(result: dict[str, Any],
                        table_evidence(table_rows, mc_se))
         written["widening_table_cells.csv"] = paths.rel(p)
     if manifest:
-        # §9.3: exactly the 52 MANIFEST_PATHS, and a missing artifact is a
+        # §9.3: exactly the 49 MANIFEST_PATHS, and a missing artifact is a
         # refusal. (The count was eleven when §9.3 was drafted and the comment
         # outlived it by forty-one paths.)
         entries = manifest_entries()
@@ -8988,7 +8991,7 @@ def verify(directory: Path | str | None = None, *, shards: int = SHARDS,
                        "delta_mean": d_mean, "delta_n": d_n,
                        "PASS": bool(d_mean <= tolerance and d_n == 0)})
 
-    # §9.3: `--verify` validates MANIFEST completeness — the 52 paths, no digest
+    # §9.3: `--verify` validates MANIFEST completeness — the 49 paths, no digest
     # disagreeing, no byte size disagreeing, and no entry of ours outside them.
     if check_manifest is None:
         check_manifest = evidence.parent.resolve() == EVIDENCE_DIR.resolve()
@@ -9528,7 +9531,7 @@ def _no_parameter(fn, *names: str) -> bool:
 # leg — the scorer, the estimator, the unanimity rule, the parity ordering. A
 # row cannot execute one of those against a hand-built dict without becoming
 # the "names, not obligations" shape §8.5 condemns, so the report builds a
-# complete SYNTHETIC 35-cell table leg and runs the production code over it.
+# complete SYNTHETIC 32-cell table leg and runs the production code over it.
 #
 # Every value below is written literally here, in the harness the freeze commit
 # hashes; nothing is read, copied or derived from the pinned artifacts, so §7.4
@@ -10009,7 +10012,7 @@ def implementation_report() -> list[dict[str, Any]]:
     in-tree audit proved L1's tautology by seeding the exact defect its scenario
     names and watching the row stay green.
 
-    What replaces them is a synthetic 35-cell table leg — every value written
+    What replaces them is a synthetic 32-cell table leg — every value written
     literally above, §7.4-synthetic for the same reason the test module's world
     is — run through the production `run_table`, `score_table`, `table_gate`,
     `paired_mc_bootstrap` and `unanimity`. The rows that could not previously
@@ -10097,7 +10100,7 @@ def implementation_report() -> list[dict[str, Any]]:
                     "rps_B": made["rps_B"], "rps_native": made["rps_native"],
                     "delta_vs_corpus": made["delta_vs_corpus"]})
 
-        # ---- the synthetic 35-cell table leg, scored for real -------------
+        # ---- the synthetic 32-cell table leg, scored for real -------------
         flat_path, flat_rows = _conf_table(scratch, jitter=0, name="flat.jsonl")
         flat_scored = score_table(flat_rows, ledger_path=flat_path,
                                   expected_cells=EXPECTED_TABLE_CELLS)
@@ -10105,7 +10108,7 @@ def implementation_report() -> list[dict[str, Any]]:
 
         # ---- L2: per-horizon gate, no cross-horizon average --------------
         # 17 structural zeros and 15 treated cells at +0.0004 pool to
-        # +0.000183, which a 35-cell gate would pass; MW6's own mean is
+        # +0.000183, which a pooled gate would pass; MW6's own mean is
         # +0.0004 and must FAIL. The object is the one `score_table` produced.
         pooled = float(np.mean([c["delta_trps"]
                                 for c in flat_scored["per_cell"]]))
@@ -10117,15 +10120,15 @@ def implementation_report() -> list[dict[str, Any]]:
               and flat_gate["resolved"] is True
               and flat_gate["iv_a"]["PASS"] is False
               and "pooled" not in published
-              and "pooled_delta_trps_35_cells" not in json.dumps(flat_scored)
+              and "pooled_delta_trps" not in json.dumps(flat_scored)
               .replace(json.dumps(flat_scored["withdrawn"]), ""))
         row("L2", "§4.1", "the per-horizon gate; no cross-horizon average on "
             "any deciding path",
-            "score a real 35-cell leg whose pooled mean passes while MW6's "
+            "score a real 32-cell leg whose pooled mean passes while MW6's "
             "treated mean exceeds +0.0002; `score_table` must produce it, "
             "`table_gate` must FAIL it, and no pooled figure may appear "
             "anywhere outside the `withdrawn` note", l2,
-            detail={"pooled_35": pooled, "mw6_mean": flat_scored["mw6"]["mean"],
+            detail={"pooled": pooled, "mw6_mean": flat_scored["mw6"]["mean"],
                     "verdict": flat_gate["verdict"]})
 
         # ---- L3: the MC estimator is tie-aware and jointly resampled ------

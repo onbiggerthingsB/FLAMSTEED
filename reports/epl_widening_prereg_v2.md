@@ -2951,7 +2951,12 @@ which carries the whole of this document's law with the table leg's census
 replaced by the one measured above — 32 cells, 15 treated, 17 untouched, MW6 still
 7 of 7 and still the only all-treated label, so §4.1's ground for the deciding
 horizon survives intact — and which names pass 7's thirty-five fits, and v1's two,
-inside its own attestation and its own budget.
+inside its own attestation and its own budget: **182 fits / 131 simulations for
+the v2 → v3 lifecycle, and 184 / 131 for the whole lineage with v1's two
+included**. (Both figures are stated in v3 §2.4 under the adjudication of
+2026-08-29, whose F21 found the budget row labelled "the whole lifecycle" short
+by exactly the two fits this note promised it would carry. That correction is
+v3's; nothing in the law above changes.)
 
 **This document is retained as lineage and decides nothing. Nothing else in it
 changes**: every word above this note stands exactly as committed, no constant,

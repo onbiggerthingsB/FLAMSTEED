@@ -695,16 +695,32 @@ unenforced, because the 33 are exactly the rows whose zero-ness makes the
 | the new runner, control + treatment at all 32 priceable cells | **32** | 64 |
 | **the post-freeze experiment** | **147** | **96** |
 | v2 §8.2 pass 7, already run on 2026-08-28 (prior history, §8.1) | **35** | **35** |
-| **the whole lifecycle, this lineage** | **182** | **131** |
+| **the v2 → v3 lifecycle** | **182** | **131** |
+| v1's two disclosed fits on the parity path, 2026-08-2x (prior history, §8.1) | **2** | 0 |
+| **the whole lineage, v1 included** | **184** | **131** |
 
-**147 fits and 96 simulations of 20,000 seasons post-freeze; 182 and 131
-across the whole lifecycle of this lineage.** The second figure is stated
-because v2's was not: its §2.4 totalled only the post-freeze legs and called the
-result "whole experiment", while v2 §8.2 pass 7 had by then spent 35 real fits and
-35 real simulations on the protected control path. Pass 7 ran under v2's
-authorisation and before v3 existed (§8.1); it is prior history for this
-document and it is counted here rather than dropped, so that no later reader has
-to reconstruct the arithmetic. The canary's four fits and
+**147 fits and 96 simulations of 20,000 seasons post-freeze; 182 and 131 across
+the v2 → v3 lifecycle; 184 and 131 across the whole lineage.** All three figures
+are stated, and the third because the adjudication of 2026-08-29 (F21, V3-I1)
+found the row that had said "the whole lifecycle, this lineage" omitting two
+fits the same document counts elsewhere: §8.8's attestation names "**all
+thirty-seven**" real fits — v1's two plus pass 7's thirty-five — and v2's
+closing note promises v3 names both "inside its own attestation **and its own
+budget**". A budget row labelled "whole lifecycle" that is short by two of them
+is a scope defect in the one place §10 makes an amendment to move, so the two
+rows are separate and both totals are on the page. **182/131 is the v2 → v3
+lifecycle; 184/131 is the literal whole-lineage expenditure.**
+
+The second figure is stated because v2's was not: its §2.4 totalled only the
+post-freeze legs and called the result "whole experiment", while v2 §8.2 pass 7
+had by then spent 35 real fits and 35 real simulations on the protected control
+path. Pass 7 ran under v2's authorisation and before v3 existed (§8.1); it is
+prior history for this document and it is counted here rather than dropped, so
+that no later reader has to reconstruct the arithmetic. v1's two are prior
+history on the same terms: two real ADVI fits through protected
+`epl.simretro.ArchiveRunner` on the parity path during v1's conformance-test
+construction, which crashed on `epl.particles.ExcludedMassTooLarge` and produced
+no delta, no ledger row and no artifact (§8.1, §8.8). The canary's four fits and
 the single-opening exercise are counted because they are real fits on the real
 archive: §8.4 makes them the first two steps of the frozen sequence, and a
 budget that omits them would understate both the clock and the moment §8.7's
@@ -1027,7 +1043,7 @@ Three closures make "before" and "all 32" mechanical rather than aspirational:
 Binding the *schedule* to protected code binds neither `ArchiveRunner`'s
 semantics — verified adjustments, `config_read_once`, particle-book
 construction, boundaries, chunking, refusal handling, ranker checks,
-provenance — nor its call. The 19-untouched-cell control compares two arms
+provenance — nor its call. The 17-untouched-cell control compares two arms
 produced by the **same new code**, so any drift shared by both arms passes it
 silently. Only the executed oracle catches that class.
 
@@ -1486,7 +1502,7 @@ The unanimity rule does not bound the endpoint by a scale that does not describe
 it; it **propagates the Monte-Carlo uncertainty through the actual computation**,
 re-deriving the interval endpoint 200 times from resampled tallies and requiring
 the verdict itself to be stable. It shares the estimator's own construction —
-one joint particle draw per replicate, applied to all 32 tallies — so it carries
+one joint particle draw per replicate, applied to all 30 tallies — so it carries
 the same cross-cell covariance for free. It can only ever refuse: unanimity is
 required for the gate to resolve, and any disagreement yields UNRESOLVED.
 
@@ -2034,10 +2050,43 @@ prospective, and the only clock v3 is entitled to define.
 
 These six are authorised **for this document, prospectively**: they are v3's own
 pre-freeze passes, to be run under v3 before v3's freeze commit, and each must
-appear in §8.3's enumeration. **All six are read-only**; none of them calls
-`epl.dcfit.fit_epl` or `epl.leaguesim.simulate`; none writes inside the
-repository. **There is no seventh**, and the reason is in the paragraph after the
-list.
+appear in §8.3's enumeration. **All six are read-only in the sense that
+matters**: none of them calls `epl.dcfit.fit_epl` or `epl.leaguesim.simulate`,
+none of them fits, simulates or produces a number of this experiment, and none
+of them writes anything inside the repository **except the two writes named
+below, which this clause authorises by name**. **There is no seventh**, and the
+reason is in the paragraph after the list.
+
+> **THE TWO AUTHORISED PRE-FREEZE WRITES** (adjudication of 2026-08-29, F1 and
+> F20). The v3 draft of this clause said flatly that no pre-freeze pass writes
+> inside the repository, and the v3 review found that self-contradictory: pass 3
+> IS `pytest epl/tests/test_evwiden.py`, §8.5 makes its artifact a precondition
+> of rendering the freeze block, and the pytest session writes that artifact
+> inside the repository. There was no legal sequence satisfying both clauses,
+> and under §8.7 it could not have been repaired after the first fit. Both
+> writes are therefore authorised here, by path, by writer and by moment:
+>
+> 1. **`data/epl/fit/evwiden_conformance.json`**, written by the pytest
+>    **session** of pass 3 at session teardown, once per invocation, recording
+>    the outcomes its eighteen committed conformance tests reached and the id of
+>    the session that reached them (§8.5). It is gitignored, it is bound by
+>    digest into the freeze block, and it carries no number of this experiment:
+>    it is a record of which pytest run certified the freeze. `--conformance`
+>    and `--freeze-block` read it and never write it.
+> 2. **`reports/evidence/widening_parity_feasibility.json`**, the committed,
+>    byte-identical copy of §0.6's census record (§8.3, adjudication F13). It is
+>    a COPY of a measurement pass 7 already produced on 2026-08-28 under v2's
+>    authorisation; copying existing bytes is not running a pass, and §8.2
+>    authorises no pass under this document that could produce a census. Its
+>    bytes are pinned by §0.1's digest, so a copy that is not that census is
+>    refused rather than accepted.
+>
+> Pass 3's session ALSO leaves ordinary pytest scratch — `.pytest_cache`,
+> `__pycache__`, the temporary trees its own fixtures build under
+> `tempfile` — none of which is an artifact of this experiment and none of which
+> §9.3's MANIFEST describes. **Any other pre-freeze write, anywhere in the
+> repository, is a protocol deviation whether or not the file mattered**, and
+> that is the rule the paragraph below restates.
 
 1. `python -m epl.evwiden --membership` and `--plan` — read the pinned corpus,
    archive and ledger; compute §2.2's cells, §2.3's population, §3.3's 32 table
@@ -2085,14 +2134,16 @@ its freeze commit — is an invalidation (§10).
 **The rule for any further pre-freeze pass.** It must be read-only; it may not
 call `dcfit.fit_epl` or `leaguesim.simulate`, and may not build a store under
 `paths.STORE_DIR`; it may write nothing under `data/`, `reports/` or anywhere in
-the repository; and it must be **added to the freeze block's enumeration before
-the freeze commit is made**. The freeze block's list stays binding and must be
-complete — an unenumerated pre-freeze pass is a protocol deviation whether or not
-it touched anything.
+the repository **beyond the two writes authorised by name above**; and it must be
+**added to the freeze block's enumeration before the freeze commit is made**. The
+freeze block's list stays binding and must be complete — an unenumerated
+pre-freeze pass is a protocol deviation whether or not it touched anything, and
+an unenumerated pre-freeze WRITE is one on the same terms.
 
-**The one write a pre-freeze command may make, and it is not inside the
-repository.** The enumeration's completeness is only worth something if the
-harness cannot write outside it, and a review found that it could: `--script`
+**`--script` makes no pre-freeze write at all, and that is a separate clause
+from the two authorised above.** The enumeration's completeness is only worth
+something if the harness cannot write outside it, and a review found that it
+could: `--script`
 refused the default production target while unfrozen but accepted **any other
 directory**, including one inside the repository that happened to sit outside the
 narrow set of paths the tests exercised. The enumeration was therefore false as a
@@ -2504,9 +2555,28 @@ a report that simply omitted a row it could not satisfy, was green everywhere.
 > 3. **the reported count is eighteen.**
 >
 > A row is green **iff** its own test id is present and passed in that artifact.
-> The harness may not mark a row green from anything it computed itself, and it
-> may not mark a row green because the artifact says something *like* what it
-> wanted.
+> The reporting code may not mark a row green from anything it computed itself,
+> and it may not mark a row green because the artifact says something *like*
+> what it wanted.
+>
+> **What that does and does not establish** (adjudication of 2026-08-29, F14).
+> An earlier draft of this clause said the harness *cannot* mark rows green from
+> something it computed, and the seed audit disproved it by doing exactly that:
+> it built `{L1 … L18: "passed"}` in a fresh process that had run no row, wrote
+> it through the module's own writer, and rendered an accepted block. The
+> harness-digest cross-check could not catch it, because the writer stamps the
+> current file hashes at write time. So the claim is stated at the strength it
+> holds: **the conformance artifact is produced by the committed pytest
+> invocation of §8.2 pass 3, and it records the outcomes that invocation's
+> eighteen committed tests actually reached.** The writer is not part of the
+> module's public surface and refuses outside a pytest session (F22), and the
+> artifact carries the id of the session that produced it. Forging one from
+> inside a pytest process remains possible and is an OPERATOR ACT, recorded as
+> limitation **L3** under the adjudication's threat model — as is every finding
+> whose only exploit path is deliberate operator action. What the arrangement
+> buys is real and narrower than "cannot": the reporting code no longer grades
+> its own homework, the chain terminates in a run of committed tests, and the
+> committed block records which run that was.
 >
 > **`--freeze-block` requires the EXACT eighteen-row set, and the committed-block
 > guard requires it again.** A nonempty all-green subset is refused at both ends
@@ -2529,7 +2599,10 @@ a report that simply omitted a row it could not satisfy, was green everywhere.
 The consequence is that the chain now terminates outside the reporting code: the
 report is a **reading** of a pytest run, the pytest run is committed code that
 either executed the scenario or did not, and the freeze block records which run
-it read. A report that lies about itself has nothing left to lie with.
+it read. That is the end of the report grading its own homework. It is not the
+end of every route to a green row — an operator inside a pytest process can
+still write an artifact by hand (L3) — and this document does not claim
+otherwise.
 
 **The rows keep their independent seeding obligation too.** Beyond the artifact,
 `epl/tests/test_evwiden.py` must independently execute the seeded scenarios of
@@ -2951,7 +3024,12 @@ named inside it**, not beside it:
 All thirty-seven preceded this document, all were on the protected `dc_native`
 control path, and none produced an estimand, a treatment arm or a published
 number of this experiment. They are not excluded from the attestation; they are
-its first sentences.
+its first sentences. **And they are in §2.4's budget as well as in this
+attestation**, which is what v2's closing note promised and what the
+adjudication of 2026-08-29 (F21) made true of the arithmetic: §2.4 states
+**182 fits / 131 simulations** for the v2 → v3 lifecycle and **184 / 131** for
+the whole lineage with v1's two included, and both rows are on the page so that
+neither reading has to be reconstructed.
 
 **This is an attestation, not a fact the repository can prove** (§8.6). `data/`
 is gitignored, so the committed tree can establish only that nothing was
@@ -3002,16 +3080,23 @@ named; 16 → 15 treated and 19 → 17 untouched; the new per-label CELL census
 `{MW0: 5, MW3: 6, MW6: 7, MW10: 7, MW19: 7}` pinned beside the treated census
 `{MW0: 2, MW3: 2, MW6: 7, MW10: 4, MW19: 0}`; gate (iv-b)'s MW0 mean over **2**
 treated cells; §5's deciding tallies 32 → 30; §2.4's post-freeze budget 153/105 →
-147/96 with the whole-lifecycle figure (182/131) stated for the first time;
+147/96 with the lifecycle figures (182/131 for v2 → v3, and 184/131 for the
+whole lineage with v1's two disclosed fits) stated for the first time;
 §4.3's tolerance-comparison arithmetic recomputed (+0.00042667, 2.13× tighter);
 §9.2's table CSV 35 → 32 rows; §9.3's MANIFEST 52 → 49 paths.
 
 *Ruled as law, where v2 left the obligation to the harness:* §8.5's conformance
 report must be read from an **independent committed pytest artifact** and the
 freeze block must require the **exact** eighteen rows, not a green subset (§8.3,
-§8.5, §8.6 condition (5)); the first-fit record gains an **append-only witness**
-so deletion cannot reset the regime, and its instant is the instant of the fit at
-**every** recording site (§8.6); §8.6 condition (1) binds this document's
+§8.5, §8.6 condition (5)); the first-fit record gains an **append-only witness**,
+which makes deletion of the record VISIBLE rather than impossible — §8.6 is the
+governing statement and it is narrower than an earlier draft of this line
+claimed (adjudication F23): record present with witness standing is post-fit;
+record deleted with witness standing REFUSES, so the ratchet holds against that;
+**both deleted reads as pre-fit**, and that residue is limitation L1, an
+operator act under the threat model — and the record's instant is the instant of
+the fit at **every** recording site (§8.6); §8.6 condition (1) binds this
+document's
 **current bytes** as well as its committed blob, so an uncommitted post-fit edit
 is detected (§8.7); `--script` is refused pre-freeze at every target and takes no
 interpreter post-freeze (§8.2); the table ledger is resolved rather than named
@@ -3031,9 +3116,23 @@ the −0.0010 bar, the +0.0002 table tolerance, MW6 as the deciding horizon and 
 ground on which it was named, `MC_BOOT`, `MC_SEED`, `K = 200`, the unanimity rule,
 `n_sims = 20,000`, `SHARDS = 4`, §6's frozen scenarios and its six-row power
 table, §7's refusal inventory, §7.4's synthetic definition, and §8.4's five-step
-sequence. **No threshold, seed, population or gate moved**, and none could have:
-the only measurement that exists is a census of the protected stack's capability,
-which touches the table leg's denominator and nothing else.
+sequence.
+
+**The populations DID move, and the certification is about what could have moved
+them.** An earlier draft of this paragraph said "no threshold, seed, population
+or gate moved", and the adjudication of 2026-08-29 (F19) found that refuted by
+the paragraph seven lines above it, which lists the moves: 16 → 15 treated and
+19 → 17 untouched, gate (iv-b)'s MW0 mean over **2** treated cells, §5's
+deciding tallies 32 → 30. This is the sentence a reviewer would rely on to
+certify that the transplant was not outcome-conditioned, so it says the
+defensible thing instead: **no outcome threshold, seed, estimand or decision
+rule was chosen from an effect-bearing result**, and none could have been. The
+only measurement that exists is a census of the protected stack's capability. It
+touches the table leg's DENOMINATOR — which cells there are, and therefore how
+many are treated and how many tallies §5 resamples — and it carries no delta, no
+arm comparison and no estimand, so there was no effect for any of them to be
+chosen against. That is a weaker claim than "nothing moved", and it is the true
+one.
 
 ---
 
@@ -3156,7 +3255,7 @@ does.
 
 **`--verify` refuses** if any of the 49 is missing from the MANIFEST; if any
 digest disagrees; if any byte size disagrees; if the MANIFEST carries an entry
-inside this experiment's namespace (`widening`, `evwiden`) outside the 52; or if
+inside this experiment's namespace (`widening`, `evwiden`) outside the 49; or if
 a promised file is not on disk. It may not skip a file it cannot find: a missing
 artifact is a refusal, never a silent omission.
 
