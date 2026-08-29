@@ -3864,6 +3864,31 @@ def assert_sequence_marker_wellformed(step: str, marker: dict[str, Any]
             f"{recomputed[:12]}…. §8.6: 'the product digest it names is "
             "RECOMPUTED and compared, so a marker describing a product that no "
             "longer exists in that form unlocks nothing'.")
+    # ...and THAT digest is over the marker's own dictionary, which is what the
+    # adjudication of 2026-08-29 found insufficient (F10, NB6): "it recomputes a
+    # digest of the marker's own embedded `produced` dictionary, not the current
+    # bytes of the named product. Product deletion or mutation therefore leaves
+    # the marker valid." The marker names its products by path, and every one of
+    # them is RE-HASHED here against the bytes on disk right now.
+    produced = marker.get("produced")
+    products = (produced or {}).get(_PRODUCTS_KEY) \
+        if isinstance(produced, dict) else None
+    moved = []
+    for rel_path, recorded_sha in sorted((products or {}).items()):
+        target = paths.REPO_ROOT / str(rel_path)
+        actual = sha256_file(target) if target.exists() else None
+        if actual != recorded_sha:
+            moved.append(f"{rel_path} recorded {str(recorded_sha)[:12]}… and "
+                         + ("is not on disk" if actual is None
+                            else f"now hashes to {actual[:12]}…"))
+    if moved:
+        raise SequenceViolation(
+            f"{paths.rel(sequence_marker_path(step))} names PRODUCT bytes that "
+            f"are not the bytes on disk: {'; '.join(moved)}. §8.4's marker is a "
+            "claim that this step produced something, and a claim about a file "
+            "that is gone — or is no longer that file — unlocks nothing. The "
+            "product digests are re-hashed on every read, not read back out of "
+            "the marker that asserted them.")
     if str(marker.get("schema")) != SCHEMA_ID:
         raise SequenceViolation(
             f"{paths.rel(sequence_marker_path(step))} carries schema "
@@ -3894,6 +3919,40 @@ def assert_sequence_marker_wellformed(step: str, marker: dict[str, Any]
 #: own completion.
 _CLAIM_KEY = "claimed"
 
+#: §8.4's PRODUCT LEDGER, inside a marker's own `produced` object: a map from
+#: repo-relative path to the SHA-256 of what that file held when the step
+#: finished. :func:`assert_sequence_marker_wellformed` re-hashes every one of
+#: them on every read (adjudication F10), so a marker cannot outlive the bytes
+#: it stands for.
+_PRODUCTS_KEY = "products"
+
+
+def product_digests(*targets: Path | str) -> dict[str, str]:
+    """{repo-relative path: sha256} over the bytes each product actually holds.
+
+    A product the writer cannot see is not a product: an absent file raises
+    rather than recording ``None``, because a recorded ``None`` would re-hash to
+    ``None`` and a marker naming a file that was never written would then verify
+    against the file's continued absence.
+    """
+    out: dict[str, str] = {}
+    for target in targets:
+        path = Path(target)
+        if not path.exists():
+            raise SequenceViolation(
+                f"{paths.rel(path)} is not on disk, so §8.4's marker cannot "
+                "record what this step produced. A marker that names a product "
+                "it never saw is a claim with nothing behind it.")
+        out[paths.rel(path)] = sha256_file(path)
+    return out
+
+
+#: §8.4's RECLAIM LEDGER, inside the claim's own `produced` object. It is
+#: append-only: :func:`claim_sequence_step` reads what is there and adds one
+#: dated record, and :func:`write_sequence_marker` carries the whole list into
+#: the completion marker, so the history of a resumed step survives the step.
+_RECLAIM_KEY = "reclaims"
+
 
 def claim_sequence_step(step: str, *, note: str) -> dict[str, Any]:
     """Open §8.4's write-once marker BEFORE the step spends anything.
@@ -3911,26 +3970,64 @@ def claim_sequence_step(step: str, *, note: str) -> dict[str, Any]:
     second outcome exist before the conflict was raised. An open claim inverts
     the order: the second attempt dies at the claim.
 
-    An open claim that never completes behaves exactly like §8.4's durable
-    FAILURE marker, and for the same reason: the step ran, it did not finish,
-    and a continuation needs a dated pre-freeze note rather than a retry.
+    **THE RECLAIM RULE** (adjudication of 2026-08-29, F3). The v3 arrangement
+    refused an open claim as well, and the review found that this made §7.2's
+    promise unkeepable: "an open `complete: false` claim permanently refuses the
+    official retry while §7.2 promises resumability", and `run_table` says a
+    crash costs only the in-flight cell. F3 rules the two apart, and the marker
+    is what separates them:
+
+    * a **COMPLETED** step produced an outcome. Running it again after seeing
+      that outcome is the second attempt §8.4 refuses, and no reclaim reopens
+      it. The sequence stays once-only here, which is the whole of §4.4.
+    * a **FAILED** step — §8.4's durable failure marker, `complete: false` with
+      no open claim on it — has published its failure, and a continuation after
+      it still needs "a new dated pre-freeze note written BEFORE the retry".
+    * an **OPEN CLAIM** is a step that started and never finished. It produced
+      no complete product, so there is no outcome to condition a retry on and
+      nothing to put in a file drawer; refusing it makes a crashed four-hour leg
+      unresumable. It may be re-claimed **once per dated reclaim record
+      appended to the claim file** — append, never overwrite — so every
+      resumption is on the record and a reader can count them.
     """
     existing = read_sequence_marker(step)
     head = git_head()
+    reclaims: list[dict[str, Any]] = []
     if existing is not None and existing.get("freeze_commit") in (None, head):
-        state = ("an OPEN CLAIM that never completed"
-                 if not existing.get("complete")
-                 and (existing.get("produced") or {}).get(_CLAIM_KEY)
-                 else "a COMPLETED step" if existing.get("complete")
-                 else "a FAILED step")
-        raise SequenceViolation(
-            f"{step} refuses: {paths.rel(sequence_marker_path(step))} already "
-            f"records {state} under this freeze commit. §8.4's markers are "
-            "written ONCE, and this step claims its marker BEFORE it spends "
-            "anything precisely so that a second attempt is refused before a "
-            "second outcome exists rather than after. A continuation needs a "
-            "new dated pre-freeze note written before the retry, not a re-run.")
-    return _marker_bytes(step, produced={_CLAIM_KEY: str(note)},
+        produced = existing.get("produced")
+        produced = produced if isinstance(produced, dict) else {}
+        claimed = produced.get(_CLAIM_KEY)
+        if existing.get("complete"):
+            raise SequenceViolation(
+                f"{step} refuses: {paths.rel(sequence_marker_path(step))} "
+                "already records a COMPLETED step under this freeze commit. "
+                "§8.4's markers are written ONCE and the sequence is once-only "
+                "for completed steps: this step produced its outcome, and a "
+                "second run after that outcome exists is the file-drawer "
+                "channel §4.4 closes. A continuation needs a new dated "
+                "pre-freeze note written before the retry, not a re-run.")
+        if not claimed:
+            raise SequenceViolation(
+                f"{step} refuses: {paths.rel(sequence_marker_path(step))} "
+                f"already records a FAILED step under this freeze commit "
+                f"({produced.get('failure')}). §8.4's durable failure marker is "
+                "not an open claim — the step ran, it published its failure, "
+                "and a continuation after it needs a new dated pre-freeze note "
+                "written BEFORE the retry, not a re-run. The reclaim rule "
+                "reaches open claims and nothing else.")
+        # ---- the reclaim (F3): append one dated record, overwrite none ------
+        reclaims = [dict(r) for r in (produced.get(_RECLAIM_KEY) or ())]
+        reclaims.append({
+            "at": pd.Timestamp.now("UTC").isoformat(),
+            "note": str(note),
+            "reclaimed": str(claimed),
+            "freeze_commit": head,
+            "harness": {name: (sha256_file(paths.REPO_ROOT / name)
+                               if (paths.REPO_ROOT / name).exists() else None)
+                        for name in HARNESS_FILES},
+        })
+    return _marker_bytes(step, produced={_CLAIM_KEY: str(note),
+                                         _RECLAIM_KEY: reclaims},
                          complete=False)
 
 
@@ -3961,11 +4058,22 @@ def write_sequence_marker(step: str, *, produced: Any = None,
     (§8.4 step 1: "the failure publishes") and a silent retry impossible.
     """
     path = sequence_marker_path(step)
+    head = git_head()
+    existing = read_sequence_marker(step)
+    # §8.4's reclaim ledger travels with the step (adjudication F3): whatever
+    # the open claim — or an already-written completion — recorded is carried
+    # into what this call writes, so a resumed step's history survives its
+    # completion and the re-verification below compares like with like.
+    if existing is not None and existing.get("freeze_commit") in (None, head) \
+            and isinstance(produced, dict):
+        prior = existing.get("produced")
+        carried = list((prior or {}).get(_RECLAIM_KEY) or ()) \
+            if isinstance(prior, dict) else []
+        if carried:
+            produced = {**produced, _RECLAIM_KEY: carried}
     digest = hashlib.sha256(
         json.dumps(produced, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()
-    head = git_head()
-    existing = read_sequence_marker(step)
     if existing is not None and existing.get("freeze_commit") in (None, head):
         # ...unless it is this step's own OPEN CLAIM, in which case this write
         # is the completion the claim was opened for and is the ONE legal
@@ -11113,6 +11221,13 @@ def launch_script(directory: Path | str | None = None,
         'need_marker step1_results_canary "step 2, the single opening"',
         f'SCRATCH="{SCRATCH_STEP2_NAME}"',
         'mkdir -p "$SCRATCH"',
+        '# §8.4: "the step\'s scratch directory carries its own copy of step 1\'s',
+        '# canary record". §7.3 reads the canaries from their WRITTEN record so',
+        '# the order holds across processes, and `require_run_preconditions`',
+        '# looks for that record in the directory it was given. Without this',
+        "# copy the step refuses its own canary's absence and is not executable",
+        '# as written (N-RH-FIRST-ACT; adjudication F2).',
+        f'cp "$DIR/{CANARY_NAME}" "$SCRATCH/{CANARY_NAME}"',
         'run_step single_opening $PY -u -m epl.evwiden '
         '--run --limit 1 --dir "$SCRATCH"',
         "",
@@ -11594,7 +11709,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                         SEQUENCE_STEPS[0], complete=False,
                         produced={"canary": paths.rel(directory / CANARY_NAME),
                                   "digest": sha256_file(directory / CANARY_NAME),
-                                  "failure": failed["failure"]})
+                                  "failure": failed["failure"],
+                                  _PRODUCTS_KEY: product_digests(
+                                      directory / CANARY_NAME)})
                 raise
             write_canaries(record, directory / CANARY_NAME)
             # §8.4 step 1's completion marker. §8.7 comes into force HERE — the
@@ -11604,7 +11721,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 write_sequence_marker(
                     SEQUENCE_STEPS[0],
                     produced={"canary": paths.rel(directory / CANARY_NAME),
-                              "digest": sha256_file(directory / CANARY_NAME)})
+                              "digest": sha256_file(directory / CANARY_NAME),
+                              # §8.4's product bytes, re-hashed on every later
+                              # read of this marker (adjudication F10)
+                              _PRODUCTS_KEY: product_digests(
+                                  directory / CANARY_NAME)})
             print(json.dumps({k: v for k, v in record.items() if k != "detail"},
                              indent=2, default=str))
 
@@ -11686,7 +11807,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "opening": points[0].cutoff if points else None,
                         "n_rows": out["n_rows_written"],
                         "row_digest": out["run_digest"],
-                        "scratch": paths.rel(directory)})
+                        "scratch": paths.rel(directory),
+                        _PRODUCTS_KEY: product_digests(ledger_path)})
                 else:
                     # §8.4 step 3's marker "is written only when all four
                     # shards have exited zero AND WRITTEN THEIR EXPECTED KEY
@@ -11706,8 +11828,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                         complete[shard_name(i, SHARDS)] = run_digest(
                             load_ledger(path_i))
                     if len(complete) == SHARDS:
-                        write_sequence_marker(step,
-                                              produced={"shards": complete})
+                        write_sequence_marker(step, produced={
+                            "shards": complete,
+                            _PRODUCTS_KEY: product_digests(
+                                *(EVWIDEN_DIR / shard_name(i, SHARDS)
+                                  for i in range(SHARDS)))})
             print(json.dumps(out, indent=2, default=str))
 
         if args.table:
@@ -11747,9 +11872,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                          "have not completed")
             out = run_table(cells, table_ledger)
             if frozen["frozen"]:
+                # ...and it CARRIES THE LEDGER SHA (adjudication F10). The
+                # deciding leg's marker recorded a path, a cell count and a
+                # parity check and nothing that bound the four hours of
+                # simulation it stands for; both ledgers are hashed here and
+                # re-hashed on every later read of the marker.
                 write_sequence_marker(SEQUENCE_STEPS[4], produced={
                     "parity": paths.rel(parity_path(table_ledger)),
-                    "n_cells": out["n_cells"], "parity_check": out["parity"]})
+                    "n_cells": out["n_cells"], "parity_check": out["parity"],
+                    _PRODUCTS_KEY: product_digests(
+                        table_ledger, parity_path(table_ledger))})
             print(json.dumps(out, indent=2, default=str))
 
         if args.merge or args.verify:
@@ -11788,9 +11920,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             # publication pass, and the write happens here — before `--evidence`
             # — rather than after it.
             if args.merge and result.get("harness_freeze", {}).get("frozen"):
+                # The product bytes this step's verdict is a function of
+                # (adjudication F10). They are the four shard ledgers, and not
+                # `data/epl/fit/evwiden.json`: the merge runs TWICE by §8.4's
+                # own order — once as step 4, before the table exists, and once
+                # at publication with §3.3's gate in it — so the merged verdict
+                # is not a byte-constant of step 4 while the ledgers it scored
+                # are, and `run_digest` beside them is recomputable from exactly
+                # these bytes.
                 write_sequence_marker(SEQUENCE_STEPS[3], produced={
                     "n_fits": result["n_fits"], "n_fixtures": result["n_fixtures"],
-                    "run_digest": result["run_digest"]})
+                    "run_digest": result["run_digest"],
+                    _PRODUCTS_KEY: product_digests(
+                        *(directory / shard_name(i, args.shards)
+                          for i in range(args.shards)))})
             if args.evidence:
                 merged = [r for shard in range(args.shards)
                           for r in load_ledger(

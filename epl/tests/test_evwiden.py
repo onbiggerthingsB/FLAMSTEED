@@ -4765,6 +4765,72 @@ def test_the_markers_record_what_8_4_asks_them_to(tmp_path, monkeypatch):
     assert marker["produced"] == {"shards": ["a", "b"]}
 
 
+def test_a_marker_binds_the_current_bytes_of_the_product_it_names(tmp_path,
+                                                                  monkeypatch):
+    """The adjudication of 2026-08-29, F10 (NB6, product-digest core). "The
+    claimed product-digest revalidation is false. `_sequence_marker_state`
+    recomputes a digest of the marker's own embedded `produced` dictionary, not
+    the current bytes of the named product. Product deletion or mutation
+    therefore leaves the marker valid. Step 5's marker does not even carry a
+    ledger SHA, only path/count/check metadata."
+
+    F10: "sequence markers record sha256 of the ACTUAL PRODUCT BYTES (step 5's
+    marker carries the ledger sha); the marker check re-hashes the product
+    files." A marker is a claim that a step produced something; a claim about a
+    file that is no longer there, or is no longer that file, unlocks nothing.
+    """
+    monkeypatch.setattr(ew, "SEQUENCE_DIR", tmp_path / "sequence")
+    monkeypatch.setattr(ew, "git_head", lambda rev="HEAD": "deadbeef")
+    step = ew.SEQUENCE_STEPS[2]
+    ledger = tmp_path / "shard_00_of_04.jsonl"
+    ledger.write_text('{"row": 1}\n')
+
+    # a product the writer cannot see is not a product
+    with pytest.raises(ew.SequenceViolation) as exc:
+        ew.product_digests(tmp_path / "never_written.jsonl")
+    assert "is not on disk" in str(exc.value)
+
+    marker = ew.write_sequence_marker(
+        step, produced={"shards": {"shard_00_of_04.jsonl": "abc"},
+                        **{ew._PRODUCTS_KEY: ew.product_digests(ledger)}})
+    recorded = marker["produced"][ew._PRODUCTS_KEY]
+    assert list(recorded) == [ew.paths.rel(ledger)]
+    assert recorded[ew.paths.rel(ledger)] == ew.sha256_file(ledger)
+    ew.assert_sequence_marker_wellformed(step, marker)
+
+    # MUTATION: the ledger gained a row after the marker was written
+    ledger.write_text('{"row": 1}\n{"row": 2}\n')
+    with pytest.raises(ew.SequenceViolation) as exc:
+        ew.assert_sequence_marker_wellformed(step, marker)
+    assert "PRODUCT" in str(exc.value)
+    assert ew.paths.rel(ledger) in str(exc.value)
+    # ...and the successor refuses on it, which is where it matters
+    with pytest.raises(ew.SequenceViolation):
+        ew.require_sequence(ew.SEQUENCE_STEPS[3], enforce=True)
+
+    # DELETION: the same refusal
+    ledger.unlink()
+    with pytest.raises(ew.SequenceViolation) as exc:
+        ew.assert_sequence_marker_wellformed(step, marker)
+    assert "PRODUCT" in str(exc.value)
+
+
+def test_step_fives_marker_carries_the_ledger_sha(tmp_path, monkeypatch):
+    """F10, the half the adjudication names: "step 5's marker carries the ledger
+    sha". The deciding leg's marker recorded a path, a cell count and a parity
+    check, and nothing that bound the four hours of simulation it stands for."""
+    import inspect
+
+    branch = inspect.getsource(ew.main)
+    branch = branch[branch.index("if args.table:"):]
+    branch = branch[:branch.index("if args.merge or args.verify:")]
+    assert "product_digests(" in branch
+    assert "table_ledger" in branch and "parity_path(" in branch
+    # ...and every other step that has a durable product names it too
+    body = inspect.getsource(ew.main)
+    assert body.count("product_digests(") >= 5
+
+
 def test_the_launcher_is_a_valid_shell_script(tmp_path):
     """`sh -n` parses it without running it."""
     path = tmp_path / ew.LAUNCH_NAME
@@ -7197,6 +7263,65 @@ def test_the_launcher_emits_step_twos_command_and_its_scratch_target():
     assert any(c.startswith("need_marker step2_single_opening") for c in after)
 
 
+def test_step_twos_scratch_carries_step_ones_canary_when_the_script_runs(
+        tmp_path, monkeypatch):
+    """The adjudication of 2026-08-29, F2 (N-RH-FIRST-ACT). "Step 2 is not
+    executable: the launcher never copies step 1's canary into the scratch dir,
+    and `require_run_preconditions` refuses. Fix the launcher (copy the canary)
+    + AN EXECUTED-SEQUENCE TEST (not source-grep)."
+
+    v3 §8.4 says step 2's scratch directory "carries its own copy of step 1's
+    canary record", and §7.3 makes the canary a precondition read from its
+    WRITTEN record so the order holds across processes. The launcher created the
+    scratch directory and ran `--run --limit 1 --dir "$SCRATCH"`; `main` then
+    called `require_run_preconditions(directory=scratch)`, which looks for
+    `scratch/canary.json` and raises `CanaryFailed` on its absence. The step
+    could not run.
+
+    This test EXECUTES the generated shell — the step-1 and step-2 region of
+    it, with the interpreter stubbed so nothing fits — and then asks the real
+    precondition function the real question, in the scratch directory the real
+    script made.
+    """
+    run_dir = tmp_path / "run"
+    scratch = tmp_path / "scratch"
+    run_dir.mkdir()
+    monkeypatch.setattr(ew, "SCRATCH_STEP2_NAME", str(scratch))
+    monkeypatch.setattr(ew, "SEQUENCE_DIR", run_dir / "sequence")
+
+    # step 1's own product, as `--canary` leaves it
+    (run_dir / ew.CANARY_NAME).write_text(json.dumps({
+        "schema": ew.SCHEMA_ID, "PASS": True, "results_canary_run": True,
+        "evidence": {"PASS": True}}) + "\n")
+    (run_dir / "sequence").mkdir()
+    (run_dir / "sequence" / "step1_results_canary.json").write_text("{}\n")
+
+    # the launcher, with a stub interpreter so the commands cost nothing
+    script = ew.launch_script(run_dir)
+    stub = tmp_path / "py"
+    stub.write_text("#!/bin/sh\nexit 0\n")
+    stub.chmod(0o755)
+    script = script.replace(f'PY="{ew.LAUNCH_PYTHON}"', f'PY="{stub}"')
+    # ...run only as far as step 3, which is where step 2's work is done
+    script = script.split("# STEP 3")[0]
+    path = tmp_path / "launch.sh"
+    path.write_text(script)
+    done = subprocess.run(["sh", str(path)], capture_output=True)
+    assert done.returncode == 0, done.stderr.decode() + done.stdout.decode()
+
+    # THE SEQUENCE, EXECUTED: the scratch directory the script made carries the
+    # canary the real precondition function demands
+    assert scratch.is_dir()
+    assert (scratch / ew.CANARY_NAME).exists(), \
+        "step 2's scratch has no canary, so step 2 cannot run"
+    assert (scratch / ew.CANARY_NAME).read_bytes() == \
+        (run_dir / ew.CANARY_NAME).read_bytes()
+    record = ew.require_run_preconditions(scratch, require_results=True,
+                                          step=ew.SEQUENCE_STEPS[1],
+                                          require_sequence_marker=False)
+    assert record["PASS"] is True
+
+
 def test_step_two_requires_a_scratch_directory_and_refuses_the_real_one():
     """§8.4: "`--run --limit 1` requires a `--dir` that is NOT the preregistered
     run directory, refuses one that is, and writes its marker to the
@@ -7248,6 +7373,82 @@ def test_the_table_ledger_is_resolved_and_names_nothing(tmp_path):
     assert branch.index("claim_sequence_step") < branch.index("run_table("), \
         "the marker is claimed first"
     assert ew._no_parameter(ew.claim_sequence_step, "produced", "complete")
+
+
+def test_a_crashed_claim_is_reclaimable_once_per_dated_record(tmp_path,
+                                                              monkeypatch):
+    """The adjudication of 2026-08-29, F3 (P5-B8, crash-recovery half). "An
+    open `complete: false` claim permanently refuses the official retry while
+    §7.2 promises resumability [...] `run_table` says a crash costs only the
+    in-flight cell. The text and harness cannot simultaneously provide once-only
+    execution and the promised resumption."
+
+    THE RECLAIM RULE, as F3 defines it: "a claim whose step produced no complete
+    product may be re-claimed once per dated reclaim record appended to the
+    claim file (append, never overwrite); the sequence remains once-only for
+    COMPLETED steps."
+
+    The two halves are separable because the marker separates them. A step whose
+    completion marker exists produced an outcome, and re-running it after seeing
+    that outcome is the second attempt §8.4 refuses. A step holding nothing but
+    an open claim produced no outcome to condition on — there is nothing to
+    file-drawer — and refusing it makes a crashed four-hour leg unresumable,
+    which §7.2 promises it is not. Every reclaim writes itself down.
+    """
+    monkeypatch.setattr(ew, "SEQUENCE_DIR", tmp_path / "sequence")
+    step = ew.SEQUENCE_STEPS[4]
+
+    first = ew.claim_sequence_step(step, note="step 5 opened")
+    assert first["complete"] is False
+    assert first["produced"]["claimed"] == "step 5 opened"
+    assert first["produced"]["reclaims"] == []
+
+    # THE CRASH. The claim is open, no completion marker exists, and the
+    # official retry is the SAME command — which is what §7.2 promises.
+    second = ew.claim_sequence_step(step, note="reopened after a crash")
+    assert second["complete"] is False
+    assert len(second["produced"]["reclaims"]) == 1
+    record = second["produced"]["reclaims"][0]
+    assert record["note"] == "reopened after a crash"
+    assert record["reclaimed"] == "step 5 opened"
+    assert record["at"] and record["harness"]
+
+    # APPEND, NEVER OVERWRITE: a second reclaim keeps the first one's record
+    third = ew.claim_sequence_step(step, note="and once more")
+    assert [r["note"] for r in third["produced"]["reclaims"]] == [
+        "reopened after a crash", "and once more"]
+
+    # the completion carries the whole history forward...
+    done = ew.write_sequence_marker(step, produced={"n_cells": 32})
+    assert done["complete"] is True
+    assert [r["note"] for r in done["produced"]["reclaims"]] == [
+        "reopened after a crash", "and once more"]
+    assert done["produced"]["n_cells"] == 32
+
+    # ...the re-verification pass still re-verifies rather than rewriting...
+    again = ew.write_sequence_marker(step, produced={"n_cells": 32})
+    assert again["completed_at"] == done["completed_at"]
+
+    # ...and a COMPLETED step is once-only. No reclaim reopens an outcome.
+    with pytest.raises(ew.SequenceViolation) as exc:
+        ew.claim_sequence_step(step, note="a run after the outcome")
+    assert "COMPLETED" in str(exc.value)
+
+
+def test_a_durable_failure_marker_is_not_reclaimable(tmp_path, monkeypatch):
+    """F3's other edge. §8.4's durable FAILURE marker — `complete: false` with
+    no open claim on it — is the shape a step that RAN AND FAILED leaves, and
+    §8.4 has always required "a new dated pre-freeze note written BEFORE the
+    retry, not after it". The reclaim rule reaches open claims and nothing
+    else."""
+    monkeypatch.setattr(ew, "SEQUENCE_DIR", tmp_path / "sequence")
+    step = ew.SEQUENCE_STEPS[0]
+    ew.write_sequence_marker(step, complete=False,
+                             produced={"failure": "CanaryFailed: leg 2"})
+    with pytest.raises(ew.SequenceViolation) as exc:
+        ew.claim_sequence_step(step, note="try the canary again")
+    assert "FAILED" in str(exc.value)
+    assert "dated pre-freeze note" in str(exc.value)
 
 
 def test_merge_and_the_table_legs_enforce_the_sequence_themselves(tmp_path,
