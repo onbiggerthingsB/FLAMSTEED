@@ -281,6 +281,64 @@ that experiment will pin **as-found** if it is revived.
 
 ---
 
+## 7. The ingest as built — 2026-08-30
+
+**The code is complete and the network has still not run.** All six blockers are
+carried, each behaviourally covered by a red-then-green test in
+`epl/tests/test_e1ingest.py` (68 tests). `python -m epl.build --division E1`
+exists and works; what it has never been given is a real E1 CSV. The archive
+files in §4 do not exist yet, and building them is the next phase's once-only
+deliberate act.
+
+| blocker | where it is closed | the test that proves it |
+|---|---|---|
+| B1 fetch hardcodes E0 | `fetch.url_for` / `raw_path` / `url_pattern` take `division` | `test_the_e1_url_names_the_e1_file`, `test_the_cache_path_carries_the_division_and_e0_is_unchanged` |
+| B2 provenance key collides | `{division}_{code}` **and** a separate sidecar | `test_an_e1_fetch_does_not_overwrite_the_e0_record_for_the_same_season` |
+| B3 380/20/19 assumed | `schema.DivisionShape`, `validate_season(division=…)` | `test_a_championship_season_validates_at_552_24_23`, `test_the_same_championship_season_FAILS_the_e0_validator` |
+| B4 spellings unregistered | 22 registry entries + the fold-collision guard | `test_every_declared_e1_spelling_resolves`, `test_the_collision_guard_refuses_a_fold_that_maps_two_clubs` |
+| B5 null key becomes a club | `parse.PhantomClub`, raised before the frame exists | `test_an_unregistered_club_in_an_e1_file_refuses_at_parse_time`, `test_the_phantom_club_hazard_is_still_live_in_the_protected_module` |
+| B6 `match_id` has no division | `E1\|` prefix; E0's payload verbatim | `test_every_id_in_the_pinned_e0_archive_still_reproduces`, `test_every_id_the_e1_build_writes_carries_the_division` |
+
+**The strict gate is real.** `build(division="E1")` raises
+`AcquisitionIncomplete` **before the first write** if any season carries a
+blocking issue, so a refused build leaves a previously built archive untouched
+rather than truncating it. The single non-blocking issue is the vendor's line of
+bare commas, recognised by *deriving* the string from `parse.blank_rows_issue`
+rather than by matching prose. E0 is deliberately **not** strict: it reports and
+continues, because the daily live cycle meets an unregistered promoted club
+before anyone has registered it and must still produce a table.
+
+### 7.1 Two defects found while building, both fixed, both worth recording
+
+1. **`build` wrote through module-level path constants, not the accessors.**
+   `paths.MATCHES_PARQUET` is bound to the real `data/epl/` at *import*, so a
+   test that repoints `paths.DATA_DIR` at a temporary directory does **not** move
+   it. This was not theoretical: a red-phase test run called the then-unmodified
+   `build()` and **overwrote the pinned 4,560-row archive with a 380-row
+   synthetic season**. It was restored byte-identically to
+   `323aa54af0a8fcf38745c9f7fccc55fe10654ff68cf38fa82cf7f498cea275cf` by
+   re-running `python -m epl.build` over the untouched, hash-pinned raw CSVs in
+   `data/epl/raw/` — which is also a demonstration that the E0 archive is exactly
+   reproducible from its cached source bytes. `build` now resolves **every**
+   output through `paths.*(division)`, and two guards were added: a test that
+   runs a full E0 build under a temporary root and asserts the pinned digest did
+   not move, and a fixture-level fence that restores the archive and fails loudly
+   if any test ever writes to it again.
+2. **The build summary crashed on a season with no odds at all.**
+   `overround_mean` is `None` when no row carries a usable price triple, and
+   `format(None, '>6')` raises. Every E0 season carries prices, so this never
+   fired — but the crash came *after* the parquet was written, so a run that had
+   in fact succeeded would have reported failure. E1 odds coverage is not
+   guaranteed the way E0's is, which is exactly when this would first have been
+   met, on the one pass that touches the network.
+
+Neither defect changes anything in §1–§6. Both are recorded because the second
+would have been met for the first time during the real download, and the first
+is the reason the accessor discipline in `epl/paths.py` is load-bearing rather
+than stylistic.
+
+---
+
 *Written 2026-08-30 at `d20a13a`, under the owner's E1 SPLIT ruling of the same
 date. The enumeration in §3 is published BEFORE the registry commit it is written
 against, per the design reference's registry-order rule. It is DECLARED, not
