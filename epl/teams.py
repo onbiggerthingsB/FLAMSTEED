@@ -24,6 +24,21 @@ Aliases are declared for plausible variants that football-data.co.uk uses in
 other divisions or has used historically, so a future season's spelling change
 resolves instead of failing. Unobserved aliases are harmless and are reported
 separately from observed ones.
+
+THE CHAMPIONSHIP (E1) ENTRIES, added 2026-08-30. The registry is the ONE source
+of truth for club identity across divisions, so the second-tier archive's clubs
+live here rather than in a second registry — a second registry would let the
+same club carry two keys depending on which file resolved it. 22 clubs joined,
+taking the registry from 36 to 58, and they were written against the enumeration
+published FIRST in `reports/epl_e1_acquisition.md` §3, not against recollection.
+That enumeration is DECLARED rather than measured (no E1 file has been fetched),
+so the safety is carried by `_build_index`'s collision refusal below and by
+`resolve`'s strictness, not by the list being right: a Championship spelling
+whose fold lands on a registered club stops every import of this module, and one
+that is simply absent fails to resolve. Four canonical names deliberately differ
+from football-data's own spelling — Sheffield Wednesday, Peterborough, Burton
+Albion, Milton Keynes Dons — and in each case the source's spelling is an alias,
+so nothing in the ingest rewrites a name.
 """
 
 from __future__ import annotations
@@ -33,6 +48,7 @@ import unicodedata
 
 #: canonical display name -> (stable key, additional accepted spellings)
 #: The canonical name itself is always an accepted spelling.
+#: Premier League (E0) clubs first, then the Championship (E1) additions.
 _REGISTRY: dict[str, tuple[str, tuple[str, ...]]] = {
     "Arsenal":           ("arsenal", ("Arsenal FC",)),
     "Aston Villa":       ("aston_villa", ("Villa", "Aston Villa FC")),
@@ -74,6 +90,39 @@ _REGISTRY: dict[str, tuple[str, tuple[str, ...]]] = {
     "West Brom":         ("west_brom", ("West Bromwich Albion", "West Bromwich")),
     "West Ham":          ("west_ham", ("West Ham United", "West Ham Utd")),
     "Wolves":            ("wolves", ("Wolverhampton", "Wolverhampton Wanderers")),
+
+    # --- Championship (E1) additions, 2026-08-30 -------------------------
+    # Written against reports/epl_e1_acquisition.md §3. Clubs that appear in
+    # BOTH divisions on this window (Cardiff, Norwich, Preston's opponents and
+    # so on) are already above and are not duplicated here: one club, one key,
+    # whichever division's file resolved it.
+    "Barnsley":          ("barnsley", ("Barnsley FC",)),
+    "Birmingham":        ("birmingham", ("Birmingham City", "Birmingham City FC")),
+    "Blackburn":         ("blackburn", ("Blackburn Rovers", "Blackburn Rovers FC")),
+    "Blackpool":         ("blackpool", ("Blackpool FC",)),
+    "Bolton":            ("bolton", ("Bolton Wanderers", "Bolton Wanderers FC")),
+    "Bristol City":      ("bristol_city", ("Bristol City FC",)),
+    "Burton Albion":     ("burton", ("Burton", "Burton Albion FC")),
+    "Charlton":          ("charlton", ("Charlton Athletic", "Charlton Athletic FC")),
+    "Derby":             ("derby", ("Derby County", "Derby County FC")),
+    "Millwall":          ("millwall", ("Millwall FC",)),
+    "Milton Keynes Dons": ("mk_dons", ("MK Dons", "Milton Keynes Dons FC")),
+    "Oxford":            ("oxford", ("Oxford United", "Oxford Utd", "Oxford United FC")),
+    "Peterborough":      ("peterborough", ("Peterboro", "Peterborough United",
+                                           "Peterborough Utd", "Peterborough United FC")),
+    "Plymouth":          ("plymouth", ("Plymouth Argyle", "Plymouth Argyle FC")),
+    "Portsmouth":        ("portsmouth", ("Portsmouth FC",)),
+    "Preston":           ("preston", ("Preston North End", "Preston NE",
+                                      "Preston North End FC")),
+    "Reading":           ("reading", ("Reading FC",)),
+    "Rotherham":         ("rotherham", ("Rotherham United", "Rotherham Utd",
+                                        "Rotherham United FC")),
+    "Sheffield Wednesday": ("sheffield_wednesday", ("Sheffield Weds", "Sheff Wed",
+                                                    "Sheffield Wed",
+                                                    "Sheffield Wednesday FC")),
+    "Wigan":             ("wigan", ("Wigan Athletic", "Wigan Athletic FC")),
+    "Wrexham":           ("wrexham", ("Wrexham AFC", "Wrexham FC")),
+    "Wycombe":           ("wycombe", ("Wycombe Wanderers", "Wycombe Wanderers FC")),
 }
 
 #: Apostrophe-like and dash-like codepoints the source has been known to emit.
@@ -106,10 +155,20 @@ def _index_key(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", normalise_spelling(text).lower())
 
 
-def _build_index() -> dict[str, tuple[str, str]]:
-    """index-key -> (canonical name, stable key), rejecting collisions."""
+def _build_index(
+    registry: dict[str, tuple[str, tuple[str, ...]]] | None = None
+) -> dict[str, tuple[str, str]]:
+    """index-key -> (canonical name, stable key), rejecting collisions.
+
+    Takes the registry as an argument so the collision refusal can be exercised
+    by a test on a poisoned copy. That refusal is what makes adding a division's
+    worth of clubs safe: two spellings that fold to the same string would be one
+    club silently absorbing another, and this raises at import instead.
+    """
+    if registry is None:
+        registry = _REGISTRY
     index: dict[str, tuple[str, str]] = {}
-    for canonical, (key, aliases) in _REGISTRY.items():
+    for canonical, (key, aliases) in registry.items():
         for spelling in (canonical, *aliases):
             idx = _index_key(spelling)
             if idx in index and index[idx] != (canonical, key):
