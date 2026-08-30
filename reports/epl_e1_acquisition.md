@@ -344,3 +344,48 @@ date. The enumeration in §3 is published BEFORE the registry commit it is writt
 against, per the design reference's registry-order rule. It is DECLARED, not
 measured: the network pass has not run, and §5 states what carries the safety in
 its place.*
+
+---
+
+## 8. APPENDIX — 2026-08-30, at HEAD `9a9270e`: the network pass ran, and §3 was right
+
+**§1 is superseded here, by appendix and not by edit, exactly as §1 required.**
+The A0 fetch ran once — twelve files, sequential, paced three seconds apart, all
+HTTP 200, `10:11:29Z`–`10:12:21Z` — and the archive was built. §1's standing
+declarations ("no E1 CSV has been downloaded", "no `data/epl/matches_e1.parquet`
+exists") were true when written and are now **false**; everything else in §1–§7
+stands unchanged.
+
+**§3 needed no correction.** The census measured off the fetched bytes —
+outcome-blind, the frame projected to `Div`/`Date`/`HomeTeam`/`AwayTeam` before
+anything was counted — matches the declared enumeration **exactly**: the same
+**49** spellings and no others, every index fold, every stable key, every
+spelling's per-season presence, and every season's 24-club membership. The
+fold-collision check is **CLEAN** as measured, not merely as computed against a
+declared list. **Unmapped names: 0**, so §1's `AcquisitionIncomplete` remedy was
+never reached and **the registry was not extended**: the 22 entries committed at
+`e7d332d` against §3's published list are exactly the 22 the source needed.
+
+This is the outcome §5 was written to make safe, and it is worth being precise
+about what it does and does not show. The four mechanisms were never exercised in
+anger — nothing refused, because nothing was wrong. **That the declaration turned
+out right is not why it was safe to make; §5 is.**
+
+**What the acquisition produced.** 6,624 rows = 12 × 552; 12/12 seasons passing
+every structural check at (24, 552, 23); 0 unplayed; 0 null club keys; archive
+SHA-256 `5f68f677aaaeb871e16a2e4da878c5bb0e71c97afd59c69a7791b8b2bc98b578`
+(355,497 bytes). The E0 archive is byte-identical at
+`323aa54af0a8fcf38745c9f7fccc55fe10654ff68cf38fa82cf7f498cea275cf`, and the two
+`match_id` spaces intersect in **nothing** — measured over all 6,624 E1 ids
+against all 4,560 E0 ids, each of which still reproduces from its unchanged
+recipe.
+
+**§7.1's second defect was met, and it did not fire.** 2025/26's odds coverage is
+partial where every other season's is complete, so the summary formatter's
+`None`-overround crash was live terrain on this run — but coverage was partial,
+not absent, and the mean existed. The fix stood ready rather than being needed.
+
+**The full attestation is [`reports/evidence/e1_acquisition.json`](evidence/e1_acquisition.json)**
+and the dated note appended to the design reference's §8.10. Both carry the same
+numbers, and both are **structural only** — no goal rate appears in either, and
+that withholding is itself recorded there against the design reference's §10.

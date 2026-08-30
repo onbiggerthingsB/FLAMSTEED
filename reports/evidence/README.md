@@ -138,3 +138,29 @@ byte sizes and SHA-256s in v3 §8.9, precisely so that a reader can weigh the
 adjudication against what it overruled. They are **not** members of v3 §9.3's
 MANIFEST, which is an exact list of the 49 artifacts that run will produce;
 these are lineage records of the review that preceded it.
+
+
+## The E1 (Championship) acquisition — its attestation (2026-08-30)
+
+| File | Bytes | What it is |
+|---|---:|---|
+| `e1_acquisition.json` | 61,497 | Schema `epl-e1-acquisition-1`. The committed attestation of the once-only E1 acquisition: the twelve fetch digests and byte sizes, the per-season structural validation at (24, 552, 23), the complete 49-spelling club census with every index fold and stable key, the unmapped-name count (**0**), the archive's SHA-256 and 6,624-row count, the E0 archive's **unchanged** digest, and the acquisition timestamps. |
+
+**This is infrastructure, not an experiment.** It was built standalone under the
+owner's 2026-08-30 **E1 SPLIT** ruling; `reports/epl_lowerdiv_prereg.md` v2 is
+its *design reference* only, that confirmatory experiment **holds** unrun, and
+nothing in the file is evidence for or against its hypothesis. No fit, no store
+build, no harness.
+
+**Why the file exists at all** is the reason this directory exists: `data/` is
+gitignored in full, so `data/epl/matches_e1.parquet` is not committed and a
+reader could otherwise check nothing. The twelve source digests plus
+`python -m epl.build --division E1` rebuild the archive, and this file is what
+they must reproduce.
+
+**It carries no outcome statistic, deliberately, and says so under
+`outcome_summary_WITHHELD`.** The commissioning task asked for the E1 goal rate
+against E0's — v1 language that v2 deleted as blocking review finding B4 and
+that v2 §10 makes an invalidation to publish before the freeze, *"in a §8.10
+note or anywhere else"*. The rate was never computed. The field records the
+conflict and its resolution rather than hiding either; it `decides: "nothing"`.

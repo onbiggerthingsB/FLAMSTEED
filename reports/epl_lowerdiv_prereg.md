@@ -3127,6 +3127,114 @@ acquisition executes.
   score, no goal count, no goal rate, no result distribution, no derived outcome
   statistic of either archive.
 
+#### NOTE — 2026-08-30, at HEAD `9a9270e`: THE ACQUISITION RAN — the record
+
+**The split note above is now executed, and this note is its attestation.** The
+network pass ran once, the archive was built, and the whole of it stands
+**standalone**: no fit, no store build, no harness, no estimand, and nothing
+below is evidence for or against this document's hypothesis. The machine-readable
+record is [`reports/evidence/e1_acquisition.json`](evidence/e1_acquisition.json)
+(schema `epl-e1-acquisition-1`); this note is its prose face and carries the same
+numbers.
+
+**A0 — the fetch.** Twelve season files from
+`https://www.football-data.co.uk/mmz4281/{season_code}/E1.csv`, sequentially,
+paced three seconds apart, `2026-08-30T10:11:29Z` → `10:12:21Z`, every one
+HTTP 200. **Cache-first is not a claim, it was re-verified**: the identical pass
+re-run immediately afterwards returned `from_cache=True` for all twelve with
+identical digests and issued no request. Records live in
+`data/epl/raw/provenance_e1.json`, keyed `{division}_{season_code}`; the E0
+sidecar was never opened for writing and its bytes did not move.
+
+| key | season | SHA-256 | bytes |
+|---|---|---|---:|
+| `E1_1415` | 2014/15 | `16022bc0994d7e7c41a7d9a12cbefdcbd066bd2fa1b31fa653b2aa9ae67ca34f` | 147,773 |
+| `E1_1516` | 2015/16 | `3bd30151b05c5a570d222f8b02d430622d62b7822c564a33fa04a3dbf7391cf5` | 145,557 |
+| `E1_1617` | 2016/17 | `78c37fc070b9937d72dbc351fac746605f6346b36176f02d4828de57aa135f98` | 146,364 |
+| `E1_1718` | 2017/18 | `04d07d578d818bdcd6b95d43e79f10a6a26be01b45be6190b09ebdeaeba0a7ce` | 146,865 |
+| `E1_1819` | 2018/19 | `112eedf787e26e00aac1442ef86e7fee5d4a43f86552ff2dac31ceb95a849487` | 140,915 |
+| `E1_1920` | 2019/20 | `f31450c623c0b74b89692584a85924cc652d33ec89757acf4b2dda5e26261d57` | 254,740 |
+| `E1_2021` | 2020/21 | `cf93295e310c60e5b97ae7466d772f8ec6a908ad401e38fceb7e8617369d5073` | 255,966 |
+| `E1_2122` | 2021/22 | `a181451be4801b9f838daf5f6aaf21e9f09d36042be9e6c15388e71001e772ea` | 255,881 |
+| `E1_2223` | 2022/23 | `cd38ab0586ea8cb4d573c363ff70749117f116da5b2741e5b0ea37da05860b1b` | 255,779 |
+| `E1_2324` | 2023/24 | `5737f6cc95c95092b28317f41d3123e2fb09345434efc1c84bbdf15830849ab3` | 251,182 |
+| `E1_2425` | 2024/25 | `f34c340446c916374be66bdc2fb25b87ee7f2662712ca009653d03ac705535f9` | 286,983 |
+| `E1_2526` | 2025/26 | `98954c319950f19158624b17a154ef1c56eb7b8d169ef317f28f06d11d0b9a74` | 294,390 |
+
+**The census was measured outcome-blind, and it matched the published
+enumeration exactly.** The census frame is projected to `Div`, `Date`,
+`HomeTeam`, `AwayTeam` **before** anything is counted, so no goal column is
+merely unused — it is not present. Measured: **49** distinct spellings, **49**
+distinct clubs, every fold clean against `epl.teams._INDEX` and against every
+other fold, `Div` = `E1` in every row of every file. Compared spelling by
+spelling against the enumeration published at `7e87828` — *before* the registry
+commit at `e7d332d`, per the registry-order rule — **every spelling, every index
+fold, every stable key, every spelling's per-season presence and every season's
+24-club membership agree**. **Unmapped names: 0.** The registry was therefore
+**not** extended during the acquisition, and the declared enumeration needed no
+appendix.
+
+**A1 — the archive.** `python -m epl.build --division E1`, no network.
+
+| | |
+|---|---|
+| rows | **6,624** = 12 × 552 |
+| seasons | 12, `1415`–`2526`, **12/12 passing every check** |
+| per season | **552** matches, **24** clubs, **23** home and **23** away fixtures for every club |
+| unplayed | 0 · **null club keys: 0** |
+| SHA-256 | `5f68f677aaaeb871e16a2e4da878c5bb0e71c97afd59c69a7791b8b2bc98b578` |
+| bytes | 355,497 (`data/epl/matches_e1.parquet`, gitignored — the twelve digests above plus the build command reproduce it) |
+
+The eleven structural checks — `match_count_552`, `distinct_teams_24`,
+`double_round_robin`, `all_fixtures_played`, `teams_resolved`,
+`unique_fixtures`, `no_duplicate_date_home_away`, `no_self_fixtures`,
+`dates_within_season`, `goals_non_negative_integers`, `ftr_matches_goals` —
+pass in all twelve seasons. **Blocking issues: none.** One non-blocking issue,
+the vendor's own line of bare commas: *2014/15: dropped 1 fully blank trailing
+row(s)*, recognised by deriving the string from `parse.blank_rows_issue` rather
+than by matching prose.
+
+**The id spaces are disjoint, measured rather than argued.** Every one of the
+6,624 E1 ids reproduces from `sha256("E1|{season_code}|{date}|{home_key}|
+{away_key}")[:16]` and all 6,624 are unique; every one of the 4,560 pinned E0
+ids still reproduces from the unchanged E0 payload; **the intersection of the
+two id sets is empty**.
+
+**The E0 archive did not move.** `data/epl/matches.parquet` is byte-identical at
+`323aa54af0a8fcf38745c9f7fccc55fe10654ff68cf38fa82cf7f498cea275cf`, verified
+before the fetch, after the fetch and after the build. The E0 provenance sidecar
+`data/epl/raw/provenance.json` likewise did not move, at
+`8fa8cf906c3b529e0c835ec8278a744f14b67b875530e15a5253618c3e7c0c8a`, and was
+never opened for writing. **The Elo anchor sees no E1 row**: this build writes an archive
+and stops — no anchor, fit, store, forecast or simulation input — and
+`matches_e1.parquet` has no reader anywhere in the repository.
+
+**THE GOAL RATE WAS NOT COMPUTED, AND THAT IS THIS DOCUMENT'S OWN RULING.** The
+task that commissioned this acquisition asked the record to carry "the E1 goal
+rate vs E0's". That is **v1's** requirement, quoted verbatim in §0.6 and deleted
+by blocking review finding **B4** (§11); v2 — the design reference the same task
+names — forbids it in §0.6 and §8.10 and makes publishing it an **invalidation**
+under §10, *"in a §8.10 note or anywhere else"*. The split ruling changes only
+where the acquisition executes, so §10 still binds. The instruction and the
+reference cannot both be honoured, and the conflict was resolved toward the
+**reversible** option: publishing the rate could not be undone, because the
+invalidation is that the treatment's outcomes were seen while the operative law
+was still editable, and a revert does not repair that; withholding it costs one
+command whenever the owner rules otherwise. **The rate was never computed — not
+printed, not logged, not stored.** It belongs in
+`reports/epl_lowerdiv_result.md` after the freeze (§9.4), or in a standalone
+record on an explicit owner ruling that the split releases the acquisition from
+§10. The withholding is recorded in the machine file under
+`outcome_summary_WITHHELD`, `decides: "nothing"`.
+
+**The allow-list is honoured.** Every number in this note is structural — rows,
+clubs, opponents, unplayed fixtures, spellings, folds, byte sizes and digests.
+No score, no goal count, no goal rate, no result distribution, no derived
+outcome statistic of either archive.
+
+**When the experiment is revived it pins this archive as-found**, at the digest
+and row count above.
+
 ---
 
 ## 9. The evidence contract

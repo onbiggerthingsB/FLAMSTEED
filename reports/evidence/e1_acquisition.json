@@ -1,0 +1,2546 @@
+{
+  "schema": "epl-e1-acquisition-1",
+  "what_this_is": "The committed attestation record of the once-only E1 (EFL Championship) acquisition, executed standalone under the owner's 2026-08-30 E1 SPLIT ruling. Design reference: reports/epl_lowerdiv_prereg.md v2 at d20a13a (its \u00a72/\u00a70.6 ingest rulings and its \u00a78.10 attestation shape). THIS IS NOT THE LOWER-DIVISION EXPERIMENT: no fit, no store build, no harness, no estimand. Nothing here is evidence for or against that hypothesis.",
+  "generated_at": "2026-08-30T10:15:49+00:00",
+  "head_at_writing": "9a9270e9237eddca20f0d067d754a960e04b5dec",
+  "division": {
+    "code": "E1",
+    "label": "EFL Championship",
+    "teams": 24,
+    "matches": 552,
+    "opponents": 23
+  },
+  "acquisition_timestamps": {
+    "fetch_first": "2026-08-30T10:11:29+00:00",
+    "fetch_last": "2026-08-30T10:12:21+00:00",
+    "build_generated_at": "2026-08-30T10:14:07+00:00",
+    "attestation_written_at": "2026-08-30T10:15:49+00:00",
+    "note": "The fetch pass ran once, sequentially, with a 3-second pace between requests. A second run of the identical pass returned from_cache=True for all twelve with identical digests and issued no request \u2014 recorded below as cache_first_reverified."
+  },
+  "fetch": {
+    "url_pattern": "https://www.football-data.co.uk/mmz4281/{season_code}/E1.csv",
+    "season_codes": [
+      "1415",
+      "1516",
+      "1617",
+      "1718",
+      "1819",
+      "1920",
+      "2021",
+      "2122",
+      "2223",
+      "2324",
+      "2425",
+      "2526"
+    ],
+    "n": 12,
+    "cache_first_reverified": true,
+    "provenance_sidecar": "data/epl/raw/provenance_e1.json",
+    "provenance_key_scheme": "{division}_{season_code}",
+    "e0_sidecar_not_opened_for_writing": true,
+    "records": {
+      "E1_1415": {
+        "season": "2014/15",
+        "season_code": "1415",
+        "url": "https://www.football-data.co.uk/mmz4281/1415/E1.csv",
+        "path": "data/epl/raw/E1_1415.csv",
+        "sha256": "16022bc0994d7e7c41a7d9a12cbefdcbd066bd2fa1b31fa653b2aa9ae67ca34f",
+        "bytes": 147773,
+        "http_status": 200,
+        "fetched_at": "2026-08-30T10:11:29+00:00",
+        "division": "E1"
+      },
+      "E1_1516": {
+        "season": "2015/16",
+        "season_code": "1516",
+        "url": "https://www.football-data.co.uk/mmz4281/1516/E1.csv",
+        "path": "data/epl/raw/E1_1516.csv",
+        "sha256": "3bd30151b05c5a570d222f8b02d430622d62b7822c564a33fa04a3dbf7391cf5",
+        "bytes": 145557,
+        "http_status": 200,
+        "fetched_at": "2026-08-30T10:11:35+00:00",
+        "division": "E1"
+      },
+      "E1_1617": {
+        "season": "2016/17",
+        "season_code": "1617",
+        "url": "https://www.football-data.co.uk/mmz4281/1617/E1.csv",
+        "path": "data/epl/raw/E1_1617.csv",
+        "sha256": "78c37fc070b9937d72dbc351fac746605f6346b36176f02d4828de57aa135f98",
+        "bytes": 146364,
+        "http_status": 200,
+        "fetched_at": "2026-08-30T10:11:39+00:00",
+        "division": "E1"
+      },
+      "E1_1718": {
+        "season": "2017/18",
+        "season_code": "1718",
+        "url": "https://www.football-data.co.uk/mmz4281/1718/E1.csv",
+        "path": "data/epl/raw/E1_1718.csv",
+        "sha256": "04d07d578d818bdcd6b95d43e79f10a6a26be01b45be6190b09ebdeaeba0a7ce",
+        "bytes": 146865,
+        "http_status": 200,
+        "fetched_at": "2026-08-30T10:11:44+00:00",
+        "division": "E1"
+      },
+      "E1_1819": {
+        "season": "2018/19",
+        "season_code": "1819",
+        "url": "https://www.football-data.co.uk/mmz4281/1819/E1.csv",
+        "path": "data/epl/raw/E1_1819.csv",
+        "sha256": "112eedf787e26e00aac1442ef86e7fee5d4a43f86552ff2dac31ceb95a849487",
+        "bytes": 140915,
+        "http_status": 200,
+        "fetched_at": "2026-08-30T10:11:48+00:00",
+        "division": "E1"
+      },
+      "E1_1920": {
+        "season": "2019/20",
+        "season_code": "1920",
+        "url": "https://www.football-data.co.uk/mmz4281/1920/E1.csv",
+        "path": "data/epl/raw/E1_1920.csv",
+        "sha256": "f31450c623c0b74b89692584a85924cc652d33ec89757acf4b2dda5e26261d57",
+        "bytes": 254740,
+        "http_status": 200,
+        "fetched_at": "2026-08-30T10:11:53+00:00",
+        "division": "E1"
+      },
+      "E1_2021": {
+        "season": "2020/21",
+        "season_code": "2021",
+        "url": "https://www.football-data.co.uk/mmz4281/2021/E1.csv",
+        "path": "data/epl/raw/E1_2021.csv",
+        "sha256": "cf93295e310c60e5b97ae7466d772f8ec6a908ad401e38fceb7e8617369d5073",
+        "bytes": 255966,
+        "http_status": 200,
+        "fetched_at": "2026-08-30T10:11:57+00:00",
+        "division": "E1"
+      },
+      "E1_2122": {
+        "season": "2021/22",
+        "season_code": "2122",
+        "url": "https://www.football-data.co.uk/mmz4281/2122/E1.csv",
+        "path": "data/epl/raw/E1_2122.csv",
+        "sha256": "a181451be4801b9f838daf5f6aaf21e9f09d36042be9e6c15388e71001e772ea",
+        "bytes": 255881,
+        "http_status": 200,
+        "fetched_at": "2026-08-30T10:12:02+00:00",
+        "division": "E1"
+      },
+      "E1_2223": {
+        "season": "2022/23",
+        "season_code": "2223",
+        "url": "https://www.football-data.co.uk/mmz4281/2223/E1.csv",
+        "path": "data/epl/raw/E1_2223.csv",
+        "sha256": "cd38ab0586ea8cb4d573c363ff70749117f116da5b2741e5b0ea37da05860b1b",
+        "bytes": 255779,
+        "http_status": 200,
+        "fetched_at": "2026-08-30T10:12:07+00:00",
+        "division": "E1"
+      },
+      "E1_2324": {
+        "season": "2023/24",
+        "season_code": "2324",
+        "url": "https://www.football-data.co.uk/mmz4281/2324/E1.csv",
+        "path": "data/epl/raw/E1_2324.csv",
+        "sha256": "5737f6cc95c95092b28317f41d3123e2fb09345434efc1c84bbdf15830849ab3",
+        "bytes": 251182,
+        "http_status": 200,
+        "fetched_at": "2026-08-30T10:12:11+00:00",
+        "division": "E1"
+      },
+      "E1_2425": {
+        "season": "2024/25",
+        "season_code": "2425",
+        "url": "https://www.football-data.co.uk/mmz4281/2425/E1.csv",
+        "path": "data/epl/raw/E1_2425.csv",
+        "sha256": "f34c340446c916374be66bdc2fb25b87ee7f2662712ca009653d03ac705535f9",
+        "bytes": 286983,
+        "http_status": 200,
+        "fetched_at": "2026-08-30T10:12:16+00:00",
+        "division": "E1"
+      },
+      "E1_2526": {
+        "season": "2025/26",
+        "season_code": "2526",
+        "url": "https://www.football-data.co.uk/mmz4281/2526/E1.csv",
+        "path": "data/epl/raw/E1_2526.csv",
+        "sha256": "98954c319950f19158624b17a154ef1c56eb7b8d169ef317f28f06d11d0b9a74",
+        "bytes": 294390,
+        "http_status": 200,
+        "fetched_at": "2026-08-30T10:12:21+00:00",
+        "division": "E1"
+      }
+    }
+  },
+  "validation": {
+    "rule": "per-division constants, E1 = (24 clubs, 552 matches, 23 opponents)",
+    "seasons_passing": 12,
+    "seasons_total": 12,
+    "all_checks_passed": true,
+    "check_names": [
+      "all_fixtures_played",
+      "dates_within_season",
+      "distinct_teams_24",
+      "double_round_robin",
+      "ftr_matches_goals",
+      "goals_non_negative_integers",
+      "match_count_552",
+      "no_duplicate_date_home_away",
+      "no_self_fixtures",
+      "teams_resolved",
+      "unique_fixtures"
+    ],
+    "non_blocking_issues": [
+      "2014/15: dropped 1 fully blank trailing row(s)"
+    ],
+    "blocking_issues": [],
+    "per_season": {
+      "2014/15": {
+        "season_code": "1415",
+        "matches": 552,
+        "matches_expected": 552,
+        "clubs": 24,
+        "clubs_expected": 24,
+        "home_fixtures_each": [
+          23
+        ],
+        "away_fixtures_each": [
+          23
+        ],
+        "opponents_expected": 23,
+        "unplayed": 0,
+        "null_club_keys": 0,
+        "date_min": "2014-08-08",
+        "date_max": "2015-05-02",
+        "club_keys": [
+          "birmingham",
+          "blackburn",
+          "blackpool",
+          "bolton",
+          "bournemouth",
+          "brentford",
+          "brighton",
+          "cardiff",
+          "charlton",
+          "derby",
+          "fulham",
+          "huddersfield",
+          "ipswich",
+          "leeds",
+          "middlesbrough",
+          "millwall",
+          "norwich",
+          "nottm_forest",
+          "reading",
+          "rotherham",
+          "sheffield_wednesday",
+          "watford",
+          "wigan",
+          "wolves"
+        ],
+        "structural_checks_passed": true
+      },
+      "2015/16": {
+        "season_code": "1516",
+        "matches": 552,
+        "matches_expected": 552,
+        "clubs": 24,
+        "clubs_expected": 24,
+        "home_fixtures_each": [
+          23
+        ],
+        "away_fixtures_each": [
+          23
+        ],
+        "opponents_expected": 23,
+        "unplayed": 0,
+        "null_club_keys": 0,
+        "date_min": "2015-08-07",
+        "date_max": "2016-05-07",
+        "club_keys": [
+          "birmingham",
+          "blackburn",
+          "bolton",
+          "brentford",
+          "brighton",
+          "bristol_city",
+          "burnley",
+          "cardiff",
+          "charlton",
+          "derby",
+          "fulham",
+          "huddersfield",
+          "hull",
+          "ipswich",
+          "leeds",
+          "middlesbrough",
+          "mk_dons",
+          "nottm_forest",
+          "preston",
+          "qpr",
+          "reading",
+          "rotherham",
+          "sheffield_wednesday",
+          "wolves"
+        ],
+        "structural_checks_passed": true
+      },
+      "2016/17": {
+        "season_code": "1617",
+        "matches": 552,
+        "matches_expected": 552,
+        "clubs": 24,
+        "clubs_expected": 24,
+        "home_fixtures_each": [
+          23
+        ],
+        "away_fixtures_each": [
+          23
+        ],
+        "opponents_expected": 23,
+        "unplayed": 0,
+        "null_club_keys": 0,
+        "date_min": "2016-08-05",
+        "date_max": "2017-05-07",
+        "club_keys": [
+          "aston_villa",
+          "barnsley",
+          "birmingham",
+          "blackburn",
+          "brentford",
+          "brighton",
+          "bristol_city",
+          "burton",
+          "cardiff",
+          "derby",
+          "fulham",
+          "huddersfield",
+          "ipswich",
+          "leeds",
+          "newcastle",
+          "norwich",
+          "nottm_forest",
+          "preston",
+          "qpr",
+          "reading",
+          "rotherham",
+          "sheffield_wednesday",
+          "wigan",
+          "wolves"
+        ],
+        "structural_checks_passed": true
+      },
+      "2017/18": {
+        "season_code": "1718",
+        "matches": 552,
+        "matches_expected": 552,
+        "clubs": 24,
+        "clubs_expected": 24,
+        "home_fixtures_each": [
+          23
+        ],
+        "away_fixtures_each": [
+          23
+        ],
+        "opponents_expected": 23,
+        "unplayed": 0,
+        "null_club_keys": 0,
+        "date_min": "2017-08-04",
+        "date_max": "2018-05-06",
+        "club_keys": [
+          "aston_villa",
+          "barnsley",
+          "birmingham",
+          "bolton",
+          "brentford",
+          "bristol_city",
+          "burton",
+          "cardiff",
+          "derby",
+          "fulham",
+          "hull",
+          "ipswich",
+          "leeds",
+          "middlesbrough",
+          "millwall",
+          "norwich",
+          "nottm_forest",
+          "preston",
+          "qpr",
+          "reading",
+          "sheffield_united",
+          "sheffield_wednesday",
+          "sunderland",
+          "wolves"
+        ],
+        "structural_checks_passed": true
+      },
+      "2018/19": {
+        "season_code": "1819",
+        "matches": 552,
+        "matches_expected": 552,
+        "clubs": 24,
+        "clubs_expected": 24,
+        "home_fixtures_each": [
+          23
+        ],
+        "away_fixtures_each": [
+          23
+        ],
+        "opponents_expected": 23,
+        "unplayed": 0,
+        "null_club_keys": 0,
+        "date_min": "2018-08-03",
+        "date_max": "2019-05-05",
+        "club_keys": [
+          "aston_villa",
+          "birmingham",
+          "blackburn",
+          "bolton",
+          "brentford",
+          "bristol_city",
+          "derby",
+          "hull",
+          "ipswich",
+          "leeds",
+          "middlesbrough",
+          "millwall",
+          "norwich",
+          "nottm_forest",
+          "preston",
+          "qpr",
+          "reading",
+          "rotherham",
+          "sheffield_united",
+          "sheffield_wednesday",
+          "stoke",
+          "swansea",
+          "west_brom",
+          "wigan"
+        ],
+        "structural_checks_passed": true
+      },
+      "2019/20": {
+        "season_code": "1920",
+        "matches": 552,
+        "matches_expected": 552,
+        "clubs": 24,
+        "clubs_expected": 24,
+        "home_fixtures_each": [
+          23
+        ],
+        "away_fixtures_each": [
+          23
+        ],
+        "opponents_expected": 23,
+        "unplayed": 0,
+        "null_club_keys": 0,
+        "date_min": "2019-08-02",
+        "date_max": "2020-07-22",
+        "club_keys": [
+          "barnsley",
+          "birmingham",
+          "blackburn",
+          "brentford",
+          "bristol_city",
+          "cardiff",
+          "charlton",
+          "derby",
+          "fulham",
+          "huddersfield",
+          "hull",
+          "leeds",
+          "luton",
+          "middlesbrough",
+          "millwall",
+          "nottm_forest",
+          "preston",
+          "qpr",
+          "reading",
+          "sheffield_wednesday",
+          "stoke",
+          "swansea",
+          "west_brom",
+          "wigan"
+        ],
+        "structural_checks_passed": true
+      },
+      "2020/21": {
+        "season_code": "2021",
+        "matches": 552,
+        "matches_expected": 552,
+        "clubs": 24,
+        "clubs_expected": 24,
+        "home_fixtures_each": [
+          23
+        ],
+        "away_fixtures_each": [
+          23
+        ],
+        "opponents_expected": 23,
+        "unplayed": 0,
+        "null_club_keys": 0,
+        "date_min": "2020-09-11",
+        "date_max": "2021-05-08",
+        "club_keys": [
+          "barnsley",
+          "birmingham",
+          "blackburn",
+          "bournemouth",
+          "brentford",
+          "bristol_city",
+          "cardiff",
+          "coventry",
+          "derby",
+          "huddersfield",
+          "luton",
+          "middlesbrough",
+          "millwall",
+          "norwich",
+          "nottm_forest",
+          "preston",
+          "qpr",
+          "reading",
+          "rotherham",
+          "sheffield_wednesday",
+          "stoke",
+          "swansea",
+          "watford",
+          "wycombe"
+        ],
+        "structural_checks_passed": true
+      },
+      "2021/22": {
+        "season_code": "2122",
+        "matches": 552,
+        "matches_expected": 552,
+        "clubs": 24,
+        "clubs_expected": 24,
+        "home_fixtures_each": [
+          23
+        ],
+        "away_fixtures_each": [
+          23
+        ],
+        "opponents_expected": 23,
+        "unplayed": 0,
+        "null_club_keys": 0,
+        "date_min": "2021-08-06",
+        "date_max": "2022-05-07",
+        "club_keys": [
+          "barnsley",
+          "birmingham",
+          "blackburn",
+          "blackpool",
+          "bournemouth",
+          "bristol_city",
+          "cardiff",
+          "coventry",
+          "derby",
+          "fulham",
+          "huddersfield",
+          "hull",
+          "luton",
+          "middlesbrough",
+          "millwall",
+          "nottm_forest",
+          "peterborough",
+          "preston",
+          "qpr",
+          "reading",
+          "sheffield_united",
+          "stoke",
+          "swansea",
+          "west_brom"
+        ],
+        "structural_checks_passed": true
+      },
+      "2022/23": {
+        "season_code": "2223",
+        "matches": 552,
+        "matches_expected": 552,
+        "clubs": 24,
+        "clubs_expected": 24,
+        "home_fixtures_each": [
+          23
+        ],
+        "away_fixtures_each": [
+          23
+        ],
+        "opponents_expected": 23,
+        "unplayed": 0,
+        "null_club_keys": 0,
+        "date_min": "2022-07-29",
+        "date_max": "2023-05-08",
+        "club_keys": [
+          "birmingham",
+          "blackburn",
+          "blackpool",
+          "bristol_city",
+          "burnley",
+          "cardiff",
+          "coventry",
+          "huddersfield",
+          "hull",
+          "luton",
+          "middlesbrough",
+          "millwall",
+          "norwich",
+          "preston",
+          "qpr",
+          "reading",
+          "rotherham",
+          "sheffield_united",
+          "stoke",
+          "sunderland",
+          "swansea",
+          "watford",
+          "west_brom",
+          "wigan"
+        ],
+        "structural_checks_passed": true
+      },
+      "2023/24": {
+        "season_code": "2324",
+        "matches": 552,
+        "matches_expected": 552,
+        "clubs": 24,
+        "clubs_expected": 24,
+        "home_fixtures_each": [
+          23
+        ],
+        "away_fixtures_each": [
+          23
+        ],
+        "opponents_expected": 23,
+        "unplayed": 0,
+        "null_club_keys": 0,
+        "date_min": "2023-08-04",
+        "date_max": "2024-05-04",
+        "club_keys": [
+          "birmingham",
+          "blackburn",
+          "bristol_city",
+          "cardiff",
+          "coventry",
+          "huddersfield",
+          "hull",
+          "ipswich",
+          "leeds",
+          "leicester",
+          "middlesbrough",
+          "millwall",
+          "norwich",
+          "plymouth",
+          "preston",
+          "qpr",
+          "rotherham",
+          "sheffield_wednesday",
+          "southampton",
+          "stoke",
+          "sunderland",
+          "swansea",
+          "watford",
+          "west_brom"
+        ],
+        "structural_checks_passed": true
+      },
+      "2024/25": {
+        "season_code": "2425",
+        "matches": 552,
+        "matches_expected": 552,
+        "clubs": 24,
+        "clubs_expected": 24,
+        "home_fixtures_each": [
+          23
+        ],
+        "away_fixtures_each": [
+          23
+        ],
+        "opponents_expected": 23,
+        "unplayed": 0,
+        "null_club_keys": 0,
+        "date_min": "2024-08-09",
+        "date_max": "2025-05-03",
+        "club_keys": [
+          "blackburn",
+          "bristol_city",
+          "burnley",
+          "cardiff",
+          "coventry",
+          "derby",
+          "hull",
+          "leeds",
+          "luton",
+          "middlesbrough",
+          "millwall",
+          "norwich",
+          "oxford",
+          "plymouth",
+          "portsmouth",
+          "preston",
+          "qpr",
+          "sheffield_united",
+          "sheffield_wednesday",
+          "stoke",
+          "sunderland",
+          "swansea",
+          "watford",
+          "west_brom"
+        ],
+        "structural_checks_passed": true
+      },
+      "2025/26": {
+        "season_code": "2526",
+        "matches": 552,
+        "matches_expected": 552,
+        "clubs": 24,
+        "clubs_expected": 24,
+        "home_fixtures_each": [
+          23
+        ],
+        "away_fixtures_each": [
+          23
+        ],
+        "opponents_expected": 23,
+        "unplayed": 0,
+        "null_club_keys": 0,
+        "date_min": "2025-08-08",
+        "date_max": "2026-05-02",
+        "club_keys": [
+          "birmingham",
+          "blackburn",
+          "bristol_city",
+          "charlton",
+          "coventry",
+          "derby",
+          "hull",
+          "ipswich",
+          "leicester",
+          "middlesbrough",
+          "millwall",
+          "norwich",
+          "oxford",
+          "portsmouth",
+          "preston",
+          "qpr",
+          "sheffield_united",
+          "sheffield_wednesday",
+          "southampton",
+          "stoke",
+          "swansea",
+          "watford",
+          "west_brom",
+          "wrexham"
+        ],
+        "structural_checks_passed": true
+      }
+    }
+  },
+  "club_census": {
+    "n_distinct_spellings": 49,
+    "n_distinct_clubs": 49,
+    "registry_size": 58,
+    "fold_function": "epl.teams._index_key \u2014 lowercase, non-alphanumerics dropped",
+    "fold_collisions": "CLEAN",
+    "measured_equals_declared_enumeration": true,
+    "declared_enumeration_published_at": "7e87828 \u2014 reports/epl_e1_acquisition.md \u00a73",
+    "spellings": {
+      "Aston Villa": {
+        "fold": "astonvilla",
+        "canonical": "Aston Villa",
+        "key": "aston_villa",
+        "registered": true,
+        "appearances": 138,
+        "n_seasons": 3,
+        "seasons": [
+          "2016/17",
+          "2017/18",
+          "2018/19"
+        ]
+      },
+      "Barnsley": {
+        "fold": "barnsley",
+        "canonical": "Barnsley",
+        "key": "barnsley",
+        "registered": true,
+        "appearances": 230,
+        "n_seasons": 5,
+        "seasons": [
+          "2016/17",
+          "2017/18",
+          "2019/20",
+          "2020/21",
+          "2021/22"
+        ]
+      },
+      "Birmingham": {
+        "fold": "birmingham",
+        "canonical": "Birmingham",
+        "key": "birmingham",
+        "registered": true,
+        "appearances": 506,
+        "n_seasons": 11,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2025/26"
+        ]
+      },
+      "Blackburn": {
+        "fold": "blackburn",
+        "canonical": "Blackburn",
+        "key": "blackburn",
+        "registered": true,
+        "appearances": 506,
+        "n_seasons": 11,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "Blackpool": {
+        "fold": "blackpool",
+        "canonical": "Blackpool",
+        "key": "blackpool",
+        "registered": true,
+        "appearances": 138,
+        "n_seasons": 3,
+        "seasons": [
+          "2014/15",
+          "2021/22",
+          "2022/23"
+        ]
+      },
+      "Bolton": {
+        "fold": "bolton",
+        "canonical": "Bolton",
+        "key": "bolton",
+        "registered": true,
+        "appearances": 184,
+        "n_seasons": 4,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2017/18",
+          "2018/19"
+        ]
+      },
+      "Bournemouth": {
+        "fold": "bournemouth",
+        "canonical": "Bournemouth",
+        "key": "bournemouth",
+        "registered": true,
+        "appearances": 138,
+        "n_seasons": 3,
+        "seasons": [
+          "2014/15",
+          "2020/21",
+          "2021/22"
+        ]
+      },
+      "Brentford": {
+        "fold": "brentford",
+        "canonical": "Brentford",
+        "key": "brentford",
+        "registered": true,
+        "appearances": 322,
+        "n_seasons": 7,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21"
+        ]
+      },
+      "Brighton": {
+        "fold": "brighton",
+        "canonical": "Brighton",
+        "key": "brighton",
+        "registered": true,
+        "appearances": 138,
+        "n_seasons": 3,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17"
+        ]
+      },
+      "Bristol City": {
+        "fold": "bristolcity",
+        "canonical": "Bristol City",
+        "key": "bristol_city",
+        "registered": true,
+        "appearances": 506,
+        "n_seasons": 11,
+        "seasons": [
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "Burnley": {
+        "fold": "burnley",
+        "canonical": "Burnley",
+        "key": "burnley",
+        "registered": true,
+        "appearances": 138,
+        "n_seasons": 3,
+        "seasons": [
+          "2015/16",
+          "2022/23",
+          "2024/25"
+        ]
+      },
+      "Burton": {
+        "fold": "burton",
+        "canonical": "Burton Albion",
+        "key": "burton",
+        "registered": true,
+        "appearances": 92,
+        "n_seasons": 2,
+        "seasons": [
+          "2016/17",
+          "2017/18"
+        ]
+      },
+      "Cardiff": {
+        "fold": "cardiff",
+        "canonical": "Cardiff",
+        "key": "cardiff",
+        "registered": true,
+        "appearances": 460,
+        "n_seasons": 10,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25"
+        ]
+      },
+      "Charlton": {
+        "fold": "charlton",
+        "canonical": "Charlton",
+        "key": "charlton",
+        "registered": true,
+        "appearances": 184,
+        "n_seasons": 4,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2019/20",
+          "2025/26"
+        ]
+      },
+      "Coventry": {
+        "fold": "coventry",
+        "canonical": "Coventry",
+        "key": "coventry",
+        "registered": true,
+        "appearances": 276,
+        "n_seasons": 6,
+        "seasons": [
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "Derby": {
+        "fold": "derby",
+        "canonical": "Derby",
+        "key": "derby",
+        "registered": true,
+        "appearances": 460,
+        "n_seasons": 10,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "Fulham": {
+        "fold": "fulham",
+        "canonical": "Fulham",
+        "key": "fulham",
+        "registered": true,
+        "appearances": 276,
+        "n_seasons": 6,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2019/20",
+          "2021/22"
+        ]
+      },
+      "Huddersfield": {
+        "fold": "huddersfield",
+        "canonical": "Huddersfield",
+        "key": "huddersfield",
+        "registered": true,
+        "appearances": 368,
+        "n_seasons": 8,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24"
+        ]
+      },
+      "Hull": {
+        "fold": "hull",
+        "canonical": "Hull",
+        "key": "hull",
+        "registered": true,
+        "appearances": 414,
+        "n_seasons": 9,
+        "seasons": [
+          "2015/16",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "Ipswich": {
+        "fold": "ipswich",
+        "canonical": "Ipswich",
+        "key": "ipswich",
+        "registered": true,
+        "appearances": 322,
+        "n_seasons": 7,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2023/24",
+          "2025/26"
+        ]
+      },
+      "Leeds": {
+        "fold": "leeds",
+        "canonical": "Leeds",
+        "key": "leeds",
+        "registered": true,
+        "appearances": 368,
+        "n_seasons": 8,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2023/24",
+          "2024/25"
+        ]
+      },
+      "Leicester": {
+        "fold": "leicester",
+        "canonical": "Leicester",
+        "key": "leicester",
+        "registered": true,
+        "appearances": 92,
+        "n_seasons": 2,
+        "seasons": [
+          "2023/24",
+          "2025/26"
+        ]
+      },
+      "Luton": {
+        "fold": "luton",
+        "canonical": "Luton",
+        "key": "luton",
+        "registered": true,
+        "appearances": 230,
+        "n_seasons": 5,
+        "seasons": [
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2024/25"
+        ]
+      },
+      "Middlesbrough": {
+        "fold": "middlesbrough",
+        "canonical": "Middlesbrough",
+        "key": "middlesbrough",
+        "registered": true,
+        "appearances": 506,
+        "n_seasons": 11,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "Millwall": {
+        "fold": "millwall",
+        "canonical": "Millwall",
+        "key": "millwall",
+        "registered": true,
+        "appearances": 460,
+        "n_seasons": 10,
+        "seasons": [
+          "2014/15",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "Milton Keynes Dons": {
+        "fold": "miltonkeynesdons",
+        "canonical": "Milton Keynes Dons",
+        "key": "mk_dons",
+        "registered": true,
+        "appearances": 46,
+        "n_seasons": 1,
+        "seasons": [
+          "2015/16"
+        ]
+      },
+      "Newcastle": {
+        "fold": "newcastle",
+        "canonical": "Newcastle",
+        "key": "newcastle",
+        "registered": true,
+        "appearances": 46,
+        "n_seasons": 1,
+        "seasons": [
+          "2016/17"
+        ]
+      },
+      "Norwich": {
+        "fold": "norwich",
+        "canonical": "Norwich",
+        "key": "norwich",
+        "registered": true,
+        "appearances": 414,
+        "n_seasons": 9,
+        "seasons": [
+          "2014/15",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2020/21",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "Nott'm Forest": {
+        "fold": "nottmforest",
+        "canonical": "Nottingham Forest",
+        "key": "nottm_forest",
+        "registered": true,
+        "appearances": 368,
+        "n_seasons": 8,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22"
+        ]
+      },
+      "Oxford": {
+        "fold": "oxford",
+        "canonical": "Oxford",
+        "key": "oxford",
+        "registered": true,
+        "appearances": 92,
+        "n_seasons": 2,
+        "seasons": [
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "Peterboro": {
+        "fold": "peterboro",
+        "canonical": "Peterborough",
+        "key": "peterborough",
+        "registered": true,
+        "appearances": 46,
+        "n_seasons": 1,
+        "seasons": [
+          "2021/22"
+        ]
+      },
+      "Plymouth": {
+        "fold": "plymouth",
+        "canonical": "Plymouth",
+        "key": "plymouth",
+        "registered": true,
+        "appearances": 92,
+        "n_seasons": 2,
+        "seasons": [
+          "2023/24",
+          "2024/25"
+        ]
+      },
+      "Portsmouth": {
+        "fold": "portsmouth",
+        "canonical": "Portsmouth",
+        "key": "portsmouth",
+        "registered": true,
+        "appearances": 92,
+        "n_seasons": 2,
+        "seasons": [
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "Preston": {
+        "fold": "preston",
+        "canonical": "Preston",
+        "key": "preston",
+        "registered": true,
+        "appearances": 506,
+        "n_seasons": 11,
+        "seasons": [
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "QPR": {
+        "fold": "qpr",
+        "canonical": "QPR",
+        "key": "qpr",
+        "registered": true,
+        "appearances": 506,
+        "n_seasons": 11,
+        "seasons": [
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "Reading": {
+        "fold": "reading",
+        "canonical": "Reading",
+        "key": "reading",
+        "registered": true,
+        "appearances": 414,
+        "n_seasons": 9,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23"
+        ]
+      },
+      "Rotherham": {
+        "fold": "rotherham",
+        "canonical": "Rotherham",
+        "key": "rotherham",
+        "registered": true,
+        "appearances": 322,
+        "n_seasons": 7,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2018/19",
+          "2020/21",
+          "2022/23",
+          "2023/24"
+        ]
+      },
+      "Sheffield United": {
+        "fold": "sheffieldunited",
+        "canonical": "Sheffield United",
+        "key": "sheffield_united",
+        "registered": true,
+        "appearances": 276,
+        "n_seasons": 6,
+        "seasons": [
+          "2017/18",
+          "2018/19",
+          "2021/22",
+          "2022/23",
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "Sheffield Weds": {
+        "fold": "sheffieldweds",
+        "canonical": "Sheffield Wednesday",
+        "key": "sheffield_wednesday",
+        "registered": true,
+        "appearances": 460,
+        "n_seasons": 10,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "Southampton": {
+        "fold": "southampton",
+        "canonical": "Southampton",
+        "key": "southampton",
+        "registered": true,
+        "appearances": 92,
+        "n_seasons": 2,
+        "seasons": [
+          "2023/24",
+          "2025/26"
+        ]
+      },
+      "Stoke": {
+        "fold": "stoke",
+        "canonical": "Stoke",
+        "key": "stoke",
+        "registered": true,
+        "appearances": 368,
+        "n_seasons": 8,
+        "seasons": [
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "Sunderland": {
+        "fold": "sunderland",
+        "canonical": "Sunderland",
+        "key": "sunderland",
+        "registered": true,
+        "appearances": 184,
+        "n_seasons": 4,
+        "seasons": [
+          "2017/18",
+          "2022/23",
+          "2023/24",
+          "2024/25"
+        ]
+      },
+      "Swansea": {
+        "fold": "swansea",
+        "canonical": "Swansea",
+        "key": "swansea",
+        "registered": true,
+        "appearances": 368,
+        "n_seasons": 8,
+        "seasons": [
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "Watford": {
+        "fold": "watford",
+        "canonical": "Watford",
+        "key": "watford",
+        "registered": true,
+        "appearances": 276,
+        "n_seasons": 6,
+        "seasons": [
+          "2014/15",
+          "2020/21",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "West Brom": {
+        "fold": "westbrom",
+        "canonical": "West Brom",
+        "key": "west_brom",
+        "registered": true,
+        "appearances": 322,
+        "n_seasons": 7,
+        "seasons": [
+          "2018/19",
+          "2019/20",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ]
+      },
+      "Wigan": {
+        "fold": "wigan",
+        "canonical": "Wigan",
+        "key": "wigan",
+        "registered": true,
+        "appearances": 230,
+        "n_seasons": 5,
+        "seasons": [
+          "2014/15",
+          "2016/17",
+          "2018/19",
+          "2019/20",
+          "2022/23"
+        ]
+      },
+      "Wolves": {
+        "fold": "wolves",
+        "canonical": "Wolves",
+        "key": "wolves",
+        "registered": true,
+        "appearances": 184,
+        "n_seasons": 4,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18"
+        ]
+      },
+      "Wrexham": {
+        "fold": "wrexham",
+        "canonical": "Wrexham",
+        "key": "wrexham",
+        "registered": true,
+        "appearances": 46,
+        "n_seasons": 1,
+        "seasons": [
+          "2025/26"
+        ]
+      },
+      "Wycombe": {
+        "fold": "wycombe",
+        "canonical": "Wycombe",
+        "key": "wycombe",
+        "registered": true,
+        "appearances": 46,
+        "n_seasons": 1,
+        "seasons": [
+          "2020/21"
+        ]
+      }
+    },
+    "clubs_by_key": {
+      "aston_villa": {
+        "canonical": "Aston Villa",
+        "spellings": [
+          "Aston Villa"
+        ],
+        "folds": [
+          "astonvilla"
+        ],
+        "appearances": 138,
+        "seasons": [
+          "2016/17",
+          "2017/18",
+          "2018/19"
+        ],
+        "n_seasons": 3
+      },
+      "barnsley": {
+        "canonical": "Barnsley",
+        "spellings": [
+          "Barnsley"
+        ],
+        "folds": [
+          "barnsley"
+        ],
+        "appearances": 230,
+        "seasons": [
+          "2016/17",
+          "2017/18",
+          "2019/20",
+          "2020/21",
+          "2021/22"
+        ],
+        "n_seasons": 5
+      },
+      "birmingham": {
+        "canonical": "Birmingham",
+        "spellings": [
+          "Birmingham"
+        ],
+        "folds": [
+          "birmingham"
+        ],
+        "appearances": 506,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2025/26"
+        ],
+        "n_seasons": 11
+      },
+      "blackburn": {
+        "canonical": "Blackburn",
+        "spellings": [
+          "Blackburn"
+        ],
+        "folds": [
+          "blackburn"
+        ],
+        "appearances": 506,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 11
+      },
+      "blackpool": {
+        "canonical": "Blackpool",
+        "spellings": [
+          "Blackpool"
+        ],
+        "folds": [
+          "blackpool"
+        ],
+        "appearances": 138,
+        "seasons": [
+          "2014/15",
+          "2021/22",
+          "2022/23"
+        ],
+        "n_seasons": 3
+      },
+      "bolton": {
+        "canonical": "Bolton",
+        "spellings": [
+          "Bolton"
+        ],
+        "folds": [
+          "bolton"
+        ],
+        "appearances": 184,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2017/18",
+          "2018/19"
+        ],
+        "n_seasons": 4
+      },
+      "bournemouth": {
+        "canonical": "Bournemouth",
+        "spellings": [
+          "Bournemouth"
+        ],
+        "folds": [
+          "bournemouth"
+        ],
+        "appearances": 138,
+        "seasons": [
+          "2014/15",
+          "2020/21",
+          "2021/22"
+        ],
+        "n_seasons": 3
+      },
+      "brentford": {
+        "canonical": "Brentford",
+        "spellings": [
+          "Brentford"
+        ],
+        "folds": [
+          "brentford"
+        ],
+        "appearances": 322,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21"
+        ],
+        "n_seasons": 7
+      },
+      "brighton": {
+        "canonical": "Brighton",
+        "spellings": [
+          "Brighton"
+        ],
+        "folds": [
+          "brighton"
+        ],
+        "appearances": 138,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17"
+        ],
+        "n_seasons": 3
+      },
+      "bristol_city": {
+        "canonical": "Bristol City",
+        "spellings": [
+          "Bristol City"
+        ],
+        "folds": [
+          "bristolcity"
+        ],
+        "appearances": 506,
+        "seasons": [
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 11
+      },
+      "burnley": {
+        "canonical": "Burnley",
+        "spellings": [
+          "Burnley"
+        ],
+        "folds": [
+          "burnley"
+        ],
+        "appearances": 138,
+        "seasons": [
+          "2015/16",
+          "2022/23",
+          "2024/25"
+        ],
+        "n_seasons": 3
+      },
+      "burton": {
+        "canonical": "Burton Albion",
+        "spellings": [
+          "Burton"
+        ],
+        "folds": [
+          "burton"
+        ],
+        "appearances": 92,
+        "seasons": [
+          "2016/17",
+          "2017/18"
+        ],
+        "n_seasons": 2
+      },
+      "cardiff": {
+        "canonical": "Cardiff",
+        "spellings": [
+          "Cardiff"
+        ],
+        "folds": [
+          "cardiff"
+        ],
+        "appearances": 460,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25"
+        ],
+        "n_seasons": 10
+      },
+      "charlton": {
+        "canonical": "Charlton",
+        "spellings": [
+          "Charlton"
+        ],
+        "folds": [
+          "charlton"
+        ],
+        "appearances": 184,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2019/20",
+          "2025/26"
+        ],
+        "n_seasons": 4
+      },
+      "coventry": {
+        "canonical": "Coventry",
+        "spellings": [
+          "Coventry"
+        ],
+        "folds": [
+          "coventry"
+        ],
+        "appearances": 276,
+        "seasons": [
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 6
+      },
+      "derby": {
+        "canonical": "Derby",
+        "spellings": [
+          "Derby"
+        ],
+        "folds": [
+          "derby"
+        ],
+        "appearances": 460,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 10
+      },
+      "fulham": {
+        "canonical": "Fulham",
+        "spellings": [
+          "Fulham"
+        ],
+        "folds": [
+          "fulham"
+        ],
+        "appearances": 276,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2019/20",
+          "2021/22"
+        ],
+        "n_seasons": 6
+      },
+      "huddersfield": {
+        "canonical": "Huddersfield",
+        "spellings": [
+          "Huddersfield"
+        ],
+        "folds": [
+          "huddersfield"
+        ],
+        "appearances": 368,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24"
+        ],
+        "n_seasons": 8
+      },
+      "hull": {
+        "canonical": "Hull",
+        "spellings": [
+          "Hull"
+        ],
+        "folds": [
+          "hull"
+        ],
+        "appearances": 414,
+        "seasons": [
+          "2015/16",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 9
+      },
+      "ipswich": {
+        "canonical": "Ipswich",
+        "spellings": [
+          "Ipswich"
+        ],
+        "folds": [
+          "ipswich"
+        ],
+        "appearances": 322,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2023/24",
+          "2025/26"
+        ],
+        "n_seasons": 7
+      },
+      "leeds": {
+        "canonical": "Leeds",
+        "spellings": [
+          "Leeds"
+        ],
+        "folds": [
+          "leeds"
+        ],
+        "appearances": 368,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2023/24",
+          "2024/25"
+        ],
+        "n_seasons": 8
+      },
+      "leicester": {
+        "canonical": "Leicester",
+        "spellings": [
+          "Leicester"
+        ],
+        "folds": [
+          "leicester"
+        ],
+        "appearances": 92,
+        "seasons": [
+          "2023/24",
+          "2025/26"
+        ],
+        "n_seasons": 2
+      },
+      "luton": {
+        "canonical": "Luton",
+        "spellings": [
+          "Luton"
+        ],
+        "folds": [
+          "luton"
+        ],
+        "appearances": 230,
+        "seasons": [
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2024/25"
+        ],
+        "n_seasons": 5
+      },
+      "middlesbrough": {
+        "canonical": "Middlesbrough",
+        "spellings": [
+          "Middlesbrough"
+        ],
+        "folds": [
+          "middlesbrough"
+        ],
+        "appearances": 506,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 11
+      },
+      "millwall": {
+        "canonical": "Millwall",
+        "spellings": [
+          "Millwall"
+        ],
+        "folds": [
+          "millwall"
+        ],
+        "appearances": 460,
+        "seasons": [
+          "2014/15",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 10
+      },
+      "mk_dons": {
+        "canonical": "Milton Keynes Dons",
+        "spellings": [
+          "Milton Keynes Dons"
+        ],
+        "folds": [
+          "miltonkeynesdons"
+        ],
+        "appearances": 46,
+        "seasons": [
+          "2015/16"
+        ],
+        "n_seasons": 1
+      },
+      "newcastle": {
+        "canonical": "Newcastle",
+        "spellings": [
+          "Newcastle"
+        ],
+        "folds": [
+          "newcastle"
+        ],
+        "appearances": 46,
+        "seasons": [
+          "2016/17"
+        ],
+        "n_seasons": 1
+      },
+      "norwich": {
+        "canonical": "Norwich",
+        "spellings": [
+          "Norwich"
+        ],
+        "folds": [
+          "norwich"
+        ],
+        "appearances": 414,
+        "seasons": [
+          "2014/15",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2020/21",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 9
+      },
+      "nottm_forest": {
+        "canonical": "Nottingham Forest",
+        "spellings": [
+          "Nott'm Forest"
+        ],
+        "folds": [
+          "nottmforest"
+        ],
+        "appearances": 368,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22"
+        ],
+        "n_seasons": 8
+      },
+      "oxford": {
+        "canonical": "Oxford",
+        "spellings": [
+          "Oxford"
+        ],
+        "folds": [
+          "oxford"
+        ],
+        "appearances": 92,
+        "seasons": [
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 2
+      },
+      "peterborough": {
+        "canonical": "Peterborough",
+        "spellings": [
+          "Peterboro"
+        ],
+        "folds": [
+          "peterboro"
+        ],
+        "appearances": 46,
+        "seasons": [
+          "2021/22"
+        ],
+        "n_seasons": 1
+      },
+      "plymouth": {
+        "canonical": "Plymouth",
+        "spellings": [
+          "Plymouth"
+        ],
+        "folds": [
+          "plymouth"
+        ],
+        "appearances": 92,
+        "seasons": [
+          "2023/24",
+          "2024/25"
+        ],
+        "n_seasons": 2
+      },
+      "portsmouth": {
+        "canonical": "Portsmouth",
+        "spellings": [
+          "Portsmouth"
+        ],
+        "folds": [
+          "portsmouth"
+        ],
+        "appearances": 92,
+        "seasons": [
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 2
+      },
+      "preston": {
+        "canonical": "Preston",
+        "spellings": [
+          "Preston"
+        ],
+        "folds": [
+          "preston"
+        ],
+        "appearances": 506,
+        "seasons": [
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 11
+      },
+      "qpr": {
+        "canonical": "QPR",
+        "spellings": [
+          "QPR"
+        ],
+        "folds": [
+          "qpr"
+        ],
+        "appearances": 506,
+        "seasons": [
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 11
+      },
+      "reading": {
+        "canonical": "Reading",
+        "spellings": [
+          "Reading"
+        ],
+        "folds": [
+          "reading"
+        ],
+        "appearances": 414,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23"
+        ],
+        "n_seasons": 9
+      },
+      "rotherham": {
+        "canonical": "Rotherham",
+        "spellings": [
+          "Rotherham"
+        ],
+        "folds": [
+          "rotherham"
+        ],
+        "appearances": 322,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2018/19",
+          "2020/21",
+          "2022/23",
+          "2023/24"
+        ],
+        "n_seasons": 7
+      },
+      "sheffield_united": {
+        "canonical": "Sheffield United",
+        "spellings": [
+          "Sheffield United"
+        ],
+        "folds": [
+          "sheffieldunited"
+        ],
+        "appearances": 276,
+        "seasons": [
+          "2017/18",
+          "2018/19",
+          "2021/22",
+          "2022/23",
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 6
+      },
+      "sheffield_wednesday": {
+        "canonical": "Sheffield Wednesday",
+        "spellings": [
+          "Sheffield Weds"
+        ],
+        "folds": [
+          "sheffieldweds"
+        ],
+        "appearances": 460,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18",
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 10
+      },
+      "southampton": {
+        "canonical": "Southampton",
+        "spellings": [
+          "Southampton"
+        ],
+        "folds": [
+          "southampton"
+        ],
+        "appearances": 92,
+        "seasons": [
+          "2023/24",
+          "2025/26"
+        ],
+        "n_seasons": 2
+      },
+      "stoke": {
+        "canonical": "Stoke",
+        "spellings": [
+          "Stoke"
+        ],
+        "folds": [
+          "stoke"
+        ],
+        "appearances": 368,
+        "seasons": [
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 8
+      },
+      "sunderland": {
+        "canonical": "Sunderland",
+        "spellings": [
+          "Sunderland"
+        ],
+        "folds": [
+          "sunderland"
+        ],
+        "appearances": 184,
+        "seasons": [
+          "2017/18",
+          "2022/23",
+          "2023/24",
+          "2024/25"
+        ],
+        "n_seasons": 4
+      },
+      "swansea": {
+        "canonical": "Swansea",
+        "spellings": [
+          "Swansea"
+        ],
+        "folds": [
+          "swansea"
+        ],
+        "appearances": 368,
+        "seasons": [
+          "2018/19",
+          "2019/20",
+          "2020/21",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 8
+      },
+      "watford": {
+        "canonical": "Watford",
+        "spellings": [
+          "Watford"
+        ],
+        "folds": [
+          "watford"
+        ],
+        "appearances": 276,
+        "seasons": [
+          "2014/15",
+          "2020/21",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 6
+      },
+      "west_brom": {
+        "canonical": "West Brom",
+        "spellings": [
+          "West Brom"
+        ],
+        "folds": [
+          "westbrom"
+        ],
+        "appearances": 322,
+        "seasons": [
+          "2018/19",
+          "2019/20",
+          "2021/22",
+          "2022/23",
+          "2023/24",
+          "2024/25",
+          "2025/26"
+        ],
+        "n_seasons": 7
+      },
+      "wigan": {
+        "canonical": "Wigan",
+        "spellings": [
+          "Wigan"
+        ],
+        "folds": [
+          "wigan"
+        ],
+        "appearances": 230,
+        "seasons": [
+          "2014/15",
+          "2016/17",
+          "2018/19",
+          "2019/20",
+          "2022/23"
+        ],
+        "n_seasons": 5
+      },
+      "wolves": {
+        "canonical": "Wolves",
+        "spellings": [
+          "Wolves"
+        ],
+        "folds": [
+          "wolves"
+        ],
+        "appearances": 184,
+        "seasons": [
+          "2014/15",
+          "2015/16",
+          "2016/17",
+          "2017/18"
+        ],
+        "n_seasons": 4
+      },
+      "wrexham": {
+        "canonical": "Wrexham",
+        "spellings": [
+          "Wrexham"
+        ],
+        "folds": [
+          "wrexham"
+        ],
+        "appearances": 46,
+        "seasons": [
+          "2025/26"
+        ],
+        "n_seasons": 1
+      },
+      "wycombe": {
+        "canonical": "Wycombe",
+        "spellings": [
+          "Wycombe"
+        ],
+        "folds": [
+          "wycombe"
+        ],
+        "appearances": 46,
+        "seasons": [
+          "2020/21"
+        ],
+        "n_seasons": 1
+      }
+    }
+  },
+  "unmapped": {
+    "count": 0,
+    "names": [],
+    "rule": "A residual unmapped name is a STOP, never a silent skip. epl.teams.resolve raises UnknownTeamError, and for a non-E0 division a null club key raises epl.parse.PhantomClub BEFORE the frame exists, so epl.fit.to_store_frame's astype(str) \u2014 which would turn a null key into the phantom club 'None' \u2014 is unreachable on this build's call graph.",
+    "registry_extended_during_acquisition": false,
+    "registry_extension_note": "None was needed. The enumeration published at 7e87828 before the registry commit matched the measured census exactly: all 49 spellings, every index fold, every stable key, every spelling's per-season presence and every season's 24-club membership."
+  },
+  "archive": {
+    "path": "data/epl/matches_e1.parquet",
+    "sha256": "5f68f677aaaeb871e16a2e4da878c5bb0e71c97afd59c69a7791b8b2bc98b578",
+    "bytes": 355497,
+    "rows": 6624,
+    "rows_expected": 6624,
+    "seasons": 12,
+    "distinct_clubs": 49,
+    "date_min": "2014-08-08",
+    "date_max": "2026-05-02",
+    "columns": [
+      "match_id",
+      "season",
+      "season_code",
+      "date",
+      "time",
+      "kickoff",
+      "home_team_raw",
+      "away_team_raw",
+      "home_team",
+      "away_team",
+      "home_key",
+      "away_key",
+      "fthg",
+      "ftag",
+      "ftr",
+      "played",
+      "psch",
+      "pscd",
+      "psca",
+      "psh",
+      "psd",
+      "psa",
+      "odds_h",
+      "odds_d",
+      "odds_a",
+      "odds_source",
+      "odds_overround"
+    ],
+    "null_club_keys": 0,
+    "manifest": "data/epl/manifest_e1.json",
+    "team_name_mapping": "data/epl/team_name_mapping_e1.json",
+    "gitignored": true,
+    "gitignored_note": "data/ is gitignored in full, so the archive itself is not committed; this record is what a reader checks it against, and the twelve source digests plus `python -m epl.build --division E1` rebuild it."
+  },
+  "match_id": {
+    "recipe_e1": "sha256('E1|{season_code}|{date}|{home_key}|{away_key}')[:16]",
+    "recipe_e0": "sha256('{season_code}|{date}|{home_key}|{away_key}')[:16]",
+    "every_e1_id_reproduces": true,
+    "every_e1_id_carries_the_division": true,
+    "every_e0_id_still_reproduces_unchanged": true,
+    "id_space_overlap_with_e0": [],
+    "n_overlap": 0,
+    "unique_ids": true
+  },
+  "e0_untouched": {
+    "pinned_sha256": "323aa54af0a8fcf38745c9f7fccc55fe10654ff68cf38fa82cf7f498cea275cf",
+    "observed_sha256": "323aa54af0a8fcf38745c9f7fccc55fe10654ff68cf38fa82cf7f498cea275cf",
+    "byte_identical": true,
+    "rows": 4560,
+    "provenance_sha256": "8fa8cf906c3b529e0c835ec8278a744f14b67b875530e15a5253618c3e7c0c8a",
+    "verified_before_and_after": true,
+    "elo_anchor_sees_no_e1_row": true,
+    "elo_anchor_note": "This build produces an archive and stops. No anchor, fit, store, forecast or simulation input is written, and epl/elo.py is not edited. matches_e1.parquet has no reader in the repository."
+  },
+  "outcome_summary_WITHHELD": {
+    "requested_by_the_task": "the E1 goal rate vs E0's",
+    "status": "WITHHELD \u2014 NOT COMPUTED, NOT PUBLISHED",
+    "why": "The task's design reference is reports/epl_lowerdiv_prereg.md v2 at d20a13a, and v2 FORBIDS exactly this statistic before the experiment's freeze. \u00a70.6: 'NO OUTCOME SUMMARY OF THE TREATMENT DATA MAY BE PUBLISHED BEFORE THE FREEZE, AND THE GOAL RATE IS THE CASE THAT MATTERS.' \u00a78.10's allow-list 'contains no scores, no goal counts, no goal rates, no result distribution and no derived outcome statistic of any kind.' \u00a710 makes publishing one an INVALIDATION: 'Any outcome summary of the treatment data \u2014 a goal rate, a score distribution, any statistic derived from a match result \u2014 is published before the freeze, in a \u00a78.10 note or anywhere else.'",
+    "provenance_of_the_conflict": "'measure the E1 goal rate against E0's and publish it' is v1's requirement, quoted verbatim in v2 \u00a70.6. It was DELETED by blocking review finding B4 (v2 \u00a711: 'B4 \u00a70.6, \u00a78.3, \u00a78.10 \u2014 the goal rate moves after the freeze, and the note has an allow-list'). The task instruction reproduces the superseded v1 language while naming v2 as the design reference; the two cannot both be honoured.",
+    "how_it_was_resolved": "By the reversible option, and by the named reference. The E1 SPLIT ruling states the confirmatory experiment HOLDS and that this note 'changes only where the acquisition executes' \u2014 so \u00a710 still binds. Publishing the rate cannot be undone: the invalidation is that the author saw the treatment's outcomes while the operative law was still editable, which a later revert does not repair. Withholding it costs one command whenever the owner rules otherwise. The rate was therefore never computed \u2014 not printed, not logged, not stored.",
+    "where_it_belongs": "reports/epl_lowerdiv_result.md, after the freeze, per v2 \u00a79.4 and \u00a72.2 \u2014 or in a standalone record on an explicit owner ruling that the split releases the acquisition from \u00a710.",
+    "decides": "nothing"
+  },
+  "scope": {
+    "this_is_not_the_experiment": true,
+    "fit": "none",
+    "store_build": "none",
+    "harness": "none",
+    "estimand": "none",
+    "ruling": "owner, 2026-08-30, E1 SPLIT: the Championship archive is built now as standalone infrastructure; the confirmatory experiment holds and, when revived, pins this archive as-found."
+  }
+}
