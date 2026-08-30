@@ -25,11 +25,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 
 import pandas as pd
 import pytest
 
-from epl import fetch, paths, schema, teams, validate
+from epl import fetch, parse, paths, schema, teams, validate
 
 
 # --------------------------------------------------------------------------
@@ -493,15 +494,22 @@ def test_the_provenance_key_carries_the_division_for_e1_only():
     assert fetch.provenance_key("1415", division="E1") == "E1_1415"
 
 
-def _place_cached_csv(raw_dir, division: str, code: str, clubs: list[str]) -> None:
+def _place_cached_csv(
+    raw_dir, division: str, code: str, clubs: list[str], *, pad: bool = False
+) -> None:
     """A cached football-data CSV for one season, written straight to the cache.
 
     Hand-placed rather than downloaded: there is no network in this phase, and
     `fetch_season` treats an unrecorded cached file as an observation to record,
     which is the exact path being tested.
+
+    `pad=True` appends the line of bare commas football-data ends its real files
+    with — `data/epl/raw/E0_1415.csv` line 382 is exactly this — so a test can
+    exercise the vendor's own formatting rather than an idealised file.
     """
     pairs = [(h, a) for h in clubs for a in clubs if h != a]
-    lines = ["Div,Date,HomeTeam,AwayTeam,FTHG,FTAG,FTR"]
+    header = "Div,Date,HomeTeam,AwayTeam,FTHG,FTAG,FTR"
+    lines = [header]
     per_day = max(1, len(clubs) // 2)
     base = pd.Timestamp("20%s-08-10" % code[:2])
     for i, (h, a) in enumerate(pairs):
@@ -509,18 +517,45 @@ def _place_cached_csv(raw_dir, division: str, code: str, clubs: list[str]) -> No
         hg, ag = i % 4, i % 3
         res = "H" if hg > ag else ("A" if hg < ag else "D")
         lines.append(f"{division},{day:%d/%m/%Y},{h},{a},{hg},{ag},{res}")
+    if pad:
+        lines.append("," * (header.count(",")))
     (raw_dir / f"{division}_{code}.csv").write_text("\n".join(lines) + "\n")
+
+
+class NetworkReached(AssertionError):
+    """A test tried to download something. It must not."""
 
 
 @pytest.fixture()
 def cache_dir(tmp_path, monkeypatch):
-    """A throwaway data root, so no test can touch the real archive."""
+    """A throwaway data root with the network wired shut.
+
+    Two guarantees, and the second was learned the hard way: a `build()` call
+    that fell through to the twelve default season codes found eleven of them
+    uncached and went to football-data for them. The real download is a separate,
+    once-only, deliberate act — so `_download` raises here, and a cache miss in a
+    test is a test bug rather than a quiet HTTP request.
+    """
     data = tmp_path / "epl"
     raw = data / "raw"
     raw.mkdir(parents=True)
     monkeypatch.setattr(paths, "DATA_DIR", data)
     monkeypatch.setattr(paths, "RAW_DIR", raw)
+
+    def _refuse(url: str):
+        raise NetworkReached(
+            f"a test tried to download {url}. The ingest is tested against "
+            f"synthetic CSVs; the real fetch is a deliberate, separate act."
+        )
+
+    monkeypatch.setattr(fetch, "_download", _refuse)
     return raw
+
+
+def test_the_fixture_really_does_close_the_network(cache_dir):
+    """The guard itself, exercised. A cache miss must not become a request."""
+    with pytest.raises(NetworkReached):
+        fetch.fetch_season("1415", division="E1")
 
 
 def test_an_e1_fetch_does_not_overwrite_the_e0_record_for_the_same_season(cache_dir):
@@ -580,3 +615,197 @@ def test_read_raw_reads_the_division_it_is_asked_for(cache_dir):
     assert "A,B" in fetch.read_raw("1415")
     assert "A,B" not in fetch.read_raw("1415", division="E1")
     assert "W,X" in fetch.read_raw("1415", division="E1")
+
+
+# ==========================================================================
+# B6 — the match_id carries the division for E1, and E0 ids do not move
+# ==========================================================================
+
+#: sha256("2425|2024-08-16|arsenal|chelsea")[:16]. Pinned because E0 match_ids
+#: are recorded in artifacts all over the repository — a change to the recipe
+#: would silently orphan every one of them.
+PINNED_E0_MATCH_ID = "3326fa3323ba4b53"
+
+
+def test_the_e0_match_id_recipe_is_unchanged():
+    got = parse._match_id("2425", pd.Timestamp("2024-08-16"), "arsenal", "chelsea")
+    assert got == PINNED_E0_MATCH_ID
+    assert got == hashlib.sha256(
+        b"2425|2024-08-16|arsenal|chelsea").hexdigest()[:16]
+    # Naming E0 explicitly must give the same id as not naming a division.
+    assert parse._match_id(
+        "2425", pd.Timestamp("2024-08-16"), "arsenal", "chelsea",
+        division="E0") == PINNED_E0_MATCH_ID
+
+
+def test_the_e1_match_id_carries_the_division():
+    date = pd.Timestamp("2024-08-16")
+    e1 = parse._match_id("2425", date, "derby", "preston", division="E1")
+    assert e1 == hashlib.sha256(
+        b"E1|2425|2024-08-16|derby|preston").hexdigest()[:16]
+    assert e1 != parse._match_id("2425", date, "derby", "preston")
+
+
+def test_the_same_fixture_in_two_divisions_gets_two_ids():
+    """The merge hazard: without the division these collide exactly.
+
+    Two clubs can meet on the same date in both a cup-relegated season's E0 file
+    and an E1 file only in principle — but `match_id` is the key a union store
+    is built on, and a key that CAN collide is one that eventually does.
+    """
+    date = pd.Timestamp("2025-01-18")
+    assert (parse._match_id("2425", date, "leeds", "burnley")
+            != parse._match_id("2425", date, "leeds", "burnley", division="E1"))
+
+
+def test_every_id_in_the_pinned_e0_archive_still_reproduces():
+    """B6's real proof, against the real archive rather than one pinned string.
+
+    `PINNED_E0_MATCH_ID` fixes the recipe at one point. This fixes it at all
+    4,560 of them: every `match_id` the pinned archive was built with is
+    recomputed from that row's own (season_code, date, home_key, away_key) and
+    must come back identical. Those ids are the join key for every artifact in
+    the repository that references a Premier League match, so a recipe change
+    would not break a fit — it would silently orphan the lot.
+    """
+    archive = _e0_archive()
+    recomputed = [
+        parse._match_id(r.season_code, r.date, r.home_key, r.away_key)
+        for r in archive.itertuples()
+    ]
+    assert recomputed == archive["match_id"].tolist()
+
+
+def test_the_division_prefix_would_have_moved_every_one_of_those_ids():
+    """The same 4,560 rows, and why E0's absent prefix is not cosmetic.
+
+    Had E0 taken the prefix too, not one archived id would have survived. The
+    guard above therefore has teeth: it is not passing because the two recipes
+    happen to agree.
+    """
+    archive = _e0_archive()
+    prefixed = {
+        parse._match_id(r.season_code, r.date, r.home_key, r.away_key,
+                        division="E1")
+        for r in archive.itertuples()
+    }
+    assert prefixed & set(archive["match_id"]) == set()
+    assert len(prefixed) == len(archive)
+
+
+# ==========================================================================
+# B5 — a null club key REFUSES; it never becomes the phantom club "None"
+# ==========================================================================
+
+def test_an_unregistered_club_in_an_e1_file_refuses_at_parse_time(cache_dir):
+    """The refusal that makes the phantom unreachable on this call graph.
+
+    `epl.fit.to_store_frame` does `played["home_key"].astype(str)`, so a null
+    key becomes the literal club `"None"` and every unregistered club merges
+    into one mega-club with its own attack and defence — and the fit looks
+    healthy. `epl/fit.py` is protected and is not edited; instead the row never
+    gets built.
+    """
+    _place_cached_csv(cache_dir, "E1", "2425",
+                      ["Derby", "Preston", "Millwall", "Not A Real Club"])
+    fetch.fetch_season("2425", division="E1")
+    with pytest.raises(parse.PhantomClub) as exc:
+        parse.parse_season("2425", division="E1")
+    message = str(exc.value)
+    assert "Not A Real Club" in message
+    assert "2024/25" in message
+
+
+def test_the_refusal_names_the_date_and_the_side(cache_dir):
+    """The message has to be enough to write the registry entry from."""
+    _place_cached_csv(cache_dir, "E1", "2425",
+                      ["Derby", "Preston", "Millwall", "Nonesuch Rovers"])
+    fetch.fetch_season("2425", division="E1")
+    with pytest.raises(parse.PhantomClub) as exc:
+        parse.parse_season("2425", division="E1")
+    message = str(exc.value)
+    assert re.search(
+        r"\d{4}-\d{2}-\d{2} (home|away)='Nonesuch Rovers'", message
+    ), message
+    assert "epl/teams.py" in message
+    assert "do not drop the season" in message
+
+
+def test_a_fully_registered_e1_season_parses(cache_dir):
+    clubs = ["Derby", "Preston", "Millwall", "Sheffield Weds"]
+    _place_cached_csv(cache_dir, "E1", "2425", clubs)
+    fetch.fetch_season("2425", division="E1")
+    parsed = parse.parse_season("2425", division="E1")
+    assert parsed.division == "E1"
+    assert len(parsed.frame) == 12
+    assert parsed.unknown_teams == []
+    assert set(parsed.frame["home_key"]) == {
+        "derby", "preston", "millwall", "sheffield_wednesday"}
+    assert list(parsed.frame.columns) == schema.COLUMNS
+
+
+def test_e0_still_retains_the_row_and_reports_the_issue(cache_dir):
+    """E0's behaviour is NOT changed by B5. It reports; it does not refuse.
+
+    The daily live cycle depends on an unmapped E0 name being a reported issue
+    rather than an exception, so the refusal is scoped to divisions whose
+    archive this build introduces.
+    """
+    _place_cached_csv(cache_dir, "E0", "2425",
+                      ["Arsenal", "Chelsea", "Everton", "Not A Real Club"])
+    fetch.fetch_season("2425")
+    parsed = parse.parse_season("2425")
+    assert parsed.unknown_teams == ["Not A Real Club"]
+    assert parsed.frame["home_key"].isna().any()
+    assert any("unregistered club spelling" in i for i in parsed.issues)
+
+
+def test_the_phantom_club_hazard_is_still_live_in_the_protected_module():
+    """Documented, not repaired. `epl/fit.py` is protected and was not edited.
+
+    THE SCOUT'S BLOCKER 5, MEASURED RATHER THAN QUOTED. The claim was that
+    `played["home_key"].astype(str)` turns a null key into the literal club
+    `"None"`. On the pandas this repository runs, `astype(str)` preserves the
+    null instead, so the phantom is spelled `NaN` rather than `"None"` — but the
+    hazard is the same hazard and does not depend on the spelling: **a null club
+    key passes the projector unrefused**, reaches the store as a team identity,
+    and every unregistered club shares it.
+
+    This test therefore asserts the version-independent fact. If it ever fails
+    because `to_store_frame` learned to refuse, that is good news — but it must
+    be noticed, because the E1 refusal above is written on the assumption that
+    nothing downstream will catch a null key.
+    """
+    from epl import fit
+
+    # Exactly the shape `epl.parse` produces for E0: an object column of keys
+    # with a None wherever a spelling did not resolve. `home_team_raw` carries
+    # the two spellings that failed, so the frame going IN can still tell the
+    # two clubs apart — which is what makes the frame coming OUT damning.
+    frame = pd.DataFrame({
+        "match_id": ["a", "b", "c"],
+        "date": pd.to_datetime(["2024-08-10", "2024-08-11", "2024-08-12"]),
+        "home_team_raw": ["Nonesuch Rovers", "Utterly Different FC", "Derby"],
+        "home_key": pd.Series([None, None, "derby"], dtype="object"),
+        "away_key": pd.Series(["preston", "millwall", "preston"], dtype="object"),
+        "fthg": [1, 2, 0],
+        "ftag": [0, 1, 0],
+        "played": [True, True, True],
+    })
+
+    out = fit.to_store_frame(frame)          # no refusal, no exception
+
+    assert len(out) == 3, "the null-key rows were not even dropped"
+    assert out["home_team"].isna().tolist() == [True, True, False]
+
+    # THE HAZARD, STATED AS A COUNT. Three rows with three DIFFERENT home clubs
+    # going in; TWO team identities coming out. The model's team index is built
+    # by sorting this column, so the two unregistered clubs are one team to it.
+    assert frame["home_team_raw"].nunique() == 3
+    assert out["home_team"].nunique(dropna=False) == 2
+    assert set(out.loc[out["home_team"].notna(), "home_team"]) == {"derby"}
+
+    # And nothing survives the projection from which either could be recovered:
+    # the raw spelling is not a column of the store frame at all.
+    assert "home_team_raw" not in out.columns
+

@@ -15,6 +15,17 @@ ODDS. BENCHMARK ONLY (see `epl.schema.ODDS_COLUMNS`). Pinnacle closing
 (PSCH/PSCD/PSCA) is preferred over Pinnacle opening (PSH/PSD/PSA). A row counts
 as having odds only when all three prices are present and each exceeds 1.0;
 partial or degenerate triples are treated as absent rather than half-used.
+
+CLUB KEYS, for a division whose archive this ingest introduces. An unresolved
+spelling leaves a NULL key, and a null key is not a missing value downstream —
+it is a club. `epl.fit.to_store_frame` projects `home_key` straight into the
+model's team identity without checking it, so every unregistered club in a file
+would share one identity, accumulate one attack and one defence parameter, and
+produce a fit that looks entirely healthy. `epl/fit.py` is protected and is not
+edited here; instead `parse_season` REFUSES with `PhantomClub` for any division
+other than E0, so the row never exists to be projected. E0 keeps its old
+behaviour — report the issue, retain the row — because the daily live cycle
+depends on an unmapped E0 name being a reported issue rather than an exception.
 """
 
 from __future__ import annotations
@@ -43,6 +54,15 @@ _OPENING_ODDS = ("PSH", "PSD", "PSA")
 _DATE_FORMATS = ("%d/%m/%Y", "%d/%m/%y")
 
 
+class PhantomClub(ValueError):
+    """A club key came out null, and a null key would become a club.
+
+    Raised only for divisions this ingest introduces. It names the season, the
+    date and the raw spelling, because the fix is a one-line registry entry and
+    the message should be enough to write it.
+    """
+
+
 @dataclass
 class ParseResult:
     """Tidy rows for one season, plus everything that went wrong producing them."""
@@ -50,6 +70,7 @@ class ParseResult:
     season_code: str
     season: str
     frame: pd.DataFrame
+    division: str = schema.DEFAULT_DIVISION
     issues: list[str] = field(default_factory=list)
     #: raw spelling -> occurrence count, for the name-mapping report
     raw_team_counts: dict[str, int] = field(default_factory=dict)
@@ -140,17 +161,86 @@ def _odds_triple(frame: pd.DataFrame, cols: tuple[str, str, str]) -> pd.DataFram
     return out.where(usable, np.nan)
 
 
-def _match_id(season_code: str, date: pd.Timestamp, home_key: str, away_key: str) -> str:
-    """Deterministic id: same inputs give the same id on any machine, any run."""
+def blank_rows_issue(n: int) -> str:
+    """The issue text for `n` fully blank trailing rows dropped from a file.
+
+    THE VENDOR'S FORMATTING, NOT A DEFECT IN THE DATA. Every football-data
+    season file ends with a line of bare commas; dropping it is this parser
+    working, not this parser finding something wrong. The live E0 manifest's
+    ONLY recorded issue, across twelve seasons, is this one line for 2014/15.
+
+    It is a function rather than an inline f-string because `epl.build`'s strict
+    gate has to recognise this exact issue and let it through, and the only way
+    that recognition stays correct when the wording changes is for both sides to
+    derive the string from here. Matching a prose fragment instead is how a gate
+    quietly starts refusing — or quietly stops — after an unrelated edit.
+    """
+    return f"dropped {n} fully blank trailing row(s)"
+
+
+def _match_id(
+    season_code: str,
+    date: pd.Timestamp,
+    home_key: str,
+    away_key: str,
+    division: str = schema.DEFAULT_DIVISION,
+) -> str:
+    """Deterministic id: same inputs give the same id on any machine, any run.
+
+    THE DIVISION IS IN THE PAYLOAD FOR EVERY DIVISION BUT E0, AND E0'S ABSENCE
+    IS DELIBERATE. Without a division the two archives' ids live in one space
+    keyed on (season, date, home, away), and the same two clubs meeting on the
+    same date in two divisions would produce one id — which, in a table keyed on
+    `match_id`, is one match. E0 ids are recorded in artifacts throughout the
+    repository and may not move, so E0 keeps the original payload verbatim and
+    every other division prefixes its code. The two id spaces are then disjoint
+    up to a SHA-256 collision.
+    """
     payload = f"{season_code}|{date:%Y-%m-%d}|{home_key}|{away_key}"
+    if division != schema.DEFAULT_DIVISION:
+        payload = f"{division}|{payload}"
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
-def parse_season(season_code: str) -> ParseResult:
+def _refuse_phantom_clubs(
+    season: str,
+    division: str,
+    dates: pd.Series,
+    sides: tuple[tuple[str, list[str | None], pd.Series], ...],
+) -> None:
+    """Raise `PhantomClub` if any club key is null. Named, dated, quoted.
+
+    Runs BEFORE the frame is assembled, so the offending row never reaches a
+    projector that would turn its null key into a team identity.
+    """
+    offenders: list[str] = []
+    for label, keys, raw_names in sides:
+        for position, key in enumerate(keys):
+            if key is None:
+                offenders.append(
+                    f"{dates.iloc[position]:%Y-%m-%d} {label}="
+                    f"{raw_names.iloc[position]!r}"
+                )
+    if offenders:
+        raise PhantomClub(
+            f"{season} [{division}]: {len(offenders)} club key(s) did not "
+            f"resolve, and a null club key is not a missing value — it becomes "
+            f"a club. Refusing before the rows exist. Offending fixtures: "
+            f"{offenders[:10]}"
+            f"{' …' if len(offenders) > 10 else ''}. Register the spelling(s) in "
+            f"epl/teams.py against the published census and re-run; do not drop "
+            f"the season and do not null the club."
+        )
+
+
+def parse_season(
+    season_code: str, division: str = schema.DEFAULT_DIVISION
+) -> ParseResult:
     """Parse one cached season CSV into tidy rows."""
+    schema.division_shape(division)
     season = fetch.season_label(season_code)
     issues: list[str] = []
-    raw = pd.read_csv(io.StringIO(fetch.read_raw(season_code)))
+    raw = pd.read_csv(io.StringIO(fetch.read_raw(season_code, division)))
 
     required = [_SRC_DATE, _SRC_HOME, _SRC_AWAY, _SRC_FTHG, _SRC_FTAG]
     missing = [c for c in required if c not in raw.columns]
@@ -199,6 +289,16 @@ def parse_season(season_code: str) -> ParseResult:
             f"unregistered club spelling(s) {unknown} -> canonical name and key "
             f"left null; rows retained. Add them to epl/teams.py."
         )
+    if division != schema.DEFAULT_DIVISION:
+        _refuse_phantom_clubs(
+            season,
+            division,
+            date,
+            (
+                ("home", [k for _, k in home_resolved], home_raw),
+                ("away", [k for _, k in away_resolved], away_raw),
+            ),
+        )
 
     # --- results ----------------------------------------------------------
     fthg = _coerce_goals(raw[_SRC_FTHG], f"{season} FTHG", issues)
@@ -236,7 +336,7 @@ def parse_season(season_code: str) -> ParseResult:
     frame = pd.DataFrame(
         {
             "match_id": [
-                _match_id(season_code, d, hk or "?", ak or "?")
+                _match_id(season_code, d, hk or "?", ak or "?", division)
                 for d, hk, ak in zip(date, home_keys, away_keys)
             ],
             "season": season,
@@ -270,11 +370,12 @@ def parse_season(season_code: str) -> ParseResult:
     frame = frame[schema.COLUMNS]
 
     if dropped_blank:
-        issues.append(f"dropped {dropped_blank} fully blank trailing row(s)")
+        issues.append(blank_rows_issue(dropped_blank))
 
     return ParseResult(
         season_code=season_code,
         season=season,
+        division=division,
         frame=schema.sort_for_walk_forward(frame),
         issues=issues,
         raw_team_counts={str(k): int(v) for k, v in raw_counts.items()},
