@@ -1,6 +1,20 @@
 # Lower-division evidence — preregistration of the second-tier archive experiment
 
-**Written:** 2026-08-30 · **Branch:** `main` · **Schema:** `epl-lowerdiv-1`
+**Version:** **v2**, 2026-08-30 · **Written:** 2026-08-30 · **Branch:** `main`
+· **Schema:** `epl-lowerdiv-2`
+
+**What v2 is.** v1 of this document was committed at `35e562f`, before any
+harness existed, and went straight to cross-model design review. That review
+ruled it **UNSOUND** on fifteen blocking, fourteen important and two minor
+findings, and the owner then re-founded the gate family on this document's own
+power analysis (§4.0). v2 lands both — the refounding and every review finding —
+**as final law**, by direct edit. There are no repair sections, no supersession
+index and no amendment machinery inside this document: v1's text is not
+preserved anywhere in it, because a preregistration that carries its own
+corrections as annotations is a document a reader has to reconstruct before they
+can check it. Where a finding was **refuted** from the repository, the refutation
+is recorded in the clause it concerns rather than deleted (§13 indexes them).
+Every clause below is operative and every number in it was recomputed for v2.
 **Template and precedent:** [`reports/epl_widening_prereg_v3.md`](epl_widening_prereg_v3.md)
 — its §5 statistics, §8 lifecycle, §9 evidence contract and §10 invalidations are
 the shape this document takes, and every ruling those four sections reached is
@@ -18,20 +32,21 @@ explicitly rather than jumping it.
 
 **What this document is.** One coherent statement of the complete law of this
 experiment: the architecture, the one frozen calibration constant, the pinned
-population, the estimand, the resampling, the secondaries, the five-part
-adoption rule, the Monte-Carlo estimator and its precision regime, the refusal
-semantics, the lifecycle, the evidence contract and the scope. There are no
-repair sections and no supersession index inside it, because there is nothing
-inside it to supersede. Every clause below is operative. **Where this document
-is silent, nothing is implied.**
+population, the estimand, the resampling, the secondaries, the four-part
+adoption rule and its one reported diagnostic, the Monte-Carlo estimator and its
+precision regime, the refusal semantics, the lifecycle, the evidence contract and
+the scope. Every clause below is operative. **Where this document is silent,
+nothing is implied.**
 
 **Status.** No harness exists. `epl/lowerdiv.py` and `epl/tests/test_lowerdiv.py`
 are not written; no `data/epl/matches_e1.parquet` exists; no E1 CSV has been
 fetched; no fit, no simulation, no delta, no evidence file and no verdict of this
-document exists. This commit is the **first** step of the house lifecycle —
+document exists. v1 of this document was step one of the house lifecycle —
 preregistration BEFORE harness code, then cross-model design review, then harness
-TDD, then dual audit, then freeze, then run, then publish either way — and §8
-says exactly what each step must contain and in what order.
+TDD, then dual audit, then freeze, then run, then publish either way. v2 is step
+two's output landed as law: **the design review has happened, and this is the
+document it produced.** §8 says exactly what each remaining step must contain and
+in what order, and §8.3 forbids a freeze block until every one of them has.
 
 Every number in §0–§3 and §6 was computed from committed or pinned artifacts by
 the recipes given beside it, by read-only passes that fit nothing, simulate no
@@ -55,7 +70,8 @@ measurement, it says so.
 | **E1 archive — NEW, digest pinned in the freeze block** | `data/epl/matches_e1.parquet` — 12 seasons 2014/15 … 2025/26, expected 552 per season / 24 clubs per season (§0.6 measures it; the freeze block pins its digest, row count and club census) |
 | Frozen config file | `epl/config_frozen.json`, SHA-256 `9f2e086d39ae4b855ba21604367109e8e9ce00f96010c5ec65c380d317986abc` |
 | **Realised config** | `realised_config_sha256` = SHA-256 of `json.dumps(freeze.frozen_wcmodel_config(), sort_keys=True, default=str)` = **`78a51cd92c48838a57e3d6832b7661aad7a5b231425572214a067c2a35edbdcd`** |
-| Widening per-fixture evidence (the pinned population's source of truth) | `reports/evidence/widening_per_fixture.csv` — **committed**, 85 rows, the exact fixture keys, blocks and seasons this document's population is pinned to (§0.5) |
+| Widening per-fixture evidence (the pinned population's source of truth) | `reports/evidence/widening_per_fixture.csv` — **committed**, 85 rows, the exact fixture `match_id`s, blocks and seasons this document's population is pinned to (§0.5) |
+| Collateral structure (the 2,280/212/6 skeleton, committed) | `reports/evidence/anchoring_per_fixture.csv` — **committed**, 11,400 rows = 2,280 fixtures × 5 anchoring weights; **deduplicated to one row per `match_id`, keeping the first row in ascending-`match_id` order**, it yields exactly 2,280 fixtures, 212 `(season, ISO week)` blocks and 6 seasons. §6.2's collateral construction is built from **this committed file**, not from the gitignored corpus parquet, so the power table is reproducible from Git alone |
 | Table-retro anchor | `data/epl/sim/retro_r1.jsonl` (**protected, read-only**) and `epl.simretro`'s public constants: `SEASONS` (7, 2019/20 … 2025/26), `COMPARISON_CUTOFFS` (MW0/MW3/MW6/MW10/MW19), `DEFAULT_N_SIMS` **20,000**, `SEED` **20260611** |
 | Feasibility census | `reports/evidence/widening_parity_feasibility.json` (committed, byte-identical to the gitignored `data/epl/sim/evwiden_parity_feasibility.json`), SHA-256 **`07ee00d798cb0f01f29bc5bb5ba885c41e26d5494e9755c73a038a2777bad329`**, 18,128 bytes. **This document's table leg is scoped by it exactly as widening v3's was** — 32 priceable cells, 3 unpriceable — so it is a pin, not a citation |
 
@@ -66,8 +82,19 @@ shasum -a 256 data/epl/fit/walkforward_predictions.parquet \
               data/epl/fit/walkforward_ledger.jsonl \
               data/epl/matches.parquet epl/config_frozen.json \
               reports/evidence/widening_parity_feasibility.json \
-              reports/evidence/widening_per_fixture.csv
+              reports/evidence/widening_per_fixture.csv \
+              reports/evidence/anchoring_per_fixture.csv
 ```
+
+**Five of those inputs are gitignored, and that is a weakness this document
+closes rather than discloses.** The corpus parquet, the ledger, the E0 archive,
+`single_fit.json` and the future E1 archive live outside Git, so a clean clone
+cannot regenerate the numbers this document's verdict rests on. §9.5 therefore
+makes a **committed reproduction bundle** — the full 2,280-row scoring corpus,
+the 212-row opening ledger, and canonical attestations for both archives and both
+store roots — a freeze precondition and a manifest member. Until that bundle
+exists, the gitignored digests above are accepted on this document's word, and
+§8.3 refuses to render a freeze block on that basis.
 
 **`ConfigNotFrozen` fires on four conditions**, unchanged from the predecessor:
 the frozen file's digest, the realised seed (20260611), the realised widening
@@ -93,9 +120,24 @@ reader of this experiment may name:
 | E1 name-mapping report | `data/epl/team_name_mapping_e1.json` | the acquisition pass |
 | E1 manifest | `data/epl/manifest_e1.json` | the acquisition pass |
 | E1-informed store root (E0 ∪ E1) | `data/epl/fit/store_e1/` | the run |
-| E1-informed feature cache | `data/epl/fit/cache_e1/` | the run |
+| **Arm-B (E0-only) feature cache** | `data/epl/fit/lowerdiv/cache_b/` | the run |
+| **Arm-A (E1-informed) feature cache** | `data/epl/fit/lowerdiv/cache_a/` | the run |
 | match-leg run directory | `data/epl/fit/lowerdiv/` | the run |
 | table-leg run directory | `data/epl/sim/lowerdiv/` | the run |
+
+**Both feature caches are experiment-private, and neither is the incumbent's.**
+`src/wcmodel/data/features.py:439-450`'s `build_cached` writes a `.tmp` parquet
+and renames it on a miss, and its cache key hashes the current Git HEAD
+(`:399-406`). Pointing Arm B at the shipped E0 cache would let this experiment
+write into a directory the published arm reads, and would make a HEAD advance
+during the run change the key of a cache the published arm shares. Two private
+roots, resolved from §8.9's `layout()` and from nowhere else, remove both. Two
+consequences are pre-stated rather than discovered: **every key is a cold miss on
+the first run** (§2.4's budget already assumes that), and **a HEAD advance during
+the run produces further cold misses but can never produce a wrong hit**, because
+HEAD is inside the key. Shards run sequentially (§2.4), so the `.tmp` rename race
+that crashes parallel shards in the locked path cannot occur; a `.tmp` file
+surviving a run is `PathNotFrozen`, and neither cache root is a manifest member.
 
 **Why this decision and not the merged one.** `epl/elo.py:265` builds a season's
 `clubs` from every row carrying that season label, and `_open_season`
@@ -136,8 +178,11 @@ symmetric:
   rationale in full — a club arriving from the second tier is not an average
   Premier League club, and a returning club's old top-flight rating is **not**
   restored. `epl/elo.py:147-152` refuses a positive offset by construction.
-  `epl/fit.py:88-91` records that the promoted seed was worth **0.0030 RPS — the
-  largest single configuration effect ever measured on this data.**
+  `epl/fit.py:88-91` records that the promoted seed was worth **0.0030 RPS** on
+  an already-observed scoring window, and `epl/config_frozen.json`'s
+  `delta_vs_chosen` records **0.001309 RPS** as its contrast on the tuning window
+  it was chosen on. §2.2 keeps the two apart; v1 cited the first as if it were
+  the second.
 * **The Dixon-Coles layer prices it with nothing.** A promoted club with no
   pre-cutoff E0 match is handled by Fix 3's prior draws
   (`epl/dcfit.py:151-168 _prior_draws`), and that module's own docstring says
@@ -217,11 +262,12 @@ promoted from the Championship the season before and clears 10 by a wide margin.
 > would be undefined. The experiment would look like it had cured the disease by
 > redefining the symptom.**
 
-**THE PIN.** The population is **not derived by this experiment**. It is the
-widening run's population, taken as data:
+**THE PIN, AND THE COLUMN IT IS ON.** The population is **not derived by this
+experiment**. It is the widening run's population, taken as data:
 
 * the **85 thin fixtures** are exactly the 85 rows of the committed
-  `reports/evidence/widening_per_fixture.csv`, identified by their `key` column;
+  `reports/evidence/widening_per_fixture.csv`, **identified by their `match_id`
+  column and by nothing else**;
 * "thin" means `e_min < 10.0` computed on the **E0-only** archive at
   `323aa54af0…` — the same `e*`, the same recipe, the same archive, the same
   fixtures;
@@ -230,9 +276,9 @@ widening run's population, taken as data:
   (2019/20 … 2024/25) and the block-size distribution is 46 blocks of 1, 10 of 2,
   5 of 3, 1 of 4 — all re-derived from the committed CSV by the harness, never
   typed in;
-* the freeze block pins the 85 keys, the 62 block labels and the 6-season split
-  by canonical digest, **and additionally pins the 85 keys equal to widening v3's
-  own frozen membership digest
+* the freeze block pins the 85 `match_id`s, the 62 block labels and the 6-season
+  split by canonical digest, **and additionally pins the 85 `match_id`s equal to
+  widening v3's own frozen membership digest
   `38d18d4d96b4eed0391d167d1bf7be6b95de83db6f8fda2846ad97c3fb368d5a`** — computed
   through `epl.evwiden`'s own canonical serialiser, imported read-only, so the
   comparison is against that document's serialisation and not against a
@@ -241,26 +287,74 @@ widening run's population, taken as data:
   made to agree, the discrepancy is published before the freeze and this
   document does not run.
 
+> **WHY `match_id` AND NOT `key`, MEASURED.** The CSV's `key` column is the
+> widening run's **opening** key — `cutoff|seed|config_sha256` — and it is
+> **not unique per fixture**. Measured read-only on the committed file:
+> **85 distinct `match_id` values, 62 distinct `key` values** — one `key` per
+> week-block opening, so the `key` column counts *openings* and the `match_id`
+> column counts *fixtures*, which are the two different numbers this section
+> reports. The canonical digests, all three stated here so a reader can check the
+> pin without recomputing it:
+>
+> | serialisation | SHA-256 |
+> |---|---|
+> | the **85 sorted `match_id`s** | `38d18d4d96b4eed0391d167d1bf7be6b95de83db6f8fda2846ad97c3fb368d5a` |
+> | the 85 sorted `key`s (with repeats) | `5a0d92c50fa31e6b2793d2caeda43769be47e2e3564225e77d45292acf1146d3` |
+> | the 62 sorted distinct `key`s | `2a40d7f235a864a002a526d8598c85c37991d841063a4bf50a3abec0544abe6c` |
+>
+> **The pinned digest `38d18d4d96…` is the `match_id` digest.** A harness that
+> took the document's word and joined on `key` would either fail the freeze or —
+> worse — join whole openings rather than fixtures and silently score a
+> different population. The membership join on the corpus is therefore
+> **one-to-one on `match_id`**, and a join producing anything but 85 rows is
+> `MembershipMismatch`. `epl/tests/test_lowerdiv.py` must carry a regression test
+> that computes both digests from the committed CSV and asserts that **only** the
+> `match_id` digest equals `38d18d4d96…`, so the two can never be swapped back.
+
 `PopulationRederived` (§7.1) fires if any code path computes `e` on a frame that
 is not the pinned E0 archive, or derives the thin set from anything but the
-committed CSV. **The enforcement is architectural first and procedural second:**
-E1 lives in a separate parquet and a separate store root, so
-`effective_evidence(cutoff, e0_played)` is unchanged **by construction**.
+committed CSV, or joins the thin set on any column but `match_id`. **The
+enforcement is architectural first and procedural second:** E1 lives in a
+separate parquet and a separate store root, and **no surface of this experiment
+ever passes an E1-bearing frame to `effective_evidence`** (see the ruling
+immediately below), so `effective_evidence(cutoff, e0_played)` is unchanged **by
+construction** rather than by discipline.
 
-**The new `e` is a headline secondary and decides nothing.** For every one of the
-85 fixtures and every club-cutoff cell of §3.1, the E1-informed `e` is computed
-and published beside the E0-only `e`. "The rule dissolved the thin population" is
-the most interesting number this experiment can produce, and it must not look
-like a discovery made after the fact. It is preregistered as a report, here,
-before any fit.
+**THE E1-INFORMED `e` IS NOT COMPUTED, AND THAT IS A DELIBERATE LOSS.** v1 made
+"the E1-informed `e` for all 85 fixtures" the headline secondary. It cannot be:
+computing it means passing a frame containing E1 rows to the effective-evidence
+function, which is exactly the condition `E1Leak` and `PopulationRederived` are
+written to refuse. The available scoping — a second evidence API, a second
+schema, a rename, and dataflow tests keeping the two apart — would buy a number
+that decides nothing at the price of turning §0.5's architectural pin into a
+procedural one with a documented exception, and this document's single most
+important clause is not worth that. **So the secondary is dropped, and its job is
+done by a quantity that is not `e`:**
 
-### 0.6 The E1 acquisition — a named, authorised, read-only-to-the-model pass
+> **THE E1 SUPPORT CENSUS (§3.1), the replacement, preregistered here.** For each
+> of the 85 fixtures and each club-cutoff cell, the **count of E1 matches
+> strictly before the cutoff** and the **date of the most recent one**, read off
+> the E1 archive's date index by a function that computes no decay weight, takes
+> no half-life, and never touches the E0 archive. It is a count, not an evidence
+> mass; it is published beside the E0-only `e`; it answers "did the treatment
+> have anything to work with, and how much" without asserting a number on `e`'s
+> scale.
+
+**What the loss costs, stated plainly.** "The rule dissolved the thin
+population" can no longer be reported as an `e` under the E1 archive. It does not
+need to be: §0.5's own read-only arithmetic already answers it — one prior
+Championship season adds **+29.25** at an August opener against a threshold of
+**10.0** — and that arithmetic is over dates, not over an archive, so it is not
+a leak. A future document that wants the E1-informed `e` itself must build the
+second evidence API, preregister it, and take the architectural cost knowingly.
+
+### 0.6 The E1 acquisition — two named, authorised, read-only-to-the-model passes
 
 The second-tier archive does not exist. It is acquired **before the freeze**, by
-a pass authorised here by name (§8.2 pass A), and the acquisition is
+two passes authorised here by name (§8.2, A0 and A1), and the acquisition is
 **read-only to the model**: it fetches, parses, validates and registers, and
 **no fit, no store build, no simulation and no estimand touches it until after
-the freeze commit.**
+the seal commit that carries the freeze block.**
 
 **What it acquires.** football-data.co.uk's E1 (EFL Championship) season files
 for `1415`–`2526` — the same twelve season codes `epl.fetch.SEASON_CODES`
@@ -271,7 +365,7 @@ index from **29** at the 2019/20 opener and **35** at the 2026/27 opener —
 both measured read-only from the pinned E0 archive as the distinct
 `home_key ∪ away_key` of played matches dated before the cutoff — to roughly two
 and a half times those. **The exact E1 club count is NOT estimated here**: the
-acquisition pass measures it and publishes the census (§8.2 pass A), and every
+acquisition measures it and publishes the census (§8.2, A0 and A1), and every
 number in this document that would depend on it is stated as a rate or a ratio
 rather than as a count.
 
@@ -284,8 +378,8 @@ file and reads `Div` with the EPL rows as `Div == "E0"`;
 `epl/tests/test_oddscapture.py:34` already synthesise `E1` rows against those
 readers. E1 is the same generator, the same directory, the same columns.
 
-**Six blockers stop E1 flowing through the E0 chain unchanged. Each gets a ruled
-remedy here, and none of them edits a protected module.**
+**Seven blockers stop E1 flowing through the E0 chain unchanged. Each gets a
+ruled remedy here, and none of them edits a protected module.**
 
 | # | blocker, with its citation | THE RULING |
 |---|---|---|
@@ -293,24 +387,87 @@ remedy here, and none of them edits a protected module.**
 | **B2** | `raw/provenance.json` is keyed by `season_code` alone (`epl/fetch.py:174`), so an E1 record would **overwrite** the E0 record for the same season | E1 provenance goes to a **separate sidecar**, `data/epl/raw/provenance_e1.json`, keyed **`{division}_{season_code}`** (`E1_1415`, …). `raw/provenance.json` is not opened for writing on any path of this experiment. A committed test asserts the two files' key sets are disjoint and that the E0 sidecar's bytes are unchanged across the acquisition |
 | **B3** | `epl/schema.py:52-53` `TEAMS_PER_SEASON = 20` / `MATCHES_PER_SEASON = 380`; `epl/validate.py:85-109` asserts 380 matches, 20 clubs, 19 opponents each. E1 is 24 / 552 / 23 | The E1 validator is a **division-parameterised copy** in `epl/lowerdiv.py` at (24, 552, 23), applying the identical check list. `epl/schema.py` and `epl/validate.py` keep their E0 constants and their E0 callers unchanged. A season that fails any check **refuses**; it is not dropped and it is not repaired |
 | **B4** | `epl/teams.py` holds **36** registered clubs and **97** indexed spellings (measured); every Championship-only club resolves to `None` | The registry gains an entry per E1 club **before any fit**, as data, in `epl/teams.py` — the one file outside the write set this document touches, and it is touched because a second registry would be a second source of truth for club identity, which is precisely the defect §8.9 exists to design out. `_build_index` (`epl/teams.py:109-121`) already refuses a fold collision at import, so a Championship spelling whose fold collides with a registered one **blocks everything at import time**, loudly. The acquisition pass therefore **enumerates every E1 spelling and its fold BEFORE the registry is written**, and publishes the enumeration (§8.2). A committed test re-resolves the pinned E0 archive's `home_team_raw` / `away_team_raw` through the enlarged registry and asserts **every E0 key is unchanged** |
-| **B5** | **THE PHANTOM-CLUB HARD FAILURE.** `epl/fit.py:157-158` does `played["home_key"].astype(str)`, so a null key becomes the literal string `"None"` and **every unregistered Championship club silently merges into one mega-club with its own attack and defence, and the fit looks healthy.** Unreachable today (all 35 observed E0 spellings resolve); live the instant E1 lands | `epl/fit.py` is PROTECTED and is **not edited**. Instead: **a null key must REFUSE, never stringify.** `epl.lowerdiv.to_store_frame` raises **`PhantomClub`** on any null `home_key` or `away_key` — naming the season, the date and the raw spelling — and only then delegates to `epl.fit.to_store_frame` for the projection, so there is exactly one projection and the refusal strictly precedes it. `epl.lowerdiv.build_store_e1` refuses on the combined frame before calling `epl.fit.build_store(frame, root=…)`. **Two committed tests, both mandatory:** one asserts `PhantomClub` fires on a synthetic frame with one null key; the other asserts that `epl.fit.to_store_frame` fed the same frame *still* produces the string `"None"` — the hazard is documented as live in the protected module and closed by refusal upstream, not by a fix we may not make. In addition the E1 build is **gated** on `manifest_e1["issues"] == []` and on an empty unresolved-spelling list in `team_name_mapping_e1.json` |
+| **B5** | **THE PHANTOM-CLUB HARD FAILURE.** `epl/fit.py:157-158` does `played["home_key"].astype(str)`, so a null key becomes the literal string `"None"` and **every unregistered Championship club silently merges into one mega-club with its own attack and defence, and the fit looks healthy.** Unreachable today (all 35 observed E0 spellings resolve); live the instant E1 lands | `epl/fit.py` is PROTECTED and is **not edited**. Instead: **a null key must REFUSE, never stringify.** `epl.lowerdiv.to_store_frame_e1` raises **`PhantomClub`** on any null `home_key` or `away_key` — naming the season, the date and the raw spelling — **before** it projects, so the refusal strictly precedes any stringification on this experiment's own call graph. **Two committed tests, both mandatory:** one asserts `PhantomClub` fires on a synthetic frame with one null key; the other asserts that `epl.fit.to_store_frame` fed the same frame *still* produces the string `"None"` — the hazard is documented as live in the protected module and closed by refusal upstream, not by a fix we may not make. In addition the E1 build is **gated** on `manifest_e1["issues"] == []` and on an empty unresolved-spelling list in `team_name_mapping_e1.json`. **The invariant is scoped, not global** (§5.6): the live hazard remains in `epl.fit.to_store_frame` and its existing callers — the incumbent store builder and `epl.walkforward.point_in_time_canary` reach it directly — and this document may not claim a repository-wide property it does not enforce |
 | **B6** | `epl/parse.py:145` `_match_id = sha256("{season_code}\|{date}\|{home_key}\|{away_key}")[:16]` carries no division, and the two archives merge into one store keyed on `match_id` | E1 ids are composed by a **new recipe used only for E1 rows**: `sha256("{division}\|{season_code}\|{date}\|{home_key}\|{away_key}")[:16]`. E0 ids are untouched and byte-identical. A committed test asserts the E0 and E1 id sets are **disjoint** on the built archives, and `E1Leak` fires if an E1 id is ever found in an E0 artifact |
+| **B7** | **THE PROJECTOR RELABELS EVERY ROW.** `epl/fit.py:72-80` sets `TOURNAMENT_LABEL = "Premier League"` and `:151-163` writes `"tournament": TOURNAMENT_LABEL` unconditionally; `build_store` (`:194-203`) records `source_version = paths.rel(paths.MATCHES_PARQUET)`. **Delegating the E1 projection to that path would label every Championship row "Premier League" and attest the E0 archive as its source** — the union store §2.1 specifies could not be produced | The E1 half is projected by a **lowerdiv-owned projector**, `epl.lowerdiv.to_store_frame_e1`, which produces the identical column set and identical dtypes but preserves `tournament = "EFL Championship"` and `city = home_key`, and is written by `epl.lowerdiv.build_store_e1` **directly** through `wcmodel.data.store.BitemporalStore.write` (a read-only import; `src/` is not edited) with `source = "epl.lowerdiv"` and `source_version` naming `data/epl/matches_e1.parquet` and its digest. **The E0 half is unchanged**: it is projected by protected `epl.fit.to_store_frame` exactly as the E0 store is, so the union store's E0 rows are value-identical to the E0 store's, which §3.2's parity check asserts column by column. A committed test reads back every row of a synthetic union store and asserts the division label and source provenance of each half through the real build path |
+
+#### THE ACQUISITION IS TWO PASSES, NOT ONE, AND THE ORDER IS FORCED
+
+v1 specified one acquisition pass that fetched, parsed, resolved, validated and
+wrote the archive, and also required the club-spelling enumeration to be
+published **before** `epl/teams.py` was written. **That is not executable, and
+the repository says why.** An unregistered spelling resolves to `None`
+(`epl/parse.py:185-201` retains the row and records an issue); a null club key
+fails validation immediately (`epl/validate.py:92-96` adds a failed
+`teams_resolved` check and returns); and under B3's ruling a season that fails
+any check refuses. One pass cannot discover the names, wait for a registry
+commit, and then resolve, validate and write. **So the acquisition is split, and
+each half has its own marker, its own products and its own failure law:**
+
+> **A0 — FETCH AND CENSUS. Network, no resolution, no archive.** Fetches the
+> twelve E1 season CSVs under B1/B2's rulings (cache-first, hash-pinned, refusing
+> a byte change on a cached file), writes `data/epl/raw/E1_{code}.csv` and
+> `data/epl/raw/provenance_e1.json`, and publishes the **outcome-blind spelling
+> census**: every distinct `HomeTeam`/`AwayTeam` string, its normalised form, its
+> index fold, its per-season presence, and the fold-collision check's result
+> against the current registry. **A0 reads no score column at all** — a committed
+> test asserts the census function's input frame is projected to the date and
+> team columns before it is touched, and that no goal column reaches it. A0
+> writes no parquet, resolves no name and builds nothing.
+>
+> **THE REGISTRY COMMIT — between the passes, by hand, against the published
+> list.** `epl/teams.py` gains one entry per E1 club, written against A0's
+> measured census rather than a guessed one. A fold collision is resolved by
+> **refusing**, never by renaming a club (§10).
+>
+> **A1 — PARSE, RESOLVE, VALIDATE, WRITE. No network.** Re-reads the cached
+> CSVs, re-verifies each against A0's recorded digest, parses under B6's id
+> recipe, resolves every name through the enlarged registry, validates under B3
+> at (24, 552, 23), refuses under B5, and writes `data/epl/matches_e1.parquet`,
+> `data/epl/manifest_e1.json` and `data/epl/team_name_mapping_e1.json`. An
+> unresolved spelling at A1 is `AcquisitionIncomplete`: it means the registry
+> commit was wrong, and the remedy is to fix the registry and re-run A1 — never
+> to drop the season and never to null the club.
+>
+> **A1 is the only half that may be re-run**, because it is a pure function of
+> the cached bytes and the registry, it fetches nothing, and re-running it after
+> a registry correction conditions on nothing but a spelling. **A0 runs once**
+> and its marker is terminal.
 
 **What the acquisition publishes, in this document, BEFORE the freeze block is
 rendered** (§8.2, appended as a dated §8.10 note, and refused as a freeze
-precondition if absent): the twelve fetch records with URL, byte size, SHA-256
-and fetch time; the per-season validation report (row count, club count,
-opponent counts, unplayed count) with every failure named; the **complete
-distinct-club census and spelling set** with each spelling's index fold and the
-collision check's result; the count and identity of any unmapped name; the E1
-goal rate against E0's, measured; and the E1 archive's SHA-256, row count and
-byte size, which the freeze block then pins.
+precondition if absent) — **and the list is an allow-list, not a minimum**: the
+twelve fetch records with URL, byte size, SHA-256 and fetch time; the per-season
+**structural** validation report (row count, club count, opponent counts,
+unplayed count) with every failure named; the **complete distinct-club census and
+spelling set** with each spelling's index fold and the collision check's result;
+the count and identity of any unmapped name; and the E1 archive's SHA-256, row
+count, byte size and per-season club census, which the freeze block then pins.
+
+> **NO OUTCOME SUMMARY OF THE TREATMENT DATA MAY BE PUBLISHED BEFORE THE FREEZE,
+> AND THE GOAL RATE IS THE CASE THAT MATTERS.** v1 required the acquisition pass
+> to measure "the E1 goal rate against E0's" and publish it in this document
+> before the freeze block existed. That is a summary of the treatment's own
+> outcomes, seen by the author while the operative law is still editable and
+> while the guard that binds this file's bytes has no reference blob yet — and
+> v1's own §2.2 then let it license a judgement ("if it differs *materially*",
+> unthresholded, "that is a finding for a later preregistration"). **The goal
+> rate moves after the freeze**: it is computed and published in
+> `reports/epl_lowerdiv_result.md` (§9.4), not here. `--freeze-block` **refuses**
+> if the §8.10 note carries any field outside the allow-list above, and the
+> allow-list contains no scores, no goal counts, no goal rates, no result
+> distribution and no derived outcome statistic of any kind. Structural counts —
+> rows, clubs, opponents, unplayed fixtures — are not outcome summaries and are
+> the only census this document is scoped by.
 
 **If the acquisition fails any of its own checks, this preregistration is not
 run.** A season that will not validate is not silently excluded: §10 makes
 dropping one an invalidation, and the remedy is a new document scoped to what the
 source actually publishes — the same remedy widening v2 pre-stated and then had
-to take.
+to take. **Abandonment publishes as an outcome**: if A0 or A1 refuses and the
+experiment is not run, that fact and its cause are published as a dated §8.10
+note and this document is closed, rather than quietly replaced by an
+E1-informed successor.
 
 ---
 
@@ -349,10 +506,12 @@ Three, each with a reading direction fixed now.
 1. **Second-tier evidence may be worse than no evidence.** The Championship is a
    different competition: different opponent quality, different tempo, different
    goal rate. A club's attack parameter estimated largely from E1 matches is an
-   estimate of its E1 attack, and the fixed offset δ (§2.2) prices the *centre*
-   of the league gap but not its *dispersion*. If the treatment worsens the 85
-   thin fixtures, that is the hypothesis this bullet names, and the result
-   document must say so in these words rather than attribute the sign to noise.
+   estimate of its E1 attack, and the fixed bridge `delta_rating` (§2.2) prices
+   an assumed *centre* for the league gap but not its *dispersion* — and the
+   shared panel additionally pools the two divisions' scoring level and home
+   advantage (§2.2). If the treatment worsens the 85 thin fixtures, that is the
+   hypothesis this bullet names, and the result document must say so in these
+   words rather than attribute the sign to noise.
 2. **The improvement may be an artefact of the cold-start path dissolving.**
    §2.3 states the mechanism and §3.1 measures it. A promoted club with 46 prior
    E1 matches is no longer cold-start, so `epl/dcfit.py:171-191 cold_start_clubs`
@@ -379,9 +538,10 @@ Three, each with a reading direction fixed now.
   (v3 §1.3). This experiment's risk is the opposite: importing *confident* but
   *mis-levelled* evidence. §1.2's bullet 1 is that risk stated.
 * **What is shared, and it is shared deliberately:** the population, the
-  estimand's shape, the resampling, three of the five gates and the table
-  census — because direct comparability with `−0.00413` is the point. §6.4 is
-  the honest account of what that comparability costs in power.
+  estimand's shape, the resampling, three of the four deciding gates and the
+  table census — because direct comparability with `−0.00413` is the point.
+  §6.4 is the honest account of what that comparability costs in power, and
+  §4.0 is the account of the one gate the refounding stopped sharing.
 
 ### 1.4 What this design LOSES relative to its predecessor, stated as a loss
 
@@ -459,7 +619,11 @@ is a lie in the taxonomy and it moves the internal Elo K multiplier as a side
 effect. Both labels map to `"other"`, deliberately, and the E1 mask of §2.2's
 secondary is built by joining `mp["match_id"]` against the E1 parquet — never off
 a panel column, because `to_match_panel` (`src/wcmodel/model/panel.py:33-36`)
-selects nine columns and drops everything else.
+selects nine columns and drops everything else. **The label survives only because
+the E1 half is projected by this experiment's own projector** (§0.6 B7):
+protected `epl.fit.to_store_frame` overwrites `tournament` with
+`TOURNAMENT_LABEL = "Premier League"` on every row it touches, so delegating the
+E1 projection to it would silently erase the division this clause names.
 
 **The write set is closed** (§8.3): all code lands in `epl/lowerdiv.py` and
 `epl/tests/test_lowerdiv.py`, plus registry data in `epl/teams.py` under B4's
@@ -470,6 +634,16 @@ season ledgers and the pinned corpus are **not written**.
 `PYTHONPATH=src scripts/oa_lock.py` must print `LOCK VALID` after every commit
 this work produces — checked, not assumed.
 
+**`epl/lowerdiv.py` is built in two committed stages, and the order is the one
+§0.6 forces.** Stage 1 is the **acquisition surface alone** — `fetch_e1`, the
+census, the parameterised validator, the id recipe, the projector and the
+registry tooling — written, tested and audited, and committed **before A0 runs**,
+because A0's command cannot execute a module that does not exist. Stage 2 is
+every experiment surface: the anchor, the store builder, the fit legs, the table
+leg, the estimator, the gates and the lifecycle. The freeze block hashes the
+finished file, not the stages; §8.3 states where each stage sits in the
+lifecycle.
+
 ### 2.2 THE CALIBRATION RULING
 
 `epl/anchor.py:114-122 AnchorState.z` **raises `KeyError` for any club with no
@@ -479,10 +653,33 @@ acquisition pass finds — therefore raises on the first fit unless every
 second-tier club has a rating on the E0 z-scale. The
 calibration is not decoration; it is the thing that makes the fit run.
 
-#### PRIMARY — (a) a fixed league-strength offset, δ = −75.0, frozen by citation
+#### PRIMARY — (a) a fixed league-strength BRIDGE, `delta_rating` = −75.0, frozen by citation
 
-> **The two divisions' centres are exactly `δ = −75.0` rating points apart, and
-> every crossing in either direction is priced by that one constant.**
+> **THE BRIDGE ASSUMPTION, named as an assumption.** This experiment prices every
+> crossing in either direction by one constant, `delta_rating = −75.0` rating
+> points, and **treats the two divisions' centres as if they were exactly that
+> far apart.** That is a modelling assumption this document adopts and does not
+> validate. It is not an arithmetic identity, it is not an estimate of the
+> unconditional gap between the two ladders, and it is not what the number was
+> chosen to mean.
+
+**The symbol is `delta_rating` throughout — prose, schemas, code and tests — and
+it is never written `δ`.** §6's power grid sweeps a *different* quantity, an RPS
+effect size, and that one is `mu_rps`. v1 wrote both as `δ`; units disambiguated
+them for a human and nothing disambiguated them for an implementation.
+
+> **WHAT `−75.0` ACTUALLY IS IN THE REPOSITORY, AND WHY THAT MATTERS HERE.**
+> `epl/elo.py:29-44` states its meaning in full: it is a **destination seed for a
+> selected promotion cohort** — "PROMOTED CLUBS ARE SEEDED BELOW THE DIVISION
+> MEAN … Seeding them AT the mean would assert that a club arriving from the
+> second tier is an average Premier League club" — and, with the carryover rule,
+> a **division-mean stabilisation device**: "re-seeding 3 clubs at `mean + offset`
+> roughly cancels that upward drift". It was fitted to the clubs that go *up*,
+> conditional on having earned promotion. **It was never an estimate of the
+> difference between the two ladders' centres, and it was never used in the
+> reverse direction.** This experiment uses it as both. That is a new assumption
+> wearing an old number's authority, and the consequences run all the way into
+> what the estimand may be read as saying (§2.3).
 
 Every constant of the construction, frozen here:
 
@@ -497,14 +694,57 @@ Every constant of the construction, frozen here:
    `r_E1(t, C)` on the second-tier ladder:
 
    ```
-   r_E0(t, C)  =  ( r_E1(t, C) − mean_E1(C) )  +  ( mean_E0(C) + δ )
+   r_E0(t, C)  =  ( r_E1(t, C) − mean_E1(C) )  +  ( mean_E0(C) + delta_rating )
    ```
 
    where `mean_E1(C)` and `mean_E0(C)` are the two divisions' means over the
    clubs that completed the most recent season of each division before `C` —
    **exactly the `division_mean` `epl/elo.py:361` already computes**, on each
    archive separately. A club's position *within* its own division is preserved
-   exactly; the division's centre sits δ below the top flight's.
+   exactly; the division's centre is *assumed* to sit `delta_rating` below the
+   top flight's.
+
+2b. **THE SOURCE-LADDER RESOLVER — total, and stated because the fit demands
+   totality.** `epl/dcfit.py:261-266` calls `state.elo_z(teams)` on the whole
+   panel team set and `epl/anchor.py:114-122` raises for any club without a
+   rating, so **every club in Arm A's team index must resolve to exactly one
+   source ladder at every cutoff.** A club with history in both divisions is the
+   ordinary case, not the exception, and v1 did not say which ladder wins. The
+   rule, total over every membership and crossing history:
+
+   | case, evaluated at cutoff `C` | source rating |
+   |---|---|
+   | the club's **most recent played match strictly before `C` was an E0 match** | its **E0 ladder** rating at `C`, unmapped — it is already on the E0 scale |
+   | the club's **most recent played match strictly before `C` was an E1 match** | its **E1 ladder** rating at `C`, mapped by point 2 |
+   | the club has **no played match in either archive before `C`** | it cannot be in the team index — the index is built from the panel and the panel is built from pre-cutoff played matches — so no rating is requested. If one is requested anyway, **`LadderBoundaryMismatch`**; it is not defaulted to either mean |
+
+   **Repeated crossings need no extra rule**: "most recent division played" is
+   evaluated at each cutoff independently, so a club that goes up, down and up
+   again is priced from whichever ladder it was last on. A committed test asserts
+   the resolver is total over the union team index at all 212 openings, that
+   exactly one branch fires per club-cutoff, and that a club present in both
+   archives in the same season raises rather than resolving.
+
+2c. **THE Z-SCALE IS ARM B'S, AND THAT IS A CHOICE THIS DOCUMENT MAKES
+   EXPLICITLY.** `epl/anchor.py:213-216` computes `mean` and `sd` **over the
+   teams it is asked for** — `r = np.array([ratings[t] for t in teams]);
+   mean = np.mean(r); sd = np.std(r)` — and `elo_z` divides by that `sd`. Arm A
+   asks for a union team set roughly two and a half times the size of Arm B's, so
+   a bare call **re-centres and rescales the whole z-prior**, and every E0 club's
+   z-score moves because other clubs were added. Mapping raw E1 ratings onto an
+   E0-centred raw scale does not survive that: the treatment would silently
+   include a renormalisation of the incumbent's priors.
+
+   **The ruling:** `epl.lowerdiv.CrossLeagueAnchor` constructs the `AnchorState`
+   for Arm A **directly**, with `mean` and `sd` set to the values protected
+   `epl.anchor.Anchor` returns for **Arm B's E0 team set at the same cutoff** —
+   the reference scale, frozen per cutoff, identical in both arms. `epl/anchor.py`
+   is not edited; `AnchorState` is constructed through its own public
+   constructor. A committed test asserts that at every one of the 212 openings
+   the two arms' `(mean, sd)` are bit-identical, and that every E0 club's `elo_z`
+   under Arm A equals its `elo_z` under Arm B to `1e-12` — **so the only thing
+   the treatment moves on the E0 clubs' priors is nothing at all**, and every
+   z-score difference between the arms belongs to a club the E1 archive added.
 3. **THE E1 SEASON BOUNDARY — written out here, because the code cannot get it
    right on its own.** The two ladders are independent and **no rating is carried
    across a division boundary in either direction.** `epl.elo._open_season`
@@ -518,52 +758,105 @@ Every constant of the construction, frozen here:
    `epl/lowerdiv.py` classifies every E1 arrival explicitly from the two
    archives' own season memberships:
 
+   **The three classes are named for what the data proves, not for where a club
+   came from.** v1 called the third class "arrived from below (League One)";
+   absence from both observed divisions last season does not prove League One
+   provenance — a club returning after a multi-season gap, or one previously in
+   E0 and long gone, is merely outside the two divisions this experiment
+   observes. The labels are corrected accordingly and are the schema's own
+   strings:
+
    | arrival at an E1 season boundary | classification | seed |
    |---|---|---|
-   | in the previous E0 season, not the previous E1 season | **relegated from E0** | `mean_E1(C) − δ` = `mean_E1 + 75` |
-   | in neither previous season | **arrived from below (League One)** | `mean_E1(C) + δ` = `mean_E1 − 75` — `epl.elo`'s own rule, unchanged |
-   | in the previous E1 season | **continuing** | `mean_E1 + carryover · (r − mean_E1)`, `carryover = 1.0` — `epl.elo`'s own rule, unchanged |
+   | in the previous E0 season, not the previous E1 season | **`from_E0`** | `mean_E1(C) − delta_rating` = `mean_E1 + 75` |
+   | in neither previous season | **`outside_observed_divisions`** | `mean_E1(C) + delta_rating` = `mean_E1 − 75` — `epl.elo`'s own rule, unchanged |
+   | in the previous E1 season | **`continuing`** | `mean_E1 + carryover · (r − mean_E1)`, `carryover = 1.0` — `epl.elo`'s own rule, unchanged |
 
    And on the E0 side, which this experiment does **not** touch, a club promoted
-   from E1 keeps entering at `mean_E0 + δ`: `epl.elo`'s existing promoted seed,
-   unchanged, no new rule. **One constant, δ = −75.0, both directions, no second
-   parameter** — the relegation seed is the same number with its sign read the
-   other way, which is the arithmetic identity of "the centres are 75 points
-   apart."
+   from E1 keeps entering at `mean_E0 + delta_rating`: `epl.elo`'s existing
+   promoted seed, unchanged, no new rule. **One constant, both directions, no
+   second parameter** — and the reverse seed is the same number with its sign
+   read the other way **because the bridge is assumed symmetric**, not because
+   any identity makes it so.
+
+   **`from_E0` DISCARDS AVAILABLE FORM, and that is the choice being made.** A
+   club relegated straight out of the top flight has a live E0 rating, earned in
+   the season that just ended, and this rule throws it away and reseeds the club
+   at `mean_E1 + 75`. The incumbent's stale-rating rationale does not cover it:
+   `epl/elo.py:38-44` concerns a club **returning** to E0 after an unobserved
+   Championship spell — "remembered from before the evidence we do not have" —
+   and a direct relegation has no such gap. The reset is chosen anyway, for one
+   stated reason: carrying an E0 rating across the boundary would mix the two
+   ladders' scales inside the E1 ladder, which is the one thing point 3 exists to
+   prevent. **It is a cost, it is not free, and §11 carries it as a limitation.**
+   Multi-season absences and repeated crossings fall out of the same rule with no
+   extra clause: classification is re-evaluated at every boundary from the two
+   archives' own memberships.
 
    **A committed test asserts the classification against the two archives**: for
-   every E1 season boundary after the first, the *relegated* set equals
+   every E1 season boundary after the first, the `from_E0` set equals
    `E0(prev season) − E0(this season)` computed from the pinned E0 archive's own
-   memberships, and the *arrived-from-below* set is disjoint from it. The first
-   E1 season (2014/15) has no boundary and every club starts at
+   memberships, and the `outside_observed_divisions` set is disjoint from it. The
+   first E1 season (2014/15) has no boundary and every club starts at
    `initial_rating`, exactly as `epl.elo`'s first-season branch already does.
    A club the two archives place in both divisions in one season, or an arrival
    the rule cannot classify, raises **`LadderBoundaryMismatch`** and stops the
    ladder; it is not repaired silently and it is not defaulted to either seed.
-4. **δ is NOT re-estimated, and the refusal is in the law because the code cannot
-   catch it.** Estimating δ from the ~66 promotion/relegation crossings in the
-   twelve-season window would read outcomes inside the scoring window and make δ
-   a fitted parameter wearing a hyperparameter's name. `epl/windows.py:74-87
-   assert_tuning_only` exists to catch exactly that — **and it keys on season
-   strings, so E1 rows carrying the label `"2019/20"` pass through it
-   undetected.** The guard cannot see this leak. The refusal is therefore
-   preregistered: **δ = −75.0, from `epl/config_frozen.json`'s `chosen`
-   block, is not swept, not tuned, not re-derived, and not sensitivity-tested as
-   a deciding quantity.** A future document that fits δ must say its choice was
-   informed by these numbers and carries exploratory standing only.
+4. **`delta_rating` is NOT re-estimated, and the refusal is in the law because no
+   guard is looking for it.** Estimating the bridge from the ~66
+   promotion/relegation crossings in the twelve-season window would read outcomes
+   inside the scoring window and make it a fitted parameter wearing a
+   hyperparameter's name. The refusal is therefore preregistered:
+   **`delta_rating` = −75.0, from `epl/config_frozen.json`'s `chosen` block, is
+   not swept, not tuned, not re-derived, and not sensitivity-tested as a deciding
+   quantity.** A future document that fits it must say its choice was informed by
+   these numbers and carries exploratory standing only.
 
-**Where δ comes from and what that is worth.** It is the repository's existing,
-data-chosen estimate of the league gap in Elo points: tuned on 2014/15–2018/19
-only, then frozen, and worth 0.0030 RPS — the largest single configuration effect
-ever measured on this data (`epl/fit.py:88-91`). Its live arithmetic is on the
-record at `epl/liveanchor.py:11-16`: Hull's stale rating 1398.9, Ipswich's
-1411.1, division mean 1594.6, promoted seed 1594.6 − 75 = 1519.6.
+   > **THE `assert_tuning_only` CLAIM v1 MADE IS BACKWARDS, and the correction
+   > matters because v1 leaned on it.** v1 wrote that the guard "keys on season
+   > strings, so E1 rows carrying the label `2019/20` pass through it
+   > undetected." It does not. `epl/windows.py:71-86` intersects the seasons
+   > **present in the frame** with `SCORE_SEASONS ∪ EXCLUDED_SEASONS` and raises
+   > on any hit; `2019/20` is the first member of `SCORE_SEASONS`, so exactly that
+   > row is what it catches. **The real limitations are two, and neither is the
+   > one v1 named:** the guard cannot distinguish divisions, so it cannot tell an
+   > E1 tuning frame from an E0 one; and it protects only the call paths that
+   > invoke it, so a bridge estimated outside those paths is unseen. This
+   > document's refusal is therefore a *law*, enforced by §10 and by the
+   > public-surface closure of §8.6, and it is not delegated to a guard that
+   > behaves differently from the way v1 described.
 
-**What δ does and does not do.** It is a *rating* offset feeding a *prior mean*
-at `k_att = k_def = 0.6`. It shifts the prior, not the likelihood. If the E1 rows
-in the likelihood disagree with δ, the posterior overrides it — which is the
-honest reading of "give the club real evidence," and is stated here so it cannot
-be presented later as either a bug or a subtlety discovered after the fact.
+**Where `−75.0` comes from and what that is worth — the provenance, corrected.**
+It is the repository's frozen, data-chosen promoted seed: tuned on 2014/15–
+2018/19 only, then frozen. **Its tuning-window contrast against zero is
+`0.001309` RPS** (`epl/config_frozen.json`, `delta_vs_chosen`), and that is the
+number this document may cite as the offset's measured worth on the window it was
+chosen on. **The `0.0030` figure is a different quantity and v1 cited it as this
+one**: it is `reports/epl_baseline.md:147-150`'s sensitivity, 0.2011 → 0.2041,
+measured on an **already-observed scoring window**. `epl/windows.py:31-39` says
+the relevant thing out loud — the scoring window "is blind with respect to the
+Bayesian model and NOT blind with respect to Elo" — so `0.0030` is a previously
+observed E0 scoring-window sensitivity, not fresh authority for a new bridge
+role. Both numbers are reported; neither licenses the bridge. Its live arithmetic
+is on the record at `epl/liveanchor.py:11-16`: Hull's stale rating 1398.9,
+Ipswich's 1411.1, division mean 1594.6, promoted seed 1594.6 − 75 = 1519.6.
+
+**What `delta_rating` does and does not do.** It is a *rating* offset feeding a
+*prior mean* at `k_att = k_def = 0.6`. It shifts the prior, not the likelihood.
+If the E1 rows in the likelihood disagree with it, the posterior overrides it —
+which is the honest reading of "give the club real evidence," and is stated here
+so it cannot be presented later as either a bug or a subtlety discovered after
+the fact.
+
+**THE TREATMENT ALSO POOLS TWO NUISANCES ACROSS THE DIVISIONS, and refusing
+option (b) is what makes that so.** `src/wcmodel/model/scoreline.py:178-180,
+216-217` carries **one `mu` and one `home_adv` for the whole panel.** Adding E1
+rows to that panel therefore estimates a single scoring level and a single home
+advantage over both divisions, whatever the Championship's own levels are. The
+treatment is not "E1 evidence with everything else held fixed": it is **E1
+evidence, plus a symmetric ±75 bridge, plus pooled scoring level and pooled home
+advantage** — one package, tested as one thing. §2.3's estimand reading direction
+is written to say exactly that and nothing more.
 
 **src diff: zero bytes.** The construction lives entirely in `epl/lowerdiv.py`.
 
@@ -578,6 +871,7 @@ A second arm, **`dc_e1_gamma`**, identical to `dc_e1` except that after
   `model.widening.strength = 0.5`. **A γ swept over a grid is
   selection-on-outcome and is refused** — widening v3 §2.1's language on `e*` is
   the precedent and it is adopted verbatim here.
+* **`src` diff: zero bytes**, exactly as for the primary arm.
 * **The primary arm is γ = 1.0**, which is the null and a hypothesis rather than
   a knob: E1 evidence enters at exactly the decayed weight the likelihood already
   gives every match, with no second discount, because a discount is a second free
@@ -616,27 +910,43 @@ Out of scope, and the reasons are three:
    Paying a lock version and a moved config digest for a goal-rate nuisance
    parameter is not this experiment's trade.
 
-**The acquisition pass measures the E1 goal rate against E0's and publishes it
-(§0.6).** If it differs materially, that is a finding for a later
-preregistration, and this document does not pre-authorise one.
+**The E1 goal rate against E0's is measured and published AFTER the freeze, in
+the result document (§0.6, §9.4).** It is an outcome summary of the treatment
+data and it may not be seen while this law is editable. Whatever it turns out to
+be, it is a finding for a later preregistration, and this document does not
+pre-authorise one — and because it is now read after the freeze, it cannot have
+shaped a single clause above it.
 
 ### 2.3 The arms and the estimand
 
 **Both arms are two real fits at the same opening.** At each of the **212 block
 openings of the pinned corpus** — every one, not a subset; §4.4 and §3.2 are why
-— two fits run through the identical pipeline
-(`freeze.frozen_wcmodel_config()`, seed 20260611, `epl.dcfit.fit_epl` with
-`fast_panel=True`), differing in exactly two inputs:
+— two fits run through the identical pipeline (`freeze.frozen_wcmodel_config()`,
+seed 20260611, `epl.dcfit.fit_epl`), differing in exactly two inputs:
 
 * **Arm B — `dc_native`** — fit against the **E0-only** store root
-  `data/epl/fit/store/` with the incumbent `epl.anchor.Anchor` and the E0 feature
-  cache. This is the published object, refit.
+  `data/epl/fit/store/` with the incumbent `epl.anchor.Anchor` and the Arm-B
+  feature cache `layout().cache_b`. This is the published object, refit.
 * **Arm A — `dc_e1`** — fit against the **E1-informed** store root
-  `data/epl/fit/store_e1/` (E0 ∪ E1) with §2.2's cross-league anchor and the E1
-  feature cache `data/epl/fit/cache_e1/`. Only the block's E0 fixtures are
+  `data/epl/fit/store_e1/` (E0 ∪ E1) with §2.2's cross-league anchor and the
+  Arm-A feature cache `layout().cache_a`. Only the block's E0 fixtures are
   predicted.
 * **The delta** — `rps(Arm A) − rps(Arm B)` per fixture, `epl.score.rps` on the
-  corpus's `y`, rounded by the same `round(v, 8)`.
+  corpus's `y`. **The order of operations is frozen** (§3.2): probabilities are
+  rounded to 8 dp first, RPS is computed on the rounded probabilities, and the
+  subtraction is then rounded by `round(v, 8)`. A delta computed on unrounded
+  probabilities is a different statistic and is not this one.
+
+> **THE FAST PATH IS A CONTEXT, NOT A KEYWORD.** v1 named
+> "`epl.dcfit.fit_epl` with `fast_panel=True`". **`fit_epl` has no `fast_panel`
+> parameter** (`epl/dcfit.py:216-220`); the read-once fast path is established by
+> an outer `epl.fit.config_read_once(cfg)` context manager, which is how
+> `epl.walkforward.point_in_time_canary` (`epl/walkforward.py:491`) does it.
+> **Every fit of this experiment runs inside exactly one
+> `with epl_fit.config_read_once(cfg):` block per shard**, entered before the
+> first fit of the shard and exited after the last, and a committed test asserts
+> that no deciding fit runs outside one. An interface used as lifecycle law must
+> be callable as written.
 
 **`cold_start_clubs` is called with the E0 `matches` frame in BOTH arms**, so the
 season-membership question ("which clubs are in this season?") is answered by the
@@ -651,21 +961,55 @@ edited, and both are pre-stated here rather than discovered by the run:** Arm A'
 provisional set is not Arm B's, the 46-of-2,280 incumbent widened fixtures will
 not reproduce under Arm A, and that is expected rather than a refusal.
 
-> **THE ESTIMAND: the mean paired RPS delta, `dc_e1` minus `dc_native`, over the
-> 85 pinned thin fixtures of §0.5. Negative means the second-tier evidence
-> helps.**
+> **THE ESTIMAND: the mean MATCHED-FIXTURE RPS difference, `dc_e1` minus
+> `dc_native`, over the 85 pinned thin fixtures of §0.5.**
+>
+> **What a negative sign means, exactly.** Negative means **the whole treatment
+> package helped**: the E1 rows in the likelihood, *plus* the symmetric ±75
+> bridge of §2.2, *plus* the pooled `mu` and pooled `home_adv` that adding a
+> second division to one panel forces. **It does not identify "second-tier
+> evidence helps"**, because no arm of this design varies the bridge or unpools
+> the nuisances. The result document must state the sign in the package's terms
+> and may not attribute it to any component.
 
+* **"Matched-fixture", not "CRN-paired", and the distinction is load-bearing.**
+  The pairing this design actually guarantees is at match level: both arms score
+  the *same fixture* against the *same outcome*, so the difference is a paired
+  statistic. It is **not** fit-level common random numbers. Adding teams changes
+  the sorted team index (`epl/dcfit.py:261`) and therefore the dimension and
+  index placement of `att_raw`/`def_raw` (`src/wcmodel/model/scoreline.py:
+  209-210`), and ADVI consumes the same seed in a different-dimensional graph
+  (`src/wcmodel/model/inference.py:66-72`) — which promises no covariance
+  reduction and is not an independent draw either. §6's scenario C exists because
+  of this and is a sensitivity case, not a measurement.
 * **The population is fixed at 85 and no fixture may be dropped.** It is
-  §0.5's pin and it is not re-derived. **All 85 move** — there are no structural
-  zeros (§1.4), so the estimand's sign is not a known multiple of any subset's.
-* **The statistic** — the pooled mean over the 85 deltas.
-* **The primary interval** — `epl.score.block_bootstrap_ci`
-  (`epl/score.py:193`) on the 85 deltas, blocks = the pinned **62** `(season,
-  ISO week)` labels, `B = 10,000`, percentile, `alpha = 0.05`, resampling seed
-  **20260814**.
-* **The season interval** — same function, same `B`, same seed, blocks = the
-  **6 seasons**. Its job is to refuse a result carried by one season, and the
-  risk is quantified now: 2019/20 holds 26 of the 85.
+  §0.5's pin, joined on `match_id`, and it is not re-derived. **All 85 move** —
+  there are no structural zeros (§1.4), so the estimand's sign is not a known
+  multiple of any subset's.
+* **The statistic** — the pooled mean over the 85 differences.
+* **The season interval — THE DECIDING INTERVAL (§4.0).** `epl.score.block_bootstrap_ci`
+  (`epl/score.py:193`) on the 85 differences, blocks = the **6 seasons**,
+  `B = 10,000`, percentile, `alpha = 0.05`, resampling seed **20260814**. Its job
+  is to refuse a result carried by one season, and the risk is quantified now:
+  2019/20 holds 26 of the 85.
+* **The week interval — REPORTED, NEVER DECIDING (§4.0).** Same function, same
+  `B`, same `alpha`, same seed, blocks = the pinned **62** `(season, ISO week)`
+  labels. It is computed and published with every result and it decides nothing.
+* **BLOCK LABELS ARE REMAPPED TO ZERO-PADDED FIRST-APPEARANCE ORDINALS BEFORE
+  EVERY BOOTSTRAP CALL.** `epl.score.block_bootstrap_ci` does
+  `np.unique(labels, return_inverse=True)` (`epl/score.py:217`), which **sorts**,
+  and its fixed resample indices then attach to blocks in *sorted* label order.
+  Every block ordering in this document — the power construction, the estimand,
+  the collateral leg — is therefore expressed as an ordinal string
+  (`"00"`, `"01"`, …) assigned in first-appearance order over the frozen row
+  order, so **sorted order and first-appearance order are the same order by
+  construction** and the question cannot arise. *Measured, and recorded because
+  it narrows the defect:* for the 85 fixtures' 62 `(season, ISO week)` labels and
+  6 season labels the two orders **already coincide** (`2019/20|2019W32` …
+  `2024/25|2025W20` sorts chronologically), so the thin leg was never exposed;
+  for the corpus's 212 labels under §6.2's ascending-`match_id` row order they
+  **do not**, because first appearance is then a hash order. The remap closes
+  both and is asserted by a committed test.
 * **The collateral estimand** — the mean over all **2,280** fixtures, with its
   own 212-block week interval and its own 6-season interval. Unlike under
   widening this is **not** the estimand × 85/2280; every fixture moves, so it is
@@ -675,10 +1019,10 @@ not reproduce under Arm A, and that is expected rather than a refusal.
 keyword or environment variable may pass a different `B`, `alpha`, block
 definition, resampling seed, `n_sims` (20,000), simulation seed (20260611),
 chunk size, `MC_BOOT` (2,000), `MC_SEED` (20260831), `K` (200, §5.4), `SHARDS`
-(4), `δ` (−75.0), `γ` (0.5) or population into any deciding computation. §8.6's
-public-surface closure is where that sentence is made mechanical: a production
-path **RESOLVES** these from the modules §0.1 pins them in and carries no
-parameter for them at all.
+(4), `delta_rating` (−75.0), `γ` (0.5) or population into any deciding
+computation. §8.6's public-surface closure is where that sentence is made
+mechanical: a production path **RESOLVES** these from the modules §0.1 pins them
+in and carries no parameter for them at all.
 
 ### 2.4 The compute budget, stated so it cannot later become a reason to redesign
 
@@ -693,15 +1037,23 @@ not two predict passes off one posterior.**
 | the γ = 0.5 secondary arm: 62 openings × 1 arm | **62** | 0 |
 | protected `ArchiveRunner`, `dc_native` at all 32 priceable cells (the parity oracle) | **32** | 32 |
 | the new runner, control + treatment at all 32 priceable cells (two fits per cell) | **64** | 64 |
-| **the post-freeze experiment** | **592** | **96** |
+| **the three unpriceable cells re-attempted under Arm A** (§3.4 secondary 1) | **3** | **3** |
+| **the post-freeze experiment** | **595** | **99** |
+
+**The three retry fits are budget, not a footnote.** §3.4's first secondary
+re-attempts 2019/20 MW0, 2020/21 MW0 and 2023/24 MW3 under the E1-informed fit.
+Those cells carry no treatment fit — they are outside the 32 — so each needs a
+real fit and a real simulation. v1's table omitted them and totalled 592/96; the
+work was mandatory in §3.4 either way, so the totals are **595 fits and 99
+simulations**.
 
 **Wall clock, computed from measured rates and stated before the freeze.** The
 E0 cold rate is **57.24 s/fit** (`data/epl/fit/single_fit.json`, cutoff
 2025-01-25, 4,019 training matches, 35 teams). The E1-informed fits train on
 ≈ 2.45× the rows with ≈ 2.5× the team parameters; the budget assumes **150 s/fit**
-(2.6× the measured cold rate) and the acquisition pass's single-opening exercise
-(§8.4 step 2) measures the realised rate and publishes it. At ≈ 1.24 minutes per
-20,000-season simulation implied by the retro's recorded scale:
+(2.6× the measured cold rate) and **post-freeze Step 2's** single-opening
+exercise (§8.4 step 2) measures the realised rate and publishes it. At ≈ 1.24
+minutes per 20,000-season simulation implied by the retro's recorded scale:
 
 | leg | seconds | hours |
 |---|---:|---:|
@@ -711,12 +1063,29 @@ E0 cold rate is **57.24 s/fit** (`data/epl/fit/single_fit.json`, cutoff
 | canary (8) + single-opening (2) | 1,036 | 0.3 |
 | parity oracle: 32 fits + 32 simulations at ≈ 74 s | 4,213 | 1.2 |
 | table: 64 fits + 64 simulations | 11,393 | 3.2 |
-| **total** | **≈ 69,900** | **≈ 19.4** |
+| the three unpriceable-cell retries: 3 E1 fits + 3 simulations | 673 | 0.2 |
+| **total** | **70,550** | **19.6** |
 
-**Budget ≈ 20 hours, bounded by 30.** Every E1 featpanel key is a cold miss on
-the first run (the key hashes the `< cutoff` result set,
-`src/wcmodel/data/features.py:315-412`), so the warm-rate arithmetic that made
-the predecessor's 78 openings cost twelve minutes does not apply here.
+**Budget ≈ 19.6 hours, bounded by 30.** Every featpanel key is a cold miss on
+the first run in both arms (the key hashes the `< cutoff` result set and the
+current HEAD, `src/wcmodel/data/features.py:315-412`, and §0.1 gives this
+experiment its own two cache roots), so the warm-rate arithmetic that made the
+predecessor's 78 openings cost twelve minutes does not apply here.
+
+> **THE OVERRUN RULING, prestated with its threshold, because "bounded by 30" is
+> not an instruction.** Of the 595 fits, **314 are Arm-A (E1-informed) fits** —
+> 212 match-leg + 62 γ + 4 canary + 1 single-opening + 32 table treatment + 3
+> retries — and the remaining cost, at the measured E0 rate and the retro's
+> simulation scale, is **23,450 s**. The 30-hour bound is 108,000 s, so the
+> budget survives an Arm-A rate up to `(108,000 − 23,450) / 314` = **269 s/fit**.
+>
+> **Step 2 publishes the realised Arm-A rate, and Step 3 refuses to start if it
+> exceeds 269 s/fit.** The refusal is a **budget refusal**: it publishes, with the
+> measured rate and the projected total, as a `complete: false` marker and a
+> dated result document, and the experiment stops. **The run is then not thinned
+> and not restarted** — a re-scoped run is a new preregistration (§10). There is
+> no third option, and improvising one after seeing the clock is exactly the
+> move §2.4's next paragraph forbids.
 
 Shards run **sequentially** — the featpanel `.tmp` rename race in the locked path
 crashes parallel shards and the fix is held for lock-v11, which this document
@@ -744,11 +1113,15 @@ bar while the estimand misses it licenses nothing.
 
 ### 3.1 Reported, never deciding
 
-* **THE DISSOLVED POPULATION (§0.5's headline secondary).** For each of the 85
-  fixtures: `e_min` on the E0 archive (the pinned value), `e_min` on the
-  E1-informed archive, and the ratio. Plus the club-cutoff census: how many of
-  the 4,240 cells of widening v3 §0.4 have `e < 10` under each archive. Plus the
-  Hull / Coventry / Ipswich panel at the 2026/27 opener under both archives.
+* **THE E1 SUPPORT CENSUS (§0.5's replacement headline secondary).** For each of
+  the 85 fixtures: `e_min` on the E0 archive (the pinned value), and for each of
+  its two clubs the **count of E1 matches strictly before the cutoff** and the
+  **date of the most recent one**. Plus the club-cutoff census: how many of the
+  4,240 cells of widening v3 §0.4 have `e < 10` on the E0 archive **and** at
+  least one prior E1 match. Plus the Hull / Coventry / Ipswich panel at the
+  2026/27 opener: E0 `e`, E1 match count, last E1 date. **No `e` is computed on
+  any frame containing an E1 row, here or anywhere** (§0.5), so this census is a
+  count and never an evidence mass, and the two are never printed in one column.
 * **The cold-start census.** How many of the 15 cold-start club-seasons stop
   being cold-start under Arm A, and how many club-cutoff cells stop firing
   `few_games_flag` — the mechanism §1.2 bullet 2 and §2.3 name.
@@ -781,12 +1154,41 @@ probabilities to `1e-12` (`ScoreMismatch`), and each Arm-B fit's own recomputed
 provisional set must equal the ledger's recorded `provisional_teams` at that
 cutoff (`PredicateMismatch`).
 
+**THE FROZEN ORDER OF OPERATIONS, because "exact at eight decimals" is three
+different demands until it is written down.** Per fixture, in this order and no
+other: (1) `predict_1x2` returns float64 probabilities; (2) each probability is
+rounded by `round(p, 8)`; (3) the identity comparison against the corpus row is
+**exact equality on those rounded values**, no tolerance; (4) `epl.score.rps` is
+computed **on the rounded probabilities** and compared with the stored `dc_rps`
+to `1e-12` (`ScoreMismatch`); (5) the arm difference is formed from the two
+step-4 values and rounded by `round(v, 8)`. Steps 3 and 4 are different checks at
+different tolerances on purpose — one asks whether the forecast reproduced, the
+other whether the stored score matches the stored forecast — and v1 left the
+order between them, and the rounding, unstated.
+
 **The control runs first, and not one Arm-A prediction is produced until it
-passes.** A mismatch is most likely archive drift and is a STOP
-(`ControlMismatch`) either way. Max and mean `|Δp|` are reported even when zero.
+passes.** A mismatch is a STOP (`ControlMismatch`) whatever its cause. Max and
+mean `|Δp|` are reported even when zero.
+
+> **A STOP IS NOT A DIAGNOSIS, and v1 published only the label.** "Most likely
+> archive drift" does not distinguish archive drift from a stale store, a stale
+> feature cache, environment nondeterminism, or a harness defect — and the pinned
+> path depends on far more than `(cutoff, store, config)`: on this repository's
+> code, on the installed PyMC/PyTensor/NumPy versions, on BLAS behaviour and
+> thread count, and on the feature cache's contents and ordering. **On a
+> `ControlMismatch` the harness publishes, before it exits:** the raw and rounded
+> differences per offending fixture; the digests of the E0 archive, both store
+> roots, both feature-cache roots and the ledger; the **environment fingerprint**
+> of §8.6 (interpreter, package versions, BLAS vendor, thread environment); the
+> freeze-state and dependency-hash results; and a **cause-classification matrix**
+> naming which of {archive drift, store drift, cache drift, environment drift,
+> harness defect} each of those comparisons is consistent with. The stop stands
+> either way; what changes is that the reader can adjudicate it.
 
 The demand is exact for the reason the predecessors proved: the seed does not
-vary by cutoff, and a fit is a pure function of `(cutoff, store, frozen config)`.
+vary by cutoff, and a fit is a deterministic function of `(cutoff, store, frozen
+config)` **holding code and environment fixed** — which §8.6's dependency hash
+table and environment fingerprint are what make checkable rather than assumed.
 The supporting citation is narrow and true —
 `epl.walkforward.point_in_time_canary` (`epl/walkforward.py:450-460`) runs the
 whole pipeline this experiment runs and compares **probabilities**, with a
@@ -811,6 +1213,28 @@ loosened to any tolerance, (b) the `E1Leak` loop is disabled, or (c) the
 (`epl/fit.py:206`) runs on the **E1-informed** store at every opening, proving
 from the store itself that the latest training date is strictly before the
 cutoff day. `CutoffLeak` otherwise.
+
+**THE STORES ARE BOUND BY CONTENT, NOT BY ROW COUNT.** `epl.fit.build_store`
+(`epl/fit.py:194-197`) returns an existing store unchanged when
+`len(existing) == len(frame)` and the `match_id` sets match — so a store whose
+**scores, dates, teams, division labels or provenance** have moved is silently
+reused, and v1's resume key `cutoff|arm|seed|config_sha256` bound none of that
+either. Three rulings, all mandatory:
+
+1. **`epl.lowerdiv.build_store_e1` never takes that shortcut.** It rebuilds
+   unconditionally, or it verifies the existing table **column by column** against
+   the frame it would have written and refuses on any difference.
+2. **A canonical store digest is computed for each store root** — SHA-256 over
+   the canonical serialisation of every decision-relevant column
+   (`match_id, date, valid_as_of, observed_at, home_team, away_team, home_score,
+   away_score, tournament, neutral, city`) in ascending `match_id` order — and
+   the same is computed for the anchor's rating history and for the team index.
+3. **Those three digests are bound into the resume key** —
+   `cutoff|arm|seed|config_sha256|store_sha256|anchor_sha256|team_index_sha256` —
+   recorded on every ledger row, published in the evidence file, and re-verified
+   by `--verify`. In addition, the E1-informed store's **E0 subset must be
+   value-identical to the E0 store's rows** on all eleven columns; a difference is
+   `E1Leak`. A resume that cannot reproduce all three digests is not a resume.
 
 ### 3.3 The table-retro leg — the same 32-cell census, the same tie-aware machinery
 
@@ -849,11 +1273,13 @@ not exactly these 32.
 
 **Per cell: TWO fits, one per arm** — this is the change from the predecessor,
 where one posterior served both arms. The control fit is against the E0-only
-store, the treatment fit against the E1-informed store; **identical particle
-draws and identical RNG streams**, so the arms are CRN-paired at the sampler and
-the only divergences are the posterior and the provisional set. D2 stays
-static-within-fit and D12 stays per-fixture — the two standing open owner rulings
-this experiment does not touch.
+store, the treatment fit against the E1-informed store, and the simulation uses
+**common simulation indices and common RNG streams applied to two different
+particle books**: identical `streams(seed, chunk, fixture_ordinal)`, identical
+fixture ordinals, identical `n_sims`, drawn from posteriors that are not the
+same. **The particle VALUES are not identical and this document never says they
+are** — §5.5 sizes what that costs. D2 stays static-within-fit and D12 stays
+per-fixture — the two standing open owner rulings this experiment does not touch.
 
 **Both arms are labelled `dc_native` to `leaguesim`.** The provider *is*
 `DCNativeProvider` in both arms — a `ParticleBook` may not wear another arm's
@@ -881,23 +1307,39 @@ consequences, all ruled here rather than discovered by the run:
    harm would be reporting the absence of the experiment. The predecessor's other
    side — an untouched cell that moved — has no referent here and is **not**
    carried forward as a check that could never fail.
-3. **"E1-informed clubs" is a REPORTED field, not a gate population.** For each
-   cell, the clubs whose E1-informed evidence at that cutoff is non-empty while
-   their E0-only `e` is below 10.0 — computed from the **pinned E0 archive** by
-   the §0.3 recipe and from the E1 archive's date index, at the scheduled cutoff,
-   predicate strict `<`, values at 2 dp. It is published per cell and per label
-   so a reader can see where the treatment had the most to work with. **It
-   decides nothing and no gate is taken over it.**
+3. **"E1-informed clubs" is a REPORTED annotation, and it is OUT of the frozen
+   schedule.** For each cell, the clubs with at least one E1 match strictly
+   before that cutoff whose E0-only `e` is below 10.0 — the E0 `e` computed from
+   the **pinned E0 archive** by the §0.3 recipe, the E1 side a count off the E1
+   archive's date index (§0.5: no `e` on an E1-bearing frame), predicate strict
+   `<`, `e` values at 2 dp, clubs serialised as a **sorted list of canonical
+   keys**. It is published per cell and per label so a reader can see where the
+   treatment had the most to work with. **It decides nothing and no gate is taken
+   over it.**
 
-**The exact schedule is a pin, tuple by tuple**: `FROZEN_TABLE_SCHEDULE`,
-thirty-two `(season, cutoff_label, cutoff date, E1-informed clubs)` tuples,
-recomputed by §8.2's read-only pass from the pinned artifacts and the acquired E1
-archive, and frozen in the harness the freeze commit hashes, **together with the
-per-label CELL census `{MW0: 5, MW3: 6, MW6: 7, MW10: 7, MW19: 7}`**. An
-aggregate census alone permits a bogus same-label season or a cutoff moved by a
-week; the schedule does not. A departure from either is `MembershipMismatch`, and
-it is asked on every deciding path — `table_cells`, `run_parity_oracle`,
-`run_table`, `score_table` and `table_gate` each call it.
+> **THE DECIDING SCHEDULE IS THREE FIELDS, NOT FOUR.** v1 made the E1-informed
+> club list the fourth element of `FROZEN_TABLE_SCHEDULE` and then had every
+> deciding path validate that tuple — which put a nondeciding annotation,
+> derived from an archive that does not yet exist, inside a digest whose
+> mismatch stops the table leg. **`FROZEN_TABLE_SCHEDULE` is thirty-two
+> `(season, cutoff_label, cutoff_date)` triplets and nothing else**, recomputed
+> from the pinned corpus, the feasibility census and `epl.simretro`'s public
+> constants — **all committed, none of them E1** — so the deciding schedule is
+> derivable before the E1 archive exists and is frozen at the same moment as the
+> rest of the membership. The club annotation lives in a **separate secondary
+> object**, `e1_informed_clubs`, keyed by the same triplets, stamped
+> `decides: "nothing"`, excluded from every membership digest and from every
+> gate, and validated only for well-formedness.
+
+**The exact schedule is a pin, triplet by triplet**: `FROZEN_TABLE_SCHEDULE`,
+thirty-two `(season, cutoff_label, cutoff date)` triplets, recomputed by §8.2's
+read-only pass from the pinned artifacts, and frozen in the harness the freeze
+block hashes, **together with the per-label CELL census
+`{MW0: 5, MW3: 6, MW6: 7, MW10: 7, MW19: 7}`**. An aggregate census alone permits
+a bogus same-label season or a cutoff moved by a week; the schedule does not. A
+departure from either is `MembershipMismatch`, and it is asked on every deciding
+path — `table_cells`, `run_parity_oracle`, `run_table`, `score_table` and
+`table_gate` each call it.
 
 **The deciding horizon is MW6**, named here before any fit, on three grounds and
 with one of the predecessor's grounds explicitly retired:
@@ -948,7 +1390,10 @@ simulation of the leg. `TableIdentityBreak` on any disagreement.
    cold-start, not because the parameters got better** — and a result document
    that reports the dissolution without that attribution overstates the finding.
    These three cells are **not** added to this experiment's oracle or to any
-   gate; §10 makes adding one an invalidation.
+   gate; §10 makes adding one an invalidation. **They cost three real fits and
+   three real simulations, and §2.4's budget carries them**: they are outside the
+   32, so no treatment fit exists at them, and v1's budget table omitted the work
+   its own §3.4 made mandatory.
 2. **The Sunderland 2025/26 illustrative panel** (MW0, MW3, MW6 — the
    Hull-analogue cells), both arms: relegation probability, points mean, 5–95
    band. Zero decision weight, exactly as the predecessor treated it.
@@ -963,18 +1408,75 @@ simulation of the leg. `TableIdentityBreak` on any disagreement.
 
 ## 4. The adoption rule
 
+### 4.0 THE OWNER RULING THAT RE-FOUNDED THIS GATE FAMILY
+
+v1 of this document required five conjunctive gates, and its own §6 then measured
+that one of them — the 62-block week interval — would refuse the very effect the
+experiment exists to detect most of the time. The owner ruled on that, and the
+ruling is law here, quoted in full:
+
+> **Owner ruling, 2026-08-30, binding.** *"The gate family is RE-FOUNDED on the
+> prereg's own frozen power analysis. Gates that DECIDE: (i) the magnitude bar on
+> the pinned 85; (iii) the season-block CI upper < 0; (iv) the table-safety gate
+> (the 32-cell census, tie-aware joint estimator, precision regime); (v) the
+> corpus-harm gate. The week-block CI (old gate ii) is DEMOTED to a reported
+> diagnostic — published with its CI, never deciding — with the disclosed reason:
+> 62 blocks of heavy-tailed deltas make it the binding gate at 3.6x the measured
+> effect scale, it decided the predecessor by +0.0005, and a gate that would
+> refuse a true effect ~70% of the time measures the design, not the model. The
+> power analysis is the on-record basis; the demotion happens BEFORE any harness,
+> any ingest, any fit."*
+
+**Three things about that ruling matter for how this document must be read.**
+
+1. **The basis is on the record and is this document's own.** The demotion rests
+   on §6's frozen power construction — the same construction, the same seeds, the
+   same committed CSV — and on the predecessor's published verdict
+   (`reports/epl_widening_result.md`: gate (ii) `[−0.009620, +0.000485]`, a miss
+   by `+0.000485` on an effect four times the bar). It does not rest on any
+   number this experiment has produced, because this experiment has produced
+   none.
+2. **The timing is the whole point.** The demotion happens **before any harness
+   exists, before the E1 archive is fetched, and before a single fit** — so it
+   cannot be, and cannot be read as, a bar moved after a number. §10 keeps that
+   true in the other direction: any further change to §4 after a delta exists is
+   an invalidation.
+3. **Demoted is not deleted.** The week interval is computed at every result,
+   published with both endpoints, and reported in the evidence file and the
+   result document with the same prominence as the deciding intervals. What it
+   may not do is decide. §6.3 re-measures it under the refounded construction and
+   states what it would have cost.
+
+**The measured basis, re-run for v2 (§6.3), stated here so §4 carries its own
+justification.** At the predecessor's own measured effect `−0.00413` on this same
+population, the week interval's upper bound clears zero with probability
+**0.13 to 0.42** across scenarios A–C and the three correlation regimes — it
+refuses a real effect between **58% and 87%** of the time, and 90% at the
+illustrative D endpoint. At the mid scenario in the independent regime it refuses
+**70.8%** of the time, which is the ruling's "~70%". Its own 80%-power MDE is
+**1.65× to beyond 4.8×** the measured effect. The season interval, which now
+decides in its place, passes **0.14 to 0.49** over the same scenarios. A gate
+whose refusal rate is set by *where thin fixtures fall in the calendar* rather
+than by the size of the effect is measuring the design.
+
+**Where the ruling's "3.6x" came from, reconciled rather than left to look
+inconsistent.** The ruling cites the scale v1 published: v1's §6.3 reported a
+five-gate joint MDE of `−0.015027` at its most pessimistic row, which is 3.64×
+`−0.00413`. v2's construction fixes the row order, the block ordinals, the
+scenario-C constant and the season-correlation gap (§6.2), so the re-run figures
+above are the ones this document is bound by. **They do not weaken the ruling's
+basis; they widen it** — under season correlation the week interval's own MDE
+reaches 4.48× and beyond.
+
 ### 4.1 The rule
 
-> **ADOPT the E1-informed arm (as a shadow arm, §4.6) if and only if ALL FIVE:**
+> **ADOPT the E1-informed arm (as a shadow arm, §4.6) if and only if ALL FOUR:**
 >
 > **(i)** the point estimate of the estimand is `Δ ≤ −0.0010` RPS over the 85
 > pinned thin fixtures, **and**
 >
-> **(ii)** the 95% `(season, ISO week)` block bootstrap CI (62 blocks) excludes
-> zero — its upper bound is strictly `< 0`, **and**
->
-> **(iii)** the 95% season block bootstrap CI (6 blocks) also excludes zero,
-> **and**
+> **(iii)** the 95% season block bootstrap CI (6 blocks) excludes zero — its
+> upper bound is strictly `< 0`, **and**
 >
 > **(iv)** the table gate holds, in three parts, all required:
 >
@@ -990,23 +1492,42 @@ simulation of the leg. `TableIdentityBreak` on any disagreement.
 > > of every label enters its label's mean.
 > >
 > > **(iv-c) The significance clause, at MW6 only.** Gate (iv) **fails** if the
-> > MW6 mean is `> 0` **and** the lower bound of its 95% season-block interval
-> > (7 blocks, §5.3) is `> 0`.
+> > lower bound of the MW6 mean's 95% season-block interval (7 blocks, §5.3) is
+> > `> 0` — **whatever the sign of the point estimate.**
 >
 > **and (v)** the **collateral gate** holds, in two parts, both required:
 >
-> > **(v-a)** the mean paired RPS delta over **all 2,280 corpus fixtures** is
-> > **≤ +0.000075**, **and**
+> > **(v-a)** the mean matched-fixture RPS difference over **all 2,280 corpus
+> > fixtures** is **≤ +0.000075**, **and**
 > >
-> > **(v-b)** gate (v) **fails** if that mean is `> 0` **and** the lower bound of
-> > its 95% 212-block week interval is `> 0`.
+> > **(v-b)** gate (v) **fails** if the lower bound of that mean's 95% 212-block
+> > week interval is `> 0` — **whatever the sign of the point estimate.**
 >
 > **Otherwise `dc_native` stands unchanged, Hull's forecast included.**
+>
+> **REPORTED, NEVER DECIDING — the week interval (v1's gate (ii)).** The 95%
+> `(season, ISO week)` block bootstrap CI over the 62 pinned blocks is computed
+> at every result, published with both endpoints, and **takes no part in the
+> adoption decision under any sign or magnitude.** §4.0 is why. A result document
+> that presents it as a gate, or an implementation that lets it reach the verdict,
+> is an invalidation (§10).
 
-All five are required and none is sufficient. (i)–(iii) are the benefit gate;
-(iv) and (v) are the do-no-harm gates. Gate (iv) may additionally be
+All four are required and none is sufficient. **(i) and (iii) are the benefit
+gates; (iv) and (v) are the do-no-harm gates.** Gate (iv) may additionally be
 **UNRESOLVED** under §5.4's precision regime; UNRESOLVED blocks adoption and can
 never grant one.
+
+**THE SIGNIFICANCE CLAUSES DROPPED THEIR POINT-SIGN CONJUNCT, and the reason is a
+perverse pass v1 carried.** v1 wrote both (iv-c) and (v-b) as "fails if the mean
+is `> 0` **and** the lower bound is `> 0`". A percentile interval's lower bound
+can sit above zero while the observed mean does not — the bootstrap distribution
+is not centred on the statistic — and in that configuration v1's clause **passed
+a harm the interval had resolved**. The lower bound alone is the condition that
+means what the clause is for. *Measured, for the record:* under §6.2's
+construction the configuration did not arise in any of the 2,000 replicates at
+any scenario or regime, so §6.3's collateral table is **numerically identical**
+under the amended clause and the correction costs no power — it closes a hole
+rather than moving a bar.
 
 ### 4.2 The bar is the predecessor's, carried for comparability, and says what that costs
 
@@ -1049,12 +1570,15 @@ preregistering a guaranteed miss. The disclosure is required; the benefit gate i
 not added. **A corpus-level do-no-harm gate is a different object and IS added
 (§4.4).**
 
-**What this experiment may claim on a pass at all five gates, exhaustively:**
+**What this experiment may claim on a pass at all four deciding gates,
+exhaustively:**
 
-1. that on **85 pre-specified thin-evidence fixtures** of the pinned corpus,
-   training on the second-tier archive changed the mean paired RPS by the
-   reported amount, with the two reported intervals, at the power §6 states for
-   the realised SD; and
+1. that on **85 pre-specified thin-evidence fixtures** of the pinned corpus, the
+   treatment package of §2.2 — E1 rows in the likelihood, a symmetric ±75 bridge,
+   pooled scoring level and pooled home advantage — changed the mean
+   matched-fixture RPS by the reported amount, with the deciding season interval
+   and the reported week interval, at the power §6 states for the realised SD;
+   and
 2. that on the **2,280 fixtures of the whole corpus** the mean paired RPS delta
    did not exceed `+0.000075` and was not resolvably positive; and
 3. that on **all 32 pre-specified table cells** the paired ΔTRPS did not exceed
@@ -1064,10 +1588,13 @@ not added. **A corpus-level do-no-harm gate is a different object and IS added
 **What it may never claim, on any result:** a corpus-level accuracy improvement;
 a quantified product value; that the improvement is attributable to better
 parameter estimates rather than to the cold-start path dissolving (§1.2 bullet 2);
-anything about Hull specifically at match level (§11 — one analogue, and it is in
-the table leg); anything about the joint law, which no table metric here sees;
-anything about δ other than the frozen −75.0; or anything about a second-tier
-archive other than the twelve E1 seasons §0.6 acquires.
+**that "second-tier evidence helps", or that any component of §2.2's package is
+what moved the number** (§2.3 — the package is tested as one thing); anything
+about Hull specifically at match level (§11 — one analogue, and it is in the
+table leg); anything about the joint law, which no table metric here sees;
+anything about `delta_rating` other than the frozen −75.0; that the two divisions'
+centres are 75 points apart; or anything about a second-tier archive other than
+the twelve E1 seasons §0.6 acquires.
 
 ### 4.3 The table gate's tolerance is invented, and says so
 
@@ -1099,13 +1626,27 @@ reading: **the enlarged archive may not degrade the whole corpus by more than
 re-seeding the optimiser already does.** Using the model's own noise as a
 do-no-harm tolerance is the same move gate (iv) makes with R1's recorded scale.
 
-**The point gate (v-a) does the work; the significance clause (v-b) can only
-refuse.** (v-a) fires on the point estimate alone and needs no power. (v-b) is a
-second, stricter condition, and §6.3 measures exactly what it can resolve — a
-harm of `+0.00135` to `+0.00627` depending on scenario and block correlation.
-**Unresolvable harm therefore passes (v-b)**, which is the honest shape for a
-do-no-harm gate and is stated before the run so that a pass on (v) cannot later
-be read as a demonstration of no harm.
+**(v-a) IS AN OBSERVED POINT-TOLERANCE SCREEN, NOT A DEMONSTRATION OF NON-HARM,
+AND THIS DOCUMENT CALLS IT THAT.** v1 said "(v-a) does the work … needs no
+power". It is a threshold on a noisy point estimate at a margin far below the
+estimate's own scale, so its operating characteristics are those of a coin at the
+margin, and §6.3 measures them: **at a true corpus effect of exactly zero it
+passes 0.51–0.57 of the time**, and **at a true harm of `+0.001` — thirteen times
+its own bar — it still passes 0.03 to 0.48** depending on scenario and
+correlation regime. Meanwhile (v-b)'s 80%-power harm MDE is `+0.00138` to
+`+0.01718`, i.e. **18× to 229× the point margin**. So:
+
+* **(v-a) is a screen on the observed number**, and a pass means "the observed
+  corpus mean did not exceed `+0.000075`" and nothing stronger. It is not
+  evidence that the corpus was unharmed.
+* **(v-b) can only refuse**, and only a *resolvable* harm. **Unresolvable harm
+  passes (v).** That is the honest shape for a do-no-harm gate at this `n`, and
+  it is stated before the run so a pass on (v) cannot later be read as a
+  demonstration of no harm.
+* **The required sentence in the result document, verbatim on any pass of (v):**
+  *"gate (v) refuses resolvable corpus-level harm and does not demonstrate its
+  absence; at this corpus size the smallest harm it could have resolved is"* —
+  followed by the realised (v-b) MDE from §6.5.
 
 ### 4.5 What happens on a miss, and what publishes either way
 
@@ -1119,10 +1660,13 @@ UNRESOLVED, which publishes as UNRESOLVED with every number and names which
 precision condition fired. **There is no file drawer.**
 
 A miss is not re-litigated: not at a second seed, not at γ = 0.5 promoted to
-primary, not at a different δ, not by dropping 2019/20, not by re-deriving the
-population under the E1 archive, not by extending the corpus into 2025/26, not by
-a one-sided interval, not by a larger `n_sims`, not by adding a third division,
-and not by a bar rewritten after the number. Each appears in §10.
+primary, not at a different `delta_rating`, not by dropping 2019/20, not by
+re-deriving the population under the E1 archive, not by extending the corpus into
+2025/26, not by a one-sided interval, not by a larger `n_sims`, not by adding a
+third division, **not by promoting or demoting a gate after the number**, and not
+by a bar rewritten after the number. Each appears in §10. **The week interval's
+demotion runs in both directions**: it may not be restored to deciding to rescue
+a pass, and it may not be invoked to overturn one.
 
 ### 4.6 What adoption would and would not change
 
@@ -1286,20 +1830,55 @@ published with its value whether it fires or not.
   four point gates unguarded.
 * **P4** — any deciding cell's `mc_se_cell` exceeds `+0.0002`, i.e. the
   simulation's per-cell error is larger than the tolerance the gate applies.
-* **P5 — the unanimity rule, frozen.** Draw `K = 200` independent resample
-  streams (`numpy.random.default_rng(MC_SEED + 1 + j)` for `j` in `0…K-1`, each
-  running §5.2's whole `MC_BOOT` loop's *point* evaluation only: one `picked`
-  per stream, the gate recomputed on it). Gate (iv)'s PASS/FAIL verdict must be
-  **unanimous across all K streams**. A single dissent makes gate (iv)
-  UNRESOLVED. `K`, the seed offset and the derivation are frozen and are not
-  overridable; a scale comparison against `mc_se_mw6` is **not** a substitute and
-  §10 makes replacing P5 with one an invalidation.
+* **P5 — the unanimity rule, frozen, and it must agree with the POINT verdict.**
+  In full pseudocode, because v1's prose lost the half that does the work:
 
-**Eight conditions, no ninth.** The evidence file carries all eight by name with
-their computed values and a `resolved: bool`. The count is eight and not the
-predecessor's seven because §3.3 makes MW19 a deciding label, and a precision
-regime whose condition list did not grow with its gate list would be a regime
-with a hole in it.
+  ```
+  point_verdict = gate_iv(T)                      # the unresampled tallies,
+                                                  # recomputed separately, not
+                                                  # read back from anywhere
+  verdicts = []
+  for j in range(K):                              # K = 200, frozen
+      rng_j  = numpy.random.default_rng(MC_SEED + 1 + j)
+      picked = rng_j.integers(0, P, P)            # ONE resample, this stream
+      T_j    = {cell: {arm: T[cell][arm][picked].sum(axis=0)
+                       for arm in (control, treatment)}
+                for cell in the deciding cells}   # row-normalised as in §5.2
+      verdicts.append(gate_iv(T_j))               # the WHOLE of (iv-a),
+                                                  # (iv-b) and (iv-c)
+  P5_fires = any(bool(v) != bool(point_verdict) for v in verdicts)
+  ```
+
+  **P5 fires — and gate (iv) is UNRESOLVED — unless all 200 verdicts agree with
+  each other AND with the separately recomputed point verdict.** v1 required only
+  that the 200 agree among themselves, under which all 200 could unanimously
+  reverse the point result and P5 would stay silent; the predecessor's own
+  implementation does not have that hole (`epl/evwiden.py:7572-7578`:
+  `any(bool(v) != bool(point_verdict) for v in verdicts)`), and this document
+  restores it. *One half of the review's finding is refuted and recorded as
+  such:* v1 was **not** ambiguous about the draw — it already said "one `picked`
+  per stream" — and the pseudocode above simply makes that unmistakable.
+  **Published in the evidence file:** `point_verdict`, all 200 `verdicts`, the
+  `dissent_count`, and `fired`. `K`, the seed offset and the derivation are
+  frozen and are not overridable; a scale comparison against `mc_se_mw6` is
+  **not** a substitute and §10 makes replacing P5 with one an invalidation.
+
+**EIGHT CONDITIONS, NO NINTH, AND THEY ARE NAMED RATHER THAN COUNTED.** The
+canonical condition IDs are exactly:
+
+```
+PRECISION_CONDITIONS = ("P1", "P2", "P3.MW0", "P3.MW3", "P3.MW10", "P3.MW19",
+                        "P4", "P5")
+```
+
+The evidence file carries all eight **by those IDs**, each with its computed
+value and a `resolved: bool`, and every conformance and freeze check compares the
+**exact named set** rather than a count — because v1 stated the count three times
+and got it wrong once (§8.5's L10 said "seven … with no eighth" while §5.4 and
+§9.1 said eight), and a renderer required to make prose counts and schemas agree
+cannot satisfy two inventories. The set is eight and not the predecessor's seven
+because §3.3 makes MW19 a deciding label, and a precision regime whose condition
+list did not grow with its gate list would be a regime with a hole in it.
 
 **The structural refusal, and how it is published.** If gate (iv) is UNRESOLVED,
 the result document states which condition fired, with its computed value, and
@@ -1330,21 +1909,76 @@ of a cell is therefore larger than the predecessor's at the same `n_sims`.
   this design will have. **Gate (iv) being UNRESOLVED again is the modal
   outcome of the table leg, and it is predicted here, before the run.**
 
+### 5.6 The scope of the phantom-club invariant, narrowed
+
+§0.6's B5 refusal protects **this experiment's call graph and no more.** The
+hazard itself — `played["home_key"].astype(str)` turning a null key into the
+string `"None"` — is inside protected `epl.fit.to_store_frame`
+(`epl/fit.py:157-158`), which this document may not edit, and existing callers
+reach it directly: `epl.fit.build_store` and `epl.walkforward.point_in_time_canary`
+(`epl/walkforward.py:470`) both project through it without passing any lowerdiv
+surface. **So the claim is not "a null key refuses anywhere in this repository";
+it is "a null key refuses on every path this experiment runs."**
+
+The enforceable form, and what §8.5's L4 tests: `epl/tests/test_lowerdiv.py`
+**enumerates every call site in `epl/lowerdiv.py` that reaches a store
+projection**, asserts each one passes through `epl.lowerdiv.to_store_frame_e1`
+first, and asserts that a seeded direct call to `epl.fit.to_store_frame` from
+lowerdiv code makes the test red. The companion test that shows the protected
+module *still* produces `"None"` stays: the hazard is documented as live where it
+lives, closed where this document has authority, and not claimed to be closed
+where it is not. §10 makes stringifying a null key on any lowerdiv path an
+invalidation; it makes no claim about paths this document does not run.
+
 ---
 
 ## 6. The power analysis
 
 §0.5 counted where the treatment *bites*, which is support. This section asks
-whether the three conjunctive benefit gates can jointly pass at the effect this
-experiment exists to test, and answers before any delta exists.
+whether the **two deciding benefit gates (i) and (iii)** can jointly pass at the
+effect this experiment exists to test, and answers before any delta exists. It is
+also the on-record basis for §4.0's refounding, so it is stated in the form that
+makes the demotion checkable: the deciding pair is sized, the demoted week
+interval is sized beside it, and both are read off one stream.
+
+> **WHAT THIS SECTION SIZES, AND WHAT IT CANNOT.** Every power number below is
+> **`benefit_gate_joint_power`** — the probability that gates **(i) and (iii)**
+> both pass. **It excludes gates (iv) and (v).** Those depend on 20,000-season
+> simulations of two posteriors whose paired Monte-Carlo error §5.5 says is
+> larger than the predecessor's and is not known in advance, so no closed form
+> exists for them and none is invented. **Actual four-gate adoption power is
+> therefore LOWER than every figure in §6.3, and by an unquantified amount.**
+> v1 printed these figures under the heading "Joint power" without that
+> sentence; it is now part of the quantity's name.
 
 ### 6.1 The scenarios, frozen blind
 
-| scenario | paired SD | source |
-|---|---:|---|
-| **A — widening-realised, thin** | **0.022751278102833457** | the widening run's realised paired SD over **these same 85 fixtures** (`reports/evidence/widening.json` → `estimand.sd`). The optimistic floor — and it is optimistic for a named reason: 33 of its 85 rows were exact zeros with zero variance |
-| **B — widening-realised, treated** | **0.028887934876731913** | the same run's realised SD over the 52 fixtures that actually moved (`power.realised.sd_paired_treated`). The like-for-like scale for a population in which every fixture moves |
-| **C — doubled-fit scale** | **0.040854278…** = B × √2 | **an extrapolation, labelled one.** Under widening both arms came from ONE posterior, so the sampler's own noise cancelled exactly in the pair; here the arms are two independent fits and the sampler noise enters twice, independently. √2 is the independent-addition scale. It is not measured and it is not claimed to be |
+| scenario | paired SD | standing | source |
+|---|---:|---|---|
+| **A — widening-realised, thin** | **0.022751278102833457** | measured | the widening run's realised paired SD over **these same 85 fixtures** (`reports/evidence/widening.json` → `estimand.sd`). The optimistic floor — and it is optimistic for a named reason: 33 of its 85 rows were exact zeros with zero variance |
+| **B — widening-realised, treated** | **0.028887934876731913** | measured | the same run's realised SD over the 52 fixtures that actually moved (`power.realised.sd_paired_treated`). The like-for-like scale for a population in which every fixture moves |
+| **C — doubled-fit scale** | **0.04085370929162502** | **ILLUSTRATIVE** | `B × √2`, **derived programmatically from B's full-precision value and never transcribed.** Under widening both arms came from ONE posterior, so the sampler's own noise cancelled exactly in the pair; here the arms are two fits and the sampler noise enters twice. √2 is the independent-addition scale **for two noise terms of equal size**, and scenario B's SD is a *total* paired SD rather than an optimizer-noise SD — so √2 applied to it is **neither a bound nor necessarily conservative.** It is a sensitivity case with a stated construction, not a measurement and not a ceiling |
+| **D — envelope endpoint** | **0.05777586975346383** | **ILLUSTRATIVE** | `B × 2`, carried for one purpose: to show what the deciding pair does if the doubled-fit penalty is worse than √2. It is not a scenario anyone predicts |
+
+> **v1 PRINTED C WRONG, AND `--freeze-block` COULD NOT HAVE CAUGHT IT.** v1's
+> table read `0.040854278…`; `0.028887934876731913 × √2` is
+> **`0.04085370929162502`**. A renderer required to reproduce §6.3 *exactly*
+> would have refused forever against a transcribed constant. **C and D are
+> computed from B inside the harness**, and every table in this section is
+> rendered from **one canonical power object** carrying the replicate-level
+> booleans. **No scenario SD, power value or MDE is computed twice**: §6.3's
+> cells and the ranges §4.0, §6.4 and §11 quote are all reads of that one object.
+> That is also why v1 could print the same cell as `0.124` in one table and
+> `0.123` in another.
+
+> **`OUT_OF_POWER_ENVELOPE` — preregistered here, and it is a disclosure, not a
+> gate.** If §6.5's realised paired SD over the 85 exceeds scenario **D**, the
+> result document states `OUT_OF_POWER_ENVELOPE` and reports that **every power
+> figure in §6.3 was computed at a variance smaller than the one that obtained**,
+> so the realised power is below the tabulated range and the pre-run warning
+> understated the problem. **No threshold moves in response and no gate changes**
+> (§6.5); the flag exists so that a reader is not left comparing a result against
+> an envelope it fell outside.
 
 A power analysis that tests only optimistic variances is not a power analysis.
 
@@ -1352,154 +1986,262 @@ A power analysis that tests only optimistic variances is not a power analysis.
 
 * **Structure:** the 85 pinned fixtures in their 62 pinned week blocks and 6
   seasons, **recomputed by the harness from the committed
-  `reports/evidence/widening_per_fixture.csv`, never typed in**. Row order:
-  ascending `key`, stable mergesort. Block order: first appearance in that
-  sequence. **All 85 are treated** — there are no structural zeros (§1.4).
-* **Noise:** for fixture *i* in week block *b*, the delta is
-  `δ + s · ( sqrt(ρ)·u_b + sqrt(1−ρ)·z_i )` with `u_b` and `z_i` independent
-  standard normals — an equicorrelated Gaussian whose correlation scope is **the
-  week block and nothing else**. Season correlation is not modelled and is not
-  claimed; ρ ∈ {0, 0.5} brackets it.
-* **Consumption order, frozen:** per (scenario-independent) stream,
-  `u = rng.standard_normal((R, n_blocks))` **then**
+  `reports/evidence/widening_per_fixture.csv`, never typed in**. **Row order:
+  ascending `match_id`, stable mergesort** — `match_id` is the population's
+  identifier (§0.5) and it is unique, whereas `key` takes only 62 distinct
+  values, so v1's ascending-`key` order left the within-key order to whatever the
+  CSV happened to hold — which v1 never pinned. **All 85 are
+  treated** — there are no structural zeros (§1.4).
+* **Block order:** first appearance in that row order, **remapped to zero-padded
+  ordinal strings** (`"00"`, `"01"`, …) before any bootstrap call, so that the
+  sorted order `epl.score.block_bootstrap_ci` imposes internally
+  (`epl/score.py:217`, `np.unique`) **is** the first-appearance order. §2.3
+  records the measurement that motivated this: the thin leg's 62 labels already
+  sorted into first-appearance order, the corpus leg's 212 do not.
+* **Noise:** for fixture *i* in week block *b* of season *s*, the delta is
+
+  ```
+  mu_rps  +  scenario_sd · ( sqrt(rho_s)·v_s + sqrt(rho_w)·u_b
+                             + sqrt(1 − rho_s − rho_w)·z_i )
+  ```
+
+  with `v_s`, `u_b` and `z_i` independent standard normals. **`mu_rps` is the
+  effect size being swept, in RPS, and it is not `delta_rating`** (§2.2, M1):
+  the two were both written `δ` in v1 and are unrelated quantities.
+* **The three correlation regimes, frozen, in this order:**
+  `(rho_s, rho_w) ∈ {(0.0, 0.0), (0.0, 0.5), (0.25, 0.5)}`. v1 modelled week-
+  block correlation only and stated that season correlation "is not modelled and
+  is not claimed". **Under the refounded deciding set that omission is no longer
+  affordable**: gate (iii) resamples six season blocks and is now a deciding
+  gate, so its power is exactly the thing season-level correlation destroys. The
+  third regime carries it explicitly, and §6.3 shows it is the regime that hurts.
+* **Consumption order, frozen:** per regime, one fresh
+  `numpy.random.default_rng(20260830)`, then
+  `v = rng.standard_normal((R, n_seasons))`, **then**
+  `u = rng.standard_normal((R, n_blocks))`, **then**
   `z = rng.standard_normal((R, n_fixtures))`. This is frozen because it is the
   part the predecessor's v1 left unfrozen, which made its stream unrecoverable
-  and its numbers unreproducible (widening v3 §6.4).
-* **Replicates:** `R = 2,000`. A **fresh** `numpy.random.default_rng(20260830)`
-  is constructed for each ρ, so both ρ values consume the same underlying
-  stream in the same order; ρ is applied to the draws, not to the seed. The
-  order is ρ = 0.0 then ρ = 0.5, and it is frozen because the construction is
-  otherwise identical and an unfrozen order would leave the two rows
-  interchangeable in name only.
-* **The collateral leg's structure** (gate (v), §6.3's third table) is the same
-  construction over the corpus: the 2,280 rows of the pinned corpus parquet in
-  ascending `match_id`, stable mergesort, its 212 `block` labels in first-
-  appearance order, and its 6 seasons — recomputed by the harness, never typed
-  in.
-* **Gates:** the three deciding benefit gates exactly as §4.1 states them, using
+  and its numbers unreproducible (widening v3 §6.4). **Each regime gets a FRESH
+  generator at the same seed**, so all three regimes draw the identical
+  `(v, u, z)` arrays and differ only in the weights applied to them — common
+  random numbers across regimes as well as across scenarios and across `mu_rps`,
+  which is what makes §6.4's regime-to-regime comparisons differences in the
+  correlation rather than in the draw.
+* **Replicates:** `R = 2,000`.
+* **The collateral leg's structure** (gate (v), §6.3's Table 3) is the same
+  construction over the corpus: **the 2,280 fixtures of the committed
+  `reports/evidence/anchoring_per_fixture.csv`** — deduplicated to one row per
+  `match_id`, ascending `match_id`, stable mergesort — its 212 `block` labels and
+  its 6 `season` labels, both ordinal-remapped. **The committed CSV, not the
+  gitignored corpus parquet, is the structure's source**, so §6.3's Table 3
+  is reproducible from Git alone; v1 cited the parquet and was not.
+* **Gates:** the deciding benefit gates exactly as §4.1 states them, using
   `epl.score.block_bootstrap_ci` at `B = 10,000`, `alpha = 0.05`, seed
-  **20260814**, on the 62 week blocks and on the 6 seasons.
+  **20260814**, on the 6 seasons (deciding) and on the 62 week blocks (reported).
 
-**THE EQUIVARIANCE IDENTITY, and why this power simulation is exact rather than
-approximate.** `epl.score.block_bootstrap_ci`'s resample indices depend only on
-`(seed, n_boot, n_blocks)` and not on the data
-(`epl/score.py:222-223`: `rng = default_rng(seed); draw = rng.integers(0,
-n_blocks, size=(n_boot, n_blocks))`), and its statistic is
-`sums[draw].sum(axis=1) / sizes[draw].sum(axis=1)` — **affine in the data**.
-Therefore, for `s > 0`,
-
-```
-block_bootstrap_ci(δ + s·ε, …)  =  δ + s · block_bootstrap_ci(ε, …)
-```
-
-exactly, in both endpoints. Verified read-only at three `(δ, s)` points to
-`≤ 1.8e-18` absolute. Consequently all three gates are **exactly linear in δ**:
+**THE EQUIVARIANCE IDENTITY, and what "exact" does and does not mean here.**
+`epl.score.block_bootstrap_ci`'s resample indices depend only on
+`(seed, n_boot, n_blocks)` and not on the data (`epl/score.py:222-223`:
+`rng = default_rng(seed); draw = rng.integers(0, n_blocks, size=(n_boot,
+n_blocks))`), and its statistic is `sums[draw].sum(axis=1) / sizes[draw].sum(axis=1)`
+— **affine in the data**. Therefore, for `s > 0`,
 
 ```
-gate (i)   passes iff  δ  ≤  −0.0010 − s·mean(ε_r)
-gate (ii)  passes iff  δ  <  −s·hi_week(ε_r)
-gate (iii) passes iff  δ  <  −s·hi_season(ε_r)
+block_bootstrap_ci(mu_rps + s·ε, …)  =  mu_rps + s · block_bootstrap_ci(ε, …)
 ```
 
-so the whole power curve, at every δ and every scenario, is computed in closed
-form from **R triples** `(mean, week-CI upper, season-CI upper)` of the
-**standardised** draw. Common random numbers are exact across δ *and* across
-scenarios, and **the power curve is exactly monotone in δ rather than monotone up
-to Monte-Carlo error.** A committed test must assert the identity against direct
-evaluation at three named `(δ, s, ρ)` points to `1e-15`; absent that test the
-closed form is removed, not trusted.
+exactly, in both endpoints. **Measured read-only at the three named points
+`(mu_rps, s) ∈ {(−0.0010, A), (−0.00413, B), (−0.0200, C)}`: maximum absolute
+error `3.469e-18` over both endpoints.** Consequently the gates are **exactly
+linear in `mu_rps`**:
+
+```
+gate (i)    passes iff  mu_rps  ≤  −0.0010 − s·mean(ε_r)
+gate (iii)  passes iff  mu_rps  <  −s·hi_season(ε_r)
+[reported]  gate (ii)   passes iff  mu_rps  <  −s·hi_week(ε_r)
+```
+
+so the whole power curve, at every `mu_rps` and every scenario, is computed in
+closed form from **R triples** `(mean, season-CI upper, week-CI upper)` of the
+**standardised** draw. Common random numbers are exact across `mu_rps` *and*
+across scenarios, and the power curve is exactly monotone in `mu_rps` rather than
+monotone up to Monte-Carlo error. A committed test must assert the identity
+against direct evaluation at those three named points to `1e-15`; absent that
+test the closed form is removed, not trusted.
+
+> **"EXACT" IS A STATEMENT ABOUT THE REUSE, NOT ABOUT THE ESTIMATE.** The affine
+> reuse is exact per bootstrap replicate — including under unequal season-block
+> sizes, which the pooled `sums/sizes` estimator handles correctly. **`R = 2,000`
+> is still finite Monte Carlo**, so every power figure in §6.3 carries a binomial
+> standard error of `sqrt(p(1−p)/2000)`: **≈ 0.005 near 5% power, ≈ 0.010 near
+> 25%, ≈ 0.011 near 50%.** Those standard errors are printed in the table rather
+> than left to the reader. The MDE column is additionally subject to **grid
+> interpolation error** at the `2e-4` step. Neither is a defect; both were absent
+> from v1's account of why the simulation is "exact rather than approximate", and
+> that account is corrected here.
 
 **The MDE search grid and interpolation, frozen.**
 
-* **Grid:** `δ ∈ {0, −0.0002, −0.0004, …, −0.0200}` — 101 points, step `2e-4`.
-* **Power at a grid point:** the fraction of the R replicates at which **all
-  three** benefit gates pass.
-* **MDE80:** scanning from `δ = 0` downward, the **first** adjacent pair
-  bracketing power 0.80, linearly interpolated in δ. **Tie rule:** a grid point
-  whose power is exactly 0.80 **is** the MDE, no interpolation. **Exhaustion
-  rule:** if 0.80 is never reached, the MDE is reported as `< −0.0200` with no
-  interpolated value and the table says so rather than extrapolating.
+* **Grid:** `mu_rps ∈ {0, −0.0002, −0.0004, …, −0.0200}` — 101 points, step
+  `2e-4`. The collateral leg's harm grid is its positive mirror.
+* **Power at a grid point:** the fraction of the R replicates at which **both**
+  deciding benefit gates pass.
+* **MDE80:** scanning from `mu_rps = 0` downward, the **first** adjacent pair
+  bracketing power 0.80, linearly interpolated in `mu_rps`. **Tie rule:** a grid
+  point whose power is exactly 0.80 **is** the MDE, no interpolation.
+  **Exhaustion rule:** if 0.80 is never reached, the MDE is reported as
+  `beyond −0.0200` with no interpolated value and the table says so rather than
+  extrapolating.
 * **Named evaluation points**, each its own evaluation at the same stream, never
-  interpolated from the grid: the bar `δ = −0.0010`; **the predecessor's measured
-  effect `δ = −0.00412976353895183`**; and twice the bar `δ = −0.0020`.
+  interpolated from the grid: the bar `mu_rps = −0.0010`; **the predecessor's
+  measured effect `mu_rps = −0.00412976353895183`**; and twice the bar
+  `mu_rps = −0.0020`.
 
-### 6.3 The sizing table
+### 6.3 The sizing tables
 
 **Provenance of these numbers, stated exactly.** They are the output of a
 **read-only sizing pass** run on 2026-08-30 at the constants above, which fitted
 nothing, simulated no season and wrote nothing. **They are not yet the committed
 implementation's numbers, because no harness exists.** §8.3 makes reproducing
-them a freeze precondition: `python -m epl.lowerdiv --power` must produce this
-table exactly, and `--freeze-block` refuses to render otherwise. Because §6.2
+them a freeze precondition: `python -m epl.lowerdiv --power` must produce these
+tables exactly, and `--freeze-block` refuses to render otherwise. Because §6.2
 freezes the consumption order, the block order, the row order and every seed, the
 stream is fully determined by this document and reproduction is attainable — that
 is the direct lesson of widening v3 §6.4, where an unfrozen consumption order
 made the predecessor's v1 numbers unrecoverable.
 
-| scenario | ρ | paired SD | power at the bar | **power at −0.00413** | power at 2× bar | joint MDE (estimand) | ratio to the bar | **ratio to −0.00413** |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| A widening-realised, thin | 0.0 | 0.022751 | 0.065 | **0.366** | 0.119 | −0.007196 | 7.20× | **1.74×** |
-| B widening-realised, treated | 0.0 | 0.028888 | 0.054 | **0.258** | 0.092 | −0.009126 | 9.13× | **2.21×** |
-| C doubled-fit | 0.0 | 0.040854 | 0.047 | **0.146** | 0.070 | −0.012923 | 12.92× | **3.13×** |
-| A widening-realised, thin | 0.5 | 0.022751 | 0.053 | **0.301** | 0.102 | −0.008376 | 8.38× | **2.03×** |
-| B widening-realised, treated | 0.5 | 0.028888 | 0.044 | **0.207** | 0.079 | −0.010620 | 10.62× | **2.57×** |
-| C doubled-fit | 0.5 | 0.040854 | 0.040 | **0.124** | 0.059 | −0.015027 | 15.03× | **3.64×** |
+**Table 1 — `benefit_gate_joint_power`, the DECIDING pair {(i), (iii)}.**
+MC standard errors in parentheses on the column that decides the ruling.
 
-**Per-gate pass rate at δ = −0.00412976, which identifies the binding gate:**
+| scenario | ρ_season | ρ_week | paired SD | power at the bar | **power at −0.00413** | power at 2× bar | joint MDE80 | ratio to the bar | **ratio to −0.00413** |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| A widening-realised, thin | 0.00 | 0.0 | 0.022751 | 0.139 | **0.494** (0.011) | 0.235 | −0.006647 | 6.65× | **1.61×** |
+| B widening-realised, treated | 0.00 | 0.0 | 0.028888 | 0.124 | **0.387** (0.011) | 0.196 | −0.008444 | 8.44× | **2.04×** |
+| C doubled-fit *(illustrative)* | 0.00 | 0.0 | 0.040854 | 0.107 | **0.269** (0.010) | 0.149 | −0.011952 | 11.95× | **2.89×** |
+| D envelope endpoint *(illustrative)* | 0.00 | 0.0 | 0.057776 | 0.098 | **0.203** (0.009) | 0.124 | −0.016892 | 16.89× | **4.09×** |
+| A widening-realised, thin | 0.00 | 0.5 | 0.022751 | 0.127 | **0.436** (0.011) | 0.204 | −0.007452 | 7.45× | **1.80×** |
+| B widening-realised, treated | 0.00 | 0.5 | 0.028888 | 0.111 | **0.335** (0.011) | 0.169 | −0.009467 | 9.47× | **2.29×** |
+| C doubled-fit *(illustrative)* | 0.00 | 0.5 | 0.040854 | 0.092 | **0.237** (0.010) | 0.133 | −0.013389 | 13.39× | **3.24×** |
+| D envelope endpoint *(illustrative)* | 0.00 | 0.5 | 0.057776 | 0.084 | **0.171** (0.008) | 0.111 | −0.018945 | 18.95× | **4.59×** |
+| A widening-realised, thin | 0.25 | 0.5 | 0.022751 | 0.098 | **0.216** (0.009) | 0.130 | −0.014225 | 14.23× | **3.44×** |
+| B widening-realised, treated | 0.25 | 0.5 | 0.028888 | 0.093 | **0.175** (0.008) | 0.116 | −0.018053 | 18.05× | **4.37×** |
+| C doubled-fit *(illustrative)* | 0.25 | 0.5 | 0.040854 | 0.083 | **0.139** (0.008) | 0.102 | beyond −0.0200 | — | **> 4.84×** |
+| D envelope endpoint *(illustrative)* | 0.25 | 0.5 | 0.057776 | 0.078 | **0.116** (0.007) | 0.093 | beyond −0.0200 | — | **> 4.84×** |
 
-| scenario | ρ | gate (i) | **gate (ii) — week** | gate (iii) — season | joint |
-|---|---:|---:|---:|---:|---:|
-| A | 0.0 | 0.899 | **0.415** | 0.518 | 0.366 |
-| B | 0.0 | 0.847 | **0.293** | 0.400 | 0.258 |
-| C | 0.0 | 0.765 | **0.170** | 0.274 | 0.146 |
-| A | 0.5 | 0.861 | **0.339** | 0.442 | 0.301 |
-| B | 0.5 | 0.802 | **0.234** | 0.345 | 0.207 |
-| C | 0.5 | 0.724 | **0.144** | 0.241 | 0.123 |
+**Table 2 — per-gate pass rates at `mu_rps = −0.00412976353895183`, which
+identifies the binding gate and prices the demotion.** Gate (ii) is shown
+because it is reported, and because §4.0's basis has to be checkable.
 
-**The collateral gate's SIGNIFICANCE CLAUSE (v-b), sized on the 2,280 fixtures /
-212 blocks / 6 seasons of the pinned corpus, same construction.** Gate (v-a) is a
-**point** gate — it fires on the point estimate alone and needs no power; at a
-true corpus effect exactly equal to its `+0.000075` bar it refuses about half the
-time, by the same structural fact §6.3 states for gate (i). The table below sizes
-only (v-b), which is the clause that can refuse a *resolvable* harm:
+| scenario | ρ_s | ρ_w | gate (i) | **gate (iii) — season, DECIDING** | *gate (ii) — week, reported* | **{i, iii} joint** | *{i, ii, iii} — what v1 required* |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| A | 0.00 | 0.0 | 0.897 | **0.494** | *0.416* | **0.494** | *0.369* |
+| B | 0.00 | 0.0 | 0.845 | **0.387** | *0.292* | **0.387** | *0.259* |
+| C | 0.00 | 0.0 | 0.764 | **0.269** | *0.176* | **0.269** | *0.151* |
+| D | 0.00 | 0.0 | 0.696 | **0.203** | *0.114* | **0.203** | *0.095* |
+| A | 0.00 | 0.5 | 0.864 | **0.436** | *0.317* | **0.436** | *0.274* |
+| B | 0.00 | 0.5 | 0.811 | **0.335** | *0.225* | **0.335** | *0.192* |
+| C | 0.00 | 0.5 | 0.729 | **0.237** | *0.133* | **0.237** | *0.117* |
+| D | 0.00 | 0.5 | 0.674 | **0.171** | *0.096* | **0.171** | *0.079* |
+| A | 0.25 | 0.5 | 0.719 | **0.216** | *0.388* | **0.216** | *0.207* |
+| B | 0.25 | 0.5 | 0.680 | **0.175** | *0.334* | **0.175** | *0.167* |
+| C | 0.25 | 0.5 | 0.625 | **0.139** | *0.277* | **0.139** | *0.133* |
+| D | 0.25 | 0.5 | 0.596 | **0.116** | *0.239* | **0.116** | *0.110* |
 
-| scenario | ρ | P((v-b) fires) at a true effect of +0.000075 | (v-b)'s harm MDE80 | benefit-resolution MDE80 (for the record) |
-|---|---:|---:|---:|---:|
-| A | 0.0 | 0.030 | +0.001349 | −0.001382 |
-| B | 0.0 | 0.028 | +0.001712 | −0.001757 |
-| C | 0.0 | 0.028 | +0.002418 | −0.002481 |
-| A | 0.5 | 0.029 | +0.003491 | −0.003598 |
-| B | 0.5 | 0.029 | +0.004431 | −0.004568 |
-| C | 0.5 | 0.028 | +0.006267 | −0.006464 |
+**Table 3 — the collateral gate (v), sized on the 2,280 fixtures / 212 blocks /
+6 seasons of the committed collateral structure, same construction.** (v-a) is a
+**point screen** (§4.4): it fires on the observed estimate alone and needs no
+power, and its operating characteristics are in the last two columns. (v-b) is
+the clause that can refuse a *resolvable* harm, evaluated under §4.1's amended
+lower-bound-only form.
+
+| scenario | ρ_s | ρ_w | P((v-b) fires) at a true effect of +0.000075 | (v-b)'s harm MDE80 | benefit-resolution MDE80 (for the record) | *(v-a) passes at true 0* | *(v-a) passes at true +0.001* |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| A | 0.00 | 0.0 | 0.034 (0.004) | +0.001378 | −0.001342 | *0.569* | *0.030* |
+| B | 0.00 | 0.0 | 0.031 (0.004) | +0.001756 | −0.001705 | *0.559* | *0.074* |
+| C | 0.00 | 0.0 | 0.029 (0.004) | +0.002489 | −0.002404 | *0.544* | *0.158* |
+| D | 0.00 | 0.0 | 0.028 (0.004) | +0.003505 | −0.003398 | *0.533* | *0.252* |
+| A | 0.00 | 0.5 | 0.024 (0.003) | +0.003475 | −0.003396 | *0.530* | *0.237* |
+| B | 0.00 | 0.5 | 0.022 (0.003) | +0.004415 | −0.004306 | *0.524* | *0.285* |
+| C | 0.00 | 0.5 | 0.022 (0.003) | +0.006247 | −0.006104 | *0.517* | *0.346* |
+| D | 0.00 | 0.5 | 0.021 (0.003) | +0.008829 | −0.008624 | *0.514* | *0.390* |
+| A | 0.25 | 0.5 | 0.303 (0.010) | +0.006736 | −0.007017 | *0.514* | *0.443* |
+| B | 0.25 | 0.5 | 0.302 (0.010) | +0.008589 | −0.008895 | *0.512* | *0.458* |
+| C | 0.25 | 0.5 | 0.301 (0.010) | +0.012120 | −0.012611 | *0.509* | *0.469* |
+| D | 0.25 | 0.5 | 0.300 (0.010) | +0.017180 | −0.017818 | *0.509* | *0.481* |
 
 **A structural fact, so no one reads the tables as a defect in the simulation.**
 Gate (i) is a threshold **at** the bar, not a test against zero, so at a true
 effect exactly equal to the bar the probability of clearing it is about one half
-whatever the variance is. **An 80%-power MDE equal to the bar is unattainable by
-construction**, at any SD; the honest quantity is the ratio, which is what the
-tables report.
+whatever the variance is — measured, 0.504–0.515 across the regimes. **An
+80%-power MDE equal to the bar is unattainable by construction**, at any SD; the
+honest quantity is the ratio, which is what the tables report. The same structural
+fact governs (v-a) at its own margin, which is why §4.4 calls it a screen.
 
-### 6.4 THE RULING — what `n` buys, and what it cannot
+**A second structural fact, and it is the one that changed under the refounding.**
+In **every** row of Table 2 the `{i, iii}` joint equals gate (iii)'s own pass rate
+to three decimals. That is not a coincidence: gate (iii) demands
+`mu_rps < −s·hi_season(ε)` while gate (i) demands `mu_rps ≤ −0.0010 − s·mean(ε)`,
+and with six season blocks the gap `hi_season(ε) − mean(ε)` is an order of
+magnitude larger than `0.0010/s` at every scenario SD — so **gate (iii) implies
+gate (i), always, in this design.** §6.4 draws the consequence.
 
-**Nothing in §4 moves.** The bar stays −0.0010, the CIs stay, the population
-stays the pinned 85, δ stays −75.0, γ stays 0.5, `n_sims` stays 20,000. What
-changes is that this document says, before any delta exists:
+### 6.4 THE RULING — what `n` buys, what the refounding bought, and what neither can
 
-> **THIS DESIGN IS UNDERPOWERED AGAINST THE VERY EFFECT ITS PREDECESSOR
-> MEASURED.** At `δ = −0.00413` — the widening run's own point estimate on this
-> same population — the three benefit gates jointly pass with probability
-> **0.12 to 0.37**. The joint MDE is **1.74× to 3.64× that effect.** A miss is
+**Nothing in §4 moves after this section.** The bar stays −0.0010, the deciding
+set stays {(i), (iii), (iv), (v)}, the population stays the pinned 85,
+`delta_rating` stays −75.0, γ stays 0.5, `n_sims` stays 20,000. What changes is
+that this document says, before any delta exists:
+
+> **THIS DESIGN REMAINS UNDERPOWERED AGAINST THE VERY EFFECT ITS PREDECESSOR
+> MEASURED, EVEN AFTER THE REFOUNDING.** At `mu_rps = −0.00413` — the widening
+> run's own point estimate on this same population — the two deciding benefit
+> gates jointly pass with probability **0.14 to 0.49** across scenarios A–C and
+> the three correlation regimes — **0.12 to 0.20** at the illustrative D
+> endpoint. The joint MDE80 is **1.61× to beyond 4.84× that effect.** A miss is
 > therefore substantially uninformative: **"no adoption" here means "not detected
 > at this power", not "no effect", and the result document must say so in those
-> words.**
+> words.** And because §6's figures exclude gates
+> (iv) and (v), **actual four-gate adoption power is lower still.**
 
-**Gate (ii), the 62-block week interval, is the binding gate — the same gate that
-decided the predecessor UNRESOLVED.** At `δ = −0.00413` gate (i) passes 0.72–0.90
-and gate (iii) 0.24–0.52, while gate (ii) passes **0.14–0.42**. This is not a
-coincidence and it is not fixable by this design: the week interval resamples 62
-blocks, of which 46 hold exactly one fixture, so its effective sample size is the
-block count and the block count is a property of *where thin fixtures occur*, not
-of how many fits are run.
+**WHAT THE REFOUNDING BOUGHT, MEASURED RATHER THAN ASSERTED.** Table 2's last two
+columns are the price of v1's five-gate rule and the value of §4.0's four-gate
+one, at `−0.00413`:
+
+| regime | v1's {i, ii, iii} | v2's {i, iii} | gained |
+|---|---:|---:|---:|
+| ρ_s 0.00, ρ_w 0.0 | 0.095 – 0.369 | **0.203 – 0.494** | +0.108 – +0.128 |
+| ρ_s 0.00, ρ_w 0.5 | 0.079 – 0.274 | **0.171 – 0.436** | +0.092 – +0.162 |
+| ρ_s 0.25, ρ_w 0.5 | 0.110 – 0.207 | **0.116 – 0.216** | +0.006 – +0.009 |
+
+**The demotion is worth roughly nine to sixteen points of power where season
+correlation is absent, and almost nothing where it is strong** — because in that
+regime gate (iii), the gate that now decides, becomes the binding constraint by
+itself. The refounding removed a gate that was measuring the calendar; it did not
+turn an underpowered design into a powered one, and this document does not claim
+it did.
+
+**GATE (iii), THE SEASON INTERVAL, IS NOW THE BINDING GATE — and §6.3's second
+structural fact says it is the *only* binding gate.** Because gate (iii) implies
+gate (i) at every scenario SD in this design, the deciding pair's joint power
+**is** gate (iii)'s pass probability: **0.139 to 0.494 at `−0.00413`** and
+**0.083 to 0.139 at the bar**, over scenarios A–C (0.116 and 0.078 respectively
+at the D endpoint). Three consequences, all stated before the run:
+
+1. **Six blocks is the whole constraint.** The season interval resamples six
+   blocks, one of which (2019/20) holds 26 of the 85 fixtures. Its effective
+   sample size is the block count, and the block count is a property of the
+   corpus window, not of how many fits are run.
+2. **Season-level correlation is what would break it**, and the third regime
+   prices that: at `ρ_season = 0.25` the deciding pair's power at `−0.00413`
+   falls to **0.116–0.216** whatever the scenario. v1 did not model season
+   correlation at all; under a deciding season interval that omission would have
+   been the largest unstated risk in the document.
+3. **The demoted week interval is not uniformly weaker.** At `ρ_season = 0.25` it
+   passes *more* often than the season interval does (0.239–0.388 against
+   0.116–0.216), because 62 blocks absorb a season-level shock that 6 blocks
+   cannot. That is disclosed rather than buried: the refounding is a ruling about
+   which gate measures the model rather than the design, and it is **not** a
+   claim that the season interval dominates the week interval everywhere.
 
 **This design is WORSE powered on the primary than its predecessor was**, and the
 reason must be stated rather than discovered. The predecessor's 85 rows included
@@ -1516,17 +2258,17 @@ one.**
 
 **What more `n` CAN buy, and it is exactly one thing.** All 2,280 corpus fixtures
 now move, so there is a genuine second population with 212 blocks instead of 62 —
-26.8× the fixtures and 3.4× the blocks. §6.3's third table sizes it: the
-collateral leg resolves an effect of **±0.00135 to ±0.00248** at ρ = 0 and
-**±0.0035 to ±0.0063** at ρ = 0.5. That is enough to refuse a *resolvable*
-corpus-level harm and is **not** enough to demonstrate a corpus-level benefit at
-the scale a thin-fixture effect of −0.00413 implies
-(`−0.00413 × 85/2280 = −0.000154`, nine to forty times below what the leg can
-resolve). **That asymmetry is why gate (v) is written as a do-no-harm gate and
-not as a benefit gate**, and why the 212 openings are fitted at a cost of nine
-extra hours: they buy the ability to refuse, the maximal identity control of
-§3.2, and nothing else. The one thing they conspicuously do **not** buy is the
-answer to the primary question.
+26.8× the fixtures and 3.4× the blocks. §6.3's Table 3 sizes it: the
+collateral leg resolves a harm of **+0.00138 to +0.00351** at `ρ_s = 0, ρ_w = 0`,
+**+0.00348 to +0.00883** at `ρ_s = 0, ρ_w = 0.5`, and **+0.00674 to +0.01718**
+under season correlation. That is enough to refuse a *resolvable* corpus-level
+harm and is **not** enough to demonstrate a corpus-level benefit at the scale a
+thin-fixture effect of −0.00413 implies (`−0.00413 × 85/2280 = −0.000154`, nine
+to over a hundred times below what the leg can resolve). **That asymmetry is why
+gate (v) is written as a do-no-harm gate and not as a benefit gate**, and why the
+212 openings are fitted at a cost of nine extra hours: they buy the ability to
+refuse, the maximal identity control of §3.2, and nothing else. The one thing
+they conspicuously do **not** buy is the answer to the primary question.
 
 **This is not a licence to re-run.** §4.5's refusal to re-litigate a miss is
 unchanged. §6 is the reader's warning, frozen in advance, so the size of the null
@@ -1534,12 +2276,19 @@ cannot be argued about after it arrives.
 
 ### 6.5 The realised-SD obligation, on the result document
 
-After the run, the **realised paired SD of the 85 deltas and of the 2,280
-deltas** is reported, and **the joint-gate MDE is recomputed at the realised
-thin-population SD** — the §6.2 construction re-run with `s` set to the realised
-value, at the same `R`, the same seeds, the same grid and the same interpolation
-rule, producing realised `power@bar`, realised `power@−0.00413`, realised
-`MDE80` and realised ratios in the same columns as §6.3.
+After the run, the **realised paired SD of the 85 differences and of the 2,280
+differences** is reported, and **the deciding-pair MDE is recomputed at the
+realised thin-population SD** — the §6.2 construction re-run with `scenario_sd`
+set to the realised value, at the same `R`, the same seeds, the same three
+regimes, the same grid and the same interpolation rule, producing realised
+`power@bar`, realised `power@−0.00413`, realised `MDE80` and realised ratios in
+the same columns as §6.3's Table 1, plus the realised gate-(ii) diagnostic column
+of Table 2 and the realised (v-b) harm MDE of Table 3 (which §4.4's required
+sentence quotes).
+
+**If the realised SD exceeds scenario D**, the result document states
+`OUT_OF_POWER_ENVELOPE` per §6.1 and says that §6.3's tabulated range is an
+upper bound on the power that actually obtained.
 
 This is an obligation on the **result document** and on
 `reports/evidence/lowerdiv.json`'s `power.realised` object, not on the pre-freeze
@@ -1567,16 +2316,17 @@ the type and offending key, exit **2** — the `RecalError` convention.
 | `LedgerDigestMismatch` | `data/epl/fit/walkforward_ledger.jsonl` is not `869a558ce7…` or not 212 rows |
 | `ConfigNotFrozen` | `epl/config_frozen.json` is not `9f2e086d…`, seed ≠ 20260611, widening ≠ `{mechanism: c, strength: 0.5}`, or `realised_config_sha256` ≠ `78a51cd92c…` |
 | **`E1Leak`** | an E1 `match_id` appears in the E0 archive, the E0 store root, any frame passed to `epl.elo`, or any frame passed to `effective_evidence`; or the E0 archive's bytes moved; or an E1 fixture appears in any estimand, gate, `probs` field or table |
-| **`PopulationRederived`** | the thin set is derived from anything but `reports/evidence/widening_per_fixture.csv`, or `e` is computed on a frame that is not the pinned E0 archive, or a recomputed population digest differs from widening v3's frozen `38d18d4d96…` |
+| **`PopulationRederived`** | the thin set is derived from anything but `reports/evidence/widening_per_fixture.csv`; or it is joined on any column but `match_id`, or the join does not produce exactly 85 rows one-to-one; or `e` is computed on a frame that is not the pinned E0 archive; or the recomputed 85-`match_id` digest differs from widening v3's frozen `38d18d4d96…` |
 | **`PhantomClub`** | any row reaching the store builder carries a null `home_key` or `away_key` — the refusal names the season, date and raw spelling and **precedes** the projection (§0.6 B5) |
 | **`RegistryCollision`** | an E1 spelling's index fold collides with a registered one (raised by `epl/teams.py:109-121` at import), or re-resolving the pinned E0 archive through the enlarged registry changes any E0 key |
-| **`LadderBoundaryMismatch`** | an E1 season-boundary arrival cannot be classified as relegated-from-E0, arrived-from-below or continuing by §2.2's rule; or a club appears in both divisions in one season; or the recomputed relegated set differs from `E0(prev) − E0(this)` on the pinned E0 archive |
-| **`AcquisitionIncomplete`** | a season's E1 CSV is absent, fails its recorded digest, fails the (24, 552, 23) validation, or leaves an unmapped spelling |
-| `MembershipMismatch` | a recomputed enumeration differs from §8.3's frozen digests — the 85 keys, the 62 blocks, the 6-season split, the 212 openings, `FROZEN_TABLE_SCHEDULE` tuple-by-tuple, or the per-label CELL census `{MW0:5, MW3:6, MW6:7, MW10:7, MW19:7}` |
+| **`LadderBoundaryMismatch`** | an E1 season-boundary arrival cannot be classified `from_E0` / `outside_observed_divisions` / `continuing` by §2.2 point 3; or a club appears in both divisions in one season; or the recomputed `from_E0` set differs from `E0(prev) − E0(this)` on the pinned E0 archive; or §2.2 point 2b's source-ladder resolver is asked for a club with no played match in either archive before the cutoff, or resolves a club through more than one branch |
+| **`AcquisitionIncomplete`** | a season's E1 CSV is absent, fails its recorded digest, fails the (24, 552, 23) validation, or leaves an unmapped spelling at A1; or A0's census is absent when A1 runs; or A0 is run a second time |
+| **`BudgetExceeded`** | §2.4's overrun ruling fires — Step 2's realised Arm-A fit rate exceeds **269 s/fit**, so the projected total exceeds the 30-hour bound. The refusal publishes the measured rate, the projection and a `complete: false` marker **before** it stops, and the run is neither thinned nor restarted |
+| `MembershipMismatch` | a recomputed enumeration differs from §8.3's frozen digests — the 85 `match_id`s, the 62 blocks, the 6-season split, the 212 openings, `FROZEN_TABLE_SCHEDULE` triplet-by-triplet, or the per-label CELL census; or the thin set's join on the corpus does not produce exactly 85 rows one-to-one `{MW0:5, MW3:6, MW6:7, MW10:7, MW19:7}` |
 | `PredicateMismatch` | an Arm-B fit's own provisional set ≠ the ledger's recorded `provisional_teams` at that cutoff |
 | `EvidenceLeak` | a match dated ≥ its cutoff contributes to any `e(t, C)` |
 | `CutoffLeak` | a training frame holds a match dated ≥ its cutoff, or a fixture appears in the fit that prices it — checked on **both** store roots |
-| `CanaryFailed` / `EvidenceCanaryFailed` | `point_in_time_canary` fails on either store, or the direction canary proved nothing (§7.3) / either leg of the evidence canary fails |
+| `CanaryFailed` / `EvidenceCanaryFailed` | `epl.lowerdiv.point_in_time_canary_2` (§7.3) fails on either store, or the direction canary proved nothing (§7.3) / either leg of the evidence canary fails |
 | `ControlMismatch` | any of the 2,280 identity-control probabilities differs from the corpus at 8 dp (§3.2) |
 | `TableIdentityBreak` | **any** cell's two arms' `sampler_digest`s are EQUAL (§3.3: every cell must change under this design); a parity comparison differs at any of the 32 cells; a cell simulated without a complete oracle; or a schedule field disagrees with `FROZEN_TABLE_SCHEDULE` |
 | `TableMCImprecise` | §5.2's structural conditions — unequal per-particle season counts, unequal `n_particles` across deciding cells or between a cell's arms, a tally that fails either binding check of §5.1, or a tally file absent or failing its recorded digest |
@@ -1584,17 +2334,17 @@ the type and offending key, exit **2** — the `RecalError` convention.
 | `SchemaMismatch` / `RowConflict` | a ledger row lacks a required field / duplicate keys disagree on a non-volatile field |
 | `ShardFailed` / `MergeIncomplete` | a shard exits non-zero or writes nothing / the merged key set is not exactly the pre-stated keys — not a superset, not a subset |
 | `StoreNotBuilt` | a read-only pass required a point-in-time store and the store parquet is absent; the read-only accessor refuses and **never builds one** (§8.2) |
-| `SequenceViolation` | a step of §8.4's frozen sequence ran without its predecessor's completion marker, or with a marker recorded under a different freeze commit |
-| `FreezeStateUnverified` | the freeze/first-fit state could not be established from committed bytes and Git ancestry: the prereg blob is uncommitted, its commit is not an ancestor of HEAD, or its current bytes differ from that blob; a hashed file's bytes differ from the committed table; the recorded membership, schema or conformance digests do not match a fresh recomputation; the committed conformance table is not exactly §8.5's rows all green; a first-fit record names a different prereg blob; or the record and its append-only witness disagree |
+| `SequenceViolation` | a step of §8.4's frozen sequence ran without its predecessor's completion marker, or with a marker recorded under a different freeze-parent commit |
+| `FreezeStateUnverified` | the freeze/first-fit state could not be established from committed bytes and Git ancestry: the prereg blob is uncommitted, its commit is not an ancestor of HEAD, or its current bytes differ from that blob; a hashed file's bytes differ from the committed table; **any member of §8.6's DEPENDENCY HASH TABLE differs from its recorded SHA-256, or the table's path set differs from a fresh recomputation of the import closure**; **the environment fingerprint differs from the one the freeze block recorded**; the recorded membership, schema or conformance digests do not match a fresh recomputation; the committed conformance table is not exactly §8.5's rows all green; a first-fit record names a different prereg blob; or the record and its append-only witness disagree |
 | `FeasibilityRecordMismatch` | the committed census record is absent, fails its pinned digest, reports `completed: false`, or reports a priceable census that is not exactly these 32 cells |
 | **`PathNotFrozen`** | any writer or reader resolves an artifact path that is not the one §8.9's single layout function returns (§8.9) |
 
-**Thirty-four named refusals; thirty-five classes** counting the `LowerDivError`
+**Thirty-five named refusals; thirty-six classes** counting the `LowerDivError`
 base they all derive from. (`RecalError` above is a citation to the exit-code
 convention, not a class of this harness.) `epl/tests/test_lowerdiv.py`'s two
-inventory tests must name **thirty-four** in both their tuple and their set, so
+inventory tests must name **thirty-five** in both their tuple and their set, so
 that the "invents no refusal the document never wrote" test closes the inventory
-exactly and a thirty-fifth named type is as much a failure as a missing one.
+exactly and a thirty-sixth named type is as much a failure as a missing one.
 
 **UNRESOLVED is not a refusal and raises nothing.** Gate (iv) being left
 UNRESOLVED by §5.4's precision rule is a **verdict**: it publishes, and it blocks
@@ -1609,11 +2359,13 @@ kept.
 
 Every match-leg row records `cutoff` · `arm` · `seed` · `config_sha256` ·
 `realised_config_sha256` · `archive_sha256` · `archive_e1_sha256` ·
-`ledger_sha256` · `delta_offset` (−75.0) · `gamma` · per-club `e` on the E0
-archive at 8 dp · per-club `e` on the E1-informed archive at 8 dp · incumbent and
-recomputed provisional sets · cold-start set · team-index size · `match_ids` ·
-`probs` (8 dp) · `health` · `harness_sha256` · `harness_frozen` · `blas_threads` ·
-`shard_id` · clocks.
+`ledger_sha256` · **`store_sha256` · `anchor_sha256` · `team_index_sha256`**
+(§3.2) · `delta_rating` (−75.0) · `gamma` · per-club `e` on the E0 archive at
+8 dp · **per-club prior-E1 match count and last prior E1 date** (§3.1 — never an
+`e`) · incumbent and recomputed provisional sets · cold-start set · team-index
+size · `match_ids` · `probs` (8 dp) · `health` · `harness_sha256` ·
+**`dependency_table_sha256`** · **`environment_fingerprint`** (§8.6) ·
+`harness_frozen` · `blas_threads` · `shard_id` · clocks.
 
 Every **table** row additionally records `provisional_control`,
 `provisional_treatment`, `effective_posterior_control`,
@@ -1626,18 +2378,41 @@ Volatile fields (`wall_seconds`, `fit_seconds`, `seconds`, `shard_id`,
 `started_at`, `host`) are excluded from the canonical form; `run_digest` is
 SHA-256 over the canonical form; a resumed run's digest must equal an
 uninterrupted run's byte for byte; the loader refuses disagreeing duplicates. The
-runner is resumable per fit, keyed `cutoff|arm|seed|config_sha256`.
+runner is resumable per fit, keyed
+**`cutoff|arm|seed|config_sha256|store_sha256|anchor_sha256|team_index_sha256`**
+— §3.2's content binding, because a key that names only the config lets a moved
+store resume into a completed run.
 
 `harness_frozen` records **what the guard established**, never what a caller
 asserted (§8.6).
 
 ### 7.3 The canaries
 
-* **Results canary, TWICE.** `epl.walkforward.point_in_time_canary`, run once on
-  the **E0** store and once on the **E1-informed** store, as a precondition
-  **after** the freeze. `PASS: false` on either stops the run. Each performs four
-  real fits (`epl/walkforward.py:490-495`), which is why §8.4 makes it step 1 and
-  why §2.4 counts eight fits.
+* **Results canary, TWICE — and it is THIS DOCUMENT'S canary, not the protected
+  one.** v1 required "`point_in_time_canary` on the E0 store … and on the
+  E1-informed store". **That function cannot do it.** Its signature is
+  `point_in_time_canary(matches=None, cutoff="2022-01-01", later="2023-01-01",
+  tmp_root=None)` (`epl/walkforward.py:450-451`): it accepts **neither a store
+  nor an anchor**, it constructs the incumbent E0 `Anchor` from the `matches`
+  frame it is handed (`:468`), and it projects its temporary stores through
+  `epl.fit.to_store_frame` (`:470`), which labels every row Premier League.
+  Handing it the union frame would leak E1 into the incumbent Elo ladder — the
+  one thing §0.1's architectural pin exists to prevent — and handing it the E0
+  frame cannot exercise the treatment store at all.
+
+  **The ruling:** `epl.lowerdiv.point_in_time_canary_2(store_root, anchor,
+  cutoff, later)` is a lowerdiv-owned canary taking the store root and the anchor
+  **explicitly**, reproducing the protected function's structure step for step —
+  rewrite every result from `cutoff` on, demand the forecast is unmoved, and
+  prove at `later` that the corruption landed — with two substitutions and no
+  others: the store it corrupts is the one it is given, and the anchor it fits
+  against is the one it is given. `epl/walkforward.py` is **not edited**; the
+  protected function is cited as the structure's source and is not called on any
+  deciding path. It is run once with `(E0 store root, incumbent Anchor)` and once
+  with `(E1-informed store root, §2.2's CrossLeagueAnchor)`. `PASS: false` on
+  either stops the run. Each performs four real fits, which is why §8.4 makes it
+  step 1 and why §2.4 counts eight fits. Its temporary stores live under
+  `tempfile.TemporaryDirectory` and never under either preregistered store root.
 * **Evidence canary**, two-legged, on the **E0** archive, because that is the
   archive `e` is computed on. The mutation is frozen exactly. Rows selected by
   normalised date: `after` selects `date ≥ cutoff`, `before` selects
@@ -1675,10 +2450,12 @@ transformed, or otherwise derived from** `data/epl/matches.parquet`,
 `data/epl/matches_e1.parquet`,
 `data/epl/fit/walkforward_predictions.parquet`,
 `data/epl/fit/walkforward_ledger.jsonl`, `data/epl/sim/retro_r1.jsonl`,
-`reports/evidence/widening_per_fixture.csv`, or any artifact derived from them.
+`reports/evidence/widening_per_fixture.csv`,
+`reports/evidence/anchoring_per_fixture.csv`, `reports/evidence/lowerdiv_corpus.csv`,
+`reports/evidence/lowerdiv_openings.jsonl`, or any artifact derived from them.
 
 **The ancestry check is a mechanical obligation, not an assertion.** Before the
-freeze commit, `epl/tests/test_lowerdiv.py` must carry a test that asserts,
+seal commit, `epl/tests/test_lowerdiv.py` must carry a test that asserts,
 mechanically, that none of its invented club names appears in any pinned
 artifact's club columns and that its generators read nothing from those
 artifacts. Until that test exists and passes, the claim is an assertion about the
@@ -1726,103 +2503,137 @@ attestation is restated in §8.8 with the qualifications it carries.
 
 ### 8.2 The pre-freeze regime — read-only to the model, enumerated, and mechanically closed
 
-**The no-fit clock.** Between this commit and the freeze commit, **no fit and no
+**The no-fit clock.** Between this commit and the seal commit, **no fit and no
 season simulation of this document may run, anywhere, under any output
-directory.** §10 makes one an invalidation. The one exception is stated by name
-and it is not an exception to that rule: pass A acquires data and fits nothing.
+directory.** §10 makes one an invalidation. The two named passes below are not
+exceptions to that rule: A0 and A1 acquire data and fit nothing.
 
-**The authorised passes, authorised prospectively and by name. There are six.**
+**The authorised passes, authorised prospectively and by name. There are seven.**
 
-> **Pass A — THE E1 ACQUISITION.** The only pass that touches the network and the
-> only pass that writes a new artifact before the freeze.
-> `python -m epl.lowerdiv --acquire`. It fetches the twelve E1 season CSVs
-> (cache-first, hash-pinned, refusing a byte change on a cached file), parses
-> them under §0.6's B1/B2/B6 rulings, resolves club names under B4, validates
-> under B3, refuses under B5, and writes exactly:
-> `data/epl/raw/E1_{code}.csv` (12), `data/epl/raw/provenance_e1.json`,
-> `data/epl/matches_e1.parquet`, `data/epl/manifest_e1.json`,
-> `data/epl/team_name_mapping_e1.json`.
+> **Pass A0 — FETCH AND CENSUS.** The only pass that touches the network.
+> `python -m epl.lowerdiv --acquire-fetch`. It fetches the twelve E1 season CSVs
+> (cache-first, hash-pinned, refusing a byte change on a cached file) and writes
+> exactly `data/epl/raw/E1_{code}.csv` (12) and
+> `data/epl/raw/provenance_e1.json`. It publishes the **outcome-blind spelling
+> census** of §0.6 and **reads no score column**. It resolves no name, writes no
+> parquet and builds nothing. **It runs ONCE**, with a terminal completion
+> marker.
 >
-> **It is READ-ONLY TO THE MODEL.** It builds no store, constructs no Engine,
-> imports no sampler, and calls nothing in `src/wcmodel/model/`. A committed test
-> asserts that the acquisition path's import closure excludes
-> `wcmodel.model.scoreline`, and the pass compares the E0 archive's bytes and
+> **THE REGISTRY COMMIT — not a pass, a commit.** `epl/teams.py` gains one entry
+> per E1 club, written against A0's published census. §10 makes writing a
+> registry entry before that census is published an invalidation, and makes
+> resolving a fold collision by renaming a club an invalidation.
+>
+> **Pass A1 — PARSE, RESOLVE, VALIDATE, WRITE.** No network.
+> `python -m epl.lowerdiv --acquire-build`. It re-reads the cached CSVs,
+> re-verifies each against A0's recorded digest, parses under §0.6's B6 recipe,
+> resolves under B4, validates under B3, refuses under B5, and writes exactly
+> `data/epl/matches_e1.parquet`, `data/epl/manifest_e1.json` and
+> `data/epl/team_name_mapping_e1.json`. **It may be re-run** after a registry
+> correction, because it fetches nothing and conditions on nothing but a spelling;
+> every run appends to its claim record and the completion marker carries the list
+> forward.
+>
+> **BOTH ARE READ-ONLY TO THE MODEL.** Neither builds a store, constructs an
+> Engine, imports a sampler, or calls anything in `src/wcmodel/model/`. A
+> committed test asserts that both acquisition paths' import closures exclude
+> `wcmodel.model.scoreline`, and each pass compares the E0 archive's bytes and
 > mtime before and after and refuses if either moved.
 >
-> **It runs ONCE**, with a completion marker, and it publishes its record as a
-> dated §8.10 note appended to this document **before** the freeze block: the
-> twelve fetch records, the per-season validation table, the complete E1 club
-> census and spelling set with each spelling's fold, the collision-check result,
-> any unmapped name, the E1 goal rate against E0's, and the E1 archive's SHA-256,
-> row count and byte size. **A freeze block may not render while that note is
-> absent** (§8.3).
->
-> **Registry order is binding.** The spelling enumeration is produced and
-> published **before** the `epl/teams.py` entries are written, so that the
-> registry is written against a measured list rather than a guessed one, and so
-> that a fold collision is discovered on a list rather than at import time in the
-> middle of a run.
+> **The acquisition record publishes as a dated §8.10 note appended to this
+> document before the freeze block**, carrying exactly §0.6's allow-list and
+> nothing else — **no goal rate and no outcome summary of any kind.** A freeze
+> block may not render while that note is absent, and refuses if the note carries
+> a field outside the allow-list (§8.3).
 
 * `python -m epl.lowerdiv --membership` and `--plan` — read the pinned corpus,
-  the pinned E0 archive, the ledger, the committed widening per-fixture CSV and
-  the acquired E1 archive; compute the 85 keys, the 62 blocks, the 6-season
-  split, the 212 openings, `FROZEN_TABLE_SCHEDULE` and the per-label CELL census,
-  and the digests §8.3 pins. **Neither reaches a store build:** the read-only
-  store accessor opens an existing store parquet and raises `StoreNotBuilt` if it
-  is absent — it never builds one.
-* `python -m epl.lowerdiv --canary --no-results-canary --dir <scratch>` — §7.3's
-  evidence and E1-isolation canaries, with any point-in-time store built in a
-  `tempfile.TemporaryDirectory` and never under `paths.STORE_DIR` or the E1 store
-  root.
+  the pinned E0 archive, the ledger, the committed widening per-fixture CSV, the
+  committed collateral structure CSV and the acquired E1 archive; compute the 85
+  `match_id`s, the 62 blocks, the 6-season split, the 212 openings,
+  `FROZEN_TABLE_SCHEDULE` and the per-label CELL census, and the digests §8.3
+  pins. **Neither reaches a store build:** the read-only store accessor opens an
+  existing store parquet and raises `StoreNotBuilt` if it is absent — it never
+  builds one.
+* `python -m epl.lowerdiv --canary --no-results-canary` — §7.3's evidence and
+  E1-isolation canaries, with every point-in-time store built inside a
+  `tempfile.TemporaryDirectory` the pass creates for itself and never under
+  `paths.STORE_DIR` or the E1 store root. **It takes no directory argument**
+  (§8.9 rule 3): a caller-supplied scratch path is the same seam as a
+  caller-supplied ledger path, and this document refuses both.
 * `pytest epl/tests/test_lowerdiv.py` — the synthetic corpora, the `@pinned`
   tests that re-derive this document's census, the power table, the membership
   and the table schedule, and §8.5's conformance scenario run.
-* `python -m epl.lowerdiv --power` — reads only the frozen SDs and the frozen
-  structure recomputed from the committed CSV, and must reproduce §6.3 exactly.
+* `python -m epl.lowerdiv --power` — derives scenarios C and D from B, recomputes
+  the frozen structure from the two committed CSVs, and must reproduce §6.3's
+  three tables exactly.
 * `python -m epl.lowerdiv --freeze-block` — reads the pinned artifacts to render
-  §8.3's commit rather than have a human transcribe digests.
+  §8.3's block rather than have a human transcribe digests.
 
-**`--script` may not be run before the freeze commit, at any target**, and a
+**`--script` may not be run before the seal commit, at any target**, and a
 post-freeze launcher may not be generated with a caller-supplied interpreter or
 command.
 
-### 8.3 The freeze commit
+### 8.3 The freeze block, and the order that produces it
 
 This document is committed **before** the harness it binds. Then, in order:
 
-1. **Pass A runs and publishes its note** (§8.2). No E1 archive, no freeze.
-2. **The harness is written and audited** — `epl/lowerdiv.py` and
-   `epl/tests/test_lowerdiv.py` are brought to implement **this document**, with
-   seeded defects and canaries on synthetic corpora only. §8.5's conformance
-   report must be green on behavioural predicates **and must be backed by an
-   independent pytest artifact**, and an independent dual audit — one cross-model
-   review and one in-tree adversarial seed audit — must report no blocking
-   finding, **or the owner must adjudicate what it reported**, with the complete
-   dissent published beside the law.
-3. **A follow-up commit appends the freeze block to this document**, rendered by
+1. **The acquisition surface is written and audited** (§2.1): stage 1 of
+   `epl/lowerdiv.py` and its tests, committed. **A0's command cannot run before
+   the module that implements it exists**, and v1's order — "pass A runs … then
+   the harness is written" — was not executable.
+2. **A0 runs and publishes its outcome-blind census** (§8.2). No census, no
+   registry commit before it.
+3. **The registry commit** — `epl/teams.py`, written against A0's census.
+4. **A1 runs and publishes the acquisition note** (§8.2, §8.10). No E1 archive,
+   no freeze.
+5. **The experiment surfaces are written and audited** — stage 2 of
+   `epl/lowerdiv.py` and `epl/tests/test_lowerdiv.py` are brought to implement
+   **this document**, with seeded defects and canaries on synthetic corpora only.
+   §8.5's conformance report must be green on behavioural predicates **and must
+   be backed by an independent pytest artifact**, and an independent dual audit —
+   one cross-model review and one in-tree adversarial seed audit — must report no
+   blocking finding, **or the owner must adjudicate what it reported**, with the
+   complete dissent published beside the law.
+6. **The reproduction bundle of §9.5 is generated and committed.**
+7. **THE SEAL COMMIT appends the freeze block to this document**, rendered by
    `--freeze-block`, carrying:
 
+   * the **FREEZE-PARENT COMMIT** — the SHA-1 of the commit at step 6, which
+     holds the audited harness, the registry, the bundle and this document
+     *without* the freeze block. **The block names its parent, never itself.**
+     v1 required a marker to equal "the freeze commit recorded in this document's
+     committed freeze block" while that block lived *in* the commit it named:
+     a Git commit cannot contain its own SHA, because embedding it changes it,
+     and no construction resolves the self-reference. The freeze-parent is
+     immutable, already exists when the block renders, and gives every property
+     the self-reference was reaching for (§8.4);
    * the **harness hash table** — file, line count and SHA-256 for each of
      `epl/lowerdiv.py` and `epl/tests/test_lowerdiv.py`, the SHA-256 of
      `epl/teams.py` after B4's registry addition, and the schema identifier
-     `epl-lowerdiv-1`;
-   * the **membership digests** — the 85 thin fixture keys, the 62 block labels,
-     the 6-season split, the 212 fit openings, `FROZEN_TABLE_SCHEDULE` tuple by
-     tuple, the per-label CELL census, and the three excluded cell keys — each
-     serialised canonically and hashed, recomputed by the harness's own code from
-     the pinned artifacts — **together with widening v3's own frozen thin-fixture
-     digest `38d18d4d96…`, which the recomputed 85 must equal**;
-   * the four pinned artifact digests of §0.1, `realised_config_sha256`, and
-     **the E1 archive's SHA-256, row count, byte size and per-season club
-     census**;
+     `epl-lowerdiv-2`;
+   * the **DEPENDENCY HASH TABLE and the ENVIRONMENT FINGERPRINT** of §8.6 —
+     because ancestry alone does not bind the code that decides;
+   * the **membership digests** — the 85 thin-fixture **`match_id`s**, the 62
+     block labels, the 6-season split, the 212 fit openings,
+     `FROZEN_TABLE_SCHEDULE` triplet by triplet, the per-label CELL census, and
+     the three excluded cell keys — each serialised canonically and hashed,
+     recomputed by the harness's own code from the pinned artifacts —
+     **together with widening v3's own frozen thin-fixture digest
+     `38d18d4d96…`, which the recomputed 85 `match_id`s must equal**, and
+     **together with the 85-`key` digest `5a0d92c5…` recorded as the value the
+     pin is NOT** (§0.5);
+   * the pinned artifact digests of §0.1 including the committed collateral
+     structure CSV, `realised_config_sha256`, and **the E1 archive's SHA-256, row
+     count, byte size and per-season club census**;
    * the SHA-256 and byte size of the feasibility census record, and **both
      paths that hold those bytes**;
+   * the SHA-256 and byte size of every member of §9.5's reproduction bundle;
    * the **enumeration of every pre-freeze pass actually run**, complete,
-     including pass A with its date, its record and its digests;
+     including A0 and every A1 attempt with dates, records and digests;
    * the conformance report of §8.5, every row green, **together with the
      identity of the pytest artifact it was read from** — path, digest, test-id
      list and pass count;
-   * §6.3's power table as the committed `--power` reproduced it.
+   * §6.3's three tables as the committed `--power` reproduced them.
 
    *If any hash differs at the time the run is executed, it is not the run this
    document preregisters.*
@@ -1831,8 +2642,11 @@ This document is committed **before** the harness it binds. Then, in order:
    the refusals are unconditional — there is no bypass parameter and no
    caller-supplied substitute for any of these inputs:
 
-   * pass A's dated note is absent from this document, or the E1 archive is
+   * A0's or A1's dated note is absent from this document, or the E1 archive is
      absent or fails the digest the note recorded;
+   * **the §8.10 note carries any field outside §0.6's allow-list** — in
+     particular any score, goal count, goal rate, result distribution or other
+     outcome summary of the treatment data (§0.6);
    * the conformance report is **not exactly §8.5's rows**, or any row is red or
      absent. **A nonempty all-green SUBSET is a refusal**, not a pass: a renderer
      that accepted any green subset would render over a report that had dropped
@@ -1840,14 +2654,18 @@ This document is committed **before** the harness it binds. Then, in order:
      the predecessor's harness;
    * the report was not **produced by and cross-checked against** §8.5's
      committed pytest artifact — same test ids, all passing, same count;
-   * §7.4's ancestry test is absent, or §6.3's power table is unreproduced;
+   * §7.4's ancestry test is absent, or §6.3's three tables are unreproduced;
    * the feasibility census record is absent, fails its pinned digest, says it
      did not complete, or reports a priceable census that is not exactly these
      32 cells;
-   * the recomputed 85-fixture digest is not equal to widening v3's
-     `38d18d4d96…`.
+   * **§9.5's reproduction bundle is absent or fails any of its digests**;
+   * the recomputed 85-`match_id` digest is not equal to widening v3's
+     `38d18d4d96…`, **or the harness's regression test showing that the 85-`key`
+     digest is `5a0d92c5…` and is NOT the pin is absent** (§0.5);
+   * the dependency hash table or the environment fingerprint is absent, or
+     either fails a fresh recomputation.
 
-4. **Only then does the first real fit of this document run**, and it runs as
+8. **Only then does the first real fit of this document run**, and it runs as
    step 1 of §8.4's sequence and in no other way.
 
 **This document's commit adds this document. Nothing else.** No amendment-ledger
@@ -1865,17 +2683,17 @@ the refusal is `SequenceViolation`.
 
 Markers live at one fixed location, `data/epl/fit/lowerdiv/sequence/`, one JSON
 file per step. Each records the step name, whether the step **completed**, the
-UTC time, the freeze commit under which it was written, the harness file digests
-at that moment, and — per the predecessor's adjudicated fix — **`products`, a map
-from repo-relative path to the SHA-256 of what that file held when the step
-finished.** `assert_sequence_marker_wellformed` **re-hashes every product against
+UTC time, the **freeze-parent commit** under which it was written, the harness
+file digests at that moment, and — per the predecessor's adjudicated fix —
+**`products`, a map from repo-relative path to the SHA-256 of what that file held
+when the step finished.** `assert_sequence_marker_wellformed` **re-hashes every product against
 the bytes on disk on every read**: a marker is a claim that a step produced
 something, and a claim about a file that is gone, or is no longer that file,
-unlocks nothing. A marker written under a different freeze commit is not a marker
+unlocks nothing. A marker written under a different freeze-parent commit is not a marker
 for this run.
 
 **Markers are written once.** They are MANIFEST members (§9.3), so a second write
-under the same freeze commit **re-verifies**: it compares what the step produced
+under the same freeze-parent commit **re-verifies**: it compares what the step produced
 against what the marker records, returns the marker unchanged if they agree, and
 refuses if they do not.
 
@@ -1885,27 +2703,50 @@ refuses if they do not.
 > `git_head()` and refuses unless they are **equal**. HEAD necessarily advances
 > after the run: §8.4's own step 6 commits the result document and the evidence
 > files, and the predecessor did exactly that at `f3bc756`. **From that commit
-> onward every sequence-guarded path in that harness raises
-> `SequenceViolation`, and `pytest epl/tests` carries 59 failures on `main` that
-> no one introduced** — the ratchet firing on the publication it was built to
-> permit. Measured on this repository at HEAD `40eed13`: *"step5_parity refuses:
-> step4_merge's marker was written under a different freeze commit
-> (38be3e2d4c65… against 40eed1398637…)."*
+> onward every sequence-guarded path in that harness raised
+> `SequenceViolation`, and `pytest epl/tests` carried 59 failures and 9 errors
+> across 66 distinct tests that no one introduced** — the ratchet firing on the
+> publication it was built to permit. The refusal, measured at HEAD `40eed13`:
+> *"step5_parity refuses: step4_merge's marker was written under a different
+> freeze commit (38be3e2d4c65… against 40eed1398637…)."*
 >
-> **The rule here is different and it is birth-law.** A marker's `freeze_commit`
-> must equal **the freeze commit recorded in this document's committed freeze
-> block** — one fixed value, established once by §8.6's guard from committed
-> bytes and Git ancestry — **and that commit must be an ANCESTOR of HEAD, never
-> equal to it.** Every property the equality check was reaching for survives: a
-> marker from a different freeze does not unlock anything, a marker written
-> before the freeze does not unlock anything, and no caller may supply the value.
-> What does not survive is a harness that goes red the moment it publishes, which
-> is not integrity — it is a guard that cannot tell publication from tampering.
+> **THE REDNESS IS GONE AND THE DEFECT IS NOT, and the distinction is the whole
+> reason this clause exists.** At `6ed2ba5` the suite was returned to green by
+> **retiring those 66 tests to `skipif` behind a `RUN_CONCLUDED` stage guard** —
+> the concluded run's own markers asked read-only — so the baseline is now
+> `1359 passed, 67 skipped, 0 failed`. **`epl/evwiden.py` was not touched**: it
+> is byte-identical to what that document's freeze block hashes, the equality
+> check at `:4328-4335` is still exactly the code quoted above, and it would
+> refuse again on the next publication of any run it guarded. The cure was in the
+> test file because the harness was frozen and concluded; **it was not a fix, and
+> a design that inherited this shape would inherit the defect and not the cure.**
+>
+> **The rule here is different and it is birth-law.** A marker's `freeze_parent`
+> must equal **the FREEZE-PARENT COMMIT recorded in this document's committed
+> freeze block** (§8.3) — one fixed value, naming the commit that holds the
+> audited harness *before* the block was appended, established once by §8.6's
+> guard from committed bytes and Git ancestry — **and that commit must be an
+> ANCESTOR of HEAD, never equal to it.** Every property the equality check was
+> reaching for survives: a marker from a different freeze does not unlock
+> anything, a marker written before the freeze does not unlock anything, and no
+> caller may supply the value. What does not survive is a harness that goes red
+> the moment it publishes, which is not integrity — it is a guard that cannot
+> tell publication from tampering.
+>
+> **And the value is the PARENT'S, not the seal's, because a commit cannot name
+> itself.** v1 wrote "the freeze commit recorded in this document's committed
+> freeze block" — a SHA embedded in the very object it identifies, which changes
+> the moment it is written. The freeze-parent already exists when the block
+> renders, is immutable, and is an ancestor of the seal commit and therefore of
+> HEAD. **The seal commit is identified only by what it contains**: §8.6's guard
+> establishes it by finding this document's current bytes in a committed blob
+> whose commit is an ancestor of HEAD, which needs no embedded identity at all.
 
 **`epl/evwiden.py` is protected and frozen and is NOT repaired by this
-document.** The predecessor's redness is disclosed here, at its measured HEAD,
-because §8.9's discipline is to name a defect where it lives and design it out
-here rather than to inherit its shape silently.
+document.** The predecessor's redness is disclosed here, with both its measured
+HEAD and the commit that skipped it away, because §8.9's discipline is to name a
+defect where it lives and design it out here rather than to inherit its shape
+silently — and because a green suite is not evidence that the guard was fixed.
 
 **A marker may record a FAILURE, and a failure marker unlocks nothing.** A step
 that ran and failed writes `complete: false`, and the step it would have unlocked
@@ -1913,21 +2754,33 @@ refuses exactly as it refuses on an absent one. This makes a failed step
 DURABLE, which is what closes the retry channel §4.5's no-file-drawer rule
 exists to close.
 
-**THE RECLAIM RULE — a crashed step may resume, and every resumption is on the
-record**, carried forward from the predecessor's adjudication as birth-law rather
-than discovered here:
+**THE RECLAIM RULE — a crashed step may resume, a FAILED step may not, and every
+resumption is on the record.** v1's version was not executable: it let a failed
+step continue after "a new dated pre-freeze note written BEFORE the retry", while
+§8.7 forbids any note after the first real fit and step 1 refuses outright while
+either kind of step-1 marker exists — so a failed step 1 had no lawful retry path
+at all. The rule is therefore three cases, and **failure is terminal**:
 
 > * a **COMPLETED** step produced an outcome, and the sequence stays ONCE-ONLY
 >   for it: re-running it after seeing what it produced is the
 >   outcome-conditioned second run §4.5 closes, and no reclaim reopens it;
-> * a **FAILED** step has published its failure, and a continuation after it
->   still needs a new dated pre-freeze note written BEFORE the retry;
+> * a **FAILED** step has published its failure, **and the experiment stops
+>   there.** There is no retry, no note and no continuation: a step that ran to a
+>   conclusion and failed is an outcome, the result document publishes it as one
+>   (§4.5's no-file-drawer rule), and re-running the experiment is a new
+>   preregistration. **No document edit is needed and none is permitted**, which
+>   is what makes this rule consistent with §8.7 where v1's was not;
 > * an **OPEN CLAIM** — a step that started and did not finish — produced no
 >   complete product, so there is no outcome to condition a retry on and nothing
 >   to put in a file drawer. It may be re-claimed **once per dated reclaim record
->   appended to the claim file** — appended, never overwritten — and the
->   completion marker carries the whole reclaim list forward, so a resumed step's
->   history survives the step and a reader can count the resumptions.
+>   appended to the pre-frozen claim file** `data/epl/fit/lowerdiv/sequence/
+>   claims.jsonl` — appended, never overwritten, a manifest member, and written
+>   by the harness rather than by hand — and the completion marker carries the
+>   whole reclaim list forward, so a resumed step's history survives the step and
+>   a reader can count the resumptions. **Step 1's "refuses while a step-1 marker
+>   of either kind exists" therefore has exactly one exception: an OPEN CLAIM
+>   reclaimed through `--resume-from`**, which validates the claim file rather
+>   than the marker.
 
 **Resumption is a first-class path with its own marker**, not an ad-hoc script.
 The predecessor's run needed a hand-written `resume_from_step3.sh` because its
@@ -1938,23 +2791,29 @@ record. §10 makes running the sequence by any other means an invalidation.
 
 > **Step 1 — the post-freeze results canaries, both stores. This is the first
 > post-freeze act and it performs the first real fits of this document.**
-> `python -m epl.lowerdiv --canary --dir <the preregistered run directory>`, run
-> once. It executes `point_in_time_canary` on the E0 store (four fits) and on the
-> E1-informed store (four fits), plus the evidence, E1-isolation and identity
-> canaries. `PASS: false` on any leg stops the experiment **and the failure
-> publishes before the refusal is raised** — the canary record is written and a
-> `complete: false` marker is left, and only then does the process stop. Step 1
-> refuses outright while a step-1 marker of either kind exists.
+> `python -m epl.lowerdiv --canary`, run once, **with no directory argument of
+> any kind** — every path comes from §8.9's `layout()`, and a `--dir` on a
+> deciding path is `PathNotFrozen`. It executes §7.3's
+> `point_in_time_canary_2` on the E0 store with the incumbent anchor (four fits)
+> and on the E1-informed store with the cross-league anchor (four fits), plus the
+> evidence, E1-isolation and identity canaries. `PASS: false` on any leg stops the
+> experiment **and the failure publishes before the refusal is raised** — the
+> canary record is written and a `complete: false` marker is left, and only then
+> does the process stop. Step 1 refuses outright while a step-1 marker of either
+> kind exists, except on an OPEN CLAIM reclaimed through `--resume-from`.
 > Product: `data/epl/fit/lowerdiv/canary.json`.
 >
-> **Step 2 — the single-opening exercise.** `--run --limit 1`, which **refuses
-> unless the point it would fit is 2019-08-09** — the first opening of the
-> corpus, named here by date and by nothing else. A different shard's first point
-> is a different opening, and choosing one at the command line would make step 2
-> the selection step it is not. It fits both arms at that opening, runs the
-> identity control on that opening's fixtures, and **publishes the realised E1
-> fit seconds**, which §2.4's budget is checked against. Its console output and
-> row count are required in the result document.
+> **Step 2 — the single-opening exercise, and the budget checkpoint.**
+> `--run --limit 1`, which **refuses unless the point it would fit is
+> 2019-08-09** — the first opening of the corpus, named here by date and by
+> nothing else. A different shard's first point is a different opening, and
+> choosing one at the command line would make step 2 the selection step it is not.
+> It fits both arms at that opening, runs the identity control on that opening's
+> fixtures, and **publishes the realised Arm-A fit seconds**. **§2.4's overrun
+> ruling is evaluated here**: if the realised Arm-A rate exceeds **269 s/fit**,
+> step 2 completes, publishes its measurement and the projected total, and step 3
+> raises `BudgetExceeded` — the run is neither thinned nor restarted. Step 2's
+> console output and row count are required in the result document.
 >
 > **Step 3 — the match legs.** Four shards, **sequential**, per-PID waits, BLAS
 > pinned. Products: `data/epl/fit/lowerdiv/shard_0{0,1,2,3}_of_04.jsonl`.
@@ -1974,6 +2833,17 @@ record. §10 makes running the sequence by any other means an invalidation.
 > publication only and is not a seventh experiment step; every manifest member
 > lands before the manifest is computed and nothing manifested is written
 > afterwards.
+>
+> **Step 6's own marker is NOT a manifest member, and that resolves an ordering
+> that had no solution.** v1 put `step{1..6}.json` in the manifest, computed the
+> manifest inside step 6, and required every member to land before the manifest
+> is computed — so step 6's truthful completion marker had to exist before step 6
+> completed. **`step6.json` is therefore a CLOSURE RECORD, not a product**: it is
+> written after the manifest, it lives at
+> `data/epl/fit/lowerdiv/sequence/step6.json` like its siblings, it is sealed by
+> its own line in the append-only claim file, and `--verify` checks it against the
+> manifest rather than inside it. Steps 1–5's markers stay manifest members,
+> because each of them does land before step 6 runs.
 
 **Step 2's scratch requirement is a function of the step, not of the run
 directory.** The predecessor's step 2 required a hand copy of step 1's canary
@@ -1994,33 +2864,37 @@ by the renderer. **The report may not be its own witness.**
 |---|---|---|
 | L1 | §2.3 | both arms are real fits at the same opening against the two named store roots; neither reads the other's cache |
 | L2 | §0.1, §7.1 | `E1Leak` fires on every one of its five conditions, each seeded alone |
-| L3 | §0.5 | `PopulationRederived` fires when `e` is computed on any frame but the pinned E0 archive, and the recomputed 85 equals widening v3's frozen digest |
-| L4 | §0.6 B5 | `PhantomClub` refuses before the projection; and `epl.fit.to_store_frame` fed the same frame still produces `"None"` — the hazard is documented, not silently fixed |
-| L5 | §0.6 B4, §2.2 | **registry:** re-resolving the pinned E0 archive through the enlarged registry changes no E0 key, and a synthetic fold collision raises at import. **Ladder:** every E1 season-boundary arrival classifies as relegated-from-E0 / arrived-from-below / continuing against the two archives' own memberships, a relegated club is seeded ABOVE the E1 mean and an arrival from below BELOW it, and a misclassification raises `LadderBoundaryMismatch` |
-| L6 | §3.2 | the identity control is exercised in the **production** fit path, not reimplemented by a stub, and goes red when its tolerance is loosened to any value |
+| L3 | §0.5 | `PopulationRederived` fires when `e` is computed on any frame but the pinned E0 archive; **the thin set joins the corpus one-to-one on `match_id` and produces exactly 85 rows**; the recomputed 85-`match_id` digest equals widening v3's frozen `38d18d4d96…`; and **the 85-`key` digest is computed, asserted equal to `5a0d92c5…`, and asserted NOT equal to the pin** |
+| L4 | §0.6 B5, **§5.6** | `PhantomClub` refuses before the projection **on every enumerated lowerdiv call site that reaches a store projection**, and a seeded direct call to `epl.fit.to_store_frame` from lowerdiv code makes the test red; and `epl.fit.to_store_frame` fed the same frame still produces `"None"` — the hazard is documented where it lives, not silently fixed and not claimed to be closed repository-wide |
+| L5 | §0.6 B4, §2.2 | **registry:** re-resolving the pinned E0 archive through the enlarged registry changes no E0 key, and a synthetic fold collision raises at import. **Ladder:** every E1 season-boundary arrival classifies `from_E0` / `outside_observed_divisions` / `continuing` against the two archives' own memberships, a `from_E0` club is seeded ABOVE the E1 mean and an `outside_observed_divisions` arrival BELOW it, and a misclassification raises `LadderBoundaryMismatch`. **Resolver:** §2.2 point 2b is total over the union team index at all 212 openings, exactly one branch fires per club-cutoff, and a club with no prior match in either archive raises |
+| L5b | §0.6 B7, §2.2 2c | **projection:** every E1 row of a synthetic union store reads back `tournament = "EFL Championship"` with the E1 source provenance, and every E0 row reads back Premier League with the E0 provenance, through the real build path. **Z-scale:** the two arms' `(mean, sd)` are bit-identical at every opening, and every E0 club's `elo_z` agrees across arms to `1e-12` |
+| L6 | §3.2 | the identity control is exercised in the **production** fit path, not reimplemented by a stub; goes red when its tolerance is loosened to any value; **runs its five operations in §3.2's frozen order**; and **publishes the cause-classification matrix and the environment fingerprint on a seeded mismatch** |
+| L6b | §3.2 | the store, anchor and team-index digests bind the resume key; a store whose row count and `match_id` set are unchanged but whose **scores** differ is refused rather than reused; and the union store's E0 subset is value-identical to the E0 store's on all eleven columns |
 | L7 | §3.3 | parity is complete at all 32 cells before one treated simulation, and established per cell before its treatment arm |
-| L8 | §4.1 | the per-horizon gate; **no cross-horizon average on any deciding path**; gate (v) is evaluated on all 2,280 rows |
+| L8 | §4.0, §4.1 | the per-horizon gate; **no cross-horizon average on any deciding path**; gate (v) is evaluated on all 2,280 rows; **(iv-c) and (v-b) fire on the interval bound alone, independently of the point sign**; and **the week interval reaches no deciding surface — a seeded attempt to let it decide makes the test red** |
 | L9 | §5.1–5.2 | the MC estimator is tie-aware and jointly resampled; both binding tally checks hold |
-| L10 | §5.4 | P5, the unanimity rule at `K = 200`, and the seven conditions with no eighth |
-| L11 | §6.2 | the equivariance identity holds to `1e-15` at three named points, and `--power` reproduces §6.3 |
-| L12 | §8.2 | the pre-freeze commands are mechanically read-only; pass A's import closure excludes the sampler; the read-only store accessor never builds a store |
-| L13 | §8.4 | the frozen six-step sequence, its markers, its product re-hashing, and the reclaim rule — **including that a marker is checked against the freeze block's recorded commit and its ANCESTRY to HEAD, never against HEAD's equality: the test advances HEAD past the freeze with a synthetic commit and asserts the sequence still passes, and asserts it refuses a marker from a different freeze** |
-| L14 | §8.6 | the guard establishes the freeze state and never accepts it, on every surface |
+| L10 | §5.4 | P5 at `K = 200`, **including that it fires when all 200 verdicts agree with each other but disagree with the separately recomputed point verdict**; and the precision regime's condition set equals `PRECISION_CONDITIONS` **by name** — eight IDs, no ninth, compared as a set and never as a count |
+| L11 | §6.2 | the equivariance identity holds to `1e-15` at the three named points; **scenarios C and D are derived from B's full-precision value inside the harness and are nowhere transcribed**; **block labels are ordinal-remapped before every bootstrap call**; and `--power` reproduces §6.3's three tables |
+| L12 | §8.2 | the pre-freeze commands are mechanically read-only; **A0 reads no score column, and neither A0's nor A1's import closure includes the sampler**; **no pre-freeze or deciding command accepts a directory argument**; the read-only store accessor never builds a store |
+| L13 | §8.4 | the frozen six-step sequence, its markers, its product re-hashing, and the reclaim rule — **including that a marker is checked against the freeze block's recorded FREEZE-PARENT commit and its ANCESTRY to HEAD, never against HEAD's equality: the test advances HEAD past the freeze with a synthetic commit and asserts the sequence still passes, and asserts it refuses a marker from a different freeze — and that a FAILED step is terminal while an OPEN CLAIM reclaims through `--resume-from` and the append-only claim file** |
+| L14 | §8.6 | the guard establishes the freeze state and never accepts it, on every surface; **the dependency hash table and the environment fingerprint are recomputed at every guarded entry point, and a seeded edit to `epl/dcfit.py` — inside the repository lock's blind spot — makes the test red** |
 | L15 | §8.6 | the first-fit state is one fixed path, validated, and RATCHETED by an append-only witness |
 | L16 | §8.7, §9.3 | every deciding tally is bound to its row and rebound on every read |
-| L17 | **§8.9** | **one layout: every writer's path and every manifest entry come from the same function; a test walks every writer against every reader and every manifest member** |
-| L18 | §9 | the evidence contract is closed; the two always-PASS controls are measured off the merged rows |
+| L17 | **§8.9** | **one layout: every writer's path and every manifest entry come from the same function; a test walks every PRODUCT writer against every reader against every manifest member, and separately enumerates the SOURCE writers — the twelve E1 raw CSVs — as a disjoint set the manifest covers transitively through `provenance_e1.json`; and `step6.json` is a closure record outside the manifest** |
+| L18 | §9 | the evidence contract is closed; **the four always-PASS controls — `e1_leak`, `population_rederived`, `phantom_club`, `predicate_mismatch` — are measured off the merged rows as counts** |
 | L19 | §2.3 | the frozen constants are not overridable from any public surface |
-| L20 | §3.3 | `sampler_digest` is a pure function of `(run, tallies)` and reads no fit-identifying field |
+| L20 | §3.3 | `sampler_digest` is a pure function of `(run, tallies)` and reads no fit-identifying field; **`FROZEN_TABLE_SCHEDULE` is three fields, and the E1-informed club annotation reaches no membership digest and no gate** |
 
-**Twenty rows.** A freeze block rendered or read back over fewer than all twenty
-is `FreezeStateUnverified`.
+**Twenty-two rows** — `L1 … L20` plus `L5b` and `L6b`, the two that the review's
+findings on the projector, the z-scale and store content-binding forced. A freeze
+block rendered or read back over fewer than all twenty-two, **compared as the
+exact named set and never as a count**, is `FreezeStateUnverified`.
 
 ### 8.6 The freeze guard, the public-surface closure, and the first-fit record
 
 **The public-surface closure — one guard, one refusal, no exceptions.** A
 production path **RESOLVES** `n_sims`, the simulation seed, the chunk size, `B`,
-`alpha`, the bootstrap seed, `MC_BOOT`, `MC_SEED`, `K`, `SHARDS`, `δ`, `γ` and
+`alpha`, the bootstrap seed, `MC_BOOT`, `MC_SEED`, `K`, `SHARDS`, `delta_rating`, `γ` and
 the deciding population from the modules §0.1 pins them in, and **carries no
 parameter for them at all**. Constants that keep a keyword refuse a different
 value. Every remaining seam — an injected fitter, engine, runner, oracle or
@@ -2033,9 +2907,43 @@ is established from **committed bytes and Git ancestry**: this document's blob
 must be committed, its commit must be an ancestor of HEAD, and its current bytes
 must equal that blob. A hashed file whose bytes differ from the committed table,
 a membership or conformance digest that does not survive fresh recomputation, or
-a conformance table that is not exactly §8.5's twenty green rows, is
+a conformance table that is not exactly §8.5's twenty-two green rows, is
 `FreezeStateUnverified`. `harness_frozen` on every ledger row records what the
 guard established, never what a caller asserted.
+
+**THE DEPENDENCY HASH TABLE — because ancestry binds almost nothing.** The freeze
+block hashes `epl/lowerdiv.py`, its test module and `epl/teams.py`, and the
+repository lock covers only `CODE_PATHS = ("src", "scripts")`
+(`src/wcmodel/eval/lock.py:74-77`). **Between them sits every `epl/` module this
+experiment's forecast actually depends on** — `dcfit`, `anchor`, `elo`, `fit`,
+`score`, `particles`, `leaguesim`, `season`, `table`, `simmetrics`, `simretro`,
+`walkforward`, `freeze`, `windows`, `schema`, `validate`, `parse`, `fetch`,
+`paths` — none of them hashed by the freeze block and none of them locked. A
+descendant commit could rewrite `epl/dcfit.py` and still satisfy both ancestry
+and `LOCK VALID`.
+
+> **THE RULING.** `--freeze-block` computes and records a **DEPENDENCY HASH
+> TABLE**: the sorted `(repo-relative path, SHA-256)` of **every repository file
+> in the import closure of `epl.lowerdiv`** — resolved mechanically from
+> `sys.modules` after a full import, restricted to paths inside this repository,
+> and covering `epl/`, `src/wcmodel/` and `scripts/` alike — plus
+> `epl/config_frozen.json`. **Every guarded entry point recomputes the closure
+> and re-hashes every member**, and `FreezeStateUnverified` fires if any digest
+> differs *or* if the closure's path set differs from the recorded one. The table
+> is published in the evidence file and its own digest is carried on every ledger
+> row.
+
+**THE ENVIRONMENT FINGERPRINT — because a fit is only a pure function of its
+inputs when the machine holds still.** §3.2 demands eight-decimal reproduction of
+2,280 published forecasts, and that demand reaches past this repository into the
+interpreter and the numerical stack. The freeze block records, and every ledger
+row carries, a canonical fingerprint: Python version and implementation; the
+installed versions of `numpy`, `pandas`, `pyarrow`, `pymc`, `pytensor`,
+`arviz` and `scipy`; the BLAS/LAPACK vendor and version as NumPy reports them;
+and the four thread environment variables §2.4 pins. A fingerprint that differs
+from the recorded one is `FreezeStateUnverified` — and, on a `ControlMismatch`,
+it is one row of §3.2's cause-classification matrix rather than an unexplained
+"most likely archive drift".
 
 **The first-fit record — one path, validated, and RATCHETED.** The instant of the
 first real fit of this document is recorded at one fixed path with the prereg
@@ -2070,9 +2978,11 @@ than elided.** The widening lineage spent two real fits under its v1, thirty-fiv
 real fits and thirty-five real 20,000-season simulations under its v2 pass 7, and
 its own frozen post-freeze budget of 147 fits and 96 simulations under v3. **None
 of them belongs to this document**, none of them can enter any estimand here, and
-this document reuses exactly two of their products: the committed per-fixture CSV
-that pins the population (§0.5) and the committed feasibility census that scopes
-the table leg (§3.3). Both are read-only here and both are pinned by digest.
+this document reuses exactly three of their products: the committed per-fixture
+CSV that pins the population (§0.5), the committed feasibility census that scopes
+the table leg (§3.3), and the committed anchoring per-fixture CSV that supplies
+the collateral leg's 2,280 / 212 / 6 structure (§0.1, §6.2). All three are
+read-only here and all three are pinned by digest.
 
 ### 8.9 ONE DIRECTORY LAYOUT — the path split, designed out
 
@@ -2083,10 +2993,12 @@ first `--evidence` pass refused with `MergeIncomplete` on 34 paths, and
 byte-identical artifacts had to be placed at both paths by hand. **The root cause
 was two sources of truth for one location:** `MANIFEST_PATHS`
 (`epl/evwiden.py:8176`) is a tuple of hardcoded relative strings, while
-`manifest_targets(..., table_ledger=...)` (`:8551-8563`) re-parents them onto a
-**caller-supplied** ledger path, and `tallies_dir` (`:7033-7046`) derives the
-tally directory from `ledger_path.parent`. Writer location was a runtime
-parameter; manifest location was a constant; nothing bound them.
+**`manifest_entries(directory=…)`** (`epl/evwiden.py:8550-8563` — that is the
+function's name; v1 called it `manifest_targets`, which does not exist)
+re-parents them onto a **caller-supplied** directory, and `tallies_dir`
+(`:7033-7046`) derives the tally directory from `ledger_path.parent`. Writer
+location was a runtime parameter; manifest location was a constant; nothing bound
+them.
 
 **THE RULING, and it is birth-law here rather than a fix:**
 
@@ -2108,11 +3020,20 @@ parameter; manifest location was a constant; nothing bound them.
    permitted **only** on the pre-freeze passes §8.2 names, and only under
    `tempfile.TemporaryDirectory`.
 4. **A test walks every writer against every reader against every manifest
-   member.** §8.5 row L17: enumerate every path-producing call site in
-   `epl/lowerdiv.py`, assert each resolves through `layout()`, assert the set of
-   paths written by a full synthetic run equals `layout().manifest_members()`
-   exactly — not a superset, not a subset — and assert that a seeded second
-   source of truth (a hardcoded relative string) makes the test red.
+   member — and PRODUCT writers are distinguished from SOURCE writers.** §8.5 row
+   L17: enumerate every path-producing call site in `epl/lowerdiv.py`, assert each
+   resolves through `layout()`, assert the set of **product** paths written by a
+   full synthetic run equals `layout().manifest_members()` exactly — not a
+   superset, not a subset — and assert that a seeded second source of truth (a
+   hardcoded relative string) makes the test red. **`layout().source_members()`
+   is the disjoint second set**: the twelve E1 raw CSVs, deliberately outside the
+   manifest because they are source and are large, covered transitively through
+   `provenance_e1.json` (§9.3). A path in neither set, or in both, is
+   `PathNotFrozen`. Without that split the exact-set rule and §9.3's deliberate
+   exclusion of the raw CSVs contradict each other, which is how v1 read.
+5. **`step6.json` is a closure record, not a product** (§8.4). It is the one
+   sequence marker outside `manifest_members()`, because a manifest computed
+   inside step 6 cannot contain a truthful record of step 6's completion.
 
 **The predecessor's three other disclosed defects are designed out in the same
 spirit and in their own sections:** the once-only guard refusing a lawfully
@@ -2126,19 +3047,33 @@ going red afterwards, which is the more expensive way to learn it.**
 
 ### 8.10 Dated pre-freeze notes
 
-**This is the one place this document may grow before the freeze commit, and it
+**This is the one place this document may grow before the seal commit, and it
 closes at that commit.** A dated note is appended here, and nowhere else, for
 each of:
 
-* **pass A's acquisition record** (§0.6, §8.2) — the twelve fetch records, the
-  per-season validation table, the complete E1 club census and spelling set with
-  each spelling's index fold, the collision-check result, any unmapped name, the
-  E1 goal rate against E0's, and the E1 archive's SHA-256, row count and byte
-  size. **A freeze block may not render while this note is absent**, and the
-  freeze block pins the archive digest this note records;
+* **A0's outcome-blind census** (§0.6, §8.2) — the twelve fetch records, the
+  complete E1 spelling set with each spelling's index fold and per-season
+  presence, and the collision-check result;
+* **A1's acquisition record** (§0.6, §8.2) — the per-season **structural**
+  validation table, the distinct-club census, any unmapped name, and the E1
+  archive's SHA-256, row count, byte size and per-season club census. **A freeze
+  block may not render while this note is absent**, and the freeze block pins the
+  archive digest this note records;
 * **any pre-freeze pass that produced a number this document is scoped by**, with
   its date, the HEAD it ran at, what it measured, and where its record lives;
-* **any dated note required BEFORE a retry** by §8.4's reclaim rule.
+* **an abandonment record**, if A0 or A1 refuses and the experiment is not run
+  (§0.6).
+
+**THE ALLOW-LIST IS THE NOTE'S SCHEMA, AND IT CARRIES NO OUTCOMES.** No note may
+record a score, a goal count, a goal rate, a result distribution or any statistic
+derived from a match result — of either archive. `--freeze-block` refuses on any
+field outside the allow-list (§8.3), and §10 makes publishing one an
+invalidation. Structural counts are not outcome summaries and are the whole
+census this document is scoped by. **§8.4's reclaim rule requires no note at
+all**: a FAILED step is terminal and an OPEN CLAIM is reclaimed through the
+append-only claim file, so no §8.10 note is ever needed after the first fit —
+which is what makes this section's closure consistent with §8.7 rather than in
+conflict with it.
 
 Each note carries a date, the HEAD it was written at, and what it records.
 **After the first real fit of this document, §8.7 forbids any further note** —
@@ -2158,44 +3093,72 @@ basis is committed, not gitignored.
 
 Carries, at minimum, and by these names:
 
-* `schema` (`epl-lowerdiv-1`), `generated_at`, `prereg_commit`, `prereg_blob`;
+* `schema` (`epl-lowerdiv-2`), `generated_at`, `prereg_commit`, `prereg_blob`,
+  `freeze_parent_commit`;
 * `pins` — corpus / E0 archive / **E1 archive** / ledger / frozen-config digests,
   the realised config digest, the feasibility census digest and its 32-cell
-  priceable set, the widening per-fixture CSV's digest, and the row and season
-  counts;
-* `calibration` — `{delta: -75.0, delta_source: "epl/config_frozen.json chosen.promoted_offset",
-  gamma_primary: 1.0, gamma_secondary: 0.5, swept: false}`;
-* `acquisition` — pass A's record: the twelve fetch digests, the validation
-  table, the club census and spelling folds, the unmapped-name list, the E1 goal
-  rate against E0's;
-* `estimand` — `{n: 85, mean, sd, se_iid}`;
-* `ci_week` and `ci_season` — each `{function, n_blocks, B, alpha, seed, lo,
-  hi}`; `ci_corpus_week` (`n_blocks: 212`), `ci_corpus_season` and
-  `ci_table_mw6` (`n_blocks: 7`) likewise;
-* `gate_i`, `gate_ii`, `gate_iii` — each `{value, bar, PASS}`;
+  priceable set, the widening per-fixture CSV's digest, **the collateral
+  structure CSV's digest**, **`store_sha256` / `anchor_sha256` /
+  `team_index_sha256` for both arms**, **`dependency_table` and its digest**,
+  **`environment_fingerprint`**, and the row and season counts;
+* `population` — `{n: 85, join_column: "match_id",
+  digest_match_id: "38d18d4d96…", digest_key_not_the_pin: "5a0d92c5…",
+  n_distinct_key: 62}` (§0.5);
+* `calibration` — `{delta_rating: -75.0,
+  delta_rating_source: "epl/config_frozen.json chosen.promoted_offset",
+  tuning_contrast_rps: 0.001309,
+  scoring_window_sensitivity_rps: 0.0030, gamma_primary: 1.0,
+  gamma_secondary: 0.5, swept: false, bridge_validated: false}` (§2.2);
+* `acquisition` — A0's and A1's records: the twelve fetch digests, the
+  **structural** validation table, the club census and spelling folds, the
+  unmapped-name list. **No outcome summary** (§0.6);
+* `estimand` — `{n: 85, mean, sd, se_iid, statistic: "matched-fixture RPS
+  difference"}`;
+* `ci_season` — the **deciding** interval, `{function, n_blocks: 6, B, alpha,
+  seed, lo, hi, decides: true}`; `ci_week` — the **reported diagnostic**,
+  `{… n_blocks: 62 …, decides: false}`; `ci_corpus_week` (`n_blocks: 212`),
+  `ci_corpus_season` and `ci_table_mw6` (`n_blocks: 7`) likewise;
+* `gate_i`, `gate_iii` — each `{value, bar, PASS, decides: true}`;
+* `diagnostic_week_ci` — `{lo, hi, would_have_passed: bool, decides: false}`,
+  carrying §4.0's demotion explicitly so a reader can see what it would have done;
 * `gate_iv` — `{mw6: {n: 7, mean, ci, per_cell: [...]},
   per_label: {MW0: {n: 5}, MW3: {n: 6}, MW10: {n: 7}, MW19: {n: 7}, each with
   mean, mc_se and PASS},
-  precision: {conditions: [P1, P2, P3.MW0, P3.MW3, P3.MW10, P3.MW19, P4, P5],
-  resolved}, PASS_or_UNRESOLVED}` — **eight conditions, no ninth**;
-* `gate_v` — `{n: 2280, mean, bar: 7.5e-05, ci_week, PASS}`;
+  precision: {conditions: PRECISION_CONDITIONS with each condition's computed
+  value and resolved flag, unanimity: {K: 200, point_verdict, verdicts: [...200],
+  dissent_count, fired}}, PASS_or_UNRESOLVED}` — **eight condition IDs, no
+  ninth, compared as a named set** (§5.4);
+* `gate_v` — `{n: 2280, mean, bar: 7.5e-05, ci_week, screen_note: "(v-a) is an
+  observed point-tolerance screen, not a demonstration of non-harm", PASS}`;
 * `controls` — `{identity: {n: 2280, max_abs_diff, mean_abs_diff, PASS},
   e1_leak, population_rederived, phantom_club, predicate_mismatch,
   point_in_time_e1, table_parity: {n_cells: 32, PASS, per_cell_digests}}`;
 * `canaries` — results (both stores), evidence (both legs, both row counts, the
   positive control's realised magnitude), **E1-isolation (all four legs, with the
   positive control's realised `max |Δp|`)**, identity;
-* `sequence` — the six markers of §8.4, each with its recorded freeze commit,
-  completion time, product paths and product digests;
-* `conformance` — §8.5's pytest artifact identity: path, SHA-256, the twenty test
-  ids and the pass count, as the freeze block records them;
-* `dissolved_population` — per fixture and per club-cutoff cell, `e` under each
-  archive, each `decides: "nothing"`;
+* `sequence` — the six markers of §8.4 (five manifested plus `step6.json`, the
+  closure record), each with its recorded **freeze-parent
+  commit**, completion time, product paths and product digests, plus the
+  append-only claim file's reclaim list;
+* `conformance` — §8.5's pytest artifact identity: path, SHA-256, the
+  **twenty-two** test ids and the pass count, as the freeze block records them;
+* `e1_support_census` — per fixture and per club-cutoff cell: E0 `e`, prior-E1
+  match count, last prior E1 date, each `decides: "nothing"` (§3.1). **No E1
+  `e`**, by §0.5;
+* `e1_informed_clubs` — the per-cell sorted club lists of §3.3, keyed by
+  `FROZEN_TABLE_SCHEDULE`'s triplets, `decides: "nothing"`, excluded from every
+  membership digest;
 * `cold_start_census`, `gamma_arm`, `strata`, `movement`, `coverage`,
   `sunderland`, `unpriceable_cells_retry` — each `decides: "nothing"`;
-* `power` — §6's object: the frozen scenarios, structure, the equivariance
-  identity's verification, the MDE definition, `R`, both seeds, the three tables
-  of §6.3, and `power.realised` per §6.5;
+* `power` — §6's **one canonical object**, from which every table in §6.3 is
+  rendered and into which no value is transcribed: the frozen scenarios
+  (`sd_c` and `sd_d` derived from `sd_b`, not stored as literals), the three
+  correlation regimes, the structure, the equivariance identity's measured error,
+  the MDE definition, `R`, every seed, the replicate-level gate booleans, the
+  Monte-Carlo standard errors, `deciding_set: ["i", "iii"]`,
+  `benefit_gate_joint_power` (named so, and carrying
+  `excludes_gates: ["iv", "v"]`), the gate-(ii) diagnostic column, and
+  `power.realised` per §6.5 with its `OUT_OF_POWER_ENVELOPE` flag;
 * `materiality` — the pooled corpus figure and §4.2's required sentence;
 * `verdict` — `ADOPT` / `NO ADOPT` / `UNRESOLVED`, and which gate decided.
 
@@ -2210,13 +3173,15 @@ that cannot fail is not a test" objects to.
 ### 9.2 The CSVs
 
 **`lowerdiv_per_fixture.csv`** — **2,280** rows (the whole corpus, because the
-whole corpus moves): `key, match_id, season, block, cutoff, date, home_key,
-away_key, e_home_e0, e_away_e0, e_min_e0, e_home_e1, e_away_e1, e_min_e1, thin,
-p_home_B, p_draw_B, p_away_B, p_home_A, p_draw_A, p_away_A, p_home_corpus,
-p_draw_corpus, p_away_corpus, y, rps_B, rps_A, delta, delta_vs_corpus,
-max_abs_dp_vs_corpus, cold_start_B, cold_start_A, provisional_B, provisional_A`.
-The 85 pinned fixtures are flagged by `thin`, and a reader can recompute the
-estimand from this file alone.
+whole corpus moves): `match_id, key, season, block, block_ordinal, cutoff, date,
+home_key, away_key, e_home_e0, e_away_e0, e_min_e0, n_e1_home, n_e1_away,
+last_e1_home, last_e1_away, thin, p_home_B, p_draw_B, p_away_B, p_home_A,
+p_draw_A, p_away_A, p_home_corpus, p_draw_corpus, p_away_corpus, y, rps_B, rps_A,
+delta, delta_vs_corpus, max_abs_dp_vs_corpus, cold_start_B, cold_start_A,
+provisional_B, provisional_A`. **`match_id` is the identifier and the join
+column** (§0.5); `key` is carried for provenance and joins nothing. The 85 pinned
+fixtures are flagged by `thin`, and a reader can recompute the estimand from this
+file alone. **There is no `e_*_e1` column**, by §0.5.
 
 **`lowerdiv_table_cells.csv`** — 32 rows: `season, cutoff_label, cutoff,
 e1_informed_clubs, n_e1_informed_clubs, trps_control, trps_treatment, delta_trps,
@@ -2228,8 +3193,8 @@ tally_sha256, cov50_control, cov90_control, cov50_treatment, cov90_treatment,
 cov50_e1informed_control, cov90_e1informed_control, cov50_e1informed_treatment,
 cov90_e1informed_treatment, realised_hash`.
 
-**`lowerdiv_gamma_arm.csv`** — 85 rows, the γ = 0.5 secondary: `key, delta_gamma,
-delta_primary, difference`.
+**`lowerdiv_gamma_arm.csv`** — 85 rows, the γ = 0.5 secondary: `match_id,
+delta_gamma, delta_primary, difference`.
 
 **`lowerdiv_e1_census.csv`** — one row per E1 club: `key, canonical, spellings,
 index_folds, seasons_present, matches, first_date, last_date`.
@@ -2243,15 +3208,24 @@ and is not written down anywhere else** (§8.9). Its members are, exactly:
 | group | paths |
 |---|---|
 | evidence | `reports/evidence/lowerdiv.json`, `lowerdiv_per_fixture.csv`, `lowerdiv_table_cells.csv`, `lowerdiv_gamma_arm.csv`, `lowerdiv_e1_census.csv` |
+| **reproduction bundle (§9.5)** | `reports/evidence/lowerdiv_corpus.csv`, `reports/evidence/lowerdiv_openings.jsonl`, `reports/evidence/lowerdiv_attestations.json` |
 | match leg | `data/epl/fit/lowerdiv/shard_0{0,1,2,3}_of_04.jsonl` (4), `data/epl/fit/lowerdiv.json`, `data/epl/fit/lowerdiv/canary.json` |
 | E1 archive | `data/epl/matches_e1.parquet`, `data/epl/manifest_e1.json`, `data/epl/team_name_mapping_e1.json`, `data/epl/raw/provenance_e1.json` |
 | table leg | `data/epl/sim/lowerdiv/table_cells.jsonl`, `data/epl/sim/lowerdiv/parity.jsonl`, `data/epl/sim/lowerdiv/tallies/<S>\|<L>.npz` — **exactly 32 files** (each holding BOTH arms' tallies, so 64 tallies in 32 paths), `<S>` over the seven seasons with `/` replaced by `-`, `<L>` over the five labels, minus the three excluded cells |
-| sequence | `data/epl/fit/lowerdiv/sequence/step{1..6}.json` (6) |
+| sequence | `data/epl/fit/lowerdiv/sequence/step{1..5}.json` (5) and `data/epl/fit/lowerdiv/sequence/claims.jsonl` (1) |
 | conformance | `data/epl/fit/lowerdiv_conformance.json` |
 
-The count is decidable from this document: 5 + 6 + 4 + 34 + 6 + 1 = **56 paths**.
-"Bulky local artifacts" is not a category here; it is a list, and §8.9 makes it a
-list that one function produces.
+The count is decidable from this document: 5 + 3 + 6 + 4 + 34 + 6 + 1 = **59
+paths**. "Bulky local artifacts" is not a category here; it is a list, and §8.9
+makes it a list that one function produces.
+
+**`step6.json` is deliberately NOT a member** (§8.4, §8.9 rule 5): the manifest
+is computed inside step 6, so a manifest containing step 6's truthful completion
+marker cannot be written. It is a closure record, sealed by its own line in
+`claims.jsonl`, and `--verify` checks it against the manifest rather than inside
+it. **The two feature-cache roots are not members either**: they are derived
+caches whose keys hash HEAD, they are reproducible from the stores, and pinning
+them would pin a HEAD (§0.1).
 
 **The twelve E1 raw CSVs are covered transitively and deliberately.** They are
 not manifest members — they are source, not product, and they are large — but
@@ -2280,24 +3254,61 @@ not a comparison skipped.
 
 `reports/epl_lowerdiv_result.md` publishes whatever the signs, and must carry:
 
-* the verdict and which gate decided;
-* §4.2's required materiality sentence, verbatim;
+* the verdict and **which of the four deciding gates decided** — and, if the
+  verdict is NO ADOPT, the reported week interval beside it with §4.0's ruling
+  quoted, so a reader can see both what decided and what was demoted;
+* §4.2's required materiality sentence, verbatim, and — on any pass of gate (v) —
+  §4.4's required non-harm sentence, verbatim, with the realised (v-b) MDE;
 * **§6.4's power ruling in its own words if the estimand misses**, including the
-  sentence *"not detected at this power, not no effect"* and the measured joint
-  power at −0.00413;
-* §6.5's realised paired SDs and the joint-gate MDE recomputed at the realised
-  thin-population SD;
-* §0.5's dissolved-population numbers — the E1-informed `e` for all 85 fixtures
-  and the club-cutoff census — reported as the pre-stated secondary they are;
+  sentence *"not detected at this power, not no effect"* and the measured
+  `benefit_gate_joint_power` at −0.00413, **with the disclosure that it excludes
+  gates (iv) and (v)**;
+* §6.5's realised paired SDs, the deciding-pair MDE recomputed at the realised
+  thin-population SD, and `OUT_OF_POWER_ENVELOPE` if it fired;
+* §3.1's E1 support census — the prior-E1 match counts for all 85 fixtures and
+  the club-cutoff census — reported as the pre-stated secondary it is, **and the
+  statement that the E1-informed `e` was not computed and why** (§0.5);
+* **the E1 goal rate against E0's** (§0.6, §2.2), measured after the freeze and
+  published here rather than in the preregistration;
 * §1.2 bullet 2's attribution: how much of any improvement is the cold-start path
-  dissolving, stated as unseparable by this design;
+  dissolving, stated as unseparable by this design; **and §2.2's package
+  attribution — that no component of the treatment is identified** (§2.3);
 * §3.4's coverage reading, in the direction §3.4 fixes;
-* pass A's acquisition record by reference to the §8.10 note, and the E1 archive's
-  digest;
-* the console output, row count and **realised E1 fit seconds** of §8.4 step 2,
-  and the digest of step 1's canary record;
-* if gate (iv) is UNRESOLVED: which of P1–P5 fired, with its computed value, and
-  §5.5's pre-statement that this was the modal outcome.
+* A0's and A1's acquisition records by reference to the §8.10 notes, and the E1
+  archive's digest;
+* the console output, row count and **realised Arm-A fit seconds** of §8.4 step 2
+  against the 269 s/fit threshold, and the digest of step 1's canary record;
+* if gate (iv) is UNRESOLVED: which of `PRECISION_CONDITIONS` fired, with its
+  computed value, and §5.5's pre-statement that this was the modal outcome.
+
+### 9.5 The reproduction bundle — committed, because the decisive inputs are not
+
+**The problem, stated as the weakness it is.** The corpus parquet, the walk-
+forward ledger, the E0 archive, `single_fit.json` and the future E1 archive are
+all gitignored. §0.1 pins their digests, but **a clean clone cannot regenerate a
+single one of them**, so every count, probability and outcome this document's
+verdict rests on is, from Git's point of view, this document's word. v1 asserted
+that "the verdict's machine-readable basis is committed, not gitignored"; for the
+verdict's *outputs* that was true, and for its *inputs* it was not.
+
+**The ruling: a content-addressed bundle is committed BEFORE the freeze, and its
+absence is a freeze refusal** (§8.3 step 6). Three files, all manifest members,
+all under `reports/evidence/`:
+
+| file | contents |
+|---|---|
+| `lowerdiv_corpus.csv` | the **complete 2,280-row scoring corpus**: `match_id, season, block, cutoff, date, home_key, away_key, p_home, p_draw, p_away, y, dc_rps` — every probability and outcome the identity control of §3.2 compares against, so the control is checkable from Git alone |
+| `lowerdiv_openings.jsonl` | the **212 opening records** from the walk-forward ledger: `cutoff, provisional_teams, cold_start_teams, config_sha256, realised_config_sha256` — the sets §3.2's `PredicateMismatch` is asserted against |
+| `lowerdiv_attestations.json` | canonical attestations for everything that cannot be committed: for the E0 archive, the E1 archive, both store roots, the anchor history and the team index — path, SHA-256, row count, column list, and the per-column digests §3.2 defines. Plus the environment fingerprint and the dependency hash table of §8.6 |
+
+**What this does and does not buy.** It makes the corpus, the openings and every
+archive/store attestation **verifiable from a clean clone**, and it makes §6.2's
+whole power construction reproducible from committed bytes (which is also why
+§0.1 pins `reports/evidence/anchoring_per_fixture.csv` as the collateral leg's
+structure rather than the parquet). It does **not** make the archives themselves
+regenerable — football-data.co.uk's bytes are not this repository's to commit —
+and this document does not pretend otherwise: the attestations are the contract,
+and `--verify` refuses on any drift from them.
 
 ---
 
@@ -2308,18 +3319,32 @@ not a comparison skipped.
 * **An E1 row reaches the E0 archive, the E0 store root, `epl.elo`, or
   `effective_evidence`.**
 * **The thin population is re-derived rather than taken from the pinned
-  `reports/evidence/widening_per_fixture.csv`**, or the recomputed 85-key digest
-  is not widening v3's `38d18d4d96…`, or a fixture is dropped from the 85.
-* **A null club key is stringified rather than refused, anywhere on any path**, or
-  the `PhantomClub` refusal is moved after the projection.
-* A real-archive fit or season simulation runs before the §8.3 freeze commit,
-  anywhere, under any output directory. Pass A is data acquisition and fits
-  nothing; a pass A that builds a store or imports the sampler is such a fit.
-* Pass A is run more than once, or its dated note is absent when the freeze block
-  renders, or the E1 archive's bytes differ from that note.
+  `reports/evidence/widening_per_fixture.csv`**; or it is joined on any column
+  but `match_id`; or the recomputed 85-`match_id` digest is not widening v3's
+  `38d18d4d96…`; or a fixture is dropped from the 85.
+* **An `e` is computed on any frame containing an E1 row**, or the E1-informed
+  `e` secondary §0.5 drops is reinstated without its own preregistration.
+* **A null club key is stringified rather than refused on any lowerdiv path**, or
+  the `PhantomClub` refusal is moved after the projection (§5.6 scopes the claim
+  and §10 does not extend it beyond that scope).
+* **The E1 half of the union store is projected through
+  `epl.fit.to_store_frame`**, so that its rows are labelled Premier League or
+  attest the E0 archive as their source (§0.6 B7).
+* **Arm A's z-scale is taken over its own union team set** rather than frozen to
+  Arm B's E0 `(mean, sd)` at the same cutoff (§2.2 point 2c).
+* A real-archive fit or season simulation runs before the §8.3 seal commit,
+  anywhere, under any output directory. A0 and A1 are data acquisition and fit
+  nothing; an acquisition pass that builds a store or imports the sampler is such
+  a fit.
+* A0 is run more than once; or A1 runs before A0's census is published; or either
+  dated note is absent when the freeze block renders; or the E1 archive's bytes
+  differ from A1's note.
+* **Any outcome summary of the treatment data — a goal rate, a score
+  distribution, any statistic derived from a match result — is published before
+  the freeze**, in a §8.10 note or anywhere else (§0.6).
 * An E1 season that fails validation is dropped, repaired by hand, or excluded
   rather than refused.
-* Registry entries are written before the spelling enumeration is published, or a
+* Registry entries are written before A0's spelling census is published, or a
   fold collision is resolved by renaming a club rather than by refusing.
 * **§2.2 point 3's E1 season-boundary rule is changed, or a bare
   `epl.elo._open_season` is used on the E1 archive** — which would seed clubs
@@ -2332,9 +3357,21 @@ not a comparison skipped.
   or without a note, committed or not** (§8.7) — including a note appended to
   this document.
 * A hashed file differs at run time from the committed freeze block.
-* **δ moves off −75.0, is swept, is estimated from crossings, or is presented as
-  fitted; or γ moves off 0.5 in the secondary, or off 1.0 in the primary; or the
-  γ arm is promoted to the estimand.**
+* **`delta_rating` moves off −75.0, is swept, is estimated from crossings, or is
+  presented as fitted; or γ moves off 0.5 in the secondary, or off 1.0 in the
+  primary; or the γ arm is promoted to the estimand.**
+* **A result is reported as identifying a component of §2.2's treatment
+  package** — the E1 rows, the bridge, or the pooled nuisances — rather than the
+  package (§2.3, §4.2).
+* **The deciding set changes after any delta exists** — gate (ii) restored to
+  deciding, or any of (i), (iii), (iv), (v) demoted — or the week interval
+  reaches any deciding surface, or is omitted from the published result (§4.0).
+* **(iv-c) or (v-b) is evaluated with the point-sign conjunct v1 carried**,
+  i.e. requiring the mean to be `> 0` as well as the bound (§4.1).
+* **§2.4's overrun ruling is bypassed**: the run is thinned, re-scoped or
+  restarted after Step 2's realised rate exceeds 269 s/fit, instead of refusing.
+* **A FAILED step of §8.4 is retried**, or a §8.10 note is written to enable one
+  (§8.4's reclaim rule makes failure terminal).
 * Option (b) — a fitted league covariate — is reported as this experiment, or
   `EPL_COVARIATES` is extended on any path this document runs.
 * A division other than E1 is added, or E1 seasons outside `1415`–`2526` are
@@ -2363,8 +3400,14 @@ not a comparison skipped.
 * The steps of §8.4 run out of order, or a step run without its predecessor's
   marker, or the sequence resumed by any means other than `--resume-from`.
 * **A marker checked against HEAD's equality rather than against the freeze
-  block's recorded commit and its ancestry to HEAD** (§8.4) — the shape that made
-  the predecessor's harness go red on its own publication.
+  block's recorded FREEZE-PARENT commit and its ancestry to HEAD** (§8.4) — the
+  shape that made the predecessor's harness go red on its own publication — or a
+  freeze block that attempts to record the identity of the commit containing it.
+* **A deciding path runs with a load-bearing dependency outside §8.6's dependency
+  hash table**, or with an environment fingerprint differing from the freeze
+  block's, or with either check disabled.
+* **§9.5's reproduction bundle is absent, incomplete, or not committed before the
+  freeze**, or a member of it fails its recorded digest at run time.
 * A deciding tally read without rebinding it to its recorded digest.
 * **Any artifact path resolved from anything but §8.9's single layout function**,
   or a manifest entry that does not come from `layout().manifest_members()`, or a
@@ -2375,14 +3418,14 @@ not a comparison skipped.
   constant supplied rather than resolved.
 * A treated arm simulated at any cell before that cell's native parity against
   protected `ArchiveRunner` has been established.
-* Step 1 retried after a failed canary without a dated pre-freeze note written
-  **before** the retry.
+* Step 1 retried after a **failed** canary at all (§8.4: failure is terminal; an
+  OPEN CLAIM is a different thing and reclaims through `--resume-from`).
 * A conformance report accepted from anything but §8.5's committed pytest
-  artifact, or a freeze block rendered or read back over fewer than all twenty
-  rows L1–L20.
+  artifact, or a freeze block rendered or read back over fewer than all
+  **twenty-two** rows `L1 … L20`, `L5b`, `L6b` — compared as a named set.
 * The first-fit record deleted, or written without its append-only witness line,
   or recorded at a moment that is not the instant of the fit it attests.
-* `--script` run before the freeze commit, at any target; or a post-freeze
+* `--script` run before the seal commit, at any target; or a post-freeze
   launcher generated with a caller-supplied interpreter or command.
 * Any commit of this work leaving `scripts/oa_lock.py` printing anything but
   `LOCK VALID`.
@@ -2396,9 +3439,26 @@ not a comparison skipped.
   exactly where *its* effect should be largest. That inheritance is what makes
   the comparison with −0.00413 possible and it is also a constraint this
   experiment cannot relax (§6.4).
-* **This design is underpowered against the effect it exists to test.** Joint
-  power 0.12–0.37 at −0.00413; joint MDE 1.74×–3.64× that effect; gate (ii) is
-  the binding gate. **A miss is substantially uninformative.**
+* **This design is underpowered against the effect it exists to test, and the
+  gate refounding did not fix that.** `benefit_gate_joint_power` 0.14–0.49 at
+  −0.00413; joint MDE 1.61× to beyond 4.84× that effect; **gate (iii), the
+  6-block season interval, is the binding gate** — and it binds alone, because it
+  implies gate (i) at every scenario SD in this design (§6.3). Those figures
+  **exclude gates (iv) and (v)**, so four-gate adoption power is lower still.
+  **A miss is substantially uninformative.**
+* **Season-level correlation is the risk the deciding interval is most exposed
+  to**, and it is modelled rather than assumed away: at `ρ_season = 0.25` the
+  deciding pair's power at −0.00413 falls to 0.116–0.216 (§6.3).
+* **The bridge is an assumption, not a measurement.** `delta_rating = −75.0` was
+  fitted as a destination seed for promoted clubs, not as the gap between two
+  ladders' centres, and it is used here symmetrically in both directions with no
+  validation. Nothing in this experiment tests it.
+* **The treatment pools scoring level and home advantage across two divisions**,
+  because the model carries one `mu` and one `home_adv` and option (b) is
+  refused. Any effect is the package's, not the E1 rows'.
+* **A club relegated straight out of the top flight has its live E0 form
+  discarded** and is reseeded at `mean_E1 + 75` (§2.2 point 3). That is chosen to
+  keep the two ladders' scales apart, and it is a real loss of information.
 * **Gate (iv) UNRESOLVED is the modal outcome of the table leg** (§5.5), because
   two fits per cell carry more paired MC error than one posterior did, at the
   same 20,000 seasons.
@@ -2407,15 +3467,18 @@ not a comparison skipped.
   coverage and serve only to refuse single-season verdicts. One ADVI seed;
   mean-field under-dispersion is a known, separately scheduled limitation.
 * **Sampler noise is not model error**, and with two independent fits per pair it
-  enters this design's deltas twice rather than cancelling. Both are reported;
-  neither shrinks with a better argument.
+  enters this design's differences twice rather than cancelling. **The pairing is
+  at the fixture, not at the fit**: adding teams changes the design's dimension,
+  so no common-random-numbers claim holds at posterior level, and scenario C's
+  √2 is a stated construction rather than a bound. Both are reported; neither
+  shrinks with a better argument.
 * **The improvement, if any, cannot be attributed to better parameter estimates
   rather than to the cold-start path dissolving** (§1.2, §2.3). No design here
   separates them.
-* **δ prices the centre of the league gap and not its dispersion.** A club whose
-  attack is estimated largely from Championship matches carries a Championship
-  attack shifted by a constant. That is the modelling assumption and it is not
-  tested here.
+* **`delta_rating` prices an assumed centre of the league gap and not its
+  dispersion.** A club whose attack is estimated largely from Championship
+  matches carries a Championship attack shifted by a constant. That is the
+  modelling assumption and it is not tested here.
 * TRPS is proper for the displayed marginals only; the treatment also changes the
   joint law, and no metric in this experiment sees that.
 * **The match-level result is evidence about second-tier evidence in general, not
@@ -2443,7 +3506,65 @@ opened.**
 
 ---
 
-*Preregistered 2026-08-30. This is the lower-division-evidence experiment
+## 13. The design review, and its disposition
+
+**This section is a provenance record. It decides nothing, and it holds no
+correction that is not already law in the section it belongs to.** Every finding
+below was fixed in place, by direct edit, in the clause it concerns; nothing in
+this document is annotated, superseded or deferred. The index exists so a reader
+can check the review against the document without holding both open, and because
+three findings were **refuted from the repository** and a refutation that is not
+recorded is indistinguishable from an omission.
+
+**The review.** A cross-model design review of v1 at `35e562f`, run before any
+harness existed, ruled the document **UNSOUND** on **15 blocking, 14 important
+and 2 minor** findings. Its own verdict — *"after repair, the design is
+defensible only as an explicitly exploratory estimation/engineering study with
+adoption forbidden"* — is **not** adopted: §4.0's owner ruling re-founds the gate
+family instead, and §6.4 states plainly what power the refounded set has and what
+it does not. **A reader who wants the strongest available argument against
+running this experiment at all should read §6.4 and §11 first.**
+
+**Where each finding landed.** Blocking: B1 §0.5 (the pin is on `match_id`);
+B2 §0.5 (the E1-informed `e` secondary is dropped, and §3.1's support census
+replaces it); B3 §0.6, §2.1, §8.2, §8.3 (A0/A1 and the two-stage harness);
+B4 §0.6, §8.3, §8.10 (the goal rate moves after the freeze, and the note has an
+allow-list); B5 §0.6 B7, §2.1 (the lowerdiv projector); B6 §3.2 (store, anchor
+and team-index digests in the resume key); B7 §2.2 points 2b and 2c (the source-
+ladder resolver and Arm B's frozen z-scale); B8 §2.2, §2.3, §4.2, §11 (the bridge
+is an assumption and the package is what is tested); B9 §7.3, §0.1 (the
+two-store canary and the two private caches); B10 §5.4, §8.5 (named condition IDs
+and named conformance rows); B11 §5.4 (P5 must agree with the point verdict);
+B12 §8.3, §8.4 (the freeze-parent commit); B13 §8.4, §8.9, §9.3 (no `--dir`,
+`step6.json` as a closure record, source vs product writers); B14 §8.6 (the
+dependency hash table); B15 §6.1 (scenario C derived, not transcribed).
+Important: I1 §2.3, §3.3, §11; I2 §3.2, §8.6; I3 §2.2; I4 §2.2 point 3;
+I5 §2.2 point 4; I6 §6.1, §6.2, §6.3; I7 §4.1, §4.4; I8 §2.3, §6.2, §0.1;
+I9 §2.4; I10 §8.4; I11 §5.6; I12 §9.5; I13 §3.3; I14 §2.3, §8.9. Minor:
+M1 §2.2 (`delta_rating` / `mu_rps`); M2 §2.4.
+
+**The three refutations, each recorded where it belongs.**
+
+| # | the claim | what the repository says |
+|---|---|---|
+| **I5** | v1's own claim, which the review corrected: that `assert_tuning_only` lets an E1 row labelled `2019/20` pass undetected | **v1 was wrong and the review is right.** `epl/windows.py:71-86` intersects present seasons with `SCORE_SEASONS ∪ EXCLUDED_SEASONS` and raises; `2019/20` is in `SCORE_SEASONS`. §2.2 point 4 states the two real limitations instead — division-blindness and call-path coverage |
+| **I8, the thin half** | that first-appearance block order and `np.unique`'s sorted order differ, so fixed bootstrap draws attach to different blocks | **Refuted for the 85-fixture leg, confirmed for the 2,280-fixture leg.** Measured read-only: the 62 `(season, ISO week)` labels and 6 season labels sort into first-appearance order already, so the thin leg was never exposed; under §6.2's ascending-`match_id` row order the corpus's 212 labels do not. §2.3's ordinal remap closes both regardless |
+| **B11, the ambiguity half** | that v1 was "ambiguous about one particle draw versus a complete `MC_BOOT` loop" | **Refuted from v1's own text**, which already said "one `picked` per stream". **The other half of the finding stands and was the serious one**: v1 omitted the comparison against the point verdict that `epl/evwiden.py:7572-7578` performs, and §5.4 restores it in full pseudocode |
+
+**One more claim the review made that this document does not adopt, and says
+so.** The review proposed a materially different design — prospective
+E0-only eligibility, fitting only openings containing eligible fixtures,
+division-specific intercepts estimated on the tuning window, and standardized
+within-division transfer. **That is a better experiment and it is not this one.**
+Adopting it would abandon the comparability with `−0.00413` that is this
+document's entire reason to exist (§6.4), and it belongs in its own
+preregistration written against its own population. It is recorded here so that
+the choice is on the record rather than unmade.
+
+---
+
+*Preregistered 2026-08-30 (v1), re-founded and repaired 2026-08-30 (v2). This is
+the lower-division-evidence experiment
 [`reports/epl_widening_result.md`](epl_widening_result.md) named as its own
 successor. It is written on the structure of
 [`reports/epl_widening_prereg_v3.md`](epl_widening_prereg_v3.md) — that
@@ -2452,7 +3573,7 @@ invalidations — with every ruling its four review rounds, two in-tree adversar
 audits and one owner adjudication reached carried here as birth-law rather than
 as a later repair, and with the four harness defects that run disclosed designed
 out before a line of harness code exists (§8.4's reclaim rule and first-class
-resumption; §8.4's step-indexed canary record; §8.4's freeze-commit-and-ancestry
+resumption; §8.4's step-indexed canary record; §8.4's freeze-parent-and-ancestry
 marker rule, learned from that harness going red on its own publication;
 §8.9's single layout function).
 It differs from its predecessor in the three ways that matter and each is stated
@@ -2460,6 +3581,6 @@ as a loss or a cost rather than discovered by the run: the structural-zero contr
 cannot exist because the arms are two fits (§1.4); the population must be pinned
 rather than derived because one Championship season is three times the threshold
 that defines it (§0.5); and the design is underpowered against the very effect it
-exists to test, with gate (ii) binding, and no amount of additional data can buy
-power on a population that is pinned (§6.4). No harness exists, no E1 archive
-exists, and no fit of this document has ever run.*
+exists to test, with gate (iii) binding after §4.0's refounding, and no amount of
+additional data can buy power on a population that is pinned (§6.4). No harness
+exists, no E1 archive exists, and no fit of this document has ever run.*
