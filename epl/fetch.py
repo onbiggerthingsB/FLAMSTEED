@@ -102,6 +102,20 @@ def url_for(season_code: str, division: str = schema.DEFAULT_DIVISION) -> str:
     return URL_TEMPLATE.format(season_code=season_code, division=division)
 
 
+def url_pattern(division: str = schema.DEFAULT_DIVISION) -> str:
+    """The source URL with `{season_code}` left unfilled, for a manifest.
+
+    E0 returns `BASE_URL` ITSELF rather than a string that merely equals it.
+    The archive manifest records this value verbatim as `source.url_pattern`
+    and `epl.livecycle` composes its refetch URL from the same constant, so the
+    two must be the same object of truth and not two spellings that agree today.
+    """
+    schema.division_shape(division)
+    if division == schema.DEFAULT_DIVISION:
+        return BASE_URL
+    return URL_TEMPLATE.format(season_code="{season_code}", division=division)
+
+
 def raw_path(season_code: str, division: str = schema.DEFAULT_DIVISION):
     """Cache path for one season's raw CSV. E0 keeps `E0_{code}.csv`."""
     return paths.RAW_DIR / f"{division}_{season_code}.csv"

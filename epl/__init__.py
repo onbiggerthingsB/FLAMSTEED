@@ -33,8 +33,13 @@ data layer
   `epl.fetch`     cache-first download of football-data.co.uk CSVs + provenance
   `epl.teams`     raw club name -> canonical name -> stable key
   `epl.parse`     raw CSV -> tidy match rows (dates, goals, benchmark odds)
-  `epl.validate`  per-season structural checks (380/20/no-dupes/...)
-  `epl.build`     orchestrator: fetch -> parse -> validate -> parquet + manifest
+  `epl.validate`  per-season structural checks, per division (E0 380/20/19,
+                  E1 552/24/23, no-dupes, ...)
+  `epl.build`     orchestrator: fetch -> parse -> validate -> parquet + manifest.
+                  Takes a division; E0 is the default and its behaviour, file
+                  names and ids are unchanged. `--division E1` builds the
+                  Championship archive into its own files and REFUSES rather
+                  than writing a partial one.
   `epl.schema`    column contract and the point-in-time ordering rule
 
 the bar

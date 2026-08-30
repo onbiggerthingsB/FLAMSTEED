@@ -44,6 +44,7 @@ MATCHES_E1_PARQUET = DATA_DIR / "matches_e1.parquet"
 MANIFEST_E1_PATH = DATA_DIR / "manifest_e1.json"
 TEAM_MAPPING_E1_PATH = DATA_DIR / "team_name_mapping_e1.json"
 PROVENANCE_E1_PATH = RAW_DIR / "provenance_e1.json"
+MATCHES_E1_CSV = DATA_DIR / "matches_e1.csv"
 
 #: division -> artifact kind -> (which directory, file name). Names rather than
 #: assembled paths, so the accessors read DATA_DIR / RAW_DIR at CALL time: a
@@ -52,12 +53,14 @@ PROVENANCE_E1_PATH = RAW_DIR / "provenance_e1.json"
 _DIVISION_ARTIFACTS: dict[str, dict[str, tuple[str, str]]] = {
     "E0": {
         "matches": ("data", "matches.parquet"),
+        "matches_csv": ("data", "matches.csv"),
         "manifest": ("data", "manifest.json"),
         "team_mapping": ("data", "team_name_mapping.json"),
         "provenance": ("raw", "provenance.json"),
     },
     "E1": {
         "matches": ("data", "matches_e1.parquet"),
+        "matches_csv": ("data", "matches_e1.csv"),
         "manifest": ("data", "manifest_e1.json"),
         "team_mapping": ("data", "team_name_mapping_e1.json"),
         "provenance": ("raw", "provenance_e1.json"),
@@ -81,6 +84,16 @@ def _artifact(division: str, kind: str) -> Path:
 def matches_parquet(division: str = "E0") -> Path:
     """The tidy match table for one division. E0 is the pinned archive."""
     return _artifact(division, "matches")
+
+
+def matches_csv(division: str = "E0") -> Path:
+    """Optional CSV mirror of the match table, written only by `--csv`.
+
+    Registered per division for the same reason the parquet is: `--csv` on an
+    E1 build would otherwise write `matches.csv` — an E0 file name holding
+    Championship rows, beside an E0 parquet that disagrees with it.
+    """
+    return _artifact(division, "matches_csv")
 
 
 def manifest_path(division: str = "E0") -> Path:

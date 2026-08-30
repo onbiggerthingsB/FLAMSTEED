@@ -30,7 +30,7 @@ import re
 import pandas as pd
 import pytest
 
-from epl import fetch, parse, paths, schema, teams, validate
+from epl import build, fetch, parse, paths, schema, teams, validate
 
 
 # --------------------------------------------------------------------------
@@ -528,13 +528,28 @@ class NetworkReached(AssertionError):
 
 @pytest.fixture()
 def cache_dir(tmp_path, monkeypatch):
-    """A throwaway data root with the network wired shut.
+    """A throwaway data root with the network wired shut and the archive fenced.
 
-    Two guarantees, and the second was learned the hard way: a `build()` call
-    that fell through to the twelve default season codes found eleven of them
-    uncached and went to football-data for them. The real download is a separate,
-    once-only, deliberate act — so `_download` raises here, and a cache miss in a
-    test is a test bug rather than a quiet HTTP request.
+    THREE guarantees, and every one of them was learned the hard way.
+
+    1.  **No network.** A `build()` call that fell through to the twelve default
+        season codes found eleven of them uncached and went to football-data for
+        them. The real download is a separate, once-only, deliberate act — so
+        `_download` raises here, and a cache miss in a test is a test bug rather
+        than a quiet HTTP request.
+    2.  **A temporary data root.** `paths.DATA_DIR` and `paths.RAW_DIR` are
+        repointed, which is enough for anything that resolves a path through
+        `epl.paths`' accessors, because they read those names at CALL time.
+    3.  **The pinned archive is fenced anyway.** (2) is NOT enough on its own.
+        `paths.MATCHES_PARQUET` and its siblings are bound at IMPORT, so
+        repointing `DATA_DIR` does not move them: code that writes through a
+        constant writes to the REAL `data/epl/matches.parquet` from inside a
+        test with a temporary root. That is not hypothetical — an earlier draft
+        of `build()` did exactly this and overwrote the pinned 4,560-row archive
+        with a 380-row synthetic season. So this fixture snapshots the real file
+        and, at teardown, RESTORES it and fails loudly if anything moved it.
+        The guard is the containment; `test_an_e0_build_cannot_reach_the_pinned
+        _archive` is the test that the discipline itself holds.
     """
     data = tmp_path / "epl"
     raw = data / "raw"
@@ -549,7 +564,23 @@ def cache_dir(tmp_path, monkeypatch):
         )
 
     monkeypatch.setattr(fetch, "_download", _refuse)
-    return raw
+
+    fenced = paths.MATCHES_PARQUET
+    before = fenced.read_bytes() if fenced.exists() else None
+
+    yield raw
+
+    after = fenced.read_bytes() if fenced.exists() else None
+    if after != before:
+        if before is not None:
+            fenced.write_bytes(before)          # put it back before failing
+        raise AssertionError(
+            f"a test wrote to the pinned archive at {fenced}. It has been "
+            f"restored. Something resolved an output path through a module "
+            f"constant instead of a `paths.*(division)` accessor — the "
+            f"constants are bound at import and this fixture's temporary "
+            f"DATA_DIR does not move them."
+        )
 
 
 def test_the_fixture_really_does_close_the_network(cache_dir):
@@ -808,4 +839,347 @@ def test_the_phantom_club_hazard_is_still_live_in_the_protected_module():
     # And nothing survives the projection from which either could be recovered:
     # the raw spelling is not a column of the store frame at all.
     assert "home_team_raw" not in out.columns
+
+
+# ==========================================================================
+# The orchestrator — `python -m epl.build --division E1`
+#
+# THE HAZARD THESE TESTS EXIST INSIDE. `epl.paths` exposes both module-level
+# constants (`paths.MATCHES_PARQUET`) and call-time accessors
+# (`paths.matches_parquet(division)`). The constants are bound to `DATA_DIR` at
+# IMPORT, so monkeypatching `DATA_DIR` does not move them — a `build()` that
+# wrote through a constant would write to the REAL, pinned archive from inside a
+# test with a temporary data root. `test_an_e0_build_cannot_reach_the_pinned
+# _archive` is the test that says so, and it is the reason `build` resolves
+# every output through an accessor.
+# ==========================================================================
+
+#: 20 registered E0 spellings — a synthetic Premier League season.
+E0_SEASON_SPELLINGS = (
+    "Arsenal", "Aston Villa", "Bournemouth", "Brentford", "Brighton",
+    "Burnley", "Chelsea", "Crystal Palace", "Everton", "Fulham", "Ipswich",
+    "Liverpool", "Man City", "Man United", "Newcastle", "Nott'm Forest",
+    "Southampton", "Tottenham", "West Ham", "Wolves",
+)
+
+#: 24 registered E1 spellings — the declared 2024/25 Championship, verbatim.
+E1_SEASON_SPELLINGS = DECLARED_E1_MEMBERSHIP["2425"]
+
+
+def _e1_artifacts_present() -> dict[str, bool]:
+    return {
+        kind: getter("E1").exists()
+        for kind, getter in (
+            ("matches", paths.matches_parquet),
+            ("manifest", paths.manifest_path),
+            ("team_mapping", paths.team_mapping_path),
+        )
+    }
+
+
+def _e0_artifacts_present() -> dict[str, bool]:
+    return {
+        kind: getter("E0").exists()
+        for kind, getter in (
+            ("matches", paths.matches_parquet),
+            ("manifest", paths.manifest_path),
+            ("team_mapping", paths.team_mapping_path),
+        )
+    }
+
+
+def test_an_e1_build_writes_its_own_artifacts_and_no_e0_one(cache_dir):
+    """B1+B2+B3 at the orchestrator: one command, three E1 files, no E0 file."""
+    _place_cached_csv(cache_dir, "E1", "2425", list(E1_SEASON_SPELLINGS))
+    manifest = build.build(("2425",), division="E1")
+
+    assert all(_e1_artifacts_present().values()), _e1_artifacts_present()
+    assert not any(_e0_artifacts_present().values()), _e0_artifacts_present()
+    assert manifest["totals"]["matches"] == 552
+    assert manifest["totals"]["distinct_clubs"] == 24
+
+
+def test_the_e1_build_writes_552_rows_and_the_declared_24_clubs(cache_dir):
+    _place_cached_csv(cache_dir, "E1", "2425", list(E1_SEASON_SPELLINGS))
+    build.build(("2425",), division="E1")
+
+    frame = pd.read_parquet(paths.matches_parquet("E1"))
+    assert len(frame) == 552
+    keys = set(frame["home_key"]) | set(frame["away_key"])
+    assert len(keys) == 24
+    assert keys == {teams.team_key(s) for s in E1_SEASON_SPELLINGS}
+    assert list(frame.columns) == schema.COLUMNS
+    assert frame["home_key"].notna().all() and frame["away_key"].notna().all()
+
+
+def test_the_e1_season_passes_every_structural_check(cache_dir):
+    _place_cached_csv(cache_dir, "E1", "2425", list(E1_SEASON_SPELLINGS))
+    manifest = build.build(("2425",), division="E1")
+
+    entry = manifest["seasons"][0]
+    assert entry["validation"]["passed"], entry["validation"]
+    assert entry["validation"]["division"] == "E1"
+    names = {c["name"] for c in entry["validation"]["checks"]}
+    assert "match_count_552" in names
+    assert "distinct_teams_24" in names
+    assert entry["matches"] == 552
+    assert entry["teams"] == 24
+
+
+def test_every_id_the_e1_build_writes_carries_the_division(cache_dir):
+    """B6 end to end: the archive's own ids, not a recipe call in isolation."""
+    _place_cached_csv(cache_dir, "E1", "2425", list(E1_SEASON_SPELLINGS))
+    build.build(("2425",), division="E1")
+
+    frame = pd.read_parquet(paths.matches_parquet("E1"))
+    for row in frame.itertuples():
+        assert row.match_id == parse._match_id(
+            row.season_code, row.date, row.home_key, row.away_key, division="E1")
+        assert row.match_id != parse._match_id(
+            row.season_code, row.date, row.home_key, row.away_key)
+    assert frame["match_id"].is_unique
+
+
+def test_the_e1_manifest_names_the_e1_source_and_the_e1_paths(cache_dir):
+    _place_cached_csv(cache_dir, "E1", "2425", list(E1_SEASON_SPELLINGS))
+    manifest = build.build(("2425",), division="E1")
+
+    assert manifest["source"]["division"] == "E1 (EFL Championship)"
+    assert manifest["source"]["url_pattern"] == (
+        "https://www.football-data.co.uk/mmz4281/{season_code}/E1.csv"
+    )
+    assert manifest["output"]["matches"]["path"].endswith("matches_e1.parquet")
+    assert manifest["output"]["provenance"].endswith("provenance_e1.json")
+    assert manifest["output"]["team_name_mapping"].endswith(
+        "team_name_mapping_e1.json")
+    # And the record on disk is the manifest that was returned.
+    assert json.loads(paths.manifest_path("E1").read_text()) == manifest
+
+
+# --------------------------------------------------------------------------
+# The strict gate — an E1 build REFUSES rather than writing a partial archive
+# --------------------------------------------------------------------------
+
+def test_an_incomplete_e1_season_refuses_and_writes_nothing(cache_dir):
+    """§5.4 of the acquisition record, as behaviour.
+
+    Four clubs is 12 matches, not 552. The E0 orchestrator would have written
+    the parquet anyway and recorded the failure in the manifest; for a division
+    whose archive this build introduces, a partial archive is worse than none —
+    it would be pinned as-found by an experiment that cannot tell it is short.
+    """
+    _place_cached_csv(cache_dir, "E1", "2425", ["Derby", "Preston", "Millwall",
+                                                "Sheffield Weds"])
+    with pytest.raises(build.AcquisitionIncomplete) as exc:
+        build.build(("2425",), division="E1")
+
+    assert "match_count_552" in str(exc.value)
+    assert not any(_e1_artifacts_present().values()), _e1_artifacts_present()
+
+
+def test_the_refusal_happens_before_the_parquet_is_written(cache_dir):
+    """A pre-existing E1 archive is not truncated by a build that then refuses."""
+    _place_cached_csv(cache_dir, "E1", "2425", list(E1_SEASON_SPELLINGS))
+    build.build(("2425",), division="E1")
+    good = paths.matches_parquet("E1").read_bytes()
+
+    _place_cached_csv(cache_dir, "E1", "2324", ["Derby", "Preston", "Millwall",
+                                                "Sheffield Weds"])
+    with pytest.raises(build.AcquisitionIncomplete):
+        build.build(("2425", "2324"), division="E1")
+
+    assert paths.matches_parquet("E1").read_bytes() == good
+
+
+def test_an_unregistered_e1_club_refuses_at_build_time_too(cache_dir):
+    """B5 through the orchestrator: `PhantomClub` propagates, nothing is written."""
+    _place_cached_csv(cache_dir, "E1", "2425", ["Derby", "Preston", "Millwall",
+                                                "Not A Real Club"])
+    with pytest.raises(parse.PhantomClub):
+        build.build(("2425",), division="E1")
+    assert not any(_e1_artifacts_present().values())
+
+
+def test_the_strict_gate_lets_the_vendors_blank_trailing_row_through(cache_dir):
+    """The one issue that is the parser working, not the data failing.
+
+    Every football-data season file ends with a line of bare commas. If the gate
+    treated that as a defect, no real season would ever build. The gate and the
+    parser derive the string from the SAME function, so this stays true when the
+    wording changes.
+    """
+    _place_cached_csv(cache_dir, "E1", "2425", list(E1_SEASON_SPELLINGS),
+                      pad=True)
+    manifest = build.build(("2425",), division="E1")
+
+    assert paths.matches_parquet("E1").exists()
+    assert manifest["totals"]["matches"] == 552
+    assert any(parse.blank_rows_issue(1) in i for i in manifest["issues"])
+
+
+def test_a_reworded_blank_row_issue_still_passes_the_gate(cache_dir, monkeypatch):
+    """The gate recognises the issue by DERIVING it, never by matching prose."""
+    monkeypatch.setattr(
+        parse, "blank_rows_issue",
+        lambda n: f"[vendor padding] {n} empty line(s) at end of file")
+    _place_cached_csv(cache_dir, "E1", "2425", list(E1_SEASON_SPELLINGS),
+                      pad=True)
+    manifest = build.build(("2425",), division="E1")
+
+    assert paths.matches_parquet("E1").exists()
+    assert any("[vendor padding]" in i for i in manifest["issues"])
+
+
+# --------------------------------------------------------------------------
+# The E0 orchestrator did not move
+# --------------------------------------------------------------------------
+
+def test_an_e0_build_still_writes_the_e0_artifacts(cache_dir):
+    _place_cached_csv(cache_dir, "E0", "2425", list(E0_SEASON_SPELLINGS))
+    manifest = build.build(("2425",))
+
+    assert all(_e0_artifacts_present().values()), _e0_artifacts_present()
+    assert not any(_e1_artifacts_present().values()), _e1_artifacts_present()
+    assert manifest["totals"]["matches"] == 380
+    assert manifest["source"]["division"] == "E0 (Premier League)"
+    assert manifest["source"]["url_pattern"] == fetch.BASE_URL
+
+
+def test_the_e0_build_reports_an_unregistered_club_and_does_NOT_refuse(cache_dir):
+    """The behaviour the daily live cycle depends on. B5 did not change it.
+
+    An unmapped E0 name is a reported issue and a retained row — never an
+    exception — because the live cycle meets a new promoted club's spelling
+    before anybody has registered it, and must still produce a table.
+    """
+    _place_cached_csv(cache_dir, "E0", "2425",
+                      list(E0_SEASON_SPELLINGS[:19]) + ["Not A Real Club"])
+    manifest = build.build(("2425",))          # no raise
+
+    assert paths.matches_parquet("E0").exists()
+    assert any("unregistered club spelling" in i for i in manifest["issues"])
+    assert manifest["seasons"][0]["validation"]["passed"] is False
+
+
+def test_an_e0_build_cannot_reach_the_pinned_archive(cache_dir):
+    """THE HARD CONSTRAINT, as a test of the orchestrator's own plumbing.
+
+    `paths.MATCHES_PARQUET` is bound to the real `data/epl/` at import and is
+    NOT moved by the fixture's monkeypatched `DATA_DIR`. So if `build` wrote
+    through that constant instead of through `paths.matches_parquet(division)`,
+    this test — running with a temporary data root — would overwrite the pinned
+    archive with a 380-row synthetic season. It asserts the bytes did not move.
+    """
+    if not paths.MATCHES_PARQUET.exists():
+        pytest.skip("no E0 archive on this machine (data/ is gitignored)")
+    before = hashlib.sha256(paths.MATCHES_PARQUET.read_bytes()).hexdigest()
+    assert before == E0_MATCHES_SHA256, "archive already moved before this test"
+
+    _place_cached_csv(cache_dir, "E0", "2425", list(E0_SEASON_SPELLINGS))
+    build.build(("2425",))
+
+    after = hashlib.sha256(paths.MATCHES_PARQUET.read_bytes()).hexdigest()
+    assert after == E0_MATCHES_SHA256
+    assert paths.matches_parquet("E0") != paths.MATCHES_PARQUET
+
+
+def test_an_e1_build_leaves_the_pinned_archive_alone_too(cache_dir):
+    if not paths.MATCHES_PARQUET.exists():
+        pytest.skip("no E0 archive on this machine (data/ is gitignored)")
+    _place_cached_csv(cache_dir, "E1", "2425", list(E1_SEASON_SPELLINGS))
+    build.build(("2425",), division="E1")
+
+    digest = hashlib.sha256(paths.MATCHES_PARQUET.read_bytes()).hexdigest()
+    assert digest == E0_MATCHES_SHA256
+
+
+def test_the_two_divisions_build_side_by_side_without_touching_each_other(cache_dir):
+    """Both files for the same season code, both built, five separate artifacts."""
+    _place_cached_csv(cache_dir, "E0", "2425", list(E0_SEASON_SPELLINGS))
+    _place_cached_csv(cache_dir, "E1", "2425", list(E1_SEASON_SPELLINGS))
+
+    build.build(("2425",))
+    e0_bytes = paths.matches_parquet("E0").read_bytes()
+    e0_manifest = paths.manifest_path("E0").read_bytes()
+
+    build.build(("2425",), division="E1")
+
+    assert paths.matches_parquet("E0").read_bytes() == e0_bytes
+    assert paths.manifest_path("E0").read_bytes() == e0_manifest
+    assert len(pd.read_parquet(paths.matches_parquet("E0"))) == 380
+    assert len(pd.read_parquet(paths.matches_parquet("E1"))) == 552
+
+    e0_ids = set(pd.read_parquet(paths.matches_parquet("E0"))["match_id"])
+    e1_ids = set(pd.read_parquet(paths.matches_parquet("E1"))["match_id"])
+    assert e0_ids & e1_ids == set()
+
+
+# --------------------------------------------------------------------------
+# The CSV mirror is per division too — `--csv` must not cross the streams
+# --------------------------------------------------------------------------
+
+def test_the_csv_mirror_is_its_own_file_per_division():
+    assert paths.matches_csv("E0") == paths.MATCHES_CSV
+    assert paths.matches_csv() == paths.MATCHES_CSV
+    assert paths.matches_csv("E1").name == "matches_e1.csv"
+    assert paths.matches_csv("E1") != paths.MATCHES_CSV
+
+
+def test_an_e1_build_with_csv_does_not_write_the_e0_csv(cache_dir):
+    _place_cached_csv(cache_dir, "E1", "2425", list(E1_SEASON_SPELLINGS))
+    build.build(("2425",), division="E1", write_csv=True)
+
+    assert paths.matches_csv("E1").exists()
+    assert not paths.matches_csv("E0").exists()
+
+
+# --------------------------------------------------------------------------
+# The CLI
+# --------------------------------------------------------------------------
+
+def test_the_cli_refuses_a_division_with_no_registered_shape(capsys):
+    with pytest.raises(SystemExit):
+        build.main(["--division", "E2"])
+    assert "E2" in capsys.readouterr().err
+
+
+def test_the_cli_defaults_to_e0(cache_dir):
+    _place_cached_csv(cache_dir, "E0", "2425", list(E0_SEASON_SPELLINGS))
+    assert build.main(["--seasons", "2425"]) == 0
+    assert paths.matches_parquet("E0").exists()
+    assert not paths.matches_parquet("E1").exists()
+
+
+def test_the_cli_builds_e1_when_asked(cache_dir):
+    _place_cached_csv(cache_dir, "E1", "2425", list(E1_SEASON_SPELLINGS))
+    assert build.main(["--division", "E1", "--seasons", "2425"]) == 0
+    assert paths.matches_parquet("E1").exists()
+    assert not paths.matches_parquet("E0").exists()
+
+
+def test_the_summary_survives_a_season_with_no_odds_at_all(cache_dir, capsys):
+    """A defect the E0 archive could not expose, because it always has prices.
+
+    `overround_mean` is None when no row carries a usable odds triple, and
+    `format(None, '>6')` raises. The crash came AFTER the parquet was written,
+    so the build would have reported failure on a run that had in fact
+    succeeded — the worst shape for an operator, and E1 coverage is not
+    guaranteed the way E0's is.
+    """
+    _place_cached_csv(cache_dir, "E1", "2425", list(E1_SEASON_SPELLINGS))
+    manifest = build.build(("2425",), division="E1")
+    assert manifest["seasons"][0]["odds"]["overround_mean"] is None
+    assert manifest["seasons"][0]["odds"]["usable_rows"] == 0
+
+    build._print_summary(manifest)              # must not raise
+    assert "2024/25" in capsys.readouterr().out
+
+
+def test_the_cli_reports_a_refusal_rather_than_raising_a_traceback(cache_dir, capsys):
+    """A refusal is an operator-facing message and a non-zero exit, not a crash."""
+    _place_cached_csv(cache_dir, "E1", "2425", ["Derby", "Preston", "Millwall",
+                                                "Sheffield Weds"])
+    assert build.main(["--division", "E1", "--seasons", "2425"]) == 1
+    assert "REFUSED" in capsys.readouterr().out
+    assert not paths.matches_parquet("E1").exists()
 
