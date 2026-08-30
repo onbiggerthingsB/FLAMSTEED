@@ -24,11 +24,12 @@ and its ids do not move. Run with
 from __future__ import annotations
 
 import hashlib
+import json
 
 import pandas as pd
 import pytest
 
-from epl import paths, schema, teams, validate
+from epl import fetch, paths, schema, teams, validate
 
 
 # --------------------------------------------------------------------------
@@ -448,3 +449,134 @@ def test_no_e1_artifact_path_collides_with_an_e0_one():
     e1 = {paths.matches_parquet("E1"), paths.manifest_path("E1"),
           paths.team_mapping_path("E1"), paths.provenance_path("E1")}
     assert e0 & e1 == set()
+
+
+# ==========================================================================
+# B1 — the source URL and the cache path take the division
+# ==========================================================================
+
+def test_the_e0_url_is_byte_for_byte_what_it_was():
+    """`epl.livecycle` composes its refetch URL from this pattern."""
+    assert fetch.BASE_URL == (
+        "https://www.football-data.co.uk/mmz4281/{season_code}/E0.csv"
+    )
+    for code in fetch.SEASON_CODES:
+        assert fetch.url_for(code) == fetch.BASE_URL.format(season_code=code)
+
+
+def test_the_e1_url_names_the_e1_file():
+    assert fetch.url_for("1415", division="E1") == (
+        "https://www.football-data.co.uk/mmz4281/1415/E1.csv"
+    )
+    assert fetch.url_for("2526", division="E1").endswith("/2526/E1.csv")
+
+
+def test_the_cache_path_carries_the_division_and_e0_is_unchanged():
+    assert fetch.raw_path("1415").name == "E0_1415.csv"
+    assert fetch.raw_path("1415", division="E1").name == "E1_1415.csv"
+    assert fetch.raw_path("1415") != fetch.raw_path("1415", division="E1")
+
+
+def test_an_unknown_division_has_no_url():
+    with pytest.raises(KeyError):
+        fetch.url_for("1415", division="E2")
+
+
+# ==========================================================================
+# B2 — the provenance key, and the record an E1 fetch would have overwritten
+# ==========================================================================
+
+def test_the_provenance_key_carries_the_division_for_e1_only():
+    """E0 keeps the bare code: twelve records on disk are keyed that way."""
+    assert fetch.provenance_key("1415") == "1415"
+    assert fetch.provenance_key("1415", division="E0") == "1415"
+    assert fetch.provenance_key("1415", division="E1") == "E1_1415"
+
+
+def _place_cached_csv(raw_dir, division: str, code: str, clubs: list[str]) -> None:
+    """A cached football-data CSV for one season, written straight to the cache.
+
+    Hand-placed rather than downloaded: there is no network in this phase, and
+    `fetch_season` treats an unrecorded cached file as an observation to record,
+    which is the exact path being tested.
+    """
+    pairs = [(h, a) for h in clubs for a in clubs if h != a]
+    lines = ["Div,Date,HomeTeam,AwayTeam,FTHG,FTAG,FTR"]
+    per_day = max(1, len(clubs) // 2)
+    base = pd.Timestamp("20%s-08-10" % code[:2])
+    for i, (h, a) in enumerate(pairs):
+        day = base + pd.Timedelta(days=7 * (i // per_day))
+        hg, ag = i % 4, i % 3
+        res = "H" if hg > ag else ("A" if hg < ag else "D")
+        lines.append(f"{division},{day:%d/%m/%Y},{h},{a},{hg},{ag},{res}")
+    (raw_dir / f"{division}_{code}.csv").write_text("\n".join(lines) + "\n")
+
+
+@pytest.fixture()
+def cache_dir(tmp_path, monkeypatch):
+    """A throwaway data root, so no test can touch the real archive."""
+    data = tmp_path / "epl"
+    raw = data / "raw"
+    raw.mkdir(parents=True)
+    monkeypatch.setattr(paths, "DATA_DIR", data)
+    monkeypatch.setattr(paths, "RAW_DIR", raw)
+    return raw
+
+
+def test_an_e1_fetch_does_not_overwrite_the_e0_record_for_the_same_season(cache_dir):
+    """B2 as behaviour: one sidecar keyed by bare code held ONE record per code.
+
+    Both divisions publish a `1415` file. Under the old scheme the second one
+    recorded would have replaced the first, and the manifest would then have
+    attested the wrong URL, the wrong bytes and the wrong digest for a season
+    that was still on disk and still being parsed.
+    """
+    _place_cached_csv(cache_dir, "E0", "1415", ["A", "B", "C", "D"])
+    _place_cached_csv(cache_dir, "E1", "1415", ["W", "X", "Y", "Z"])
+
+    e0 = fetch.fetch_season("1415")
+    e0_sidecar_after_e0 = paths.provenance_path("E0").read_bytes()
+
+    e1 = fetch.fetch_season("1415", division="E1")
+
+    assert e0.division == "E0" and e1.division == "E1"
+    assert e0.url.endswith("/1415/E0.csv")
+    assert e1.url.endswith("/1415/E1.csv")
+    assert e0.sha256 != e1.sha256
+
+    # Two sidecars, disjoint key sets, and the E0 file untouched by the E1 pass.
+    e0_records = json.loads(paths.provenance_path("E0").read_text())
+    e1_records = json.loads(paths.provenance_path("E1").read_text())
+    assert set(e0_records) == {"1415"}
+    assert set(e1_records) == {"E1_1415"}
+    assert set(e0_records) & set(e1_records) == set()
+    assert paths.provenance_path("E0").read_bytes() == e0_sidecar_after_e0
+    assert e0_records["1415"]["sha256"] == e0.sha256
+
+
+def test_a_cached_e1_file_that_changed_underneath_us_refuses(cache_dir):
+    """The cache-first, hash-pinned discipline, carried to E1 unweakened."""
+    _place_cached_csv(cache_dir, "E1", "2425", ["W", "X", "Y", "Z"])
+    fetch.fetch_season("2425", division="E1")
+
+    target = fetch.raw_path("2425", division="E1")
+    target.write_text(target.read_text() + "E1,01/01/2025,W,X,9,9,D\n")
+    with pytest.raises(fetch.FetchError, match="changed on disk"):
+        fetch.fetch_season("2425", division="E1")
+
+
+def test_a_second_e1_fetch_reads_the_cache_and_re_verifies(cache_dir):
+    _place_cached_csv(cache_dir, "E1", "2425", ["W", "X", "Y", "Z"])
+    first = fetch.fetch_season("2425", division="E1")
+    second = fetch.fetch_season("2425", division="E1")
+    assert second.from_cache is True
+    assert second.sha256 == first.sha256
+    assert second.fetched_at == first.fetched_at
+
+
+def test_read_raw_reads_the_division_it_is_asked_for(cache_dir):
+    _place_cached_csv(cache_dir, "E0", "1415", ["A", "B", "C", "D"])
+    _place_cached_csv(cache_dir, "E1", "1415", ["W", "X", "Y", "Z"])
+    assert "A,B" in fetch.read_raw("1415")
+    assert "A,B" not in fetch.read_raw("1415", division="E1")
+    assert "W,X" in fetch.read_raw("1415", division="E1")

@@ -45,25 +45,29 @@ MANIFEST_E1_PATH = DATA_DIR / "manifest_e1.json"
 TEAM_MAPPING_E1_PATH = DATA_DIR / "team_name_mapping_e1.json"
 PROVENANCE_E1_PATH = RAW_DIR / "provenance_e1.json"
 
-_DIVISION_ARTIFACTS: dict[str, dict[str, Path]] = {
+#: division -> artifact kind -> (which directory, file name). Names rather than
+#: assembled paths, so the accessors read DATA_DIR / RAW_DIR at CALL time: a
+#: test can point the whole data root at a temporary directory and be certain
+#: nothing it does can reach the pinned archive.
+_DIVISION_ARTIFACTS: dict[str, dict[str, tuple[str, str]]] = {
     "E0": {
-        "matches": MATCHES_PARQUET,
-        "manifest": MANIFEST_PATH,
-        "team_mapping": TEAM_MAPPING_PATH,
-        "provenance": PROVENANCE_PATH,
+        "matches": ("data", "matches.parquet"),
+        "manifest": ("data", "manifest.json"),
+        "team_mapping": ("data", "team_name_mapping.json"),
+        "provenance": ("raw", "provenance.json"),
     },
     "E1": {
-        "matches": MATCHES_E1_PARQUET,
-        "manifest": MANIFEST_E1_PATH,
-        "team_mapping": TEAM_MAPPING_E1_PATH,
-        "provenance": PROVENANCE_E1_PATH,
+        "matches": ("data", "matches_e1.parquet"),
+        "manifest": ("data", "manifest_e1.json"),
+        "team_mapping": ("data", "team_name_mapping_e1.json"),
+        "provenance": ("raw", "provenance_e1.json"),
     },
 }
 
 
 def _artifact(division: str, kind: str) -> Path:
     try:
-        return _DIVISION_ARTIFACTS[division][kind]
+        where, name = _DIVISION_ARTIFACTS[division][kind]
     except KeyError as exc:
         raise KeyError(
             f"no {kind} path registered for division {division!r}; known "
@@ -71,6 +75,7 @@ def _artifact(division: str, kind: str) -> Path:
             f"here rather than composing one at the call site — a composed "
             f"path is how two divisions end up sharing a file."
         ) from exc
+    return (DATA_DIR if where == "data" else RAW_DIR) / name
 
 
 def matches_parquet(division: str = "E0") -> Path:
