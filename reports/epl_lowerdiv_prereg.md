@@ -3082,6 +3082,51 @@ binds this file's current bytes. A note appended after the first fit is an
 invalidation (§10), and this section is closed by the same clause that closes
 every other.
 
+#### NOTE — 2026-08-30, at HEAD `d20a13a`: THE E1 SPLIT (owner ruling)
+
+**The owner ruled the acquisition out of this document and into standalone
+infrastructure, and this note records the split.** The Championship archive is
+built **now**, on its own, and **the confirmatory experiment holds**. Nothing
+below changes a clause of this preregistration; it changes only where the
+acquisition executes.
+
+* **The acquisition executes standalone, per the ruling.** It is not a pass of
+  this document. §0.6's A0/A1 rulings and this section's attestation shape are
+  the **design reference** the standalone build is held to — its B1 (division
+  parameter), B2 (`{division}_{code}` provenance keys in a separate sidecar), B3
+  (per-division 24/552/23 constants), B4 (registry entries with the fold-collision
+  guard doing the safety work), B5 (a null key REFUSES rather than stringifying
+  into the phantom club `"None"`) and B6 (the E1 `match_id` carries the division;
+  E0 ids unchanged) are all carried. **B7 is not**, because B7 is a projector
+  ruling and this build performs **no fit, no store build and no harness**.
+* **The module layout differs from §0.6/§8.2 and says so.** Those clauses name
+  `epl/lowerdiv.py` and `python -m epl.lowerdiv --acquire-fetch/--acquire-build`.
+  Under the ruling the division is instead a **parameter of the existing ingest**
+  — `epl/fetch.py`, `epl/parse.py`, `epl/schema.py`, `epl/validate.py`,
+  `epl/teams.py`, `epl/paths.py`, `epl/build.py` — with **E0 defaults preserved
+  so every existing caller is untouched**, and the archive is built by
+  `python -m epl.build --division E1`. This is a difference from the design
+  reference, stated here rather than discovered later.
+* **The archive and its attestation stand independent of this document.** The
+  acquisition record is [`reports/epl_e1_acquisition.md`](epl_e1_acquisition.md),
+  written 2026-08-30 at `d20a13a`. It publishes the enumeration **before** the
+  registry commit, per the registry-order rule: **12** season codes `1415`–`2526`;
+  **24** clubs, **552** matches and **23** opponents each per completed season;
+  **49** distinct football-data spellings of which **27** already resolve through
+  the E0 registry and **22** are new; the registry moves from **36** clubs to
+  **58**; the fold-collision check against the registry at `d20a13a` is **CLEAN**.
+  The enumeration is **DECLARED, not measured** — no network runs in this phase,
+  no E1 CSV has been fetched, and no `data/epl/matches_e1.parquet` exists — and
+  that record's §5 names the four mechanisms that turn a wrong declaration into a
+  refusal.
+* **When the experiment is revived it pins the archive as-found.** The freeze
+  block will pin whatever digest, row count and per-season club census the
+  archive then carries. This note pins none of them, because none of them exists
+  yet.
+* **The allow-list is honoured.** This note carries structural counts only — no
+  score, no goal count, no goal rate, no result distribution, no derived outcome
+  statistic of either archive.
+
 ---
 
 ## 9. The evidence contract
