@@ -9,6 +9,12 @@ The fixture-level checks are stronger than a bare row count on purpose. 380 rows
 is satisfied by a file that duplicates one fixture and omits another; requiring
 every ordered (home, away) pair exactly once, and 19 home + 19 away per club, is
 not.
+
+The counts are per DIVISION, not global. E0 is 20 clubs / 380 matches / 19
+opponents; E1 (the EFL Championship) is 24 / 552 / 23. `division` defaults to E0,
+so every existing caller gets exactly the checks it got before, including the
+check NAMES: the count checks are named after the number they assert, which for
+E0 keeps them `match_count_380` and `distinct_teams_20`.
 """
 
 from __future__ import annotations
@@ -34,6 +40,7 @@ class Check:
 class SeasonReport:
     season: str
     season_code: str
+    division: str = schema.DEFAULT_DIVISION
     checks: list[Check] = field(default_factory=list)
 
     @property
@@ -47,6 +54,7 @@ class SeasonReport:
     def to_json(self) -> dict:
         return {
             "passed": self.passed,
+            "division": self.division,
             "checks": [c.to_json() for c in self.checks],
         }
 
@@ -66,9 +74,20 @@ def season_window(season_code: str) -> tuple[pd.Timestamp, pd.Timestamp]:
     )
 
 
-def validate_season(frame: pd.DataFrame, season_code: str, season: str) -> SeasonReport:
-    """Run every structural check against one season's rows."""
-    report = SeasonReport(season=season, season_code=season_code)
+def validate_season(
+    frame: pd.DataFrame,
+    season_code: str,
+    season: str,
+    division: str = schema.DEFAULT_DIVISION,
+) -> SeasonReport:
+    """Run every structural check against one season's rows.
+
+    `division` selects the expected shape (E0: 20/380/19, E1: 24/552/23). The
+    check list, the order and the wording are identical across divisions — only
+    the numbers move — so a failure reads the same whichever archive raised it.
+    """
+    shape = schema.division_shape(division)
+    report = SeasonReport(season=season, season_code=season_code, division=division)
     add = report.checks.append
     n = len(frame)
 
@@ -82,10 +101,10 @@ def validate_season(frame: pd.DataFrame, season_code: str, season: str) -> Seaso
     ))
 
     add(Check(
-        "match_count_380",
-        n == schema.MATCHES_PER_SEASON,
-        f"{n} matches" if n == schema.MATCHES_PER_SEASON
-        else f"expected {schema.MATCHES_PER_SEASON}, found {n}",
+        f"match_count_{shape.matches}",
+        n == shape.matches,
+        f"{n} matches" if n == shape.matches
+        else f"expected {shape.matches}, found {n}",
     ))
 
     # --- teams ------------------------------------------------------------
@@ -98,15 +117,15 @@ def validate_season(frame: pd.DataFrame, season_code: str, season: str) -> Seaso
 
     club_keys = pd.unique(pd.concat([frame["home_key"], frame["away_key"]]))
     add(Check(
-        "distinct_teams_20",
-        len(club_keys) == schema.TEAMS_PER_SEASON,
-        f"{len(club_keys)} clubs" if len(club_keys) == schema.TEAMS_PER_SEASON
-        else f"expected {schema.TEAMS_PER_SEASON}, found {len(club_keys)}: {sorted(club_keys)}",
+        f"distinct_teams_{shape.teams}",
+        len(club_keys) == shape.teams,
+        f"{len(club_keys)} clubs" if len(club_keys) == shape.teams
+        else f"expected {shape.teams}, found {len(club_keys)}: {sorted(club_keys)}",
     ))
 
     home_counts = frame["home_key"].value_counts()
     away_counts = frame["away_key"].value_counts()
-    expected_each = schema.TEAMS_PER_SEASON - 1  # 19
+    expected_each = shape.opponents  # E0: 19, E1: 23
     off = {
         club: (int(home_counts.get(club, 0)), int(away_counts.get(club, 0)))
         for club in club_keys

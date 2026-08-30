@@ -28,6 +28,68 @@ MANIFEST_PATH = DATA_DIR / "manifest.json"
 #: raw club name -> canonical name -> stable key, with per-season occurrences.
 TEAM_MAPPING_PATH = DATA_DIR / "team_name_mapping.json"
 
+# --- second division (E1, EFL Championship) --------------------------------
+# A SEPARATE FILE PER ARTIFACT, not a division column inside the E0 ones. Two
+# reasons, and the first is the one that matters: `data/epl/matches.parquet` is
+# pinned byte-for-byte and read by the Elo anchor, so nothing this ingest does
+# may rewrite it, and the safest way to guarantee that is for the E1 build to
+# have nowhere to write except its own paths. The second is that the provenance
+# sidecar is keyed by season code alone, so an E1 record written into it would
+# OVERWRITE the E0 record for the same season rather than sit beside it.
+#
+# The E1 match table carries the SAME columns as the E0 one — the division is
+# carried by the file name, the manifest and the id recipe, not by a column —
+# so any reader of one reads the other unchanged.
+MATCHES_E1_PARQUET = DATA_DIR / "matches_e1.parquet"
+MANIFEST_E1_PATH = DATA_DIR / "manifest_e1.json"
+TEAM_MAPPING_E1_PATH = DATA_DIR / "team_name_mapping_e1.json"
+PROVENANCE_E1_PATH = RAW_DIR / "provenance_e1.json"
+
+_DIVISION_ARTIFACTS: dict[str, dict[str, Path]] = {
+    "E0": {
+        "matches": MATCHES_PARQUET,
+        "manifest": MANIFEST_PATH,
+        "team_mapping": TEAM_MAPPING_PATH,
+        "provenance": PROVENANCE_PATH,
+    },
+    "E1": {
+        "matches": MATCHES_E1_PARQUET,
+        "manifest": MANIFEST_E1_PATH,
+        "team_mapping": TEAM_MAPPING_E1_PATH,
+        "provenance": PROVENANCE_E1_PATH,
+    },
+}
+
+
+def _artifact(division: str, kind: str) -> Path:
+    try:
+        return _DIVISION_ARTIFACTS[division][kind]
+    except KeyError as exc:
+        raise KeyError(
+            f"no {kind} path registered for division {division!r}; known "
+            f"divisions are {sorted(_DIVISION_ARTIFACTS)}. Register its paths "
+            f"here rather than composing one at the call site — a composed "
+            f"path is how two divisions end up sharing a file."
+        ) from exc
+
+
+def matches_parquet(division: str = "E0") -> Path:
+    """The tidy match table for one division. E0 is the pinned archive."""
+    return _artifact(division, "matches")
+
+
+def manifest_path(division: str = "E0") -> Path:
+    return _artifact(division, "manifest")
+
+
+def team_mapping_path(division: str = "E0") -> Path:
+    return _artifact(division, "team_mapping")
+
+
+def provenance_path(division: str = "E0") -> Path:
+    """Provenance sidecar for one division's raw CSVs. One file per division."""
+    return _artifact(division, "provenance")
+
 # --- baseline (walk-forward Elo vs the market) -----------------------------
 #: Everything the baseline writes. Under data/, so gitignored like the rest.
 BASELINE_DIR = DATA_DIR / "baseline"

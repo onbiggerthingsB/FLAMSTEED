@@ -28,7 +28,7 @@ import hashlib
 import pandas as pd
 import pytest
 
-from epl import paths, teams
+from epl import paths, schema, teams, validate
 
 
 # --------------------------------------------------------------------------
@@ -283,3 +283,168 @@ def test_the_e0_archive_contains_no_championship_only_club():
     keys = set(archive["home_key"]) | set(archive["away_key"])
     assert keys <= E0_KEYS_BEFORE_E1
     assert keys & set(DECLARED_NEW_CLUBS.values()) == set()
+
+
+# ==========================================================================
+# A synthetic season, built to the shape the validator asserts
+# ==========================================================================
+
+def _synthetic_season(
+    club_keys: list[str],
+    season_code: str = "2425",
+    *,
+    start: str = "2024-08-10",
+    null_key_at: int | None = None,
+) -> pd.DataFrame:
+    """A complete double round-robin over `club_keys`, in schema column order.
+
+    Every ordered (home, away) pair once; matchdays of `n/2` fixtures spaced a
+    week apart so the whole season lands inside the validator's date window.
+    `null_key_at` nulls one row's home key, which is the phantom-club input.
+    """
+    pairs = [(h, a) for h in club_keys for a in club_keys if h != a]
+    per_day = max(1, len(club_keys) // 2)
+    base = pd.Timestamp(start)
+    dates = [base + pd.Timedelta(days=7 * (i // per_day)) for i in range(len(pairs))]
+
+    home_keys = [h for h, _ in pairs]
+    away_keys = [a for _, a in pairs]
+    if null_key_at is not None:
+        home_keys = list(home_keys)
+        home_keys[null_key_at] = None
+
+    fthg = [(i % 4) for i in range(len(pairs))]
+    ftag = [(i % 3) for i in range(len(pairs))]
+    ftr = ["H" if h > a else ("A" if h < a else "D") for h, a in zip(fthg, ftag)]
+
+    frame = pd.DataFrame({
+        "match_id": [f"synthetic{i:06d}" for i in range(len(pairs))],
+        "season": f"20{season_code[:2]}/{season_code[2:]}",
+        "season_code": season_code,
+        "date": pd.to_datetime(dates),
+        "time": pd.Series([pd.NA] * len(pairs), dtype="string"),
+        "kickoff": pd.Series([pd.NaT] * len(pairs), dtype="datetime64[ns]"),
+        "home_team_raw": home_keys,
+        "away_team_raw": away_keys,
+        "home_team": home_keys,
+        "away_team": away_keys,
+        "home_key": home_keys,
+        "away_key": away_keys,
+        "fthg": pd.array(fthg, dtype="Int16"),
+        "ftag": pd.array(ftag, dtype="Int16"),
+        "ftr": pd.Series(ftr, dtype="string"),
+        "played": True,
+    })
+    for col in schema.ODDS_COLUMNS:
+        frame[col] = pd.Series([pd.NA] * len(pairs), dtype="string") \
+            if col == "odds_source" else float("nan")
+    return frame[schema.COLUMNS]
+
+
+E0_CLUBS = [f"club_e0_{i:02d}" for i in range(20)]
+E1_CLUBS = [f"club_e1_{i:02d}" for i in range(24)]
+
+
+# ==========================================================================
+# B3 — the shape constants are per division; E0 keeps 380/20/19
+# ==========================================================================
+
+def test_the_e0_shape_constants_did_not_move():
+    assert schema.TEAMS_PER_SEASON == 20
+    assert schema.MATCHES_PER_SEASON == 380
+
+
+def test_the_division_shapes_are_the_published_arithmetic():
+    e0 = schema.division_shape("E0")
+    assert (e0.teams, e0.matches, e0.opponents) == (20, 380, 19)
+    e1 = schema.division_shape("E1")
+    assert (e1.teams, e1.matches, e1.opponents) == (24, 552, 23)
+    assert e1.matches == e1.teams * (e1.teams - 1)
+
+
+def test_the_default_division_is_e0():
+    assert schema.DEFAULT_DIVISION == "E0"
+    assert schema.division_shape() == schema.division_shape("E0")
+
+
+def test_an_unknown_division_refuses_rather_than_guessing_a_shape():
+    with pytest.raises(KeyError):
+        schema.division_shape("E2")
+
+
+def test_a_championship_season_validates_at_552_24_23():
+    frame = _synthetic_season(E1_CLUBS)
+    report = validate.validate_season(frame, "2425", "2024/25", division="E1")
+    assert report.passed, [c.to_json() for c in report.failures]
+    names = {c.name for c in report.checks}
+    assert "match_count_552" in names
+    assert "distinct_teams_24" in names
+
+
+def test_the_same_championship_season_FAILS_the_e0_validator():
+    """The blocker, stated as behaviour: 552/24 is not 380/20.
+
+    Before the shape was a parameter this was the only answer available, and a
+    real Championship season would have been reported as a broken one.
+    """
+    frame = _synthetic_season(E1_CLUBS)
+    report = validate.validate_season(frame, "2425", "2024/25")
+    failed = {c.name for c in report.failures}
+    assert "match_count_380" in failed
+    assert "distinct_teams_20" in failed
+
+
+def test_the_e0_validator_is_unchanged_on_an_e0_season():
+    frame = _synthetic_season(E0_CLUBS)
+    report = validate.validate_season(frame, "2425", "2024/25")
+    assert report.passed, [c.to_json() for c in report.failures]
+    names = [c.name for c in report.checks]
+    assert names[:4] == ["all_fixtures_played", "match_count_380",
+                         "teams_resolved", "distinct_teams_20"]
+
+
+def test_a_championship_season_one_club_short_fails_the_round_robin_check():
+    frame = _synthetic_season(E1_CLUBS[:23])
+    report = validate.validate_season(frame, "2425", "2024/25", division="E1")
+    failed = {c.name for c in report.failures}
+    assert "match_count_552" in failed
+    assert "distinct_teams_24" in failed
+
+
+def test_the_opponent_count_is_23_not_19():
+    """A club with 19 home fixtures is a defect in E1, not a complete season."""
+    frame = _synthetic_season(E1_CLUBS)
+    trimmed = frame[~((frame["home_key"] == E1_CLUBS[0])
+                      & (frame["away_key"].isin(E1_CLUBS[1:5])))]
+    report = validate.validate_season(trimmed, "2425", "2024/25", division="E1")
+    failed = {c.name for c in report.failures}
+    assert "double_round_robin" in failed
+
+
+# ==========================================================================
+# B1/B2 — the output and provenance paths, per division and disjoint
+# ==========================================================================
+
+def test_the_e0_output_paths_are_exactly_what_they_were():
+    assert paths.matches_parquet("E0") == paths.MATCHES_PARQUET
+    assert paths.manifest_path("E0") == paths.MANIFEST_PATH
+    assert paths.team_mapping_path("E0") == paths.TEAM_MAPPING_PATH
+    assert paths.provenance_path("E0") == paths.PROVENANCE_PATH
+    assert paths.matches_parquet() == paths.MATCHES_PARQUET
+
+
+def test_the_e1_outputs_are_their_own_files():
+    assert paths.matches_parquet("E1").name == "matches_e1.parquet"
+    assert paths.manifest_path("E1").name == "manifest_e1.json"
+    assert paths.team_mapping_path("E1").name == "team_name_mapping_e1.json"
+    assert paths.provenance_path("E1").name == "provenance_e1.json"
+
+
+def test_no_e1_artifact_path_collides_with_an_e0_one():
+    """B2's file half: the E1 build cannot land on top of an E0 artifact."""
+    e0 = {paths.matches_parquet("E0"), paths.manifest_path("E0"),
+          paths.team_mapping_path("E0"), paths.provenance_path("E0"),
+          paths.MATCHES_CSV}
+    e1 = {paths.matches_parquet("E1"), paths.manifest_path("E1"),
+          paths.team_mapping_path("E1"), paths.provenance_path("E1")}
+    assert e0 & e1 == set()

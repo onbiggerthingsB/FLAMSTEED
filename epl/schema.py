@@ -7,6 +7,8 @@ quietly producing an all-NaN feature.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pandas as pd
 
 # --- identity -------------------------------------------------------------
@@ -49,8 +51,71 @@ ODDS_COLUMNS = [
 COLUMNS = ID_COLUMNS + TIME_COLUMNS + TEAM_COLUMNS + RESULT_COLUMNS + ODDS_COLUMNS
 
 #: Number of matches in a completed double round-robin among 20 clubs.
+#: THE E0 CONSTANTS. Kept spelled this way, and kept at these values, because
+#: every existing caller reads them and the Premier League ingest's behaviour is
+#: not allowed to move. A second division reads `division_shape` instead.
 TEAMS_PER_SEASON = 20
 MATCHES_PER_SEASON = TEAMS_PER_SEASON * (TEAMS_PER_SEASON - 1)  # 380
+
+#: football-data.co.uk's division code for the Premier League. Every ingest
+#: entry point defaults to it, so a caller that names no division gets exactly
+#: the behaviour it got before divisions existed.
+DEFAULT_DIVISION = "E0"
+
+
+@dataclass(frozen=True)
+class DivisionShape:
+    """How big one completed season of a division is.
+
+    The three numbers are not independent — `matches` and `opponents` follow
+    from `teams` in a double round-robin — but they are stored rather than
+    derived so a division with a different format could be registered without
+    the validator quietly computing the wrong expectation for it. `__post_init__`
+    checks the arithmetic for the round-robin case we do have.
+    """
+
+    division: str
+    label: str
+    teams: int
+    matches: int
+    opponents: int
+
+    def __post_init__(self) -> None:
+        if self.matches != self.teams * (self.teams - 1):
+            raise ValueError(
+                f"{self.division}: {self.matches} matches is not a double "
+                f"round-robin among {self.teams} clubs"
+            )
+        if self.opponents != self.teams - 1:
+            raise ValueError(
+                f"{self.division}: {self.opponents} opponents is not "
+                f"{self.teams} - 1"
+            )
+
+
+#: The divisions this ingest knows how to validate. A division that is not here
+#: has no asserted shape, and `division_shape` refuses rather than guessing one:
+#: a guessed 380 against a 552-match file would report a complete season as
+#: broken, and a guessed 552 against E0 would do the reverse.
+DIVISIONS: dict[str, DivisionShape] = {
+    "E0": DivisionShape("E0", "Premier League", 20, 380, 19),
+    "E1": DivisionShape("E1", "EFL Championship", 24, 552, 23),
+}
+
+assert DIVISIONS["E0"].teams == TEAMS_PER_SEASON
+assert DIVISIONS["E0"].matches == MATCHES_PER_SEASON
+
+
+def division_shape(division: str = DEFAULT_DIVISION) -> DivisionShape:
+    """`'E1'` -> the 24/552/23 shape. Raises for a division with no shape."""
+    try:
+        return DIVISIONS[division]
+    except KeyError as exc:
+        raise KeyError(
+            f"no season shape registered for division {division!r}; known "
+            f"divisions are {sorted(DIVISIONS)}. Register its shape in "
+            f"epl.schema.DIVISIONS rather than letting a validator assume one."
+        ) from exc
 
 ORDERING_RULE = """\
 A forecast for match M may use only matches strictly earlier than M:
