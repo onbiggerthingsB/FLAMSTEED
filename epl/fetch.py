@@ -39,11 +39,6 @@ URL_TEMPLATE = "https://www.football-data.co.uk/mmz4281/{season_code}/{division}
 #: archive manifest records it verbatim as `source.url_pattern`.
 BASE_URL = "https://www.football-data.co.uk/mmz4281/{season_code}/E0.csv"
 
-#: Divisions with a registered season shape are the divisions we will fetch.
-#: Deliberately the same gate: a division we cannot validate is a division we
-#: should not be caching bytes for.
-DIVISIONS: tuple[str, ...] = tuple(sorted(schema.DIVISIONS))
-
 #: 2014/15 through 2025/26 inclusive.
 SEASON_CODES: tuple[str, ...] = (
     "1415", "1516", "1617", "1718", "1819", "1920",
