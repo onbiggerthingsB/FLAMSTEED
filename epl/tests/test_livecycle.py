@@ -1216,12 +1216,9 @@ def test_the_command_takes_the_three_documented_flags():
 
 
 def test_the_odds_snapshot_directory_is_the_one_that_actually_holds_them():
-    """`epl.oddscapture.SNAPSHOT_DIR` resolves to `data/epl/epl/odds_snapshots`
-    — `paths.DATA_DIR` is already `data/epl` — and the operator's captures are
-    in `data/epl/odds_snapshots`. The cycle names the real one rather than
-    starting a second, empty archive beside it."""
+    """The operator CLI and cycle must never split one evidence archive."""
     assert livecycle.ODDS_SNAPSHOT_DIR == paths.DATA_DIR / "odds_snapshots"
-    assert livecycle.ODDS_SNAPSHOT_DIR != oddscapture.SNAPSHOT_DIR
+    assert livecycle.ODDS_SNAPSHOT_DIR == oddscapture.SNAPSHOT_DIR
 
 
 # ==========================================================================

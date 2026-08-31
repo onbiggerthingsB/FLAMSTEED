@@ -242,16 +242,9 @@ JOURNAL_PATH = paths.REPO_ROOT / "reports" / "epl_livecycle_journal.jsonl"
 #: result to file (2026-08-31).
 STEP_COUNTS: tuple[str, ...] = ("scored", "abstained")
 
-#: Where the Tuesday/Friday captures actually live. `epl.oddscapture` computes
-#: its own default as `paths.DATA_DIR / "epl" / "odds_snapshots"`, and
-#: `paths.DATA_DIR` is ALREADY `data/epl` — so that constant names
-#: `data/epl/epl/odds_snapshots`, which does not exist and never has. The
-#: operator's captures are in `data/epl/odds_snapshots`, so the cycle passes
-#: the directory explicitly rather than inheriting a path that would start a
-#: second, empty archive beside the real one. Left as a finding rather than
-#: edited: changing that module's default would move where a bare
-#: `python -m epl.oddscapture` writes, which is the operator's call.
-ODDS_SNAPSHOT_DIR = paths.DATA_DIR / "odds_snapshots"
+#: The operator CLI and live cycle share one archive. Keeping this as an alias
+#: prevents a future path edit from silently splitting their evidence again.
+ODDS_SNAPSHOT_DIR = oddscapture.SNAPSHOT_DIR
 
 _TIMEOUT_S = 60
 _USER_AGENT = "worldcup-epl-livecycle/1.0 (research; contact via repository)"
