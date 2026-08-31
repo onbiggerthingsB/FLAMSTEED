@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from epl import bridge as bridge_mod, leaguesim, liveanchor, matchboard
+from epl import bridge as bridge_mod, fit as epl_fit, leaguesim, liveanchor, matchboard
 from epl import particles, paths, recalfit, season as season_mod, simcli
 # The T6 acceptance run's league-shaped book: one definition, reused, so the
 # smoke path here and the canary path there cannot drift apart.
@@ -701,12 +701,13 @@ def _archive_frame(n: int = 900, *, seed: int = 11) -> pd.DataFrame:
     })
 
 
-def _ledger_rows(day: str):
+def _ledger_rows(day: str, observed_at: str | None = None):
     """Three results-ledger rows of the target season, played on `day`."""
+    observed = pd.Timestamp(day if observed_at is None else observed_at)
     return tuple(
         liveanchor.LiveRow(
             fixture_id=f"2627:h{i}:a{i}", home_key=f"h{i}", away_key=f"a{i}",
-            date_played=pd.Timestamp(day), observed_at=pd.Timestamp(day),
+            date_played=pd.Timestamp(day), observed_at=observed,
             hg=4 + i, ag=0)
         for i in range(3))
 
@@ -718,13 +719,43 @@ def test_live_training_frame_adds_the_seasons_results_and_respects_the_cutoff():
     assert seen_none == () and len(empty) == len(archive)
 
     before, seen_before = simcli.live_training_frame(
-        archive, _ledger_rows("2026-08-19"), SEASON, OPENER)
+        archive,
+        _ledger_rows("2026-08-19", observed_at="2026-08-20T12:34:56"),
+        SEASON,
+        OPENER,
+    )
     assert len(seen_before) == 3
     assert len(before) == len(archive) + 3
     # the ledger rows arrive in the shape the bridge reads
     for column in ("date", "fthg", "ftag", "ftr", "played"):
         assert column in before.columns
     assert int((before["season"].astype(str) == SEASON).sum()) == 3
+
+    # The static archive's fallback is applied explicitly BEFORE concatenation,
+    # while live rows retain the ledger's later observation clock.
+    static = before.loc[before["season"].astype(str) != SEASON]
+    live = before.loc[before["season"].astype(str) == SEASON]
+    assert (pd.to_datetime(static["valid_as_of"]) == static["date"]).all()
+    assert (pd.to_datetime(static["observed_at"]) == static["date"]).all()
+    assert set(pd.to_datetime(live["valid_as_of"])) == {
+        pd.Timestamp("2026-08-19")
+    }
+    assert set(pd.to_datetime(live["observed_at"])) == {
+        pd.Timestamp("2026-08-20 12:34:56")
+    }
+
+    # Canonical handoff: the mixed frame reaches the model store with no clock
+    # repair, and the three live rows keep the observation instant above.
+    # `_archive_frame` deliberately repeats synthetic team/score content and
+    # is unsuitable for the model hygiene filter's duplicate-match rule; one
+    # static row is enough to exercise this clock-shape handoff.
+    handoff = pd.concat([static.head(1), live], ignore_index=True)
+    projected = epl_fit.to_store_frame(handoff)
+    live_ids = set(live["match_id"].astype(str))
+    projected_live = projected.loc[projected["match_id"].isin(live_ids)]
+    assert set(projected_live["observed_at"]) == {
+        pd.Timestamp("2026-08-20 12:34:56")
+    }
 
     # POINT-IN-TIME POSITIVE CONTROL — the same three results dated ON or AFTER
     # the cutoff are not in the frame at all.
@@ -741,6 +772,105 @@ def test_live_training_frame_adds_the_seasons_results_and_respects_the_cutoff():
     assert bridge_mod.EmpiricalBridge.fit(before, OPENER).hash != base
     assert bridge_mod.EmpiricalBridge.fit(after, OPENER).hash == base
     assert bridge_mod.EmpiricalBridge.fit(later, OPENER).hash == base
+
+
+def test_live_training_frame_preserves_a_revision_aware_archives_two_clocks():
+    archive = _archive_frame(2)
+    archive["valid_as_of"] = pd.to_datetime([
+        "2026-08-01T22:15:00Z", "2026-08-02T23:30:00Z"])
+    archive["observed_at"] = pd.to_datetime([
+        "2026-08-03T10:00:00+08:00", "2026-08-04T11:00:00+08:00"])
+
+    got, seen = simcli.live_training_frame(archive, (), SEASON, OPENER)
+
+    assert seen == ()
+    assert got["valid_as_of"].tolist() == [
+        pd.Timestamp("2026-08-01 22:15:00"),
+        pd.Timestamp("2026-08-02 23:30:00"),
+    ]
+    assert got["observed_at"].tolist() == [
+        pd.Timestamp("2026-08-03 02:00:00"),
+        pd.Timestamp("2026-08-04 03:00:00"),
+    ]
+
+
+@pytest.mark.parametrize("present", ["valid_as_of", "observed_at"])
+def test_live_training_frame_refuses_a_one_clock_archive(present):
+    archive = _archive_frame(2)
+    archive[present] = pd.Timestamp("2026-08-01")
+    with pytest.raises(simcli.CliError, match="must supply both"):
+        simcli.live_training_frame(archive, (), SEASON, OPENER)
+
+
+@pytest.mark.parametrize("column", ["valid_as_of", "observed_at"])
+def test_live_training_frame_refuses_a_null_archive_clock(column):
+    archive = _archive_frame(2)
+    archive["valid_as_of"] = pd.Timestamp("2026-08-01")
+    archive["observed_at"] = pd.Timestamp("2026-08-02")
+    archive.loc[archive.index[0], column] = pd.NaT
+    with pytest.raises(simcli.CliError, match=f"archive {column} must be finite"):
+        simcli.live_training_frame(archive, (), SEASON, OPENER)
+
+
+def test_shared_training_snapshot_omits_three_rows_learned_after_observed_by():
+    archive = _archive_frame()
+    archive["valid_as_of"] = pd.to_datetime(archive["date"])
+    archive["observed_at"] = pd.to_datetime(archive["date"])
+    late = archive.head(3).copy()
+    late["match_id"] = [f"late-{i}" for i in range(3)]
+    late["date"] = pd.Timestamp("2026-08-19")
+    # One violates observed_at only, one valid_as_of only, one both. All three
+    # must be omitted: visibility is the conjunction of both clock bounds.
+    late["valid_as_of"] = pd.to_datetime([
+        "2026-08-20T11:00:00", "2026-08-20T13:00:00",
+        "2026-08-20T13:00:00"])
+    late["observed_at"] = pd.to_datetime([
+        "2026-08-20T13:00:00", "2026-08-20T11:00:00",
+        "2026-08-20T13:00:00"])
+    combined = pd.concat([archive, late], ignore_index=True)
+
+    got, seen = simcli.live_training_frame(
+        combined, (), SEASON, OPENER,
+        observed_by="2026-08-20T12:00:00")
+
+    assert seen == ()
+    assert len(got) == len(archive)
+    assert not (set(late["match_id"].astype(str))
+                & set(got["match_id"].astype(str)))
+    # The frame handed onward is already safe for the bridge, whose own gate is
+    # date-only and therefore could not remove those three late rows itself.
+    assert bridge_mod.EmpiricalBridge.fit(got, OPENER).n_rows == len(archive)
+
+
+def test_shared_training_snapshot_selects_latest_visible_revision_per_match_id():
+    archive = _archive_frame()
+    archive["valid_as_of"] = pd.to_datetime(archive["date"])
+    archive["observed_at"] = pd.to_datetime(archive["date"])
+    fid = str(archive.iloc[0]["match_id"])
+
+    visible_revision = archive.iloc[[0]].copy()
+    visible_revision["fthg"] = 7
+    visible_revision["ftag"] = 0
+    visible_revision["ftr"] = "H"
+    visible_revision["valid_as_of"] = pd.Timestamp("2026-08-19T11:00:00")
+    visible_revision["observed_at"] = pd.Timestamp("2026-08-20T11:00:00")
+
+    late_revision = visible_revision.copy()
+    late_revision["fthg"] = 0
+    late_revision["ftag"] = 7
+    late_revision["ftr"] = "A"
+    late_revision["valid_as_of"] = pd.Timestamp("2026-08-19T12:00:00")
+    late_revision["observed_at"] = pd.Timestamp("2026-08-20T13:00:00")
+    combined = pd.concat(
+        [archive, visible_revision, late_revision], ignore_index=True)
+
+    got = simcli._point_in_time_training_frame(
+        combined, OPENER, observed_by="2026-08-20T12:00:00")
+
+    selected = got.loc[got["match_id"].astype(str) == fid]
+    assert len(got) == len(archive)
+    assert len(selected) == 1
+    assert selected[["fthg", "ftag", "ftr"]].iloc[0].tolist() == [7, 0, "H"]
 
 
 def test_forecast_fits_the_bridge_on_the_frame_the_fit_trained_on(book, tmp_path):
@@ -765,6 +895,47 @@ def test_forecast_fits_the_bridge_on_the_frame_the_fit_trained_on(book, tmp_path
     assert with_ledger != plain, (
         "the bridge must be fitted on the frame the fit trained on "
         "(archive + the season's own observed results), not on the archive")
+
+
+def test_forecast_omits_three_post_snapshot_rows_before_bridge_fit(
+        book, tmp_path, monkeypatch):
+    """Exercise the forecast handoff; no model fit is performed."""
+    archive = _archive_frame()
+    archive["valid_as_of"] = pd.to_datetime(archive["date"])
+    archive["observed_at"] = pd.to_datetime(archive["date"])
+    late = archive.head(3).copy()
+    late["match_id"] = [f"forecast-late-{i}" for i in range(3)]
+    late["date"] = pd.Timestamp("2026-08-19")
+    late["valid_as_of"] = pd.to_datetime([
+        "2026-08-20T11:00:00", "2026-08-20T13:00:00",
+        "2026-08-20T13:00:00"])
+    late["observed_at"] = pd.to_datetime([
+        "2026-08-20T13:00:00", "2026-08-20T11:00:00",
+        "2026-08-20T13:00:00"])
+    supplied = pd.concat([archive, late], ignore_index=True)
+
+    captured = {}
+    original = bridge_mod.EmpiricalBridge.fit.__func__
+
+    def recording_fit(cls, rows, cutoff, **kwargs):
+        captured["ids"] = set(rows["match_id"].astype(str))
+        captured["n"] = len(rows)
+        return original(cls, rows, cutoff, **kwargs)
+
+    monkeypatch.setattr(
+        bridge_mod.EmpiricalBridge, "fit", classmethod(recording_fit))
+    simcli.forecast(
+        season=SEASON, cutoff=OPENER,
+        observed_by="2026-08-20T12:00:00",
+        arms=("dc_native", "dc_wdl_bridge"), n_sims=N_SIMS, seed=SEED,
+        chunk_size=CHUNK, n_particles=N_PARTICLES,
+        out_root=tmp_path, gate=False, verbose=False,
+        fit=simcli.FitBundle(post=None, book=book, matches=archive,
+                             training=supplied),
+    )
+
+    assert captured["n"] == len(archive)
+    assert not (set(late["match_id"].astype(str)) & captured["ids"])
 
 
 # ==========================================================================
@@ -1814,12 +1985,16 @@ def test_live_fit_hands_the_knowledge_bound_to_the_dc_fit(
 
     def _recorder(cutoff, store, anchor, cfg, **kw):
         seen["cutoff"] = cutoff
+        seen["fit_store"] = store
         seen["observed_by"] = kw.get("observed_by", "<not passed>")
         raise _Stop
 
     monkeypatch.setattr(dcfit, "fit_epl", _recorder)
     monkeypatch.setattr(simcli, "_fitted_teams",
-                        lambda cutoff, store, cfg: list(season_obj.manifest.clubs))
+                        lambda cutoff, store, cfg: (
+                            seen.setdefault("team_store", store),
+                            list(season_obj.manifest.clubs),
+                        )[1])
     _, archive = live_anchor
     with pytest.raises(_Stop):
         simcli.live_fit(season_obj, PROBE_CUTOFF, matches=archive,
@@ -1827,6 +2002,41 @@ def test_live_fit_hands_the_knowledge_bound_to_the_dc_fit(
                         verbose=False)
     assert seen["cutoff"] == PROBE_CUTOFF
     assert seen["observed_by"] == PROBE_OBSERVED_BY
+    for name in ("team_store", "fit_store"):
+        assert isinstance(seen[name], epl_fit.KnowledgeBoundStore)
+        assert seen[name].observed_by == pd.Timestamp(PROBE_OBSERVED_BY)
+
+
+def test_dcfit_direct_entry_applies_knowledge_bound_before_feature_cache(
+        live_anchor, monkeypatch):
+    """The direct fit entry cannot bypass the separate store clock.
+
+    Stop at the feature-cache call, before design construction or inference;
+    this is a call-path test and never fits a model.
+    """
+    from epl import dcfit, freeze
+
+    class _Stop(RuntimeError):
+        pass
+
+    seen = {}
+
+    def _feature_recorder(cutoff, store, cfg, *, cache_dir=None):
+        seen["cutoff"] = cutoff
+        seen["store"] = store
+        raise _Stop
+
+    monkeypatch.setattr(dcfit.wc_features, "build_cached", _feature_recorder)
+    anchor, _ = live_anchor
+    with pytest.raises(_Stop):
+        dcfit.fit_epl(
+            PROBE_CUTOFF, object(), anchor, freeze.frozen_wcmodel_config(),
+            observed_by=PROBE_OBSERVED_BY,
+        )
+
+    assert seen["cutoff"] == PROBE_CUTOFF
+    assert isinstance(seen["store"], epl_fit.KnowledgeBoundStore)
+    assert seen["store"].observed_by == pd.Timestamp(PROBE_OBSERVED_BY)
 
 
 def test_the_elo_arm_is_built_under_the_forecasts_knowledge_bound(

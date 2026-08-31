@@ -729,13 +729,11 @@ def test_the_division_prefix_would_have_moved_every_one_of_those_ids():
 # ==========================================================================
 
 def test_an_unregistered_club_in_an_e1_file_refuses_at_parse_time(cache_dir):
-    """The refusal that makes the phantom unreachable on this call graph.
+    """E1 refuses at parse time, before the projector's independent guard.
 
-    `epl.fit.to_store_frame` does `played["home_key"].astype(str)`, so a null
-    key becomes the literal club `"None"` and every unregistered club merges
-    into one mega-club with its own attack and defence — and the fit looks
-    healthy. `epl/fit.py` is protected and is not edited; instead the row never
-    gets built.
+    The projector now also refuses null keys as defense-in-depth, but that does
+    not weaken the E1 ingest contract: an unregistered Championship club never
+    becomes a tidy archive row in the first place.
     """
     _place_cached_csv(cache_dir, "E1", "2425",
                       ["Derby", "Preston", "Millwall", "Not A Real Club"])
@@ -791,21 +789,12 @@ def test_e0_still_retains_the_row_and_reports_the_issue(cache_dir):
     assert any("unregistered club spelling" in i for i in parsed.issues)
 
 
-def test_the_phantom_club_hazard_is_still_live_in_the_protected_module():
-    """Documented, not repaired. `epl/fit.py` is protected and was not edited.
+def test_the_store_projection_is_a_second_phantom_club_boundary():
+    """A null key refuses even if an upstream parser retained the row.
 
-    THE SCOUT'S BLOCKER 5, MEASURED RATHER THAN QUOTED. The claim was that
-    `played["home_key"].astype(str)` turns a null key into the literal club
-    `"None"`. On the pandas this repository runs, `astype(str)` preserves the
-    null instead, so the phantom is spelled `NaN` rather than `"None"` — but the
-    hazard is the same hazard and does not depend on the spelling: **a null club
-    key passes the projector unrefused**, reaches the store as a team identity,
-    and every unregistered club shares it.
-
-    This test therefore asserts the version-independent fact. If it ever fails
-    because `to_store_frame` learned to refuse, that is good news — but it must
-    be noticed, because the E1 refusal above is written on the assumption that
-    nothing downstream will catch a null key.
+    E1 still refuses earlier in :func:`epl.parse.parse_season`; this is
+    defense-in-depth for E0 and for any hand-built frame that reaches the model
+    adapter without passing that division-specific guard.
     """
     from epl import fit
 
@@ -824,21 +813,10 @@ def test_the_phantom_club_hazard_is_still_live_in_the_protected_module():
         "played": [True, True, True],
     })
 
-    out = fit.to_store_frame(frame)          # no refusal, no exception
-
-    assert len(out) == 3, "the null-key rows were not even dropped"
-    assert out["home_team"].isna().tolist() == [True, True, False]
-
-    # THE HAZARD, STATED AS A COUNT. Three rows with three DIFFERENT home clubs
-    # going in; TWO team identities coming out. The model's team index is built
-    # by sorting this column, so the two unregistered clubs are one team to it.
-    assert frame["home_team_raw"].nunique() == 3
-    assert out["home_team"].nunique(dropna=False) == 2
-    assert set(out.loc[out["home_team"].notna(), "home_team"]) == {"derby"}
-
-    # And nothing survives the projection from which either could be recovered:
-    # the raw spelling is not a column of the store frame at all.
-    assert "home_team_raw" not in out.columns
+    with pytest.raises(ValueError, match="null/unresolved") as exc:
+        fit.to_store_frame(frame)
+    assert "home_key" in str(exc.value)
+    assert "a" in str(exc.value) and "b" in str(exc.value)
 
 
 # ==========================================================================
@@ -1182,4 +1160,3 @@ def test_the_cli_reports_a_refusal_rather_than_raising_a_traceback(cache_dir, ca
     assert build.main(["--division", "E1", "--seasons", "2425"]) == 1
     assert "REFUSED" in capsys.readouterr().out
     assert not paths.matches_parquet("E1").exists()
-

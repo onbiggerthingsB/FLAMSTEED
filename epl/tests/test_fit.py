@@ -53,10 +53,62 @@ class TestStoreFrame:
         assert "Manchester United" not in set(frame["home_team"])
         assert "man_united" in set(frame["home_team"])
 
-    def test_a_result_is_knowable_no_earlier_than_its_own_date(self, matches):
+    def test_static_history_without_clocks_uses_the_documented_date_fallback(
+            self, matches):
+        assert {"observed_at", "valid_as_of"}.isdisjoint(matches.columns)
         frame = epl_fit.to_store_frame(matches)
         assert (frame["observed_at"] == frame["date"]).all()
         assert (frame["valid_as_of"] == frame["date"]).all()
+
+    def test_supplied_live_clocks_are_preserved_not_backdated(self, matches):
+        live = matches.head(2).copy()
+        live["valid_as_of"] = pd.to_datetime(
+            ["2026-08-21T20:00:00Z", "2026-08-22T15:00:00Z"])
+        live["observed_at"] = pd.to_datetime(
+            ["2026-08-25T20:55:44+08:00", "2026-08-25T20:55:44+08:00"])
+
+        frame = epl_fit.to_store_frame(live)
+
+        assert frame["valid_as_of"].tolist() == [
+            pd.Timestamp("2026-08-21 20:00:00"),
+            pd.Timestamp("2026-08-22 15:00:00"),
+        ]
+        assert frame["observed_at"].tolist() == [
+            pd.Timestamp("2026-08-25 12:55:44"),
+            pd.Timestamp("2026-08-25 12:55:44"),
+        ]
+        assert not frame["observed_at"].equals(frame["date"])
+
+    @pytest.mark.parametrize("missing", ["valid_as_of", "observed_at"])
+    def test_revision_aware_frame_requires_both_clocks(self, matches, missing):
+        live = matches.head(1).copy()
+        live["valid_as_of"] = pd.Timestamp("2026-08-21T20:00:00Z")
+        live["observed_at"] = pd.Timestamp("2026-08-25T12:55:44Z")
+        live = live.drop(columns=missing)
+        with pytest.raises(ValueError, match="must supply both"):
+            epl_fit.to_store_frame(live)
+
+    @pytest.mark.parametrize("column", ["home_key", "away_key"])
+    @pytest.mark.parametrize("bad", [None, pd.NA, "", "   "])
+    def test_null_or_blank_team_key_refuses_before_projection(
+            self, matches, column, bad):
+        poisoned = matches.head(2).copy()
+        match_id = str(poisoned.iloc[0]["match_id"])
+        poisoned.loc[poisoned.index[0], column] = bad
+        with pytest.raises(ValueError, match="null/unresolved") as exc:
+            epl_fit.to_store_frame(poisoned)
+        assert column in str(exc.value)
+        assert match_id in str(exc.value)
+
+    @pytest.mark.parametrize("column", ["valid_as_of", "observed_at"])
+    def test_revision_aware_frame_refuses_a_null_clock_value(
+            self, matches, column):
+        live = matches.head(2).copy()
+        live["valid_as_of"] = pd.Timestamp("2026-08-21T20:00:00Z")
+        live["observed_at"] = pd.Timestamp("2026-08-25T12:55:44Z")
+        live.loc[live.index[0], column] = pd.NaT
+        with pytest.raises(ValueError, match=f"{column} must be finite"):
+            epl_fit.to_store_frame(live)
 
     def test_scores_are_integers_and_survive_the_models_own_filter(self, matches):
         frame = epl_fit.to_store_frame(matches)
@@ -95,6 +147,96 @@ class TestStore:
         epl_fit.build_store(matches, root=tmp_path)      # no rebuild flag
         assert len(pd.read_parquet(tmp_path / "results.parquet")) == n
         assert len(first.read("results", cutoff="2030-01-01")) == n
+
+    def test_same_ids_with_new_live_clocks_replace_a_stale_store(
+            self, matches, tmp_path):
+        rows = matches.head(2).copy()
+        epl_fit.build_store(rows, root=tmp_path, rebuild=True)
+
+        live = rows.copy()
+        live["valid_as_of"] = pd.to_datetime(live["date"])
+        live["observed_at"] = pd.Timestamp("2026-08-25T12:55:44Z")
+        epl_fit.build_store(live, root=tmp_path)
+
+        raw = pd.read_parquet(tmp_path / "results.parquet")
+        assert set(pd.to_datetime(raw["observed_at"])) == {
+            pd.Timestamp("2026-08-25 12:55:44")
+        }
+
+    def test_same_ids_and_clocks_with_a_revised_score_replace_stale_store(
+            self, matches, tmp_path):
+        rows = matches.head(2).copy()
+        epl_fit.build_store(rows, root=tmp_path, rebuild=True)
+
+        revised = rows.copy()
+        first_id = str(revised.iloc[0]["match_id"])
+        revised.loc[revised.index[0], "fthg"] = int(revised.iloc[0]["fthg"]) + 1
+        expected = int(revised.iloc[0]["fthg"])
+        epl_fit.build_store(revised, root=tmp_path)
+
+        raw = pd.read_parquet(tmp_path / "results.parquet")
+        got = raw.loc[raw["match_id"].astype(str) == first_id, "home_score"]
+        assert got.tolist() == [expected]
+
+    @pytest.mark.parametrize(("field", "bad"), [
+        ("_policy", Policy.CURRENT_ONLY.value),
+        ("_keys", "home_team,away_team"),
+    ])
+    def test_identical_content_does_not_reuse_wrong_store_metadata(
+            self, matches, tmp_path, field, bad):
+        rows = matches.head(2).copy()
+        epl_fit.build_store(rows, root=tmp_path, rebuild=True)
+        table = tmp_path / "results.parquet"
+        poisoned = pd.read_parquet(table)
+        poisoned[field] = bad
+        poisoned.to_parquet(table, index=False)
+
+        epl_fit.build_store(rows, root=tmp_path)
+
+        repaired = pd.read_parquet(table)
+        assert repaired["_policy"].astype(str).eq(
+            Policy.POINT_IN_TIME.value).all()
+        assert repaired["_keys"].astype(str).eq("match_id").all()
+
+    def test_knowledge_clock_controls_store_visibility_but_not_play_day_or_decay(
+            self, matches, tmp_path):
+        rows = matches.head(2).copy()
+        rows["date"] = pd.to_datetime(["2026-08-19", "2026-08-20"])
+        rows["valid_as_of"] = rows["date"]
+        rows["observed_at"] = pd.Timestamp("2026-08-20T12:00:00Z")
+        store = epl_fit.build_store(rows, root=tmp_path, rebuild=True)
+        calendar_cutoff = pd.Timestamp("2026-08-20T00:00:00Z")
+
+        # At calendar midnight neither row had been observed yet.
+        assert store.read("results", cutoff=calendar_cutoff).empty
+
+        # At the issuance's later knowledge snapshot both revisions satisfy the
+        # knowledge clock, but the adapter ALSO applies the caller's play day:
+        # direct consumers see the 19 August result and never the same-day 20
+        # August row. The feature builder retains age one for the visible row.
+        view = epl_fit.knowledge_bound_store(
+            store, pd.Timestamp("2026-08-20T13:00:00Z"))
+        visible = view.read("results", cutoff=calendar_cutoff)
+        assert set(visible["match_id"].astype(str)) == {
+            str(rows.iloc[0]["match_id"])}
+        cfg = load_config()
+        panel = wc_features.build(calendar_cutoff, view, cfg)
+        assert set(panel["match_id"].astype(str)) == {str(rows.iloc[0]["match_id"])}
+        assert set(panel["age_days"].astype(float)) == {1.0}
+
+        # wcmodel used to receive an adapter that changed only the store read
+        # clock and then applied this same day gate internally. Moving the gate
+        # into the adapter must not change either panel content or its cache key.
+        class _KnowledgeOnly:
+            def read(self, name, *, cutoff):
+                return store.read(name, cutoff="2026-08-20T13:00:00Z")
+
+        legacy = _KnowledgeOnly()
+        pd.testing.assert_frame_equal(
+            panel, wc_features.build(calendar_cutoff, legacy, cfg))
+        assert wc_features._build_cache_key(
+            calendar_cutoff, view, cfg) == wc_features._build_cache_key(
+                calendar_cutoff, legacy, cfg)
 
     def test_point_in_time_guard_reports_the_real_boundary(self, store):
         got = epl_fit.assert_point_in_time(store, CUTOFF)

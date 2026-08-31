@@ -63,7 +63,8 @@ from wcmodel.data.store import BitemporalStore, Policy
 from wcmodel.model import cache as wc_model_cache
 
 __all__ = [
-    "TOURNAMENT_LABEL", "ARCHITECTURE_NOTES", "to_store_frame", "build_store",
+    "TOURNAMENT_LABEL", "ARCHITECTURE_NOTES", "KnowledgeBoundStore",
+    "knowledge_bound_store", "to_store_frame", "build_store",
     "assert_point_in_time", "FitResult", "fit_at", "next_matchweek",
     "model_probabilities", "run_smoke_test", "matchweek_index", "cost_model",
     "staleness_curve", "measure_hot_path_overhead", "config_read_once",
@@ -107,6 +108,86 @@ _SOURCE = "epl_football_data_couk"
 
 
 # ==========================================================================
+# 0. separate play and knowledge clocks without changing wcmodel
+# ==========================================================================
+@dataclass(frozen=True)
+class KnowledgeBoundStore:
+    """Read-only view whose store clock is ``observed_by``.
+
+    ``wcmodel.data.features.build`` deliberately has one public ``cutoff``
+    argument. Inside that function the same value is used for two different
+    jobs: it is passed to ``store.read`` as the bitemporal knowledge bound, and
+    it is used directly for ``date < cutoff.normalize()`` plus age/decay. A
+    live issuance can legitimately have different values for those jobs. For
+    example, at the 21 August calendar cutoff a result played on 20 August may
+    have been ingested at 10:00 on 21 August and be known by a 12:00 issuance.
+
+    This narrow adapter separates the jobs: revision visibility is delegated at
+    the explicit knowledge clock, then date-bearing rows are strictly bounded
+    by the caller's play day. The feature builder still receives the calendar
+    cutoff for its identical date gate and its age/decay calculation. The
+    adapter intentionally exposes no write method.
+    """
+
+    store: Any
+    observed_by: pd.Timestamp
+
+    @property
+    def root(self):
+        """Preserve the wrapped store's diagnostic identity where available."""
+        return getattr(self.store, "root", None)
+
+    def read(self, name: str, *, cutoff) -> pd.DataFrame:
+        # First resolve revisions at the KNOWLEDGE clock. Then independently
+        # apply the caller's PLAY clock to date-bearing rows. wcmodel performs
+        # the same strict day filter itself, so this is behaviour-identical for
+        # its feature/cache path while preventing a direct or future consumer
+        # from seeing a same-day result merely because observed_by is later in
+        # the day. Passing ``min(cutoff, observed_by)`` to the underlying store
+        # would be wrong: it would also constrain observed_at at calendar
+        # midnight and hide a prior-day result learned before issuance.
+        out = self.store.read(name, cutoff=self.observed_by)
+        if out.empty or "date" not in out.columns:
+            return out
+
+        play = pd.Timestamp(cutoff)
+        if pd.isna(play):
+            raise ValueError("play cutoff must be a finite timestamp")
+        if play.tz is not None:
+            play = play.tz_convert("UTC").tz_localize(None)
+        dates = pd.to_datetime(out["date"], errors="coerce", utc=True,
+                               format="mixed")
+        if dates.isna().any():
+            raise ValueError(
+                f"{name} contains a null/unparseable date, so its play-clock "
+                "visibility cannot be established")
+        dates = dates.dt.tz_localize(None)
+        return out.loc[dates < play.normalize()].copy()
+
+
+def knowledge_bound_store(store, observed_by=None):
+    """Return ``store`` viewed at ``observed_by``; no-op when it is omitted.
+
+    The normalization mirrors :class:`BitemporalStore`: aware timestamps are
+    converted to naive UTC. Re-wrapping an existing view at the same instant is
+    idempotent, which lets both a high-level live caller and ``fit_epl`` defend
+    their own direct-entry paths without nesting adapters.
+    """
+    if observed_by is None:
+        return store
+    stamp = pd.Timestamp(observed_by)
+    if pd.isna(stamp):
+        raise ValueError("observed_by must be a finite timestamp")
+    if stamp.tz is not None:
+        stamp = stamp.tz_convert("UTC").tz_localize(None)
+    if isinstance(store, KnowledgeBoundStore):
+        if store.observed_by == stamp:
+            return store
+        store = store.store
+    return KnowledgeBoundStore(store=store, observed_by=stamp)
+
+
+# ==========================================================================
 # 1. the design input
 # ==========================================================================
 def to_store_frame(matches: pd.DataFrame) -> pd.DataFrame:
@@ -133,11 +214,17 @@ def to_store_frame(matches: pd.DataFrame) -> pd.DataFrame:
     in it, so the acclimatisation gap is NaN). A club ground is nonetheless the
     honest value: it is the venue, and it is knowable before kickoff.
 
-    ``observed_at == valid_as_of == date`` is the martj42 adapter's convention
-    (``wcmodel.data.sources.results.normalize_results``) reused verbatim. Both
-    the store gate (``observed_at <= cutoff``) and the feature gate
-    (``date < cutoff.normalize()``) then agree that a match becomes knowable no
-    earlier than its own date.
+    BITEMPORAL INPUT HAS TWO EXPLICIT SHAPES. A static historical archive has
+    neither ``observed_at`` nor ``valid_as_of``; for that backward-compatible
+    shape only, both fall back to match-date midnight, the martj42 adapter's
+    historical convention. A live/revision-aware frame supplies BOTH columns,
+    and their exact instants are preserved (timezone-aware inputs are converted
+    to timezone-naive UTC for the store). Supplying only one column, or a null
+    value in either, refuses: silently filling a missing live observation clock
+    with the match date would backdate knowledge. The store gate
+    (``observed_at <= cutoff``) and the feature gate
+    (``date < cutoff.normalize()``) then enforce separate knowledge and play
+    clocks.
     """
     played = matches.loc[matches["played"]].copy()
     if played.empty:
@@ -148,12 +235,60 @@ def to_store_frame(matches: pd.DataFrame) -> pd.DataFrame:
     if played["match_id"].duplicated().any():
         raise ValueError("duplicate match_id in the match table")
 
+    bad_keys: dict[str, list[str]] = {}
+    for column in ("home_key", "away_key"):
+        values = played[column].astype("string")
+        invalid = values.isna() | values.str.strip().eq("").fillna(False)
+        if invalid.any():
+            bad_keys[column] = played.loc[invalid, "match_id"].astype(str).tolist()[:10]
+    if bad_keys:
+        raise ValueError(
+            "null/unresolved home_key or away_key cannot be projected into "
+            f"the model store; offending match_id values by side: {bad_keys}"
+        )
+
     date = pd.to_datetime(played["date"]).dt.normalize()
+    bitemporal = {"valid_as_of", "observed_at"}
+    present = bitemporal & set(played.columns)
+    if present and present != bitemporal:
+        missing_clock = sorted(bitemporal - present)
+        raise ValueError(
+            "a revision-aware match frame must supply both valid_as_of and "
+            f"observed_at; missing {missing_clock}. Only a static historical "
+            "frame with neither column may use the match-date fallback"
+        )
+
+    if not present:
+        # Explicit static-history shape: neither knowledge clock exists in the
+        # source archive, so retain the adapter's long-standing date/date
+        # convention. Live callers must supply both columns and cannot enter
+        # this branch accidentally after adding either clock.
+        valid_as_of = date
+        observed_at = date
+    else:
+        clocks: dict[str, pd.Series] = {}
+        for column in sorted(bitemporal):
+            parsed = pd.to_datetime(
+                played[column], errors="coerce", utc=True, format="mixed"
+            )
+            invalid = parsed.isna()
+            if invalid.any():
+                offenders = played.loc[invalid, "match_id"].astype(str).tolist()[:10]
+                raise ValueError(
+                    f"{column} must be finite for every played row; offending "
+                    f"match_id values: {offenders}"
+                )
+            # BitemporalStore persists tz-naive UTC. This preserves the instant
+            # rather than preserving a source wall-clock representation.
+            clocks[column] = parsed.dt.tz_localize(None)
+        valid_as_of = clocks["valid_as_of"]
+        observed_at = clocks["observed_at"]
+
     out = pd.DataFrame({
         "match_id": played["match_id"].astype(str).to_numpy(),
         "date": date.to_numpy(),
-        "valid_as_of": date.to_numpy(),
-        "observed_at": date.to_numpy(),
+        "valid_as_of": valid_as_of.to_numpy(),
+        "observed_at": observed_at.to_numpy(),
         "home_team": played["home_key"].astype(str).to_numpy(),
         "away_team": played["away_key"].astype(str).to_numpy(),
         "home_score": played["fthg"].to_numpy(dtype=int),
@@ -182,8 +317,13 @@ def build_store(matches: pd.DataFrame | None = None,
     ``BitemporalStore.write`` APPENDS, and the point-in-time read then keeps one
     row per ``match_id``, so a double write is harmless but wasteful and makes
     the on-disk file a poor record of what was ingested. The parquet is
-    therefore removed and rewritten whenever the row count on disk does not
-    match the frame — and unconditionally under ``rebuild``.
+    therefore removed and rewritten whenever the full projected row content on
+    disk does not match the requested frame — and unconditionally under
+    ``rebuild``. Store-owned metadata must identify a point-in-time table keyed
+    exactly by ``match_id`` before reuse; projected data columns on both sides
+    are then canonically ordered by that key. Full comparison is load-bearing
+    for live data: neither a pre-fix date-stamped store nor a same-id result
+    revision may be reused after its requested content changes.
     """
     root = Path(root or paths.STORE_DIR)
     frame = to_store_frame(matches if matches is not None
@@ -193,8 +333,23 @@ def build_store(matches: pd.DataFrame | None = None,
         table.unlink()
     if table.exists():
         existing = pd.read_parquet(table)
-        if len(existing) == len(frame) and set(existing["match_id"]) == set(frame["match_id"]):
-            return BitemporalStore(root)
+        projected_columns = list(frame.columns)
+        metadata_ok = (
+            not existing.empty
+            and {"_policy", "_keys"}.issubset(existing.columns)
+            and existing["_policy"].astype(str).eq(Policy.POINT_IN_TIME.value).all()
+            and existing["_keys"].astype(str).eq("match_id").all()
+        )
+        if metadata_ok and set(projected_columns).issubset(existing.columns):
+            old = existing[projected_columns].sort_values(
+                "match_id", kind="mergesort").reset_index(drop=True)
+            new = frame[projected_columns].sort_values(
+                "match_id", kind="mergesort").reset_index(drop=True)
+            for column in ("date", "valid_as_of", "observed_at"):
+                old[column] = pd.to_datetime(old[column])
+                new[column] = pd.to_datetime(new[column])
+            if old.equals(new):
+                return BitemporalStore(root)
         table.unlink()
     store = BitemporalStore(root)
     store.write(_STORE_TABLE, frame, policy=Policy.POINT_IN_TIME,
@@ -203,7 +358,8 @@ def build_store(matches: pd.DataFrame | None = None,
     return store
 
 
-def assert_point_in_time(store: BitemporalStore, cutoff) -> dict[str, Any]:
+def assert_point_in_time(store: BitemporalStore, cutoff, *,
+                         observed_by=None) -> dict[str, Any]:
     """Prove, from the store itself, that a fit at ``cutoff`` sees only the past.
 
     Reads the table the way ``features.build`` will, and asserts the latest
@@ -212,7 +368,8 @@ def assert_point_in_time(store: BitemporalStore, cutoff) -> dict[str, Any]:
     source code.
     """
     cutoff = pd.Timestamp(cutoff).normalize()
-    asof = store.read(_STORE_TABLE, cutoff=cutoff)
+    read_store = knowledge_bound_store(store, observed_by)
+    asof = read_store.read(_STORE_TABLE, cutoff=cutoff)
     asof["date"] = pd.to_datetime(asof["date"])
     train = valid_played_results(asof)
     train = train.loc[pd.to_datetime(train["date"]) < cutoff]
@@ -224,6 +381,8 @@ def assert_point_in_time(store: BitemporalStore, cutoff) -> dict[str, Any]:
                          f"strictly before cutoff {cutoff}")
     return {
         "cutoff": str(cutoff.date()),
+        "observed_by": str(read_store.observed_by)
+        if isinstance(read_store, KnowledgeBoundStore) else str(cutoff),
         "n_training_matches": int(len(train)),
         "latest_training_date": str(latest.date()),
         "n_training_teams": int(len(set(train["home_team"]) | set(train["away_team"]))),
@@ -256,7 +415,7 @@ class FitResult:
 def fit_at(cutoff, store: BitemporalStore | None = None,
            cache_dir: Path | str | None = None,
            config: dict | None = None,
-           attribute: bool = True) -> tuple[Any, FitResult]:
+           attribute: bool = True, *, observed_by=None) -> tuple[Any, FitResult]:
     """Run ONE real fit at ``cutoff`` through the production cache path.
 
     Routed through ``wcmodel.model.cache.cached_fit`` rather than
@@ -277,7 +436,8 @@ def fit_at(cutoff, store: BitemporalStore | None = None,
     cache_dir = Path(cache_dir or paths.FIT_CACHE_DIR)
     cache_dir.mkdir(parents=True, exist_ok=True)
     cutoff_ts = pd.Timestamp(cutoff).normalize()
-    guard = assert_point_in_time(store, cutoff_ts)
+    store = knowledge_bound_store(store, observed_by)
+    guard = assert_point_in_time(store, cutoff_ts, observed_by=observed_by)
 
     components: dict[str, float] = {}
     if attribute:

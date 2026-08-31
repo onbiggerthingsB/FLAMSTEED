@@ -40,7 +40,13 @@ RESULT_COLUMNS = ["fthg", "ftag", "ftr", "played"]
 # betting signal. `odds_*` is the preferred triple: Pinnacle closing
 # (PSCH/PSCD/PSCA) where available, else Pinnacle opening (PSH/PSD/PSA), with
 # `odds_source` recording which. `odds_overround` is sum(1/odds) — roughly
-# 1.02-1.06 for Pinnacle; a value at or below 1.0 means the row is not usable.
+# 1.02-1.06 for Pinnacle. Every selected price must be finite and greater than
+# 1.0. A zero-vig book at exactly 1.0 is valid; only a gross underround below
+# that boundary (allowing the fixed floating-point tolerance below) is
+# unusable, in which case the parser may try only the already-declared
+# closing-to-opening fallback.
+MIN_USABLE_OVERROUND = 1.0
+ODDS_OVERROUND_ATOL = 1e-9
 ODDS_COLUMNS = [
     "psch", "pscd", "psca",
     "psh", "psd", "psa",

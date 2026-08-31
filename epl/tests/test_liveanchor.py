@@ -279,6 +279,20 @@ def test_visible_rows_respect_date_and_observed_at(manifest):
     assert len(la.visible_rows(rows, "2026-08-25", "2026-08-30")) == 1
 
 
+def test_rows_to_frame_carries_distinct_valid_and_observation_clocks(manifest):
+    rows = la.normalise_rows([{
+        "fixture_id": f"{SEASON_CODE}:arsenal:coventry",
+        "date_played": "2026-08-21", "hg": 2, "ag": 0,
+        "observed_at": "2026-08-25T20:55:44+08:00",
+    }], manifest)
+
+    frame = la.rows_to_frame(rows, SEASON)
+
+    assert frame.loc[0, "valid_as_of"] == pd.Timestamp("2026-08-21")
+    assert frame.loc[0, "observed_at"] == pd.Timestamp("2026-08-25 12:55:44")
+    assert frame.loc[0, "observed_at"] != frame.loc[0, "date"]
+
+
 def test_normalise_rows_refuses_an_observed_at_that_is_not_a_timestamp(manifest):
     """A stamp that will not parse must STOP the load, not become `NaT`.
 

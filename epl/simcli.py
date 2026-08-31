@@ -310,8 +310,15 @@ def live_fit(season_obj: season_mod.Season, cutoff, *, matches=None, store=None,
     if store is None:
         store = epl_fit.build_store(train, root=store_root or LIVE_STORE_DIR)
 
+    # The calendar cutoff still drives feature inclusion and decay. A distinct
+    # issuance snapshot drives only bitemporal store visibility, including the
+    # feature-panel cache key and the provisional-arm read performed during the
+    # fit. Keep that distinction explicit at the top-level handoff as well as
+    # defensively inside dcfit.fit_epl for direct callers.
+    fit_store = epl_fit.knowledge_bound_store(store, observed_by)
+
     with epl_fit.config_read_once(cfg):
-        teams = _fitted_teams(cutoff, store, cfg)
+        teams = _fitted_teams(cutoff, fit_store, cfg)
         cold = anchor.cold_start_for(teams)
         if verbose:
             print(f"[forecast] fitting at {cutoff}: {len(teams)} fitted teams, "
@@ -320,7 +327,7 @@ def live_fit(season_obj: season_mod.Season, cutoff, *, matches=None, store=None,
         # well as to the frame. `fit_epl` re-enters the anchor to build `elo_z`,
         # and an anchor re-entered with the cutoff alone reads results the
         # declared snapshot cannot see.
-        post, info = dcfit.fit_epl(cutoff, store, anchor, cfg, matches=train,
+        post, info = dcfit.fit_epl(cutoff, fit_store, anchor, cfg, matches=train,
                                    cold_start=cold,
                                    feature_cache_dir=paths.FIT_CACHE_DIR,
                                    observed_by=observed_by)
@@ -363,11 +370,125 @@ def live_training_frame(archive, rows, season: str, cutoff, *, observed_by=None)
     from epl.schema import sort_for_walk_forward
 
     live_rows = liveanchor.visible_rows(rows, cutoff, observed_by)
-    frames = [archive]
+
+    frames = [_archive_with_explicit_clocks(archive)]
     if live_rows:
         frames.append(liveanchor.rows_to_frame(live_rows, season))
-    return (sort_for_walk_forward(pd.concat(frames, ignore_index=True)),
-            live_rows)
+    shared = _point_in_time_training_frame(
+        pd.concat(frames, ignore_index=True), cutoff, observed_by)
+    return sort_for_walk_forward(shared), live_rows
+
+
+def _archive_with_explicit_clocks(archive: pd.DataFrame) -> pd.DataFrame:
+    """Return an archive with one of the two allowed clock shapes.
+
+    A static archive with neither clock gets the explicit historical date/date
+    convention before it is concatenated with live rows. A revision-aware
+    archive with both clocks keeps their exact instants. One-clock and null-
+    clock frames refuse here, before concatenation can blur their provenance
+    into an object-typed mixed column.
+    """
+    static = archive.copy()
+    clocks = {"valid_as_of", "observed_at"}
+    present = clocks & set(static.columns)
+    if present and present != clocks:
+        missing = sorted(clocks - present)
+        raise CliError(
+            "archive must supply both valid_as_of and observed_at or neither; "
+            f"missing {missing}")
+    if not present:
+        archive_date = pd.to_datetime(static["date"]).dt.normalize()
+        static["valid_as_of"] = archive_date
+        static["observed_at"] = archive_date
+        return static
+
+    for column in sorted(clocks):
+        parsed = pd.to_datetime(static[column], errors="coerce", utc=True,
+                                format="mixed")
+        if parsed.isna().any():
+            bad = static.index[parsed.isna()].tolist()[:10]
+            raise CliError(
+                f"archive {column} must be finite on every row; bad indices {bad}")
+        # Store timestamps are UTC-naive. Converting aware inputs preserves the
+        # instant; naive inputs retain their wall-clock value as before.
+        static[column] = parsed.dt.tz_localize(None)
+    return static
+
+
+def _point_in_time_training_frame(frame: pd.DataFrame, cutoff,
+                                  observed_by=None) -> pd.DataFrame:
+    """The one training snapshot shared by the fit and every bridge arm.
+
+    This is the frame equivalent of ``BitemporalStore.read`` followed by
+    ``features.build``'s play-day gate:
+
+    1. both knowledge clocks must be at or before ``observed_by``;
+    2. among visible revisions, latest ``observed_at``, then latest
+       ``valid_as_of``, then latest ingest/order wins per ``match_id``;
+    3. only after revision resolution, rows with ``date < cutoff.day`` remain.
+
+    The order matters. Filtering date before choosing the visible revision
+    could resurrect an older version of a fixture whose latest known revision
+    moved it onto/after the cutoff. ``EmpiricalBridge.fit`` only knows about
+    dates, so this helper must do the knowledge/revision work before that frame
+    reaches it.
+    """
+    bounded = _archive_with_explicit_clocks(frame)
+    play = pd.Timestamp(cutoff)
+    if pd.isna(play):
+        raise CliError("cutoff must be a finite timestamp")
+    if play.tz is not None:
+        play = play.tz_convert("UTC").tz_localize(None)
+    knowledge = play if observed_by is None else pd.Timestamp(observed_by)
+    if pd.isna(knowledge):
+        raise CliError("observed_by must be a finite timestamp")
+    if knowledge.tz is not None:
+        knowledge = knowledge.tz_convert("UTC").tz_localize(None)
+
+    work = bounded.copy()
+    dates = pd.to_datetime(work["date"], errors="coerce", utc=True,
+                           format="mixed")
+    if dates.isna().any():
+        bad = work.index[dates.isna()].tolist()[:10]
+        raise CliError(
+            f"training date must be finite on every row; bad indices {bad}")
+    work["date"] = dates.dt.tz_localize(None)
+
+    observed = pd.to_datetime(work["observed_at"], errors="coerce", utc=True,
+                              format="mixed").dt.tz_localize(None)
+    valid = pd.to_datetime(work["valid_as_of"], errors="coerce", utc=True,
+                           format="mixed").dt.tz_localize(None)
+    # `_archive_with_explicit_clocks` has already refused null clocks. Retain
+    # the explicit mask here so the visibility rule is readable at its use.
+    work = work.loc[(observed <= knowledge) & (valid <= knowledge)].copy()
+    work["observed_at"] = observed.loc[work.index]
+    work["valid_as_of"] = valid.loc[work.index]
+
+    if "match_id" not in work.columns:
+        raise CliError("training frame has no match_id for revision resolution")
+    work["_snapshot_position"] = np.arange(len(work), dtype=np.int64)
+    work["_snapshot_match_id"] = work["match_id"].astype(str)
+    if "_ingest_seq" in work.columns:
+        ingest = pd.to_numeric(work["_ingest_seq"], errors="coerce")
+        if ingest.isna().any():
+            raise CliError("training _ingest_seq must be finite when supplied")
+        work["_snapshot_ingest"] = ingest.to_numpy()
+    else:
+        # Same fallback as BitemporalStore for a pre-sequence table: later file
+        # row wins an otherwise exact clock tie.
+        work["_snapshot_ingest"] = work["_snapshot_position"]
+
+    work = (work.sort_values(
+                ["_snapshot_match_id", "observed_at", "valid_as_of",
+                 "_snapshot_ingest"],
+                ascending=[True, False, False, False], kind="mergesort")
+                .drop_duplicates("_snapshot_match_id", keep="first"))
+    # Match-date exclusion is deliberately AFTER revision selection, matching
+    # a store read followed by wcmodel's strict feature gate.
+    work = work.loc[work["date"] < play.normalize()].copy()
+    work = work.sort_values("_snapshot_position", kind="mergesort")
+    return work.drop(columns=[
+        "_snapshot_position", "_snapshot_match_id", "_snapshot_ingest"])
 
 
 def _fitted_teams(cutoff, store, cfg) -> list[str]:
@@ -550,7 +671,11 @@ def forecast(*, season: str = DEFAULT_SEASON, cutoff,
 
     if fit is None:
         fit = live_fit(season_obj, cutoff, matches=matches, store=store,
-                       observed_by=observed_by, verbose=verbose)
+                       # Use the state's RESOLVED knowledge clock. When the
+                       # caller omits it Season.at makes it equal to cutoff;
+                       # passing that exact value keeps the fit/store/cache
+                       # snapshot identical to the season-state snapshot.
+                       observed_by=state.observed_by, verbose=verbose)
     book = fit.book
     n_particles = book.n_particles if n_particles is None else int(n_particles)
 
@@ -574,7 +699,15 @@ def forecast(*, season: str = DEFAULT_SEASON, cutoff,
     # a bridge that has never seen a match of the season it is pricing — and did
     # it only on the code path that passes `matches`, which is every retrospective
     # and every test.
-    archive = trained_on
+    # Do not trust a FitBundle's frame merely because it is called training.
+    # A caller can supply a revision-aware archive containing rows learned
+    # after this issuance, and EmpiricalBridge.fit applies only date<cutoff.
+    # Re-resolve the exact bitemporal snapshot here so every scoreline bridge
+    # consumes the same knowledge/play slice as the fitted model. This is
+    # idempotent for the frame produced by live_training_frame.
+    archive = (_point_in_time_training_frame(
+        trained_on, cutoff, state.observed_by)
+        if trained_on is not None else None)
     needs_bridge = bool({"dc_wdl_bridge", "elo_wdl_bridge"} & set(arms))
     if needs_bridge and archive is None:
         raise CliError(

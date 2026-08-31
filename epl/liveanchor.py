@@ -377,11 +377,19 @@ def visible_rows(rows: Sequence[Any], cutoff=None,
 
 
 def rows_to_frame(rows: Sequence[LiveRow], season: str) -> pd.DataFrame:
-    """Live rows as a walk-forward frame (:func:`replay`'s input shape)."""
+    """Live rows as a walk-forward frame, including both knowledge clocks.
+
+    ``valid_as_of`` is the day the result happened; ``observed_at`` is the
+    ledger's own finite stamp for when this system learned it. Keeping the two
+    distinct is what lets :func:`epl.fit.to_store_frame` preserve late result
+    ingestion instead of backdating knowledge to match day.
+    """
     return sort_for_walk_forward(pd.DataFrame({
         "match_id": [r.fixture_id for r in rows],
         "season": [season] * len(rows),
         "date": [r.date_played for r in rows],
+        "valid_as_of": [r.date_played for r in rows],
+        "observed_at": [r.observed_at for r in rows],
         "kickoff": [pd.NaT] * len(rows),
         "home_key": [r.home_key for r in rows],
         "away_key": [r.away_key for r in rows],

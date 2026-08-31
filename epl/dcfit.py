@@ -253,7 +253,15 @@ def fit_epl(cutoff, store, anchor: Anchor, cfg: dict,
     inf = cfg["model"]["inference"]
     likelihood = cfg["model"]["likelihood"]
 
-    feats = wc_features.build_cached(cutoff, store, cfg,
+    # ``cutoff`` is the PLAY clock used by the feature layer's strict
+    # match-date filter and its age/decay calculation. ``observed_by`` is the
+    # independent KNOWLEDGE clock used by every store read. wcmodel exposes one
+    # argument for both, so use the EPL read-only adapter instead of changing
+    # the preregistered implementation under src/.
+    from epl import fit as epl_fit
+    read_store = epl_fit.knowledge_bound_store(store, observed_by)
+
+    feats = wc_features.build_cached(cutoff, read_store, cfg,
                                      cache_dir=feature_cache_dir)
     mp = to_match_panel(feats)
     cov, cov_mask, cov_transforms = _build_covariates(
@@ -270,7 +278,7 @@ def fit_epl(cutoff, store, anchor: Anchor, cfg: dict,
     idata = sample(model, backend=inf["backend"], draws=int(inf["draws"]),
                    tune=int(inf["tune"]), seed=int(cfg["seed"]),
                    advi_iters=int(inf["advi_iters"]))
-    arm = count_volatility_arm(store, cutoff, d.teams, config=cfg)
+    arm = count_volatility_arm(read_store, cutoff, d.teams, config=cfg)
     prov = set(arm.loc[arm["volatility_flag"] | arm["few_games_flag"], "team"])
     base = Posterior(idata, d.teams, likelihood, provisional_teams=prov,
                      config=cfg, covariate_transforms=cov_transforms)

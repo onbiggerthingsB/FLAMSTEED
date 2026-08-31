@@ -13,19 +13,23 @@ integral. Anything else becomes <NA> and is reported — never rounded into plac
 
 ODDS. BENCHMARK ONLY (see `epl.schema.ODDS_COLUMNS`). Pinnacle closing
 (PSCH/PSCD/PSCA) is preferred over Pinnacle opening (PSH/PSD/PSA). A row counts
-as having odds only when all three prices are present and each exceeds 1.0;
-partial or degenerate triples are treated as absent rather than half-used.
+as having odds only when all three prices are present, finite, each exceeds
+1.0, and their implied probabilities sum to at least 1.0 within the fixed
+``1e-9`` arithmetic tolerance. Partial, degenerate, and underround triples are
+treated as absent rather than half-used;
+an invalid closing book therefore reaches the existing explicit opening-price
+fallback and records `odds_source == "PS"` when that opening book is usable.
 
 CLUB KEYS, for a division whose archive this ingest introduces. An unresolved
 spelling leaves a NULL key, and a null key is not a missing value downstream —
 it is a club. `epl.fit.to_store_frame` projects `home_key` straight into the
-model's team identity without checking it, so every unregistered club in a file
-would share one identity, accumulate one attack and one defence parameter, and
-produce a fit that looks entirely healthy. `epl/fit.py` is protected and is not
-edited here; instead `parse_season` REFUSES with `PhantomClub` for any division
-other than E0, so the row never exists to be projected. E0 keeps its old
-behaviour — report the issue, retain the row — because the daily live cycle
-depends on an unmapped E0 name being a reported issue rather than an exception.
+model's team identity, so every unregistered club in a file would otherwise
+share one identity, accumulate one attack and one defence parameter, and
+produce a fit that looks entirely healthy. `parse_season` REFUSES with
+`PhantomClub` for any division other than E0, so such a row never exists there;
+`epl.fit.to_store_frame` independently refuses null keys for every division as
+the final boundary before model storage. E0 keeps its parser behaviour — report
+the issue and retain the row — while the store projection now fails closed.
 """
 
 from __future__ import annotations
@@ -150,14 +154,27 @@ def _odds_triple(frame: pd.DataFrame, cols: tuple[str, str, str]) -> pd.DataFram
     A price at or below 1.0 is impossible for decimal odds (it implies a
     probability of 1 or more), so its presence means the cell is a placeholder
     rather than a quote. The whole triple is voided together — a de-vig needs
-    all three or none.
+    all three or none. A non-finite price and a book whose implied
+    probabilities sum to less than one beyond the fixed numerical tolerance
+    are likewise void: the former is not a price and the latter contradicts
+    the single-book contract in :mod:`epl.schema`.
     """
     if not all(c in frame.columns for c in cols):
         return pd.DataFrame(
             {c: np.full(len(frame), np.nan) for c in cols}, index=frame.index
         )
     out = frame[list(cols)].apply(pd.to_numeric, errors="coerce")
-    usable = out.notna().all(axis=1) & (out > 1.0).all(axis=1)
+    values = out.to_numpy(dtype="float64")
+    finite = pd.Series(np.isfinite(values).all(axis=1), index=out.index)
+    overround = (1.0 / out).sum(axis=1)
+    usable = (
+        out.notna().all(axis=1)
+        & finite
+        & (out > 1.0).all(axis=1)
+        & overround.add(schema.ODDS_OVERROUND_ATOL).ge(
+            schema.MIN_USABLE_OVERROUND
+        )
+    )
     return out.where(usable, np.nan)
 
 
