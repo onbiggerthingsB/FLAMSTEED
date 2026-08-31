@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -21,7 +22,7 @@ import pandas as pd
 import pytest
 
 from epl import bridge as bridge_mod, leaguesim, liveanchor, matchboard
-from epl import particles, recalfit, season as season_mod, simcli
+from epl import particles, paths, recalfit, season as season_mod, simcli
 # The T6 acceptance run's league-shaped book: one definition, reused, so the
 # smoke path here and the canary path there cannot drift apart.
 from epl.simcanary import _synthetic_book as synthetic_book
@@ -3168,6 +3169,160 @@ def test_the_scorecard_append_is_idempotent_by_fixture_and_issuance(
         run(conflicting)
     assert first["fixture_id"] in str(exc.value)
     assert ledger.read_bytes() == once
+
+
+
+# --------------------------------------------------------------------------
+# the 2026-08-31 defect: filing provenance is not a disagreement
+# --------------------------------------------------------------------------
+#: The fields on a scorecard row that say WHO FILED IT and HOW THE PATH WAS
+#: SPELLED. Named here from the test's side too, so a later commit that adds a
+#: third one has to come past a test that enumerates the two.
+FILING_PROVENANCE = ("ingest", "source_bundle")
+
+#: Everything else a scorecard row carries that a second filing must AGREE on.
+#: `matchboard.score` builds the row, so this list is checked against a real
+#: one rather than trusted.
+SUBSTANTIVE = (
+    "probs", "rps", "rps_uniform", "outcome", "realized_margin", "e_margin",
+    "p_marg_ge2", "p_marg_ge3", "p_marg_ge4", "cutoff", "observed_by",
+    "matchweek", "date", "home", "away", "home_goals", "away_goals",
+    "season", "rows_provenance", "law_provenance",
+)
+
+
+def _scored_row(issuance, tmp_path) -> dict:
+    """One real scorecard row, off a real bundle and a real season ledger."""
+    directory = Path(issuance["directory"])
+    board = json.loads((directory / matchboard.JSON_FILENAME).read_text())
+    first = board["rows"][0]
+    root = _season_carrying(tmp_path, first["fixture_id"], first["date"], 2, 1)
+    results = _manual_file(
+        tmp_path, "row.jsonl",
+        {"fixture_id": first["fixture_id"], "home_goals": 2, "away_goals": 1,
+         "matchweek": 1, "ingest": "manual/day1"})
+    got = simcli.derive_matchboard(directory, tmp_path / "scratch",
+                                   results_file=results, season_root=root,
+                                   verbose=False)
+    return got["scored"][0]
+
+
+def test_a_re_file_that_differs_only_in_WHO_FILED_IT_is_the_same_row(
+        issuance, tmp_path):
+    """The STOP of 2026-08-31: the daily cycle refused its own MW1 rows.
+
+    `reports/matchboard_scorecard.jsonl` carried MW1 under
+    `ingest: "manual/mw1-2026-08-25"`, `source_bundle` spelled relatively.
+    `epl.livecycle` re-derived the SAME forecast against the SAME result out of
+    the SAME issuance and offered it as `ingest: "livecycle/2026-08-31"` with
+    `source_bundle` spelled absolutely — and `append_scorecard`, comparing the
+    whole canonical row, called that a disagreement and stopped the cycle.
+
+    Those two fields say who filed the row and how the path was spelled, not
+    what the row reports. A7 (e) requires "enough provenance to find the bundle
+    that priced it", and `run_digest` — already half of `scorecard_key` — is
+    what pins the issuance. So a re-file that differs in nothing else is the
+    same row filed twice, and the row that STANDS is the first filing's,
+    verbatim, its own provenance included.
+    """
+    directory = Path(issuance["directory"])
+    board = json.loads((directory / matchboard.JSON_FILENAME).read_text())
+    first = board["rows"][0]
+    root = _season_carrying(tmp_path, first["fixture_id"], first["date"], 2, 1)
+    out = tmp_path / "scored"
+    ledger = out / simcli.SCORECARD_FILENAME
+
+    def run(directory_spelling, tag: str) -> dict:
+        results = _manual_file(
+            tmp_path, f"results_{tag.replace('/', '_')}.jsonl",
+            {"fixture_id": first["fixture_id"], "home_goals": 2,
+             "away_goals": 1, "matchweek": 1, "ingest": tag})
+        return simcli.derive_matchboard(
+            directory_spelling, out, results_file=results, season_root=root,
+            verbose=False)
+
+    # the hand-run Monday filing: a relative path, a manual tag
+    filed = run(Path(os.path.relpath(directory)), "manual/mw1-2026-08-25")
+    assert filed["appended"] == 1 and filed["repeated"] == 0
+    once = ledger.read_bytes()
+
+    # the cycle, six days later: the same bundle spelled absolutely, its own tag
+    again = run(directory, "livecycle/2026-08-31")
+    assert again["appended"] == 0 and again["repeated"] == 1, (
+        "a row that differs only in who filed it is the SAME row, and the "
+        "second filing is the no-op the docstring promises")
+    assert ledger.read_bytes() == once, "nothing was appended, nothing rewritten"
+
+    on_file = json.loads(ledger.read_text().splitlines()[0])
+    assert on_file["ingest"] == "manual/mw1-2026-08-25", (
+        "the ledger is append-only: the FIRST filing's row stands, provenance "
+        "and all, and the second filing does not edit it")
+
+
+def test_the_scorecard_still_refuses_a_row_that_differs_in_ANY_substance(
+        issuance, tmp_path):
+    """The refusal is narrowed to substance, not weakened.
+
+    Every field that is not filing provenance still makes a second row a
+    conflict, and the ledger is left exactly as it was. The list is checked
+    against the row `matchboard.score` actually builds, so a new field cannot
+    be added to the row and quietly escape the comparison.
+    """
+    row = _scored_row(issuance, tmp_path)
+    assert set(row) == set(FILING_PROVENANCE) | set(SUBSTANTIVE) | {
+        "fixture_id", "run_digest"}, (
+        "a scorecard row's fields are exactly: the key, the filing provenance, "
+        "and the substance this test enumerates")
+
+    path = tmp_path / "conflicts.jsonl"
+    assert simcli.append_scorecard(path, [row]) == {"appended": 1,
+                                                    "repeated": 0}
+    once = path.read_bytes()
+
+    for field in SUBSTANTIVE:
+        value = row[field]
+        other = "CHANGED" if not isinstance(value, (int, float)) else 99
+        if isinstance(value, dict):
+            other = {k: 1.0 / len(value) for k in value}
+        with pytest.raises(simcli.CliError, match=row["fixture_id"]):
+            simcli.append_scorecard(path, [dict(row, **{field: other})])
+        assert path.read_bytes() == once, (
+            f"a disagreement about {field} is refused with the ledger "
+            "untouched")
+
+    # ...and the two provenance fields, together, are not a disagreement
+    assert simcli.append_scorecard(path, [dict(
+        row, ingest="livecycle/2026-08-31",
+        source_bundle="/somewhere/else/2026-08-21")]) == {"appended": 0,
+                                                          "repeated": 1}
+    assert path.read_bytes() == once
+
+
+def test_the_derived_matchboard_stamps_a_repo_relative_source_bundle(
+        issuance, tmp_path):
+    """`source_bundle` is normalised AT STAMPING TIME, so no future row can
+    carry an absolute path in the first place.
+
+    The cycle hands `derive_matchboard` an absolute bundle and a human hands it
+    a relative one; both are the same bundle, and the document — and every
+    scorecard row copied out of it — must spell it the same way. The spelling
+    is `epl.paths.rel`, which is what every other recorded path in this
+    repository already uses.
+    """
+    directory = Path(issuance["directory"])
+    out = tmp_path / "derived"
+    absolute = simcli.derive_matchboard(directory, out, verbose=False)
+    relative = simcli.derive_matchboard(Path(os.path.relpath(directory)), out,
+                                        verbose=False)
+    assert (absolute["document"]["source_bundle"]
+            == relative["document"]["source_bundle"]
+            == paths.rel(directory.resolve()))
+    assert not relative["document"]["source_bundle"].startswith(".."), (
+        "`paths.rel` hands an out-of-repo path back in whatever spelling it "
+        "was given, so the stamp resolves before it relativises")
+    # and what `paths.rel` means for a path that IS in the repository — which
+    # is what every real bundle is
+    assert paths.rel(paths.REPO_ROOT / "data" / "epl") == "data/epl"
 
 
 def test_the_schema_bump_did_not_downgrade_the_round_before_it():

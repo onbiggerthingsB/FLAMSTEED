@@ -3231,7 +3231,20 @@ def derive_matchboard(directory, out_dir=None, *, results_file=None,
     if anchor is not None:
         board = {**board, "law_anchor": anchor}
     stamped = matchboard.as_derived(
-        board, source_bundle=str(directory),
+        # REPO-RELATIVE, AT STAMPING TIME. The cycle hands this an absolute
+        # bundle and a human hands it a relative one; both are the same bundle,
+        # and the document — with every scorecard row copied out of it — must
+        # spell it the one way every other recorded path in this repository is
+        # spelled. Normalising here rather than at the comparison means no
+        # future row carries an absolute path in the first place.
+        #
+        # RESOLVED FIRST. `paths.rel` resolves a path it can make
+        # repo-relative, but a bundle OUTSIDE the repository falls through to
+        # `as_posix()` — which hands back whatever spelling it was given, which
+        # is the thing being normalised away. Resolving first makes the stamp a
+        # function of the directory rather than of how the caller typed it,
+        # in the repository and out of it alike.
+        board, source_bundle=paths.rel(directory.resolve()),
         derived_at=(str(pd.Timestamp.now("UTC").floor("s")) if derived_at is None
                     else str(derived_at)),
         recorded_hashes={
@@ -3299,36 +3312,56 @@ def append_scorecard(path, rows: Sequence[Mapping[str, Any]]) -> dict:
     different rows for one fixture is worse than one that refused the second:
     nothing downstream can say which of them the record means.
 
+    A CONFLICT IS A DISAGREEMENT ABOUT SUBSTANCE, NOT ABOUT WHO FILED THE ROW
+    (2026-08-31). The comparison is over
+    :func:`epl.matchboard.substance` — the row without
+    :data:`epl.matchboard.FILING_PROVENANCE_FIELDS` — because `ingest` and
+    `source_bundle` record which run supplied the result and how it spelled the
+    path, and neither is a claim about the forecast or the outcome. Comparing
+    the whole row made the daily cycle refuse its own MW1 rows: same `probs`,
+    same `rps`, same `run_digest`, filed on a Monday by hand and offered again
+    by `epl.livecycle` under its own tag.
+
+    WHAT IS WRITTEN IS STILL THE WHOLE ROW, provenance included, and the row
+    already on file is never rewritten — so the ledger still says which run
+    filed each line, and the first filing is the one that stands.
+
     Nothing is written unless every row passes: the file is opened once, after
     the whole batch has been checked.
     """
     path = Path(path)
-    existing: dict[tuple[str, str], str] = {}
+    #: key -> (the line as filed, the substance that line asserts)
+    existing: dict[tuple[str, str], tuple[str, str]] = {}
     if path.exists():
         for line in path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
             row = json.loads(line)
-            existing[scorecard_key(row)] = leaguesim.canonical_json(row)
+            existing[scorecard_key(row)] = (
+                leaguesim.canonical_json(row),
+                leaguesim.canonical_json(matchboard.substance(row)))
 
     fresh: list[str] = []
     repeated = 0
     for row in rows:
         key = scorecard_key(row)
         text = leaguesim.canonical_json(row)
-        already = existing.get(key)
-        if already is not None:
-            if already == text:
+        claim = leaguesim.canonical_json(matchboard.substance(row))
+        found = existing.get(key)
+        if found is not None:
+            already, filed_claim = found
+            if filed_claim == claim:
                 repeated += 1
                 continue
             raise CliError(
                 f"{key[0]}: this scorecard ledger already carries a row for "
                 f"this fixture under run digest {key[1]}, and the new row "
-                f"disagrees with it. The ledger is append-only and a fixture "
-                f"gets one row per issuance, so the conflicting row is refused "
-                f"rather than filed beside the first one.\n  on file: "
-                f"{already}\n  offered: {text}")
-        existing[key] = text
+                f"disagrees with it about what it REPORTS — not merely about "
+                f"who filed it, which is not a disagreement at all. The ledger "
+                f"is append-only and a fixture gets one row per issuance, so "
+                f"the conflicting row is refused rather than filed beside the "
+                f"first one.\n  on file: {already}\n  offered: {text}")
+        existing[key] = (text, claim)
         fresh.append(text)
 
     if fresh:

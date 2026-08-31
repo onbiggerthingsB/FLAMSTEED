@@ -647,6 +647,32 @@ def test_a_disagreeing_re_file_is_refused_naming_both_rows(tmp_path):
     assert len(availarm.read_shadow(path)) == 1
 
 
+def test_a_re_file_that_differs_only_in_WHO_FILED_IT_is_the_same_row(tmp_path):
+    """A12 (d)'s ledger inherits A7 (e)'s conflict rule, and its 2026-08-31
+    correction with it.
+
+    `ingest` and `source_bundle` say who filed the row and how the path was
+    spelled; `run_digest` — half of `shadow_key` — is what pins the issuance.
+    Step 9 of `epl.livecycle` re-files what a hand-run filed, under its own tag,
+    out of a bundle it names absolutely. That is one row filed twice, and the
+    first filing's row stands verbatim.
+
+    This ledger had filed no row when the defect was found, so nothing here is
+    a repair of anything on disk — it is the same class of false positive,
+    closed on the surface that had not yet met it.
+    """
+    path = _filed(tmp_path, _rows(_even_view()))
+    once = path.read_bytes()
+    row = availarm.read_shadow(path)[0]
+    again = dict(row, ingest="livecycle/2026-08-31",
+                 source_bundle="/Users/somebody/worldcup/"
+                               + str(row["source_bundle"]))
+    assert availarm.append_shadow(path, [again]) == {"appended": 0,
+                                                     "repeated": 1}
+    assert path.read_bytes() == once
+    assert availarm.read_shadow(path)[0]["ingest"] == row["ingest"]
+
+
 def test_nothing_is_written_unless_every_row_in_the_batch_passes(tmp_path):
     path = _filed(tmp_path, _rows(_even_view()))
     good = availarm.score(

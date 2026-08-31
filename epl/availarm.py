@@ -1002,32 +1002,49 @@ def append_shadow(path, rows: Sequence[Mapping[str, Any]]) -> dict:
     repair. Every offered row goes through :func:`check_writable` FIRST,
     including a row that turns out to be a repeat: an idempotent re-file of a
     row the rule would refuse is still a claim this file should not carry.
+
+    A CONFLICT IS A DISAGREEMENT ABOUT SUBSTANCE (2026-08-31). A12 (d) gave
+    this arm A7 (e)'s conflict rule, so it inherits that rule's correction:
+    `ingest` and `source_bundle` —
+    :data:`epl.matchboard.FILING_PROVENANCE_FIELDS` — record which run filed
+    the row and how it spelled the path, and step 9 of `epl.livecycle` re-files
+    off the same bundle a hand-run used. The comparison is over
+    :func:`epl.matchboard.substance`; `k_avail`, `feat_home`, `feat_away`,
+    `probs_avail`, the snapshot fields and the abstention marker are all
+    substance and every one of them still refuses. The whole row is what gets
+    WRITTEN, and the row on file is never rewritten.
     """
     target = Path(SHADOW_PATH if path is None else path)
     for row in rows:
         check_writable(row)
-    existing: dict[tuple[str, str], str] = {}
+    #: key -> (the line as filed, the substance that line asserts)
+    existing: dict[tuple[str, str], tuple[str, str]] = {}
     for row in read_shadow(target):
-        existing[shadow_key(row)] = leaguesim.canonical_json(row)
+        existing[shadow_key(row)] = (
+            leaguesim.canonical_json(row),
+            leaguesim.canonical_json(matchboard.substance(row)))
 
     fresh: list[str] = []
     repeated = 0
     for row in rows:
         key = shadow_key(row)
         text = leaguesim.canonical_json(row)
-        already = existing.get(key)
-        if already is not None:
-            if already == text:
+        claim = leaguesim.canonical_json(matchboard.substance(row))
+        found = existing.get(key)
+        if found is not None:
+            already, filed_claim = found
+            if filed_claim == claim:
                 repeated += 1
                 continue
             raise RowConflict(
                 f"{key[0]}: this shadow ledger already carries a row for this "
                 f"fixture under run digest {key[1]}, and the new row disagrees "
-                "with it. The ledger is append-only and a fixture gets one row "
-                "per issuance, so the conflicting row is refused rather than "
-                f"filed beside the first one.\n  on file: {already}\n  "
-                f"offered: {text}")
-        existing[key] = text
+                "with it about what it REPORTS — not merely about who filed "
+                "it, which is not a disagreement at all. The ledger is "
+                "append-only and a fixture gets one row per issuance, so the "
+                "conflicting row is refused rather than filed beside the first "
+                f"one.\n  on file: {already}\n  offered: {text}")
+        existing[key] = (text, claim)
         fresh.append(text)
 
     if fresh:

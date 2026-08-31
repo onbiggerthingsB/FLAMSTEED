@@ -755,6 +755,35 @@ def _goals(result: Mapping[str, Any], key: str, fid: str) -> int:
         raise MatchboardError(str(exc)) from exc
 
 
+#: The fields on a scored row that record WHO FILED IT and HOW THE PATH WAS
+#: SPELLED — not what the row says about the forecast or the result.
+#:
+#: `ingest` names the run that supplied the result (`manual/mw1-2026-08-25`,
+#: `livecycle/2026-08-31`); `source_bundle` is a path to the issuance, and one
+#: caller may spell it relatively and the next absolutely. Neither is a claim:
+#: A7 (e) asks a row to carry "enough provenance to find the bundle that priced
+#: it", and the object that IDENTIFIES the issuance is `run_digest`, which is
+#: already half of every one of these ledgers' keys. Two filings of one row that
+#: differ only here are one row filed twice.
+#:
+#: A CLOSED SET OF TWO, and named once for all three ledgers that hold these
+#: fields — A7 (e)'s scorecard, A8's `dc_1x2_recal` shadow and A12's
+#: `dc_1x2_avail` arm. Adding a third name to it widens what a re-file may
+#: silently change, so it is a decision to take deliberately and in one place
+#: rather than three times by accident.
+FILING_PROVENANCE_FIELDS: tuple[str, ...] = ("ingest", "source_bundle")
+
+
+def substance(row: Mapping[str, Any]) -> dict:
+    """The row minus its filing provenance: what two filings must AGREE on.
+
+    Used ONLY for the conflict comparison. What gets written is the row itself,
+    provenance and all, and the row already on file is never rewritten — so a
+    reader can still see which run filed it and which spelling that run used.
+    """
+    return {k: v for k, v in row.items() if k not in FILING_PROVENANCE_FIELDS}
+
+
 def score(board: Mapping[str, Any], results: Iterable[Mapping[str, Any]], *,
           ledger: season_mod.LedgerView | None = None,
           season_root=None) -> list[dict]:
@@ -889,4 +918,5 @@ __all__ = [
     "derived_filename", "is_derived_name", "derived_artifacts_in", "as_derived",
     "render_markdown", "write", "rps", "uniform_rps", "outcome_of",
     "law_provenance", "season_ledger", "score",
+    "FILING_PROVENANCE_FIELDS", "substance",
 ]

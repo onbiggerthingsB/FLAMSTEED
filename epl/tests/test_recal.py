@@ -829,12 +829,39 @@ def test_a_disagreeing_re_file_is_refused_naming_both_rows(tmp_path):
     rows = recalshadow.score(_board(), [_result()],
                              ledger=_ledger(_played(hg=2, ag=0)))
     recalshadow.append_shadow(path, rows)
-    changed = [dict(rows[0], ingest="manual/somewhere-else")]
+    # a DIFFERENT recalibrated cell for the same fixture under the same run:
+    # the one thing this ledger exists to report, disagreeing with itself.
+    changed = [dict(rows[0], rps_recal=rows[0]["rps_recal"] + 0.5)]
     with pytest.raises(recalshadow.RowConflict) as exc:
         recalshadow.append_shadow(path, changed)
-    assert "manual/test" in str(exc.value)                  # the row on file
-    assert "manual/somewhere-else" in str(exc.value)        # the row offered
+    assert repr(rows[0]["rps_recal"]) in str(exc.value)      # the row on file
+    assert repr(changed[0]["rps_recal"]) in str(exc.value)   # the row offered
     assert path.read_bytes().count(b"\n") == 1              # nothing appended
+
+
+def test_a_re_file_that_differs_only_in_WHO_FILED_IT_is_the_same_row(tmp_path):
+    """The same defect A7 (e)'s ledger STOPped the daily cycle with, on THIS
+    ledger — reachable by the same route and one step later.
+
+    `ingest` and `source_bundle` record who filed the row and how the path was
+    spelled; `run_digest`, already half of `shadow_key`, is what pins the
+    issuance. Step 8 of `epl.livecycle` re-files exactly what a Monday hand-run
+    filed, under its own tag, out of a bundle it names absolutely — and that is
+    the same row, not a disagreement. The row that stands is the FIRST filing's,
+    verbatim.
+    """
+    path = tmp_path / "shadow.jsonl"
+    rows = recalshadow.score(_board(), [_result()],
+                             ledger=_ledger(_played(hg=2, ag=0)))
+    assert recalshadow.append_shadow(path, rows) == {"appended": 1,
+                                                     "repeated": 0}
+    once = path.read_bytes()
+    again = [dict(rows[0], ingest="livecycle/2026-08-31",
+                  source_bundle="/Users/somebody/worldcup/" + rows[0]["source_bundle"])]
+    assert recalshadow.append_shadow(path, again) == {"appended": 0,
+                                                      "repeated": 1}
+    assert path.read_bytes() == once
+    assert recalshadow.read_shadow(path)[0]["ingest"] == "manual/test"
 
 
 def test_nothing_is_written_unless_every_row_in_the_batch_passes(tmp_path):
@@ -851,7 +878,7 @@ def test_nothing_is_written_unless_every_row_in_the_batch_passes(tmp_path):
 
     other = recalshadow.score(
         board, [_result("2627:charlie:delta", hg=0, ag=1)], ledger=view)
-    batch = other + [dict(good[0], ingest="disagrees")]
+    batch = other + [dict(good[0], rps_recal=good[0]["rps_recal"] + 0.5)]
     with pytest.raises(recalshadow.RowConflict):
         recalshadow.append_shadow(path, batch)
     assert len(recalshadow.read_shadow(path)) == 1          # the good one only
