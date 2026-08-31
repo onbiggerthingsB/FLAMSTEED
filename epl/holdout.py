@@ -419,8 +419,11 @@ def second_look_confirm(n_boot: int = 10_000) -> dict[str, Any]:
     together with the two contrasts §6 requires of any differing stack, both of
     which are degenerate here and are reported as such rather than omitted.
     """
-    ledger = walkforward.load_ledger(walkforward.LEDGER_PATH)
-    res = walkforward.score_run(ledger=ledger, n_boot=n_boot)
+    ledger = walkforward.load_ledger(
+        walkforward.LEDGER_PATH, allow_legacy=True)
+    res = walkforward.score_run(
+        ledger=ledger, n_boot=n_boot, publishable=False,
+        strict_diagnostic=True)
     frame = res.pop("frame")
     g = res["gaps"]["dc_minus_elo"]
     return {
@@ -450,8 +453,13 @@ def second_look_confirm(n_boot: int = 10_000) -> dict[str, Any]:
             "same forecasts. This is the contrast v2 §6 calls 'far better "
             "powered', and it is uninformative precisely because nothing was "
             "adopted."),
-        "verdict_under_v1_rule": res["verdict"],
-        "verdict_if_blocked_by_season": res["verdict_if_blocked_by_season"],
+        "verdict_under_v1_rule": None,
+        "verdict_if_blocked_by_season": None,
+        "diagnostic_classification_under_v1_rule": (
+            res["diagnostic_classification"]),
+        "diagnostic_classification_if_blocked_by_season": (
+            res["diagnostic_classification_if_blocked_by_season"]),
+        "verdict_publishable": False,
         "per_season": res["per_season"],
         "subsets": res["subsets"],
         "calibration": res["calibration"],
