@@ -5146,3 +5146,203 @@ authorised it." A stale sentence corrected without a note is indistinguishable,
 to a later reader, from a boundary moved without one — and the second is the
 thing this file exists to catch. Recorded 2026-08-27, in the fix round that
 answers the review of `e609e3c..10496fa`.
+
+---
+
+## A13 — the scorecard's conflict rule was about who filed the row (2026-08-31)
+
+**Decisions amended:** no published number, and nothing A7 (e) pre-states. What
+changes is one line of mechanism inside three append-only ledgers: **what counts
+as two rows disagreeing**. A7 (e) rules the ledger append-only and one row per
+(fixture, issuance); it nowhere rules that the string naming the run which
+supplied the result is part of what a row *asserts*. `epl.simcli.append_scorecard`
+compared the whole canonical row anyway — and so the ledger refused a row it had
+already filed, because a different run offered it. That is the defect this entry
+records and closes.
+
+**Explicitly NOT amended, and pinned here so a later commit can be held to it:**
+`ISSUANCE_SCHEMA_VERSION` stays **`epl-issuance-5`** (`epl/simcli.py:189`); the
+matchboard's schema stays **`epl-matchboard-1`**, A8's **`epl-recal-shadow-1`**
+and A12's **`epl-avail-shadow-1`** unchanged; A7 (e)'s admissibility rule — a row
+is admissible only if `cutoff` and `observed_by` are both at or before the
+fixture's kickoff — is untouched and still REFUSES; A7 (f)'s closed set of four
+margin quantities is untouched and no column is added anywhere; A8's frozen
+`a = 0.9064` and A12's `k_avail` prior are untouched; `dc_native`'s published
+numbers never change; the retrospective harness is untouched and `epl/simretro.py`
+and `epl/simmetrics.py` still hash to the **v5** pair (`d64bef11…`, `b03d4fbc…`),
+re-hashed for this entry. `epl/evwiden.py` is frozen and was not opened.
+
+**Status when written.** `reports/matchboard_scorecard.jsonl` holds its ten MW1
+rows, sha256 `ddd44b1b…`; `reports/epl_recal_shadow.jsonl` holds its ten, sha256
+`72db8df1…`; `reports/epl_avail_shadow.jsonl` **does not exist** — A12's arm has
+filed nothing yet, and meets this correction before it meets its first row. Not
+one byte of any of the three changed under this entry, and — for the reason set
+out under *the ledger-integrity argument* below — the change made here **cannot**
+change one.
+
+### The defect, as reproduced
+
+`python -m epl.livecycle` STOPped at its scorecard step on the morning of
+2026-08-31. `reports/epl_livecycle_journal.jsonl` carries the refusal verbatim,
+and this is it:
+
+> `2627:arsenal:coventry: this scorecard ledger already carries a row for this
+> fixture under run digest 3a40110c…, and the new row disagrees with it. The
+> ledger is append-only and a fixture gets one row per issuance, so the
+> conflicting row is refused rather than filed beside the first one.`
+
+The refusal is `epl/simcli.py`'s, raised out of `append_scorecard`, and the daily
+cycle stops there by design: steps 8 and 9 never ran, no shadow row was scored,
+and the cycle has been blocked every morning since.
+
+### Why the two rows were the same row
+
+The message prints both rows, so the record already contains its own refutation.
+Held field against field they agree on **everything the ledger reports**: the same
+`probs` (`home` 0.7639, `draw` 0.16175, `away` 0.07435), the same `rps`
+(0.03063556624999999), the same `rps_uniform`, the same `e_margin` and the same
+`p_marg_ge2/3/4`, the same `outcome` (`home`), the same `realized_margin` (3), the
+same `home_goals`/`away_goals`, the same `season`, `cutoff`, `observed_by`,
+`matchweek`, `date`, `home`, `away`, `rows_provenance`, `law_provenance` — and the
+same `run_digest`, `3a40110c…`.
+
+They differ in exactly two fields:
+
+```
+ingest:        "manual/mw1-2026-08-25"   vs  "livecycle/2026-08-31"
+source_bundle: "data/epl/…/2026-08-21"   vs  "/Users/…/data/epl/…/2026-08-21"
+```
+
+**Who filed the row, and how the path was spelled.** The first is the hand-run of
+Monday 2026-08-25 that filed MW1; the second is the daily cycle re-deriving the
+same forecast, off the same bundle, against the same result now in the season
+ledger, and naming itself honestly. `source_bundle` is not even a disagreement
+about *which* bundle — it is the same directory, once relative and once absolute,
+because `epl/simcli.py` stamped `str(directory)` and the cycle hands it an
+absolute path while a human hands it a relative one.
+
+A7 (e) says what a row is for: **"One row per scored fixture, carrying the
+forecast, the realised outcome, and enough provenance to find the bundle that
+priced it"**, and it closes by requiring that the ledger be **"append-only, and
+each row records the matchweek and the ingest that supplied the result."** Both
+sentences are satisfied by both rows. Neither sentence makes the ingest tag part
+of the forecast or part of the result; it is recorded so a reader can *find* the
+run, and A7 (e) already names the object that **identifies** the issuance —
+`digests["dc_native"]`, filed as `run_digest`. `scorecard_key` is built on it, and
+says so: *"Two issuances may legitimately both score one fixture … and those are
+two rows; the same issuance scoring one fixture twice is one row filed twice."*
+
+So this was one row filed twice, and the function's own docstring had already
+promised the right answer for it: **"re-running the same command must not double
+every row."** Filing provenance defeated the idempotency the function advertised —
+and defeated it precisely in the case the cycle exists to produce, which is why it
+took a blocked morning rather than a test to find it.
+
+### What "conflict" means from here
+
+**A conflict is a disagreement about substance, not about provenance.** The
+comparison is now over `epl.matchboard.substance(row)` — the row without
+`epl.matchboard.FILING_PROVENANCE_FIELDS`, a **closed set of two**: `ingest` and
+`source_bundle`. The constant is named once, in `epl/matchboard.py`, for all three
+ledgers that carry those fields, so that adding a third name to it is a decision
+taken deliberately in one place rather than three times by accident.
+
+Two further points, and both are boundaries rather than conveniences:
+
+* **What is WRITTEN is still the whole row**, provenance and all. The projection
+  exists only for the comparison. A reader of any of the three ledgers can still
+  see which run filed each line and which bundle spelling it used.
+* **`source_bundle` is normalised at stamping time**, not at comparison time.
+  `epl/simcli.derive_matchboard` now stamps `paths.rel(directory.resolve())` —
+  resolved first, because `paths.rel` hands an out-of-repo path back in whatever
+  spelling it was given, and the point is to make the stamp a function of the
+  directory rather than of how the caller typed it. So a future row cannot carry
+  an absolute path in the first place, and the two spellings that started this
+  never recur. The one artifact the blocked run had already rewritten with an
+  absolute path — `reports/epl_matchboard_2026_27_2026-08-21_derived.json`, and
+  its `.md` — returns to the relative spelling it carried before, which is also
+  the spelling the ten filed rows carry.
+
+### What still refuses
+
+Everything else, exactly as before, and this is tested field by field against the
+row `epl.matchboard.score` actually builds rather than against a list someone
+typed: `probs`, `rps`, `rps_uniform`, `outcome`, `realized_margin`, `e_margin`,
+`p_marg_ge2`, `p_marg_ge3`, `p_marg_ge4`, `cutoff`, `observed_by`, `matchweek`,
+`date`, `home`, `away`, `home_goals`, `away_goals`, `season`, `rows_provenance`,
+`law_provenance`. A results file whose content has quietly changed still cannot
+file a second, disagreeing answer beside the first — which is what
+`append_scorecard`'s docstring says the refusal is for, and it still is. The test
+asserts the row's field set is *exactly* the key, the two provenance fields and
+that list, so a field added to the row later cannot slip past the comparison
+unnoticed.
+
+Unchanged too: the batch discipline (nothing is written unless every row passes),
+A7 (e)'s pre-kickoff admissibility, `epl.matchboard.score`'s refusal of a result
+the season ledger does not carry, and — on A12's arm — `check_writable` running on
+every offered row **before** the conflict test, repeats included.
+
+### The same defect class, on the two shadow ledgers
+
+`epl/recalshadow.py` and `epl/availarm.py` carried the identical comparison, and
+both are exposed to the identical false positive: their rows carry `ingest` and
+`source_bundle` too, and `epl.livecycle` scores them at steps 8 and 9 **off the
+same bundle and the same results file** step 7 uses. A8's ledger would have
+STOPped the cycle one step later on exactly the ten rows that stopped it at step
+7; it was spared only because step 7 stops first. Both are corrected here, by the
+same projection and the same named constant.
+
+A12's `dc_1x2_avail` is governed by A12, which gave the arm A7 (e)'s conflict rule
+and therefore gives it A7 (e)'s correction. Its ledger has filed no row, so
+nothing there is a repair — it is the same class of false positive closed on the
+surface that had not yet met it. `epl/evwiden.py` is frozen and carries no ledger
+of this kind; it was not opened.
+
+### The ledger-integrity argument
+
+**Nothing already filed changes, and this is a property of the change rather than
+a promise about it.** The append path has three outcomes, and the fix moves the
+boundary between exactly two of them:
+
+| offered row | before | after |
+|---|---|---|
+| key absent | **appended** | **appended** — the branch is untouched |
+| key present, substance agrees, provenance agrees | no-op, `repeated += 1` | no-op, `repeated += 1` |
+| key present, substance agrees, provenance differs | **STOP** | no-op, `repeated += 1` |
+| key present, substance differs | **STOP** | **STOP** |
+
+The appending branch — the only branch that writes — is reached on exactly the
+same condition as before: the key is absent from the file. **No row can now be
+written that could not have been written before.** Every case the code stopped
+refusing is a case in which it writes nothing at all; the correction converts a
+STOP into a no-op and can do nothing else. The row on file is never re-read into,
+never re-serialised and never rewritten: the first filing's line stands byte for
+byte, its own `ingest` and its own `source_bundle` intact, and a second filing
+leaves the file's bytes identical. That is asserted directly — the ledger's bytes
+before and after a provenance-only re-file are compared, not its parsed contents.
+
+The alternative repair — teaching the cycle to file under the tag the hand-run
+used — was rejected on sight. It would make the flight log lie about which run
+scored the fixture in order to get past a comparison that should never have been
+looking at the tag, and A7 (e)'s last sentence exists precisely so that each row
+records *the ingest that supplied the result*.
+
+### What landed
+
+`epl/matchboard.py` gains `FILING_PROVENANCE_FIELDS` and `substance`, both
+exported. `epl/simcli.py` compares substance in `append_scorecard` and stamps a
+resolved, repo-relative `source_bundle` in `derive_matchboard`.
+`epl/recalshadow.py` and `epl/availarm.py` compare substance in their own
+`append_shadow`. All four refusal messages now say what a conflict is —
+*disagrees with it about what it REPORTS — not merely about who filed it* — so the
+next reader of a STOP is told the distinction the old message elided. Five new
+tests, written red before the fix; two existing conflict tests re-pointed from an
+`ingest`-only difference (which is no longer one) to a difference in `rps_recal`
+(which is). Suite green.
+
+**Recording note.** The reproduction was committed before the fix, evidence and
+all — the journal's STOP line, and the derived matchboard document as the blocked
+run left it, absolute path included — so that the cure has something on record to
+correct rather than a description of it. No file under `src/`, `scripts/`,
+`site/`, `tools/`, `config/` or `.github/` was touched; the lock chain was
+verified after every commit.
