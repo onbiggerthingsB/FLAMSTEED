@@ -1,4 +1,4 @@
-**Derived after the fact from the preserved bundle at `data/epl/sim/issuances/2026_27/2026-08-21` on 2026-08-25 12:57:43+00:00. It is NOT part of that bundle's record**: nothing was written into the bundle, no hash in its record covers this file, and the issuance was not re-run.
+**Derived after the fact from the preserved bundle at `/Users/likerun/Desktop/worldcup/data/epl/sim/issuances/2026_27/2026-08-21` on 2026-08-31 01:58:20+00:00. It is NOT part of that bundle's record**: nothing was written into the bundle, no hash in its record covers this file, and the issuance was not re-run.
 
 # Matchboard — 2026/27, cutoff 2026-08-21 00:00:00 (`dc_native`)
 
