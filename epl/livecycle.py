@@ -233,6 +233,15 @@ SOURCE_B = "football-data"
 #: Where the flight log lives. Tracked, human-readable, append-only.
 JOURNAL_PATH = paths.REPO_ROOT / "reports" / "epl_livecycle_journal.jsonl"
 
+#: Beyond `appended` and `repeated`, the fields the flight log FOLDS out of a
+#: scoring step — and it folds them as COUNTS. Named here because the fold and
+#: the steps have to agree and there is no other place they both read: step 7
+#: handed back `simcli.derive_matchboard`'s payload, whose `scored` is the
+#: scored ROWS, and the fold ran `int()` over a list. Every stub in the suite
+#: returned counts, so nothing saw it until a real cycle reached step 7 with a
+#: result to file (2026-08-31).
+STEP_COUNTS: tuple[str, ...] = ("scored", "abstained")
+
 #: Where the Tuesday/Friday captures actually live. `epl.oddscapture` computes
 #: its own default as `paths.DATA_DIR / "epl" / "odds_snapshots"`, and
 #: `paths.DATA_DIR` is ALREADY `data/epl` — so that constant names
@@ -887,10 +896,25 @@ def _step_check(directory, *, verbose: bool) -> dict:
 
 def _step_matchboard(*, directory, results_file, out_dir, season_root,
                      derived_at, verbose: bool) -> dict:
-    """Step 7 — `simcli matchboard --score` (A7 (e)), on the PRIOR bundle."""
-    return simcli.derive_matchboard(directory, out_dir, results_file=results_file,
-                                    season_root=season_root,
-                                    derived_at=derived_at, verbose=verbose)
+    """Step 7 — `simcli matchboard --score` (A7 (e)), on the PRIOR bundle.
+
+    A TALLY, and not the derivation's whole payload. `simcli.derive_matchboard`
+    returns the scored ROWS under `scored`, alongside the derived document and
+    its paths; the flight log folds `scored` as a COUNT (:data:`STEP_COUNTS`).
+    Handing the payload through meant one word carried two meanings across the
+    seam, and the fold ran `int()` over a list — which is how the first cycle
+    that ever reached this step with a result to file died here, one commit
+    after the conflict rule stopped refusing it.
+
+    So this returns what steps 8 and 9 already return: counts the log can add
+    up. `appended` and `repeated` are the whole story for this ledger — it
+    files one row per scored fixture and never abstains — and the derived
+    document's own digests are stamped by the caller, from the file.
+    """
+    got = simcli.derive_matchboard(directory, out_dir, results_file=results_file,
+                                   season_root=season_root,
+                                   derived_at=derived_at, verbose=verbose)
+    return {"appended": got["appended"], "repeated": got["repeated"]}
 
 
 def _step_shadow(*, directory, results_file, ledger, season_root,
@@ -1529,7 +1553,7 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
                 def _record(tally, got) -> None:
                     tally["appended"] += int(got.get("appended", 0))
                     tally["repeated"] += int(got.get("repeated", 0))
-                    for field in ("scored", "abstained"):
+                    for field in STEP_COUNTS:
                         if field in got:
                             tally[field] = (tally.get(field, 0)
                                             + int(got[field]))

@@ -1353,6 +1353,43 @@ def test_the_shadow_step_really_appends_a_shadow_row(real_bundle, tmp_path):
     assert rows[0]["fixture_id"] == real_bundle["fid"]
 
 
+def test_every_scoring_step_hands_back_COUNTS_and_not_ROWS(real_bundle,
+                                                           tmp_path):
+    """Steps 7, 8 and 9 are folded into one flight-log tally by one shared
+    helper, and what it folds are COUNTS — `livecycle.STEP_COUNTS`.
+
+    `simcli.derive_matchboard` returns the scored ROWS under the key `scored`,
+    and step 7 handed that payload straight through, so the fold ran `int()`
+    over a list and the cycle died there — on 2026-08-31, in the first run that
+    ever reached step 7 with a result to file. Every stubbed step in this file
+    returns counts, which is exactly why no test saw it. So the contract is
+    asserted against what the REAL steps return.
+    """
+    got = {
+        "matchboard": livecycle._step_matchboard(
+            directory=real_bundle["directory"],
+            results_file=real_bundle["results"], out_dir=tmp_path / "derived",
+            season_root=real_bundle["root"], derived_at="2026-08-25 18:20:31",
+            verbose=False),
+        "shadow": livecycle._step_shadow(
+            directory=real_bundle["directory"],
+            results_file=real_bundle["results"],
+            ledger=tmp_path / "counts_shadow.jsonl",
+            season_root=real_bundle["root"], verbose=False),
+        "avail": livecycle._step_avail(
+            directory=real_bundle["directory"],
+            results_file=real_bundle["results"],
+            ledger=tmp_path / "counts_avail.jsonl",
+            season_root=real_bundle["root"], verbose=False),
+    }
+    for name, tally in got.items():
+        for field in ("appended", "repeated", *livecycle.STEP_COUNTS):
+            if field in tally:
+                assert isinstance(tally[field], int), (
+                    f"step {name} hands back {field}={tally[field]!r}, and the "
+                    "flight log folds that field as a count")
+
+
 def test_the_shadow_step_turns_a_refusal_into_this_cycles_refusal(real_bundle,
                                                                   tmp_path):
     """`recal score` exits 2 on a row the season ledger does not carry. A
