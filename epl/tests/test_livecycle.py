@@ -985,6 +985,50 @@ def test_the_snapshot_is_taken_on_a_capture_day(tmp_path):
     assert sorted(p.name for p in (tmp_path / "snapshots").glob("*.csv"))
 
 
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_a_capture_day_before_0600_stops_before_any_fetch(tmp_path, dry_run):
+    """A pre-slot receipt is not allowed to masquerade as the 06:00 slot."""
+    root = _season_copy(tmp_path, f"season{next(_COPIES)}")
+    of_fetch, e0_fetch, source_fetches = _fetchers()
+    odds_fetches = []
+
+    def odds_fetch(url):
+        odds_fetches.append(url)
+        return _odds_csv()
+
+    journal = tmp_path / "journal.jsonl"
+    with pytest.raises(livecycle.OddsSnapshotFailed, match="at or after 06:00"):
+        livecycle.run_cycle(
+            now=pd.Timestamp("2026-08-25T05:59:59.999999Z"),
+            root=root, out_root=tmp_path / "issuances",
+            derived_root=tmp_path / "derived",
+            shadow_ledger=tmp_path / "shadow.jsonl",
+            avail_ledger=tmp_path / "avail.jsonl",
+            journal=journal, snapshot_dir=tmp_path / "snapshots",
+            fetchers={livecycle.SOURCE_A: of_fetch,
+                      livecycle.SOURCE_B: e0_fetch},
+            odds_fetcher=odds_fetch, steps=_Steps().as_dict(),
+            dry_run=dry_run, verbose=False,
+        )
+
+    assert odds_fetches == []
+    assert source_fetches == {}
+    assert not list((tmp_path / "snapshots").glob("*.csv"))
+    receipt = json.loads(journal.read_text())
+    assert receipt["outcome"] == "STOP"
+    assert receipt["dry_run"] is dry_run
+    assert receipt["refused"]["type"] == "OddsSnapshotFailed"
+
+
+def test_exactly_0600_satisfies_the_capture_gate(tmp_path):
+    result = _cycle(
+        tmp_path, ledger=MW1_SCORES,
+        now=pd.Timestamp("2026-08-25T06:00:00Z"),
+    )
+    assert result["odds_snapshot"]["written"] is True
+    assert result["odds_snapshot"]["capture_day"] is True
+
+
 def test_no_snapshot_off_the_cadence(tmp_path):
     """2026-08-26 is a Wednesday: the source has published nothing new, and a
     third capture a week would make the count of captures a lie."""

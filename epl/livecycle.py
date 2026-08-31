@@ -1285,11 +1285,23 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
     # cannot compute a knowledge bound over is a ledger it must not add to.
     latest_stamp(season_obj, observed_at)
 
-    # --- 1. the odds snapshot (Tuesday and Friday, UTC) -------------------
+    # --- 1. the odds snapshot (Tuesday and Friday, 06:00 UTC) -------------
     if not skip_odds_snapshot and oddscapture.is_capture_day(now):
+        capture_slot = now.normalize() + pd.Timedelta(
+            hours=oddscapture.CAPTURE_HOUR_UTC)
+        if now < capture_slot:
+            raise OddsSnapshotFailed(
+                f"the {now.day_name()} odds-capture slot is "
+                f"{capture_slot.isoformat()}, but this cycle started at "
+                f"{now.isoformat()}. STOP: rerun at or after 06:00 UTC, or "
+                "use --skip-odds-snapshot only as an explicit operator "
+                "decision. A pre-slot receipt is extra evidence but does not "
+                "satisfy the Tuesday/Friday cadence."
+            )
         if dry_run:
             entry["odds_snapshot"] = {"planned": True, "capture_day": True,
-                                      "day_name": now.day_name()}
+                                      "day_name": now.day_name(),
+                                      "slot": capture_slot.isoformat()}
         else:
             try:
                 snap = oddscapture.capture(fetcher=odds_fetcher,
