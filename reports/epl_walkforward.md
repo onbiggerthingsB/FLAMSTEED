@@ -516,3 +516,88 @@ The proper fix is one line in `src/wcmodel/data/features.py` or
 `src/wcmodel/data/tiers.py` (memoise `load_config`, or hoist the COVID window out
 of the per-row map). That path is attested by the preregistration lock and this
 package may not write to it. Recorded as a finding, not applied.
+
+---
+
+## Appended note, 2026-09-01: these numbers stand, and the code will no longer re-publish them
+
+**Nothing above changes.** Every figure in this report reproduces under today's
+HEAD, exactly, and the two headline gaps reproduce to the last decimal a float
+carries:
+
+```
+DC − market   +0.006524690900523155      (published above as +0.006525)
+DC − Elo      −0.001171733325478302      (published above as −0.001172)
+```
+
+Both bootstrap interval sets come back identical as well — DC − Elo
+`[−0.002809, +0.000466]` on week blocks and `[−0.003869, +0.002523]` on season
+blocks, DC − market `[+0.004099, +0.008982]` and `[+0.003694, +0.009161]` — as
+do all five forecasters' RPS, log loss and accuracy, and the STOP-1 arithmetic
+in §8. This is a re-derivation from the committed 212-cutoff ledger, not a
+re-read of this document.
+
+**And the shipped code now refuses to publish them.** That is deliberate, it is
+not a regression, and the two facts are not in tension.
+
+### What changed underneath, and why
+
+The 212-cutoff ledger this run wrote — `data/epl/fit/walkforward_ledger.jsonl`
+— is a **v1 ledger**. It predates the evidence machinery `epl/walkforward.py`
+now carries: an immutable run envelope as the first record, a per-record
+`record_sha256`, a `previous_record_sha256` chaining every cutoff to the one
+before it, and a terminal seal committing to the cutoff count, the fixture
+count, the schedule digest and the chain head. None of that existed when this
+walk ran. The ledger is not corrupt and it is not suspect; it is simply from
+before, and there is no honest way to give it a chain after the fact. **It is
+permanently legacy.**
+
+Three refusals now stand between it and a re-published verdict, and each one is
+doing a different job:
+
+| refusal | what it stops |
+|---|---|
+| `load_ledger` without `allow_legacy=True` raises `EvidenceIntegrityError` — *"legacy ledger has no immutable run envelope; read it only with allow_legacy=True for non-verdict diagnostics"* | reading these rows at all on a publication path |
+| `score_run(publishable=True)` handed the legacy rows explicitly raises `VerdictPublicationBlocked` — *"run_envelope=missing; chained_ledger=missing envelope"* | scoring them into a verdict once past the loader |
+| `holdout.second_look_confirm` returns `verdict_publishable: False` and `verdict_under_v1_rule: None` | the second look re-deciding anything from them |
+
+`python -m epl.walkforward --score` now points at the chained
+`walkforward_ledger_v2.jsonl`, which does not exist and will not exist until a
+chained forward run writes it. The Reproduction block above is unchanged as a
+record of what was run in August 2026; the command that re-derives these numbers
+**today** is the explicitly diagnostic one:
+
+```bash
+PYTHONPATH=src:. .venv/bin/python -m epl.walkforward --score --diagnostic-score
+```
+
+It prints the table above and labels its own conclusion `DIAGNOSTIC ONLY`. It
+writes nothing.
+
+### What this does and does not mean
+
+**It does not retract a number.** The forecasts on that ledger are the
+forecasts this walk produced, at the frozen configuration, at weekly cadence,
+over the 2,280 matches §1 fixes. The verdict this report reached — **NOT MET**,
+INCONCLUSIVE (precise null) — was reached correctly on them and is not
+withdrawn. A ledger without a hash chain is a ledger whose *provenance* is
+attested by the commit history rather than by its own bytes; that is a weaker
+attestation than the current machinery gives, and it is not an absence of one.
+
+**It does mean this run cannot be re-run into a fresh verdict.** The distinction
+the code enforces is between reproducing a published result and publishing a
+result. Reproduction is a diagnostic and is available, gated behind a flag that
+names itself. Publication requires the chain, and the chain requires the run. A
+future verdict on this question — the anchored arm, a widened window, a
+multi-league panel, anything the closing section names as a next design — comes
+from a chained forward run under `walkforward_ledger_v2.jsonl`, from its own
+envelope, with its own terminal seal. It does not come from these 212 rows
+scored again under a new name.
+
+**It is the ordinary end state of an evidence plane that got stricter after it
+was used, and the ordinary end state is worth writing down.** The alternative —
+back-filling an envelope and a chain onto rows that were written without them —
+would produce a ledger that verifies and an attestation that is false, which is
+the exact failure the chain exists to make impossible. The numbers keep their
+standing from this document and from the commit that carries them. The machinery
+keeps its guarantee by refusing to lend them one they never had.
