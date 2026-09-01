@@ -639,3 +639,133 @@ chained lock version before HASH-FROZEN. This document supplies no exception.
 The next legal action is **build**, followed by **adversarial audit**, then
 **hash freeze**, then and only then the first forward row. The result publishes
 either way.
+
+---
+
+## Clarification 1 — the thirty minutes bind issuance, not the durable seal (2026-09-01)
+
+**Status:** clarification of this document against itself, written before hash
+freeze, before any forward row, and with `epl/beteval.py` still
+`BUILT_UNFROZEN`. No rule changes. No reason is added to §7.3. §2.1(1), §2.1(3),
+§2.2 and §8.1(5) stand exactly as written.
+
+### What was found
+
+An independent full-system review on 2026-08-31 flagged that
+`epl/beteval.py` enforced a rule this document's operative sections do not
+state. Two places:
+
+```
+epl/beteval.py:340    if sealed > seal_deadline:
+epl/beteval.py:341        raise ClockError("model seal must be durable no later than target minus 30m")
+epl/beteval.py:368    if clocks["model_sealed_at"] > clocks["entry_target"] - 30 * 60:
+epl/beteval.py:369        raise ClockError("model seal must be durable no later than target minus 30m")
+```
+
+Both require the DURABLE SEAL to have completed by `T_entry - 30m`. §2 requires
+no such thing. §2.1(1) bounds `model_issued_at` at `T_entry - 30 minutes`;
+§2.1(3) bounds the seal — "hashed and appended" — by ORDER, before the first
+entry-source request for that fixture; §2.2 forbids the collector from
+requesting a price until that seal is durable. The seal has an upper bound in
+this document, and it is `first_entry_request_at`, not a deadline.
+
+The reviewer read §2 correctly and the implementer read §0 correctly, which is
+the actual finding. §0's row —
+
+| model clock | forecast bundle sealed at least 30 minutes before the entry target and before any entry quote is observed |
+
+— compresses two clocks into one word. "Sealed" there means the bundle is
+FIXED, which is §2.1(1)'s bound on `model_issued_at`; the second clause is
+§2.1(3)/§2.2's ordering bound on the durable append. Read as one sentence about
+one clock, it says the append must beat `T_entry - 30m`, and that is what got
+built.
+
+### The clarification
+
+**§0's `model clock` row is to be read as, and is hereby restated as:** *the
+forecast bundle is issued at least 30 minutes before the entry target (§2.1(1)),
+and its durable seal is appended before the first entry-source request and
+therefore before any entry quote is observed (§2.1(3), §2.2).*
+
+Two clocks, two different bounds, as §2 has said throughout.
+
+### Why the operative rule is the safe one, and the stricter code is not safer
+
+The threat §2 exists to close is a model number influenced by a price. Four
+facts close it, and none of them is a seal deadline.
+
+1. **The price does not exist yet.** The first eligible entry quote is at or
+   after `T_entry` (§2.2). A model issued at or before `T_entry - 30m` cannot
+   have read one.
+2. **The numbers are fixed at issuance, not at the append.** §2.1(3) requires
+   the seal to cover the forecast bundle, the model-law digest, the realised
+   configuration digest and the exact `{home, draw, away}` triple. The append is
+   a RECORDING step over values that were already determined; completing it
+   later does not re-decide them.
+3. **The append strictly precedes any observation.** §2.2 gates the collector on
+   the seal, and the code enforces the strict inequality
+   `model_sealed_at < first_entry_request_at` — equality is refused. The window
+   between issuance and the append is a window in which no price has been
+   requested at all.
+4. **The leakage canary tests the barrier, not the buffer.** §2.4 mutates every
+   close and every result while holding model and entry events fixed, and
+   requires an entry mutation to move a selection. A seal completing at
+   `T_entry - 29m` changes nothing that canary can see, because there is nothing
+   to see.
+
+So the deleted rule bought no information property. It bought thirty minutes of
+operational slack for a durable write — a reliability margin — and it charged
+for it in the one currency this design cannot spend.
+
+**What it charged.** A run in which the model is issued at `T_entry - 90m` and
+its seal lands at `T_entry - 12m`, with the first entry request at `T_entry`, is
+leak-free under every clause of §2 and refused by the shipped code. In a harness
+that refusal must become a typed pre-decision row, and the only reason in
+§7.3's closed set that fits a model-clock violation is `model_late` — a row that
+is not a `bet_intent` and not a `no_edge`, and therefore a row that counts
+against §8.1(3)'s requirement that **at least 95% of non-void universe fixtures
+have a valid model-plus-entry decision**. Enough of them and a valid,
+uncontaminated forward run reports **DATA-INCOMPLETE** (§8.2) over an append
+that finished eleven minutes late.
+
+§8.1(3) exists to stop a thin surviving subset from masquerading as the designed
+strategy. Spending it on clock arithmetic the design never fixed inverts it: it
+would remove fixtures whose model and entry records are both valid, which is the
+selection effect the gate is there to prevent.
+
+**And the honest direction of the fix.** Both readings cannot be law. The choice
+is between deleting a refusal from unfrozen code with no forward row behind it,
+and widening this document to make the stricter reading binding — where §7.3 is
+explicit that the vocabulary "requires a preregistered amendment before it is
+used", and §11.2 hash-freezes the preregistration and the harness together.
+Tightening a preregistration to match an accident of implementation, before the
+audit that is supposed to check the implementation against it, is the wrong
+order of operations even when the tighter rule is harmless. This one is not
+harmless.
+
+### What changes in code
+
+`epl/beteval.py` loses exactly the two refusals quoted above. `seal_deadline` is
+renamed `issue_deadline`, which is what it always was: the bound on
+`model_issued_at` in §2.1(1). Every other clock check is untouched, including
+`sealed < issued` ("durable model seal cannot precede model_issued_at") and
+`model_sealed_at >= first_entry_request_at` ("model seal must precede first
+entry-source request"), which is the barrier itself.
+
+`validate_model_seal` deliberately bounds the seal only from below and its
+docstring now says so, naming `validate_quote_clocks` as the function that holds
+§2.1(3). **A harness that validates a seal and never validates that fixture's
+quote clocks has not enforced §2.1(3)**, and §11.1's audit — whose second bullet
+already requires that "every clock boundary accepts exact equality only where
+this document allows it and refuses one-microsecond violations" — must
+demonstrate that the built harness calls both for every census fixture.
+
+`epl/tests/test_beteval.py` drops the assertion that a seal one microsecond
+after `T_entry - 30m` refuses, and gains
+`test_the_thirty_minutes_bind_issuance_and_the_seal_is_bound_by_ordering`, which
+accepts a seal at `T_entry - 1μs` and refuses one at exactly
+`first_entry_request_at`. The parametrised `model_sealed_at` boundary case is
+kept and re-annotated: it now proves the ordering rule rather than a deadline.
+
+Nothing under `src/` or `scripts/` is touched, and §12's lock boundary is not
+approached. Suite green: `epl/tests/test_beteval.py`, 50 passed.

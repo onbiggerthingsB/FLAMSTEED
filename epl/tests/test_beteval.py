@@ -157,7 +157,7 @@ def test_entry_target_is_bound_exactly_to_known_kickoff_minus_48_hours():
         )
 
 
-def test_model_clock_refuses_one_microsecond_late_issue_or_durable_seal():
+def test_model_clock_refuses_one_microsecond_late_issue_or_a_seal_before_it():
     common = {
         "model_arm": "dc_native",
         "expected_arm": "dc_native",
@@ -180,13 +180,40 @@ def test_model_clock_refuses_one_microsecond_late_issue_or_durable_seal():
                 "sealed_at": "2026-09-01T11:29:59.999999Z",
             }
         )
-    with pytest.raises(beteval.ClockError, match="durable no later"):
-        beteval.validate_model_seal(
-            **{
-                **common,
-                "model_issued_at": "2026-09-01T11:30:00Z",
-                "sealed_at": "2026-09-01T11:30:00.000001Z",
-            }
+
+
+def test_the_thirty_minutes_bind_issuance_and_the_seal_is_bound_by_ordering():
+    """§2.1(1) bounds `model_issued_at`; §2.1(3)/§2.2 bound the seal by order.
+
+    The seal is a RECORDING step. A durable append that completes inside the
+    last half hour and still precedes every entry-source request has leaked
+    nothing — the probabilities were fixed at issuance. Bounding it at
+    `T_entry - 30m` as well refused leak-free runs and would have spent
+    §8.1(3)'s 95% decision-coverage gate on clock arithmetic the
+    preregistration never fixed."""
+    seal = beteval.validate_model_seal(
+        model_arm="dc_native", expected_arm="dc_native",
+        probabilities=_probabilities(),
+        cutoff="2026-09-01T11:30:00Z",
+        observed_by="2026-09-01T11:30:00Z",
+        model_issued_at="2026-09-01T11:30:00Z",
+        kickoff_as_known="2026-09-03T12:00:00Z",
+        entry_target="2026-09-01T12:00:00Z",
+        sealed_at="2026-09-01T11:59:59.999999Z",     # T_entry minus 1 microsecond
+    )
+    assert seal.sealed_at == beteval.utc_instant("2026-09-01T11:59:59.999999Z")
+
+    late_seal = {**_clock_case(),
+                 "model_sealed_at": "2026-09-01T11:59:59.999999Z"}
+    got = beteval.validate_quote_clocks(**late_seal)
+    assert got["model_sealed_at"] < got["first_entry_request_at"]
+
+    # The barrier that DOES bind: strictly before the first entry-source
+    # request, and equality is not "before".
+    with pytest.raises(beteval.ClockError, match="must precede first entry"):
+        beteval.validate_quote_clocks(
+            **{**_clock_case(),
+               "model_sealed_at": "2026-09-01T12:00:00Z"}
         )
 
 
@@ -245,6 +272,8 @@ def test_entry_and_close_window_equalities_are_inclusive():
         ("entry_observed_at", "2026-09-01T12:10:00.000001Z"),
         ("close_provider_at", "2026-09-03T11:49:59.999999Z"),
         ("close_provider_at", "2026-09-03T11:59:00.000001Z"),
+        # Refused by the §2.1(3) ordering rule — the seal is not strictly
+        # before `first_entry_request_at` — and not by any deadline.
         ("model_sealed_at", "2026-09-01T12:00:00Z"),
     ],
 )

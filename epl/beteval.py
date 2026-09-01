@@ -311,6 +311,18 @@ def validate_model_seal(
 ) -> _ValidatedModelSeal:
     """Validate the model arm/probabilities and model-before-entry clocks.
 
+    THE THIRTY MINUTES BELONG TO ISSUANCE, NOT TO THE SEAL. §2.1(1) bounds
+    ``model_issued_at`` at ``T_entry - 30m``; §2.1(3) and §2.2 bound the
+    DURABLE SEAL by ordering only — it must be appended before the first
+    entry-source request. A seal that lands at ``T_entry - 29m`` and still
+    precedes every entry request leaks nothing: the numbers were fixed at
+    issuance and the append records them, it does not re-decide them. That
+    ordering is enforced in :func:`validate_quote_clocks`, which is the
+    function that knows ``first_entry_request_at``; this one deliberately
+    bounds the seal only from below, at ``model_issued_at``. A harness that
+    validates a seal and never validates its quote clocks has not enforced
+    §2.1(3), and §11.1's audit must demonstrate that it does both.
+
     Hash-envelope validation is intentionally excluded until its canonical
     bytes and chain format are amended into the preregistration.
     """
@@ -328,8 +340,8 @@ def validate_model_seal(
         kickoff_as_known=kickoff_as_known, entry_target=entry_target,
     )
     sealed = utc_instant(sealed_at, "sealed_at")
-    seal_deadline = target - 30 * 60
-    if issued > seal_deadline:
+    issue_deadline = target - 30 * 60
+    if issued > issue_deadline:
         raise ClockError("model_late: model_issued_at exceeds target minus 30m")
     if cutoff_at > issued:
         raise ClockError("cutoff must be no later than model_issued_at")
@@ -337,8 +349,6 @@ def validate_model_seal(
         raise ClockError("observed_by must be no later than model_issued_at")
     if sealed < issued:
         raise ClockError("durable model seal cannot precede model_issued_at")
-    if sealed > seal_deadline:
-        raise ClockError("model seal must be durable no later than target minus 30m")
     return _ValidatedModelSeal(model_arm, probs, issued, sealed)
 
 
@@ -348,7 +358,18 @@ def validate_quote_clocks(
     entry_provider_at: str, entry_observed_at: str, actual_kickoff: str,
     close_provider_at: str, close_observed_at: str,
 ) -> dict[str, Fraction]:
-    """Enforce the inclusive entry/close windows and strict clock ordering."""
+    """Enforce the inclusive entry/close windows and strict clock ordering.
+
+    THE INFORMATION BARRIER IS THE STRICT INEQUALITY BELOW, not a deadline.
+    §2.1(3) requires the durable seal before the first entry-source request and
+    §2.2 forbids the collector from requesting until it exists; together those
+    make ``model_sealed_at < first_entry_request_at`` the whole of the model-
+    before-entry barrier. The `T_entry - 30m` bound this function used to place
+    on the seal as well is §2.1(1)'s bound on ``model_issued_at``, applied to
+    the wrong clock: it refused leak-free runs whose append merely completed
+    inside the last half hour, and every such refusal would have become a
+    typed pre-decision failure counting against §8.1(3)'s 95% coverage gate.
+    """
     clocks = {
         name: utc_instant(value, name)
         for name, value in {
@@ -365,8 +386,6 @@ def validate_quote_clocks(
     validate_entry_target(
         kickoff_as_known=kickoff_as_known, entry_target=entry_target,
     )
-    if clocks["model_sealed_at"] > clocks["entry_target"] - 30 * 60:
-        raise ClockError("model seal must be durable no later than target minus 30m")
     if clocks["model_sealed_at"] >= clocks["first_entry_request_at"]:
         raise ClockError("model seal must precede first entry-source request")
     if clocks["entry_observed_at"] < clocks["first_entry_request_at"]:
