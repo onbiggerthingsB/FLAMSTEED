@@ -97,6 +97,20 @@ pinned = pytest.mark.skipif(
     reason="the pinned corpus, archive and walk-forward ledger are on the "
            "machine that ran the walk and nowhere else")
 
+#: A DIFFERENT set, kept apart from `@pinned` on purpose. These four tests have
+#: a synthetic SUBJECT but a real PATH: each drives a production entry point —
+#: `main("--merge")`, `main("--run")`, `estimand`, `table_cells` — that loads
+#: §0.1's pinned corpus or archive before it ever reaches the assertion the test
+#: is about. They re-derive no census, §8.2 does not name them, and calling them
+#: `@pinned` would silently widen a category the preregistration fixes. They
+#: still cannot run where `data/` is absent, and unguarded they reported a
+#: missing archive as a red assertion about the harness's behaviour, which is
+#: the loudest way to say nothing.
+archive_backed = pytest.mark.skipif(
+    not (PINNED_CORPUS.exists() and PINNED_ARCHIVE.exists()),
+    reason="the entry point under test loads the pinned corpus or archive "
+           "before the assertion; both live on the machine that ran the walk")
+
 
 #: §8.4's five steps have run. The preregistered sequence directory carries
 #: `step5_parity`'s COMPLETION marker and §9's evidence record sits beside it,
@@ -113,8 +127,42 @@ pinned = pytest.mark.skipif(
 #: commit the sequence itself requires is what turns those tests red. They are
 #: history from that commit onward, and the frozen record they certified is
 #: verifiable where it was frozen, at `38be3e2`.
+#:
+#: THE STAGE IS READ FROM COMMITTED BYTES. The first version of this guard asked
+#: only the sequence directory, which lives under gitignored `data/`, so a
+#: checkout without `data/` — every CI runner — computed `False` and then
+#: evaluated pre-freeze assertions against a document that already carries the
+#: pasted freeze block. Twenty-seven tests went red on a fact about the
+#: filesystem rather than a fact about the run. §8.4 step 6 commits §9's
+#: evidence record AND appends §8.3 step 2's block to the preregistration; both
+#: are TRACKED files, so both are visible on every checkout, and the two of them
+#: together are what "the run concluded and published" means. The marker read is
+#: kept, OR'd, so the release host still answers `True` in the window between
+#: step 5 filing its marker and step 6 landing the commit.
+#:
+#: §8.3 step 2's own heading, as `freeze_block` renders it. A substring of the
+#: committed prose, not a hash: the hash table inside the block is exactly what
+#: post-conclusion maintenance is expected to move.
+FREEZE_BLOCK_HEADING = ("### §8.3 step 2 — the harness hashes, the frozen "
+                        "membership and the conformance report")
+
+
+def _the_freeze_block_is_committed_into_the_prereg() -> bool:
+    """Does the SOLE LAW carry §8.3 step 2's block? Read-only, committed bytes."""
+    try:
+        return FREEZE_BLOCK_HEADING in PREREG.read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+
 def _the_run_has_concluded() -> bool:
-    """Has §8.4's last step filed a completion marker? Read-only."""
+    """Has §8.4 concluded? Committed bytes first, the marker as a fallback.
+
+    Read-only on both legs.
+    """
+    if (ew.EVIDENCE_JSON.is_file()
+            and _the_freeze_block_is_committed_into_the_prereg()):
+        return True
     try:
         marker = ew.read_sequence_marker(ew.SEQUENCE_STEPS[-1])
     except Exception:                                          # noqa: BLE001
@@ -2072,6 +2120,7 @@ def _tiny_power_structure():
             "n_week_blocks": len(set(blocks)), "n_seasons": len(set(seasons))}
 
 
+@archive_backed
 def test_the_joint_gate_mde_is_recomputed_at_the_realised_sd(tmp_path):
     """§6.5's obligation, which v1 reported the wrong quantity for.
 
@@ -5056,6 +5105,7 @@ def test_the_cli_writes_the_launcher_and_exits_clean(monkeypatch, tmp_path,
     assert "heredoc" in printed["note"]
 
 
+@archive_backed
 def test_the_cli_reports_a_typed_refusal_as_stop_and_exit_two(tmp_path, capsys):
     """The `RecalError` convention §5.1 adopts: `STOP: …` with the type, exit 2."""
     assert ew.main(["--merge", "--dir", str(tmp_path)]) == 2
@@ -5481,6 +5531,7 @@ def test_the_read_only_accessor_refuses_an_absent_store_and_creates_nothing(
     assert list(root.iterdir()) == []
 
 
+@archive_backed
 def test_the_pre_freeze_commands_cannot_reach_build_store(monkeypatch, tmp_path):
     """§8.2's committed test, behavioural: "it executes all three commands
     against a store root whose parquet has been removed, requires
@@ -7712,6 +7763,7 @@ def test_step_twos_scratch_carries_step_ones_canary_when_the_script_runs(
     assert record["PASS"] is True
 
 
+@archive_backed
 def test_step_two_requires_a_scratch_directory_and_refuses_the_real_one():
     """§8.4: "`--run --limit 1` requires a `--dir` that is NOT the preregistered
     run directory, refuses one that is, and writes its marker to the

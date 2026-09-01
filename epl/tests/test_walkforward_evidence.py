@@ -406,7 +406,21 @@ def test_development_scoring_and_holdout_second_look_never_publish(monkeypatch):
     assert out["diagnostic_classification_under_v1_rule"] is not None
 
 
+@pytest.mark.skipif(
+    not wf.LEDGER_PATH.is_file(),
+    reason="the legacy walk-forward ledger lives under gitignored data/ on the "
+           "machine that ran the walk; every other test in this module builds "
+           "its own synthetic ledger and needs no archive")
 def test_checked_in_legacy_artifact_remains_diagnostic_scoreable():
+    """The one artifact-reading test in an otherwise synthetic module.
+
+    "checked-in" names the ledger's status in the fit store, not in git: nothing
+    under `data/epl/fit/` is tracked. Unguarded, it raised `FileNotFoundError`
+    wherever the archive is absent — a test that cannot run reporting as a test
+    that failed. The module is not excluded wholesale for it, because the other
+    forty-odd tests here are the adversarial no-fit suite and they must keep
+    running everywhere.
+    """
     ledger = wf.load_ledger(wf.LEDGER_PATH, allow_legacy=True)
     result = wf.score_run(
         ledger=ledger, n_boot=10, publishable=False,

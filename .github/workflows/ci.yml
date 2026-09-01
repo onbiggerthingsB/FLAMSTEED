@@ -170,6 +170,30 @@ jobs:
       # This list is deliberately fail-closed, exactly as above: a NEW test
       # that reaches for data/ is not in it, so CI goes red until someone
       # decides on purpose whether it belongs here.
+      #
+      # A NINTH exclusion, and it is not about data/: epl/tests/test_shots.py is
+      # PLATFORM-bound, not archive-bound. Its autouse fixture calls
+      # /usr/bin/xcrun to resolve the macOS SDK path, because the H' harness it
+      # tests contains its workers with `sandbox-exec` and pins its runtime
+      # closure to Homebrew paths — Darwin facilities, by design, named in the
+      # preregistration. On ubuntu the fixture raises
+      # NativeWorkerSandboxStop("required tool is unavailable: /usr/bin/xcrun")
+      # at SETUP, so all 409 of its tests report as errors rather than as the
+      # "this platform cannot run it" they are. The module and its harness are
+      # FROZEN H' bytes and may not be edited to add a skip, so the exclusion is
+      # stated here instead.
+      #
+      # Nothing is lost by excluding it, because this job was never where that
+      # module's bar is enforced. Its release bar runs at freeze time on the
+      # Darwin release host and its receipt is committed, not inferred:
+      # reports/evidence/epl_shots/harness_manifest.json, schema
+      # epl-shots-harness-manifest-4, carries canary_receipt.counts
+      # {collected: 43, expected: 43, passed: 43, failed: 0, skipped: 0,
+      # xfailed: 0, xpassed: 0} at python 3.12.13 with PYTHONPATH=src:. and
+      # audit_receipt.pass true over five deliberate-failure canaries. 409 tests
+      # collect on the release host; the 43 are the canary subset the receipt
+      # binds. A change to those bytes changes the manifest, and the manifest is
+      # what a reader checks.
       - name: Run the EPL suite (data-dependent modules named and excluded)
         env:
           PYTHONPATH: src:.
@@ -181,6 +205,10 @@ jobs:
           echo "Excluded — read data/epl/ archives at module or fixture scope:"
           echo "  test_baseline test_fit test_freeze test_improve"
           echo "  test_select test_sensitivity test_simcanary test_simcli"
+          echo "Excluded — Darwin-only by design (sandbox-exec, /usr/bin/xcrun);"
+          echo "  release bar enforced on the Darwin release host, receipt at"
+          echo "  reports/evidence/epl_shots/harness_manifest.json (43/43):"
+          echo "  test_shots"
           pytest epl/tests -q \
             --ignore=epl/tests/test_baseline.py \
             --ignore=epl/tests/test_fit.py \
@@ -189,4 +217,5 @@ jobs:
             --ignore=epl/tests/test_select.py \
             --ignore=epl/tests/test_sensitivity.py \
             --ignore=epl/tests/test_simcanary.py \
-            --ignore=epl/tests/test_simcli.py
+            --ignore=epl/tests/test_simcli.py \
+            --ignore=epl/tests/test_shots.py

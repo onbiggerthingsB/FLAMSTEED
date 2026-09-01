@@ -147,3 +147,109 @@ committed freeze block* — one fixed value, established once from committed byt
 — **and requires that commit to be an ANCESTOR of HEAD, never equal to it.**
 HEAD advancing, which the sequence's own publication step guarantees, no longer
 invalidates the run's own markers.
+
+### Second lesson — 2026-09-01: stage state must be read from committed bytes
+
+The cure above was right in what it did and wrong in where it looked. The stage
+guard it introduced, `RUN_CONCLUDED`, asked §8.4's sequence marker directory —
+which lives under `data/`, which is gitignored. On the machine that ran the walk
+that directory answers; on every other checkout it does not exist, so the guard
+computed `False`, the `@concluded` tests un-skipped, and the suite evaluated
+PRE-FREEZE assertions against a document that already carries the pasted freeze
+block. CI run `33485886709` went red on 2026-09-01 with **28 red tests in
+`epl/tests/test_evwiden.py`** — 27 of the job's 28 reported failures, plus its
+one setup error; the 28th failure was in `test_walkforward_evidence.py` and is a
+separate matter, below. **Twenty-four of the twenty-eight were this defect** —
+the eighteen §8.5 conformance rows `L1`–`L18` and six of
+the `--freeze-block` family — every one of them a fact about the runner's
+filesystem rather than a fact about the run. A guard whose answer depends on
+which machine asks it is not a guard, it is a coin.
+
+The remaining **four** were an older and unrelated defect in the same module,
+found only because the stage guard stopped hiding it behind a louder failure:
+`test_the_joint_gate_mde_is_recomputed_at_the_realised_sd`,
+`test_the_cli_reports_a_typed_refusal_as_stop_and_exit_two`,
+`test_the_pre_freeze_commands_cannot_reach_build_store` and
+`test_step_two_requires_a_scratch_directory_and_refuses_the_real_one` have a
+SYNTHETIC subject but a REAL path — each drives `main("--merge")`,
+`main("--run")`, `estimand` or `table_cells`, which load §0.1's pinned corpus or
+archive before the assertion is reached — and they carried no guard, so they
+raised `CorpusMissing` wherever `data/` is absent. They are now marked
+`@archive_backed`, a marker deliberately kept SEPARATE from §7.4's `@pinned`:
+`@pinned` is a category the preregistration fixes by name, for the tests that
+re-derive the document's own census under §8.2's authorisation, and these four
+do no such thing. Widening a preregistered category to make a suite green would
+be the same error in a different costume.
+
+**The rule, stated so it can be applied without this paragraph: lifecycle stage
+is a property of the RECORD, and the record is the committed bytes.** §8.4 step
+6 commits two things that are tracked and therefore visible everywhere — §9's
+evidence record at `reports/evidence/widening.json`, and §8.3 step 2's freeze
+block pasted into `reports/epl_widening_prereg_v3.md`. Those two together are
+what "the run concluded and published" means, and the guard now reads them, with
+the marker check kept and OR'd so the release host still answers `True` in the
+window between step 5 filing its marker and step 6 landing the commit. No
+assertion is weakened and no scenario is deleted; exactly the tests the cure
+above named still skip under it, now for a reason that does not move when the
+checkout does.
+
+**This is the third member of one family, and naming the family is the point:**
+the manifest/scorer path split, the marker-`freeze_commit`-equals-`git_head()`
+wart cured above, and this stage guard are all the same defect — a check that
+crosses the boundary between what is committed and what is not, and then treats
+the ungoverned side as if it spoke for the governed one.
+
+Two neighbours were cured in the same commit, on their own merits rather than
+under this rule. `epl/tests/test_walkforward_evidence.py::test_checked_in_legacy_artifact_remains_diagnostic_scoreable`
+reads the legacy walk-forward ledger under `data/epl/fit/` — "checked in" names
+its status in the fit store, not in git — and carried no existence guard, so it
+raised `FileNotFoundError` wherever the archive is absent: a test that cannot
+run, reporting as a test that failed. It is now `skipif`-guarded on the
+artifact, and the module is not excluded wholesale, because its other forty-odd
+tests are the adversarial no-fit suite and must keep running everywhere.
+`epl/tests/test_shots.py` is PLATFORM-bound, not archive-bound: its autouse
+fixture calls `/usr/bin/xcrun`, because the H′ harness contains its workers with
+`sandbox-exec` and pins its runtime closure to Homebrew paths, so all 409 of its
+tests reported as setup errors on ubuntu. Those bytes are frozen and may not
+gain a skip, so the exclusion is stated in `.github/workflows/ci.yml` with its
+reason; that module's release bar runs at freeze time on the Darwin release host
+and its receipt is committed at `reports/evidence/epl_shots/harness_manifest.json`
+(schema `epl-shots-harness-manifest-4`, `canary_receipt.counts` 43 collected /
+43 passed / 0 failed, `audit_receipt.pass` true), not inferred from this job.
+
+**Measured, both roots, before the commit.** The dataless figure is the EPL job's
+own pytest line — all nine `--ignore` flags — run against a fresh clone that has
+no `data/` directory at all, which is the only honest way to predict a runner:
+the audit of 2026-08-25 was fooled once by a sandbox whose package root still saw
+the archive, and that lesson is kept.
+
+| | before (`ce80325`) | after |
+|---|---|---|
+| CI, EPL job (run `33485886709`) | 1204 passed, **28 failed, 410 errors** | — |
+| dataless simulation, EPL job's exact line | 1204 passed, 83 skipped, **28 failed, 1 error** | **1172 passed, 144 skipped, 0 failed** |
+| local `pytest epl/tests` (full, `data/` present) | — | 2000 passed, 66 skipped, 1 failed |
+| local `pytest` (root suite) | — | **1679 passed, 0 failed** |
+
+The simulation is faithful, and the middle row is the evidence for that claim:
+run against `ce80325` it reproduces the runner's EPL job exactly — the same 28
+failures and the same single error, with the 409 `test_shots` setup errors
+accounted for by the ninth `--ignore` the same line carries.
+
+`1204 + 83 + 28 + 1` and `1172 + 144` are both **1316**, so nothing was dropped
+from collection. The 61 new skips break down, from `-rs`, as **56** on the stage
+guard, **4** `@archive_backed` and **1** in `test_walkforward_evidence.py`. Of
+those 61, twenty-nine were the red ones. **The other thirty-two were passing, and
+saying so plainly matters more than the green tick does:** they are `@concluded`
+pre-freeze lifecycle tests that pass ONLY where `data/` is absent, and the
+release host has skipped every one of them since the cure above. CI was running
+thirty-two tests the record already calls history, and getting a pass out of
+them because the runner could not see the run. Making the two machines agree is
+the whole change; the thirty-two do not become weaker by being named, they stop
+being counted twice under two different meanings.
+
+The one local red is `test_shots.py::test_public_effect_calls_require_live_h_and_k_before_writers`,
+and it is **not this work**: it asserts `data/epl/fit/shots_sot` does not exist,
+and on this host a real shots run has created it. It fails identically at
+`ce80325` with every change here stashed. It is a fact about this machine's
+artifact directory, inside frozen bytes that may not be edited to accommodate it,
+and it is recorded here rather than quietly carried.
