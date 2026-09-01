@@ -5508,3 +5508,125 @@ had already fixed. Suite green (`test_livecycle.py` + `test_oddscapture.py`:
 
 No file under `src/`, `scripts/`, `site/`, `tools/`, `config/` or `.github/`
 was touched; the lock chain is verified after the commit.
+
+---
+
+## A14 — appended note (2026-09-01): the cadence's second false positive — a satisfied slot must not be re-demanded
+
+A14 taught the cycle to refuse a capture slot **nobody ran on**. It did not
+teach it to stop re-demanding a slot **somebody already ran on**. Step 1 fetched
+unconditionally on every capture day, and on the afternoon of the same Tuesday
+whose slot had already been taken that refusal fired on an archive that was
+whole.
+
+### The STOP
+
+Journal line `2026-09-01T13:54:20+00:00`, `outcome: STOP`,
+`refused.type: OddsSnapshotFailed`:
+
+> the Tuesday capture failed: https://www.football-data.co.uk/fixtures.csv
+> parsed as a fixtures CSV but contains zero Div=E0 rows; recording it would
+> turn a failed EPL observation into apparent availability evidence. STOP: the
+> snapshot is step one and everything else is gated on it — the source
+> overwrites one file a week, so a capture skipped is a publication that no
+> longer exists.
+
+Every clause of that sentence is true about the bytes. The publisher had
+rotated `fixtures.csv` into its international-break state — real rows, no
+`Div=E0` among them, sha `a3048baae16e2281…` — and `oddscapture` was right to
+refuse to file it as an EPL observation.
+
+### The proof that it was a false positive
+
+`oddscapture.capture_status`, read at the same instant, over the same archive:
+
+```
+latest_scheduled_slot   2026-09-01T06:00:00+00:00
+latest_slot_observed    True
+missed_latest_slot      False
+n_observations          1
+capture_due_today       False
+latest                  fixtures_2026-09-01T063933Z.csv
+                        fetched_at 2026-09-01T06:39:33.670836+00:00
+                        sha256 a8128d5d71e915cb…   n_epl_rows 10
+```
+
+The Tuesday slot was captured at 06:39:33Z and attested in `e1121b3`. The
+cadence had nothing missing in it. `capture_due_today` was already **False** —
+the archive knew the answer, and step 1 never asked. The cycle stopped on a
+demand it had no reason to make, and would have stopped again every rotation
+day, Friday 2026-09-04 included.
+
+This is the same defect family as **A13**: a rule reading *provenance* as
+*substance*. There the conflict rule read "a different agent filed this row" as
+"the rows disagree". Here the capture gate read "today is a capture day" as
+"today's capture is outstanding". In both cases the refusal was correct about
+what it measured and wrong about what it was for.
+
+### What changed
+
+Step 1 now consults `capture_status` **before** fetching, through a new helper
+`_slot_already_observed`, and short-circuits only when every part of the archive
+agrees: the archive's own latest scheduled slot IS this cycle's slot, that slot
+is observed, it is not recorded as missed, and the latest receipt is itself a
+receipt for that slot (same day, at or after 06:00 UTC). Anything short of all
+four returns `None` and the unconditional fetch runs exactly as before — **an
+ambiguous archive is a reason to capture, never a reason to assume.**
+
+The short-circuit is journalled in its own field rather than folded into an
+existing one:
+
+```json
+"odds_snapshot_already_observed": {
+  "slot": "2026-09-01T06:00:00+00:00",
+  "day_name": "Tuesday",
+  "observed_file": "fixtures_2026-09-01T063933Z.csv",
+  "observed_at": "2026-09-01T06:39:33.670836+00:00",
+  "sha256": "a8128d5d71e915cb…",
+  "n_observations": 1
+}
+```
+
+which is distinguishable from a capture (`odds_snapshot`) and from an operator
+skip (`odds_snapshot_skipped`) both in the record and on the printed screen —
+A14's four odds lines become five, and the new one names the receipt, so the
+flight log answers *"by what?"* as well as *"was it taken?"*.
+
+**The gate is not weakened; its aim is corrected.** A slot with no observation
+still fetches, and still refuses on every failure it refused on before: the
+pre-06:00 refusal fires ahead of the short-circuit and is untouched, and A14's
+own missed-slot refusal (`OddsSlotMissed`) is untouched — it reads the cadence
+after step 1 exactly as it did, and an earlier hole is not covered by a later
+receipt.
+
+### The tests
+
+Four new tests in `epl/tests/test_livecycle.py`, three of them red before the
+change:
+
+1. **`test_a_slot_already_observed_is_not_fetched_again`** — the defect exactly:
+   today's slot on file, the source rotated to zero E0. The odds fetcher is
+   never called, the cycle proceeds past step 1, and the honest field carries
+   the slot, the file, the instant and the sha.
+2. **`test_the_already_observed_line_is_its_own_line`** — five capture states,
+   five distinct printed lines.
+3. **`test_an_unobserved_slot_still_refuses_a_rotated_source`** — a virgin
+   archive on a capture day with zero-E0 bytes STOPs in step 1 exactly as now,
+   with nothing fetched from either result source.
+4. **`test_an_earlier_slot_is_not_satisfied_by_a_later_observation`** — the
+   Friday is on file and the following Tuesday is not: the fetch is still
+   attempted, and still refuses.
+
+`epl/tests/test_livecycle.py` green at 108; the coupled `test_retro_addendum`,
+`test_simretro` and `test_oddscapture` green.
+
+### What is pre-stated
+
+Nothing numerical. This note moves no forecast, no score and no published
+number; it adds one journal field, one helper, one printed line, and removes one
+false-positive STOP. `epl/oddscapture.py` is untouched — `capture_status` was
+already correct and already exported; what was missing, once again, was a
+caller.
+
+No file under `src/`, `scripts/`, `site/`, `tools/`, `config/` or `.github/`
+was touched.

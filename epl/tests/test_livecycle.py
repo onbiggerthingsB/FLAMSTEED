@@ -1225,6 +1225,119 @@ def test_the_cadence_block_is_on_every_line_whichever_way_it_falls(tmp_path):
     assert entry["odds_cadence"] == result["odds_cadence"]
 
 
+# --- the slot that is ALREADY satisfied -----------------------------------
+# A14 taught the cycle to refuse a slot nobody ran on. It did not teach it to
+# stop re-demanding a slot somebody already ran on, and step one re-fetched
+# unconditionally on every capture day. On 2026-09-01 the Tuesday capture was
+# taken at 06:39:33Z and the publisher then rotated `fixtures.csv` into its
+# international-break state — zero Div=E0 rows — so the SECOND fetch of the
+# same satisfied slot hit oddscapture's correct zero-EPL refusal and stopped
+# the whole cycle. A refusal that fires on a slot already on file is a false
+# positive: the cadence is satisfied, and nothing about the archive is wrong.
+
+def _odds_csv_no_e0() -> bytes:
+    """The publisher's between-rounds state: a fixtures file with rows, none
+    of them E0. `oddscapture.capture` refuses these bytes, and is right to."""
+    head = "Div,Date,HomeTeam,AwayTeam,AvgH,AvgD,AvgA"
+    row = "D1,04/09/2026,Bayern Munich,Hamburg,1.30,5.00,9.00"
+    # Over the archive's 512-byte floor: the refusal under test must be the
+    # zero-E0 one, not the "that is an error page" one.
+    return ("\n".join([head, *([row] * 30)]) + "\n").encode("utf-8")
+
+
+def test_a_slot_already_observed_is_not_fetched_again(tmp_path):
+    """(a) The defect, exactly: today's slot is on file and the source has
+    since rotated. The cycle must proceed past step one without a fetch."""
+    _seed_slot(tmp_path, "2026-08-25T06:39:33Z")        # today's Tuesday slot
+    fetched = []
+
+    def rotated(url):
+        fetched.append(url)
+        return _odds_csv_no_e0()
+
+    result = _cycle(tmp_path, ledger=MW1_SCORES, odds_fetcher=rotated)
+
+    assert fetched == []                       # the satisfied slot is not re-asked
+    already = result["odds_snapshot_already_observed"]
+    assert already["slot"] == "2026-08-25T06:00:00+00:00"
+    assert already["day_name"] == "Tuesday"
+    assert already["observed_file"] == "fixtures_2026-08-25T063933Z.csv"
+    assert already["observed_at"] == "2026-08-25T06:39:33+00:00"
+    assert len(already["sha256"]) == 64
+    # Distinguishable from BOTH of the other two states, on the line and in
+    # the fields: this is not a capture, and it is not a --skip.
+    assert result["odds_snapshot"] is None
+    assert result["odds_snapshot_skipped"] is None
+    assert result["odds_cadence"]["missed_latest_slot"] is False
+    assert result["odds_cadence"]["latest_slot_observed"] is True
+    assert result["outcome"] != "STOP"
+
+
+def test_the_already_observed_line_is_its_own_line(tmp_path):
+    """The A14 render gains a fifth capture state, and no two are the same."""
+    _seed_slot(tmp_path / "e", "2026-08-25T06:39:33Z")
+    already = _cycle(tmp_path / "e", ledger=MW1_SCORES)
+    took = _cycle(tmp_path / "a", ledger=MW1_SCORES)
+    off_cadence = _cycle(tmp_path / "b", ledger=MW1_SCORES,
+                         now=pd.Timestamp("2026-08-26T18:20:31Z"))
+    skipped_due = _cycle(tmp_path / "c", ledger=MW1_SCORES,
+                         skip_odds_snapshot=True)
+    skipped_idle = _cycle(tmp_path / "d", ledger=MW1_SCORES,
+                          skip_odds_snapshot=True,
+                          now=pd.Timestamp("2026-08-26T18:20:31Z"))
+
+    def odds_line(result):
+        return next(ln for ln in result["summary"].splitlines()
+                    if ln.startswith("odds "))
+
+    lines = [odds_line(r) for r in (took, off_cadence, skipped_due,
+                                    skipped_idle, already)]
+    assert len(set(lines)) == 5, lines
+    assert "already observed" in lines[4]
+    assert "fixtures_2026-08-25T063933Z.csv" in lines[4]
+
+
+def test_an_unobserved_slot_still_refuses_a_rotated_source(tmp_path):
+    """(b) The gate is not weakened. A virgin archive on a capture day with a
+    zero-E0 source stops in step one exactly as it did before."""
+    root = _season_copy(tmp_path, f"season{next(_COPIES)}")
+    of_fetch, e0_fetch, seen = _fetchers()
+    journal = tmp_path / "journal.jsonl"
+    with pytest.raises(livecycle.OddsSnapshotFailed, match="zero Div=E0"):
+        livecycle.run_cycle(
+            now=NOW, root=root, out_root=tmp_path / "issuances",
+            derived_root=tmp_path / "derived",
+            shadow_ledger=tmp_path / "shadow.jsonl",
+            avail_ledger=tmp_path / "avail.jsonl",
+            journal=journal, snapshot_dir=tmp_path / "snapshots",
+            fetchers={livecycle.SOURCE_A: of_fetch, livecycle.SOURCE_B: e0_fetch},
+            odds_fetcher=lambda url: _odds_csv_no_e0(),
+            steps=_Steps().as_dict(), verbose=False)
+    assert seen == {}
+    entry = json.loads(journal.read_text())
+    assert entry["outcome"] == "STOP"
+    assert entry["refused"]["type"] == "OddsSnapshotFailed"
+    assert entry["odds_snapshot_already_observed"] is None
+
+
+def test_an_earlier_slot_is_not_satisfied_by_a_later_observation(tmp_path):
+    """(c) A14's refusal is untouched. Friday's slot has an observation and
+    the FOLLOWING Tuesday's does not: the short-circuit must not read "the
+    archive has something" as "this slot is covered"."""
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")            # a Friday
+    fetched = []
+
+    def rotated(url):
+        fetched.append(url)
+        return _odds_csv_no_e0()
+
+    # Tuesday, slot unobserved: the fetch is still attempted, and still
+    # refuses on the rotated bytes.
+    with pytest.raises(livecycle.OddsSnapshotFailed, match="zero Div=E0"):
+        _cycle(tmp_path, ledger=MW1_SCORES, odds_fetcher=rotated)
+    assert len(fetched) == 1
+
+
 def test_a_failed_snapshot_stops_the_cycle_before_the_ingest(tmp_path):
     """The capture is step one and everything else is gated on it: a feed that
     stopped publishing `AvgH` needs a ruling, not a cycle that carried on."""

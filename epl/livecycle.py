@@ -1261,6 +1261,11 @@ def run_cycle(*, now=None, season: str = simcli.DEFAULT_SEASON, root=None,
         # A capture that was DUE and was not taken is a different fact from a
         # Wednesday, and `odds_snapshot: null` said both. This field says which.
         "odds_snapshot_skipped": None,
+        # A slot this cycle did not have to take again, because it was already
+        # taken. Distinct from a capture (`odds_snapshot`) and from an operator
+        # skip (`odds_snapshot_skipped`): the cadence is satisfied and no fetch
+        # was made. See step 1.
+        "odds_snapshot_already_observed": None,
         # What `oddscapture.capture_status` says about the cadence, recorded on
         # every line whether or not it refuses.
         "odds_cadence": None,
@@ -1312,6 +1317,38 @@ def run_cycle(*, now=None, season: str = simcli.DEFAULT_SEASON, root=None,
     return result
 
 
+def _slot_already_observed(*, now, capture_slot, snapshot_dir) -> dict | None:
+    """The receipt that already satisfies `capture_slot`, or None.
+
+    Reads `oddscapture.capture_status` — the same verified view A14's cadence
+    check reads, so the two cannot disagree about what is on file — and returns
+    a witness only when ALL of it lines up: the archive's own latest scheduled
+    slot IS this cycle's slot, that slot is observed, it is not recorded as
+    missed, and the latest receipt is itself a receipt for that slot (same day,
+    at or after 06:00 UTC). Anything short of that returns None and the
+    unconditional fetch runs exactly as before — an ambiguous archive is a
+    reason to capture, never a reason to assume.
+    """
+    status = oddscapture.capture_status(when=now, directory=snapshot_dir)
+    if not (status["latest_slot_observed"] and not status["missed_latest_slot"]
+            and pd.Timestamp(status["latest_scheduled_slot"]) == capture_slot):
+        return None
+    witness = status.get("latest") or {}
+    stamp = witness.get("fetched_at")
+    if not (stamp and witness.get("path") and witness.get("sha256")):
+        return None                                        # pragma: no cover
+    at = pd.Timestamp(stamp)
+    at = at.tz_localize("UTC") if at.tzinfo is None else at.tz_convert("UTC")
+    if not (at.date() == capture_slot.date() and at >= capture_slot):
+        return None                                        # pragma: no cover
+    return {"slot": capture_slot.isoformat(),
+            "day_name": now.day_name(),
+            "observed_file": str(witness["path"]),
+            "observed_at": at.isoformat(),
+            "sha256": str(witness["sha256"]),
+            "n_observations": int(status["n_observations"])}
+
+
 def _run(entry, *, now, observed_at, cutoff, season, root, arms,
          allow_single_source, dry_run, skip_odds_snapshot,
          acknowledge_missed_slot, out_root,
@@ -1352,7 +1389,24 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
                 "decision. A pre-slot receipt is extra evidence but does not "
                 "satisfy the Tuesday/Friday cadence."
             )
-        if dry_run:
+        # A SATISFIED SLOT IS NOT RE-DEMANDED. Step one used to re-fetch on
+        # every capture day regardless of what was already on file, so a second
+        # run on the same Tuesday asked the publisher for a slot the archive
+        # had already observed. That is harmless while the source still carries
+        # the round — and fatal the moment it rotates: on 2026-09-01 the 06:00
+        # slot was captured at 06:39:33Z and `fixtures.csv` then turned over
+        # into its international-break state (zero Div=E0 rows), so the second
+        # fetch hit oddscapture's correct zero-EPL refusal and stopped a cycle
+        # whose cadence was already whole. The refusal was right about the
+        # bytes and wrong about the question. Same defect family as A13: a rule
+        # reading provenance as substance. The gate is not weakened — a slot
+        # with NO observation still fetches, and still refuses on everything it
+        # refused on before.
+        already = _slot_already_observed(now=now, capture_slot=capture_slot,
+                                         snapshot_dir=snapshot_dir)
+        if already is not None:
+            entry["odds_snapshot_already_observed"] = already
+        elif dry_run:
             entry["odds_snapshot"] = {"planned": True, "capture_day": True,
                                       "day_name": now.day_name(),
                                       "slot": capture_slot.isoformat()}
@@ -1754,7 +1808,17 @@ def render_summary(entry: Mapping[str, Any]) -> str:
 
     snap = entry.get("odds_snapshot")
     skipped = entry.get("odds_snapshot_skipped")
-    if skipped:
+    already = entry.get("odds_snapshot_already_observed")
+    if already:
+        # A FIFTH STATE. Not a capture, not a skip, not a Wednesday: the slot
+        # was taken earlier today and this run did not ask for it twice. The
+        # line names the receipt so the flight log answers "by what?" as well
+        # as "was it taken?".
+        lines.append(f"odds        the {already['day_name']} {already['slot']} "
+                     f"slot was already observed — {already['observed_file']} "
+                     f"(sha {already['sha256'][:12]}, at "
+                     f"{already['observed_at']}); no re-fetch")
+    elif skipped:
         # THREE STATES, THREE LINES. The old renderer printed "no capture (not
         # a Tuesday or Friday, or skipped)" for all of them, so the one that
         # matters — a DUE capture the operator skipped — read the same as a
