@@ -223,12 +223,17 @@ no `data/` directory at all, which is the only honest way to predict a runner:
 the audit of 2026-08-25 was fooled once by a sandbox whose package root still saw
 the archive, and that lesson is kept.
 
-| | before (`ce80325`) | after |
+| | before (`ce80325`) | after (`94a681e`) |
 |---|---|---|
-| CI, EPL job (run `33485886709`) | 1204 passed, **28 failed, 410 errors** | — |
+| CI, EPL job | run `33485886709`: 1204 passed, **28 failed, 410 errors** | run `33503217649`: **1172 passed, 144 skipped**, 97 s |
 | dataless simulation, EPL job's exact line | 1204 passed, 83 skipped, **28 failed, 1 error** | **1172 passed, 144 skipped, 0 failed** |
 | local `pytest epl/tests` (full, `data/` present) | — | 2000 passed, 66 skipped, 1 failed |
 | local `pytest` (root suite) | — | **1679 passed, 0 failed** |
+
+Run `33503217649` came back green on all three jobs — Preregistration lock,
+Test suite (1613 passed, 14 skipped; 49 leakage canaries collected and passed),
+EPL suite — and the EPL figure it reported is the simulation's figure to the
+test: 1172 and 144, not approximately.
 
 The simulation is faithful, and the middle row is the evidence for that claim:
 run against `ce80325` it reproduces the runner's EPL job exactly — the same 28
