@@ -5346,3 +5346,165 @@ run left it, absolute path included — so that the cure has something on record
 correct rather than a description of it. No file under `src/`, `scripts/`,
 `site/`, `tools/`, `config/` or `.github/` was touched; the lock chain was
 verified after every commit.
+
+---
+
+## A14 — three states the flight log wrote as one, and the slot nobody watched (2026-09-01)
+
+**Decision amended:** none. Nothing preregistered moves. This is a defect in
+`epl/livecycle.py`'s step one — what the flight log RECORDS about the odds
+capture, and what the cycle CHECKS about the cadence — in the same genre as A13.
+
+**Status when written:** both defects were found by an independent Codex
+full-system review on 2026-08-31 and confirmed against the code by a second
+reading. The active freeze contract forbade touching committed files, so the
+fix was drafted, tested against a copy of the tree, and held. This entry and
+the code it describes land in the same commit, after that freeze; the entry is
+written from the drafted diff, not from a description of one, and the diff was
+green before either was committed.
+
+### The observation
+
+Two holes, one subject: whether the Tuesday/Friday football-data fixtures
+capture actually happened.
+
+**(a) `odds_snapshot: null` meant three different things.** The journal entry
+initialised `"odds_snapshot": None` and step one overwrote it only when a
+capture was taken or planned. `--skip-odds-snapshot` overwrote nothing and set
+no flag, so a Tuesday on which the operator deliberately skipped a DUE capture
+left a line byte-indistinguishable from a Wednesday on which nothing was due.
+`render_summary` then printed one sentence over all of it:
+
+```
+odds        no capture (not a Tuesday or Friday, or skipped)
+```
+
+The parenthesis is the defect written down. A flight log whose own renderer
+cannot tell "the publication was let go" from "there was nothing to take"
+cannot answer the only question anyone asks of it months later — *was the
+Tuesday taken?* — and the source overwrites one file a week, so that question
+has no second answer anywhere else.
+
+Three states, one line. Four, counting a capture day whose 06:00 slot had not
+opened yet, which the pre-slot gate refuses on a real run and which
+`--skip-odds-snapshot` reaches quietly.
+
+**(b) A slot day on which the cycle is not run at all was detected by
+nothing.** `epl/oddscapture.py` has computed `missed_latest_slot` since the
+archive was built — `capture_status()` derives the latest scheduled slot from
+the cadence and asks the verified provenance ledger whether any receipt
+observes it. Exactly one caller ever asked:
+
+```
+epl/oddscapture.py:1212:            status = capture_status(when=now, directory=args.directory)
+```
+
+which is the `--status` branch of that module's own CLI. `epl/livecycle.py`
+never imported the answer. So every refusal the cycle owns fires on a day the
+cycle RAN, and the failure that is actually likely on a nine-month cadence —
+a Tuesday nobody ran anything on — produced no refusal, no journal field and no
+line on the screen. The next run reported a clean cycle over a hole in the
+archive.
+
+The two are one defect seen from two sides: the cycle recorded what it did and
+never checked what it should have done.
+
+### The ruling (2026-09-01)
+
+**(a) The skip is recorded, not inferred.** A new journal field
+`odds_snapshot_skipped` is written whenever `--skip-odds-snapshot` is passed,
+carrying `capture_day`, `day_name`, the slot instant, `due` (a capture day at
+or after its slot), and the reason — which is the flag itself. `odds_snapshot`
+keeps its exact present meaning and is untouched on every path.
+
+`render_summary` prints one line per state and no two of them are the same
+line: *captured*, *nothing new published*, *WOULD capture*, *no capture due on
+a `<day>`*, *SKIPPED the `<day>` `<slot>` capture*, *SKIPPED — `<day>` is a
+capture day and its `<slot>` slot had not opened yet*, and *no capture due on a
+`<day>`; --skip-odds-snapshot changed nothing*.
+
+**(b) The cycle asks `capture_status` on every run, records the answer whichever
+way it falls, and refuses on a gap.** A new journal field `odds_cadence`
+carries `latest_scheduled_slot`, `latest_slot_observed`, `missed_latest_slot`,
+`archive_started`, `n_observations` and `acknowledged`. When the most recent
+scheduled slot has no observation **and the archive already holds one**, the
+cycle raises `OddsSlotMissed` — a new member of the `LiveCycleError` family,
+printed as `STOP: OddsSlotMissed: …` with exit 2 like every other refusal.
+
+Three bounds on that refusal, each of which is the reason it is safe to leave
+on:
+
+1. **It is asked after step one, not before.** A capture this run just took
+   satisfies today's slot rather than racing it.
+2. **A dry run's plan covers today's slot.** `--dry-run` takes no capture and
+   step one records that it WOULD; today's slot is not a hole when this run is
+   the thing that fills it. An EARLIER slot still is, and a dry run refuses on
+   it exactly as a real run does — a plan that printed clean over a gap is
+   half of what was wrong.
+3. **A virgin archive has no slot to have missed.** `n_observations == 0` means
+   the cadence has not started, not that it is behind. Without this bound the
+   check would refuse the first run on a fresh machine, and a refusal that
+   fires on day one is a refusal that gets turned off.
+
+**The way past it is `--acknowledge-missed-slot 'why'`,** which files the
+operator's reason verbatim on the flight log and on the printed screen. There
+is deliberately no flag that erases the gap: the publication that belonged in
+that slot is gone, the archive cannot be repaired by running the cycle later,
+and the only thing left to record is who decided to carry on and why.
+
+### The rationale
+
+**Why record rather than only refuse.** The gap is unrecoverable. A refusal
+alone would produce a STOP line whose `odds_cadence` a later reader would have
+to reconstruct from the archive as it stands months afterwards — which is
+exactly the reconstruction the flight log exists to make unnecessary. The block
+is therefore written on every line, STOP or no-op, and the refusal reads it
+rather than computing something of its own.
+
+**Why the archive-started bound is principled and not a convenience.**
+`missed_latest_slot` is `not latest_slot_observed`, and an empty ledger observes
+nothing, so a fresh archive reports a miss for a slot at which the archive did
+not exist. Gating on `n_observations > 0` asks the question the operator
+actually has — *did we break a cadence we were keeping?* — instead of a question
+about a machine that had not started keeping one. It also happens to keep every
+existing test honest rather than re-pointed: the suite's snapshot directories
+are per-test temporaries, and a check that refused on them would have had to be
+suppressed in the suite, which is how a refusal stops meaning anything.
+
+**Why the skip flag is not given its own reason string.** `--skip-odds-snapshot`
+is `store_true` today and the suite asserts the shape of the flag set. The flag
+IS the reason — an explicit operator decision to let one publication go — and
+what was missing was not a sentence but the RECORD that a due capture was the
+thing skipped. `due` is the field that carries it. `--acknowledge-missed-slot`
+does take a reason, because there the operator is ruling on evidence that no
+longer exists.
+
+### What is pre-stated
+
+Nothing numerical. This ruling moves no forecast, no score and no published
+number; it adds two journal fields, one refusal, one flag, seven distinguishable
+odds lines where the renderer had four, and a cadence line where it had none.
+
+The freshness preregistration's §4.5 cadence switch is unaffected: it turns on
+the automated one-command cycle running green in production, and a cycle that
+now refuses a cadence gap is more of that condition, not less.
+
+### What landed
+
+`epl/livecycle.py` gains `OddsSlotMissed` (exported, in the `LiveCycleError`
+family), the `odds_snapshot_skipped` and `odds_cadence` entry fields, the
+step-1b `capture_status` call, the `acknowledge_missed_slot` parameter through
+`run_cycle` and `_run`, the `--acknowledge-missed-slot WHY` flag, and the
+rewritten odds/cadence block in `render_summary`. `epl/oddscapture.py` is not
+touched — `capture_status` was already correct and already exported; what was
+missing was a caller.
+
+Eleven new tests in `epl/tests/test_livecycle.py`, and
+`test_the_command_takes_the_three_documented_flags` becomes
+`…_four_documented_flags`. Every one of the 92 tests that existed before passes
+unchanged: the new refusal is bounded so that it changes no behaviour the suite
+had already fixed. Suite green (`test_livecycle.py` + `test_oddscapture.py`:
+149 passed, 2 skipped).
+
+No file under `src/`, `scripts/`, `site/`, `tools/`, `config/` or `.github/`
+was touched; the lock chain is verified after the commit.

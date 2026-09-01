@@ -1043,6 +1043,188 @@ def test_skip_odds_snapshot_skips_it_on_a_capture_day(tmp_path):
     assert result["odds_snapshot"] is None
 
 
+# --- the three states `odds_snapshot: null` used to mean -----------------
+
+def _seed_slot(tmp_path, when: str) -> None:
+    """One ledgered observation at `when`, so the archive has a cadence.
+
+    Written through `oddscapture.capture` rather than by hand: a fixture that
+    wrote its own provenance line would be testing this suite's idea of the
+    archive rather than the archive.
+    """
+    oddscapture.capture(fetcher=lambda url: _odds_csv(),
+                        directory=tmp_path / "snapshots",
+                        when=pd.Timestamp(when))
+
+
+def test_a_skipped_due_capture_is_recorded_as_skipped_not_as_a_wednesday(tmp_path):
+    """The defect: `odds_snapshot: null` meant three different things.
+
+    Tuesday 18:20 with the flag passed is a capture that was DUE and was not
+    taken. The flight log has to say so — it is the only record that the
+    Tuesday publication was let go."""
+    result = _cycle(tmp_path, ledger=MW1_SCORES, skip_odds_snapshot=True)
+    skipped = result["odds_snapshot_skipped"]
+    assert skipped["skipped"] is True
+    assert skipped["capture_day"] is True and skipped["due"] is True
+    assert skipped["day_name"] == "Tuesday"
+    assert skipped["slot"] == "2026-08-25T06:00:00+00:00"
+    assert "SKIPPED the Tuesday" in result["summary"]
+
+
+def test_the_flag_on_a_non_capture_day_records_that_it_changed_nothing(tmp_path):
+    """Wednesday with the flag passed: skipped, but nothing was due."""
+    result = _cycle(tmp_path, ledger=MW1_SCORES, skip_odds_snapshot=True,
+                    now=pd.Timestamp("2026-08-26T18:20:31Z"))
+    skipped = result["odds_snapshot_skipped"]
+    assert skipped["capture_day"] is False and skipped["due"] is False
+    assert skipped["slot"] is None
+    assert "changed nothing" in result["summary"]
+
+
+def test_a_pre_slot_capture_day_skip_is_not_a_missed_publication(tmp_path):
+    """Tuesday 05:00 with the flag: a capture day whose slot had not opened.
+
+    Distinct from both of the above, and the old renderer printed the same
+    sentence for it."""
+    result = _cycle(tmp_path, ledger=MW1_SCORES, skip_odds_snapshot=True,
+                    now=pd.Timestamp("2026-08-25T05:00:00Z"))
+    skipped = result["odds_snapshot_skipped"]
+    assert skipped["capture_day"] is True and skipped["due"] is False
+    assert "had not opened yet" in result["summary"]
+
+
+def test_the_summary_tells_the_four_capture_states_apart(tmp_path):
+    """One line each, and no two of them the same line."""
+    took = _cycle(tmp_path / "a", ledger=MW1_SCORES)
+    off_cadence = _cycle(tmp_path / "b", ledger=MW1_SCORES,
+                         now=pd.Timestamp("2026-08-26T18:20:31Z"))
+    skipped_due = _cycle(tmp_path / "c", ledger=MW1_SCORES,
+                         skip_odds_snapshot=True)
+    skipped_idle = _cycle(tmp_path / "d", ledger=MW1_SCORES,
+                          skip_odds_snapshot=True,
+                          now=pd.Timestamp("2026-08-26T18:20:31Z"))
+
+    def odds_line(result):
+        return next(ln for ln in result["summary"].splitlines()
+                    if ln.startswith("odds "))
+
+    lines = [odds_line(r) for r in (took, off_cadence, skipped_due, skipped_idle)]
+    assert len(set(lines)) == 4, lines
+    assert "captured" in lines[0]
+    assert "no capture due on a Wednesday" == lines[1].split("odds        ")[1]
+    assert "SKIPPED the Tuesday" in lines[2]
+    assert "changed nothing" in lines[3] and "SKIPPED" not in lines[3]
+
+
+# --- the slot nobody ran on ----------------------------------------------
+
+def test_a_missed_slot_on_a_started_cadence_stops_the_cycle(tmp_path):
+    """The failure nothing detected: a Tuesday on which the cycle never ran.
+
+    The archive holds the Friday and nothing else. Running on the Wednesday
+    AFTER the Tuesday slot is the first moment anything can notice, and it is
+    the last moment worth noticing: the source overwrites one file a week."""
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")          # a Friday
+    with pytest.raises(livecycle.OddsSlotMissed,
+                       match="2026-08-25T06:00:00"):
+        _cycle(tmp_path, ledger=MW1_SCORES,
+               now=pd.Timestamp("2026-08-26T18:20:31Z"))
+    entry = json.loads((tmp_path / "journal.jsonl").read_text())
+    assert entry["outcome"] == "STOP"
+    assert entry["refused"]["type"] == "OddsSlotMissed"
+    assert entry["odds_cadence"]["missed_latest_slot"] is True
+    assert entry["odds_cadence"]["archive_started"] is True
+
+
+def test_the_refusal_fires_before_a_single_source_is_fetched(tmp_path):
+    """Same ordering as every other step-one refusal: nothing is fetched and
+    nothing is written behind a cadence this run cannot vouch for."""
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")
+    root = _season_copy(tmp_path, f"season{next(_COPIES)}")
+    of_fetch, e0_fetch, seen = _fetchers()
+    with pytest.raises(livecycle.OddsSlotMissed):
+        livecycle.run_cycle(
+            now=pd.Timestamp("2026-08-26T18:20:31Z"), root=root,
+            out_root=tmp_path / "issuances",
+            derived_root=tmp_path / "derived",
+            shadow_ledger=tmp_path / "shadow.jsonl",
+            avail_ledger=tmp_path / "avail.jsonl",
+            journal=tmp_path / "journal.jsonl",
+            snapshot_dir=tmp_path / "snapshots",
+            fetchers={livecycle.SOURCE_A: of_fetch, livecycle.SOURCE_B: e0_fetch},
+            odds_fetcher=lambda url: _odds_csv(),
+            steps=_Steps().as_dict(), verbose=False)
+    assert seen == {}
+    assert (root / "2026_27" / "results_ledger.jsonl").read_text() == ""
+
+
+def test_an_acknowledged_missed_slot_runs_and_files_the_reason(tmp_path):
+    """The gap cannot be closed, so the only thing left is to record it."""
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")
+    why = "laptop offline over the bank holiday; ruled 2026-08-26 by the owner"
+    result = _cycle(tmp_path, ledger=MW1_SCORES,
+                    now=pd.Timestamp("2026-08-26T18:20:31Z"),
+                    acknowledge_missed_slot=why)
+    assert result["odds_cadence"]["acknowledged"] == why
+    assert result["odds_cadence"]["missed_latest_slot"] is True
+    assert f"acknowledged: {why}" in result["summary"]
+    entry = json.loads((tmp_path / "journal.jsonl").read_text())
+    assert entry["odds_cadence"]["acknowledged"] == why
+
+
+def test_a_virgin_archive_has_no_slot_to_have_missed(tmp_path):
+    """An archive with no observation is not behind — it has not started.
+
+    Without this the check would refuse the first run on a fresh machine, and
+    a refusal that fires on day one is a refusal that gets turned off."""
+    result = _cycle(tmp_path, ledger=MW1_SCORES, skip_odds_snapshot=True)
+    cadence = result["odds_cadence"]
+    assert cadence["archive_started"] is False
+    assert cadence["n_observations"] == 0
+    assert "has not started" in result["summary"]
+
+
+def test_the_cadence_is_asked_after_the_capture_this_run_took(tmp_path):
+    """Today's slot is not a hole when this run is the thing that fills it."""
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")
+    result = _cycle(tmp_path, ledger=MW1_SCORES)             # Tuesday 18:20
+    assert result["odds_snapshot"]["written"] is False       # duplicate bytes
+    cadence = result["odds_cadence"]
+    assert cadence["latest_scheduled_slot"] == "2026-08-25T06:00:00+00:00"
+    assert cadence["missed_latest_slot"] is False
+    assert cadence["n_observations"] == 2
+
+
+def test_a_dry_run_plan_covers_todays_slot_but_not_an_earlier_one(tmp_path):
+    """A dry run takes no capture, and step one recorded that it WOULD.
+
+    Today's slot is therefore not a gap. An EARLIER slot still is, and a dry
+    run refuses on it exactly as a real run does — a plan that printed clean
+    over a hole in the archive is the thing being fixed."""
+    _seed_slot(tmp_path / "today", "2026-08-21T06:05:00Z")
+    planned = _cycle(tmp_path / "today", ledger=MW1_SCORES, dry_run=True,
+                     prior=None)
+    assert planned["odds_snapshot"]["planned"] is True
+    assert planned["odds_cadence"]["missed_latest_slot"] is False
+
+    _seed_slot(tmp_path / "earlier", "2026-08-21T06:05:00Z")
+    with pytest.raises(livecycle.OddsSlotMissed):
+        _cycle(tmp_path / "earlier", ledger=MW1_SCORES, dry_run=True,
+               prior=None, now=pd.Timestamp("2026-08-26T18:20:31Z"))
+
+
+def test_the_cadence_block_is_on_every_line_whichever_way_it_falls(tmp_path):
+    """Recorded, not only refused: the flight log answers "was the Tuesday
+    taken?" from the line, without re-reading the archive months later."""
+    result = _cycle(tmp_path, ledger=MW1_SCORES)
+    entry = json.loads((tmp_path / "journal.jsonl").read_text())
+    assert set(entry["odds_cadence"]) == {
+        "latest_scheduled_slot", "latest_slot_observed", "missed_latest_slot",
+        "archive_started", "n_observations", "acknowledged"}
+    assert entry["odds_cadence"] == result["odds_cadence"]
+
+
 def test_a_failed_snapshot_stops_the_cycle_before_the_ingest(tmp_path):
     """The capture is step one and everything else is gated on it: a feed that
     stopped publishing `AvgH` needs a ruling, not a cycle that carried on."""
@@ -1249,14 +1431,17 @@ def test_main_prints_STOP_and_exits_2_on_a_refusal(tmp_path, capsys):
     assert "2627:fulham:chelsea" in err
 
 
-def test_the_command_takes_the_three_documented_flags():
+def test_the_command_takes_the_four_documented_flags():
     parser = livecycle.build_parser()
     args = parser.parse_args(["--allow-single-source", "--dry-run",
-                              "--skip-odds-snapshot"])
+                              "--skip-odds-snapshot",
+                              "--acknowledge-missed-slot", "offline Tuesday"])
     assert args.allow_single_source and args.dry_run and args.skip_odds_snapshot
+    assert args.acknowledge_missed_slot == "offline Tuesday"
     plain = parser.parse_args([])
     assert not (plain.allow_single_source or plain.dry_run
                 or plain.skip_odds_snapshot)
+    assert plain.acknowledge_missed_slot is None
 
 
 def test_the_odds_snapshot_directory_is_the_one_that_actually_holds_them():

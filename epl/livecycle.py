@@ -13,7 +13,8 @@ job is sequencing, sourcing, cross-checking, and stopping.
 
 Ten steps, each gated on the one before it:
 
-  1. the odds snapshot, on Tuesdays and Fridays (UTC), via `epl.oddscapture`
+  1. the odds snapshot, on Tuesdays and Fridays (UTC), via `epl.oddscapture`,
+     then `oddscapture.capture_status` over the archive as it now stands
   2. fetch BOTH result sources
   3. determine the NEW results and cross-check the two sources
   4. ingest — dry run first, then `--write` only if the dry run is clean
@@ -36,6 +37,17 @@ skipped.
 A NO-OP DAY IS THE COMMON CASE. No new results and a fresh issuance means the
 cycle says so and exits 0. Running it daily has to be safe, or it will not be
 run daily.
+
+THE SLOT NOBODY RAN ON. Every refusal in step 1 fires on a day the cycle RAN.
+The failure that is actually likely — a Tuesday or Friday on which nothing was
+run at all — was detected by nothing: `oddscapture.capture_status` computed
+`missed_latest_slot` from the moment the archive existed, and only
+`python -m epl.oddscapture --status` ever called it. So the cycle asks it now,
+on every run, records the answer on the flight log whichever way it falls, and
+refuses when the most recent scheduled slot has no observation and the archive
+already holds one. `--acknowledge-missed-slot 'why'` is the way past it, and it
+files the reason rather than erasing the gap. An archive with no observation at
+all is not behind: it has no cadence yet to have broken.
 
 THE TWO CLOCKS, WHICH ARE THE THING THIS BUILD EXISTS TO GET RIGHT
 ------------------------------------------------------------------
@@ -139,6 +151,7 @@ __all__ = [
     "LiveCycleError", "SourceUnreachable", "SourceMalformed",
     "SourceDisagreement", "CoverageGap", "LedgerConflict", "GateNotPassed",
     "CheckUnexpected", "ScorecardMismatch", "OddsSnapshotFailed",
+    "OddsSlotMissed",
     "LaunchModeUnsafe", "SOURCE_A", "SOURCE_B", "SourceResult", "CrossCheck",
     "JOURNAL_PATH", "ODDS_SNAPSHOT_DIR", "DEFAULT_FETCHERS",
     "openfootball_url", "football_data_url", "fetch_openfootball",
@@ -200,6 +213,22 @@ class ScorecardMismatch(LiveCycleError):
 
 class OddsSnapshotFailed(LiveCycleError):
     """The Tuesday/Friday capture could not be taken."""
+
+
+class OddsSlotMissed(LiveCycleError):
+    """A Tuesday/Friday slot already on the cadence has no observation.
+
+    THE DEFECT THIS CLOSES. Every refusal above fires on a day the cycle RAN.
+    A slot day on which the cycle simply is not run was detected by nothing:
+    `oddscapture.capture_status` has computed `missed_latest_slot` all along,
+    and only `python -m epl.oddscapture --status` ever called it. The source
+    overwrites one file a week, so a slot nobody noticed is a publication that
+    no longer exists and cannot be recovered by running the cycle later.
+
+    The check is therefore the NEXT run's job, and it fires there. It is not a
+    claim that a fresh archive is behind: an archive with no observation at all
+    has no cadence yet to have broken, so the refusal is gated on the archive
+    having started."""
 
 
 class LaunchModeUnsafe(LiveCycleError):
@@ -1168,6 +1197,7 @@ def latest_stamp(season_obj: season_mod.Season, now) -> pd.Timestamp:
 def run_cycle(*, now=None, season: str = simcli.DEFAULT_SEASON, root=None,
               allow_single_source: bool = False, dry_run: bool = False,
               skip_odds_snapshot: bool = False,
+              acknowledge_missed_slot: str | None = None,
               out_root=None, derived_root=None, snapshot_dir=None,
               shadow_ledger=None, avail_ledger=None, journal=None,
               fetchers: Mapping[str, Callable[[str], str]] | None = None,
@@ -1228,6 +1258,12 @@ def run_cycle(*, now=None, season: str = simcli.DEFAULT_SEASON, root=None,
         "outcome": "STOP",
         "refused": None,
         "odds_snapshot": None,
+        # A capture that was DUE and was not taken is a different fact from a
+        # Wednesday, and `odds_snapshot: null` said both. This field says which.
+        "odds_snapshot_skipped": None,
+        # What `oddscapture.capture_status` says about the cadence, recorded on
+        # every line whether or not it refuses.
+        "odds_cadence": None,
         "sources": {},
         "already_resolved": None,
         "kickoff_moves": None,
@@ -1254,7 +1290,9 @@ def run_cycle(*, now=None, season: str = simcli.DEFAULT_SEASON, root=None,
         result = _run(entry, now=now, observed_at=observed_at, cutoff=cutoff,
                       season=season, root=root, arms=arms,
                       allow_single_source=allow_single_source, dry_run=dry_run,
-                      skip_odds_snapshot=skip_odds_snapshot, out_root=out_root,
+                      skip_odds_snapshot=skip_odds_snapshot,
+                      acknowledge_missed_slot=acknowledge_missed_slot,
+                      out_root=out_root,
                       derived_root=derived_root, snapshot_dir=snapshot_dir,
                       shadow_ledger=shadow_ledger, avail_ledger=avail_ledger,
                       fetchers=fetchers,
@@ -1275,7 +1313,8 @@ def run_cycle(*, now=None, season: str = simcli.DEFAULT_SEASON, root=None,
 
 
 def _run(entry, *, now, observed_at, cutoff, season, root, arms,
-         allow_single_source, dry_run, skip_odds_snapshot, out_root,
+         allow_single_source, dry_run, skip_odds_snapshot,
+         acknowledge_missed_slot, out_root,
          derived_root, snapshot_dir, shadow_ledger, avail_ledger, fetchers,
          odds_fetcher, steps, board_reader, verbose) -> dict[str, Any]:
     """The ten steps. Mutates `entry` as it goes, so a STOP is journalled with
@@ -1286,9 +1325,24 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
     latest_stamp(season_obj, observed_at)
 
     # --- 1. the odds snapshot (Tuesday and Friday, 06:00 UTC) -------------
-    if not skip_odds_snapshot and oddscapture.is_capture_day(now):
-        capture_slot = now.normalize() + pd.Timedelta(
-            hours=oddscapture.CAPTURE_HOUR_UTC)
+    capture_slot = now.normalize() + pd.Timedelta(
+        hours=oddscapture.CAPTURE_HOUR_UTC)
+    capture_day = bool(oddscapture.is_capture_day(now))
+    if skip_odds_snapshot:
+        # THE FLAG IS RECORDED, NOT INFERRED. `odds_snapshot: null` meant three
+        # different things — no capture was due, one was due and the operator
+        # skipped it, or the flag was passed on a day with nothing to skip —
+        # and a flight log that cannot tell them apart is a flight log that
+        # cannot answer "was the Tuesday taken?".
+        entry["odds_snapshot_skipped"] = {
+            "skipped": True,
+            "capture_day": capture_day,
+            "day_name": now.day_name(),
+            "slot": capture_slot.isoformat() if capture_day else None,
+            "due": capture_day and now >= capture_slot,
+            "reason": "operator passed --skip-odds-snapshot",
+        }
+    if not skip_odds_snapshot and capture_day:
         if now < capture_slot:
             raise OddsSnapshotFailed(
                 f"the {now.day_name()} odds-capture slot is "
@@ -1316,6 +1370,39 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
             entry["odds_snapshot"] = {**snap.as_dict(), "capture_day": True,
                                       "day_name": now.day_name()}
             entry["digests"]["odds_snapshot"] = snap.sha256
+
+    # --- 1b. the slot NOBODY ran on --------------------------------------
+    # `capture_status` has computed this since the archive was built and only
+    # the operator CLI's `--status` ever asked it. Asked here, after step 1, so
+    # that a capture this run just took satisfies today's slot rather than
+    # racing it.
+    status = oddscapture.capture_status(when=now, directory=snapshot_dir)
+    latest_slot = pd.Timestamp(status["latest_scheduled_slot"])
+    planned = bool((entry["odds_snapshot"] or {}).get("planned"))
+    # A dry run takes no capture and step 1 recorded that it WOULD: today's
+    # slot is not a hole in the archive when this run is the thing that fills
+    # it. Any EARLIER slot still is, and still refuses.
+    covered_by_plan = planned and latest_slot == capture_slot
+    began = int(status["n_observations"]) > 0
+    missed = bool(status["missed_latest_slot"]) and not covered_by_plan
+    entry["odds_cadence"] = {
+        "latest_scheduled_slot": status["latest_scheduled_slot"],
+        "latest_slot_observed": bool(status["latest_slot_observed"]),
+        "missed_latest_slot": missed,
+        "archive_started": began,
+        "n_observations": int(status["n_observations"]),
+        "acknowledged": acknowledge_missed_slot,
+    }
+    if missed and began and not acknowledge_missed_slot:
+        raise OddsSlotMissed(
+            f"the {latest_slot.day_name()} {latest_slot.isoformat()} capture "
+            f"slot has no observation on file, and the archive already holds "
+            f"{status['n_observations']} — the cadence started and this slot "
+            "is a hole in it. STOP: the source overwrites one file a week, so "
+            "the publication that belonged in that slot is gone and no later "
+            "run recovers it. Record the decision with "
+            "--acknowledge-missed-slot 'why', which files the reason on the "
+            "flight log rather than letting a silent gap pass as a clean run.")
 
     # --- 2. both sources, or nothing --------------------------------------
     urls = {SOURCE_A: openfootball_url(season_obj),
@@ -1666,8 +1753,26 @@ def render_summary(entry: Mapping[str, Any]) -> str:
              _RULE]
 
     snap = entry.get("odds_snapshot")
-    if snap is None:
-        lines.append("odds        no capture (not a Tuesday or Friday, or skipped)")
+    skipped = entry.get("odds_snapshot_skipped")
+    if skipped:
+        # THREE STATES, THREE LINES. The old renderer printed "no capture (not
+        # a Tuesday or Friday, or skipped)" for all of them, so the one that
+        # matters — a DUE capture the operator skipped — read the same as a
+        # Wednesday.
+        if skipped.get("due"):
+            lines.append(f"odds        SKIPPED the {skipped['day_name']} "
+                         f"{skipped['slot']} capture — operator passed "
+                         "--skip-odds-snapshot")
+        elif skipped.get("capture_day"):
+            lines.append(f"odds        SKIPPED — {skipped['day_name']} is a "
+                         f"capture day and its {skipped['slot']} slot had not "
+                         "opened yet")
+        else:
+            lines.append(f"odds        no capture due on a "
+                         f"{skipped['day_name']}; --skip-odds-snapshot "
+                         "changed nothing")
+    elif snap is None:
+        lines.append(f"odds        no capture due on a {at.day_name()}")
     elif snap.get("planned"):
         lines.append(f"odds        WOULD capture the {snap['day_name']} fixtures file")
     elif snap.get("written"):
@@ -1675,6 +1780,24 @@ def render_summary(entry: Mapping[str, Any]) -> str:
                      f"E0 rows, sha {snap['sha256'][:12]})")
     else:
         lines.append("odds        nothing new published since the last capture")
+
+    cadence = entry.get("odds_cadence")
+    if cadence:
+        slot = cadence["latest_scheduled_slot"]
+        if cadence["missed_latest_slot"] and cadence["archive_started"]:
+            lines.append(f"cadence     MISSED the {slot} slot"
+                         + (f" — acknowledged: {cadence['acknowledged']}"
+                            if cadence["acknowledged"]
+                            else " — this run refuses"))
+        elif cadence["missed_latest_slot"]:
+            lines.append(f"cadence     no observation on file yet; the {slot} "
+                         "slot is not a gap in a cadence that has not started")
+        elif cadence["archive_started"]:
+            lines.append(f"cadence     {slot} observed  "
+                         f"({cadence['n_observations']} observation(s) on file)")
+        else:
+            lines.append(f"cadence     the {slot} slot is this run's own "
+                         "capture; nothing else is on file")
 
     for name in (SOURCE_A, SOURCE_B):
         cell = (entry.get("sources") or {}).get(name)
@@ -1782,7 +1905,15 @@ def build_parser() -> argparse.ArgumentParser:
              "with holes in it is not a flight log.")
     parser.add_argument(
         "--skip-odds-snapshot", action="store_true",
-        help="do not take the Tuesday/Friday fixtures capture this run")
+        help="do not take the Tuesday/Friday fixtures capture this run. The "
+             "flag is recorded on the flight log with the slot it skipped, so "
+             "a skipped Tuesday never reads as a Wednesday.")
+    parser.add_argument(
+        "--acknowledge-missed-slot", metavar="WHY", default=None,
+        help="proceed although a Tuesday/Friday slot already on the cadence "
+             "has no observation. WHY is filed verbatim on the flight log: "
+             "the publication that belonged in that slot is gone, and the "
+             "only thing left to record is who decided to carry on and why.")
     parser.add_argument("--season", default=simcli.DEFAULT_SEASON)
     parser.add_argument("--root", default=None,
                         help=f"the season ledgers (default {season_mod.SEASON_ROOT})")
@@ -1815,6 +1946,7 @@ def main(argv: Sequence[str] | None = None, **overrides) -> int:
         "allow_single_source": args.allow_single_source,
         "dry_run": args.dry_run,
         "skip_odds_snapshot": args.skip_odds_snapshot,
+        "acknowledge_missed_slot": args.acknowledge_missed_slot,
     }
     kwargs.update(overrides)
     try:
