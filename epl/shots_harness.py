@@ -24,6 +24,7 @@ import resource
 import selectors
 import shutil
 import signal
+import socket
 import stat
 import subprocess
 import sys
@@ -172,10 +173,16 @@ _NATIVE_RUNTIME_MISMATCH_MESSAGE = (
     "native runtime/toolchain closure changed after worker launch"
 )
 _NATIVE_COMPLETION_SCHEMA = "epl-shots-native-job-completion-3"
-_NATIVE_SANDBOX_SCHEMA = "epl-shots-native-sandbox-contract-3"
-_NATIVE_SANDBOX_RUN_SCHEMA = "epl-shots-native-sandbox-run-3"
+_NATIVE_SANDBOX_SCHEMA = "epl-shots-native-sandbox-contract-4"
+_NATIVE_SANDBOX_RUN_SCHEMA = "epl-shots-native-sandbox-run-4"
 _NATIVE_SANDBOX_EXECUTABLE = Path("/usr/bin/sandbox-exec")
 _NATIVE_RSS_MONITOR_EXECUTABLE = Path("/bin/ps")
+# Amendment 3 item 8: one process-group-scoped snapshot carries ownership and
+# RSS together; indeterminate observations get a small bounded retry and then
+# fail closed.
+_NATIVE_MONITOR_COLUMNS = "pid=,pgid=,stat=,rss="
+_NATIVE_MONITOR_STATE_RETRIES = 3
+_NATIVE_MONITOR_RETRY_SECONDS = 0.05
 _NATIVE_TEMP_PARENT = Path("/private/tmp")
 _NATIVE_TOTAL_TIMEOUT_SECONDS = 12 * 60 * 60
 _NATIVE_INACTIVITY_TIMEOUT_SECONDS = 20 * 60
@@ -188,7 +195,7 @@ _NATIVE_RSS_LIMIT_BYTES = 32 * 1_073_741_824
 _NATIVE_RSS_POLL_SECONDS = 0.5
 _NATIVE_NOFILE_LIMIT = 256
 _NATIVE_PATH_RESOLUTION_LITERALS = ("/",)
-_NATIVE_RUNTIME_CLOSURE_SCHEMA = "epl-shots-native-runtime-lock-2"
+_NATIVE_RUNTIME_CLOSURE_SCHEMA = "epl-shots-native-runtime-lock-3"
 _NATIVE_RUNTIME_TREE_SCHEMA = "epl-shots-runtime-tree-1"
 _NATIVE_RUNTIME_OUTPUT_TREE_SCHEMA = "epl-shots-generated-runtime-tree-1"
 # No broad macOS system subtree is exposed to the worker.  Even a sealed
@@ -196,6 +203,17 @@ _NATIVE_RUNTIME_OUTPUT_TREE_SCHEMA = "epl-shots-generated-runtime-tree-1"
 # (for example ``/System/Library/User Template -> /Library/User Template``).
 # Exact system executables/loadable images are allowlisted and hashed below.
 _NATIVE_SEALED_READ_ROOTS: tuple[str, ...] = ()
+# Amendment 3 item 1: the exact-literal system-read contract.  CPython
+# hardcodes the plist path in platform.mac_ver(); the pinned PyTensor parses
+# the result unguarded on its cold C-compile path.  The grant is data+metadata
+# on the exact literal, never a subpath; identity and bytes are bound into the
+# runtime lock.  The sibling stays denied and is probed as a negative control.
+_NATIVE_SYSTEM_READ_LITERALS = (
+    Path("/System/Library/CoreServices/SystemVersion.plist"),
+)
+_NATIVE_SYSTEM_READ_NEGATIVE_SIBLING = Path(
+    "/System/Library/CoreServices/iOSSystemVersion.plist"
+)
 _NATIVE_DEVELOPER_ROOT = Path("/Library/Developer/CommandLineTools")
 _NATIVE_SYSTEM_LOADABLES = (
     Path("/usr/lib/libffi-trampolines.dylib"),
@@ -472,6 +490,12 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(root / "src"))
 sys.path.insert(0, str(root))
 sys.path.append(str(site_packages))
+
+# Amendment 3 item 6: the pinned compiledir must begin empty before anything
+# can import PyTensor, so every run provably takes the cold C-linker path.
+compiledir = runtime_root / "pytensor/compiled"
+if compiledir.exists() and any(compiledir.iterdir()):
+    raise RuntimeError("native worker compiledir is not cold")
 
 import numpy as np
 import pandas as pd
@@ -773,6 +797,433 @@ with fit_mod.config_read_once(cfg):
         }
         sys.stdout.buffer.write(canonical(payload))
         sys.stdout.buffer.flush()
+'''
+
+
+# Amendment 3 §C5: the cold synthetic production-path smoke gate.  Frozen
+# smoke parameters — the production likelihood, backend, and seed are kept;
+# only these iteration/draw counts and the deterministic synthetic panel are
+# smoke-specific, and they are preregistered in the amendment.
+_SMOKE_REQUEST_SCHEMA = "epl-shots-smoke-request-1"
+_SMOKE_RESULT_SCHEMA = "epl-shots-smoke-worker-result-1"
+_SMOKE_SEED = 20260901
+_SMOKE_TEAMS = ("smoke_alpha", "smoke_beta", "smoke_gamma", "smoke_delta")
+_SMOKE_HISTORY_SEASON = "2015/16"
+_SMOKE_SCORED_SEASON = "2016/17"
+_SMOKE_HISTORY_ROUNDS = 6
+_SMOKE_SCORED_ROUNDS = 1
+_SMOKE_ADVI_ITERS = 1500
+_SMOKE_DRAWS = 200
+_SMOKE_TUNE = 200
+_SMOKE_EXPECTED_BLAS_FRAGMENT = "-framework Accelerate"
+_SMOKE_RECEIPT_PATH = _ROOT / "reports/evidence/epl_shots/h_candidate_smoke_receipt.json"
+_SMOKE_NEGATIVE_CONTROLS = (
+    "checkout_read",
+    "system_volumes_data_alias_read",
+    "decision_sentinel_read",
+    "plist_sibling_read",
+    "outside_runtime_write",
+    "ipv4_connect",
+    "ipv6_connect",
+    "ipv4_bind",
+    "ipv6_bind",
+    "unix_socket_connect",
+    "generated_exec_outside_runtime_tmp",
+)
+
+_SMOKE_WORKER_SOURCE = r'''
+from __future__ import annotations
+
+import contextlib
+import hashlib
+import json
+import math
+import os
+import platform
+import shutil
+import socket
+import stat
+import subprocess
+import sys
+from pathlib import Path
+
+RESULT_SCHEMA = "epl-shots-smoke-worker-result-1"
+
+
+def canonical(value):
+    return (json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+        allow_nan=False,
+    ) + "\n").encode("ascii")
+
+
+def refuse(condition, message):
+    if condition:
+        raise RuntimeError(f"smoke worker refused: {message}")
+
+
+root = Path(os.environ.pop("EPL_SHOTS_PARENT_ROOT")).resolve()
+request_path = Path(os.environ.pop("EPL_SHOTS_REQUEST")).resolve()
+runtime_root = Path(os.environ.pop("EPL_SHOTS_RUNTIME_ROOT")).resolve()
+site_packages = Path(os.environ.pop("EPL_SHOTS_SITE_PACKAGES")).resolve()
+python_abi = os.environ.pop("EPL_SHOTS_PYTHON_ABI")
+refuse(python_abi != f"{sys.version_info.major}.{sys.version_info.minor}",
+       "smoke worker Python ABI differs from its contract")
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(root / "src"))
+sys.path.insert(0, str(root))
+sys.path.append(str(site_packages))
+
+# Keep the machine channel exact: the payload goes to the saved stdout
+# descriptor; every other write to fd 1 (progress bars included) is folded
+# into stderr for the duration of the run.
+payload_channel = os.fdopen(os.dup(1), "wb")
+os.dup2(2, 1)
+
+request_raw = request_path.read_bytes()
+request = json.loads(request_raw.decode("ascii"))
+refuse(not isinstance(request, dict) or canonical(request) != request_raw,
+       "smoke request is not one canonical ASCII JSON object")
+refuse(set(request) != {
+    "schema", "checkout_root", "decision_sentinel", "plist_literal",
+    "plist_sibling", "unix_socket_sentinel", "expected_product_version",
+    "expected_blas_fragment",
+    "expected_cxx", "expected_sdk_root", "seed", "advi_iters", "draws",
+    "tune", "teams", "history_season", "scored_season", "history_rounds",
+    "scored_rounds",
+}, "smoke request fields differ")
+refuse(request["schema"] != "epl-shots-smoke-request-1",
+       "smoke request schema differs")
+
+# --- stage 1: cold identity -------------------------------------------------
+compiledir = runtime_root / "pytensor/compiled"
+refuse(compiledir.exists() and any(compiledir.iterdir()),
+       "compiledir is not cold")
+flags = os.environ.get("PYTENSOR_FLAGS", "")
+refuse(f"base_compiledir={runtime_root / 'pytensor'}" not in flags
+       or f"compiledir={runtime_root / 'pytensor' / 'compiled'}" not in flags,
+       "PYTENSOR_FLAGS does not pin both compiledirs")
+plist_bytes = Path(request["plist_literal"]).read_bytes()
+refuse(not plist_bytes, "system version plist read empty inside the sandbox")
+mac_release = platform.mac_ver()[0]
+refuse(mac_release != request["expected_product_version"],
+       f"platform.mac_ver() differs from the runtime lock: {mac_release!r}")
+refuse(os.environ.get("CXX") != request["expected_cxx"],
+       "CXX differs from the locked compiler")
+refuse(os.environ.get("SDKROOT") != request["expected_sdk_root"],
+       "SDKROOT differs from the locked SDK")
+with open("/dev/null", "wb") as devnull:
+    devnull.write(b"smoke")
+
+# --- stage 6 first: containment negatives (no state, fail early) ------------
+checkout = Path(request["checkout_root"])
+alias = Path("/System/Volumes/Data" + request["checkout_root"])
+
+
+def denied(operation):
+    try:
+        operation()
+    except PermissionError:
+        return "denied"
+    except Exception as exc:  # pragma: no cover - diagnostic path
+        return f"wrong-error:{type(exc).__name__}:{exc}"
+    return "allowed"
+
+
+negatives = {
+    "checkout_read": denied(
+        lambda: (checkout / "pyproject.toml").read_bytes()
+    ),
+    "system_volumes_data_alias_read": denied(
+        lambda: (alias / "pyproject.toml").read_bytes()
+    ),
+    "decision_sentinel_read": denied(
+        lambda: Path(request["decision_sentinel"]).read_bytes()
+    ),
+    "plist_sibling_read": denied(
+        lambda: Path(request["plist_sibling"]).read_bytes()
+    ),
+    "outside_runtime_write": denied(
+        lambda: (checkout / "smoke-denied-probe").write_bytes(b"denied")
+    ),
+    "ipv4_connect": denied(
+        lambda: socket.create_connection(("127.0.0.1", 9), timeout=0.2)
+    ),
+    "ipv6_connect": denied(
+        lambda: socket.socket(socket.AF_INET6, socket.SOCK_STREAM).connect(
+            ("::1", 9)
+        )
+    ),
+    "ipv4_bind": denied(
+        lambda: socket.socket(socket.AF_INET, socket.SOCK_STREAM).bind(
+            ("127.0.0.1", 0)
+        )
+    ),
+    "ipv6_bind": denied(
+        lambda: socket.socket(socket.AF_INET6, socket.SOCK_STREAM).bind(
+            ("::1", 0)
+        )
+    ),
+    "unix_socket_connect": denied(
+        lambda: socket.socket(socket.AF_UNIX, socket.SOCK_STREAM).connect(
+            request["unix_socket_sentinel"]
+        )
+    ),
+}
+
+# --- stage 2a: real toolchain link under the sandbox ------------------------
+tmp_root = runtime_root / "tmp"
+probe_source = tmp_root / "smoke_link_probe.cpp"
+probe_source.write_text(
+    "#include <cstdio>\nint main(){ std::puts(\"smoke-linked\"); return 0; }\n",
+    encoding="ascii",
+)
+probe_binary = tmp_root / "smoke_link_probe"
+link = subprocess.run(
+    (request["expected_cxx"], "-g", "-ld64", str(probe_source),
+     "-o", str(probe_binary)),
+    stdin=subprocess.DEVNULL, capture_output=True, timeout=600, check=False,
+)
+refuse(link.returncode != 0,
+       "sandbox ld-classic link refused: "
+       + link.stderr.decode("utf-8", "replace")[-2000:])
+probe_dsym = Path(str(probe_binary) + ".dSYM")
+refuse(not probe_dsym.is_dir(),
+       "dsymutil did not produce the link probe dSYM inside the sandbox")
+executed = subprocess.run(
+    (str(probe_binary),), stdin=subprocess.DEVNULL, capture_output=True,
+    timeout=60, check=False,
+)
+refuse(executed.returncode != 0
+       or executed.stdout.strip() != b"smoke-linked",
+       "generated executable under runtime/tmp did not run")
+outside_binary = runtime_root / "smoke_link_probe_outside"
+shutil.copy2(probe_binary, outside_binary)
+outside_binary.chmod(0o755)
+
+
+def denied_exec():
+    try:
+        subprocess.run(
+            (str(outside_binary),), stdin=subprocess.DEVNULL,
+            capture_output=True, timeout=60, check=False,
+        )
+    except PermissionError:
+        return "denied"
+    return "allowed"
+
+
+negatives["generated_exec_outside_runtime_tmp"] = denied_exec()
+
+# --- stage 2b: cold PyTensor C-linked module build --------------------------
+import numpy as np
+import pandas as pd
+import pytensor
+import pytensor.tensor as pt
+
+blas_flags = str(pytensor.config.blas__ldflags)
+refuse(request["expected_blas_fragment"] not in blas_flags,
+       f"BLAS resolution fell back silently: {blas_flags!r}")
+refuse(str(pytensor.config.cxx) != request["expected_cxx"],
+       "pytensor cxx differs from the locked compiler")
+probe_x = pt.dvector("smoke_x")
+c_linked = pytensor.function(
+    [probe_x], (probe_x * 2.0).sum(),
+    mode=pytensor.compile.mode.Mode(linker="c"),
+)
+refuse(float(c_linked(np.array([1.0, 2.5]))) != 7.0,
+       "C-linked probe function returned a wrong value")
+module_sos = sorted(
+    str(path.relative_to(compiledir))
+    for path in compiledir.rglob("*.so")
+    if ".dSYM" not in str(path)
+)
+module_dsyms = sorted(
+    str(path.relative_to(compiledir))
+    for path in compiledir.rglob("*.so.dSYM")
+)
+refuse(len(module_sos) < 2,
+       f"cold module build left no compiled modules: {module_sos}")
+refuse(not module_dsyms, "cold module build produced no .so.dSYM")
+
+# --- stage 3: the production model path on synthetic data -------------------
+from epl import anchor as anchor_mod
+from epl import fit as fit_mod
+from epl import freeze, walkforward
+from epl import paths as paths_mod
+from epl.schema import sort_for_walk_forward
+
+feature_cache_root = runtime_root / "feature_cache"
+feature_cache_root.mkdir(parents=True, exist_ok=False)
+paths_mod.FIT_CACHE_DIR = feature_cache_root
+
+rng = np.random.default_rng(int(request["seed"]))
+teams = list(request["teams"])
+refuse(len(teams) != 4, "the smoke panel is defined for exactly four teams")
+rows = []
+
+
+def add_season(season, start, rounds):
+    week = 0
+    for _ in range(int(rounds)):
+        for pair_a, pair_b in (((0, 1), (2, 3)), ((0, 2), (1, 3)),
+                               ((0, 3), (1, 2))):
+            match_date = start + pd.Timedelta(weeks=week)
+            for home_i, away_i in (pair_a, pair_b):
+                home, away = teams[home_i], teams[away_i]
+                fthg = int(rng.poisson(1.5))
+                ftag = int(rng.poisson(1.1))
+                ftr = "H" if fthg > ftag else ("A" if fthg < ftag else "D")
+                rows.append({
+                    "match_id": hashlib.sha256(
+                        f"smoke|{season}|{match_date.date()}|{home}|{away}"
+                        .encode("ascii")
+                    ).hexdigest()[:16],
+                    "season": season,
+                    "date": match_date,
+                    "kickoff": pd.NaT,
+                    "home_key": home,
+                    "away_key": away,
+                    "fthg": fthg,
+                    "ftag": ftag,
+                    "ftr": ftr,
+                    "played": True,
+                })
+            week += 1
+
+
+add_season(request["history_season"], pd.Timestamp("2015-08-08"),
+           request["history_rounds"])
+# Amendment 3 §C5.3: exactly one scored synthetic block of two fixtures —
+# a single matchweek, nothing beyond it in the panel.
+refuse(int(request["scored_rounds"]) != 1,
+       "the smoke schedules exactly one scored round")
+scored_date = pd.Timestamp("2016-08-13")
+for home_i, away_i in ((0, 1), (2, 3)):
+    home, away = teams[home_i], teams[away_i]
+    fthg = int(rng.poisson(1.5))
+    ftag = int(rng.poisson(1.1))
+    ftr = "H" if fthg > ftag else ("A" if fthg < ftag else "D")
+    rows.append({
+        "match_id": hashlib.sha256(
+            f"smoke|{request['scored_season']}|{scored_date.date()}|{home}|{away}"
+            .encode("ascii")
+        ).hexdigest()[:16],
+        "season": request["scored_season"],
+        "date": scored_date,
+        "kickoff": pd.NaT,
+        "home_key": home,
+        "away_key": away,
+        "fthg": fthg,
+        "ftag": ftag,
+        "ftr": ftr,
+        "played": True,
+    })
+panel = pd.DataFrame(rows)
+panel["date"] = pd.to_datetime(panel["date"])
+panel_digest = hashlib.sha256()
+for row in rows:
+    panel_digest.update(canonical({
+        "match_id": row["match_id"], "season": row["season"],
+        "date": pd.Timestamp(row["date"]).date().isoformat(),
+        "home_key": row["home_key"], "away_key": row["away_key"],
+        "fthg": row["fthg"], "ftag": row["ftag"], "ftr": row["ftr"],
+    }))
+synthetic_fixture_sha256 = panel_digest.hexdigest()
+
+refuse(len(panel) != 3 * 2 * int(request["history_rounds"]) + 2,
+       f"smoke panel row count differs: {len(panel)}")
+played = sort_for_walk_forward(panel)
+cuts = walkforward.matchweek_cutoffs(
+    played, score_seasons=(request["scored_season"],), cadence=1,
+)
+refuse(len(cuts) != 1,
+       f"smoke cutoff schedule differs: {len(cuts)}")
+cut = cuts[0]
+refuse(len(cut.match_ids) != 2,
+       "the smoke scored block is not exactly two fixtures")
+
+cfg = freeze.frozen_wcmodel_config()
+inf = cfg["model"]["inference"]
+refuse(cfg["seed"] != 20260611 or inf["backend"] != "advi"
+       or int(inf["draws"]) != 1000 or int(inf["tune"]) != 1000
+       or int(inf["advi_iters"]) != 30000,
+       "production native inference configuration differs")
+inf["advi_iters"] = int(request["advi_iters"])
+inf["draws"] = int(request["draws"])
+inf["tune"] = int(request["tune"])
+
+anchor = anchor_mod.Anchor(played, freeze.frozen_elo_config())
+store = fit_mod.build_store(
+    played, root=runtime_root / "smoke_native_store", rebuild=True,
+)
+with fit_mod.config_read_once(cfg):
+    result = walkforward._one_cutoff(cut, played, store, anchor, cfg, played)
+
+health = result["health"]
+refuse(health.get("all_finite") is not True
+       or health.get("sigma_positive") is not True
+       or health.get("home_adv_sane") is not True,
+       f"smoke fit failed numerical health: {health}")
+refuse(result["unpriceable"] or result["malformed"],
+       "smoke fit produced unpriceable or malformed rows")
+probs = result["probs"]
+refuse(len(probs) != len(cut.match_ids), "smoke fit row count differs")
+for row in probs:
+    refuse(len(row) != 3
+           or any(not isinstance(v, float) or not math.isfinite(v)
+                  or not 0.0 < v <= 1.0 for v in row)
+           or abs(sum(row) - 1.0) > 1.5e-8,
+           f"smoke fit produced an invalid probability row: {row}")
+
+# --- stage 4: the write path ------------------------------------------------
+result_payload = {
+    "schema": "epl-shots-smoke-fit-result-1",
+    "synthetic_fixture_sha256": synthetic_fixture_sha256,
+    "cutoff": str(cut.cutoff.date()),
+    "match_ids": list(cut.match_ids),
+    "probs": probs,
+    "health": {key: health[key] for key in sorted(health)},
+    "n_training_matches": int(result["n_training_matches"]),
+    "n_teams": int(result["n_teams"]),
+}
+result_path = runtime_root / "smoke_result.json"
+result_raw = canonical(result_payload)
+with result_path.open("xb") as handle:
+    handle.write(result_raw)
+    handle.flush()
+    os.fsync(handle.fileno())
+reopened = result_path.read_bytes()
+refuse(reopened != result_raw, "reopened smoke result differs from written bytes")
+result_sha256 = hashlib.sha256(reopened).hexdigest()
+
+payload = {
+    "schema": RESULT_SCHEMA,
+    "mac_ver": mac_release,
+    "plist_sha256": hashlib.sha256(plist_bytes).hexdigest(),
+    "blas_ldflags": blas_flags,
+    "module_sos": module_sos,
+    "module_dsyms": module_dsyms,
+    "link_probe": {
+        "linked": True, "dsym": True, "tmp_exec": "allowed",
+    },
+    "synthetic_fixture_sha256": synthetic_fixture_sha256,
+    "synthetic_rows": int(len(panel)),
+    "fit": {
+        "cutoff": str(cut.cutoff.date()),
+        "n_training_matches": int(result["n_training_matches"]),
+        "n_teams": int(result["n_teams"]),
+        "cold_start_teams": sorted(result["cold_start_teams"]),
+        "health": {key: health[key] for key in sorted(health)},
+        "probs": probs,
+        "match_ids": list(cut.match_ids),
+        "warnings": list(result["warnings"]),
+    },
+    "result_sha256": result_sha256,
+    "containment_negatives": negatives,
+}
+payload_channel.write(canonical(payload))
+payload_channel.flush()
 '''
 
 
@@ -2708,6 +3159,7 @@ def _approved_native_developer_path(path: Path, *, label: str) -> Path:
 def _native_runtime_closure(
     *, site_packages: Path, python_runtime: Path,
     runtime_read_paths: Sequence[str], process_exec_paths: Sequence[str],
+    system_read_literals: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Hash every mutable byte tree the worker may read or execute.
 
@@ -3075,6 +3527,32 @@ def _native_runtime_closure(
             "sha256": digest,
         })
 
+    system_literal_records: list[dict[str, Any]] = []
+    system_literal_bindings: dict[str, tuple[Any, ...]] = {}
+    for literal in system_read_literals:
+        logical = Path(os.path.abspath(os.fspath(Path(str(literal)))))
+        try:
+            resolved, chain, binding = path_binding(logical)
+            info = resolved.stat(follow_symlinks=False)
+        except OSError as exc:
+            raise NativeWorkerSandboxStop(
+                f"system read literal is unavailable: {logical}"
+            ) from exc
+        # Amendment 3 item 1: regular-file, non-symlink identity — every
+        # path component and the target itself must resolve without a link.
+        if chain or resolved != logical or not stat.S_ISREG(info.st_mode):
+            raise NativeWorkerSandboxStop(
+                f"system read literal is not one regular non-symlink file: {logical}"
+            )
+        system_literal_bindings[str(logical)] = binding
+        digest, size = file_digest(resolved, info)
+        system_literal_records.append({
+            "logical_path": str(logical), "resolved_path": str(resolved),
+            "link_chain": chain,
+            "mode": stat.S_IMODE(info.st_mode), "bytes": size,
+            "sha256": digest,
+        })
+
     root_mount_lines = [
         line for line in _fixed_tool_output(Path("/sbin/mount")).splitlines()
         if " on / " in f" {line} "
@@ -3107,12 +3585,18 @@ def _native_runtime_closure(
             raise NativeWorkerSandboxStop(
                 f"runtime executable changed after hashing: {logical_name}"
             )
+    for logical_name, expected in system_literal_bindings.items():
+        if path_binding(Path(logical_name))[2] != expected:
+            raise NativeWorkerSandboxStop(
+                f"system read literal changed after hashing: {logical_name}"
+            )
     if path_binding(sdk_path)[2] != sdk_binding:
         raise NativeWorkerSandboxStop("active SDK changed after hashing")
     payload = {
         "schema": _NATIVE_RUNTIME_CLOSURE_SCHEMA,
         "tree_digest_schema": _NATIVE_RUNTIME_TREE_SCHEMA,
         "sealed_read_roots": list(_NATIVE_SEALED_READ_ROOTS),
+        "system_read_literals": system_literal_records,
         "mutable_roots": mutable_roots,
         "executables": executable_records,
         "platform": platform_receipt,
@@ -3187,9 +3671,15 @@ def _native_sandbox_contract(
     if (str((_ROOT / ".venv").absolute()) not in runtime_paths
             or str(python_runtime) not in runtime_paths):
         raise NativeWorkerSandboxStop("native Python runtime closure is unavailable")
+    # Amendment 3 items 2 and 3: the pinned CLT ``ld`` dispatches to its
+    # sibling ``ld-classic`` when PyTensor's ``-ld64`` flag is in effect, and
+    # Darwin clang schedules ``dsymutil`` for the ``-g`` module build.  Both
+    # are selected, developer-root-confined, exact-exec, and hash-bound.
     selected_tools = {
         name: Path(_fixed_tool_output(Path("/usr/bin/xcrun"), "--find", name))
-        for name in ("clang", "clang++", "ld", "ar", "strip")
+        for name in (
+            "clang", "clang++", "ld", "ar", "strip", "ld-classic", "dsymutil",
+        )
     }
     for name, path in selected_tools.items():
         resolved_tool = _approved_native_developer_path(
@@ -3228,11 +3718,20 @@ def _native_sandbox_contract(
         str(path.absolute()) for path in process_exec_candidates
         if path.exists() and os.access(path, os.X_OK)
     ]
+    system_read_literals = []
+    for literal in _NATIVE_SYSTEM_READ_LITERALS:
+        absolute = Path(os.path.abspath(os.fspath(literal)))
+        if absolute.is_symlink() or not absolute.is_file():
+            raise NativeWorkerSandboxStop(
+                f"required system read literal is unavailable: {absolute}"
+            )
+        system_read_literals.append(str(absolute))
     if frozen_runtime_lock is None:
         runtime_closure = _native_runtime_closure(
             site_packages=site_packages, python_runtime=python_runtime,
             runtime_read_paths=runtime_paths,
             process_exec_paths=process_exec_paths,
+            system_read_literals=system_read_literals,
         )
     else:
         try:
@@ -3264,6 +3763,8 @@ def _native_sandbox_contract(
         "python_flags": list(_NATIVE_WORKER_FLAGS),
         "runtime_read_paths": runtime_paths,
         "process_exec_paths": process_exec_paths,
+        "system_read_literals": system_read_literals,
+        "generated_process_exec_subtree": "runtime_tmp",
         "file_read_metadata": "allowlisted_paths_and_ancestors",
         "path_resolution_literals": list(_NATIVE_PATH_RESOLUTION_LITERALS),
         "runtime_closure": runtime_closure,
@@ -3306,7 +3807,8 @@ def _validate_native_sandbox_contract_shape(
         "schema", "sandbox_executable", "python_launcher", "python_resolved",
         "python_sha256", "python_abi", "site_packages", "compiler_paths",
         "sdk_root", "python_flags", "runtime_read_paths",
-        "process_exec_paths", "file_read_metadata",
+        "process_exec_paths", "system_read_literals",
+        "generated_process_exec_subtree", "file_read_metadata",
         "path_resolution_literals", "runtime_closure",
         "temporary_read_roles", "temporary_write_roles", "network",
         "inherit_environment", "environment_keys", "resource_limits",
@@ -3336,7 +3838,10 @@ def _validate_native_sandbox_contract_shape(
             or not isinstance(contract["site_packages"], str)
             or not Path(contract["site_packages"]).is_absolute()
             or not isinstance(compiler_paths, Mapping)
-            or set(compiler_paths) != {"clang", "clang++", "ld", "ar", "strip"}
+            or set(compiler_paths) != {
+                "clang", "clang++", "ld", "ar", "strip",
+                "ld-classic", "dsymutil",
+            }
             or any(not isinstance(path, str) or not Path(path).is_absolute()
                    for path in compiler_paths.values())
             or not isinstance(contract["sdk_root"], str)
@@ -3347,6 +3852,11 @@ def _validate_native_sandbox_contract_shape(
                    or any(not isinstance(path, str)
                           or not Path(path).is_absolute() for path in values)
                    for values in path_lists)
+            or contract["system_read_literals"] != [
+                str(Path(os.path.abspath(os.fspath(literal))))
+                for literal in _NATIVE_SYSTEM_READ_LITERALS
+            ]
+            or contract["generated_process_exec_subtree"] != "runtime_tmp"
             or contract["file_read_metadata"]
                 != "allowlisted_paths_and_ancestors"
             or contract["path_resolution_literals"]
@@ -3390,6 +3900,11 @@ def _validate_native_sandbox_contract_shape(
     executable_by_logical = {
         record["logical_path"]: record for record in executable_records
     }
+    if [record["logical_path"] for record in closure["system_read_literals"]] \
+            != list(contract["system_read_literals"]):
+        raise NativeWorkerSandboxStop(
+            "native sandbox system read literals differ from the runtime lock"
+        )
     expected_executables = set(contract["process_exec_paths"]) | {
         contract["sandbox_executable"],
         str(_NATIVE_RSS_MONITOR_EXECUTABLE),
@@ -4404,6 +4919,7 @@ def _native_sandbox_profile(
             or (resolve_live_paths and request.is_dir())
             or request == parent or request == runtime):
         raise NativeWorkerSandboxStop("native sandbox paths are not isolated")
+    generated_exec_root = runtime / "tmp"
     read_rules = [
         f"(subpath {_sandbox_string(parent)})",
         f"(literal {_sandbox_string(request)})",
@@ -4412,6 +4928,10 @@ def _native_sandbox_profile(
           for path in contract["runtime_read_paths"]),
         *(f"(literal {_sandbox_string(path)})"
           for path in contract["process_exec_paths"]),
+        # Amendment 3 item 1: the exact system-read literals, data+metadata
+        # on the exact file only; never a subpath.
+        *(f"(literal {_sandbox_string(path)})"
+          for path in contract["system_read_literals"]),
         f"(literal {_sandbox_string('/dev/null')})",
         *(f"(literal {_sandbox_string(path)})"
           for path in contract["path_resolution_literals"]),
@@ -4427,6 +4947,7 @@ def _native_sandbox_profile(
         parent, request, runtime,
         *(Path(str(path)) for path in contract["runtime_read_paths"]),
         *(Path(str(path)) for path in contract["process_exec_paths"]),
+        *(Path(str(path)) for path in contract["system_read_literals"]),
         *(Path(str(path)) for path in contract["path_resolution_literals"]),
         Path("/dev/null"),
     }
@@ -4452,6 +4973,9 @@ def _native_sandbox_profile(
         "(allow process-exec",
         *(f"  (literal {_sandbox_string(path)})"
           for path in contract["process_exec_paths"]),
+        # Amendment 3 item 4: generated probe execution only below the fresh
+        # runtime tmp subtree — sandbox-inherited, same group, same quotas.
+        f"  (subpath {_sandbox_string(generated_exec_root)})",
         ")",
         "(allow sysctl-read)",
         "(allow file-read-metadata",
@@ -4462,6 +4986,10 @@ def _native_sandbox_profile(
         ")",
         "(allow file-map-executable",
         *(f"  {rule}" for rule in executable_map_rules),
+        ")",
+        # Amendment 3 item 5: the exact inert device write.
+        "(allow file-write-data",
+        f"  (literal {_sandbox_string('/dev/null')})",
         ")",
         f"(allow file-write* (subpath {_sandbox_string(runtime)}))",
         "",
@@ -4492,8 +5020,12 @@ def _native_environment_values(
         "PATH": f"{_ROOT / '.venv' / 'bin'}:/usr/bin:/bin",
         "PYTHONHASHSEED": "0",
         "PYTHONNOUSERSITE": "1",
+        # Amendment 3 item 6: both compiledirs are pinned inside the fresh
+        # runtime, suppressing ambient platform-derived directory naming and
+        # removing any reason to execute ``uname`` or ``file``.
         "PYTENSOR_FLAGS": (
             f"base_compiledir={runtime_root / 'pytensor'},"
+            f"compiledir={runtime_root / 'pytensor' / 'compiled'},"
             f"cxx={contract['compiler_paths']['clang++']}"
         ),
         "SDKROOT": str(contract["sdk_root"]),
@@ -4559,56 +5091,8 @@ def _apply_native_resource_limits() -> None:
 def _native_process_group_rss_bytes(
     process: subprocess.Popen[bytes],
 ) -> int:
-    """Return one sampled sum of resident bytes for the worker process group."""
-    if type(process.pid) is not int or process.pid <= 0:
-        raise NativeWorkerIOFailure("native worker process-group id is invalid")
-    try:
-        completed = subprocess.run(
-            (
-                str(_NATIVE_RSS_MONITOR_EXECUTABLE),
-                "-axo", "pgid=,rss=",
-            ),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=False,
-            timeout=10,
-            check=False,
-            env={"LC_ALL": "C", "PATH": "/usr/bin:/bin"},
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise NativeWorkerIOFailure(
-            "native resident-memory monitor could not run"
-        ) from exc
-    if completed.returncode != 0 or len(completed.stdout) > 16 * 1_048_576:
-        raise NativeWorkerIOFailure("native resident-memory monitor failed")
-    total_kib = 0
-    members = 0
-    try:
-        output = completed.stdout.decode("ascii")
-        for line in output.splitlines():
-            fields = line.split()
-            if len(fields) != 2:
-                raise ValueError("unexpected ps fields")
-            pgid, rss_kib = (int(field, 10) for field in fields)
-            if pgid == process.pid:
-                if rss_kib < 0:
-                    raise ValueError("negative rss")
-                members += 1
-                total_kib += rss_kib
-    except (UnicodeError, ValueError) as exc:
-        raise NativeWorkerIOFailure(
-            "native resident-memory monitor output is malformed"
-        ) from exc
-    # The worker leader deliberately remains unreaped until every other group
-    # member is gone.  Consequently an owned group must always have at least
-    # that leader in ``ps``; polling here would reap it and make a later PGID
-    # signal capable of targeting a recycled, unrelated group.
-    if members == 0:
-        raise NativeWorkerIOFailure(
-            "native resident-memory monitor lost the owned process group"
-        )
-    return total_kib * 1_024
+    """Return the owned group's resident bytes from one group-scoped snapshot."""
+    return _native_process_group_state(process).rss_bytes
 
 
 def _observe_native_process_group_rss(
@@ -4644,12 +5128,19 @@ def _wait_native_process_with_rss_limit(
         raise NativeWorkerIOFailure("native resident-memory monitor timing is invalid")
     deadline = time.monotonic() + timeout_seconds
     while True:
+        # Amendment 3 item 8: one group-scoped snapshot serves both the
+        # ownership reading and the RSS enforcement — no TOCTOU pair.
         state = _native_process_group_state(process)
+        if observed is not None:
+            observed["rss_bytes"] = max(
+                observed.get("rss_bytes", 0), state.rss_bytes,
+            )
         if state.leader_exited:
             return
-        _observe_native_process_group_rss(
-            process, limit_bytes=limit_bytes, observed=observed,
-        )
+        if state.rss_bytes > limit_bytes:
+            raise NativeWorkerIOFailure(
+                "native worker process-group resident-memory limit exceeded"
+            )
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise NativeWorkerIOFailure("native worker wait deadline exceeded")
@@ -4662,18 +5153,40 @@ class _NativeProcessGroupState:
     process_group_id: int
     leader_exited: bool
     nonleader_pids: tuple[int, ...]
+    rss_bytes: int = 0
 
 
-def _require_native_process_group_monitor() -> None:
-    """Refuse before launch when the ownership monitor cannot be executed."""
+@dataclass(frozen=True)
+class _NativeGroupSnapshot:
+    """One parsed group-scoped ``ps`` snapshot; indeterminate rows retry."""
+
+    rows: tuple[tuple[int, int, str, int], ...]
+    indeterminate: str | None
+
+
+def _native_group_monitor_snapshot(
+    process_group_id: int, *, label: str,
+) -> _NativeGroupSnapshot:
+    """Take one process-group-scoped monitor snapshot and parse it strictly.
+
+    Amendment 3 item 8: the pinned Apple ``ps`` supports a kernel-side
+    process-group selector; the snapshot is scoped to the owned group, so
+    unrelated host process churn can never malform the experiment's monitor
+    and diagnostics stay bounded to the owned rows.  A ``?`` task state and a
+    live zero-RSS reading are reported as indeterminate for the caller's
+    bounded retry; everything else malformed fails closed immediately.
+    """
+    if type(process_group_id) is not int or process_group_id <= 0:
+        raise NativeWorkerIOFailure("native worker process-group id is invalid")
     try:
         completed = subprocess.run(
             (
                 str(_NATIVE_RSS_MONITOR_EXECUTABLE),
-                "-axo", "pid=,pgid=,stat=",
+                "-o", _NATIVE_MONITOR_COLUMNS,
+                "-g", str(process_group_id),
             ),
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=False,
             timeout=10,
@@ -4682,11 +5195,120 @@ def _require_native_process_group_monitor() -> None:
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise NativeWorkerIOFailure(
-            "native process-group ownership monitor could not run"
+            f"native {label} monitor could not run"
         ) from exc
-    if completed.returncode != 0:
+    if len(completed.stdout) > 1_048_576:
         raise NativeWorkerIOFailure(
-            "native process-group ownership monitor failed"
+            f"native {label} monitor output exceeds the owned-group bound"
+        )
+    if completed.returncode != 0:
+        if not completed.stdout.strip():
+            # The empty-selection exit: the group holds no process at all,
+            # which an owned group (anchored by its unreaped leader) never
+            # lawfully reaches.
+            raise NativeWorkerIOFailure(
+                f"native {label} monitor lost the owned process group"
+            )
+        raise NativeWorkerIOFailure(f"native {label} monitor failed")
+
+    def bounded(row: str) -> str:
+        return row if len(row) <= 256 else f"{row[:256]}..."
+
+    rows: list[tuple[int, int, str, int]] = []
+    seen_pids: set[int] = set()
+    indeterminate: str | None = None
+    try:
+        output = completed.stdout.decode("ascii")
+    except UnicodeError as exc:
+        raise NativeWorkerIOFailure(
+            f"native {label} monitor output is malformed: non-ascii snapshot"
+        ) from exc
+    for line in output.splitlines():
+        fields = line.split()
+        if not fields:
+            continue
+        if len(fields) != 4:
+            raise NativeWorkerIOFailure(
+                f"native {label} monitor output is malformed: "
+                f"unexpected field count in {bounded(line)!r}"
+            )
+        pid_text, pgid_text, state_text, rss_text = fields
+        try:
+            pid = int(pid_text, 10)
+            pgid = int(pgid_text, 10)
+            rss_kib = int(rss_text, 10)
+        except ValueError as exc:
+            raise NativeWorkerIOFailure(
+                f"native {label} monitor output is malformed: "
+                f"noncanonical numeric field in {bounded(line)!r}"
+            ) from exc
+        if (pid <= 0 or pgid <= 0 or rss_kib < 0
+                or pid_text != str(pid) or pgid_text != str(pgid)
+                or rss_text != str(rss_kib)):
+            raise NativeWorkerIOFailure(
+                f"native {label} monitor output is malformed: "
+                f"invalid process record {bounded(line)!r}"
+            )
+        if pgid != process_group_id:
+            raise NativeWorkerIOFailure(
+                f"native {label} monitor returned a foreign process-group row: "
+                f"{bounded(line)!r}"
+            )
+        if pid in seen_pids:
+            raise NativeWorkerIOFailure(
+                f"native {label} monitor output is malformed: "
+                f"duplicate process id {pid}"
+            )
+        seen_pids.add(pid)
+        if re.fullmatch(r"\?[+<>AELNsVWX]*", state_text) is not None:
+            # Apple's ps prints ``?`` when task state is unavailable; the
+            # ordinary flag suffixes still ride along (observed ``?Es`` on a
+            # worker mid-exec during the first live smoke qualification).
+            indeterminate = f"task state unavailable for pid {pid}"
+        elif re.fullmatch(r"[DHIRSTUZ][+<>AELNsVWX]*", state_text) is None:
+            raise NativeWorkerIOFailure(
+                f"native {label} monitor output is malformed: "
+                f"invalid owned-group process state {bounded(state_text)!r}"
+            )
+        elif not state_text.startswith("Z") and rss_kib == 0:
+            # A live member with zero resident pages is a transient kernel
+            # accounting reading, not a usable sample.
+            indeterminate = f"live zero-RSS reading for pid {pid}"
+        rows.append((pid, pgid, state_text, rss_kib))
+    return _NativeGroupSnapshot(
+        rows=tuple(rows), indeterminate=indeterminate,
+    )
+
+
+def _require_native_process_group_monitor() -> None:
+    """Validate the group-scoped selector against the pinned ``ps`` at launch.
+
+    The probe scopes the snapshot to this coordinator's own process group and
+    requires the selector to be honored kernel-side: every returned row must
+    carry the requested PGID and this process must appear.  Flag semantics
+    are never assumed portable — they are proven against the pinned binary
+    immediately before every launch.
+    """
+    own_pid = os.getpid()
+    try:
+        own_pgid = os.getpgid(0)
+    except OSError as exc:
+        raise NativeWorkerIOFailure(
+            "native process-group ownership monitor could not resolve its group"
+        ) from exc
+    try:
+        snapshot = _native_group_monitor_snapshot(
+            own_pgid, label="process-group ownership",
+        )
+    except NativeWorkerIOFailure as exc:
+        raise NativeWorkerIOFailure(
+            f"native process-group ownership monitor selector validation "
+            f"refused: {exc}"
+        ) from exc
+    if not any(pid == own_pid for pid, _, _, _ in snapshot.rows):
+        raise NativeWorkerIOFailure(
+            "native process-group ownership monitor selector validation "
+            "did not return the probing process"
         )
 
 
@@ -4700,59 +5322,33 @@ def _native_process_group_state(
         raise NativeWorkerIOFailure(
             "native worker leader was reaped before process-group closure"
         )
-    try:
-        completed = subprocess.run(
-            (
-                str(_NATIVE_RSS_MONITOR_EXECUTABLE),
-                "-axo", "pid=,pgid=,stat=",
-            ),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=False,
-            timeout=10,
-            check=False,
-            env={"LC_ALL": "C", "PATH": "/usr/bin:/bin"},
+    snapshot: _NativeGroupSnapshot | None = None
+    for attempt in range(_NATIVE_MONITOR_STATE_RETRIES + 1):
+        if attempt:
+            time.sleep(_NATIVE_MONITOR_RETRY_SECONDS)
+        snapshot = _native_group_monitor_snapshot(
+            process.pid, label="process-group ownership",
         )
-    except (OSError, subprocess.SubprocessError) as exc:
+        if snapshot.indeterminate is None:
+            break
+    if snapshot is None or snapshot.indeterminate is not None:
+        reason = snapshot.indeterminate if snapshot else "no snapshot"
         raise NativeWorkerIOFailure(
-            "native process-group ownership monitor could not run"
-        ) from exc
-    if completed.returncode != 0 or len(completed.stdout) > 16 * 1_048_576:
-        raise NativeWorkerIOFailure(
-            "native process-group ownership monitor failed"
+            "native process-group ownership monitor stayed indeterminate "
+            f"after {_NATIVE_MONITOR_STATE_RETRIES} retries: {reason}"
         )
     leader_state: str | None = None
     members: list[int] = []
-    seen_pids: set[int] = set()
-    try:
-        output = completed.stdout.decode("ascii")
-        for line in output.splitlines():
-            fields = line.split()
-            if len(fields) != 3:
-                raise ValueError("unexpected ps fields")
-            pid = int(fields[0], 10)
-            pgid = int(fields[1], 10)
-            process_state = fields[2]
-            if (pid <= 0 or pgid <= 0
-                    or fields[0] != str(pid) or fields[1] != str(pgid)):
-                raise ValueError("invalid ps process record")
-            if pid in seen_pids:
-                raise ValueError("duplicate ps process id")
-            seen_pids.add(pid)
-            if pgid != process.pid:
-                continue
-            if re.fullmatch(
-                r"[DIRSTUZ][+<>AELNsVWX]*", process_state,
-            ) is None:
-                raise ValueError("invalid owned-group process state")
-            members.append(pid)
-            if pid == process.pid:
-                leader_state = process_state
-    except (UnicodeError, ValueError) as exc:
-        raise NativeWorkerIOFailure(
-            "native process-group ownership monitor output is malformed"
-        ) from exc
+    total_kib = 0
+    for pid, _, state_text, rss_kib in snapshot.rows:
+        members.append(pid)
+        total_kib += rss_kib
+        if pid == process.pid:
+            leader_state = state_text
+    # The worker leader deliberately remains unreaped until every other group
+    # member is gone.  Consequently an owned group must always have at least
+    # that leader in ``ps``; polling here would reap it and make a later PGID
+    # signal capable of targeting a recycled, unrelated group.
     if leader_state is None:
         raise NativeWorkerIOFailure(
             "native process-group ownership monitor lost the unreaped leader"
@@ -4764,6 +5360,7 @@ def _native_process_group_state(
         nonleader_pids=tuple(sorted(
             pid for pid in members if pid != process.pid
         )),
+        rss_bytes=total_kib * 1_024,
     )
 
 
@@ -4855,7 +5452,7 @@ def _native_sandbox_preflight(
     runtime_binding_lease: tuple[tuple[str, tuple[Any, ...]], ...],
 ) -> None:
     sentinel = _ROOT / "pyproject.toml"
-    probe = f'''import os, pathlib, socket, sys
+    probe = f'''import os, pathlib, platform, socket, sys
 root = pathlib.Path(os.environ["EPL_SHOTS_PARENT_ROOT"])
 site_packages = pathlib.Path(os.environ["EPL_SHOTS_SITE_PACKAGES"])
 assert sys.dont_write_bytecode
@@ -4864,6 +5461,17 @@ assert os.environ["EPL_SHOTS_PYTHON_ABI"] == f"{{sys.version_info.major}}.{{sys.
 sys.path.insert(0, str(root / "src"))
 sys.path.insert(0, str(root))
 sys.path.append(str(site_packages))
+plist_bytes = pathlib.Path(
+    {_sandbox_string(_NATIVE_SYSTEM_READ_LITERALS[0])}
+).read_bytes()
+assert plist_bytes, "system version plist read empty inside the sandbox"
+mac_release = platform.mac_ver()[0]
+assert mac_release and mac_release.split(".")[0].isdigit(), (
+    "platform.mac_ver() is unreadable inside the sandbox: "
+    + repr(mac_release)
+)
+with open("/dev/null", "wb") as devnull:
+    devnull.write(b"probe")
 import numpy, pandas
 import pytensor
 import pytensor.tensor as pt
@@ -4874,6 +5482,9 @@ assert float(probe_function(2.0)) == 3.0
 pathlib.Path(os.environ["EPL_SHOTS_REQUEST"]).read_bytes()
 for operation in (
     lambda: pathlib.Path({_sandbox_string(sentinel)}).read_bytes(),
+    lambda: pathlib.Path(
+        {_sandbox_string(_NATIVE_SYSTEM_READ_NEGATIVE_SIBLING)}
+    ).read_bytes(),
     lambda: (root / "sandbox-denied-probe").write_bytes(b"denied"),
     lambda: socket.create_connection(("127.0.0.1", 9), timeout=0.1),
     lambda: socket.socket(socket.AF_INET, socket.SOCK_STREAM).bind(
@@ -4890,7 +5501,17 @@ for operation in (
     candidate = list(command)
     candidate[-1] = probe
     process: subprocess.Popen[bytes] | None = None
-    stderr_path = Path(environment["EPL_SHOTS_RUNTIME_ROOT"]) / "preflight-stderr.log"
+    runtime_root = Path(environment["EPL_SHOTS_RUNTIME_ROOT"])
+    stderr_path = runtime_root / "preflight-stderr.log"
+    # Amendment 3 item 6: the preflight compiles its probe in its own
+    # compiledir so the worker's pinned compiledir provably begins cold and
+    # every real run exercises the cold C-linker path itself.
+    preflight_environment = dict(environment)
+    preflight_environment["PYTENSOR_FLAGS"] = (
+        f"base_compiledir={runtime_root / 'preflight-pytensor'},"
+        f"compiledir={runtime_root / 'preflight-pytensor' / 'compiled'},"
+        f"cxx={environment.get('CXX', '')}"
+    )
     try:
         with stderr_path.open("xb") as stderr:
             _verify_native_runtime_binding_lease(
@@ -4898,13 +5519,15 @@ for operation in (
             )
             _require_native_process_group_monitor()
             process = subprocess.Popen(
-                tuple(candidate), cwd=cwd, env=dict(environment),
+                tuple(candidate), cwd=cwd, env=preflight_environment,
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                 stderr=stderr, text=False, start_new_session=True,
                 preexec_fn=_apply_native_resource_limits,
             )
+            # The cold probe compile (lazylinker and the scalar module) can
+            # take minutes on first touch of a fresh compiledir.
             _wait_native_process_with_rss_limit(
-                process, timeout_seconds=120,
+                process, timeout_seconds=300,
             )
             returncode, had_nonleaders = _close_native_process_group(
                 process, leader_must_have_exited=True,
@@ -5431,6 +6054,10 @@ def _native_sandbox_run_receipt(
         "python_flags": list(contract["python_flags"]),
         "runtime_read_paths": list(contract["runtime_read_paths"]),
         "process_exec_paths": list(contract["process_exec_paths"]),
+        "system_read_literals": list(contract["system_read_literals"]),
+        "generated_process_exec_subtree": str(
+            contract["generated_process_exec_subtree"]
+        ),
         "file_read_metadata": str(contract["file_read_metadata"]),
         "path_resolution_literals": list(
             contract["path_resolution_literals"]
@@ -6719,6 +7346,415 @@ def _run_native_training_blocks_after_h(
             "native completion publication boundary returned no records"
         )
     return completion_publication.records
+
+
+def _smoke_product_version(contract: Mapping[str, Any]) -> str:
+    """Read the locked ProductVersion out of the runtime lock's sw_vers."""
+    sw_vers = str(contract["runtime_closure"]["platform"]["sw_vers"])
+    match = re.search(r"^ProductVersion:\s*(\S+)$", sw_vers, re.MULTILINE)
+    if match is None:
+        raise NativeWorkerSandboxStop(
+            "runtime lock sw_vers carries no ProductVersion line"
+        )
+    return match.group(1)
+
+
+def _candidate_file_digests() -> dict[str, dict[str, str]]:
+    """Digest the three live candidate sources the smoke qualifies."""
+    records: dict[str, dict[str, str]] = {}
+    for relative in shots.H_REQUIRED_FILES:
+        path = _ROOT / relative
+        if path.is_symlink() or not path.is_file():
+            raise shots.LockMismatch(
+                f"candidate file is absent or not regular: {relative}"
+            )
+        records[relative] = {"sha256": shots.sha256_file(path)}
+    return records
+
+
+def _compose_smoke_receipt(
+    *, contract: Mapping[str, Any], policy_sha256: str,
+    environment: Mapping[str, str], worker_payload: Mapping[str, Any],
+    runtime_snapshot: Mapping[str, Any], resource_maxima: Mapping[str, int],
+    closure: Mapping[str, Any], candidate_files: Mapping[str, Mapping[str, str]],
+    expected_product_version: str,
+) -> dict[str, Any]:
+    """Bind one smoke qualification into the freeze-gating receipt shape."""
+    negatives = dict(worker_payload["containment_negatives"])
+    passed = (
+        set(negatives) == set(_SMOKE_NEGATIVE_CONTROLS)
+        and all(value == "denied" for value in negatives.values())
+        and bool(closure.get("clean_exit"))
+        and not closure.get("had_nonleaders", True)
+    )
+    receipt = {
+        "schema": shots.H_SMOKE_RECEIPT_SCHEMA,
+        "amendment_3_commit": shots.AMENDMENT_3_COMMIT,
+        "amendment_3_sha256": shots.AMENDMENT_3_SHA256,
+        "candidate_files": {
+            relative: dict(record)
+            for relative, record in sorted(candidate_files.items())
+        },
+        "native_runtime_lock_sha256": str(
+            contract["runtime_closure"]["sha256"]
+        ),
+        "sandbox_contract_sha256": _native_sandbox_contract_sha256(contract),
+        "policy_sha256": str(policy_sha256),
+        "environment": dict(environment),
+        "smoke_parameters": {
+            "seed": _SMOKE_SEED,
+            "advi_iters": _SMOKE_ADVI_ITERS,
+            "draws": _SMOKE_DRAWS,
+            "tune": _SMOKE_TUNE,
+            "teams": list(_SMOKE_TEAMS),
+            "history_season": _SMOKE_HISTORY_SEASON,
+            "scored_season": _SMOKE_SCORED_SEASON,
+            "history_rounds": _SMOKE_HISTORY_ROUNDS,
+            "scored_rounds": _SMOKE_SCORED_ROUNDS,
+        },
+        "child_executables": list(contract["process_exec_paths"]),
+        "generated_process_exec_subtree": str(
+            contract["generated_process_exec_subtree"]
+        ),
+        "cold_identity": {
+            "mac_ver": str(worker_payload["mac_ver"]),
+            "product_version_expected": str(expected_product_version),
+            "plist_sha256": str(worker_payload["plist_sha256"]),
+            "blas_ldflags": str(worker_payload["blas_ldflags"]),
+            "cxx": str(contract["compiler_paths"]["clang++"]),
+            "sdk_root": str(contract["sdk_root"]),
+        },
+        "module_build": {
+            "module_sos": list(worker_payload["module_sos"]),
+            "module_dsyms": list(worker_payload["module_dsyms"]),
+            "link_probe": dict(worker_payload["link_probe"]),
+        },
+        "model_fit": {
+            "synthetic_fixture_sha256": str(
+                worker_payload["synthetic_fixture_sha256"]
+            ),
+            "synthetic_rows": int(worker_payload["synthetic_rows"]),
+            "fit": json.loads(json.dumps(worker_payload["fit"])),
+            "result_sha256": str(worker_payload["result_sha256"]),
+        },
+        "containment_negatives": negatives,
+        "resource_maxima": {
+            key: int(resource_maxima.get(key, 0))
+            for key in ("rss_bytes", "files", "bytes")
+        },
+        "closure": {
+            "clean_exit": bool(closure.get("clean_exit")),
+            "exit_code": int(closure.get("exit_code", -1)),
+            "had_nonleaders": bool(closure.get("had_nonleaders", True)),
+            "runtime_tree_sha256": str(runtime_snapshot["sha256"]),
+            "runtime_tree_files": int(runtime_snapshot["file_count"]),
+            "runtime_tree_bytes": int(runtime_snapshot["bytes"]),
+        },
+        "passed": bool(passed),
+    }
+    return receipt
+
+
+def _make_example_smoke_receipt_for_tests() -> dict[str, Any]:
+    """One shape-complete synthetic receipt for validator tests only.
+
+    Composed through the same `_compose_smoke_receipt` as the real gate, so
+    a shape drift between the composer and the validator cannot hide.
+    """
+    contract = _native_sandbox_contract()
+    worker_payload = {
+        "schema": _SMOKE_RESULT_SCHEMA,
+        "mac_ver": "0.0.0",
+        "plist_sha256": "1" * 64,
+        "blas_ldflags": _SMOKE_EXPECTED_BLAS_FRAGMENT,
+        "module_sos": ["lazylinker_ext/lazylinker_ext.so"],
+        "module_dsyms": ["lazylinker_ext/lazylinker_ext.so.dSYM"],
+        "link_probe": {"linked": True, "dsym": True, "tmp_exec": "allowed"},
+        "synthetic_fixture_sha256": "2" * 64,
+        "synthetic_rows": 42,
+        "fit": {"probs": [[0.4, 0.3, 0.3]]},
+        "result_sha256": "3" * 64,
+        "containment_negatives": {
+            name: "denied" for name in _SMOKE_NEGATIVE_CONTROLS
+        },
+    }
+    try:
+        product_version = _smoke_product_version(contract)
+    except NativeWorkerSandboxStop:
+        product_version = "0.0.0"
+    worker_payload["mac_ver"] = product_version
+    return _compose_smoke_receipt(
+        contract=contract, policy_sha256="4" * 64,
+        environment={"EXAMPLE": "1"}, worker_payload=worker_payload,
+        runtime_snapshot={"sha256": "5" * 64, "file_count": 1, "bytes": 1},
+        resource_maxima={"rss_bytes": 1, "files": 1, "bytes": 1},
+        closure={"clean_exit": True, "exit_code": 0, "had_nonleaders": False},
+        candidate_files=_candidate_file_digests(),
+        expected_product_version=product_version,
+    )
+
+
+def run_smoke_qualification(
+    *, receipt_path: Path | str = _SMOKE_RECEIPT_PATH,
+) -> dict[str, Any]:
+    """Amendment 3 §C5: the cold synthetic production-path smoke gate.
+
+    Runs the real sandbox profile from the live candidate contract over a
+    deterministic synthetic panel through the actual native route, proves the
+    containment negatives inside the same profile, and writes the receipt
+    that `make_harness_manifest` requires before H'' can freeze.  Synthetic
+    only: no real raw file is installed and no decision-period byte is
+    readable inside the profile.
+    """
+    receipt_path = Path(receipt_path)
+    if receipt_path.is_symlink():
+        raise shots.LockMismatch("smoke receipt path is a symlink")
+    candidate_files = _candidate_file_digests()
+    temp_parent = _componentwise_regular_path(_NATIVE_TEMP_PARENT, create=False)
+    if not temp_parent.is_dir():
+        raise NativeWorkerSandboxStop("fixed native temp parent is unavailable")
+    for protected in (_ROOT, _ARTIFACT_ROOT):
+        if (temp_parent == protected or temp_parent in protected.parents
+                or protected in temp_parent.parents):
+            raise NativeWorkerSandboxStop(
+                "native temp parent overlaps repo/artifact paths"
+            )
+    # A live, parent-held Unix listener at a denied path makes the worker's
+    # unix-socket negative a real connect denial rather than a missing-file
+    # error (Amendment 3 §C5.6: actual connect denial is required).
+    negative_root = Path(tempfile.mkdtemp(
+        prefix="epl-shots-smoke-negative-", dir=str(temp_parent),
+    ))
+    unix_socket_sentinel = negative_root / "denied.sock"
+    sentinel_listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sentinel_listener.bind(str(unix_socket_sentinel))
+        sentinel_listener.listen(1)
+    except OSError as exc:
+        sentinel_listener.close()
+        shutil.rmtree(negative_root, ignore_errors=True)
+        raise NativeWorkerSandboxStop(
+            "smoke unix-socket sentinel could not be bound"
+        ) from exc
+    try:
+        return _run_smoke_qualification_with_sentinel(
+            receipt_path=receipt_path, candidate_files=candidate_files,
+            temp_parent=temp_parent,
+            unix_socket_sentinel=unix_socket_sentinel,
+        )
+    finally:
+        sentinel_listener.close()
+        with contextlib.suppress(OSError):
+            unix_socket_sentinel.unlink()
+        shutil.rmtree(negative_root, ignore_errors=True)
+
+
+def _run_smoke_qualification_with_sentinel(
+    *, receipt_path: Path, candidate_files: Mapping[str, Mapping[str, str]],
+    temp_parent: Path, unix_socket_sentinel: Path,
+) -> dict[str, Any]:
+    with _native_temporary_root_lease(temp_parent) as temporary_lease:
+        temporary_root = temporary_lease.path
+        parent_root = temporary_root / "parent"
+        _, parent_lease = _materialize_native_parent(
+            parent_root, workspace=temporary_lease,
+        )
+        parent_snapshot = _native_runtime_output_snapshot(parent_root)
+        _verify_native_child_lease(temporary_lease, parent_lease)
+        contract = _native_sandbox_contract()
+        runtime_binding_lease = _capture_native_runtime_binding_lease(contract)
+        request = {
+            "schema": _SMOKE_REQUEST_SCHEMA,
+            "checkout_root": str(_ROOT),
+            "decision_sentinel": str(_ROOT / shots.DECISION_CORPUS_PATH),
+            "plist_literal": contract["system_read_literals"][0],
+            "plist_sibling": str(_NATIVE_SYSTEM_READ_NEGATIVE_SIBLING),
+            "unix_socket_sentinel": str(unix_socket_sentinel),
+            "expected_product_version": _smoke_product_version(contract),
+            "expected_blas_fragment": _SMOKE_EXPECTED_BLAS_FRAGMENT,
+            "expected_cxx": str(contract["compiler_paths"]["clang++"]),
+            "expected_sdk_root": str(contract["sdk_root"]),
+            "seed": _SMOKE_SEED,
+            "advi_iters": _SMOKE_ADVI_ITERS,
+            "draws": _SMOKE_DRAWS,
+            "tune": _SMOKE_TUNE,
+            "teams": list(_SMOKE_TEAMS),
+            "history_season": _SMOKE_HISTORY_SEASON,
+            "scored_season": _SMOKE_SCORED_SEASON,
+            "history_rounds": _SMOKE_HISTORY_ROUNDS,
+            "scored_rounds": _SMOKE_SCORED_ROUNDS,
+        }
+        request_raw = _canonical_bytes(request)
+        request_path = temporary_root / "smoke-request.json"
+        request_lease = _create_native_immutable_child(
+            temporary_lease, request_path.name, request_raw,
+            label="smoke request",
+        )
+        runtime_root = temporary_root / "runtime"
+        try:
+            os.mkdir("runtime", 0o700, dir_fd=temporary_lease.descriptor)
+        except OSError as exc:
+            _native_lease_refusal(
+                temporary_lease,
+                "smoke runtime root exclusive create was refused", exc,
+            )
+        runtime_lease = _capture_native_child_lease(
+            temporary_lease, "runtime", directory=True,
+            label="smoke runtime root",
+        )
+        environment = _native_minimal_environment(
+            contract=contract, parent_root=parent_root,
+            request_path=request_path, runtime_root=runtime_root,
+        )
+        profile = _native_sandbox_profile(
+            contract=contract, temporary_root=temporary_root,
+            parent_root=parent_root, request_path=request_path,
+            runtime_root=runtime_root,
+        )
+        policy_sha256 = hashlib.sha256(profile.encode("utf-8")).hexdigest()
+        command = _native_sandbox_command(
+            contract=contract, profile=profile, source=_SMOKE_WORKER_SOURCE,
+        )
+        _verify_native_workspace_lease(
+            temporary_lease, parent=parent_lease,
+            parent_snapshot=parent_snapshot, request=request_lease,
+            request_raw=request_raw, runtime=runtime_lease,
+            verify_parent_tree=True,
+        )
+        _native_sandbox_preflight(
+            command=command, environment=environment, cwd=parent_root,
+            runtime_contract=contract,
+            runtime_binding_lease=runtime_binding_lease,
+        )
+        _verify_native_workspace_lease(
+            temporary_lease, parent=parent_lease,
+            parent_snapshot=parent_snapshot, request=request_lease,
+            request_raw=request_raw, runtime=runtime_lease,
+            verify_parent_tree=True,
+        )
+        stderr_lease = _create_native_mutable_nested_file(
+            temporary_lease, runtime_lease, "smoke-stderr.log",
+            label="smoke worker stderr",
+        )
+        runtime_observed = {"files": 0, "bytes": 0, "rss_bytes": 0}
+        payload: dict[str, Any] | None = None
+        process: subprocess.Popen[bytes] | None = None
+        try:
+            stderr_duplicate = os.dup(stderr_lease.writer_descriptor)
+            try:
+                stderr_context = os.fdopen(stderr_duplicate, "wb")
+            except OSError:
+                os.close(stderr_duplicate)
+                raise
+            with stderr_context as stderr:
+                _verify_native_runtime_binding_lease(
+                    contract, runtime_binding_lease,
+                )
+                _require_native_process_group_monitor()
+                try:
+                    process = subprocess.Popen(
+                        command, cwd=parent_root, env=environment,
+                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                        stderr=stderr, text=False, bufsize=0,
+                        start_new_session=True,
+                        preexec_fn=_apply_native_resource_limits,
+                    )
+                except (OSError, subprocess.SubprocessError) as exc:
+                    raise NativeWorkerSandboxStop(
+                        f"smoke sandbox worker could not launch: {type(exc).__name__}"
+                    ) from exc
+                for raw_line in _bounded_worker_lines(
+                    process, runtime_root=runtime_root,
+                    runtime_observed=runtime_observed,
+                    total_timeout_seconds=3_600,
+                ):
+                    try:
+                        value = json.loads(raw_line.decode("ascii"))
+                        if _canonical_bytes(value) != raw_line:
+                            raise ValueError("not canonical")
+                    except (UnicodeError, json.JSONDecodeError, TypeError,
+                            ValueError, RecursionError) as exc:
+                        raise NativeWorkerIOFailure(
+                            f"smoke worker emitted noncanonical output: {exc}"
+                        ) from exc
+                    if payload is not None:
+                        raise NativeWorkerIOFailure(
+                            "smoke worker emitted more than one payload"
+                        )
+                    payload = value
+                _wait_native_process_with_rss_limit(
+                    process, timeout_seconds=30,
+                    observed=runtime_observed,
+                )
+                returncode, had_nonleaders = _close_native_process_group(
+                    process, leader_must_have_exited=True,
+                )
+                process = None
+        finally:
+            if process is not None:
+                _terminate_native_process_group(process)
+        stderr_tail = _native_nested_file_tail(
+            temporary_lease, stderr_lease, limit=4_096,
+        )
+        if returncode != 0:
+            raise NativeWorkerSandboxStop(
+                f"smoke worker exited {returncode}: {stderr_tail}"
+            )
+        if had_nonleaders:
+            raise NativeWorkerIOFailure(
+                "smoke worker left a descendant after leader exit"
+            )
+        if payload is None:
+            raise NativeWorkerIOFailure(
+                f"smoke worker emitted no payload: {stderr_tail}"
+            )
+        if payload.get("schema") != _SMOKE_RESULT_SCHEMA:
+            raise NativeWorkerIOFailure("smoke worker payload schema differs")
+        runtime_snapshot = _native_runtime_output_snapshot(runtime_root)
+        receipt = _compose_smoke_receipt(
+            contract=contract, policy_sha256=policy_sha256,
+            environment=environment, worker_payload=payload,
+            runtime_snapshot=runtime_snapshot,
+            resource_maxima=runtime_observed,
+            closure={
+                "clean_exit": returncode == 0, "exit_code": returncode,
+                "had_nonleaders": had_nonleaders,
+            },
+            candidate_files=candidate_files,
+            expected_product_version=request["expected_product_version"],
+        )
+    # Durable evidence first: a failed qualification writes its failed
+    # receipt too, and the freeze gate refuses it on ``passed``.
+    raw = shots.canonical_manifest_bytes(receipt)
+    receipt_path.parent.mkdir(parents=True, exist_ok=True)
+    scratch = receipt_path.with_name(receipt_path.name + ".tmp")
+    if scratch.exists() or scratch.is_symlink():
+        scratch.unlink()
+    with scratch.open("xb") as handle:
+        handle.write(raw)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(scratch, receipt_path)
+    misbehaved = {
+        name: value
+        for name, value in receipt["containment_negatives"].items()
+        if value != "denied"
+    }
+    if misbehaved:
+        raise NativeWorkerSandboxStop(
+            f"smoke containment negatives misbehaved: {misbehaved}"
+        )
+    shots._validate_smoke_receipt(
+        receipt,
+        files={
+            relative: {"sha256": record["sha256"]}
+            for relative, record in candidate_files.items()
+        },
+        native_runtime_lock_sha256=str(
+            contract["runtime_closure"]["sha256"]
+        ),
+    )
+    return receipt
 
 
 def verify_harness_live(h_commit: str) -> _VerifiedH:
@@ -8029,7 +9065,8 @@ def _validate_native_sandbox_run(
         "schema", "contract_sha256", "sandbox_executable", "policy_sha256",
         "python_launcher", "python_resolved", "python_sha256",
         "site_packages", "compiler_paths", "sdk_root", "python_flags",
-        "runtime_read_paths", "process_exec_paths", "file_read_metadata",
+        "runtime_read_paths", "process_exec_paths", "system_read_literals",
+        "generated_process_exec_subtree", "file_read_metadata",
         "path_resolution_literals",
         "temporary_root", "parent_read_path",
         "request_read_path", "runtime_read_write_path", "environment",
@@ -8048,6 +9085,10 @@ def _validate_native_sandbox_run(
             or value["python_flags"] != contract["python_flags"]
             or value["runtime_read_paths"] != contract["runtime_read_paths"]
             or value["process_exec_paths"] != contract["process_exec_paths"]
+            or value["system_read_literals"]
+                != contract["system_read_literals"]
+            or value["generated_process_exec_subtree"]
+                != contract["generated_process_exec_subtree"]
             or value["file_read_metadata"] != contract["file_read_metadata"]
             or value["path_resolution_literals"]
                 != contract["path_resolution_literals"]
@@ -14146,11 +15187,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     decide = sub.add_parser("decide")
     decide.add_argument("--h", required=True)
     decide.add_argument("--k", required=True)
+    # Amendment 3 §C5: synthetic-only candidate qualification, runnable
+    # before the freeze and required by it.
+    sub.add_parser("smoke")
     args = parser.parse_args(argv)
     try:
         if args.command == "status":
             print(json.dumps(
                 inspect_state(h_commit=args.h, k_commit=args.k).as_dict(),
+                sort_keys=True,
+            ))
+            return 0
+        if args.command == "smoke":
+            receipt = run_smoke_qualification()
+            print(json.dumps(
+                {"passed": receipt["passed"],
+                 "receipt_path": str(_SMOKE_RECEIPT_PATH),
+                 "policy_sha256": receipt["policy_sha256"],
+                 "result_sha256": receipt["model_fit"]["result_sha256"]},
                 sort_keys=True,
             ))
             return 0

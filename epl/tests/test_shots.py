@@ -51,7 +51,7 @@ def _synthetic_runtime_closure(monkeypatch):
 
     def synthetic_runtime_closure(
         *, site_packages, python_runtime, runtime_read_paths,
-        process_exec_paths,
+        process_exec_paths, system_read_literals=(),
     ):
         del python_runtime
         root_paths: list[str] = []
@@ -96,10 +96,26 @@ def _synthetic_runtime_closure(monkeypatch):
                 "sha256": digest,
             })
 
+        system_literals = []
+        for literal in system_read_literals:
+            logical = str(Path(str(literal)).absolute())
+            record = {
+                "logical_path": logical, "resolved_path": logical,
+                "link_chain": [], "mode": 0o444, "bytes": 1,
+                "sha256": "7" * 64,
+            }
+            if Path(logical).is_file() and not Path(logical).is_symlink():
+                info = Path(logical).lstat()
+                record["mode"] = stat.S_IMODE(info.st_mode)
+                record["bytes"] = int(info.st_size)
+                record["sha256"] = sh.sha256_file(logical)
+            system_literals.append(record)
+
         payload = {
             "schema": runner._NATIVE_RUNTIME_CLOSURE_SCHEMA,
             "tree_digest_schema": runner._NATIVE_RUNTIME_TREE_SCHEMA,
             "sealed_read_roots": list(runner._NATIVE_SEALED_READ_ROOTS),
+            "system_read_literals": system_literals,
             "mutable_roots": roots,
             "executables": executables,
             "file_count": len(roots),
@@ -1509,6 +1525,11 @@ def _fixed_snapshot() -> dict:
         "schema": runner._NATIVE_RUNTIME_CLOSURE_SCHEMA,
         "tree_digest_schema": runner._NATIVE_RUNTIME_TREE_SCHEMA,
         "sealed_read_roots": list(runner._NATIVE_SEALED_READ_ROOTS),
+        "system_read_literals": [{
+            "logical_path": str(literal), "resolved_path": str(literal),
+            "link_chain": [], "mode": 0o444, "bytes": 1,
+            "sha256": "7" * 64,
+        } for literal in runner._NATIVE_SYSTEM_READ_LITERALS],
         "mutable_roots": [{
             "logical_path": "/synthetic/runtime",
             "resolved_path": "/synthetic/runtime",
@@ -1634,8 +1655,26 @@ def _bind_current_receipts(manifest: dict, *, defects: list | None = None) -> di
             "disposition": "PASS",
             "pass": True,
         },
+        "smoke_receipt": _synthetic_smoke_receipt_for(bound),
     })
     return bound
+
+
+def _synthetic_smoke_receipt_for(bound: dict) -> dict:
+    """Bind the example smoke receipt to a synthetic candidate manifest."""
+    receipt = json.loads(json.dumps(
+        runner._make_example_smoke_receipt_for_tests()
+    ))
+    receipt["amendment_3_commit"] = sh.AMENDMENT_3_COMMIT
+    receipt["amendment_3_sha256"] = sh.AMENDMENT_3_SHA256
+    receipt["candidate_files"] = {
+        relative: {"sha256": record["sha256"]}
+        for relative, record in bound["files"].items()
+    }
+    receipt["native_runtime_lock_sha256"] = (
+        bound["native_runtime_lock"]["sha256"]
+    )
+    return receipt
 
 
 def _h_repo(tmp_path: Path, monkeypatch, *, defects: list | None = None):
@@ -1663,17 +1702,49 @@ def _h_repo(tmp_path: Path, monkeypatch, *, defects: list | None = None):
     amendment_2_path.write_bytes(amendment_2_raw)
     _git(tmp_path, "add", sh.AMENDMENT_2_PATH)
     _git(tmp_path, "commit", "-q", "-m", "amendment 2")
-    parent = _git(tmp_path, "rev-parse", "HEAD")
-    parent_tree = _git(tmp_path, "rev-parse", "HEAD^{tree}")
-    monkeypatch.setattr(sh, "AMENDMENT_2_COMMIT", parent)
-    monkeypatch.setattr(sh, "AMENDMENT_2_TREE", parent_tree)
+    amendment_2_commit = _git(tmp_path, "rev-parse", "HEAD")
+    amendment_2_tree = _git(tmp_path, "rev-parse", "HEAD^{tree}")
+    monkeypatch.setattr(sh, "AMENDMENT_2_COMMIT", amendment_2_commit)
+    monkeypatch.setattr(sh, "AMENDMENT_2_TREE", amendment_2_tree)
     monkeypatch.setattr(
         sh, "AMENDMENT_2_SHA256", hashlib.sha256(amendment_2_raw).hexdigest(),
     )
+    # H' — the superseded-for-execution freeze record — hangs off Amendment 2
+    # and stays in history untouched; its blobs are the record the Amendment 3
+    # parent tree must carry.
     (tmp_path / "epl/tests").mkdir(parents=True)
     (tmp_path / "epl/shots.py").write_text("one\n")
     (tmp_path / "epl/shots_harness.py").write_text("runner\n")
     (tmp_path / "epl/tests/test_shots.py").write_text("two\n")
+    h_prime_manifest_raw = b'{"synthetic": "h-prime manifest record"}\n'
+    record_path = tmp_path / sh.H_MANIFEST_PATH
+    record_path.parent.mkdir(parents=True)
+    record_path.write_bytes(h_prime_manifest_raw)
+    _git(tmp_path, "add", *sh.H_REQUIRED_FILES, sh.H_MANIFEST_PATH)
+    _git(tmp_path, "commit", "-q", "-m", "H-prime")
+    monkeypatch.setattr(
+        sh, "H_PRIME_COMMIT", _git(tmp_path, "rev-parse", "HEAD"),
+    )
+    monkeypatch.setattr(
+        sh, "H_PRIME_MANIFEST_SHA256",
+        hashlib.sha256(h_prime_manifest_raw).hexdigest(),
+    )
+    # Amendment 3 is the governance parent of H''.
+    amendment_3_raw = b"synthetic amendment 3\n"
+    (tmp_path / sh.AMENDMENT_3_PATH).write_bytes(amendment_3_raw)
+    _git(tmp_path, "add", sh.AMENDMENT_3_PATH)
+    _git(tmp_path, "commit", "-q", "-m", "amendment 3")
+    parent = _git(tmp_path, "rev-parse", "HEAD")
+    parent_tree = _git(tmp_path, "rev-parse", "HEAD^{tree}")
+    monkeypatch.setattr(sh, "AMENDMENT_3_COMMIT", parent)
+    monkeypatch.setattr(sh, "AMENDMENT_3_TREE", parent_tree)
+    monkeypatch.setattr(
+        sh, "AMENDMENT_3_SHA256", hashlib.sha256(amendment_3_raw).hexdigest(),
+    )
+    # The H'' candidates modify the frozen record in the working tree.
+    (tmp_path / "epl/shots.py").write_text("one amended\n")
+    (tmp_path / "epl/shots_harness.py").write_text("runner amended\n")
+    (tmp_path / "epl/tests/test_shots.py").write_text("two amended\n")
     fixed = _fixed_snapshot()
 
     def synthetic_fixed_identity(root):
@@ -1714,6 +1785,24 @@ def _h_repo(tmp_path: Path, monkeypatch, *, defects: list | None = None):
             raise sh.LockMismatch(
                 "the committed Amendment 2 commit/tree/hash/bytes differ"
             )
+        amendment_3_commit = sh._git_text(
+            root, "rev-parse", f"{sh.AMENDMENT_3_COMMIT}^{{commit}}",
+        )
+        amendment_3_tree = sh._git_text(
+            root, "rev-parse", f"{sh.AMENDMENT_3_COMMIT}^{{tree}}",
+        )
+        amendment_3_blob = sh._git_bytes(
+            root, "show", f"{sh.AMENDMENT_3_COMMIT}:{sh.AMENDMENT_3_PATH}",
+        )
+        current_amendment_3 = (root / sh.AMENDMENT_3_PATH).read_bytes()
+        if (amendment_3_commit != sh.AMENDMENT_3_COMMIT
+                or amendment_3_tree != sh.AMENDMENT_3_TREE
+                or hashlib.sha256(amendment_3_blob).hexdigest()
+                    != sh.AMENDMENT_3_SHA256
+                or amendment_3_blob != current_amendment_3):
+            raise sh.LockMismatch(
+                "the committed Amendment 3 commit/tree/hash/bytes differ"
+            )
         return json.loads(json.dumps(fixed))
 
     monkeypatch.setattr(sh, "_fixed_identity_snapshot", synthetic_fixed_identity)
@@ -1740,11 +1829,12 @@ def _h_repo(tmp_path: Path, monkeypatch, *, defects: list | None = None):
         resolved_packages=fixed["resolved_packages"],
         canary_receipts=candidate["canary_receipt"],
         audit_receipt=candidate["audit_receipt"],
+        smoke_receipt=candidate["smoke_receipt"],
     )
     assert manifest == candidate
     manifest_path = tmp_path / sh.H_MANIFEST_PATH
-    manifest_path.parent.mkdir(parents=True)
     manifest_path.write_bytes(sh.canonical_manifest_bytes(manifest))
+    # Amendment 3 §C7.2: H'' modifies the four freeze paths, never adds.
     _git(tmp_path, "add", *sh.H_REQUIRED_FILES, sh.H_MANIFEST_PATH)
     _git(tmp_path, "commit", "-q", "-m", "H")
     h_commit = _git(tmp_path, "rev-parse", "HEAD")
@@ -1802,8 +1892,8 @@ def test_amendment_1_governance_and_receipt_versions_are_exact():
     assert hashlib.sha256(amendment_blob).hexdigest() == sh.AMENDMENT_1_SHA256
     assert amendment_blob == (root / sh.AMENDMENT_1_PATH).read_bytes()
 
-    assert sh.H_MANIFEST_SCHEMA == "epl-shots-harness-manifest-4"
-    assert sh.H_RECEIPT_SUBJECT_SCHEMA == "epl-shots-pre-h-subject-3"
+    assert sh.H_MANIFEST_SCHEMA == "epl-shots-harness-manifest-5"
+    assert sh.H_RECEIPT_SUBJECT_SCHEMA == "epl-shots-pre-h-subject-4"
     assert sh.H_CANARY_RECEIPT_SCHEMA == "epl-shots-canary-receipt-3"
     assert sh.H_AUDIT_RECEIPT_SCHEMA == (
         "epl-shots-adversarial-audit-receipt-4"
@@ -1874,27 +1964,31 @@ def test_amendment_2_governance_binding_is_exact_and_gates_the_freeze():
     assert hashlib.sha256(amendment_blob).hexdigest() == sh.AMENDMENT_2_SHA256
     assert amendment_blob == (root / sh.AMENDMENT_2_PATH).read_bytes()
 
-    # The parent gates name Amendment 2, not Amendment 1.
+    # Amendment 3 re-binds the parent gates; Amendments 1 and 2 stay bound
+    # and verified through the identity snapshot and receipt subject.
     source = inspect.getsource(sh.make_harness_manifest)
-    assert "AMENDMENT_2_COMMIT" in source and "AMENDMENT_2_TREE" in source
+    assert "AMENDMENT_3_COMMIT" in source and "AMENDMENT_3_TREE" in source
     assert "AMENDMENT_1_COMMIT" not in source
+    assert "AMENDMENT_2_COMMIT" not in source
     status_source = inspect.getsource(sh.harness_manifest_status)
-    assert "AMENDMENT_2_COMMIT" in status_source
+    assert "AMENDMENT_3_COMMIT" in status_source
     assert "AMENDMENT_1_COMMIT" not in status_source
-    # Both governance shas are carried by the receipt subject and contract.
+    assert "AMENDMENT_2_COMMIT" not in status_source
+    # All three governance shas are carried by the receipt subject.
     subject_source = inspect.getsource(sh._expected_receipt_subject)
     assert "amendment_1_sha256" in subject_source
     assert "amendment_2_sha256" in subject_source
+    assert "amendment_3_sha256" in subject_source
 
 
-def test_make_harness_manifest_refuses_any_parent_but_amendment_2(
+def test_make_harness_manifest_refuses_any_parent_but_amendment_3(
     tmp_path, monkeypatch,
 ):
     """The builder's own parent gates, not just the verifier's.
 
     ``harness_manifest_status`` already refuses a substituted parent in a
     finished manifest; these are the three refusals on the construction side,
-    which nothing exercised before the Amendment 2 re-binding.
+    re-bound by Amendment 3 to its own governance commit.
     """
     manifest, _, parent, parent_tree = _h_repo(tmp_path, monkeypatch)
 
@@ -1904,25 +1998,26 @@ def test_make_harness_manifest_refuses_any_parent_but_amendment_2(
             freeze_parent_tree=tree,
             canary_receipts=manifest["canary_receipt"],
             audit_receipt=manifest["audit_receipt"],
+            smoke_receipt=manifest["smoke_receipt"],
         )
 
     for commit, tree in (("0" * 40, parent_tree), (parent, "1" * 40)):
         with pytest.raises(
             sh.LockMismatch,
-            match="exact Amendment 2 governance commit/tree",
+            match="exact Amendment 3 governance commit/tree",
         ):
             build(commit, tree)
 
-    # HEAD has already advanced to H', so a replay from the descendant is
+    # HEAD has already advanced to H'', so a replay from the descendant is
     # refused even with the correct governance parent.
     with pytest.raises(
-        sh.LockMismatch, match="HEAD at the Amendment 2 governance commit",
+        sh.LockMismatch, match="HEAD at the Amendment 3 governance commit",
     ):
         build(parent, parent_tree)
 
     # A pinned tree that git does not resolve to is unavailable, not merely
     # mismatched: the constants and the argument agree and git still refuses.
-    monkeypatch.setattr(sh, "AMENDMENT_2_TREE", "1" * 40)
+    monkeypatch.setattr(sh, "AMENDMENT_3_TREE", "1" * 40)
     with pytest.raises(
         sh.LockMismatch, match="H freeze parent commit/tree is unavailable",
     ):
@@ -2008,11 +2103,11 @@ def test_h_file_set_and_enabled_builder_cannot_be_weakened(
 @pytest.mark.parametrize(("field", "replacement", "message"), [
     (
         "freeze_parent_commit", "0" * 40,
-        "freeze_parent_commit is not the Amendment 2 governance commit",
+        "freeze_parent_commit is not the Amendment 3 governance commit",
     ),
     (
         "freeze_parent_tree", "1" * 40,
-        "freeze_parent_tree is not the Amendment 2 governance tree",
+        "freeze_parent_tree is not the Amendment 3 governance tree",
     ),
 ])
 def test_h_manifest_refuses_amendment_commit_or_tree_substitution(
@@ -2050,6 +2145,28 @@ def test_h_manifest_refuses_amendment_hash_or_worktree_byte_substitution(
         sh.require_harness_manifest(
             substituted_hash_2, repo_root=tmp_path, harness_commit=h_commit,
         )
+
+    substituted_hash_3 = json.loads(json.dumps(manifest))
+    substituted_hash_3["native_contract"]["amendment_3_sha256"] = "0" * 64
+    with pytest.raises(
+        sh.LockMismatch,
+        match="native_contract differs from the recomputed preregistered contract",
+    ):
+        sh.require_harness_manifest(
+            substituted_hash_3, repo_root=tmp_path, harness_commit=h_commit,
+        )
+
+    amendment_3_path = tmp_path / sh.AMENDMENT_3_PATH
+    original_amendment_3 = amendment_3_path.read_bytes()
+    amendment_3_path.write_bytes(b"substituted amendment 3 bytes\n")
+    with pytest.raises(
+        sh.LockMismatch,
+        match="committed Amendment 3 commit/tree/hash/bytes differ",
+    ):
+        sh.require_harness_manifest(
+            manifest, repo_root=tmp_path, harness_commit=h_commit,
+        )
+    amendment_3_path.write_bytes(original_amendment_3)
 
     amendment_2_path = tmp_path / sh.AMENDMENT_2_PATH
     original_amendment_2 = amendment_2_path.read_bytes()
@@ -2303,6 +2420,16 @@ def test_regular_snapshot_refuses_one_way_visible_path_replacement(
 
 
 def test_public_effect_calls_require_live_h_and_k_before_writers(monkeypatch):
+    """Amendment 3 item 9: the reading is stage-aware from committed bytes.
+
+    The H'-era wording hard-asserted namespace absence, so a lawfully
+    preserved mid-lifecycle state (an interrupted run, or post-H training
+    artifacts before K) turned the frozen suite red without any defect.  The
+    stage is read the way Amendment 2 Rider 1 reads it — the committed H
+    manifest's presence — and the invariant proven in every stage is that
+    the refused public-effect calls change nothing; outright absence is
+    additionally asserted only in the pre-H stage.
+    """
     def invalid_h(commit):
         raise sh.LockMismatch(f"synthetic invalid H: {commit}")
 
@@ -2318,14 +2445,29 @@ def test_public_effect_calls_require_live_h_and_k_before_writers(monkeypatch):
         lambda **kwargs: contextlib.nullcontext(),
     )
     artifact_root = paths.REPO_ROOT / sh.SHOTS_ARTIFACT_ROOT
-    assert not artifact_root.exists()
+
+    def inventory():
+        if not artifact_root.exists():
+            return None
+        return sorted(
+            (str(path.relative_to(artifact_root)),
+             sh.sha256_file(path) if path.is_file() else "directory")
+            for path in artifact_root.rglob("*")
+        )
+
+    committed_pre_h = not runner._H_PATH.is_file()
+    before = inventory()
+    if committed_pre_h:
+        assert before is None
     with pytest.raises(sh.LockMismatch, match="synthetic invalid H"):
         runner.run_training(h_commit="a" * 40)
     h, _ = _decision_test_h_k()
     monkeypatch.setattr(runner, "verify_harness_live", lambda commit: h)
     with pytest.raises(sh.LockMismatch, match="synthetic invalid H/K"):
         runner.run_decision(h_commit="a" * 40, k_commit="b" * 40)
-    assert not artifact_root.exists()
+    assert inventory() == before
+    if committed_pre_h:
+        assert not artifact_root.exists()
     assert not hasattr(runner, "_write_content_addressed")
 
 
@@ -6589,8 +6731,10 @@ def test_native_process_group_rss_limit_is_fail_closed(monkeypatch):
 
 
 def test_native_process_group_rss_monitor_sums_only_group_members(monkeypatch):
+    """Amendment 3 item 8: RSS comes from the one group-scoped snapshot."""
     class Process:
         pid = 123
+        returncode = None
 
         @staticmethod
         def poll():
@@ -6598,7 +6742,7 @@ def test_native_process_group_rss_monitor_sums_only_group_members(monkeypatch):
 
     class Completed:
         returncode = 0
-        stdout = b" 123 10\n 999 9000\n 123 20\n"
+        stdout = b" 123  123 Ss   10\n 200  123 R    20\n"
         stderr = b""
 
     calls = []
@@ -6607,8 +6751,11 @@ def test_native_process_group_rss_monitor_sums_only_group_members(monkeypatch):
         lambda *args, **kwargs: calls.append((args, kwargs)) or Completed(),
     )
     assert runner._native_process_group_rss_bytes(Process()) == 30 * 1_024
-    assert calls[0][0][0] == ("/bin/ps", "-axo", "pgid=,rss=")
+    assert calls[0][0][0] == (
+        "/bin/ps", "-o", "pid=,pgid=,stat=,rss=", "-g", "123",
+    )
     assert calls[0][1]["timeout"] == 10
+    assert len(calls) == 1
 
 
 def test_native_process_group_normal_exit_is_observed_then_reaped_once(
@@ -6647,10 +6794,6 @@ def test_native_process_group_normal_exit_is_observed_then_reaped_once(
 
     monkeypatch.setattr(runner, "_native_process_group_state", state)
     monkeypatch.setattr(
-        runner, "_observe_native_process_group_rss",
-        lambda _process, **kwargs: events.append(("rss",)) or 1,
-    )
-    monkeypatch.setattr(
         runner, "_signal_native_process_group",
         lambda *args, **kwargs: pytest.fail("clean exit was signaled"),
     )
@@ -6658,16 +6801,19 @@ def test_native_process_group_normal_exit_is_observed_then_reaped_once(
         runner.time, "sleep", lambda seconds: events.append(("sleep", seconds)),
     )
 
+    observed = {"rss_bytes": 0}
     runner._wait_native_process_with_rss_limit(
-        process, timeout_seconds=5, poll_seconds=0.01,
+        process, timeout_seconds=5, poll_seconds=0.01, observed=observed,
     )
     assert runner._close_native_process_group(
         process, leader_must_have_exited=True,
     ) == (0, False)
+    # ownership and RSS ride the same snapshot: no separate ("rss",) event
     assert events == [
-        ("state", False, ()), ("rss",), ("sleep", 0.01),
+        ("state", False, ()), ("sleep", 0.01),
         ("state", True, ()), ("state", True, ()), ("wait",),
     ]
+    assert observed["rss_bytes"] == 0
     with pytest.raises(StopIteration):
         next(states)
 
@@ -6859,14 +7005,16 @@ def test_native_process_group_state_parses_zombie_anchor_and_sorted_descendants(
 
     completed = SimpleNamespace(
         returncode=0,
-        # Unrelated host rows are not ownership evidence and may use a
-        # platform-specific STAT spelling outside the pinned Darwin alphabet.
-        stdout=b"125 123 S\n999 999 ZOMBIE\n123 123 Z+\n124 123 S\n",
+        # Amendment 3 item 8: the snapshot is group-scoped, so every row is
+        # owned-group evidence and carries its own RSS reading.
+        stdout=b"125 123 S    5\n123 123 Z+   0\n124 123 S    6\n",
         stderr=b"",
     )
     monkeypatch.setattr(runner.subprocess, "run", lambda *args, **kwargs: completed)
     assert runner._native_process_group_state(Process()) \
-        == runner._NativeProcessGroupState(123, 123, True, (124, 125))
+        == runner._NativeProcessGroupState(
+            123, 123, True, (124, 125), (5 + 0 + 6) * 1_024,
+        )
 
 
 @pytest.mark.parametrize("group_state", [
@@ -6978,9 +7126,9 @@ def test_native_process_group_invalid_ownership_refuses_without_signal_or_wait(
             pytest.fail("invalid group ownership was reaped")
 
     outputs = {
-        "missing_leader": (0, b"124 123 S\n"),
+        "missing_leader": (0, b"124 123 S    5\n"),
         "malformed": (0, b"not-a-process-row\n"),
-        "monitor_failed": (1, b""),
+        "monitor_failed": (1, b"123 123 Ss   10\n"),
     }
     run_calls = []
 
@@ -8740,6 +8888,11 @@ def _synthetic_bound_native_sandbox_contract():
         "schema": runner._NATIVE_RUNTIME_CLOSURE_SCHEMA,
         "tree_digest_schema": runner._NATIVE_RUNTIME_TREE_SCHEMA,
         "sealed_read_roots": list(runner._NATIVE_SEALED_READ_ROOTS),
+        "system_read_literals": [{
+            "logical_path": literal, "resolved_path": literal,
+            "link_chain": [], "mode": 0o444, "bytes": 1,
+            "sha256": hashlib.sha256(literal.encode("utf-8")).hexdigest(),
+        } for literal in contract["system_read_literals"]],
         "mutable_roots": [{
             "logical_path": "/", "resolved_path": "/", "link_chain": [],
             "tree_sha256": "9" * 64, "files": 1, "directories": 1,
@@ -10406,3 +10559,458 @@ def test_opened_scoring_source_without_durable_score_requires_reconciliation(
             beta=np.zeros(8), prediction_seal_record=seal_record,
             prediction_rows=predictions, artifact_root=tmp_path,
         )
+
+
+# ==========================================================================
+# Amendment 3: the sandbox feeds its prisoner — capability grants, monitor
+# rewrite, smoke gate, disposition, and the H''-parent re-binding.
+# ==========================================================================
+_A3_PLIST = "/System/Library/CoreServices/SystemVersion.plist"
+_A3_SIBLING = "/System/Library/CoreServices/iOSSystemVersion.plist"
+_A3_LD_CLASSIC = "/Library/Developer/CommandLineTools/usr/bin/ld-classic"
+_A3_DSYMUTIL = "/Library/Developer/CommandLineTools/usr/bin/dsymutil"
+
+
+def test_amendment_3_bindings_are_frozen_into_both_modules():
+    assert sh.AMENDMENT_3_COMMIT == "ca169ef4490059a2672ae38f08aff157eeff3717"
+    assert sh.AMENDMENT_3_TREE == "dbb6b5bf5d8ccfe0b9387bc95ef6d527da321234"
+    assert sh.AMENDMENT_3_PATH == "reports/epl_shots_prereg_amendment_3.md"
+    assert sh.AMENDMENT_3_SHA256 == (
+        "015ad8d08d08fb4e361d1e0c1252190da673b8a1fbd0b1f21d8683ecc8293fca"
+    )
+    on_disk = (paths.REPO_ROOT / sh.AMENDMENT_3_PATH).read_bytes()
+    assert hashlib.sha256(on_disk).hexdigest() == sh.AMENDMENT_3_SHA256
+    subject = sh._expected_receipt_subject({
+        "files": {}, "freeze_parent_commit": "0" * 40,
+        "freeze_parent_tree": "0" * 40, "native_contract": {},
+    })
+    assert subject["amendment_3_commit"] == sh.AMENDMENT_3_COMMIT
+    assert subject["amendment_3_sha256"] == sh.AMENDMENT_3_SHA256
+    assert subject["schema"] == "epl-shots-pre-h-subject-4"
+
+
+def test_h_freeze_parent_gates_bind_amendment_3():
+    status = sh.harness_manifest_status(
+        {"freeze_parent_commit": sh.AMENDMENT_2_COMMIT,
+         "freeze_parent_tree": sh.AMENDMENT_2_TREE},
+        repo_root=paths.REPO_ROOT,
+    )
+    assert "freeze_parent_commit is not the Amendment 3 governance commit" \
+        in status["issues"]
+    assert "freeze_parent_tree is not the Amendment 3 governance tree" \
+        in status["issues"]
+    with pytest.raises(sh.LockMismatch, match="Amendment 3"):
+        sh.make_harness_manifest(
+            repo_root=paths.REPO_ROOT,
+            freeze_parent_commit=sh.AMENDMENT_2_COMMIT,
+            freeze_parent_tree=sh.AMENDMENT_2_TREE,
+            canary_receipts={}, audit_receipt={}, smoke_receipt={},
+        )
+
+
+def test_h_prime_record_is_pinned_and_parent_gate_reads_it():
+    assert sh.H_PRIME_COMMIT == "3bcc893e8cef73a2e43abd43d3c48f9091e911c5"
+    assert sh.H_PRIME_MANIFEST_SHA256 == (
+        "0e907e61e2135e36195f902c65b220ae465bb186a06dc2b9dcdc62e195f60c16"
+    )
+    # The Amendment 3 governance commit lawfully carries exactly the H'-era
+    # freeze record and passes.
+    assert sh._pre_h_parent_issues(
+        paths.REPO_ROOT, sh.AMENDMENT_3_COMMIT,
+    ) == []
+    # A parent without the H' record (Amendment 1's artifact-free tree) is
+    # not a lawful H'' parent under the Amendment 3 geometry.
+    issues = sh._pre_h_parent_issues(paths.REPO_ROOT, sh.AMENDMENT_1_COMMIT)
+    assert issues, "artifact-free parent must now fail the H'-record gate"
+    assert any("H'" in issue for issue in issues)
+
+
+def test_native_contract_grants_exact_system_read_literals():
+    contract = runner._native_sandbox_contract()
+    assert contract["system_read_literals"] == [_A3_PLIST]
+    lock_records = contract["runtime_closure"]["system_read_literals"]
+    assert [record["logical_path"] for record in lock_records] == [_A3_PLIST]
+    record = lock_records[0]
+    assert record["link_chain"] == []
+    assert record["resolved_path"] == _A3_PLIST
+    assert len(record["sha256"]) == 64
+    assert record["bytes"] > 0
+    profile = runner._native_sandbox_profile(
+        contract=contract, temporary_root=Path("/private/tmp/a3-job"),
+        parent_root=Path("/private/tmp/a3-job/parent"),
+        request_path=Path("/private/tmp/a3-job/request.json"),
+        runtime_root=Path("/private/tmp/a3-job/runtime"),
+        resolve_live_paths=False,
+    )
+    assert f'(literal "{_A3_PLIST}")' in profile
+    assert '(subpath "/System")' not in profile
+    assert '(subpath "/System/Library")' not in profile
+    assert f'(subpath "{_A3_PLIST}")' not in profile
+    read_block = profile.split("(allow file-read-data", 1)[1]
+    assert f'(literal "{_A3_PLIST}")' in read_block
+
+
+def test_native_contract_selects_hash_bound_ld_classic_and_dsymutil():
+    contract = runner._native_sandbox_contract()
+    tools = contract["compiler_paths"]
+    assert tools["ld-classic"] == _A3_LD_CLASSIC
+    assert tools["dsymutil"] == _A3_DSYMUTIL
+    assert _A3_LD_CLASSIC in contract["process_exec_paths"]
+    assert _A3_DSYMUTIL in contract["process_exec_paths"]
+    executables = {
+        record["logical_path"]: record
+        for record in contract["runtime_closure"]["executables"]
+    }
+    for path in (_A3_LD_CLASSIC, _A3_DSYMUTIL):
+        assert path in executables
+        assert len(executables[path]["sha256"]) == 64
+    profile = runner._native_sandbox_profile(
+        contract=contract, temporary_root=Path("/private/tmp/a3-job"),
+        parent_root=Path("/private/tmp/a3-job/parent"),
+        request_path=Path("/private/tmp/a3-job/request.json"),
+        runtime_root=Path("/private/tmp/a3-job/runtime"),
+        resolve_live_paths=False,
+    )
+    exec_block = profile.split("(allow process-exec", 1)[1].split("\n)\n", 1)[0]
+    assert f'(literal "{_A3_LD_CLASSIC}")' in exec_block
+    assert f'(literal "{_A3_DSYMUTIL}")' in exec_block
+
+
+def test_native_profile_confines_generated_exec_to_runtime_tmp():
+    contract = runner._native_sandbox_contract()
+    assert contract["generated_process_exec_subtree"] == "runtime_tmp"
+    profile = runner._native_sandbox_profile(
+        contract=contract, temporary_root=Path("/private/tmp/a3-job"),
+        parent_root=Path("/private/tmp/a3-job/parent"),
+        request_path=Path("/private/tmp/a3-job/request.json"),
+        runtime_root=Path("/private/tmp/a3-job/runtime"),
+        resolve_live_paths=False,
+    )
+    exec_block = profile.split("(allow process-exec", 1)[1].split("\n)\n", 1)[0]
+    assert '(subpath "/private/tmp/a3-job/runtime/tmp")' in exec_block
+    assert '(subpath "/private/tmp/a3-job/runtime")' not in exec_block
+    assert '(subpath "/private/tmp/a3-job")' not in exec_block
+
+
+def test_native_profile_grants_exact_dev_null_write_only():
+    contract = runner._native_sandbox_contract()
+    profile = runner._native_sandbox_profile(
+        contract=contract, temporary_root=Path("/private/tmp/a3-job"),
+        parent_root=Path("/private/tmp/a3-job/parent"),
+        request_path=Path("/private/tmp/a3-job/request.json"),
+        runtime_root=Path("/private/tmp/a3-job/runtime"),
+        resolve_live_paths=False,
+    )
+    assert '(allow file-write-data\n  (literal "/dev/null")\n)' in profile
+    write_rules = [
+        line for line in profile.splitlines()
+        if line.startswith("(allow file-write* ")
+    ]
+    assert write_rules == [
+        '(allow file-write* (subpath "/private/tmp/a3-job/runtime"))',
+    ]
+
+
+def test_native_environment_pins_both_compiledirs():
+    contract = runner._native_sandbox_contract()
+    runtime_root = Path("/private/tmp/a3-job/runtime")
+    environment = runner._native_environment_values(
+        contract=contract, parent_root=Path("/private/tmp/a3-job/parent"),
+        request_path=Path("/private/tmp/a3-job/request.json"),
+        runtime_root=runtime_root,
+    )
+    assert environment["PYTENSOR_FLAGS"] == (
+        f"base_compiledir={runtime_root / 'pytensor'},"
+        f"compiledir={runtime_root / 'pytensor' / 'compiled'},"
+        f"cxx={contract['compiler_paths']['clang++']}"
+    )
+
+
+def test_native_worker_sources_assert_cold_compiledir():
+    for source in (runner._NATIVE_WORKER_SOURCE,
+                   runner._SMOKE_WORKER_SOURCE):
+        assert "pytensor/compiled" in source
+        assert "compiledir is not cold" in source
+
+
+def _a3_monitor_process(pid=123):
+    class Process:
+        def __init__(self):
+            self.pid = pid
+            self.returncode = None
+
+        def poll(self):
+            pytest.fail("poll would reap the process-group leader")
+
+    return Process()
+
+
+def _a3_monitor_run(monkeypatch, outputs, *, returncodes=None):
+    """Feed successive group-scoped ps snapshots to the rewritten monitor."""
+    calls = []
+    codes = list(returncodes or [0] * len(outputs))
+
+    def fake_run(*args, **kwargs):
+        ordinal = len(calls)
+        calls.append((args, kwargs))
+
+        class Completed:
+            returncode = codes[min(ordinal, len(codes) - 1)]
+            stdout = outputs[min(ordinal, len(outputs) - 1)]
+            stderr = b""
+
+        return Completed()
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(runner.time, "sleep", lambda seconds: None)
+    return calls
+
+
+def test_native_process_group_monitor_takes_one_group_scoped_snapshot(
+    monkeypatch,
+):
+    calls = _a3_monitor_run(
+        monkeypatch, [b" 123  123 Ss   3040\n 200  123 R     512\n"],
+    )
+    state = runner._native_process_group_state(_a3_monitor_process())
+    assert calls[0][0][0] == (
+        "/bin/ps", "-o", "pid=,pgid=,stat=,rss=", "-g", "123",
+    )
+    assert len(calls) == 1
+    assert state.leader_exited is False
+    assert state.nonleader_pids == (200,)
+    assert state.rss_bytes == (3040 + 512) * 1_024
+    # ownership and RSS come from the same single snapshot
+    assert runner._native_process_group_rss_bytes(
+        _a3_monitor_process()
+    ) == (3040 + 512) * 1_024
+
+
+def test_native_process_group_monitor_rejects_a_foreign_pgid_row(monkeypatch):
+    _a3_monitor_run(
+        monkeypatch, [b" 123  123 Ss   3040\n 999  998 R     512\n"] * 4,
+    )
+    with pytest.raises(
+        runner.NativeWorkerIOFailure, match="foreign process-group row",
+    ):
+        runner._native_process_group_state(_a3_monitor_process())
+
+
+def test_native_process_group_monitor_treats_halted_as_live(monkeypatch):
+    _a3_monitor_run(monkeypatch, [b" 123  123 H    3040\n"])
+    state = runner._native_process_group_state(_a3_monitor_process())
+    assert state.leader_exited is False
+    assert state.nonleader_pids == ()
+
+
+def test_native_process_group_monitor_retries_indeterminate_then_fails(
+    monkeypatch,
+):
+    calls = _a3_monitor_run(
+        monkeypatch, [b" 123  123 ?    0\n"] * 8,
+    )
+    with pytest.raises(
+        runner.NativeWorkerIOFailure, match="indeterminate",
+    ):
+        runner._native_process_group_state(_a3_monitor_process())
+    assert len(calls) == runner._NATIVE_MONITOR_STATE_RETRIES + 1
+
+    recovered = _a3_monitor_run(monkeypatch, [
+        b" 123  123 ?    0\n",
+        b" 123  123 Ss   3040\n",
+    ])
+    state = runner._native_process_group_state(_a3_monitor_process())
+    assert state.leader_exited is False and state.rss_bytes == 3040 * 1_024
+    assert len(recovered) == 2
+
+
+def test_native_process_group_monitor_treats_suffixed_unknown_as_indeterminate(
+    monkeypatch,
+):
+    """Apple's ps prints '?' with ordinary flag suffixes (observed '?Es').
+
+    The first live smoke qualification hit exactly this row mid-exec; a
+    suffixed unknown state is the same indeterminate reading as a bare '?',
+    so it retries and then fails closed rather than failing as malformed.
+    """
+    recovered = _a3_monitor_run(monkeypatch, [
+        b" 123  123 ?Es  0\n 200  123 R    512\n",
+        b" 123  123 Ss   3040\n 200  123 R    512\n",
+    ])
+    state = runner._native_process_group_state(_a3_monitor_process())
+    assert state.leader_exited is False
+    assert state.rss_bytes == (3040 + 512) * 1_024
+    assert len(recovered) == 2
+
+    exhausted = _a3_monitor_run(monkeypatch, [b" 123  123 ?E   0\n"] * 8)
+    with pytest.raises(
+        runner.NativeWorkerIOFailure, match="indeterminate",
+    ):
+        runner._native_process_group_state(_a3_monitor_process())
+    assert len(exhausted) == runner._NATIVE_MONITOR_STATE_RETRIES + 1
+    # a genuinely foreign spelling is still malformed, with no retry
+    malformed = _a3_monitor_run(monkeypatch, [b" 123  123 ZOMBIE 0\n"] * 4)
+    with pytest.raises(
+        runner.NativeWorkerIOFailure, match="malformed",
+    ):
+        runner._native_process_group_state(_a3_monitor_process())
+    assert len(malformed) == 1
+
+
+def test_native_process_group_monitor_retries_live_zero_rss_then_fails(
+    monkeypatch,
+):
+    calls = _a3_monitor_run(monkeypatch, [b" 123  123 R    0\n"] * 8)
+    with pytest.raises(
+        runner.NativeWorkerIOFailure, match="indeterminate",
+    ):
+        runner._native_process_group_state(_a3_monitor_process())
+    assert len(calls) == runner._NATIVE_MONITOR_STATE_RETRIES + 1
+    # a zombie leader with zero RSS is determinate, not a retry case
+    _a3_monitor_run(monkeypatch, [b" 123  123 Z    0\n"])
+    state = runner._native_process_group_state(_a3_monitor_process())
+    assert state.leader_exited is True and state.rss_bytes == 0
+
+
+def test_native_process_group_monitor_diagnostics_are_bounded(monkeypatch):
+    noise = b" 123  123 Ss   3040\n" + b"x" * 100_000 + b"\n"
+    _a3_monitor_run(monkeypatch, [noise] * 4)
+    with pytest.raises(runner.NativeWorkerIOFailure) as failure:
+        runner._native_process_group_state(_a3_monitor_process())
+    assert len(str(failure.value)) < 4_096
+
+
+def test_native_process_group_monitor_launch_validates_own_group_selector(
+    monkeypatch,
+):
+    runner._require_native_process_group_monitor()
+
+    class Completed:
+        returncode = 0
+        stdout = b" 1  2 Ss   10\n"
+        stderr = b""
+
+    monkeypatch.setattr(
+        runner.subprocess, "run", lambda *args, **kwargs: Completed(),
+    )
+    with pytest.raises(
+        runner.NativeWorkerIOFailure,
+        match="ownership monitor",
+    ):
+        runner._require_native_process_group_monitor()
+
+
+def test_native_wait_uses_one_snapshot_per_poll_for_state_and_rss(monkeypatch):
+    process = _a3_monitor_process()
+    states = iter((
+        runner._NativeProcessGroupState(123, 123, False, (), 2_048),
+        runner._NativeProcessGroupState(123, 123, True, (), 1_024),
+    ))
+    snapshots = []
+
+    def state(_process):
+        value = next(states)
+        snapshots.append(value)
+        return value
+
+    monkeypatch.setattr(runner, "_native_process_group_state", state)
+    monkeypatch.setattr(runner.time, "sleep", lambda seconds: None)
+    observed = {"rss_bytes": 0}
+    runner._wait_native_process_with_rss_limit(
+        process, timeout_seconds=5, observed=observed,
+    )
+    assert len(snapshots) == 2
+    assert observed["rss_bytes"] == 2_048
+
+    process = _a3_monitor_process()
+    monkeypatch.setattr(
+        runner, "_native_process_group_state",
+        lambda _process: runner._NativeProcessGroupState(
+            123, 123, False, (), runner._NATIVE_RSS_LIMIT_BYTES + 1,
+        ),
+    )
+    with pytest.raises(
+        runner.NativeWorkerIOFailure, match="resident-memory limit",
+    ):
+        runner._wait_native_process_with_rss_limit(process, timeout_seconds=5)
+
+
+def test_experiment_transaction_lock_refuses_foreign_h_without_touching_it(
+    tmp_path,
+):
+    foreign = (
+        "epl-shots-experiment-transaction-lock-1\n"
+        + sh.H_PRIME_COMMIT + "\n" + sh.H_PRIME_MANIFEST_SHA256 + "\n"
+    ).encode("ascii")
+    lock_path = tmp_path / ".experiment-transaction.lock"
+    lock_path.write_bytes(foreign)
+    os.chmod(lock_path, 0o444)
+    h = runner._VerifiedH("a" * 40, "b" * 64, "c" * 64, "d" * 64)
+    with pytest.raises(
+        sh.LockMismatch, match="experiment transaction lock bytes differ",
+    ):
+        with runner._experiment_transaction_lock(
+            h=h, artifact_root=tmp_path,
+        ):
+            pytest.fail("a foreign H'-era transaction claim must refuse")
+    assert lock_path.read_bytes() == foreign
+
+
+def test_smoke_receipt_validator_binds_candidates_amendment_and_lock():
+    receipt = runner._make_example_smoke_receipt_for_tests()
+    files = {
+        relative: {"sha256": record["sha256"], "bytes": 1, "lines": 1}
+        for relative, record in receipt["candidate_files"].items()
+    }
+    lock_sha256 = receipt["native_runtime_lock_sha256"]
+    sh._validate_smoke_receipt(
+        receipt, files=files, native_runtime_lock_sha256=lock_sha256,
+    )
+    for corruption, note in (
+        ({"passed": False}, "did not pass"),
+        ({"amendment_3_commit": "f" * 40}, "Amendment 3"),
+        ({"amendment_3_sha256": "f" * 64}, "Amendment 3"),
+        ({"native_runtime_lock_sha256": "f" * 64}, "runtime lock"),
+        ({"schema": "epl-shots-h-candidate-smoke-receipt-0"}, "schema"),
+    ):
+        broken = {**receipt, **corruption}
+        with pytest.raises(sh.LockMismatch, match=note):
+            sh._validate_smoke_receipt(
+                broken, files=files,
+                native_runtime_lock_sha256=lock_sha256,
+            )
+    stale = json.loads(json.dumps(receipt))
+    stale["candidate_files"]["epl/shots.py"]["sha256"] = "f" * 64
+    with pytest.raises(sh.LockMismatch, match="stale"):
+        sh._validate_smoke_receipt(
+            stale, files=files, native_runtime_lock_sha256=lock_sha256,
+        )
+    with pytest.raises(sh.LockMismatch, match="negative"):
+        sabotaged = json.loads(json.dumps(receipt))
+        sabotaged["containment_negatives"]["checkout_read"] = "allowed"
+        sh._validate_smoke_receipt(
+            sabotaged, files=files, native_runtime_lock_sha256=lock_sha256,
+        )
+
+
+def test_harness_manifest_machinery_requires_the_smoke_receipt():
+    assert "smoke_receipt" in inspect.signature(
+        sh.make_harness_manifest
+    ).parameters
+    required = inspect.signature(sh.make_harness_manifest).parameters[
+        "smoke_receipt"
+    ]
+    assert required.default is inspect.Parameter.empty
+    assert sh.H_MANIFEST_SCHEMA == "epl-shots-harness-manifest-5"
+    status = sh.harness_manifest_status(
+        {"freeze_parent_commit": sh.AMENDMENT_3_COMMIT,
+         "freeze_parent_tree": sh.AMENDMENT_3_TREE},
+        repo_root=paths.REPO_ROOT,
+    )
+    assert any("smoke_receipt" in issue for issue in status["issues"])
+
+
+def test_run_smoke_qualification_is_wired_as_a_public_entry():
+    assert callable(runner.run_smoke_qualification)
+    parameters = inspect.signature(runner.run_smoke_qualification).parameters
+    assert "receipt_path" in parameters

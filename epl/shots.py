@@ -148,7 +148,7 @@ MODEL_PROBABILITY_SUM_TOLERANCE = 1e-12
 OPTIMIZER_GRADIENT_TOLERANCE = 1e-5
 OPTIMIZER_BETA_DISTANCE_BOUND_L2 = math.sqrt(8.0) * OPTIMIZER_GRADIENT_TOLERANCE
 
-H_MANIFEST_SCHEMA = "epl-shots-harness-manifest-4"
+H_MANIFEST_SCHEMA = "epl-shots-harness-manifest-5"
 H_MANIFEST_PATH = "reports/evidence/epl_shots/harness_manifest.json"
 SHOTS_ARTIFACT_ROOT = "data/epl/fit/shots_sot"
 H_REQUIRED_FILES = (
@@ -171,8 +171,24 @@ CANARY_NAMES = (
     "odds_isolation", "zero_tilt_identity", "quarantine_poison",
     "fixture_integrity", "lookahead_trap", "amendment_1_contract",
 )
-H_RECEIPT_SUBJECT_SCHEMA = "epl-shots-pre-h-subject-3"
+H_RECEIPT_SUBJECT_SCHEMA = "epl-shots-pre-h-subject-4"
 H_CANARY_RECEIPT_SCHEMA = "epl-shots-canary-receipt-3"
+# Amendment 3 §C5: the smoke receipt that gates the H'' freeze.  A missing,
+# stale, or failed receipt makes ``make_harness_manifest`` refuse.
+H_SMOKE_RECEIPT_SCHEMA = "epl-shots-h-candidate-smoke-receipt-1"
+SMOKE_NEGATIVE_CONTROL_NAMES = (
+    "checkout_read",
+    "system_volumes_data_alias_read",
+    "decision_sentinel_read",
+    "plist_sibling_read",
+    "outside_runtime_write",
+    "ipv4_connect",
+    "ipv6_connect",
+    "ipv4_bind",
+    "ipv6_bind",
+    "unix_socket_connect",
+    "generated_exec_outside_runtime_tmp",
+)
 # Amendment 2 Rider 2: receipt-4 adds a typed defects list.  A disclosed
 # non-blocking defect may ride in a valid manifest; a blocking defect still
 # refuses the freeze.
@@ -200,6 +216,23 @@ AMENDMENT_2_TREE = "bbbef6b36e177c42200a7e05f17b741ca09e206c"
 AMENDMENT_2_PATH = "reports/epl_shots_prereg_amendment_2.md"
 AMENDMENT_2_SHA256 = (
     "4b37345e75bb296a98aa1ee5bc694c3e355b7d60ecc843843ea4c2585f3783e6"
+)
+# Amendment 3 (the sandbox capability cure after the blocked H'-era run) is
+# the governance parent of H''.  Its tree lawfully carries the H' freeze
+# record, so the parent gates below require exactly that record and nothing
+# else within the pre-H forbidden namespaces, and H'' modifies — never adds —
+# its four freeze paths.
+AMENDMENT_3_COMMIT = "ca169ef4490059a2672ae38f08aff157eeff3717"
+AMENDMENT_3_TREE = "dbb6b5bf5d8ccfe0b9387bc95ef6d527da321234"
+AMENDMENT_3_PATH = "reports/epl_shots_prereg_amendment_3.md"
+AMENDMENT_3_SHA256 = (
+    "015ad8d08d08fb4e361d1e0c1252190da673b8a1fbd0b1f21d8683ecc8293fca"
+)
+# The superseded-for-execution H' freeze: preserved unrewritten in history;
+# its manifest blob is the record the H'' parent tree must carry verbatim.
+H_PRIME_COMMIT = "3bcc893e8cef73a2e43abd43d3c48f9091e911c5"
+H_PRIME_MANIFEST_SHA256 = (
+    "0e907e61e2135e36195f902c65b220ae465bb186a06dc2b9dcdc62e195f60c16"
 )
 NATIVE_PARENT_COMMIT = "6450fb51aef22021a00b3eed72395f1c4141cae3"
 NATIVE_PARENT_TREE = "3bfe865d7b441d03b55d356857cd58a89d589fea"
@@ -292,32 +325,37 @@ def _expected_h_output_schemas() -> dict[str, Any]:
             "job_ordinals", "block_records", "clean_exit", "exit_code",
             "sandbox", "stream",
         ],
-        "sandbox_schema": "epl-shots-native-sandbox-run-3",
+        "sandbox_schema": "epl-shots-native-sandbox-run-4",
         "sandbox_run_fields": [
             "schema", "contract_sha256", "sandbox_executable",
             "policy_sha256", "python_launcher", "python_resolved",
             "python_sha256", "site_packages", "compiler_paths", "sdk_root",
             "python_flags",
-            "runtime_read_paths", "process_exec_paths", "temporary_root",
+            "runtime_read_paths", "process_exec_paths",
+            "system_read_literals", "generated_process_exec_subtree",
+            "temporary_root",
             "file_read_metadata", "path_resolution_literals",
             "parent_read_path", "request_read_path",
             "runtime_read_write_path", "environment", "resource_limits",
             "isolated_process_group", "network",
         ],
-        "sandbox_contract_schema": "epl-shots-native-sandbox-contract-3",
+        "sandbox_contract_schema": "epl-shots-native-sandbox-contract-4",
         "sandbox_contract_fields": [
             "schema", "sandbox_executable", "python_launcher",
             "python_resolved", "python_sha256", "python_abi",
             "site_packages", "compiler_paths", "sdk_root", "python_flags",
-            "runtime_read_paths", "process_exec_paths", "file_read_metadata",
+            "runtime_read_paths", "process_exec_paths",
+            "system_read_literals", "generated_process_exec_subtree",
+            "file_read_metadata",
             "path_resolution_literals",
             "runtime_closure",
             "temporary_read_roles", "temporary_write_roles", "network",
             "inherit_environment", "environment_keys", "resource_limits",
         ],
-        "runtime_closure_schema": "epl-shots-native-runtime-lock-2",
+        "runtime_closure_schema": "epl-shots-native-runtime-lock-3",
         "runtime_closure_fields": [
             "schema", "sha256", "tree_digest_schema", "sealed_read_roots",
+            "system_read_literals",
             "mutable_roots", "executables", "platform", "file_count",
             "directory_count", "symlink_count", "bytes",
         ],
@@ -367,8 +405,8 @@ def _expected_h_output_schemas() -> dict[str, Any]:
             "training_schedule_sha256", "refusal_kind",
             "exception_type", "message",
         ],
-        "sandbox_contract_schema": "epl-shots-native-sandbox-contract-3",
-        "sandbox_run_schema": "epl-shots-native-sandbox-run-3",
+        "sandbox_contract_schema": "epl-shots-native-sandbox-contract-4",
+        "sandbox_run_schema": "epl-shots-native-sandbox-run-4",
         "runtime_snapshot_schema": "epl-shots-generated-runtime-tree-1",
         "runtime_observed_fields": ["files", "bytes", "rss_bytes"],
         "sources": [
@@ -2578,6 +2616,20 @@ def _fixed_identity_snapshot(repo_root: Path | str) -> dict[str, Any]:
         raise LockMismatch(
             "the committed Amendment 2 bytes are absent or edited"
         )
+    amendment_3_commit = _git_text(
+        root, "rev-parse", f"{AMENDMENT_3_COMMIT}^{{commit}}",
+    )
+    amendment_3_blob = _git_bytes(
+        root, "show", f"{AMENDMENT_3_COMMIT}:{AMENDMENT_3_PATH}",
+    )
+    current_amendment_3 = (root / AMENDMENT_3_PATH).read_bytes()
+    if (amendment_3_commit != AMENDMENT_3_COMMIT
+            or hashlib.sha256(amendment_3_blob).hexdigest()
+                != AMENDMENT_3_SHA256
+            or amendment_3_blob != current_amendment_3):
+        raise LockMismatch(
+            "the committed Amendment 3 bytes are absent or edited"
+        )
     native = {
         "parent_commit": NATIVE_PARENT_COMMIT,
         "parent_tree": NATIVE_PARENT_TREE,
@@ -2610,6 +2662,11 @@ def _fixed_identity_snapshot(repo_root: Path | str) -> dict[str, Any]:
         "amendment_2_commit": AMENDMENT_2_COMMIT,
         "amendment_2_path": AMENDMENT_2_PATH,
         "amendment_2_sha256": AMENDMENT_2_SHA256,
+        "amendment_3_commit": AMENDMENT_3_COMMIT,
+        "amendment_3_path": AMENDMENT_3_PATH,
+        "amendment_3_sha256": AMENDMENT_3_SHA256,
+        "h_prime_commit": H_PRIME_COMMIT,
+        "h_prime_manifest_sha256": H_PRIME_MANIFEST_SHA256,
     }
     return {
         "data_identities": data,
@@ -2649,6 +2706,8 @@ def _expected_receipt_subject(manifest: Mapping[str, Any]) -> dict[str, Any]:
         "amendment_1_sha256": AMENDMENT_1_SHA256,
         "amendment_2_commit": AMENDMENT_2_COMMIT,
         "amendment_2_sha256": AMENDMENT_2_SHA256,
+        "amendment_3_commit": AMENDMENT_3_COMMIT,
+        "amendment_3_sha256": AMENDMENT_3_SHA256,
         "freeze_parent_commit": manifest.get("freeze_parent_commit"),
         "freeze_parent_tree": manifest.get("freeze_parent_tree"),
         "candidate_files_sha256": _canonical_sha256(
@@ -2882,13 +2941,14 @@ def _validate_output_schemas(schemas: Mapping[str, Any]) -> None:
 def _validate_native_runtime_lock(value: Any) -> None:
     fields = {
         "schema", "sha256", "tree_digest_schema", "sealed_read_roots",
+        "system_read_literals",
         "mutable_roots", "executables", "platform", "file_count",
         "directory_count", "symlink_count", "bytes",
     }
     if not isinstance(value, Mapping) or set(value) != fields:
         raise LockMismatch("native_runtime_lock has an inexact schema")
     payload = {key: value[key] for key in value if key != "sha256"}
-    if (value.get("schema") != "epl-shots-native-runtime-lock-2"
+    if (value.get("schema") != "epl-shots-native-runtime-lock-3"
             or value.get("tree_digest_schema") != "epl-shots-runtime-tree-1"
             or value.get("sha256")
                 != hashlib.sha256(canonical_manifest_bytes(payload)).hexdigest()
@@ -2896,9 +2956,11 @@ def _validate_native_runtime_lock(value: Any) -> None:
         raise LockMismatch("native_runtime_lock identity differs")
     roots = value.get("mutable_roots")
     executables = value.get("executables")
+    system_literals = value.get("system_read_literals")
     platform = value.get("platform")
     if (not isinstance(roots, list) or not roots
             or not isinstance(executables, list) or not executables
+            or not isinstance(system_literals, list)
             or not isinstance(platform, Mapping)
             or set(platform) != {
                 "architecture", "kernel_release", "sw_vers", "root_mount",
@@ -2906,6 +2968,14 @@ def _validate_native_runtime_lock(value: Any) -> None:
                 "clang_version",
             }):
         raise LockMismatch("native_runtime_lock content is incomplete")
+    # Amendment 3 item 1: the plist is the sole system read literal, bound as
+    # one regular, non-symlink, exactly-resolved file with its byte identity.
+    if ([record.get("logical_path") for record in system_literals
+         if isinstance(record, Mapping)]
+            != ["/System/Library/CoreServices/SystemVersion.plist"]):
+        raise LockMismatch(
+            "native_runtime_lock system read literals differ from Amendment 3"
+        )
     link_fields = {"path", "target", "resolved"}
     root_fields = {
         "logical_path", "resolved_path", "link_chain", "tree_sha256",
@@ -2915,9 +2985,18 @@ def _validate_native_runtime_lock(value: Any) -> None:
         "logical_path", "resolved_path", "link_chain", "mode", "bytes",
         "sha256",
     }
+    for record in system_literals:
+        if (not isinstance(record, Mapping)
+                or set(record) != executable_fields
+                or record.get("link_chain") != []
+                or record.get("resolved_path") != record.get("logical_path")):
+            raise LockMismatch(
+                "native_runtime_lock system read literal record differs"
+            )
     for label, records, expected in (
         ("root", roots, root_fields),
         ("executable", executables, executable_fields),
+        ("system_read_literal", system_literals, executable_fields),
     ):
         for record in records:
             if (not isinstance(record, Mapping) or set(record) != expected
@@ -2969,6 +3048,147 @@ def _validate_native_runtime_lock(value: Any) -> None:
         raise LockMismatch("native_runtime_lock platform receipt differs")
 
 
+def _validate_smoke_receipt(
+    receipt: Any, *, files: Mapping[str, Any],
+    native_runtime_lock_sha256: str,
+) -> None:
+    """Amendment 3 §C5: refuse the freeze on a missing/stale/failed smoke.
+
+    ``files`` carries the candidate records being frozen; the receipt's
+    candidate digests must equal them exactly, or the receipt is stale.  The
+    receipt must also bind this amendment and the live runtime lock, and
+    every containment negative must read ``denied``.
+    """
+    expected_fields = {
+        "schema", "amendment_3_commit", "amendment_3_sha256",
+        "candidate_files", "native_runtime_lock_sha256",
+        "sandbox_contract_sha256", "policy_sha256", "environment",
+        "smoke_parameters", "child_executables",
+        "generated_process_exec_subtree", "cold_identity", "module_build",
+        "model_fit", "containment_negatives", "resource_maxima", "closure",
+        "passed",
+    }
+    if not isinstance(receipt, Mapping):
+        raise LockMismatch("smoke_receipt is absent or not a mapping")
+    if set(receipt) != expected_fields:
+        raise LockMismatch("smoke_receipt has an inexact schema")
+    if receipt.get("schema") != H_SMOKE_RECEIPT_SCHEMA:
+        raise LockMismatch("smoke_receipt schema identity differs")
+    if receipt.get("passed") is not True:
+        raise LockMismatch("smoke_receipt did not pass")
+    if (receipt.get("amendment_3_commit") != AMENDMENT_3_COMMIT
+            or receipt.get("amendment_3_sha256") != AMENDMENT_3_SHA256):
+        raise LockMismatch("smoke_receipt does not bind Amendment 3")
+    if (not isinstance(native_runtime_lock_sha256, str)
+            or not _HEX64.fullmatch(native_runtime_lock_sha256)
+            or receipt.get("native_runtime_lock_sha256")
+                != native_runtime_lock_sha256):
+        raise LockMismatch(
+            "smoke_receipt does not bind the live native runtime lock"
+        )
+    candidates = receipt.get("candidate_files")
+    if (not isinstance(candidates, Mapping)
+            or set(candidates) != set(H_REQUIRED_FILES)
+            or not isinstance(files, Mapping)
+            or set(files) != set(H_REQUIRED_FILES)):
+        raise LockMismatch("smoke_receipt candidate file set differs")
+    for relative in H_REQUIRED_FILES:
+        record = candidates.get(relative)
+        frozen = files.get(relative)
+        if (not isinstance(record, Mapping)
+                or not isinstance(record.get("sha256"), str)
+                or not _HEX64.fullmatch(record["sha256"])
+                or not isinstance(frozen, Mapping)
+                or record["sha256"] != frozen.get("sha256")):
+            raise LockMismatch(
+                f"smoke_receipt is stale: {relative} differs from the "
+                "candidate being frozen"
+            )
+    negatives = receipt.get("containment_negatives")
+    if (not isinstance(negatives, Mapping)
+            or set(negatives) != set(SMOKE_NEGATIVE_CONTROL_NAMES)
+            or any(negatives[name] != "denied"
+                   for name in SMOKE_NEGATIVE_CONTROL_NAMES)):
+        raise LockMismatch(
+            "smoke_receipt containment negative controls are not all denied"
+        )
+    for key in ("sandbox_contract_sha256", "policy_sha256"):
+        if (not isinstance(receipt.get(key), str)
+                or not _HEX64.fullmatch(receipt[key])):
+            raise LockMismatch(f"smoke_receipt {key} is malformed")
+    closure = receipt.get("closure")
+    if (not isinstance(closure, Mapping)
+            or closure.get("clean_exit") is not True
+            or closure.get("exit_code") != 0
+            or closure.get("had_nonleaders") is not False):
+        raise LockMismatch("smoke_receipt closure is not clean")
+    for key in ("environment", "smoke_parameters", "cold_identity",
+                "module_build", "model_fit", "resource_maxima"):
+        if not isinstance(receipt.get(key), Mapping):
+            raise LockMismatch(f"smoke_receipt {key} is malformed")
+    if (not isinstance(receipt.get("child_executables"), list)
+            or not receipt["child_executables"]
+            or receipt.get("generated_process_exec_subtree") != "runtime_tmp"):
+        raise LockMismatch("smoke_receipt execution surface is malformed")
+
+
+def _pre_h_parent_issues(repo_root: Path | str, parent_commit: str) -> list[str]:
+    """Amendment 3 §C7.2: the H'' parent carries exactly the H' record.
+
+    Within the pre-H forbidden namespaces the parent tree must contain
+    exactly the committed H' manifest, byte-identical to the record of what
+    H' was; the parent's three candidate sources must equal their H' blobs;
+    and nothing else from the forbidden namespaces may exist.
+    """
+    root = Path(repo_root).resolve()
+    issues: list[str] = []
+    try:
+        forbidden = set(_git_text(
+            root, "ls-tree", "-r", "--name-only", parent_commit, "--",
+            *PRE_H_FORBIDDEN_PATHS,
+        ).splitlines())
+    except ShotsError as exc:
+        return [f"freeze parent tree could not be read: {exc}"]
+    expected_record = {H_MANIFEST_PATH}
+    if forbidden != expected_record:
+        issues.append(
+            "freeze parent must carry exactly the H' manifest record within "
+            f"the forbidden namespaces: expected={sorted(expected_record)}, "
+            f"observed={sorted(forbidden)}"
+        )
+    if H_MANIFEST_PATH in forbidden:
+        try:
+            parent_manifest = _git_bytes(
+                root, "show", f"{parent_commit}:{H_MANIFEST_PATH}",
+            )
+            if (hashlib.sha256(parent_manifest).hexdigest()
+                    != H_PRIME_MANIFEST_SHA256):
+                issues.append(
+                    "freeze parent's manifest is not the byte-identical H' "
+                    "manifest record"
+                )
+        except ShotsError as exc:
+            issues.append(f"freeze parent H' manifest could not be read: {exc}")
+    for relative in H_REQUIRED_FILES:
+        try:
+            parent_blob = _git_bytes(
+                root, "show", f"{parent_commit}:{relative}",
+            )
+            h_prime_blob = _git_bytes(
+                root, "show", f"{H_PRIME_COMMIT}:{relative}",
+            )
+        except ShotsError:
+            issues.append(
+                f"freeze parent must carry the H' record of {relative}"
+            )
+            continue
+        if parent_blob != h_prime_blob:
+            issues.append(
+                f"freeze parent's {relative} differs from its H' record"
+            )
+    return issues
+
+
 def make_harness_manifest(
     *,
     repo_root: Path | str,
@@ -2980,6 +3200,7 @@ def make_harness_manifest(
     resolved_packages: Mapping[str, str] | None = None,
     canary_receipts: Mapping[str, Any],
     audit_receipt: Mapping[str, Any],
+    smoke_receipt: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Build the non-self-referential H payload from live audited identities.
 
@@ -2988,10 +3209,10 @@ def make_harness_manifest(
     equal the freshly recomputed contract and cannot replace live checks.
     """
     root = Path(repo_root).resolve()
-    if (freeze_parent_commit != AMENDMENT_2_COMMIT
-            or freeze_parent_tree != AMENDMENT_2_TREE):
+    if (freeze_parent_commit != AMENDMENT_3_COMMIT
+            or freeze_parent_tree != AMENDMENT_3_TREE):
         raise LockMismatch(
-            "H freeze parent must be the exact Amendment 2 governance commit/tree"
+            "H freeze parent must be the exact Amendment 3 governance commit/tree"
         )
     resolved_parent = _git_text(
         root, "rev-parse", f"{freeze_parent_commit}^{{commit}}",
@@ -3004,16 +3225,11 @@ def make_harness_manifest(
         raise LockMismatch("H freeze parent commit/tree is unavailable")
     if _git_text(root, "rev-parse", "HEAD^{commit}") != freeze_parent_commit:
         raise LockMismatch(
-            "H preparation requires HEAD at the Amendment 2 governance commit"
+            "H preparation requires HEAD at the Amendment 3 governance commit"
         )
-    forbidden = set(_git_text(
-        root, "ls-tree", "-r", "--name-only", freeze_parent_commit, "--",
-        *PRE_H_FORBIDDEN_PATHS,
-    ).splitlines())
-    if forbidden:
-        raise LockMismatch(
-            f"H freeze parent contains forbidden experiment outputs: {sorted(forbidden)}"
-        )
+    parent_issues = _pre_h_parent_issues(root, freeze_parent_commit)
+    if parent_issues:
+        raise LockMismatch("; ".join(parent_issues))
 
     files: dict[str, Any] = {}
     for relative in H_REQUIRED_FILES:
@@ -3045,6 +3261,15 @@ def make_harness_manifest(
                 f"caller-supplied {key} differs from fresh live verification"
             )
 
+    # Amendment 3 §C5: no smoke receipt, no freeze.  The receipt must bind
+    # the exact candidate bytes and the live runtime lock recomputed above.
+    _validate_smoke_receipt(
+        smoke_receipt, files=files,
+        native_runtime_lock_sha256=str(
+            fixed["native_runtime_lock"].get("sha256", "")
+        ),
+    )
+
     manifest: dict[str, Any] = {
         "schema": H_MANIFEST_SCHEMA,
         "harness_frozen": True,
@@ -3061,6 +3286,7 @@ def make_harness_manifest(
         "receipt_subject_sha256": subject_sha256,
         "canary_receipt": json.loads(json.dumps(canary_receipts)),
         "audit_receipt": json.loads(json.dumps(audit_receipt)),
+        "smoke_receipt": json.loads(json.dumps(smoke_receipt)),
     })
     canary_result_sha256 = _validate_canary_receipt(
         manifest["canary_receipt"], manifest=manifest,
@@ -3094,6 +3320,7 @@ def harness_manifest_status(
         "native_contract", "resolved_packages",
         "h_invariants", "output_schemas", "receipt_subject",
         "receipt_subject_sha256", "canary_receipt", "audit_receipt",
+        "smoke_receipt",
     }
     unknown_fields = sorted(set(manifest) - expected_fields)
     missing_fields = sorted(expected_fields - set(manifest))
@@ -3116,10 +3343,10 @@ def harness_manifest_status(
         issues.append("freeze_parent_commit is not a 40-char lowercase git id")
     if not _HEX40.fullmatch(tree):
         issues.append("freeze_parent_tree is not a 40-char lowercase git id")
-    if parent != AMENDMENT_2_COMMIT:
-        issues.append("freeze_parent_commit is not the Amendment 2 governance commit")
-    if tree != AMENDMENT_2_TREE:
-        issues.append("freeze_parent_tree is not the Amendment 2 governance tree")
+    if parent != AMENDMENT_3_COMMIT:
+        issues.append("freeze_parent_commit is not the Amendment 3 governance commit")
+    if tree != AMENDMENT_3_TREE:
+        issues.append("freeze_parent_tree is not the Amendment 3 governance tree")
     if expected_parent_commit is not None and parent != expected_parent_commit:
         issues.append("freeze_parent_commit differs from the expected parent")
     if expected_parent_tree is not None and tree != expected_parent_tree:
@@ -3217,6 +3444,18 @@ def harness_manifest_status(
         )
     except LockMismatch as exc:
         issues.append(str(exc))
+    lock_value = manifest.get("native_runtime_lock")
+    lock_sha256 = (
+        str(lock_value.get("sha256", "")) if isinstance(lock_value, Mapping)
+        else ""
+    )
+    try:
+        _validate_smoke_receipt(
+            manifest.get("smoke_receipt"), files=file_records,
+            native_runtime_lock_sha256=lock_sha256,
+        )
+    except LockMismatch as exc:
+        issues.append(f"smoke_receipt invalid: {exc}")
     try:
         manifest_bytes = canonical_manifest_bytes(manifest)
     except (TypeError, ValueError) as exc:
@@ -3242,15 +3481,7 @@ def harness_manifest_status(
             actual_parent_tree = _git_text(root, "rev-parse", f"{parent}^{{tree}}")
             if actual_parent_tree != tree:
                 issues.append("H's parent tree differs from freeze_parent_tree")
-            pre_h_outputs = set(_git_text(
-                root, "ls-tree", "-r", "--name-only", parent, "--",
-                *PRE_H_FORBIDDEN_PATHS,
-            ).splitlines())
-            if pre_h_outputs:
-                issues.append(
-                    "freeze parent already contains forbidden shots outputs: "
-                    f"{sorted(pre_h_outputs)}"
-                )
+            issues.extend(_pre_h_parent_issues(root, parent))
             ancestor = subprocess.run(
                 (_GIT_EXECUTABLE, "-C", str(root), "merge-base", "--is-ancestor",
                  resolved_h, rev), capture_output=True, check=False, timeout=30,
@@ -3268,14 +3499,26 @@ def harness_manifest_status(
                     f"H changed paths differ: expected={sorted(expected_changed)}, "
                     f"observed={sorted(changed)}"
                 )
+            # Amendment 3 §C7.2: the parent lawfully carries the H' record,
+            # so H'' modifies its four freeze paths and adds nothing.
             added = set(_git_text(
                 root, "diff-tree", "--no-commit-id", "--name-only",
                 "--diff-filter=A", "-r", resolved_h,
             ).splitlines())
-            if added != expected_changed:
+            if added:
                 issues.append(
-                    "H must add every freeze path from an artifact-free parent: "
-                    f"expected={sorted(expected_changed)}, observed={sorted(added)}"
+                    "H must modify the freeze paths against the H' record, "
+                    f"never add: unexpectedly added {sorted(added)}"
+                )
+            modified = set(_git_text(
+                root, "diff-tree", "--no-commit-id", "--name-only",
+                "--diff-filter=M", "-r", resolved_h,
+            ).splitlines())
+            if modified != expected_changed:
+                issues.append(
+                    "H must modify every freeze path against the H' record: "
+                    f"expected={sorted(expected_changed)}, "
+                    f"observed={sorted(modified)}"
                 )
             try:
                 _require_git_regular_blobs(
