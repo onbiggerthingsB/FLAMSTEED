@@ -227,6 +227,40 @@ def _latest_capture_at(when: pd.Timestamp | str) -> pd.Timestamp:
     raise CaptureError("a week holds no previous capture slot")  # pragma: no cover
 
 
+def _scheduled_slots(first: pd.Timestamp,
+                     last: pd.Timestamp) -> list[pd.Timestamp]:
+    """Every nominal 06:00 UTC slot in ``[first, last]``, oldest first.
+
+    `_latest_capture_at` answers "which slot is newest". This answers "which
+    slots were there", which is the only question a hole BEHIND a later
+    capture can be asked about (A17).
+    """
+    slots: list[pd.Timestamp] = []
+    slot, last = _utc(first), _utc(last)
+    while slot <= last:
+        slots.append(slot)
+        slot = next_capture_day(slot) + pd.Timedelta(hours=CAPTURE_HOUR_UTC)
+    return slots
+
+
+def _cadence_start(records: list[dict[str, Any]]) -> pd.Timestamp | None:
+    """The first slot this archive is answerable for, or None if it has none.
+
+    An archive is not answerable for the cadence that ran before it existed —
+    A14's `archive_started` bound, asked per SLOT instead of per archive. The
+    sequence therefore begins at the slot the EARLIEST observation itself
+    observes, or, when that observation is off-cadence or before 06:00 and so
+    satisfies no slot, at the first slot after it.
+    """
+    if not records:
+        return None
+    first = min(_utc(r["fetched_at"]) for r in records)
+    floor = _latest_capture_at(first)
+    if floor.date() == first.date() and first >= floor:
+        return floor
+    return next_capture_at(first)
+
+
 _PROVENANCE_VERSION = 2
 _HEAD_VERSION = 1
 _CHAIN_GENESIS = "GENESIS"
@@ -620,6 +654,24 @@ def capture_status(*, when: pd.Timestamp | str | None = None,
     latest_slot = _latest_capture_at(now)
     latest_slot_observed = any(
         _observes_slot(r, latest_slot) for r in as_of_records)
+    # THE CADENCE IS A SEQUENCE, NOT A HEAD (A17). `missed_latest_slot` asks
+    # about ONE slot, so a hole stopped being reported the instant the NEXT
+    # slot was captured — the archive kept the hole and the report lost it.
+    # `missed_slots` asks about every slot this archive is answerable for and
+    # never stops naming one. It is a SUPERSET of `missed_latest_slot` by
+    # construction, so nothing that refused before stops refusing.
+    start = _cadence_start(as_of_records)
+    missed_slots = [] if start is None else [
+        slot for slot in _scheduled_slots(start, latest_slot)
+        if not any(_observes_slot(r, slot) for r in as_of_records)]
+    if as_of_records and not latest_slot_observed \
+            and latest_slot not in missed_slots:
+        # The archive began AFTER the newest slot (its first receipt is
+        # off-cadence or pre-06:00), so the sequence is empty — but A14
+        # refuses on that slot today, and the set must not say less than
+        # the head boolean does.
+        missed_slots.append(latest_slot)
+        missed_slots.sort()
     latest = _latest_record(as_of_records)
     return {
         "archive_verified": True,
@@ -633,6 +685,8 @@ def capture_status(*, when: pd.Timestamp | str | None = None,
         "latest_scheduled_slot": latest_slot.isoformat(),
         "latest_slot_observed": latest_slot_observed,
         "missed_latest_slot": not latest_slot_observed,
+        "missed_slots": [slot.isoformat() for slot in missed_slots],
+        "n_missed_slots": len(missed_slots),
         "n_observations": len(as_of_records),
         "n_future_observations": len(future_records),
         "n_snapshot_files": len(list(directory.glob("fixtures_*.csv")))

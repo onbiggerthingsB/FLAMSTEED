@@ -1221,8 +1221,87 @@ def test_the_cadence_block_is_on_every_line_whichever_way_it_falls(tmp_path):
     entry = json.loads((tmp_path / "journal.jsonl").read_text())
     assert set(entry["odds_cadence"]) == {
         "latest_scheduled_slot", "latest_slot_observed", "missed_latest_slot",
-        "archive_started", "n_observations", "acknowledged"}
+        "missed_slots", "archive_started", "n_observations", "acknowledged"}
     assert entry["odds_cadence"] == result["odds_cadence"]
+
+
+# --- the slot behind a LATER capture (A17) --------------------------------
+# A14 taught the cycle to refuse a slot nobody ran on, and asked about exactly
+# one slot: the newest. So the act of taking the NEXT scheduled capture was the
+# act that destroyed the previous hole's only detector, and every run after it
+# journalled `missed_latest_slot: false` over an archive with a gap in it.
+
+def test_a_hole_behind_a_later_capture_still_stops_the_cycle(tmp_path):
+    """The defect exactly. Friday captured, the Tuesday between never run,
+    the next Friday captured — and the archive still has a hole in it."""
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")            # a Friday
+    with pytest.raises(livecycle.OddsSlotMissed,
+                       match="2026-08-25T06:00:00"):
+        _cycle(tmp_path, ledger=MW1_SCORES,
+               now=pd.Timestamp("2026-08-28T07:00:00Z"))    # the next Friday
+    entry = json.loads((tmp_path / "journal.jsonl").read_text())
+    assert entry["outcome"] == "STOP"
+    assert entry["refused"]["type"] == "OddsSlotMissed"
+    # This run's own capture took the head, and the record says so while still
+    # naming the hole behind it. That combination is the whole finding: it is
+    # what HEAD wrote as a clean cadence.
+    cadence = entry["odds_cadence"]
+    assert cadence["latest_scheduled_slot"] == "2026-08-28T06:00:00+00:00"
+    assert cadence["latest_slot_observed"] is True
+    assert cadence["missed_latest_slot"] is False
+    assert cadence["archive_started"] is True
+    assert cadence["n_observations"] == 2
+    assert cadence["missed_slots"] == ["2026-08-25T06:00:00+00:00"]
+
+
+def test_the_refusal_names_every_hole_not_only_the_newest(tmp_path):
+    """Two slots skipped, then a capture: the STOP names both, oldest first,
+    and the flight log carries the same list."""
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")            # a Friday
+    with pytest.raises(livecycle.OddsSlotMissed) as info:
+        _cycle(tmp_path, ledger=MW1_SCORES,
+               now=pd.Timestamp("2026-09-01T07:00:00Z"))    # the Tuesday after next
+    message = str(info.value)
+    assert (message.index("2026-08-25T06:00:00+00:00")
+            < message.index("2026-08-28T06:00:00+00:00"))
+    entry = json.loads((tmp_path / "journal.jsonl").read_text())
+    assert entry["odds_cadence"]["missed_slots"] == [
+        "2026-08-25T06:00:00+00:00", "2026-08-28T06:00:00+00:00"]
+
+
+def test_a_dry_run_plan_covers_todays_slot_in_the_set_too(tmp_path):
+    """A14's bound 2, applied to the set: on a dry run today's slot is the
+    thing this run WOULD fill and is not a hole; the one behind it still is."""
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")
+    with pytest.raises(livecycle.OddsSlotMissed,
+                       match="2026-08-25T06:00:00") as info:
+        _cycle(tmp_path, ledger=MW1_SCORES, dry_run=True, prior=None,
+               now=pd.Timestamp("2026-08-28T07:00:00Z"))    # a Friday
+    assert "2026-08-28" not in str(info.value)
+    entry = json.loads((tmp_path / "journal.jsonl").read_text())
+    assert entry["odds_snapshot"]["planned"] is True
+    assert entry["odds_cadence"]["missed_latest_slot"] is False
+    assert entry["odds_cadence"]["missed_slots"] == ["2026-08-25T06:00:00+00:00"]
+
+
+def test_the_screen_says_observed_and_names_the_hole_behind_it(tmp_path):
+    """The false attestation had a printed half as well as a journalled one:
+    `cadence <slot> observed (2 observation(s) on file)` over a gap. The way
+    past the hole is the flag A14 built, filed on this run."""
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")
+    why = "laptop offline over the bank holiday; ruled 2026-08-28 by the owner"
+    result = _cycle(tmp_path, ledger=MW1_SCORES,
+                    now=pd.Timestamp("2026-08-28T07:00:00Z"),
+                    acknowledge_missed_slot=why)
+    assert result["outcome"] != "STOP"
+    assert result["odds_cadence"]["missed_slots"] == ["2026-08-25T06:00:00+00:00"]
+    assert result["odds_cadence"]["acknowledged"] == why
+    line = next(ln for ln in result["summary"].splitlines()
+                if ln.startswith("cadence "))
+    assert "2026-08-28T06:00:00+00:00 observed" in line
+    assert "EARLIER slot(s) never were" in line
+    assert "2026-08-25T06:00:00+00:00" in line
+    assert f"acknowledged: {why}" in line
 
 
 # --- the slot that is ALREADY satisfied -----------------------------------

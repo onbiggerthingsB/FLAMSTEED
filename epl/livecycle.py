@@ -44,10 +44,19 @@ run at all — was detected by nothing: `oddscapture.capture_status` computed
 `missed_latest_slot` from the moment the archive existed, and only
 `python -m epl.oddscapture --status` ever called it. So the cycle asks it now,
 on every run, records the answer on the flight log whichever way it falls, and
-refuses when the most recent scheduled slot has no observation and the archive
+refuses when a scheduled slot on its cadence has no observation and the archive
 already holds one. `--acknowledge-missed-slot 'why'` is the way past it, and it
 files the reason rather than erasing the gap. An archive with no observation at
 all is not behind: it has no cadence yet to have broken.
+
+THE CADENCE IS A SEQUENCE, NOT A HEAD (A17). That check asked about ONE slot,
+the newest, so taking the NEXT scheduled capture was the act that erased the
+previous hole's only detector, and every run afterwards journalled a whole
+cadence over a gap. It now asks about every slot the archive is answerable for
+(`missed_slots`), the flight log carries the whole set, and a hole never stops
+being named. The way past it is unchanged — `--acknowledge-missed-slot 'why'`
+on each run that carries past it; nothing here remembers a ruling from one run
+to the next.
 
 THE TWO CLOCKS, WHICH ARE THE THING THIS BUILD EXISTS TO GET RIGHT
 ------------------------------------------------------------------
@@ -228,7 +237,11 @@ class OddsSlotMissed(LiveCycleError):
     The check is therefore the NEXT run's job, and it fires there. It is not a
     claim that a fresh archive is behind: an archive with no observation at all
     has no cadence yet to have broken, so the refusal is gated on the archive
-    having started."""
+    having started.
+
+    A17: it fires on EVERY later run, not only on the one that happens to ask
+    while the hole is still the newest slot. The refusal reads the whole
+    unobserved set (`missed_slots`) and names each slot in it."""
 
 
 class LaunchModeUnsafe(LiveCycleError):
@@ -1439,24 +1452,35 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
     covered_by_plan = planned and latest_slot == capture_slot
     began = int(status["n_observations"]) > 0
     missed = bool(status["missed_latest_slot"]) and not covered_by_plan
+    # A HOLE BEHIND A LATER CAPTURE IS STILL A HOLE (A17). `missed_latest_slot`
+    # goes false the moment the next slot is captured, so the run that took
+    # the next capture was the run that erased the previous hole's only
+    # detector. The whole set is what is recorded and what the refusal reads;
+    # the dry-run plan covers today's slot in the set exactly as it covers
+    # the head, and the set is a superset of `missed` by construction.
+    holes = [slot for slot in status["missed_slots"]
+             if not (covered_by_plan and pd.Timestamp(slot) == capture_slot)]
     entry["odds_cadence"] = {
         "latest_scheduled_slot": status["latest_scheduled_slot"],
         "latest_slot_observed": bool(status["latest_slot_observed"]),
         "missed_latest_slot": missed,
+        "missed_slots": holes,
         "archive_started": began,
         "n_observations": int(status["n_observations"]),
         "acknowledged": acknowledge_missed_slot,
     }
-    if missed and began and not acknowledge_missed_slot:
+    if holes and began and not acknowledge_missed_slot:
+        named = ", ".join(f"{pd.Timestamp(s).day_name()} {s}" for s in holes)
         raise OddsSlotMissed(
-            f"the {latest_slot.day_name()} {latest_slot.isoformat()} capture "
-            f"slot has no observation on file, and the archive already holds "
-            f"{status['n_observations']} — the cadence started and this slot "
-            "is a hole in it. STOP: the source overwrites one file a week, so "
-            "the publication that belonged in that slot is gone and no later "
-            "run recovers it. Record the decision with "
-            "--acknowledge-missed-slot 'why', which files the reason on the "
-            "flight log rather than letting a silent gap pass as a clean run.")
+            f"the capture slot(s) {named} have no observation on file, and "
+            f"the archive already holds {status['n_observations']} — the "
+            "cadence started and each of these is a hole in it. STOP: the "
+            "source overwrites one file a week, so the publication that "
+            "belonged in each is gone and no later run recovers it, INCLUDING "
+            "a slot that a LATER capture has already scrolled past. Record "
+            "the decision with --acknowledge-missed-slot 'why', which files "
+            "the reason on the flight log rather than letting a silent gap "
+            "pass as a clean run.")
 
     # --- 2. both sources, or nothing --------------------------------------
     urls = {SOURCE_A: openfootball_url(season_obj),
@@ -1848,11 +1872,20 @@ def render_summary(entry: Mapping[str, Any]) -> str:
     cadence = entry.get("odds_cadence")
     if cadence:
         slot = cadence["latest_scheduled_slot"]
+        holes = cadence.get("missed_slots") or []
+        ruling = (f" — acknowledged: {cadence['acknowledged']}"
+                  if cadence["acknowledged"] else " — this run refuses")
         if cadence["missed_latest_slot"] and cadence["archive_started"]:
-            lines.append(f"cadence     MISSED the {slot} slot"
-                         + (f" — acknowledged: {cadence['acknowledged']}"
-                            if cadence["acknowledged"]
-                            else " — this run refuses"))
+            named = holes or [slot]
+            lines.append(f"cadence     MISSED {len(named)} slot(s): "
+                         f"{', '.join(named)}" + ruling)
+        elif holes and cadence["archive_started"]:
+            # The head is observed and an EARLIER slot never was. This line is
+            # the one A17 exists for: without it the screen said "observed"
+            # over an archive with a hole in it.
+            lines.append(f"cadence     {slot} observed, and "
+                         f"{len(holes)} EARLIER slot(s) never were: "
+                         f"{', '.join(holes)}" + ruling)
         elif cadence["missed_latest_slot"]:
             lines.append(f"cadence     no observation on file yet; the {slot} "
                          "slot is not a gap in a cadence that has not started")

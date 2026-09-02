@@ -585,6 +585,8 @@ def test_status_fetches_nothing(tmp_path, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["cadence"] == ["Tuesday", "Friday"]
     assert out["n_captures"] == 0
+    assert out["missed_slots"] == []
+    assert out["n_missed_slots"] == 0
     assert out["archive_verified"] is True
     assert out["scheduler_wired"] is False
     assert "no cron is wired here" in out["note"]
@@ -655,6 +657,69 @@ def test_adopting_an_older_orphan_does_not_make_it_latest(tmp_path):
     status = oc.capture_status(when="2026-09-02T07:00:00Z",
                                directory=tmp_path)
     assert status["latest"]["path"] == newer.path.name
+
+
+# --- the slot behind a LATER capture (A17) --------------------------------
+# `missed_latest_slot` asks about ONE slot, the newest. So the archive kept a
+# hole and the report lost it the instant the NEXT slot was captured.
+
+def test_a_later_capture_does_not_forgive_an_earlier_missed_slot(tmp_path):
+    """A17: the cadence is a SEQUENCE, not a head.
+
+    Two Fridays on file with the Tuesday between them never taken.
+    `missed_latest_slot` goes False the instant the second Friday lands — the
+    archive keeps the hole and the report used to lose it. `missed_slots` is
+    what keeps naming it."""
+    oc.capture(fetcher=_fetcher(_csv(rows=4)), directory=tmp_path,
+               when="2026-08-21T06:05:00Z")                 # a Friday
+    oc.capture(fetcher=_fetcher(_csv(rows=6)), directory=tmp_path,
+               when="2026-08-28T06:04:00Z")                 # the next Friday
+    status = oc.capture_status(when="2026-08-28T07:00:00Z", directory=tmp_path)
+    assert status["latest_scheduled_slot"] == "2026-08-28T06:00:00+00:00"
+    assert status["latest_slot_observed"] is True
+    assert status["missed_latest_slot"] is False
+    assert status["missed_slots"] == ["2026-08-25T06:00:00+00:00"]
+    assert status["n_missed_slots"] == 1
+    assert status["n_observations"] == 2
+
+
+def test_every_hole_is_named_oldest_first_not_only_the_newest(tmp_path):
+    """Two slots skipped in a row, then a capture: both are named, in order.
+    The refusal that reads this list has to be able to name each of them."""
+    oc.capture(fetcher=_fetcher(_csv(rows=4)), directory=tmp_path,
+               when="2026-08-21T06:05:00Z")                 # a Friday
+    oc.capture(fetcher=_fetcher(_csv(rows=6)), directory=tmp_path,
+               when="2026-09-01T06:02:00Z")                 # the Tuesday after next
+    status = oc.capture_status(when="2026-09-01T07:00:00Z", directory=tmp_path)
+    assert status["missed_latest_slot"] is False
+    assert status["missed_slots"] == ["2026-08-25T06:00:00+00:00",
+                                      "2026-08-28T06:00:00+00:00"]
+    assert status["n_missed_slots"] == 2
+
+
+def test_the_sequence_starts_where_the_archive_did_and_not_before(tmp_path):
+    """A14's `archive_started` bound, asked per SLOT: an archive that began on
+    a Friday is not behind on the Tuesday before it. Without this the first run
+    on a fresh machine would report a hole for every slot since the epoch."""
+    oc.capture(fetcher=_fetcher(_csv()), directory=tmp_path,
+               when="2026-08-21T06:05:00Z")                 # a Friday, 06:05
+    status = oc.capture_status(when="2026-08-21T07:00:00Z", directory=tmp_path)
+    assert status["latest_scheduled_slot"] == "2026-08-21T06:00:00+00:00"
+    assert status["missed_slots"] == []
+    assert status["n_missed_slots"] == 0
+
+
+def test_missed_slots_never_drops_what_missed_latest_slot_already_said(tmp_path):
+    """The new field is a SUPERSET of the old one, so no refusal is lost.
+
+    The pre-06:00 receipt is the case that proves it: the archive has started,
+    its 06:00 slot is unobserved, and the sequence begins at that slot."""
+    oc.capture(fetcher=_fetcher(_csv()), directory=tmp_path,
+               when="2026-08-25T00:01:00Z")
+    status = oc.capture_status(when="2026-08-25T07:00:00Z", directory=tmp_path)
+    assert status["missed_latest_slot"] is True
+    assert status["missed_slots"] == ["2026-08-25T06:00:00+00:00"]
+    assert status["n_pre_slot_observations"] == 1
 
 
 @pytest.mark.skipif(not SNAPSHOT_DIR.exists(), reason="no odds snapshots")

@@ -5953,3 +5953,218 @@ this landing's to touch. `test_livecycle.py`, `test_retro_addendum.py`,
 
 No file under `src/`, `scripts/`, `site/`, `tools/`, `config/` or `.github/` was
 touched; the lock chain is verified after the commit.
+
+---
+
+## A17 — the odds cadence was a head, not a sequence: the hole a later capture scrolled past (2026-09-02)
+
+**Decision amended:** none. Nothing preregistered moves. This is a defect in the
+guard A14 built — what `oddscapture.capture_status` can SEE about the cadence,
+and therefore what `epl/livecycle.py` step 1b can refuse on — in the same genre
+as A13 and as A14's appended note. A14 and that note are untouched by it:
+`missed_latest_slot` keeps its exact definition and its exact value, every
+bound A14 placed on the refusal stays where it was, and the appended note's
+`_slot_already_observed` is not opened.
+
+**Status when written:** found by an independent full-system review on
+2026-09-02 (finding `opus-F1`), confirmed by a second reading and then
+reproduced by execution end to end against a scratch copy of the tree: the
+cycle ran clean, printed a whole cadence, and wrote `missed_latest_slot: false`
+to the flight log over an archive that was demonstrably missing a Tuesday. This
+entry and the code it describes land in the same commit; the entry is written
+from the tested diff, not from a description of one. It is numbered A17 because
+two landings from the same review precede it; it depends on neither.
+
+### The observation
+
+`capture_status` computed **one** slot and turned it into the only cadence
+verdict the system had (line numbers at `9cc8ef8`):
+
+```
+epl/oddscapture.py:620    latest_slot = _latest_capture_at(now)
+epl/oddscapture.py:635    "missed_latest_slot": not latest_slot_observed,
+```
+
+`_latest_capture_at` (`epl/oddscapture.py:220-227`) walks back from `now` and
+returns on the FIRST capture day it finds, so no earlier slot is ever
+constructed and no earlier slot can ever be asked about. `epl/livecycle.py:1441`
+reduced the whole gate to that one boolean, `epl/livecycle.py:1450-1451` raised
+`OddsSlotMissed` on it, and `epl/livecycle.py:1859-1861` printed
+`cadence <slot> observed (N observation(s) on file)` whenever the head was
+observed, whatever lay behind it.
+
+The consequence is the opposite of the one A14 was written to prevent, and it
+arrives by the most ordinary route there is:
+
+```
+Fri 2026-08-21 06:05Z   capture taken
+Tue 2026-08-25 06:00Z   slot passes, nobody runs a cycle
+Fri 2026-08-28 06:04Z   capture taken
+```
+```
+2026-08-26T18:20Z   latest 2026-08-25T06:00   missed True    <- refuses, correctly
+2026-08-28T07:00Z   latest 2026-08-28T06:00   missed False   <- runs clean
+2026-08-31T09:00Z   latest 2026-08-28T06:00   missed False   <- still clean
+```
+
+**The act of taking the next scheduled capture was what destroyed the previous
+hole's only detector.** The refusal could fire only while the missed slot was
+still the newest one — about 72 hours for a missed Tuesday, 96 for a missed
+Friday — and the single most likely operating pattern, miss one run and resume
+on the next scheduled slot, walks straight through it. The forgiveness was
+permanent: no later run ever saw that Tuesday again. A14's own statement of the
+failure it existed to kill was *"The next run reported a clean cycle over a
+hole in the archive."* For the modal case — where the next run IS the next
+scheduled capture — that sentence was still true.
+
+Nothing false was written. `missed_latest_slot` is narrowly true and the screen
+line is narrowly true. What was missing was an audit, not a correction: the
+flight log is the artifact a future reader consults to answer *was that Tuesday
+taken?*, and it answered yes.
+
+Defect family **(d)**, a satisfied state inferred from a later one — the mirror
+image of A14's appended note, which was (d) in the other direction.
+
+### The ruling (2026-09-02)
+
+**The cadence is a SEQUENCE, and the archive is asked about all of it.**
+`capture_status` gains `missed_slots` — every scheduled slot from the one the
+archive's cadence starts at through `latest_scheduled_slot` that no receipt
+observes, oldest first — and `n_missed_slots`; the operator CLI's `--status`
+prints both. `missed_latest_slot` keeps its exact previous definition and its
+exact previous value; `missed_slots` is a **superset** of it by construction,
+so **nothing that refused before stops refusing.** The fix only ever adds a
+refusal.
+
+Two helpers carry it, both private to `epl/oddscapture.py`:
+
+- `_scheduled_slots(first, last)` — every nominal 06:00 UTC slot in the closed
+  interval, oldest first. `_latest_capture_at` answers *which slot is newest*;
+  this answers *which slots were there*, which is the only question a hole
+  behind a later capture can be asked about.
+- `_cadence_start(records)` — the first slot the archive is answerable for:
+  A14's `archive_started` bound asked per SLOT instead of per archive. It is the
+  slot the EARLIEST observation itself observes, or — when that observation is
+  off-cadence or before 06:00 and so satisfies no slot — the first slot after
+  it. An archive is never blamed for a cadence that ran before it existed. When
+  the archive began after the newest slot altogether, that slot is still in the
+  set, because A14 refuses on it today and the set must not say less than the
+  head boolean does.
+
+**The cycle records the whole set and refuses on it.** `odds_cadence` gains one
+field, `missed_slots` — every hole this archive carries, with today's slot
+removed on a dry run exactly as A14's bound 2 removes it from the head.
+`OddsSlotMissed` fires when that list is non-empty, the archive has started and
+no reason is filed, and it names every slot in the list with its day.
+`render_summary` gains one line for the state that had none — the head observed
+with an earlier slot that never was — and its MISSED line names the set rather
+than the head, so the screen can no longer say *observed* over a gap.
+
+**The way past a hole is unchanged, and it is per run.**
+`--acknowledge-missed-slot 'why'` files the reason on the flight log, on the
+line of the run that carried past the hole, exactly as A14 built it. Nothing in
+this ruling remembers that reason from one run to the next, so a hole that has
+scrolled behind the head is named — and refused on — by every later run until a
+reason is filed on that run too. That is a deliberate scope decision, not an
+oversight: the review's triage ruled that a persistent acknowledgment read back
+from the flight log (one completed run silencing a slot for the season) is a
+new mechanism outside this defect, and it is for the owner to rule on by itself
+— with its own statement of which journal lines count as a ruling and why —
+rather than arrive inside a fix for a blind spot. Until then the cost is one
+flag per run after a gap, and the reason is on every line that carried past it.
+
+### The rationale
+
+**Why the superset shape and not a redefinition.** `missed_latest_slot` is read
+by `_slot_already_observed` (A14's appended note) as well as by step 1b, and by
+the operator CLI's `--status`. Redefining it would have moved two behaviours to
+fix one. Keeping it byte-identical and adding the sequence beside it makes the
+change provably one-directional: every existing test that expected a refusal
+still gets one, and the one that pins the `odds_cadence` key set is widened by
+one key rather than re-pointed.
+
+**Why per-slot and not per-archive.** A14 gated its refusal on
+`n_observations > 0` because an empty ledger observes nothing and a fresh
+archive would otherwise report a miss for a slot at which it did not exist. The
+same argument applies to every slot before the first observation, which is why
+`_cadence_start` exists: the question the operator has is *did we break a
+cadence we were keeping?*, and an archive that started on a Friday was not
+keeping the Tuesday before it.
+
+**Why the refusal and the record read the same list.** A14's rule: the block is
+written on every line, STOP or no-op, and the refusal reads it rather than
+computing something of its own. `missed_slots` on the journal line is the list
+the refusal named, after the dry-run bound — so a later reader gets the answer
+from the line, without reconstructing the archive months afterwards.
+
+**What this does not change.** It moves no forecast, no score and no published
+number; the odds archive remains wired into no model. It does not relax the
+pre-06:00 refusal, A14's head refusal, A14's dry-run bound, A14's virgin-archive
+bound, or the appended note's satisfied-slot short-circuit
+(`_slot_already_observed` reads the same two fields it read before). It adds no
+flag and removes none: there is still no flag that erases a gap. The freshness
+preregistration's §4.5 cadence switch is unaffected for the reason A14 gave — a
+cycle that refuses a cadence gap it can actually see is more of that condition,
+not less. The next live slot, Fri 2026-09-04 06:00 UTC, is unaffected either
+way. From the archive's recorded shape (A14's appended note: one observation,
+2026-09-01T06:39:33Z, no slot behind it) the sequence starts at that Tuesday, so
+a taken Friday yields `missed_slots: []` and a missed Friday is refused on the
+Monday ingest exactly as it was before; the behaviour this adds first matters at
+the Tue 2026-09-08 capture, which at HEAD was the instant a missed Friday became
+invisible for good.
+
+### What is pre-stated
+
+Nothing numerical. Two keys on `capture_status`, one key on the `odds_cadence`
+journal block, one new printed cadence line and one re-worded, two helpers in
+`epl/oddscapture.py`, and a refusal that names a set where it named a head.
+
+### What landed
+
+`epl/oddscapture.py` gains `_scheduled_slots`, `_cadence_start`, and the
+`missed_slots` / `n_missed_slots` keys on `capture_status`. `epl/livecycle.py`
+gains the `missed_slots` entry field, the widened refusal, the new
+`render_summary` branch, and two docstring re-scopes recorded here with the
+edit — the module header's "THE SLOT NOBODY RAN ON" paragraph and
+`OddsSlotMissed`'s own docstring, both of which said the check fires on the
+next run and both of which were true only while the hole was still the newest
+slot. Neither `run_cycle` nor `_run` changes signature; no flag is added.
+
+The coupled tests carry the literal `A17` in their banner and docstrings: eight
+new tests, four in `epl/tests/test_oddscapture.py` and four in
+`epl/tests/test_livecycle.py`, all eight red before the change — the three cycle
+tests on `DID NOT RAISE OddsSlotMissed`, the rest on the absent key.
+
+- `test_a_later_capture_does_not_forgive_an_earlier_missed_slot` — the defect
+  at the status level: two Fridays on file, the Tuesday between never taken,
+  `missed_latest_slot: False` and `missed_slots: ["2026-08-25T06:00:00+00:00"]`
+  on the same report.
+- `test_every_hole_is_named_oldest_first_not_only_the_newest` — two skipped
+  slots, both named, in order.
+- `test_the_sequence_starts_where_the_archive_did_and_not_before` — the
+  per-slot bound.
+- `test_missed_slots_never_drops_what_missed_latest_slot_already_said` — the
+  superset, on the pre-06:00 receipt.
+- `test_a_hole_behind_a_later_capture_still_stops_the_cycle` — the defect end
+  to end: the run that takes the next Friday's capture STOPs, and its journal
+  line carries `latest_slot_observed: true`, `missed_latest_slot: false` and
+  `missed_slots: [the Tuesday]` together — the combination HEAD wrote as a
+  clean cadence.
+- `test_the_refusal_names_every_hole_not_only_the_newest` — the STOP message
+  and the journal carry the same two-slot list.
+- `test_a_dry_run_plan_covers_todays_slot_in_the_set_too` — A14's bound 2,
+  applied to the set.
+- `test_the_screen_says_observed_and_names_the_hole_behind_it` — the printed
+  line, and the per-run acknowledgment carrying past a hole behind the head.
+
+`test_status_fetches_nothing` additionally asserts the two keys on an empty
+archive through `--status`, and
+`test_the_cadence_block_is_on_every_line_whichever_way_it_falls` widens its
+pinned key set by `missed_slots`. Every other test that existed before passes
+unchanged. Suite green (`test_oddscapture.py`: 50 passed, 1 skipped;
+`test_livecycle.py`: 111 passed, 1 skipped — 153 passed, 2 skipped at HEAD
+before the eight were added).
+
+No file under `src/`, `scripts/`, `site/`, `tools/`, `config/` or `.github/`
+was touched, and no frozen file was touched; the lock chain is verified after
+the commit.
