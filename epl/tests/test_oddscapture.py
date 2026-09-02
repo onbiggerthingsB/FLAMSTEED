@@ -722,6 +722,37 @@ def test_missed_slots_never_drops_what_missed_latest_slot_already_said(tmp_path)
     assert status["n_pre_slot_observations"] == 1
 
 
+def test_the_superset_holds_when_the_archive_began_after_the_newest_slot(
+        tmp_path):
+    """The superset property at the branch that IMPLEMENTS it, not beside it.
+
+    `test_missed_slots_never_drops_...` states the property on a pre-06:00
+    receipt, for which the sequence already begins at the head, so the
+    enumeration alone carries it. This is the other case: the archive's first
+    receipt is OFF-CADENCE and lands after the newest slot, so `_cadence_start`
+    returns a slot LATER than that slot and `_scheduled_slots` yields nothing
+    at all. A14 still refuses on the head today, so the head is appended and
+    the set must not say less than the head boolean does.
+
+    Here the appended head is the whole set, because a non-empty enumeration
+    always ends at the newest unobserved slot and so never reaches this
+    branch; the sort is asserted as the field's oldest-first contract, which
+    every reader of `missed_slots` — the refusal, the journal line, the
+    printed line — is entitled to on any path that builds it."""
+    oc.capture(fetcher=_fetcher(_csv()), directory=tmp_path,
+               when="2026-08-29T10:00:00Z")           # a Saturday, off-cadence
+    status = oc.capture_status(when="2026-08-29T11:00:00Z", directory=tmp_path)
+    latest_slot = status["latest_scheduled_slot"]
+    assert latest_slot == "2026-08-28T06:00:00+00:00"  # the Friday before it
+    assert status["n_observations"] == 1               # the archive HAS begun
+    assert status["n_off_cadence_observations"] == 1
+    assert status["missed_latest_slot"] is True
+    assert latest_slot in status["missed_slots"]       # the superset, at last
+    assert status["missed_slots"] == [latest_slot]
+    assert status["missed_slots"] == sorted(status["missed_slots"])
+    assert status["n_missed_slots"] == 1
+
+
 @pytest.mark.skipif(not SNAPSHOT_DIR.exists(), reason="no odds snapshots")
 def test_the_real_snapshots_carry_the_ruled_column_and_no_pinnacle():
     """§0.3's live-feed half, asserted on the captures themselves."""

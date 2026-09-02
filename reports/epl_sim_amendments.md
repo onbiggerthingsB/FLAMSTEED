@@ -6073,6 +6073,14 @@ new mechanism outside this defect, and it is for the owner to rule on by itself
 rather than arrive inside a fix for a blind spot. Until then the cost is one
 flag per run after a gap, and the reason is on every line that carried past it.
 
+**Consequence left for an owner ruling.** Once any slot is genuinely missed —
+including one step 1 legitimately could not take, such as a Tuesday on which
+`fixtures.csv` has rotated to zero `Div=E0` rows and `oddscapture.capture`
+correctly refuses — every subsequent cycle STOPs at step 1b until
+`--acknowledge-missed-slot 'why'` is passed on that run, and again on the next
+run, and on every run after it for the rest of the season; no memory is
+implemented here, and whether one should be is the ruling this leaves open.
+
 ### The rationale
 
 **Why the superset shape and not a redefinition.** `missed_latest_slot` is read
@@ -6130,10 +6138,13 @@ edit — the module header's "THE SLOT NOBODY RAN ON" paragraph and
 next run and both of which were true only while the hole was still the newest
 slot. Neither `run_cycle` nor `_run` changes signature; no flag is added.
 
-The coupled tests carry the literal `A17` in their banner and docstrings: eight
-new tests, four in `epl/tests/test_oddscapture.py` and four in
-`epl/tests/test_livecycle.py`, all eight red before the change — the three cycle
-tests on `DID NOT RAISE OddsSlotMissed`, the rest on the absent key.
+The coupled tests sit under a banner carrying the literal `A17` in each file
+(`epl/tests/test_oddscapture.py`, `epl/tests/test_livecycle.py`), and the
+literal appears again in the docstring of the test that states the defect,
+`test_a_later_capture_does_not_forgive_an_earlier_missed_slot`; the other seven
+docstrings name the behaviour rather than the amendment. Eight new tests, four
+in each file, all eight red before the change — the three cycle tests on
+`DID NOT RAISE OddsSlotMissed`, the rest on the absent key.
 
 - `test_a_later_capture_does_not_forgive_an_earlier_missed_slot` — the defect
   at the status level: two Fridays on file, the Tuesday between never taken,
@@ -6164,6 +6175,22 @@ pinned key set by `missed_slots`. Every other test that existed before passes
 unchanged. Suite green (`test_oddscapture.py`: 50 passed, 1 skipped;
 `test_livecycle.py`: 111 passed, 1 skipped — 153 passed, 2 skipped at HEAD
 before the eight were added).
+
+**Added by the r1 adversarial review.** The review measured coverage and found
+that the append branch at `epl/oddscapture.py:673-674` — the branch that makes
+`missed_slots` a superset of `missed_latest_slot` when the archive's cadence
+start falls after the newest slot, and so the whole justification for leaving
+`missed_latest_slot` byte-identical — was executed by no test: the test named
+for the property uses a pre-06:00 receipt, whose sequence already begins at the
+head, so the enumeration carried it and the append never ran. A ninth coupled
+test, `test_the_superset_holds_when_the_archive_began_after_the_newest_slot`,
+now reaches it with a single off-cadence Saturday receipt (2026-08-29 10:00Z,
+asked at 11:00Z) for which `_scheduled_slots` yields nothing at all, and pins
+the head into the set and the set's oldest-first order. It is red with those
+two lines disabled — the only red in either file, which is the coverage hole
+restated — and green with them restored. `epl/tests/test_oddscapture.py` is
+51 passed, 1 skipped; the two files together are 162 passed, 2 skipped, and
+`coverage report -m` no longer lists 673-674 as missing.
 
 No file under `src/`, `scripts/`, `site/`, `tools/`, `config/` or `.github/`
 was touched, and no frozen file was touched; the lock chain is verified after
