@@ -215,6 +215,18 @@ _UNANCHORED_REASON = re.compile(r"^unanchored \((.+)\)$")
 #: The record field that digests the record. Excluded from its own digest.
 RECORD_DIGEST_FIELD = "record_digest"
 
+#: A15. What a re-issue calls the bundle it moves aside, and the two fallbacks
+#: for a directory whose record cannot name itself. `_is_issuance_day` rejects
+#: every name built from these, which is what keeps a preserved bundle off the
+#: selection path.
+SUPERSEDED_INFIX = "-superseded-"
+RUN_TAG_PREFIX = "run-"
+UNRECORDED_TAG = "unrecorded"
+
+#: A digest read out of a bundle is about to become a path component, so it is
+#: held to the shape a sha256 has before any of it is used as one.
+_SHA256_RE = re.compile(r"\A[0-9a-f]{64}\Z")
+
 #: The four fields `epl-issuance-4` adds. Mandatory from `-4` on; a `-4` record
 #: with one ABSENT FAILs the criterion it anchors, naming the field. Present and
 #: `null` is different and is not tampering: it is the issuer saying there was
@@ -901,13 +913,114 @@ def _write_issuance(*, directory: Path, final_dir: Path, season, state, arms, ru
         leaguesim.canonical_json(record) + "\n")
 
     # One step. A crash before this leaves a staging directory outside the
-    # season's folder; a crash after it leaves a complete issuance.
-    if final_dir.exists():
-        shutil.rmtree(final_dir)
+    # season's folder; a crash after it leaves a complete issuance. A bundle
+    # already standing at `final_dir` is moved ASIDE first, never deleted
+    # (A15).
+    _supersede(final_dir)
     os.replace(directory, final_dir)
 
     return {**record, "directory": str(final_dir), "runs": runs,
             "gate": gate_report, "state": state, "summary": summary}
+
+
+def _is_sha256(value) -> bool:
+    """A lowercase 64-character hex digest, and nothing else.
+
+    Read out of a file this process does not control and about to become a path
+    component; a filename is the wrong place to discover it was neither.
+    """
+    return isinstance(value, str) and _SHA256_RE.match(value) is not None
+
+
+def _superseded_tag(final_dir: Path) -> str:
+    """What to call the bundle being moved aside, taken from the bundle itself.
+
+    READ, never recomputed: the point of the tag is that a reader holding a
+    reference which no longer resolves finds the bytes by the string they
+    already have. Two such strings are in circulation and they are different
+    strings about the same directory, so both are honoured, in the order a
+    reader would try them:
+
+    1. `record_digest` — what `reports/epl_livecycle_journal.jsonl` files under
+       `digests.issuance_record`;
+    2. the published arm's run digest, prefixed `run-` — what the `run_digest`
+       of every row in `reports/matchboard_scorecard.jsonl`,
+       `reports/epl_recal_shadow.jsonl` and `reports/epl_avail_shadow.jsonl`
+       is, and the only one of the two an `epl-issuance-1` record carries. The
+       opener bundle is exactly that record, and thirty filed rows name it.
+
+    A directory that answers to neither is not a bundle anyone can cite, so it
+    is tagged `unrecorded` — and still moved, because "never delete" is not
+    conditional on the thing being well formed.
+    """
+    try:
+        record = json.loads((final_dir / "issuance.json").read_text())
+    except (OSError, ValueError):
+        return UNRECORDED_TAG
+    if not isinstance(record, dict):
+        return UNRECORDED_TAG
+    digest = record.get(RECORD_DIGEST_FIELD)
+    if _is_sha256(digest):
+        return digest[:12]
+    digests = record.get("digests")
+    run = digests.get(matchboard.ARM) if isinstance(digests, dict) else None
+    if _is_sha256(run):
+        return f"{RUN_TAG_PREFIX}{run[:12]}"
+    return UNRECORDED_TAG
+
+
+def _supersede(final_dir: Path) -> Path | None:
+    """Move a bundle already standing at `final_dir` aside, by RENAME.
+
+    A6 (b) made the issuance write staged and moved into place in one step, and
+    closed the last hole by deleting whatever stood at `final_dir` first. That
+    delete is the one operation this repository cannot undo — `data/` is
+    gitignored, so there is no history to restore a bundle from — and it fired
+    on every re-issue for a cutoff already forecast: two batches of results on
+    one London day, or a `simcli forecast --cutoff` re-run by hand. What it
+    destroyed was, at that moment, named by `reports/epl_livecycle_journal.jsonl`
+    under `digests.issuance_record`, by every row of the three scored ledgers
+    under `source_bundle`, and by the STOP sentence that tells an operator to go
+    and read the `acceptance.json` inside it.
+
+    So the bundle is renamed to `<day>-superseded-<tag>`, which is the shape the
+    operator was already producing by hand before a manual re-issue.
+    :func:`_is_issuance_day` rejects any name that is not a bare date, so the
+    moved directory is invisible to :func:`_last_issuance`, to
+    `epl.livecycle.issuance_days` and therefore to
+    `epl.livecycle.prior_issuance_for`: it is off every selection path and still
+    on disk. `simcli check <path>` reads it exactly as before, because that
+    command is handed a directory rather than asked to choose one.
+
+    Nothing is ever renamed ONTO anything: a name already taken takes a numeric
+    suffix, so a supersede can never become the deletion it replaces. A move
+    that cannot be made REFUSES the issuance — `forecast`'s own handler tears
+    the staging directory down and the bundle is left exactly where it was,
+    which is the fail-closed direction.
+
+    Returns the new path, or ``None`` when there was nothing to move.
+    """
+    if not final_dir.exists():
+        return None
+    tag = _superseded_tag(final_dir)
+    aside = final_dir.with_name(f"{final_dir.name}{SUPERSEDED_INFIX}{tag}")
+    n = 1
+    while aside.exists():
+        n += 1
+        aside = final_dir.with_name(
+            f"{final_dir.name}{SUPERSEDED_INFIX}{tag}-{n}")
+    try:
+        os.rename(final_dir, aside)
+    except OSError as exc:
+        raise CliError(
+            f"a bundle already stands at {final_dir} and it could not be moved "
+            f"aside to {aside.name}: {exc}. STOP: the issuance is not written. "
+            "A re-issue supersedes the bundle it replaces and never deletes it "
+            "(A15) — the flight log and the three scored ledgers name that "
+            "bundle by digest and nothing under `data/` is in version control, "
+            "so a supersede that cannot be made is a reason to refuse the "
+            "write, not to take the delete instead.") from exc
+    return aside
 
 
 def _provider(arm: str, fit: FitBundle, bridge, state, cutoff, n_particles: int):

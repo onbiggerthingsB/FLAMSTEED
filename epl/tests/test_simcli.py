@@ -2461,6 +2461,7 @@ def _ledger_section(head: str) -> str:
 A6_B_HEAD = "### What landed for A6 (b) — `check` semantics"
 A7_HEAD = "### What landed for A7 — `check` under the matchboard"
 R7_HEAD = "### What landed for the Codex review of 2026-08-25"
+A15_HEAD = "### What landed for A15 — the supersede"
 
 
 def _a6_b_note() -> str:
@@ -4033,3 +4034,303 @@ def test_the_recal_subcommand_needs_a_mode_and_says_so(issuance, tmp_path,
     assert code == 2 and "STOP: CliError" in err
     for mode in ("--derive", "--score", "--verify"):
         assert mode in err
+
+
+# ==========================================================================
+# 23. A15 — a re-issue SUPERSEDES the bundle it replaces; it never deletes it
+# ==========================================================================
+# A6 (b) made the write staged and moved into place in one step, and closed the
+# last hole by deleting whatever stood at `final_dir` first. The issuance
+# folders are gitignored, so that delete is the one operation this repository
+# cannot undo — and every re-issue for a cutoff already forecast took it, on a
+# bundle `reports/epl_livecycle_journal.jsonl` goes on naming by
+# `digests.issuance_record` and the three shadow ledgers go on naming by
+# `source_bundle`. The bundle is moved aside by RENAME now, into the
+# `…-superseded-…` shape the operator was already producing by hand, and
+# `_is_issuance_day` keeps the moved folder off every selection path.
+
+
+def _reissue(book, out_root, *, seed):
+    return simcli.forecast(
+        season=SEASON, cutoff=OPENER, arms=("dc_native",), n_sims=N_SIMS,
+        seed=seed, chunk_size=CHUNK, n_particles=N_PARTICLES,
+        out_root=out_root, gate=False, verbose=False,
+        fit=simcli.FitBundle(post=None, book=book))
+
+
+def test_a_re_issue_supersedes_the_previous_bundle_rather_than_deleting_it(
+        book, tmp_path):
+    """The bytes of the bundle a re-issue replaces are still on disk.
+
+    Two forecasts at one cutoff. The first bundle's every file must still be
+    readable afterwards, byte for byte, under a `…-superseded-<digest12>` name
+    that carries the `record_digest` the flight log filed for it — so a reader
+    holding a dangling `digests.issuance_record` can find the bytes by the
+    value they already have.
+    """
+    out_root = tmp_path / "issuances"
+    first = _reissue(book, out_root, seed=SEED)
+    day = Path(first["directory"])
+    before = {p.name: p.read_bytes() for p in sorted(day.iterdir())}
+    digest = first[simcli.RECORD_DIGEST_FIELD]
+
+    second = _reissue(book, out_root, seed=SEED + 1)
+    assert Path(second["directory"]) == day, "the cutoff day is one directory"
+    assert second[simcli.RECORD_DIGEST_FIELD] != digest, \
+        "the two runs must differ, or there is nothing to supersede"
+
+    aside = day.with_name(f"{day.name}-superseded-{digest[:12]}")
+    assert aside.is_dir(), (
+        f"the previous bundle was destroyed: nothing at {aside.name}; the "
+        f"season folder holds {sorted(p.name for p in day.parent.iterdir())}")
+    assert {p.name: p.read_bytes() for p in sorted(aside.iterdir())} == before
+
+    # ...and the new bundle is what stands at the cutoff day.
+    assert json.loads((day / "issuance.json").read_text())[
+        simcli.RECORD_DIGEST_FIELD] == second[simcli.RECORD_DIGEST_FIELD]
+
+
+def test_a_superseded_bundle_is_not_selectable_by_anything(book, tmp_path):
+    """Off the selection path, and on disk.
+
+    `_is_issuance_day` rejects any name that is not a bare date, so the moved
+    folder is invisible to `_last_issuance`, to `livecycle.issuance_days` and
+    therefore to `prior_issuance_for` — which is what makes moving it aside
+    safe rather than merely kind.
+    """
+    from epl import livecycle
+
+    out_root = tmp_path / "issuances"
+    first = _reissue(book, out_root, seed=SEED)
+    second = _reissue(book, out_root, seed=SEED + 1)
+    day = Path(second["directory"])
+
+    assert not simcli._is_issuance_day(
+        f"{day.name}-superseded-{first[simcli.RECORD_DIGEST_FIELD][:12]}")
+    assert simcli._last_issuance(SEASON, out_root) == day
+    assert livecycle.issuance_days(SEASON, out_root) == [day]
+    # the season folder holds both, and only one of them is an issuance
+    assert len(list(day.parent.iterdir())) == 2
+
+
+def test_a_third_issue_does_not_clobber_the_bundle_the_second_moved_aside(
+        book, tmp_path):
+    """Three runs, three bundles. A supersede that overwrote a supersede would
+    be the same deletion wearing a different name."""
+    out_root = tmp_path / "issuances"
+    records = [_reissue(book, out_root, seed=SEED + i)[
+        simcli.RECORD_DIGEST_FIELD] for i in range(3)]
+    assert len(set(records)) == 3
+    season_dir = out_root / season_mod.season_dir_name(SEASON)
+    assert sorted(p.name for p in season_dir.iterdir()) == sorted(
+        [OPENER] + [f"{OPENER}-superseded-{d[:12]}" for d in records[:2]])
+
+
+def test_a_directory_carrying_no_readable_record_is_moved_not_deleted(
+        book, tmp_path):
+    """"Never delete" is not conditional on the thing being well-formed.
+
+    A directory left at the cutoff day by something other than a completed
+    forecast — a pre-A6 in-place write interrupted before `issuance.json`, or a
+    hand-made folder — cannot be named by a digest it does not carry. It is
+    tagged `unrecorded` and moved anyway.
+    """
+    out_root = tmp_path / "issuances"
+    day = simcli.issuance_dir(SEASON, OPENER, out_root)
+    day.mkdir(parents=True)
+    (day / "summary.md").write_text("half a run\n")
+
+    _reissue(book, out_root, seed=SEED)
+
+    aside = day.with_name(f"{day.name}-superseded-unrecorded")
+    assert (aside / "summary.md").read_text() == "half a run\n"
+    assert (day / "issuance.json").exists()
+
+
+def test_a_pre_A6_bundle_is_moved_aside_under_the_digest_its_rows_cite(
+        book, tmp_path):
+    """The opener's own shape: an `epl-issuance-1` record, no `record_digest`.
+
+    Thirty rows of the three scored ledgers key on that bundle's `run_digest`,
+    which is the one digest it does carry, so that is the name it is moved
+    under — prefixed, because the two digests are different strings about one
+    directory and a folder name must not be ambiguous about which it is.
+    """
+    out_root = tmp_path / "issuances"
+    day = simcli.issuance_dir(SEASON, OPENER, out_root)
+    day.mkdir(parents=True)
+    run = "3a40110cd41286c42125322b9f90f36387d27e5d212992426eb78a2de0b3eb8a"
+    (day / "issuance.json").write_text(json.dumps({
+        "schema_version": "epl-issuance-1", "season": SEASON, "cutoff": OPENER,
+        "digests": {"dc_native": run}}) + "\n")
+
+    _reissue(book, out_root, seed=SEED)
+
+    aside = day.with_name(f"{day.name}-superseded-run-{run[:12]}")
+    assert json.loads(
+        (aside / "issuance.json").read_text())["digests"]["dc_native"] == run
+
+
+def test_a_digest_that_is_not_a_digest_never_becomes_a_path(book, tmp_path):
+    """`issuance.json` is a file, and a file can say anything.
+
+    A `record_digest` that is not a 64-character lowercase sha256 is refused as
+    a name before any of it reaches the filesystem — the directory is still
+    moved, under `unrecorded`.
+    """
+    out_root = tmp_path / "issuances"
+    day = simcli.issuance_dir(SEASON, OPENER, out_root)
+    day.mkdir(parents=True)
+    (day / "issuance.json").write_text(json.dumps(
+        {simcli.RECORD_DIGEST_FIELD: "../../../../etc"}) + "\n")
+
+    _reissue(book, out_root, seed=SEED)
+
+    season_dir = out_root / season_mod.season_dir_name(SEASON)
+    assert sorted(p.name for p in season_dir.iterdir()) == [
+        OPENER, f"{OPENER}-superseded-unrecorded"]
+
+
+def test_a_supersede_that_cannot_be_made_refuses_the_issuance(
+        book, tmp_path, monkeypatch):
+    """The one behaviour A15 adds beyond not-deleting, pinned rather than said.
+
+    A rename that cannot be made is the single place where this landing refuses
+    where HEAD deleted and carried on, so it is asserted: the `CliError` names
+    the bundle and says STOP, `forecast`'s own handler takes the staging
+    directory with it, and the bundle that could not be moved is left exactly
+    where it stood — `issuance.json` included, which is the fact the amendment's
+    recovery paragraph rests on, because it is what makes the next cycle run
+    read the cutoff as already issued and leave the re-issue to an operator.
+    """
+    out_root = tmp_path / "issuances"
+    first = _reissue(book, out_root, seed=SEED)
+    day = Path(first["directory"])
+    before = {p.name: p.read_bytes() for p in sorted(day.iterdir())}
+
+    real_rename = os.rename
+
+    def refuse_the_aside(src, dst, *args, **kwargs):
+        if simcli.SUPERSEDED_INFIX in os.fspath(dst):
+            raise PermissionError(13, "Permission denied (simulated)")
+        return real_rename(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(os, "rename", refuse_the_aside)
+    with pytest.raises(simcli.CliError) as excinfo:
+        _reissue(book, out_root, seed=SEED + 1)
+    message = str(excinfo.value)
+    assert "could not be moved aside" in message
+    assert "STOP" in message and "A15" in message
+
+    # byte for byte where it stood, and still the issuance for the cutoff
+    assert {p.name: p.read_bytes() for p in sorted(day.iterdir())} == before
+    assert (day / "issuance.json").exists()
+    assert sorted(p.name for p in day.parent.iterdir()) == [OPENER]
+    assert simcli._last_issuance(SEASON, out_root) == day
+    # ...and nothing half-written is left outside the season's folder
+    assert not list(out_root.glob(".issuing-*"))
+
+    # POSITIVE CONTROL: with the rename working again the supersede is made,
+    # so the refusal above is the rename's doing and not a broken forecast.
+    monkeypatch.setattr(os, "rename", real_rename)
+    second = _reissue(book, out_root, seed=SEED + 1)
+    aside = day.with_name(
+        f"{day.name}{simcli.SUPERSEDED_INFIX}"
+        f"{first[simcli.RECORD_DIGEST_FIELD][:12]}")
+    assert aside.is_dir()
+    assert {p.name: p.read_bytes() for p in sorted(aside.iterdir())} == before
+    assert Path(second["directory"]) == day
+
+
+def test_a_name_already_taken_takes_a_numeric_suffix_not_the_bundle(
+        book, tmp_path):
+    """Nothing is ever renamed ONTO anything, which is the whole of the claim.
+
+    `test_a_third_issue_does_not_clobber_the_bundle_the_second_moved_aside`
+    does NOT reach this: its three runs carry three different digests and so
+    three different aside names, and the suffix loop never fires. The reachable
+    collision is two supersedes at one cutoff under the same tag — `unrecorded`
+    twice, or an operator's own aside already standing under the name the code
+    is about to write — so that name is pre-created here, with bytes in it.
+
+    Renaming onto a name already taken is not merely untidy: POSIX makes it an
+    errno-66 refusal when the directory holding the name is non-empty and a
+    SILENT replacement when it is empty. The suffix is what keeps the code out
+    of both, and it is the guard the note's "a name already taken takes a
+    numeric suffix" asserts.
+    """
+    out_root = tmp_path / "issuances"
+    first = _reissue(book, out_root, seed=SEED)
+    day = Path(first["directory"])
+    before = {p.name: p.read_bytes() for p in sorted(day.iterdir())}
+
+    taken = day.with_name(
+        f"{day.name}{simcli.SUPERSEDED_INFIX}"
+        f"{first[simcli.RECORD_DIGEST_FIELD][:12]}")
+    taken.mkdir()
+    (taken / "summary.md").write_text("someone else's bytes\n")
+
+    second = _reissue(book, out_root, seed=SEED + 1)
+
+    # the name that was already taken is untouched, contents and all
+    assert sorted(p.name for p in taken.iterdir()) == ["summary.md"]
+    assert (taken / "summary.md").read_text() == "someone else's bytes\n", \
+        f"{taken.name} was renamed onto; the supersede ate a directory"
+
+    # ...and the superseded bundle went to the suffixed name, byte for byte
+    aside = taken.with_name(f"{taken.name}-2")
+    assert aside.is_dir(), (
+        f"no {aside.name}: the collision took no suffix; the season folder "
+        f"holds {sorted(p.name for p in day.parent.iterdir())}")
+    assert {p.name: p.read_bytes() for p in sorted(aside.iterdir())} == before
+
+    # the suffixed name is no more selectable than the unsuffixed one
+    assert not simcli._is_issuance_day(aside.name)
+    assert simcli._last_issuance(SEASON, out_root) == day
+    assert Path(second["directory"]) == day
+
+
+def test_nothing_on_the_issuance_write_path_deletes_the_final_directory():
+    """The guard is the ABSENCE of a call, so it is asserted on the source.
+
+    A15 replaces a delete with a rename. A later edit that put the delete back
+    would leave every test above passing on its own supersede and destroy the
+    bundle anyway, so the claim the amendment makes — that the write path holds
+    no delete of `final_dir` — is held against `epl/simcli.py` itself.
+    """
+    import inspect
+
+    source = inspect.getsource(simcli._write_issuance)
+    assert "rmtree" not in source, \
+        "the issuance write path deletes again; A15 says it supersedes"
+    assert "_supersede(final_dir)" in source
+
+    # POSITIVE CONTROL: the check can fail — `forecast` DOES tear down its own
+    # staging directory, and that delete is not the one under test.
+    assert "rmtree" in inspect.getsource(simcli.forecast)
+
+
+def test_the_amendment_ledger_states_the_shape_the_code_writes():
+    """A4 (iv)'s pattern: put the check where the claim is.
+
+    A15's note tells a reader what a superseded folder is called and that the
+    name is not selectable. Both are facts about `epl/simcli.py`, and a note
+    saying one thing while the code writes another is the failure class this
+    ledger exists to catch.
+    """
+    note = _ledger_section(A15_HEAD)
+    assert simcli.SUPERSEDED_INFIX in note, \
+        f"the A15 note does not name {simcli.SUPERSEDED_INFIX!r}"
+    assert simcli.UNRECORDED_TAG in note and simcli.RUN_TAG_PREFIX in note
+
+    # the two folders the operator made by hand, which are the shape this names
+    for name in ("2026-08-25-superseded-heredoc-spawn",
+                 "2026-08-25-superseded-zero-knowledge"):
+        assert name in note
+        assert not simcli._is_issuance_day(name)
+
+    # and the note's own example name is one the code would write and no
+    # selector would pick up
+    example = f"2026-08-21{simcli.SUPERSEDED_INFIX}{simcli.RUN_TAG_PREFIX}3a40110cd412"
+    assert example in note
+    assert not simcli._is_issuance_day(example)

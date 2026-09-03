@@ -5630,3 +5630,326 @@ caller.
 
 No file under `src/`, `scripts/`, `site/`, `tools/`, `config/` or `.github/`
 was touched.
+
+---
+
+## A15 — a re-issue destroyed the bundle it replaced (2026-09-02)
+
+**Decisions amended:** no published number, and nothing A6 (b) pre-states. What
+changes is one line of mechanism on the issuance write path: **what happens to a
+bundle already standing at the cutoff day when a second forecast is written for
+it**. A6 (b) made that write staged and moved into place in one step, and closed
+the last hole by deleting whatever stood there first. Deletion was never ruled;
+it was the shortest way to make `os.replace` work on a non-empty directory, and
+it took with it the one class of bytes this repository cannot get back.
+
+**Explicitly NOT amended, and pinned here so a later commit can be held to it:**
+`ISSUANCE_SCHEMA_VERSION` stays **`epl-issuance-5`** (`epl/simcli.py:189`); the
+matchboard's schema stays **`epl-matchboard-1`**, A8's **`epl-recal-shadow-1`**
+and A12's **`epl-avail-shadow-1`** unchanged; A6 (b)'s staged write is untouched
+in every other respect — the staging directory still lives outside the season's
+folder, `issuance.json` is still written last, and an interrupted issuance still
+leaves nothing selectable; A7 (e)'s admissibility rule and A13's substance rule
+are untouched; A8's frozen `a = 0.9064` and A12's `k_avail` prior are untouched;
+what a bundle contains, what `check` reads and what any arm publishes are
+untouched; `dc_native`'s published numbers never change. `epl/simretro.py` and
+`epl/simmetrics.py` are not opened and still hash to the **v5** pair.
+`epl/evwiden.py`, `epl/shots.py` and `epl/shots_harness.py` are frozen and were
+not opened.
+
+**Status when written.** `data/epl/sim/issuances/2026_27/` holds six directories
+— `2026-08-21` (an `epl-issuance-1` record, no `record_digest`; run digest
+`3a40110cd412…`), `2026-08-25` (`250511466249…`),
+`2026-08-25-superseded-heredoc-spawn` (`eb951f48be1b…`, `gate_PASS: false`),
+`2026-08-25-superseded-zero-knowledge` (`3ce923f01857…`), `2026-08-31`
+(`0b36cc2f8647…`) and `2026-09-01` (`83503aad8026…`), about 20–21 MB each.
+Every reference into them still resolves: the flight log's two record digests
+(`0b36cc2f8647…` at the 2026-08-31 STOP on line 5, `83503aad8026…` at the
+2026-09-01 run on line 11) and all 60 rows of the three scored ledgers, 30 keyed
+on `(data/epl/sim/issuances/2026_27/2026-08-21, 3a40110cd412…)` and 30 on
+`(…/2026-08-25, 67ba0656690d…)`. **The delete has never fired in this season**,
+and this entry is written while that is still true.
+
+### The defect
+
+`epl/simcli.py:903-907`, at `28ea652` (this landing's HEAD; the file is
+byte-identical there to `9cc8ef8`, the commit these numbers were first read
+against) — every line number in this section is the tree before the change:
+
+```python
+    # One step. A crash before this leaves a staging directory outside the
+    # season's folder; a crash after it leaves a complete issuance.
+    if final_dir.exists():
+        shutil.rmtree(final_dir)
+    os.replace(directory, final_dir)
+```
+
+`final_dir` is **one directory per cutoff day** — `issuance_dir`
+(`epl/simcli.py:515-518`) is `root / <season> / <cutoff day>` — so "a second
+issuance for this cutoff" and "the bundle already there" are the same path by
+construction, and nothing between `forecast`'s entry and line 905 asks whether
+that path holds a finished run.
+
+Reproduced, at HEAD, on a scratch season and a scratch out-root: two completed
+`forecast` calls at cutoff `2026-08-21`, and after the second, **nine of the
+first run's thirteen files exist nowhere on disk** — `acceptance.json`,
+`envelope.json`, `issuance.json`, `limitations.md`, `matchboard.md`,
+`matchboard_dc_native.json`, `output_dc_native.json`, `rows_dc_native.npz`,
+`summary.md`. (The four that survive are byte-identical in both runs; they are
+not survivors of anything.) A `shutil.rmtree` wrapper puts the call at
+`simcli.py:906` and its target at the finished twelve-file bundle. `data/` is
+gitignored (`.gitignore:16`), so there is no history to restore from: this is
+loss, not supersession.
+
+### Who was holding a reference
+
+At the moment of the delete, three tracked, append-only files name the bytes it
+takes:
+
+* `reports/epl_livecycle_journal.jsonl` — `digests.issuance_record`, the
+  `record_digest` of the bundle that line describes;
+* `reports/matchboard_scorecard.jsonl`, `reports/epl_recal_shadow.jsonl` and
+  `reports/epl_avail_shadow.jsonl` — `source_bundle` and `run_digest`, 60 rows
+  of them today;
+* the STOP sentence the cycle prints when the gate refuses: *"the bundle is
+  written and must not be published; read `acceptance.json` in it"*
+  (`epl/livecycle.py:1583-1591`) — an instruction pointing at the one artefact
+  the next same-day re-issue erases.
+
+`verify_journal_chain` checks the log's own hash chain, not the bundles it
+names, so nothing in the system detects a reference that has stopped resolving.
+
+### What it takes to fire, and what it does not
+
+A **bare retry is safe**, and this is worth stating because it is what has kept
+the season whole. `epl/livecycle.py:1571` re-enters the forecast only `if
+written or not (today / "issuance.json").exists()`, and a retry that brings
+nothing new files nothing (`cross_check` classes the rows `already_resolved`), so
+`written` is empty and the day's bundle stands. That is exactly what happened
+after the 2026-08-31 STOP: the same-day re-run is a `no-op` and `0b36cc2f8647…`
+is still on disk.
+
+What fires it is a **second batch of results on one London day** — the cutoff is
+`now` in `Europe/London` and is stable across the day, so both runs address the
+same directory — or a `simcli forecast --cutoff <day>` re-run by hand, which is
+how MW1's re-issue was driven. The last comparable match day, 2026-08-25, needed
+**three** same-day issuances; two of them survive only because a human renamed
+them before re-running, and `epl/livecycle.py:1741-1756` acknowledges that shape
+without anywhere asking for it. The practice was real and lived entirely in
+operator memory.
+
+The blast radius was bounded and is worth stating honestly rather than
+overstated: `exclude=[today]` keeps the same-day bundle out of every scored
+ledger, and `prior_issuance_for`'s kickoff-day admissibility means a day-D bundle
+can never score a day-D fixture. So what the delete destroyed was a strictly
+staler forecast of the same cutoff. It was still the run that went wrong — the
+one carrying the failing `acceptance.json` — and it was still cited by a tracked
+line that now names nothing.
+
+### What changed
+
+**The bundle is moved aside by rename, and the delete is gone.** `_write_issuance`
+calls `_supersede(final_dir)` where it called `shutil.rmtree`, and the previous
+bundle becomes `<day>-superseded-<tag>` — the shape the operator was already
+producing by hand, now produced by the code that has the information to name it.
+
+**The tag is read from the bundle, never recomputed,** because the point of a
+name is that a reader holding a reference which no longer resolves finds the
+bytes by the string they already have. Two such strings are in circulation and
+they are different strings about one directory — but a directory has ONE name,
+so the tag is the FIRST of them the record can supply, never both, tried in
+this order:
+
+1. `record_digest[:12]` — what the flight log files under
+   `digests.issuance_record`; e.g. `2026-08-31-superseded-0b36cc2f8647`;
+2. failing that, the published arm's run digest under a `run-` prefix — what
+   every scored row carries as `run_digest`, and the only one of the two an
+   `epl-issuance-1` record holds. The opener is exactly that record and 30 filed
+   rows name it, so a re-issue at that cutoff writes
+   `2026-08-21-superseded-run-3a40110cd412`;
+3. failing both, `unrecorded` — a directory that answers to neither is not a
+   bundle anyone can cite, and it is **still moved**, because "never delete" is
+   not conditional on the thing being well formed.
+
+One consequence of a chain rather than two names, stated because it is the
+reader this is for: whenever a bundle carries a `record_digest` — the live
+2026-08-25 bundle, which would move to `2026-08-25-superseded-250511466249`,
+and every `epl-issuance-5` bundle written from now on — a reader holding only
+a `run_digest` will NOT find that folder by name (the 30 scorecard, recal and
+avail rows citing 2026-08-25 key on `run_digest 67ba0656690d…`, and that string
+is not in the name), and must instead read the `issuance.json` inside the
+`…-superseded-…` folders, which is one directory listing away.
+
+A digest is required to be a 64-character lowercase sha256 before any of it
+becomes a path component. `issuance.json` is a file and a file can say anything;
+a filename is the wrong place to discover it said `../../../../etc`.
+
+**Nothing is ever renamed onto anything.** A name already taken takes a numeric
+suffix, so a supersede cannot quietly become the deletion it replaces; test 8
+below pre-creates the taken name and fires that collision, because a guard no
+test reaches is a sentence rather than a guard.
+
+**The one behaviour change beyond the deletion, stated so a reviewer rules on it
+rather than discovers it: this adds a NEW REFUSAL to the Monday forecast path.**
+Where HEAD deleted and carried on, an `OSError` from the rename now raises
+`CliError` and the issuance is **not written**: `forecast`'s own
+`except BaseException` handler tears the staging directory down and the previous
+bundle is left exactly where it stood. Nothing else on the write path can now
+refuse where it previously proceeded. The trade was made deliberately and in one
+direction: a supersede that cannot be made is a reason to refuse the write, not
+to take the delete instead. What that refusal costs is set out here exactly,
+because it is not free. `simcli.CliError` is in `epl.livecycle.REFUSALS`
+(`epl/livecycle.py:241-242`), so the cycle journals a `STOP` line and re-raises
+rather than tracebacking, and nothing on disk is lost — the bundle above still
+stands, `issuance.json` and all. That last clause is the whole of it: recovery
+is BY HAND, not automatic. The next run reaches `epl/livecycle.py:1571`
+(`if written or not (today / "issuance.json").exists()`) with `written` empty —
+the refused run's own step-4 ingest had already filed the batch, so a retry
+classes it `already_resolved` — and with that `issuance.json` still present. So
+it skips the forecast and ends `no-op`, and the cutoff day goes on holding the
+PRE-batch bundle until an operator clears the cause and re-issues
+(`simcli forecast --cutoff <day>`) or a further batch arrives. It is still the
+right way round: a refusal is one day's forecast an operator must re-issue
+having read the STOP, a deletion is bytes with no next run at all. The other
+outcome — no `issuance.json` at the cutoff, so the next run re-forecasts on its
+own — belongs to a narrower window that is NOT this one: an `os.replace` that
+fails after the rename has already succeeded, which leaves the previous bundle
+under its `…-superseded-…` name and the day empty. The realistic triggers are a
+read-only volume and a permissions change on the season folder, both of which
+would have failed the write a moment later in any case. Test 7 below pins the
+refusal; the cycle's `no-op` after it is stated here because it is the operator's
+cue, not the loop's.
+
+### What this does not change
+
+**Nothing that selects a bundle sees the moved one.** `_is_issuance_day`
+(`epl/simcli.py:3781-3785`) rejects any name that is not a bare date, and it is
+the single decision `_last_issuance`, `epl.livecycle.issuance_days` and
+therefore `prior_issuance_for` all read. A superseded folder is off every
+selection path — it is not a candidate for `check`'s "last issuance", not a
+scoring candidate, and not an `issuance_days` entry. `simcli check <path>` still
+reads it, because that command is handed a directory rather than asked to choose
+one, which is precisely what makes keeping the bytes useful. (Note for later,
+outside this diff: `epl.livecycle.issuance_days`' own docstring
+(`epl/livecycle.py:1744-1746`) still calls a `…-superseded-…` folder
+*hand-renamed*, and from this commit on that shape is mostly code-written, so
+the wording is a follow-up.)
+
+**The staged write is otherwise untouched.** The staging directory still lives
+outside the season's folder, `issuance.json` is still written last, and the
+interrupted-re-issue test (`epl/tests/test_simcli.py:2279-2313`) passes
+unchanged: on that path the second run never reaches the move, so no supersede
+fires and the season folder still holds exactly one directory.
+
+**The flight log's `issuance.directory` still names the bare day, and after a
+supersede that path holds a different run.** A journal line whose
+`digests.issuance_record` now resolves to `<day>-superseded-<digest>` goes on
+carrying `issuance.directory = data/epl/sim/issuances/2026_27/<day>`, which
+from the moment of the supersede is the run that replaced it: the digest is the
+reference that resolves, the path is not. Disclosed rather than repaired, and
+it is not a regression — at HEAD that path was equally stale AND the digest
+dangled, so this landing makes one of the two fields resolvable and neither of
+them worse. A reader reconciling an old line reads the digest.
+
+**No number moves.** The bundle's contents, the record, the gate, the matchboard,
+the three ledgers and every published figure are what they were. Not one byte
+already on disk is rewritten: superseding renames a directory and reads one file
+inside it.
+
+**The cost is disk, and it is stated rather than managed.** A superseded bundle
+is about 21 MB and nothing removes it — deliberately, since a cure that deletes
+on a schedule is the defect on a timer. Two such folders already exist by hand.
+An operator who wants the space back takes it by hand, having looked.
+
+### The tests
+
+Ten new tests in `epl/tests/test_simcli.py`, section 23, every one of them red
+before the change:
+
+1. **`test_a_re_issue_supersedes_the_previous_bundle_rather_than_deleting_it`** —
+   the defect exactly: two forecasts at one cutoff, and the first bundle's every
+   file still readable byte for byte under its own `record_digest[:12]`. Before
+   the change: *"the previous bundle was destroyed: nothing at
+   `2026-08-21-superseded-b0e1f1f8c38f`; the season folder holds
+   `['2026-08-21']`"*.
+2. **`test_a_superseded_bundle_is_not_selectable_by_anything`** — `_last_issuance`
+   and `livecycle.issuance_days` still see exactly one day, and the season folder
+   holds two directories.
+3. **`test_a_third_issue_does_not_clobber_the_bundle_the_second_moved_aside`** —
+   three runs, three bundles.
+4. **`test_a_directory_carrying_no_readable_record_is_moved_not_deleted`** — the
+   `unrecorded` fallback.
+5. **`test_a_pre_A6_bundle_is_moved_aside_under_the_digest_its_rows_cite`** — the
+   opener's own shape, moved under `run-3a40110cd412`.
+6. **`test_a_digest_that_is_not_a_digest_never_becomes_a_path`** — a crafted
+   `record_digest` is refused as a name and the directory is still moved.
+7. **`test_a_supersede_that_cannot_be_made_refuses_the_issuance`** — the new
+   refusal above, pinned rather than left to this prose. `os.rename` is made to
+   raise `PermissionError` on the aside name; the `CliError` names the bundle
+   and says STOP, and afterwards the previous bundle is byte for byte where it
+   stood, `issuance.json` included — which is the fact the recovery paragraph
+   rests on — the season folder holds one directory, `_last_issuance` still
+   picks it, and no staging directory is left under `out_root`. It carries a
+   positive control: with the rename working again the same re-issue supersedes
+   normally. Against HEAD's behaviour it fails *DID NOT RAISE* — HEAD deletes
+   and proceeds — and against the rejected alternative (swallow the `OSError`
+   and let `os.replace` run) it fails on a raw `OSError: Directory not empty`,
+   which is the confusing second error that alternative was rejected for.
+8. **`test_a_name_already_taken_takes_a_numeric_suffix_not_the_bundle`** — the
+   suffix loop, which (3) does NOT reach: its three runs carry three different
+   digests and therefore three different aside names, so the loop never fires
+   there. The aside name is pre-created here with bytes in it, so the collision
+   fires on the first attempt: the superseded bundle takes the `-2` form, the
+   directory already holding the name is left exactly as it was, and neither
+   name is selectable. With the loop deleted it fails on *`CliError: … [Errno
+   66] Directory not empty`* — POSIX refuses a rename onto a NON-EMPTY directory
+   and SILENTLY replaces an empty one, and the suffix is what keeps the code out
+   of both — and against HEAD's delete it fails *"no
+   `2026-08-21-superseded-ba6a9b0db671-2`: the collision took no suffix"*.
+9. **`test_nothing_on_the_issuance_write_path_deletes_the_final_directory`** —
+   the guard here is the ABSENCE of a call, so it is asserted on the source, with
+   a positive control on `forecast`'s own staging teardown, which is a different
+   delete and stays.
+10. **`test_the_amendment_ledger_states_the_shape_the_code_writes`** — the
+    coupled test below. Recorded honestly: it is red before the change only
+    because neither `simcli.SUPERSEDED_INFIX` nor this section exists yet, so
+    it is a constants-and-ledger coupling and **does not stand in for the
+    defect test**, which is (1).
+
+### What landed for A15 — the supersede
+
+`epl/simcli.py` gains `SUPERSEDED_INFIX` (`-superseded-`), `UNRECORDED_TAG`
+(`unrecorded`), `RUN_TAG_PREFIX` (`run-`), `_is_sha256`, `_superseded_tag` and
+`_supersede`; `_write_issuance` calls `_supersede(final_dir)` where it called
+`shutil.rmtree(final_dir)`. `shutil` stays imported — `forecast` still tears down
+its own staging directory on failure, and that delete is not this one. No other
+module is opened.
+
+The two folders the operator made by hand —
+`2026-08-25-superseded-heredoc-spawn` and
+`2026-08-25-superseded-zero-knowledge` — are what this names, and neither is an
+issuance to any selector; nor is `2026-08-21-superseded-run-3a40110cd412`, the
+name a re-issue of the opener would now write.
+
+`epl/tests/test_simcli.py` green at 116 (106 before). The full `epl/tests` suite
+at this landing: **2033 passed, 66 skipped, 4 failed** — and the four failures
+are not this amendment's. All four are in the FROZEN `epl/tests/test_shots.py`
+(`test_public_effect_calls_require_live_h_and_k_before_writers`, and the three
+parameterisations of
+`test_resumable_training_interruption_publishes_no_terminal_and_can_resume`).
+They fail on the live artifact root `data/epl/fit/shots_sot/`, which the
+concurrent shots work left populated on 2026-09-02: an already-standing terminal
+(`epl.shots.LockMismatch: existing terminal belongs to another H`) and a
+`.decision-result.claim` without its bytes
+(`epl.shots_harness.ManualReconciliationRequired: decision result claim/bytes
+are incomplete`). That root is gitignored, so no version-controlled change moves
+it. The four reproduce with `test_shots.py` selected alone in 1.95s, and neither
+`epl/tests/test_shots.py` nor `epl/shots.py` nor `epl/shots_harness.py` names
+`simcli` anywhere, so nothing this amendment edits can reach them. They are
+recorded here rather than repaired: `test_shots.py` is FROZEN and `data/` is not
+this landing's to touch. `test_livecycle.py`, `test_retro_addendum.py`,
+`test_simretro.py`, `test_matchboard.py`, `test_availarm.py`, `test_recal.py`,
+`test_simbundle.py` and the FROZEN `test_evwiden.py` are unchanged and passing.
+
+No file under `src/`, `scripts/`, `site/`, `tools/`, `config/` or `.github/` was
+touched; the lock chain is verified after the commit.
