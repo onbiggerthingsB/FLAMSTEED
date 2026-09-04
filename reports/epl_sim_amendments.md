@@ -6907,3 +6907,329 @@ coupled one. The two written after green (`test_a_dry_runs_ruling_is_a_ruling`,
 reviewer and this correction both measured directly: the nine plus the widened
 test, run against `d3f8cc1`'s `epl/livecycle.py`, are **9 failed, 1 passed, 113
 deselected**.
+
+---
+
+## A19 — the ruling was read off bytes nothing had verified: one read, verified, is what a reader of the flight log may consume (2026-09-04)
+
+**Decision amended:** none. Nothing preregistered moves, no published number
+changes, no schema version moves. This entry changes one thing about HOW the
+flight log is read — every reader of it verifies the chain over the bytes it
+then consumes, on the same read — and nothing about WHAT any line of it means.
+A18's ruling semantics are untouched: a hole is still acknowledged once, against
+its exact slot instants, on the flight log, and the same lines rule on the same
+slots.
+
+**On this file's order, so a reader is not confused.** The entries sit in
+landing order, so the sequence here reads A15, A17, A16, A18, A19 — this entry
+amends A18 and follows it, at the end of the file.
+
+**Status when written:** implemented test-first in an isolated worktree from
+`fc2d0fb` (which carries A15, A16, A17 and A18); every path:line below is
+anchored there via `git show fc2d0fb:<file>`. The defect was found by an
+independent review of `be38365` (the A18 correction commit) that reproduced it
+with the pinned `run_cycle`, the complete `_run`, the reader and the verifier
+over memory-backed I/O, and called it BLOCKING. `epl/livecycle.py` is
+byte-identical at `be38365` and `fc2d0fb` — the one commit between them adds a
+line to `epl/season/2026_27/availability_manifest.jsonl` — so the review's line
+numbers are this entry's. The reproduction was repeated here through the
+suite's own seams before the fix was written, and it is the first coupled test
+below.
+
+### The observation
+
+A18 wrote the ruling to the flight log, had step 1b read it back, and said what
+protected the read:
+
+```
+epl/livecycle.py:1409        verify_journal_chain(journal)
+epl/livecycle.py:1478-1480   The chain was verified by :func:`run_cycle` before this
+                             was called, so what is read is a record nothing has
+                             edited since the run that wrote it.
+epl/livecycle.py:1581        ruled = _acknowledged_slots(journal) if holes else {}
+epl/livecycle.py:900             for line in _journal_lines(path):
+epl/livecycle.py:853         verify_journal_chain(path)        # inside append_journal
+```
+
+Line 1409 reads the file and verifies it. Line 1581 calls the reader, and the
+reader at line 900 **reads the file again and verifies nothing**: it walks
+whatever bytes are there at that moment and takes any chained line carrying a
+reason and a slot list as a ruling. The next verification is `append_journal`'s
+at line 853, at the end of the cycle, after every step has run. So the sentence
+at 1478-1480 was true of the bytes line 1409 read and false of the bytes line
+900 consumed, and the window between them holds step 1 — on a capture day, a
+network fetch.
+
+**The reproduction.** A valid two-line journal. `run_cycle` verifies it. Between
+that and step 1b the FIRST line — not the tip, so the chain has every reason to
+refuse it — is edited to carry `odds_cadence.acknowledged` and
+`acknowledged_slots` naming the missed slot, and its successor's `chain` is left
+as it was, so the file no longer verifies. Step 1b reads the edit, reports the
+slot as `acknowledged_earlier`, leaves `unacknowledged_slots` empty and does not
+refuse. Step 2 fetches both sources; the cycle cross-checks, forecasts, checks
+and scores; then `append_journal` verifies the file, refuses it as
+`JournalTampered`, and writes nothing. Measured here through `run_cycle` with
+the edit placed at the `odds_fetcher` seam (step 1 calls it after the startup
+check and before step 1b): both source URLs were fetched and `forecast`,
+`check`, `matchboard`, `shadow` and `avail` all ran before the refusal, and the
+journal was left as the hand left it. The refusal came last and its record never
+existed — work crossed a control boundary that had already failed, and the
+flight log, whose purpose is that the run that went wrong is the one worth
+keeping, has no line for the run.
+
+`append_journal` had the same seam one function later, at a smaller cost: line
+853 verified one read and line 854 (`previous = _journal_lines(path)`) took
+another to find the parent it chained to, so a line could be appended
+committing to bytes nothing had checked, and the NEXT run's startup check would
+be the first to refuse.
+
+The review also measured what A18's entry had stated too strongly about the
+chain itself; that is taken up under its own heading below.
+
+### The ruling (2026-09-04)
+
+**One read, verified, is what a reader may consume.** `_verified_journal_lines`
+reads the file once, verifies the chain over exactly those bytes, and returns
+them; a file that does not verify never comes back as lines at all — it raises
+`JournalTampered`. It is now the only door to the log's contents:
+`verify_journal_chain` counts what it returns, `append_journal` chains to the
+last line of what it returns, and `_acknowledged_slots` reads rulings off what
+it returns. The body of `verify_journal_chain` moved into it unchanged — no link
+is computed differently, the genesis constant and the migration seam are as
+they were — and the reader lost one dead branch, the `JSONDecodeError` guard
+whose comment said "verify_journal_chain refuses it first", which is now true
+on the read the reader itself makes.
+
+**A reader's refusal STOPs step 1b, before a source is fetched, typed.** The
+reader raises `JournalTampered` from inside `_run`'s try. The handler then does
+what it does for every refusal — records it on the entry and calls
+`append_journal` — and `append_journal` refuses the same bytes for the same
+reason, so nothing is written under the edit and the exception the operator
+sees is the chain's, printed as `STOP: JournalTampered: line N of
+reports/epl_livecycle_journal.jsonl claims a parent it does not have …`.
+Measured: a Monday with a ruling edited onto a past line between the startup
+check and step 1b fetches nothing, reaches no step, and leaves the journal at
+two lines.
+
+**No key, no signature, no anchor, no new surface.** No flag, environment
+variable, keyword or configuration is added or removed; `run_cycle` keeps its
+signature and `_run` keeps the `journal` keyword A18 gave it. The startup check
+at `epl/livecycle.py:1409`, outside the try, is unchanged; the append's check
+before every append is unchanged; what changes is that the reader in between
+now makes its own.
+
+### The bound, stated in the direction that does not flatter
+
+A18 said of the chain that it "governs HISTORY and not APPENDS"
+(`reports/epl_sim_amendments.md:6637`) and that an acknowledgment "inserted,
+edited or reordered after the fact breaks every link after it, and the next
+cycle refuses with `JournalTampered` instead of reading it" (`:6602` onward).
+The review measured the case those sentences do not cover, and the measurement
+was repeated here before this entry was written: **edit a historical ruling AND
+recompute every link after it, and the file verifies.** `verify_journal_chain`
+returns the full count, `_acknowledged_slots` returns the edited ruling, the
+cycle accepts it, runs, and appends a line committing to the rewritten history
+— which the chain then defends, exactly as A18's correction already said of a
+forged tip. The chain is unkeyed: each line commits to the bytes of the line
+before it AS THEY ARE NOW, and nothing in the file commits to anything outside
+the file. A verified chain therefore establishes that the file is internally
+consistent. It does not establish who wrote a line, and it does not establish
+that the history on file is the history the runs wrote. "Governs history"
+overstated that. The correct statement is that the chain refuses an
+INCONSISTENT edit — one that leaves a later link pointing at bytes no longer
+there — and cannot see a consistent one.
+
+**A19 does not cure this and does not try.** The runtime authenticates the
+journal against nothing outside the file — not git, not a key, not a second
+copy — and this entry adds no such instrument, because a keyed or anchored log
+is a new mechanism with its own surface and the brief for this fix was the read
+race. The only independent anchor is the committed copy: `git log -p --
+reports/epl_livecycle_journal.jsonl` shows a ruling that appeared on a line git
+had already recorded without one, or a line whose bytes changed after they were
+committed. That is a DIFF a person makes, not a verification this code
+performs, and it sees nothing for a line rewritten before it was ever
+committed. A18's tip bound stands exactly as its correction stated it; A18's
+second bound — a well-formed, correctly chained line appended by any hand is
+accepted — stands; the `--journal` override stands. What A19 changes is only
+that no reader acts on bytes it has not verified on the read that produced
+them, which is the whole of the review's blocking finding and none of the rest.
+
+The bound is pinned by a test that is green before this change and after it, on
+purpose — the practice of `test_the_tip_is_the_one_line_the_chain_cannot_protect`
+(`epl/tests/test_livecycle.py:2616`) and A18's
+`test_a_pre_a18_line_rules_on_nothing` (`:1657`): a consistent rewrite
+verifies, the reader consumes it, the cycle runs on it.
+
+### The rationale
+
+**Why the reader verifies its own read rather than `run_cycle` handing step 1b
+its startup snapshot.** Both close the race. Handing the snapshot down would
+have replaced the `journal` keyword A18 gave `_run` with a rulings argument and
+made the startup read the one that rules — correct, and further from the
+defect. The review's finding is "verification and consumption on different
+reads", and the fix that says exactly that is a reader that cannot consume what
+it did not verify. It also leaves the three readers of the file under one rule,
+stated once, in one function, rather than one path guarded by call order.
+
+**Why `append_journal` is included.** It is the third reader and had the same
+seam — verify one read, chain to another — and a rule that applies to two of
+three readers of a file is a rule half-stated. The change is one line, the two
+reads become one, and the test that counts reads holds all three to it.
+
+**Why the handler is not taught to skip the append after a reader's refusal.**
+The outcome without that is already the right one — the append refuses the same
+bytes for the same reason and nothing is written — and the message the operator
+sees is the same message. A special case there would be code that exists to
+make a traceback shorter, and `main` prints only the STOP line.
+
+**Why the bound is disclosed and not narrowed.** Every instrument that would
+detect a consistent rewrite at runtime is a new instrument: a key the machine
+holds (which the same hand can read), a signature (which needs the key), or a
+comparison against git (which makes a scheduled command read the repository's
+history to decide whether to run). Each is a design decision with bounds of its
+own, and none was asked for. The honest statement of what an unkeyed chain
+establishes is worth more than a mechanism added in a hurry to make a stronger
+sentence true.
+
+### What this does not change
+
+No forecast, no score and no published number; the odds archive remains wired
+into no model. `epl/oddscapture.py` is not opened: `_scheduled_slots`,
+`_cadence_start`, `missed_latest_slot`, `missed_slots`, `n_missed_slots` and
+`capture_status` are byte-identical and mean what A17 said they mean. A14's
+pre-06:00 refusal, its dry-run bound and its virgin-archive bound are untouched,
+as is its appended note's `_slot_already_observed`, which is still not shown the
+log. A17's whole-set refusal reads the same list. A18's ruling semantics are
+untouched in every particular: a line rules only with a reason, a slot list and
+a `chain`; the pre-chain head of the file cannot rule; the first filing wins; a
+dry run's ruling is a ruling; history is not retro-applied — the committed log
+at `fc2d0fb` still verifies at 11 lines and `_acknowledged_slots` still returns
+`{}` over it, re-measured under the new reader; `OddsSlotMissed` and
+`OddsSlotNotMissed` fire on exactly the inputs they fired on before; the three
+`odds_cadence` fields and the printed cadence suffix are as A18 left them.
+`JOURNAL_GENESIS`, `journal_link` and the link every line carries are unchanged,
+so every journal that verified before verifies now and every one that was
+refused is still refused — what changes is WHEN a refusal fires and what it
+prevents, never WHETHER. The freshness preregistration's §4.5 cadence switch is
+unaffected for the reason A14 gave and A17 and A18 repeated. The Fri 2026-09-04
+06:00 UTC slot and the Mon 2026-09-07 ingest: rehearsed below — the real Friday
+hole is still acknowledged once and read back by every later run.
+
+### What is pre-stated
+
+Nothing numerical. One private helper in `epl/livecycle.py`, three call sites
+moved onto it, one dead branch removed, and docstrings re-scoped where they had
+said something false or incomplete. No new refusal type, no new journal field,
+no new flag.
+
+### What landed
+
+`epl/livecycle.py` gains `_verified_journal_lines` beside `verify_journal_chain`,
+whose loop moved into it; `verify_journal_chain` returns the count of what it
+returns, `append_journal` chains to the last line of what it returns
+(`epl/livecycle.py:853-854` become one read), and `_acknowledged_slots` iterates
+what it returns (`:900`). Four docstrings and two comments are re-scoped,
+recorded here with the edit as A17 and A18 recorded theirs: `_run`'s docstring
+(`:1477-1480`), which claimed the startup verification vouched for step 1b's
+read and now says what that read verifies itself; `_acknowledged_slots`'s
+"WHAT STOPS A LATER RUN FORGING ONE" paragraph (`:884-894`), replaced by a
+paragraph on what the reader verifies and a paragraph on what that does not
+establish, in the direction above; `verify_journal_chain`'s docstring (`:788`),
+which gains the unkeyed-chain bound and the one-read rule below its tip
+paragraph (`:805-809`, unchanged); `append_journal`'s (`:842`), whose "checked
+BEFORE the append" now says on which read; the startup comment above `:1409`;
+and the step 1b comment above `:1581`. The commit changes three files and
+nothing else: `epl/livecycle.py`, `epl/tests/test_livecycle.py` and this
+document. No frozen file was touched (`epl/evwiden.py`, `epl/shots.py`,
+`epl/shots_harness.py`, `epl/tests/test_shots.py`, `epl/tests/test_evwiden.py`),
+and nothing under `src/` or `scripts/` — the two paths the lock chain governs
+(`src/wcmodel/eval/lock.py:77`, `CODE_PATHS = ("src", "scripts")`) — so the lock
+chain is untouched by construction rather than by inspection.
+
+The coupled tests sit under a banner carrying the literal `A19` in
+`epl/tests/test_livecycle.py`, between A18's block and the "slot that is ALREADY
+satisfied" block (`epl/tests/test_livecycle.py:1676` at `fc2d0fb`), and the
+literal appears again in the docstring of the test that states the defect. Four
+tests and one helper, `_tampered_ruling`, which edits the first of two lines to
+carry a ruling and leaves its successor's link alone:
+
+- `test_a_ruling_edited_in_after_the_startup_check_is_refused_before_any_fetch`
+  — the defect, as the review reproduced it, through `run_cycle` with the edit
+  placed at the `odds_fetcher` seam: the cycle must raise `JournalTampered`
+  having fetched no source and reached no step, and leave the journal at two
+  lines. Its one assertion carries both halves, so its failure names what DID
+  run.
+- `test_the_reader_verifies_the_bytes_it_reads` — the mechanism at the reader:
+  `_acknowledged_slots` over a valid file returns `{}`, and over the same file
+  with the ruling edited in it raises rather than returns.
+- `test_every_reader_of_the_flight_log_reads_it_once` — the rule as a count:
+  with `_journal_lines` counted, the startup check, the reader and the append
+  each take one read.
+- `test_a_consistent_rewrite_of_history_is_the_bound_the_chain_cannot_see` —
+  the bound, green on both sides on purpose: a ruling edited onto a past line
+  with every later link recomputed verifies, is consumed, and carries the
+  cycle.
+
+**The red accounting.** Three of the four are red at `fc2d0fb`, measured as a
+set against the unchanged `epl/livecycle.py` before the fix was written, each
+on the defect's own line: the race test on
+`assert (seen, [name for name, _ in steps.calls]) == ({}, [])`, with both
+source URLs and `forecast`, `check`, `matchboard`, `shadow`, `avail` on the left
+— the ruling was consumed and the callbacks reached; the reader test on
+`DID NOT RAISE <class 'epl.livecycle.JournalTampered'>` — the tampered ruling
+was returned; the count test on `assert 4 == 3` — `append_journal` read twice.
+The fourth is the bound and passed on both sides. **3 failed, 1 passed, 123
+deselected** before; **4 passed, 123 deselected** after. No existing test was
+widened.
+
+Suites run for this entry: `epl/tests/test_livecycle.py` **126 passed, 1
+skipped**, and with the four deselected **122 passed, 1 skipped** — every test
+that existed before passes unchanged, A18's nine, the chain tests and
+`test_the_committed_journal_verifies_and_its_history_was_not_rewritten` among
+them; `epl/tests/test_oddscapture.py` **51 passed, 1 skipped**, unchanged in
+bytes and count. The five other suites that import `epl.livecycle` and run
+without `data/` — `test_availability.py`, `test_availarm.py`,
+`test_e1ingest.py`, `test_recal.py`, `test_season.py` — are **297 passed, 17
+skipped** together, A18's count. `epl/tests/test_simcli.py` imports
+`epl.livecycle` too and cannot run in a worktree (it needs `data/`); it is the
+file to watch when the full suite runs in the main tree at landing.
+
+**The live cadence, rehearsed.** From the archive's recorded shape (one
+observation, 2026-09-01T06:39:33Z) with the Fri 2026-09-04 06:00 UTC slot never
+taken — the real hole: TLS interception on the operator's network path — driven
+through `run_cycle` on a scratch archive and journal, executed, not reasoned
+about:
+
+```
+Mon 2026-09-07 09:00, cold                     STOP  OddsSlotMissed: Friday 2026-09-04T06:00:00+00:00
+Mon 2026-09-07 09:00, with the ruling          ran   missed=[09-04] unack=[]  files=[09-04]  earlier=[]
+Tue 2026-09-08 07:00, cold (takes the Tuesday) ran   missed=[09-04] unack=[]  files=[]       earlier=[09-04]
+Wed 2026-09-09 09:00, cold                     ran   missed=[09-04] unack=[]  files=[]       earlier=[09-04]
+Fri 2026-09-11 06:30, cold (takes the Friday)  ran   missed=[09-04] unack=[]  files=[]       earlier=[09-04]
+journal: 5 lines verify; rulings on file: [2026-09-04T06:00:00+00:00]
+```
+
+and the same Monday with a ruling for that Friday edited onto a PAST line of a
+valid two-line journal between the startup check and step 1b:
+
+```
+Mon 2026-09-07 09:00, edited between reads     STOP  JournalTampered: line 2 of … claims a parent it does not have
+sources fetched: []; steps reached: []; journal lines: 2 (nothing written under the edit)
+```
+
+The Monday ingest still refuses a hole nobody has ruled on; the ruling still
+costs one flag, once, and every later run reads it back off bytes it verified;
+and an edit between the reads now stops the cycle before it fetches anything.
+
+**What the review found in A18 and this entry does not take up, recorded so it
+is not lost.** Four further findings are in the same review and are not
+corrected here, because they are outside this fix and a ledger correction
+should be made by the hand that rules on it: `OddsSlotNotMissed`'s stated
+justification (a reason with an empty slot list authorises nothing, so the
+guard is a policy refusal and not the standing-override prevention its
+rationale claims); the "reported everywhere" claim (a later refusal in the same
+run bypasses the summary, and an earlier STOP leaves `odds_cadence: null`); the
+`d3f8cc1` anchor on citations that belong to `f8856ba`, and "four other suites"
+naming five; and the A16 collision in which an acknowledgment persists on a
+`LedgerConflict` STOP line — a durable operator decision, not a certificate
+that ingestion succeeded. None of them changes what this entry measured.

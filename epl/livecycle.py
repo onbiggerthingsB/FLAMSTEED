@@ -807,6 +807,35 @@ def verify_journal_chain(path) -> int:
     it; editing it alone leaves a file that still verifies. The next run closes
     that window by chaining to whatever bytes are then there. The tip's real
     anchor is outside this file: the journal is committed, so git holds it.
+
+    WHAT AN UNKEYED CHAIN ESTABLISHES, AND WHAT IT DOES NOT (A19). Each line
+    commits to the bytes of the line before it AS THEY ARE NOW, and nothing in
+    the file commits to anything outside the file. A chain that verifies says
+    the file is internally consistent; it does not say who wrote a line, and
+    it does not say the history is the one the runs wrote. A hand that edits a
+    past line AND recomputes every link after it produces a file that
+    verifies, and no read of this file can tell. The only independent anchor
+    is the committed copy, and the check against it is a diff a person makes,
+    not a verification this code performs.
+
+    ONE READ (A19). Verification and consumption used to be different reads of
+    the file: this checked one set of bytes and a reader then consumed
+    another, and a line edited between the two was acted on before the append
+    refused it. Every reader now takes its lines from
+    :func:`_verified_journal_lines`, so what it consumes is what verified.
+    """
+    return len(_verified_journal_lines(path))
+
+
+def _verified_journal_lines(path) -> list[str]:
+    """Read the flight log ONCE and verify the chain over exactly those bytes.
+
+    The only door to the log's contents (A19). :func:`verify_journal_chain`
+    counts what this returns, :func:`append_journal` chains to the last line
+    of what this returns, and :func:`_acknowledged_slots` reads rulings off
+    what this returns. A file that does not verify never comes back as lines
+    at all — it raises :class:`JournalTampered` — so there are no bytes in
+    hand a caller could consume without the check having run over them.
     """
     lines = _journal_lines(path)
     chained = False
@@ -836,7 +865,7 @@ def verify_journal_chain(path) -> int:
                 f"it hashes to {want[:16]}…. STOP: a line already on file has "
                 "been changed, removed or reordered. The flight log is "
                 "evidence; read it before writing anything else to it.")
-    return len(lines)
+    return lines
 
 
 def append_journal(path, entry: Mapping[str, Any]) -> str:
@@ -845,13 +874,13 @@ def append_journal(path, entry: Mapping[str, Any]) -> str:
     Canonical because the log is compared across runs and machines: sorted
     keys, no incidental whitespace, no NaN. Append-only because it is a flight
     log — the run that went wrong is the one worth keeping. And self-verifying:
-    the whole chain is checked BEFORE the append, so a tampered log is refused
-    rather than extended.
+    the whole chain is checked BEFORE the append, on the ONE read whose last
+    line this then chains to — it used to verify one read and chain to another
+    (A19) — so a tampered log is refused rather than extended.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    verify_journal_chain(path)
-    previous = _journal_lines(path)
+    previous = _verified_journal_lines(path)
     chain = (JOURNAL_GENESIS if not previous
              else journal_link(previous[-1]))
     line = leaguesim.canonical_json({**dict(entry), "chain": chain})
@@ -881,27 +910,36 @@ def _acknowledged_slots(path) -> dict[str, dict[str, Any]]:
     keeps the pre-chain head of the file (tolerated as the migration seam, see
     :func:`verify_journal_chain`) from doubling as a place to write one.
 
-    WHAT STOPS A LATER RUN FORGING ONE. Every line commits to the previous
-    line's exact bytes. :func:`run_cycle` verifies the whole chain before
-    anything runs — outside its try, so that refusal cannot be journalled over
-    — and :func:`append_journal` verifies it again before every append, so an
-    acknowledgment inserted, edited or reordered after the fact breaks every
-    link after it and the next cycle refuses instead of reading it. The one
-    line the chain cannot vouch for is the TIP, exactly as
-    :func:`verify_journal_chain` already says, and its anchor is that the
-    journal is committed. A18 does not narrow that bound and does not widen the
-    chain; what it does widen is what a tip forgery would buy, which is stated
-    in the amendment rather than papered over here.
+    WHAT IS READ IS WHAT VERIFIED (A19). Every line commits to the previous
+    line's exact bytes, and this reader takes its lines from
+    :func:`_verified_journal_lines`: one read of the file, the chain verified
+    over those bytes, the rulings read off the same bytes. It used to re-read
+    the file after :func:`run_cycle`'s startup check and verify nothing on its
+    own read, and an independent review reproduced what that bought — a ruling
+    edited onto a PAST line between the two reads was consumed, both sources
+    were fetched and the forecast ran before :func:`append_journal`'s check
+    refused the file. The reader now refuses it here, in step 1b, before a
+    source is fetched. :func:`run_cycle`'s check before anything runs and
+    :func:`append_journal`'s before every append are unchanged.
+
+    WHAT THAT DOES NOT ESTABLISH, in the direction that does not flatter. The
+    chain is unkeyed. A line inserted, edited or reordered mid-file with the
+    links after it left as they were is refused; the same edit with every
+    following link recomputed verifies, and this reader consumes it, because
+    internal consistency is all a verified chain says. The TIP has nothing
+    after it to vouch for it at all, exactly as :func:`verify_journal_chain`
+    already says. Neither is authenticated here against git or any anchor
+    outside the file: the committed copy is the only independent record, and
+    the check against it is a person's diff. A19 closes the read race and adds
+    no key, signature or anchor; the bound is stated in the amendment rather
+    than papered over here.
 
     The FIRST filing wins: a later run that names the same slot again files its
     own line, and the ruling reported for that slot stays the one that ruled.
     """
     out: dict[str, dict[str, Any]] = {}
-    for line in _journal_lines(path):
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:                        # pragma: no cover
-            continue                    # verify_journal_chain refuses it first
+    for line in _verified_journal_lines(path):
+        row = json.loads(line)          # every verified line parsed already
         if not isinstance(row, dict) or not row.get("chain"):
             continue
         cadence = row.get("odds_cadence")
@@ -1405,7 +1443,10 @@ def run_cycle(*, now=None, season: str = simcli.DEFAULT_SEASON, root=None,
     # evidence that something is wrong with this machine's record, and the
     # cycle should stop and be looked at rather than append a true line under a
     # false one. Raised OUTSIDE the try below on purpose — this refusal cannot
-    # be journalled, because the journal is what failed.
+    # be journalled, because the journal is what failed. It vouches for the
+    # bytes it read and for no later read: step 1b's reader verifies its own
+    # (A19), and when that refuses inside the try the handler's append refuses
+    # the same file for the same reason, so nothing is written either way.
     verify_journal_chain(journal)
 
     try:
@@ -1475,9 +1516,12 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
     everything that had already run rather than with an empty record.
 
     `journal` is READ here as well as written by the caller: step 1b asks it
-    which cadence holes an earlier line already ruled on (A18). The chain was
-    verified by :func:`run_cycle` before this was called, so what is read is a
-    record nothing has edited since the run that wrote it."""
+    which cadence holes an earlier line already ruled on (A18). That read
+    verifies the chain over the bytes it consumes (A19) — :func:`run_cycle`'s
+    check before this was called vouches for what IT read, not for a file
+    re-read later, and a line edited in between was once consumed here and
+    refused only at the append. A read that fails is a typed refusal raised in
+    step 1b, before a source is fetched."""
     season_obj = season_mod.Season.load(season, root=root)
     # Read the ledger's clocks BEFORE anything writes: a ledger this cycle
     # cannot compute a knowledge bound over is a ledger it must not add to.
@@ -1577,7 +1621,9 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
     # back. It silences THOSE slots and nothing else; the hole stays a hole in
     # `missed_slots`, on the screen and in `capture_status`, and what changes
     # is only whether the cycle STOPs. The archive is not asked about rulings
-    # and the log is not asked about receipts.
+    # and the log is not asked about receipts. The reader verifies the chain
+    # over the bytes it reads (A19): a log edited since the startup check
+    # refuses HERE, before step 2 fetches anything.
     ruled = _acknowledged_slots(journal) if holes else {}
     files_now = list(holes) if acknowledge_missed_slot else []
     earlier = [ruled[slot] for slot in holes if slot in ruled]

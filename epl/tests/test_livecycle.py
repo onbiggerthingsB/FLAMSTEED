@@ -1673,6 +1673,148 @@ def test_a_pre_a18_line_rules_on_nothing(tmp_path):
                now=pd.Timestamp("2026-08-26T18:20:31Z"))
 
 
+# --- the ruling read off bytes nothing had verified (A19) -----------------
+# A18 made a hole's acknowledgment a line of the flight log and had step 1b
+# read it back. An independent review reproduced the seam it left: `run_cycle`
+# verifies the chain at startup on ONE read, `_acknowledged_slots` RE-READ the
+# file on ANOTHER and verified nothing, and the next verification was
+# `append_journal`'s, at the very end. A line edited between the two reads —
+# not the tip, so the chain had every reason to refuse it — was consumed as a
+# ruling, both sources were fetched and the forecast callback was reached
+# before anything noticed; the final append then refused, and no line was
+# written. Work crossed a control boundary that had already failed. The rule
+# now: a reader of the flight log consumes only the bytes it verified on the
+# SAME read, and the reader's own refusal STOPs step 1b before any fetch.
+
+def _tampered_ruling(journal: Path, slot: str, why: str) -> None:
+    """Edit the FIRST line of a two-line journal to carry a ruling for `slot`
+    and leave its successor's link exactly as it was: the line the chain has
+    every reason to refuse, edited the way the review edited it."""
+    rows = _journal_lines(journal)
+    assert len(rows) == 2 and rows[0]["chain"] and rows[1]["chain"]
+    rows[0]["odds_cadence"] = {"acknowledged": why,
+                               "acknowledged_slots": [slot]}
+    journal.write_text("".join(leaguesim.canonical_json(r) + "\n" for r in rows),
+                       encoding="utf-8")
+
+
+def test_a_ruling_edited_in_after_the_startup_check_is_refused_before_any_fetch(
+        tmp_path):
+    """A19: the defect, as the review reproduced it. Two valid lines; the
+    startup verification passes over them; the first line is then edited to
+    acknowledge the hole, its successor's link left alone. Step 1b must refuse
+    on its own read — before a source is fetched and before the forecast
+    callback is reached — rather than consume the ruling and leave the final
+    append to discover the file it was about to write over.
+
+    The edit is placed through the suite's own `odds_fetcher` seam, which the
+    cycle calls in step 1: after `run_cycle`'s check and before step 1b, the
+    exact window the review's memory-backed I/O targeted. A fetch that happens
+    at all is the proof the ruling was consumed, because an unruled hole
+    refuses before step 2."""
+    hole = "2026-08-25T06:00:00+00:00"
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")            # a Friday
+    journal = tmp_path / "journal.jsonl"
+    for at in ("2026-08-21T09:00:00+00:00", "2026-08-24T09:00:00+00:00"):
+        livecycle.append_journal(journal, {"at": at, "outcome": "no-op",
+                                           "odds_cadence": None})
+    assert livecycle.verify_journal_chain(journal) == 2      # valid, as filed
+
+    def odds_fetch_then_edit(url):
+        _tampered_ruling(journal, hole, "a hand, between the two reads")
+        return _odds_csv()
+
+    of_fetch, e0_fetch, seen = _fetchers(openfootball_text(MW1_SCORES),
+                                         football_data_text(MW1_SCORES))
+    steps = _Steps()
+    with pytest.raises(livecycle.JournalTampered, match="line 2"):
+        _cycle(tmp_path, ledger=MW1_SCORES, journal=journal, steps=steps,
+               now=pd.Timestamp("2026-08-28T07:00:00Z"),    # the next Friday
+               odds_fetcher=odds_fetch_then_edit,
+               fetchers={livecycle.SOURCE_A: of_fetch,
+                         livecycle.SOURCE_B: e0_fetch})
+    # Nothing crossed the boundary: no source fetched, no step reached, and
+    # the file left exactly as the hand left it — no line written under the
+    # edit. Both halves in one assertion so a failure names what DID run.
+    assert (seen, [name for name, _ in steps.calls]) == ({}, [])
+    assert len(journal.read_text().splitlines()) == 2
+
+
+def test_the_reader_verifies_the_bytes_it_reads(tmp_path):
+    """The mechanism, at the reader. `_acknowledged_slots` refuses a file whose
+    chain does not verify rather than returning what a hand wrote into it —
+    the chain is checked over the same bytes the rulings are then read from,
+    one read, not a check on one read and a consumption on another."""
+    journal = tmp_path / "j.jsonl"
+    livecycle.append_journal(journal, {"outcome": "no-op", "n": 1})
+    livecycle.append_journal(journal, {"outcome": "no-op", "n": 2})
+    assert livecycle._acknowledged_slots(journal) == {}      # nothing ruled
+    _tampered_ruling(journal, "2026-08-25T06:00:00+00:00", "a hand")
+    with pytest.raises(livecycle.JournalTampered, match="line 2"):
+        livecycle._acknowledged_slots(journal)
+
+
+def test_every_reader_of_the_flight_log_reads_it_once(tmp_path, monkeypatch):
+    """The rule, stated as a count. Verification and consumption on different
+    reads IS the defect, so each of the three readers — the startup check,
+    the ruling reader and the append — takes ONE read of the file and both
+    verifies and consumes that. `append_journal` used to take two: one to
+    verify, another to find the parent it would chain to, so the line it
+    wrote committed to bytes nothing had checked."""
+    journal = tmp_path / "j.jsonl"
+    livecycle.append_journal(journal, {"outcome": "no-op", "n": 1})
+    reads: list[Path] = []
+    real = livecycle._journal_lines
+
+    def counted(path):
+        reads.append(Path(path))
+        return real(path)
+
+    monkeypatch.setattr(livecycle, "_journal_lines", counted)
+    livecycle.verify_journal_chain(journal)
+    assert len(reads) == 1
+    livecycle._acknowledged_slots(journal)
+    assert len(reads) == 2
+    livecycle.append_journal(journal, {"outcome": "no-op", "n": 2})
+    assert len(reads) == 3
+    assert livecycle.verify_journal_chain(journal) == 2
+
+
+def test_a_consistent_rewrite_of_history_is_the_bound_the_chain_cannot_see(
+        tmp_path):
+    """STATED, NOT HIDDEN, as the tip's bound is stated below. The chain is
+    unkeyed: each line commits to the previous line's bytes, and nothing in
+    the file commits to anything outside it. So a hand that edits a historical
+    line AND recomputes every link after it produces a file that verifies,
+    and the reader — verifying the same bytes — consumes the ruling it wrote.
+    A19 does not cure this and adds no key, no signature and no git anchor to
+    try: the committed copy is the only independent anchor, and the check
+    against it is a human's diff, not a verification. The review measured it;
+    so does this, so nobody reads A19 as more than it is. Green before the
+    change and after it, on purpose."""
+    hole = "2026-08-25T06:00:00+00:00"
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")
+    journal = tmp_path / "journal.jsonl"
+    for at in ("2026-08-21T09:00:00+00:00", "2026-08-24T09:00:00+00:00"):
+        livecycle.append_journal(journal, {"at": at, "outcome": "no-op",
+                                           "odds_cadence": None})
+    rows = _journal_lines(journal)
+    rows[0]["odds_cadence"] = {"acknowledged": "a consistent rewrite",
+                               "acknowledged_slots": [hole]}
+    first = leaguesim.canonical_json(rows[0])
+    rows[1]["chain"] = livecycle.journal_link(first)         # the link, redone
+    journal.write_text(first + "\n" + leaguesim.canonical_json(rows[1]) + "\n",
+                       encoding="utf-8")
+    assert livecycle.verify_journal_chain(journal) == 2      # not detected
+    assert set(livecycle._acknowledged_slots(journal)) == {hole}   # consumed
+    later = _cycle(tmp_path, ledger=MW1_SCORES, journal=journal,
+                   now=pd.Timestamp("2026-08-26T18:20:31Z"))
+    assert later["outcome"] != "STOP"
+    assert later["odds_cadence"]["unacknowledged_slots"] == []
+    assert later["odds_cadence"]["acknowledged_earlier"][0]["reason"] == \
+        "a consistent rewrite"
+
+
 # --- the slot that is ALREADY satisfied -----------------------------------
 # A14 taught the cycle to refuse a slot nobody ran on. It did not teach it to
 # stop re-demanding a slot somebody already ran on, and step one re-fetched
