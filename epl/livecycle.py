@@ -54,9 +54,21 @@ the newest, so taking the NEXT scheduled capture was the act that erased the
 previous hole's only detector, and every run afterwards journalled a whole
 cadence over a gap. It now asks about every slot the archive is answerable for
 (`missed_slots`), the flight log carries the whole set, and a hole never stops
-being named. The way past it is unchanged — `--acknowledge-missed-slot 'why'`
-on each run that carries past it; nothing here remembers a ruling from one run
-to the next.
+being named. The way past it is the flag A14 built,
+`--acknowledge-missed-slot 'why'`.
+
+ONE RULING, NOT ONE PER RUN (A18). That flag was per RUN, so once a slot was
+genuinely missed — including one step 1 legitimately could not take, such as a
+Tuesday on which `fixtures.csv` had rotated to zero E0 rows and
+`oddscapture.capture` correctly refused — every later cycle STOPped until it
+was passed again, on that run and the next and every run for the rest of the
+season. The owner ruled that a hole is acknowledged ONCE: the reason is filed
+verbatim against the exact slot instants on the hash-chained flight log, and
+every later run reads it back. It silences THOSE slots and nothing else — a
+hole nobody ruled on still stops the cycle — and an acknowledged hole is still
+reported as a hole, here, on the screen and in `capture_status`. There is still
+no flag that erases a gap, and an acknowledgment that names no hole is refused
+rather than filed, so nothing can rule on a slot in advance.
 
 THE TWO CLOCKS, WHICH ARE THE THING THIS BUILD EXISTS TO GET RIGHT
 ------------------------------------------------------------------
@@ -160,7 +172,7 @@ __all__ = [
     "LiveCycleError", "SourceUnreachable", "SourceMalformed",
     "SourceDisagreement", "CoverageGap", "LedgerConflict", "GateNotPassed",
     "CheckUnexpected", "ScorecardMismatch", "OddsSnapshotFailed",
-    "OddsSlotMissed",
+    "OddsSlotMissed", "OddsSlotNotMissed",
     "LaunchModeUnsafe", "SOURCE_A", "SOURCE_B", "SourceResult", "CrossCheck",
     "JOURNAL_PATH", "ODDS_SNAPSHOT_DIR", "DEFAULT_FETCHERS",
     "openfootball_url", "football_data_url", "fetch_openfootball",
@@ -241,7 +253,23 @@ class OddsSlotMissed(LiveCycleError):
 
     A17: it fires on EVERY later run, not only on the one that happens to ask
     while the hole is still the newest slot. The refusal reads the whole
-    unobserved set (`missed_slots`) and names each slot in it."""
+    unobserved set (`missed_slots`) and names each slot in it.
+
+    A18: it fires on the slots of that set no line of the flight log has ruled
+    on. A hole acknowledged ONCE, against its exact instant and with a reason,
+    is not re-demanded run after run; every other hole still is, and an
+    acknowledged hole is still reported as a hole."""
+
+
+class OddsSlotNotMissed(LiveCycleError):
+    """`--acknowledge-missed-slot` was passed on a run with no hole to rule on.
+
+    An acknowledgment is filed against the slots THIS run names as missed, and
+    it silences those slots for every later run (A18). Over a whole cadence it
+    would name none — a reason on the flight log authorising no slot in
+    particular, which is a standing override for a hole that has not happened
+    yet. That is defect family (e) arriving through the front door, so it is
+    refused rather than recorded: the ruling has to follow the hole."""
 
 
 class LaunchModeUnsafe(LiveCycleError):
@@ -829,6 +857,63 @@ def append_journal(path, entry: Mapping[str, Any]) -> str:
     return line
 
 
+def _acknowledged_slots(path) -> dict[str, dict[str, Any]]:
+    """Every cadence slot a line already on this flight log has ruled on.
+
+    ONE RULING, NOT ONE PER RUN (A18). A14 built `--acknowledge-missed-slot` as
+    a per-RUN flag and A17 widened the refusal from the newest slot to every
+    hole the archive carries, so once a slot was genuinely missed — including
+    one step 1 legitimately could not take — every later cycle STOPped until
+    the flag was passed again, on that run and the next and every run for the
+    rest of the season. The owner ruled that a hole is acknowledged ONCE. This
+    is where that ruling is read back.
+
+    THE RULING IS A JOURNAL LINE, and nothing else is. It is written by
+    :func:`append_journal` like every other line: `odds_cadence.acknowledged`
+    carries the operator's reason verbatim, `odds_cadence.acknowledged_slots`
+    names the exact slot instants it covers, and `at` says when it was filed.
+    A line rules only if it carries BOTH, so the lines already on the committed
+    log — a reason, no slots — rule on nothing and history is not retro-applied.
+    It must also carry `chain`: only a line the chain covers may rule, which
+    keeps the pre-chain head of the file (tolerated as the migration seam, see
+    :func:`verify_journal_chain`) from doubling as a place to write one.
+
+    WHAT STOPS A LATER RUN FORGING ONE. Every line commits to the previous
+    line's exact bytes. :func:`run_cycle` verifies the whole chain before
+    anything runs — outside its try, so that refusal cannot be journalled over
+    — and :func:`append_journal` verifies it again before every append, so an
+    acknowledgment inserted, edited or reordered after the fact breaks every
+    link after it and the next cycle refuses instead of reading it. The one
+    line the chain cannot vouch for is the TIP, exactly as
+    :func:`verify_journal_chain` already says, and its anchor is that the
+    journal is committed. A18 does not narrow that bound and does not widen the
+    chain; what it does widen is what a tip forgery would buy, which is stated
+    in the amendment rather than papered over here.
+
+    The FIRST filing wins: a later run that names the same slot again files its
+    own line, and the ruling reported for that slot stays the one that ruled.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for line in _journal_lines(path):
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:                        # pragma: no cover
+            continue                    # verify_journal_chain refuses it first
+        if not isinstance(row, dict) or not row.get("chain"):
+            continue
+        cadence = row.get("odds_cadence")
+        if not isinstance(cadence, dict):
+            continue
+        reason, slots = cadence.get("acknowledged"), cadence.get(
+            "acknowledged_slots")
+        if not reason or not isinstance(slots, list):
+            continue
+        for slot in slots:
+            out.setdefault(str(slot), {"slot": str(slot), "reason": str(reason),
+                                       "at": row.get("at")})
+    return out
+
+
 def _scored_fixture_ids(path) -> set[str]:
     """Every `fixture_id` a scoring ledger already carries."""
     path = Path(path)
@@ -1326,7 +1411,7 @@ def run_cycle(*, now=None, season: str = simcli.DEFAULT_SEASON, root=None,
                       allow_single_source=allow_single_source, dry_run=dry_run,
                       skip_odds_snapshot=skip_odds_snapshot,
                       acknowledge_missed_slot=acknowledge_missed_slot,
-                      out_root=out_root,
+                      journal=journal, out_root=out_root,
                       derived_root=derived_root, snapshot_dir=snapshot_dir,
                       shadow_ledger=shadow_ledger, avail_ledger=avail_ledger,
                       fetchers=fetchers,
@@ -1380,11 +1465,16 @@ def _slot_already_observed(*, now, capture_slot, snapshot_dir) -> dict | None:
 
 def _run(entry, *, now, observed_at, cutoff, season, root, arms,
          allow_single_source, dry_run, skip_odds_snapshot,
-         acknowledge_missed_slot, out_root,
+         acknowledge_missed_slot, journal, out_root,
          derived_root, snapshot_dir, shadow_ledger, avail_ledger, fetchers,
          odds_fetcher, steps, board_reader, verbose) -> dict[str, Any]:
     """The ten steps. Mutates `entry` as it goes, so a STOP is journalled with
-    everything that had already run rather than with an empty record."""
+    everything that had already run rather than with an empty record.
+
+    `journal` is READ here as well as written by the caller: step 1b asks it
+    which cadence holes an earlier line already ruled on (A18). The chain was
+    verified by :func:`run_cycle` before this was called, so what is read is a
+    record nothing has edited since the run that wrote it."""
     season_obj = season_mod.Season.load(season, root=root)
     # Read the ledger's clocks BEFORE anything writes: a ledger this cycle
     # cannot compute a knowledge bound over is a ledger it must not add to.
@@ -1476,6 +1566,20 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
     # the head, and the set is a superset of `missed` by construction.
     holes = [slot for slot in status["missed_slots"]
              if not (covered_by_plan and pd.Timestamp(slot) == capture_slot)]
+    # A HOLE IS ACKNOWLEDGED ONCE, ON THE FLIGHT LOG (A18). The flag A14 built
+    # is per RUN, so once a slot was genuinely missed every later cycle STOPped
+    # until it was passed again — on that run, and the next, and every run for
+    # the rest of the season. The owner ruled: file the reason once, against
+    # the exact slot instants, on the hash-chained log, and later runs read it
+    # back. It silences THOSE slots and nothing else; the hole stays a hole in
+    # `missed_slots`, on the screen and in `capture_status`, and what changes
+    # is only whether the cycle STOPs. The archive is not asked about rulings
+    # and the log is not asked about receipts.
+    ruled = _acknowledged_slots(journal) if holes else {}
+    files_now = list(holes) if acknowledge_missed_slot else []
+    earlier = [ruled[slot] for slot in holes if slot in ruled]
+    unacknowledged = [slot for slot in holes
+                      if slot not in ruled and slot not in files_now]
     entry["odds_cadence"] = {
         "latest_scheduled_slot": status["latest_scheduled_slot"],
         "latest_slot_observed": bool(status["latest_slot_observed"]),
@@ -1484,19 +1588,42 @@ def _run(entry, *, now, observed_at, cutoff, season, root, arms,
         "archive_started": began,
         "n_observations": int(status["n_observations"]),
         "acknowledged": acknowledge_missed_slot,
+        # The three A18 fields: what THIS line rules on — the record every
+        # later run reads — what an earlier line already ruled on, and what is
+        # left over, which is what the refusal below reads.
+        "acknowledged_slots": files_now,
+        "acknowledged_earlier": earlier,
+        "unacknowledged_slots": unacknowledged,
     }
-    if holes and began and not acknowledge_missed_slot:
-        named = ", ".join(f"{pd.Timestamp(s).day_name()} {s}" for s in holes)
+    if acknowledge_missed_slot and not holes:
+        raise OddsSlotNotMissed(
+            f"--acknowledge-missed-slot was passed with the reason "
+            f"{acknowledge_missed_slot!r}, and this run's cadence has no hole "
+            f"to acknowledge: {status['latest_scheduled_slot']} is the newest "
+            "scheduled slot and every slot this archive is answerable for is "
+            "observed. STOP: an acknowledgment is filed against the slots a "
+            "run names as missed and silences those slots for every later run, "
+            "so one filed over a whole cadence would name none — a standing "
+            "authorisation for a hole that has not happened yet. Run without "
+            "the flag; there is no way to rule on a slot in advance.")
+    if unacknowledged and began:
+        named = ", ".join(f"{pd.Timestamp(s).day_name()} {s}"
+                          for s in unacknowledged)
+        ruled_already = (f" ({len(earlier)} other hole(s) on this archive "
+                         "already acknowledged on the flight log)"
+                         if earlier else "")
         raise OddsSlotMissed(
             f"the capture slot(s) {named} have no observation on file, and "
             f"the archive already holds {status['n_observations']} — the "
-            "cadence started and each of these is a hole in it. STOP: the "
-            "source overwrites one file a week, so the publication that "
-            "belonged in each is gone and no later run recovers it, INCLUDING "
-            "a slot that a LATER capture has already scrolled past. Record "
-            "the decision with --acknowledge-missed-slot 'why', which files "
-            "the reason on the flight log rather than letting a silent gap "
-            "pass as a clean run.")
+            f"cadence started and each of these is a hole in it{ruled_already}. "
+            "STOP: the source overwrites one file a week, so the publication "
+            "that belonged in each is gone and no later run recovers it, "
+            "INCLUDING a slot that a LATER capture has already scrolled past. "
+            "Record the decision with --acknowledge-missed-slot 'why', which "
+            "files the reason against these slots on the flight log rather "
+            "than letting a silent gap pass as a clean run. It is filed ONCE: "
+            "later runs read it back, and a hole nobody has ruled on still "
+            "stops the cycle.")
 
     # --- 2. both sources, or nothing --------------------------------------
     urls = {SOURCE_A: openfootball_url(season_obj),
@@ -1889,8 +2016,17 @@ def render_summary(entry: Mapping[str, Any]) -> str:
     if cadence:
         slot = cadence["latest_scheduled_slot"]
         holes = cadence.get("missed_slots") or []
-        ruling = (f" — acknowledged: {cadence['acknowledged']}"
-                  if cadence["acknowledged"] else " — this run refuses")
+        earlier = cadence.get("acknowledged_earlier") or []
+        if cadence["acknowledged"]:
+            ruling = f" — acknowledged: {cadence['acknowledged']}"
+        elif earlier and not (cadence.get("unacknowledged_slots") or []):
+            # A18: this run carries no flag and does not refuse, because the
+            # hole was ruled on once already. The screen names whose ruling it
+            # is standing on rather than printing a bare gap.
+            ruling = " — acknowledged " + "; ".join(
+                f"{r['at']} for {r['slot']}: {r['reason']}" for r in earlier)
+        else:
+            ruling = " — this run refuses"
         if cadence["missed_latest_slot"] and cadence["archive_started"]:
             named = holes or [slot]
             lines.append(f"cadence     MISSED {len(named)} slot(s): "
@@ -2024,9 +2160,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--acknowledge-missed-slot", metavar="WHY", default=None,
         help="proceed although a Tuesday/Friday slot already on the cadence "
-             "has no observation. WHY is filed verbatim on the flight log: "
-             "the publication that belonged in that slot is gone, and the "
-             "only thing left to record is who decided to carry on and why.")
+             "has no observation. WHY is filed verbatim on the flight log "
+             "against the exact slots this run names as missed: the "
+             "publication that belonged in each is gone, and the only thing "
+             "left to record is who decided to carry on and why. It is filed "
+             "ONCE — later runs read it back and do not re-demand those slots "
+             "— it silences those slots only, the hole is still reported as a "
+             "hole, and passing it on a run with no hole is refused.")
     parser.add_argument("--season", default=simcli.DEFAULT_SEASON)
     parser.add_argument("--root", default=None,
                         help=f"the season ledgers (default {season_mod.SEASON_ROOT})")

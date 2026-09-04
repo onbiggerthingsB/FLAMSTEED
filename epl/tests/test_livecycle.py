@@ -1368,7 +1368,10 @@ def test_the_cadence_block_is_on_every_line_whichever_way_it_falls(tmp_path):
     entry = json.loads((tmp_path / "journal.jsonl").read_text())
     assert set(entry["odds_cadence"]) == {
         "latest_scheduled_slot", "latest_slot_observed", "missed_latest_slot",
-        "missed_slots", "archive_started", "n_observations", "acknowledged"}
+        "missed_slots", "archive_started", "n_observations", "acknowledged",
+        # A18: what this line RULES on, what an earlier line already ruled on,
+        # and what is left for the refusal to read.
+        "acknowledged_slots", "acknowledged_earlier", "unacknowledged_slots"}
     assert entry["odds_cadence"] == result["odds_cadence"]
 
 
@@ -1449,6 +1452,224 @@ def test_the_screen_says_observed_and_names_the_hole_behind_it(tmp_path):
     assert "EARLIER slot(s) never were" in line
     assert "2026-08-25T06:00:00+00:00" in line
     assert f"acknowledged: {why}" in line
+
+
+# --- the acknowledgment that had to be re-filed every run (A18) -----------
+# A17 made every hole in the archive visible and refused on all of them, and
+# left the way past one exactly as A14 built it: PER RUN. So once a slot was
+# genuinely missed — including one step 1 legitimately could not take, such as
+# a Tuesday on which `fixtures.csv` had rotated to zero E0 rows — every later
+# cycle STOPped until the flag was passed again, on that run and the next and
+# every run for the rest of the season. The owner ruled (2026-09-03): a hole is
+# acknowledged ONCE, against the exact slot, on the hash-chained flight log,
+# and it stays acknowledged. It silences THAT slot and nothing else, and an
+# acknowledged hole is still reported as a hole everywhere it was before.
+
+def test_a_slot_acknowledged_once_does_not_stop_the_next_run(tmp_path):
+    """A18: the defect. The ruling is filed on the flight log, so the run
+    after it neither carries the flag nor STOPs — and nothing about the
+    archive has changed, because nothing about the archive can."""
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")            # a Friday
+    why = "fixtures.csv had rotated to zero E0 rows; ruled by the owner"
+    filed = _cycle(tmp_path, ledger=MW1_SCORES,
+                   now=pd.Timestamp("2026-08-26T18:20:31Z"),
+                   acknowledge_missed_slot=why)
+    assert filed["odds_cadence"]["acknowledged_slots"] == [
+        "2026-08-25T06:00:00+00:00"]
+
+    # The next run carries no flag at all. Under A17 it STOPped here, and so
+    # did every run after it.
+    later = _cycle(tmp_path, ledger=MW1_SCORES,
+                   now=pd.Timestamp("2026-08-26T18:20:31Z"))
+    cadence = later["odds_cadence"]
+    assert later["outcome"] != "STOP"
+    assert cadence["acknowledged"] is None       # this run ruled on nothing
+    assert cadence["acknowledged_slots"] == []
+    assert cadence["unacknowledged_slots"] == []
+    assert [r["slot"] for r in cadence["acknowledged_earlier"]] == [
+        "2026-08-25T06:00:00+00:00"]
+    assert cadence["acknowledged_earlier"][0]["reason"] == why
+
+
+def test_a_different_missed_slot_still_stops_the_run(tmp_path):
+    """The ruling names ONE slot instant and silences that one. A hole the
+    owner has not ruled on is refused with the acknowledged one on file."""
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")            # a Friday
+    _cycle(tmp_path, ledger=MW1_SCORES,
+           now=pd.Timestamp("2026-08-26T18:20:31Z"),
+           acknowledge_missed_slot="the Tuesday, and only the Tuesday")
+
+    # 2026-08-28 was never captured either, and nobody ruled on it.
+    with pytest.raises(livecycle.OddsSlotMissed) as info:
+        _cycle(tmp_path, ledger=MW1_SCORES,
+               now=pd.Timestamp("2026-09-01T07:00:00Z"))    # takes the Tuesday
+    assert "2026-08-28T06:00:00+00:00" in str(info.value)
+    assert "2026-08-25" not in str(info.value)   # refused on the hole, only
+    entry = json.loads((tmp_path / "journal.jsonl").read_text().splitlines()[-1])
+    cadence = entry["odds_cadence"]
+    assert cadence["missed_slots"] == ["2026-08-25T06:00:00+00:00",
+                                       "2026-08-28T06:00:00+00:00"]
+    assert cadence["unacknowledged_slots"] == ["2026-08-28T06:00:00+00:00"]
+    assert [r["slot"] for r in cadence["acknowledged_earlier"]] == [
+        "2026-08-25T06:00:00+00:00"]
+
+
+def test_an_acknowledged_hole_is_still_a_hole_in_every_report(tmp_path):
+    """An acknowledged hole is still a hole. What the ruling changes is
+    whether the cycle STOPs — not what the archive says, not what the flight
+    log records, and not what the screen prints."""
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")
+    why = "laptop offline over the bank holiday; ruled 2026-08-26 by the owner"
+    _cycle(tmp_path, ledger=MW1_SCORES,
+           now=pd.Timestamp("2026-08-26T18:20:31Z"),
+           acknowledge_missed_slot=why)
+    later = _cycle(tmp_path, ledger=MW1_SCORES,
+                   now=pd.Timestamp("2026-08-26T18:20:31Z"))
+
+    hole = "2026-08-25T06:00:00+00:00"
+    assert later["odds_cadence"]["missed_slots"] == [hole]
+    assert later["odds_cadence"]["missed_latest_slot"] is True
+    entry = json.loads((tmp_path / "journal.jsonl").read_text().splitlines()[-1])
+    assert entry["odds_cadence"]["missed_slots"] == [hole]
+    # The archive is asked directly, because the ruling lives in the flight log
+    # and `capture_status` must not have learned about it.
+    status = oddscapture.capture_status(
+        when=pd.Timestamp("2026-08-26T18:20:31Z"),
+        directory=tmp_path / "snapshots")
+    assert status["missed_slots"] == [hole]
+    assert status["n_missed_slots"] == 1
+    line = next(ln for ln in later["summary"].splitlines()
+                if ln.startswith("cadence "))
+    assert f"MISSED 1 slot(s): {hole}" in line
+    assert why in line
+
+
+def test_an_acknowledgment_that_names_no_hole_is_refused(tmp_path):
+    """A ruling is filed against the slots this run names as missed. Over a
+    whole cadence it would name none, which is a standing authorisation for a
+    slot that has not been missed yet — defect family (e), through the front
+    door. Refused rather than filed."""
+    _seed_slot(tmp_path, "2026-08-25T06:05:00Z")            # today's slot, taken
+    with pytest.raises(livecycle.OddsSlotNotMissed) as info:
+        _cycle(tmp_path, ledger=MW1_SCORES,
+               acknowledge_missed_slot="ruling ahead of the Friday")
+    assert "no hole" in str(info.value)
+    entry = json.loads((tmp_path / "journal.jsonl").read_text().splitlines()[-1])
+    assert entry["outcome"] == "STOP"
+    assert entry["refused"]["type"] == "OddsSlotNotMissed"
+    # The block is still written on the STOP line, and it files nothing.
+    assert entry["odds_cadence"]["missed_slots"] == []
+    assert entry["odds_cadence"]["acknowledged_slots"] == []
+
+
+def test_the_journal_record_carries_the_slot_instant_and_the_reason(tmp_path):
+    """The record IS the acknowledgment: the exact slot instant it covers and
+    the operator's reason verbatim, on one chained line of the flight log."""
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")
+    why = "zero E0 rows — the owner's ruling, 2026-08-26: \"let it go\""
+    _cycle(tmp_path, ledger=MW1_SCORES,
+           now=pd.Timestamp("2026-08-26T18:20:31Z"),
+           acknowledge_missed_slot=why)
+    entry = json.loads((tmp_path / "journal.jsonl").read_text().splitlines()[-1])
+    assert entry["odds_cadence"]["acknowledged_slots"] == [
+        "2026-08-25T06:00:00+00:00"]
+    assert entry["odds_cadence"]["acknowledged"] == why      # verbatim
+    assert entry["at"] == "2026-08-26T18:20:31+00:00"
+    # Written by `append_journal` like every other line, and the run that reads
+    # it back commits to its exact bytes: from then on the ruling cannot be
+    # edited without breaking every link after it.
+    assert entry["chain"] == livecycle.JOURNAL_GENESIS
+    _cycle(tmp_path, ledger=MW1_SCORES,
+           now=pd.Timestamp("2026-08-26T18:20:31Z"))
+    lines = (tmp_path / "journal.jsonl").read_text().splitlines()
+    assert json.loads(lines[1])["chain"] == livecycle.journal_link(lines[0])
+    assert livecycle.verify_journal_chain(tmp_path / "journal.jsonl") == 2
+
+
+def test_a_line_the_chain_does_not_cover_cannot_rule(tmp_path):
+    """What stops a later hand from filing a ruling it never made: a line only
+    rules if the chain covers it. A pre-chain line is tolerated at the head of
+    the log — `verify_journal_chain` says so, it is the migration seam — and
+    that toleration must not double as a place to write an acknowledgment."""
+    journal = tmp_path / "journal.jsonl"
+    journal.write_text(json.dumps({
+        "at": "2026-08-26T18:20:31+00:00", "outcome": "no-op",
+        "odds_cadence": {
+            "latest_scheduled_slot": "2026-08-25T06:00:00+00:00",
+            "acknowledged": "a hand that wanted the Tuesday ruled on",
+            "acknowledged_slots": ["2026-08-25T06:00:00+00:00"]}},
+        sort_keys=True) + "\n", encoding="utf-8")
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")
+    with pytest.raises(livecycle.OddsSlotMissed,
+                       match="2026-08-25T06:00:00"):
+        _cycle(tmp_path, ledger=MW1_SCORES, journal=journal,
+               now=pd.Timestamp("2026-08-26T18:20:31Z"))
+    entry = json.loads(journal.read_text().splitlines()[-1])
+    assert entry["odds_cadence"]["unacknowledged_slots"] == [
+        "2026-08-25T06:00:00+00:00"]
+    assert entry["odds_cadence"]["acknowledged_earlier"] == []
+
+
+def test_a_dry_runs_ruling_is_a_ruling(tmp_path):
+    """A17 refuses a dry run on an earlier hole exactly as it refuses a real
+    one, so a dry run NEEDS the flag to get past one. If its ruling did not
+    stick the operator would file the same decision twice — once to rehearse,
+    once to run — which is the per-run cost this closes. The line records
+    `dry_run: true` beside the ruling, so a reader sees which run filed it."""
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")
+    planned = _cycle(tmp_path, ledger=MW1_SCORES, dry_run=True, prior=None,
+                     now=pd.Timestamp("2026-08-26T18:20:31Z"),
+                     acknowledge_missed_slot="rehearsed and ruled on together")
+    assert planned["dry_run"] is True
+    assert planned["odds_cadence"]["acknowledged_slots"] == [
+        "2026-08-25T06:00:00+00:00"]
+    later = _cycle(tmp_path, ledger=MW1_SCORES,
+                   now=pd.Timestamp("2026-08-26T18:20:31Z"))
+    assert later["odds_cadence"]["unacknowledged_slots"] == []
+    assert later["odds_cadence"]["acknowledged_earlier"][0]["reason"] == \
+        "rehearsed and ruled on together"
+
+
+def test_a_line_with_no_cadence_block_is_read_past_not_tripped_over(tmp_path):
+    """The reader walks the whole log, and most of the log is not about the
+    cadence: the lines written before A14 carry no `odds_cadence` at all, and
+    any STOP before step 1b writes it as null. A reader that assumed the block
+    was a dict would crash on the committed flight log rather than on a
+    fixture."""
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")
+    with pytest.raises(livecycle.OddsSnapshotFailed):        # STOP before 1b
+        _cycle(tmp_path, ledger=MW1_SCORES,
+               now=pd.Timestamp("2026-08-25T05:00:00Z"))
+    first = json.loads((tmp_path / "journal.jsonl").read_text().splitlines()[0])
+    assert first["odds_cadence"] is None
+
+    _cycle(tmp_path, ledger=MW1_SCORES,
+           now=pd.Timestamp("2026-08-26T18:20:31Z"),
+           acknowledge_missed_slot="the Tuesday went unrun; ruled by the owner")
+    later = _cycle(tmp_path, ledger=MW1_SCORES,
+                   now=pd.Timestamp("2026-08-26T18:20:31Z"))
+    assert later["odds_cadence"]["unacknowledged_slots"] == []
+    assert [r["slot"] for r in later["odds_cadence"]["acknowledged_earlier"]] \
+        == ["2026-08-25T06:00:00+00:00"]
+
+
+def test_a_pre_a18_line_rules_on_nothing(tmp_path):
+    """History is not retro-applied. The lines already on the committed flight
+    log carry a per-RUN reason and no slot instants, so they acknowledge
+    nothing and every hole they carried past is still a hole that refuses."""
+    journal = tmp_path / "journal.jsonl"
+    _seed_slot(tmp_path, "2026-08-21T06:05:00Z")
+    livecycle.append_journal(journal, {
+        "at": "2026-08-26T09:00:00+00:00", "outcome": "no-op",
+        "odds_cadence": {
+            "latest_scheduled_slot": "2026-08-25T06:00:00+00:00",
+            "missed_latest_slot": True, "missed_slots": [],
+            "archive_started": True, "n_observations": 1,
+            "acknowledged": "the A17-era flag, filed on that run only"}})
+    with pytest.raises(livecycle.OddsSlotMissed,
+                       match="2026-08-25T06:00:00"):
+        _cycle(tmp_path, ledger=MW1_SCORES, journal=journal,
+               now=pd.Timestamp("2026-08-26T18:20:31Z"))
 
 
 # --- the slot that is ALREADY satisfied -----------------------------------

@@ -6488,3 +6488,324 @@ this entry does make a NEW class of it reachable, the same-score/different-day
 correction, which is precisely the variant in which the resurrected row is
 indistinguishable from the row correcting it except by the day at issue — and it
 needs its own ruling.
+
+---
+
+## A18 — a hole is ruled on once: the acknowledgment the flight log wrote and nobody read (2026-09-03)
+
+**Decision amended:** none. Nothing preregistered moves. This is the owner's
+ruling on the question A17 left open under its own heading *"Consequence left
+for an owner ruling"*, and it changes exactly one thing about the cadence gate:
+whether a hole an operator has already ruled on STOPs the cycle again on the
+next run. What the gate SEES and what it RECORDS are untouched.
+
+**On this file's order, so a reader is not confused.** The entries sit in
+landing order, and A17 landed before A16, so the sequence here reads A15, A17,
+A16, A18 — this entry amends A17 and follows A16.
+
+**Status when written:** implemented test-first in an isolated worktree from
+`d3f8cc1` (which carries A15, A16 and A17); every path:line below is anchored
+there. The entry is written from the tested diff, not from a description of one:
+nine coupled tests, and the rehearsal of the live cadence quoted below was
+executed, not reasoned about.
+
+### The observation
+
+A17 taught the cycle to see every hole in the odds archive and to refuse on all
+of them. It left the way past a hole exactly as A14 built it — a flag on the
+command line of THAT run — and said so:
+
+```
+epl/livecycle.py:1486        "acknowledged": acknowledge_missed_slot,
+epl/livecycle.py:1488    if holes and began and not acknowledge_missed_slot:
+```
+
+`acknowledge_missed_slot` is a parameter of the run in progress. Line 1486
+writes it to the flight log, and **nothing ever reads it back**; line 1488 asks
+only what was typed on the command line that started this process. The other
+half of the arithmetic is that a hole is permanent by construction: `missed_slots`
+is computed from receipts (`epl/oddscapture.py:664`), a receipt can only come
+from a capture, and the capture that belonged in a passed slot can no longer be
+taken. A hole never closes and a ruling never carries, so the product of the two
+is a STOP on every run until the season ends:
+
+```
+Fri 2026-09-04 06:00Z   the slot passes; the capture host is down
+Mon 2026-09-07 09:00Z   STOP — the operator files the reason, re-runs, ingests
+Tue 2026-09-08 07:00Z   STOP — the same hole, the same reason, again
+Wed 2026-09-09 09:00Z   STOP — again
+   … every run to the end of the season
+```
+
+The cost lands hardest exactly where the operator is least at fault. A14's
+appended note records the real instance: on 2026-09-01 the Tuesday capture was
+taken at 06:39:33Z and `fixtures.csv` then rotated into its international-break
+state with zero `Div=E0` rows, which `oddscapture.capture` correctly refuses. A
+slot that opens INTO that state is a slot step 1 legitimately cannot take — no
+operator error, no missed alarm, nothing to have done differently — and under
+A17 it bought a flag on every subsequent run for nine months.
+
+That is not a false report. Everything A17 writes stays true, and the hole is
+real. What was wrong is the *unit* the acknowledgment was denominated in: the
+operator rules on a SLOT, and the mechanism only knew how to be told about a
+RUN. A control that must be re-exercised on every run to keep a true state true
+is a control that gets scripted into the command line and stops being a
+decision — which is the failure mode a refusal exists to prevent, arriving by
+the back door.
+
+### The ruling (2026-09-03, the owner)
+
+**Option B: a one-time JOURNALED acknowledgment, per slot.** Acknowledge a hole
+once, with a reason, and it stays acknowledged.
+
+**The ruling is a line of the flight log, and nothing else is.** It is written
+by `append_journal` (`epl/livecycle.py:811`) like every other line — appended,
+never edited, never rewritten — and it carries three things: the operator's
+reason verbatim in `odds_cadence.acknowledged`, exactly as A14 already filed it;
+the exact slot instants it covers in the new `odds_cadence.acknowledged_slots`;
+and the run's own `at`. `_acknowledged_slots` reads those lines back, and a line
+rules only if it carries **all** of a reason, a slot list and a `chain`. There
+is no acknowledgment file, no state directory and no field anywhere outside the
+log.
+
+**It silences THAT slot and nothing else.** Step 1b now partitions the holes it
+already computed: `acknowledged_earlier` (a prior line ruled on it),
+`acknowledged_slots` (this line rules on it), and `unacknowledged_slots` —
+which is what `OddsSlotMissed` reads. A different hole is in the third list and
+still STOPs, and the refusal names only the slots nobody has ruled on, with a
+count of the ones already filed.
+
+**An acknowledged hole is still a hole.** `capture_status` is not touched at
+all: `epl/oddscapture.py` gains nothing, knows nothing about the flight log, and
+`missed_slots` / `n_missed_slots` keep naming every hole the archive carries,
+acknowledged or not — in `--status`, in the `odds_cadence` block on every
+journal line, and on the screen. The archive answers *was that Tuesday taken?*;
+the log answers *did anyone rule on it?*; neither learns the other's question.
+What the ruling changes is only whether the cycle STOPs.
+
+**An acknowledgment that names no hole is refused.** `OddsSlotNotMissed` fires
+when the flag is passed on a run whose cadence is whole. A ruling is filed
+against the slots a run names as missed and silences them for every later run,
+so one filed over a whole cadence would name none — a reason on the log
+authorising no slot in particular, which is a standing override for a hole that
+has not happened yet. That is the new-override-surface family arriving through
+the front door, so it is refused rather than recorded: the ruling has to follow
+the hole, never precede it.
+
+**No new surface.** No flag is added and none is removed; no environment
+variable, no keyword argument and no configuration can silence a slot. The
+operator's surface is the flag A14 built, spelled exactly as it was, and its
+only route to effect is a line on the journal. `run_cycle` keeps its signature;
+the private `_run` gains one keyword, `journal`, because step 1b now reads the
+log as well as the caller writing it.
+
+### Why it cannot be forged by a later run
+
+The journal is hash-chained: every line commits to the previous line's exact
+bytes. `run_cycle` verifies the whole chain before anything runs
+(`epl/livecycle.py:1321`) and outside its `try`, so that refusal cannot be
+journalled over; `append_journal` verifies it again before every append. An
+acknowledgment inserted, edited or reordered after the fact therefore breaks
+every link after it, and the next cycle refuses with `JournalTampered` instead
+of reading it. `_acknowledged_slots` additionally requires the ruling line to
+carry `chain` at all, so the pre-chain head of the file — tolerated as the
+migration seam, `epl/livecycle.py:774` — cannot double as a place to write one.
+And because a ruling only takes effect on a LATER run, the run that honours it
+appends over it and commits to its bytes; from then on it is a line the chain
+covers.
+
+**Two bounds, stated rather than papered over.** First, the tip: the newest
+line has nothing after it to vouch for it, exactly as `verify_journal_chain`
+already says, and its anchor is that the journal is committed. A18 does not
+narrow the chain, but it does widen what a tip forgery would buy — before, a
+forged tip could misdescribe a run that had already happened; now it could also
+carry a ruling into the next one, until that next run chains over it. Second,
+`--journal` names the log, and an operator who can point the cycle at a
+different log can already write anything into the record; A18 adds a way for
+that record to change control flow. Both are properties of the flight log, not
+of the acknowledgment, and both are the reason the log is tracked and committed.
+
+### The rationale
+
+**Why the record is the flight log and not a new file.** The log is the artifact
+a future reader consults to answer *was that Tuesday taken, and if not, who said
+to carry on?* — A17's own words. A ruling filed anywhere else would be a second
+record of the same event, and the two would eventually disagree. It is also
+already append-only, already chained, already verified twice per run and already
+committed; a new file would have to earn each of those separately.
+
+**Why the flag names slots implicitly rather than gaining a `SLOT=WHY` syntax.**
+The slots are not the operator's to choose: they are exactly the holes the run
+computed and printed, and a flag that let the operator type an instant would let
+them type one the archive does not agree is missing. The journal line records
+the instants explicitly, which is what a later reader and a later run need; the
+command line stays the sentence A14 wrote.
+
+**Why the first filing wins.** A ruling is a decision made at a time, and the
+record reports the one that was made. A later run that files the same slot again
+writes its own line — nothing is overwritten — and the reason reported for that
+slot stays the reason that ruled it.
+
+**Why a dry run's ruling counts.** A17 refuses a dry run on an earlier hole
+exactly as it refuses a real one, so a dry run needs the flag to get past a
+hole. If its acknowledgment did not stick, the operator would file the same
+ruling twice — once to rehearse, once to run — which is the per-run cost this
+entry exists to remove. `--dry-run` bounds what the cycle WRITES to the season,
+not what the operator DECIDED, and the line records `dry_run: true` beside the
+ruling so a reader sees which run filed it.
+
+**Why history is not retro-applied.** The lines already on the committed log
+carry a reason and no slot instants, because there were none to carry. They rule
+on nothing, and a hole an A17-era flag carried past is still a hole that refuses
+until someone rules on it under this mechanism. Measured, not assumed: the
+committed log at `d3f8cc1` verifies at 11 lines and `_acknowledged_slots`
+returns `{}` over it.
+
+**What this does not change.** It moves no forecast, no score and no published
+number; the odds archive remains wired into no model. `epl/oddscapture.py` is
+not opened: `_scheduled_slots`, `_cadence_start`, `missed_latest_slot`,
+`missed_slots` and `n_missed_slots` are byte-identical and mean what A17 said
+they mean. A14's pre-06:00 refusal, its dry-run bound (today's planned capture
+is still removed from the set before any of this) and its virgin-archive bound
+are untouched, as is the appended note's `_slot_already_observed`
+(`epl/livecycle.py:1349`), which reads the same two fields it read before and is
+not shown the log. The refusal still reads the list the line records rather than
+computing something of its own. No flag erases a gap; there is still no way to
+make a hole stop being a hole. The freshness preregistration's §4.5 cadence
+switch is unaffected for the reason A14 gave and A17 repeated. The Fri
+2026-09-04 06:00 UTC slot and the Mon 2026-09-07 ingest behave as they did:
+rehearsed below, a genuinely unacknowledged Friday still STOPs that Monday.
+
+### What an operator now does when a slot is genuinely missed
+
+1. The next cycle STOPs with `OddsSlotMissed`, naming every slot nobody has
+   ruled on, oldest first, with its day.
+2. Re-run that same command with `--acknowledge-missed-slot 'why'`. The reason
+   is filed verbatim on that run's journal line, against exactly those slots.
+   The run then continues; the flag has not skipped a step, only recorded a
+   decision.
+3. **That is all.** Every later run reads the ruling back and does not ask
+   again. The hole is still printed as a hole and still recorded as one — the
+   cadence line now reads `MISSED 1 slot(s): <slot> — acknowledged <when> for
+   <slot>: <why>` — so nothing has been forgiven, only decided.
+4. A slot missed LATER is a new hole and STOPs again; rule on it the same way.
+   A ruling covers the slots that were missing when it was filed, and no others.
+5. Do not pass the flag on a clean run "to be safe": it is refused
+   (`OddsSlotNotMissed`), because a ruling filed in advance would authorise a
+   hole nobody has seen yet.
+
+### What is pre-stated
+
+Nothing numerical. Three keys on the `odds_cadence` journal block, one new typed
+refusal, one private helper in `epl/livecycle.py`, one keyword on the private
+`_run`, one re-worded printed cadence suffix, and a refusal that reads the
+unruled subset of the set A17 built. `epl/oddscapture.py` gains nothing.
+
+### What landed
+
+`epl/livecycle.py` gains `OddsSlotNotMissed`, `_acknowledged_slots` (beside
+`append_journal`, where the chain it depends on is documented), the three
+`odds_cadence` fields `acknowledged_slots` / `acknowledged_earlier` /
+`unacknowledged_slots`, the partitioned refusal, the `journal` keyword on `_run`,
+and the `render_summary` suffix that names an earlier ruling instead of printing
+a bare gap. Three docstrings are re-scoped, recorded here with the edit as A17
+recorded its two: the module header's A17 paragraph, whose last clause said
+*"nothing here remembers a ruling from one run to the next"*
+(`epl/livecycle.py:58`) and which now carries the A18 paragraph instead;
+`OddsSlotMissed`'s own docstring (`epl/livecycle.py:227`), which said the
+refusal fires on the whole unobserved set; and `--acknowledge-missed-slot`'s
+help text (`epl/livecycle.py:2026`), which described a per-run filing. The
+commit changes three files and nothing else: `epl/livecycle.py`,
+`epl/tests/test_livecycle.py` and this document. No frozen file was touched,
+and nothing under `src/` or `scripts/` — which are the two paths the lock chain
+governs and the whole of them (`src/wcmodel/eval/lock.py:77`,
+`CODE_PATHS = ("src", "scripts")`) — so the lock chain is untouched by
+construction rather than by inspection.
+
+The coupled tests sit under a banner carrying the literal `A18` in
+`epl/tests/test_livecycle.py` — the only test file this entry opens, because
+`epl/oddscapture.py` is not changed — and the literal appears again in the
+docstring of the test that states the defect,
+`test_a_slot_acknowledged_once_does_not_stop_the_next_run`. Nine new tests:
+
+- `test_a_slot_acknowledged_once_does_not_stop_the_next_run` — the defect: a
+  ruling filed on the Wednesday, and the next run carrying no flag at all runs
+  clean, with the earlier ruling and its reason named on its own line.
+- `test_a_different_missed_slot_still_stops_the_run` — the bound that makes it
+  a per-slot ruling and not an off switch: the acknowledged Tuesday and an
+  unruled Friday on one archive, and the STOP names the Friday only.
+- `test_an_acknowledged_hole_is_still_a_hole_in_every_report` — the hole is
+  still in `missed_slots` on the result and on the journal line, still in
+  `capture_status` asked directly of the archive, and still on the screen.
+- `test_an_acknowledgment_that_names_no_hole_is_refused` — `OddsSlotNotMissed`
+  over a whole cadence, with the block still written on the STOP line and
+  filing nothing.
+- `test_the_journal_record_carries_the_slot_instant_and_the_reason` — the
+  record: the exact instant, the reason verbatim (quotes and an em dash in it),
+  the run's `at`, and the next run's line committing to its bytes.
+- `test_a_line_the_chain_does_not_cover_cannot_rule` — a hand-written
+  acknowledgment at the migration seam, tolerated by `verify_journal_chain` and
+  refused by the reader.
+- `test_a_pre_a18_line_rules_on_nothing` — history is not retro-applied.
+- `test_a_dry_runs_ruling_is_a_ruling` — a dry run refuses on an earlier hole,
+  so it needs the flag; its ruling sticks, and the line carries `dry_run: true`
+  beside it.
+- `test_a_line_with_no_cadence_block_is_read_past_not_tripped_over` — a STOP
+  before step 1b writes `odds_cadence: null`, and the pre-A14 lines on the
+  committed log carry no such key at all.
+
+Six of the first seven were measured red as a set before the change — three on
+`KeyError` for the absent keys, one on `AttributeError: module 'epl.livecycle'
+has no attribute 'OddsSlotNotMissed'`, one on `OddsSlotMissed` raised by the run
+AFTER the ruling was filed (the defect itself), one on the refusal naming an
+already-ruled slot — together with the widened key set, which is red on the
+three names it gains. The seventh of that set,
+`test_a_pre_a18_line_rules_on_nothing`, is a bound and is green on both sides on
+purpose. The last two were written after green and their red is stated exactly:
+`test_a_dry_runs_ruling_is_a_ruling` asserts `acknowledged_slots`, a name that
+occurs nowhere in `epl/livecycle.py` at `d3f8cc1` (`grep -c` over
+`git show d3f8cc1:epl/livecycle.py` for the three new keys and the new refusal
+returns 0), so it can only `KeyError` there; and
+`test_a_line_with_no_cadence_block_is_read_past_not_tripped_over` was added when
+`coverage report -m` showed the reader's `isinstance(cadence, dict)` guard
+executed by no test — the guard that keeps it from crashing on the committed
+log, whose oldest lines predate `odds_cadence` entirely. With that guard removed
+it is the only red in the file (`AttributeError: 'NoneType' object has no
+attribute 'get'`), measured, which is the coverage hole restated.
+`test_the_cadence_block_is_on_every_line_whichever_way_it_falls` widens its
+pinned key set by three, as A17 widened it by one.
+
+Suites run for this entry: `epl/tests/test_livecycle.py` **122 passed, 1
+skipped**, and with the nine deselected **113 passed, 1 skipped** — every test
+that existed before passes unchanged; `epl/tests/test_oddscapture.py` **51
+passed, 1 skipped**, unchanged in both bytes and count. The four other suites
+that import `epl.livecycle` and can run without `data/` —
+`test_availability.py`, `test_availarm.py`, `test_e1ingest.py`, `test_recal.py`,
+`test_season.py` — are **297 passed, 17 skipped** together.
+`epl/tests/test_simcli.py` imports `epl.livecycle` too and cannot run in a
+worktree at all (it needs `data/`); it is the file to watch when the full suite
+runs in the main tree at landing.
+
+**The live cadence, rehearsed.** From the archive's recorded shape (A14's
+appended note: one observation, 2026-09-01T06:39:33Z), with the Fri 2026-09-04
+slot never taken, driven through `run_cycle`:
+
+```
+Mon 2026-09-07, cold               STOP  OddsSlotMissed: Friday 2026-09-04T06:00:00+00:00
+                                   line  missed=[09-04] unack=[09-04] files=[]
+Mon 2026-09-07, with the ruling    ran   missed=[09-04] unack=[]      files=[09-04]
+Tue 2026-09-08 07:00, cold         ran   missed=[09-04] unack=[]      files=[]
+Wed 2026-09-09, cold               ran   missed=[09-04] unack=[]      files=[]
+Fri 2026-09-11 06:30, cold         ran   missed=[09-04] unack=[]      files=[]
+```
+
+and on the same archive with the Tue 2026-09-08 slot ALSO never taken:
+
+```
+Fri 2026-09-11 07:00, cold         STOP  OddsSlotMissed: Tuesday 2026-09-08T06:00:00+00:00
+                                   line  missed=[09-04, 09-08] unack=[09-08] files=[]
+```
+
+The Monday ingest still refuses on a genuinely unacknowledged hole; the ruling
+costs one flag, once; the hole is named on every line either way; and the next
+hole still stops the cycle.
