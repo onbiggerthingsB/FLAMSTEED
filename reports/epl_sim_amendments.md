@@ -6614,16 +6614,39 @@ And because a ruling only takes effect on a LATER run, the run that honours it
 appends over it and commits to its bytes; from then on it is a line the chain
 covers.
 
-**Two bounds, stated rather than papered over.** First, the tip: the newest
-line has nothing after it to vouch for it, exactly as `verify_journal_chain`
-already says, and its anchor is that the journal is committed. A18 does not
-narrow the chain, but it does widen what a tip forgery would buy — before, a
-forged tip could misdescribe a run that had already happened; now it could also
-carry a ruling into the next one, until that next run chains over it. Second,
-`--journal` names the log, and an operator who can point the cycle at a
-different log can already write anything into the record; A18 adds a way for
-that record to change control flow. Both are properties of the flight log, not
-of the acknowledgment, and both are the reason the log is tracked and committed.
+**Three bounds, stated in the direction that does not flatter.** First, the
+tip: the newest line has nothing after it to vouch for it, exactly as
+`verify_journal_chain` already says, and its anchor is that the journal is
+committed after every cycle. A18 does not narrow the chain; what it widens is
+what a tip forgery buys. Before, a forged tip could misdescribe a run that had
+already happened. Now a ruling edited onto the tip verifies clean and silences
+that slot on the very next run — and it does NOT lapse when that run chains over
+it, which is the direction this had to be measured in rather than assumed: that
+run appends a line committing to the forged bytes, so from then on the chain
+VOUCHES for the forgery, and editing it back out is refused as
+`JournalTampered`. It hardens rather than expiring. A forged ruling is also
+structurally indistinguishable from a filed one — the same keys, and the flag is
+recorded nowhere but inside `odds_cadence` — so re-verifying the chain is
+precisely the check a hardened forgery passes. What still distinguishes it is
+the committed copy, and only for a line that was already committed when it was
+edited: `git log -p -- reports/epl_livecycle_journal.jsonl` shows a ruling that
+appeared on a line git had already recorded without one. That is the check an
+operator or an auditor has to make, and it is a DIFF, not a re-verification. A
+tip forged before its line was ever committed leaves no trace in either place,
+which is what "the anchor is that the journal is committed" costs when the
+commit is late. Second, the chain governs HISTORY and not APPENDS. An
+acknowledgment inserted, edited or reordered mid-file breaks every link after
+it, and a replayed copy of an older line is refused — both measured — but a
+well-formed, correctly chained line APPENDED by any hand is accepted, and A18 is
+what makes such a line change control flow: measured, a hand-appended line
+naming a Friday slot BEFORE that Friday arrived silenced it once it became a
+hole. `OddsSlotNotMissed` binds the flag, not the file; the chain governs
+history, git governs the tip, and neither governs an append. Third, `--journal`
+names the log, and an operator who can point the cycle at a different log can
+already write anything into the record; A18 adds a way for that record to change
+control flow. All three are properties of the flight log rather than of the
+acknowledgment, and all three are the reason it is tracked and committed — which
+buys nothing unless somebody reads the diff.
 
 ### The rationale
 
@@ -6690,9 +6713,17 @@ rehearsed below, a genuinely unacknowledged Friday still STOPs that Monday.
    <slot>: <why>` — so nothing has been forgiven, only decided.
 4. A slot missed LATER is a new hole and STOPs again; rule on it the same way.
    A ruling covers the slots that were missing when it was filed, and no others.
-5. Do not pass the flag on a clean run "to be safe": it is refused
-   (`OddsSlotNotMissed`), because a ruling filed in advance would authorise a
-   hole nobody has seen yet.
+5. Do not leave the flag on the command line once it has done its work. On an
+   archive with no hole at all it is refused (`OddsSlotNotMissed`), because a
+   ruling filed in advance would authorise a hole nobody has seen yet — but
+   that guard reads the archive's HOLES and not the unruled ones
+   (`epl/livecycle.py:1598`, `if acknowledge_missed_slot and not holes`), and a
+   hole never closes. So once ANY hole is on file, acknowledged or not, the flag
+   is accepted on every later run and quietly re-files a ruling over every open
+   hole under whatever reason is typed — measured. The refusal will not fire a
+   second time to protect you: a flag left in a script or in shell history will
+   rule on the NEXT genuine hole with a stale reason and print no STOP. The
+   mechanism costs one flag once; type it once, and take it back out.
 
 ### What is pre-stated
 
@@ -6809,3 +6840,70 @@ Fri 2026-09-11 07:00, cold         STOP  OddsSlotMissed: Tuesday 2026-09-08T06:0
 The Monday ingest still refuses on a genuinely unacknowledged hole; the ruling
 costs one flag, once; the hole is named on every line either way; and the next
 hole still stops the cycle.
+
+### A18 — corrected after an independent review (2026-09-03)
+
+An independent reviewer took `f8856ba` apart in its own worktree, could not
+refute the code, and found one BLOCKING defect in this entry's own honesty plus
+three cosmetics. The corrections are made here, in a second commit; `f8856ba`
+keeps the wording it was written with, and this note says what changed, so
+nothing is silently rewritten.
+
+**The tip bound was stated in the direction that flatters the change.** The
+paragraph above read "now it could also carry a ruling into the next one,
+**until that next run chains over it**", whose natural reading is that the
+exposure closes. It does the opposite, and the reviewer measured it; the
+measurement was reproduced independently before this correction was written, on
+scratch journals in a worktree — a ruling edited onto the tip verifies clean
+(`verify_journal_chain` returns without refusing), silences the slot on the very
+next run (`unacknowledged_slots == []`, the forged reason reported as
+`acknowledged_earlier`), and once that run appends its own line the forged line
+is INSIDE the chain: the forgery does not lapse, it hardens, and an attempt to
+edit it back out is then refused as `JournalTampered` — the chain ends up
+defending it. The same probe measured the append vector the paragraph
+under-stated: a mid-file edit and a replayed line are both caught, but a
+hand-appended, correctly chained line is accepted and can name a slot that has
+NOT passed — one naming a Friday before that Friday arrived silenced it when it
+became a hole. The paragraph now states all of that, names the diff against the
+committed copy as the check that actually distinguishes a forged ruling from a
+filed one, and says what that check cannot see.
+
+**The operator's step 5 overstated `OddsSlotNotMissed`.** The guard is
+`if acknowledge_missed_slot and not holes` (`epl/livecycle.py:1598`): it reads
+the archive's holes, not the unruled ones, and a hole never closes. So it
+refuses only on an archive that has never missed a slot; once any hole is on
+file the flag is accepted on every later run and re-files a ruling over every
+open hole under whatever reason is typed. Measured, and step 5 now says so.
+Nothing is forgeable by it — a run can still only file slots that have passed —
+but the operator who keeps the flag in shell history will rule on the next
+genuine hole with a stale reason and see no STOP, which is the "scripted into
+the command line and stops being a decision" failure this entry itself names.
+No code changed: the guard is the one that landed, and the record now describes
+it rather than a better one.
+
+**The bare "(e)" is gone from the code and the test.** `epl/livecycle.py`'s
+`OddsSlotNotMissed` docstring and `test_an_acknowledgment_that_names_no_hole_is_refused`
+both cited "defect family (e)". Checked before rewriting: the lettered families
+used in A16, A17 and A18 are defined in NO committed file of this repository —
+`reports/epl_widening_result.md` names a defect family in words and carries no
+letters at all — while every lettered reference that does resolve here (`A7 (e)`,
+`A8 (e)`, `A12 (e)`) means something else, so a reader following the letter lands
+on the wrong ruling. Both now name the family in the words this entry already
+used, "the new-override-surface family", which resolves against this document.
+
+**The red accounting, stated where a reader will find it.** `f8856ba`'s message
+says "Nine coupled tests … seven of them measured red before the change", which
+conflates a coupled test with a widened one and understates the count; a commit
+message cannot be amended once it is cited, so the true accounting is here.
+Eight of the nine new tests are red at `d3f8cc1`; the ninth,
+`test_a_pre_a18_line_rules_on_nothing`, is a bound and is green on both sides on
+purpose. The RED step recorded during the work selected eight tests and reported
+`7 failed, 1 passed`: six of the nine new ones, plus the pre-existing
+`test_the_cadence_block_is_on_every_line_whichever_way_it_falls`, red on the
+three key names it gains — that seventh red is the widened test, not a ninth
+coupled one. The two written after green (`test_a_dry_runs_ruling_is_a_ruling`,
+`test_a_line_with_no_cadence_block_is_read_past_not_tripped_over`) are red at
+`d3f8cc1` as well, which the entry states by construction above and which the
+reviewer and this correction both measured directly: the nine plus the widened
+test, run against `d3f8cc1`'s `epl/livecycle.py`, are **9 failed, 1 passed, 113
+deselected**.

@@ -268,8 +268,11 @@ class OddsSlotNotMissed(LiveCycleError):
     it silences those slots for every later run (A18). Over a whole cadence it
     would name none — a reason on the flight log authorising no slot in
     particular, which is a standing override for a hole that has not happened
-    yet. That is defect family (e) arriving through the front door, so it is
-    refused rather than recorded: the ruling has to follow the hole."""
+    yet. That is the new-override-surface family arriving through the front
+    door — named in words, as A18's entry names it, because a bare "(e)" is
+    defined nowhere in the committed record and every lettered reference that
+    is (`A7 (e)`, `A8 (e)`, `A12 (e)`) means something else. Refused rather
+    than recorded: the ruling has to follow the hole."""
 
 
 class LaunchModeUnsafe(LiveCycleError):

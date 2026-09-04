@@ -1547,8 +1547,9 @@ def test_an_acknowledged_hole_is_still_a_hole_in_every_report(tmp_path):
 def test_an_acknowledgment_that_names_no_hole_is_refused(tmp_path):
     """A ruling is filed against the slots this run names as missed. Over a
     whole cadence it would name none, which is a standing authorisation for a
-    slot that has not been missed yet — defect family (e), through the front
-    door. Refused rather than filed."""
+    slot that has not been missed yet — the new-override-surface family, named
+    in A18's own words rather than by a bare letter, through the front door.
+    Refused rather than filed."""
     _seed_slot(tmp_path, "2026-08-25T06:05:00Z")            # today's slot, taken
     with pytest.raises(livecycle.OddsSlotNotMissed) as info:
         _cycle(tmp_path, ledger=MW1_SCORES,
