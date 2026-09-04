@@ -570,6 +570,56 @@ def test_ingest_openfootball_results_appends_new_rows(season_root: Path):
         text, observed_at="2026-08-23T09:00", source_id="openfootball@x", write=True) == []
 
 
+def test_a_same_score_row_on_a_different_day_is_a_correction_not_a_repeat(
+        season_root: Path):
+    """A16. `have == (hg, ag)` was the whole idempotency test, so a ledger day
+    the source contradicts could never be corrected by the source.
+
+    The row the ingest offers here differs from the one on file in exactly one
+    field — `date_played` — and that field is the one that decides which cutoffs
+    see the result and which day-block the Elo walk prices it in. Treating it as
+    a repeat is the ingest declaring the disagreement does not exist.
+    """
+    ledger = season_root / "2026_27" / "results_ledger.jsonl"
+    fid = "2627:arsenal:coventry"
+    # Filed under an `openfootball` source on purpose: `source_family` refuses a
+    # cross-family overrule (plan v2 D4) BEFORE `allow_revisions` is consulted,
+    # so the branch under test is the same-family one.
+    _append_jsonl(ledger, [_result_row(fid, "2026-08-18", 2, 1, "2026-08-22T09:00",
+                                       source="openfootball@old")])
+    loaded = season_mod.Season.load(SEASON, root=season_root)
+    text = ("▪ Matchday 1\nFri Aug 21 2026\n"
+            "  20:00  Arsenal FC  2-1 (1-0)  Coventry City FC\n")
+
+    # Same score, TRUE day: not a repeat — and not something the ingest takes
+    # on its own authority either.
+    with pytest.raises(season_mod.ResultConflict) as exc:
+        loaded.ingest_openfootball_results(
+            text, observed_at="2026-08-23T09:00", source_id="openfootball@x")
+    assert "2026-08-18" in str(exc.value) and "2026-08-21" in str(exc.value)
+
+    rows = loaded.ingest_openfootball_results(
+        text, observed_at="2026-08-23T09:00", source_id="openfootball@x",
+        allow_revisions=True, write=True)
+    assert len(rows) == 1
+    assert rows[0]["date_played"] == "2026-08-21"
+    assert "supersedes 2-1 played 2026-08-18" in rows[0]["note"]
+
+    # The season's CURRENT reading now carries the corrected day — the reading
+    # `epl.livecycle.cross_check`, this ingest and `epl.liveanchor`'s walk all
+    # consult, and the one that decides which day-block it is priced in.
+    reloaded = season_mod.Season.load(SEASON, root=season_root)
+    assert season_mod.current_ledger_view(reloaded).played_rows[fid][
+        "date_played"] == "2026-08-21"
+    assert reloaded.at("2026-08-22", observed_by="2026-09-01T00:00").played[fid] \
+        == (2, 1)
+
+    # POSITIVE CONTROL: the corrected ledger re-ingests the same text as a no-op.
+    assert reloaded.ingest_openfootball_results(
+        text, observed_at="2026-08-24T09:00", source_id="openfootball@x",
+        allow_revisions=True, write=True) == []
+
+
 def test_orientation_suspect_fails_closed(season_root: Path):
     loaded = season_mod.Season.load(SEASON, root=season_root)
     fid = "2627:arsenal:coventry"

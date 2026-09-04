@@ -603,6 +603,11 @@ def cross_check(season_obj: season_mod.Season,
         if row is not None:
             have = (season_mod.goal_count(row.get("hg"), f"{fid} hg"),
                     season_mod.goal_count(row.get("ag"), f"{fid} ag"))
+            # A16: the ledger row asserts a DAY as well as a score, and the
+            # sources are the authority for WHEN a match was played exactly as
+            # they are for how it finished. Comparing the score alone made
+            # "already resolved" a claim this loop had not checked.
+            have_day = season_mod.played_day(row, fid)
             for source in covering:
                 if source.score != have:
                     raise LedgerConflict(
@@ -612,6 +617,17 @@ def cross_check(season_obj: season_mod.Season,
                         "ledger row, and which one it is a human decides. The "
                         "remedy is a deliberate correction row, never a cycle "
                         "that overwrote the record on its own.")
+                if source.date != have_day:
+                    raise LedgerConflict(
+                        f"{fid}: the season ledger plays it on {have_day} and "
+                        f"{source.source} says {source.date}, both of them "
+                        f"{have[0]}-{have[1]}. STOP: `date_played` is what puts "
+                        "a result on one side of a cutoff, so a row that agrees "
+                        "about the score and disagrees about the day is a ledger "
+                        "the sources contradict, not a fixture already settled. "
+                        "Same remedy as a score conflict: a deliberate "
+                        "correction row, filed with `simcli ingest-results "
+                        '--manual` and "correction": true.')
             already.append(fid)
             continue
 

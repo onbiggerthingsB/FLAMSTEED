@@ -6195,3 +6195,267 @@ restated — and green with them restored. `epl/tests/test_oddscapture.py` is
 No file under `src/`, `scripts/`, `site/`, `tools/`, `config/` or `.github/`
 was touched, and no frozen file was touched; the lock chain is verified after
 the commit.
+
+---
+
+## A16 — the ledger's own day was the one thing nothing checked (2026-09-03)
+
+**Numbering, so a reader is not confused by the order.** This entry is A16 and
+it sits after A17 in the file: the numbers were assigned by claim order when the
+2026-09-02 full-system review was triaged, and A17 landed first. Nothing here
+depends on A17 and nothing in A17 depends on this.
+
+**Decision amended:** none. Nothing preregistered moves, no published number
+changes, no schema version moves. What changes is one line of mechanism in three
+places: **what counts as a result row the ledger already carries.** This is A13's
+entry read backwards. There the conflict rule treated *provenance* as substance
+and refused a row it had already filed; here three idempotency tests treated
+*substance* as if it were not there and accepted a ledger the sources contradict.
+
+**Explicitly NOT amended, and pinned here so a later commit can be held to it:**
+`ISSUANCE_SCHEMA_VERSION` stays **`epl-issuance-5`**; the matchboard's
+`epl-matchboard-1`, A8's `epl-recal-shadow-1` and A12's `epl-avail-shadow-1` are
+untouched; A7 (e)'s admissibility rule and A13's `FILING_PROVENANCE_FIELDS`
+projection are untouched; A14, its appended note and A17 are untouched — every
+refusal the cycle already had fires on exactly the input it fired on before, and
+`missed_latest_slot`, `missed_slots` and `_slot_already_observed` are not
+opened; A15's supersede is not opened; A8's frozen `a = 0.9064` and A12's
+`k_avail` prior are untouched; `dc_native`'s published numbers never change; the
+retrospective harness is untouched. `epl/evwiden.py`, `epl/shots.py`,
+`epl/shots_harness.py`, `epl/tests/test_shots.py` and `epl/tests/test_evwiden.py`
+are frozen and were not opened. No file under `src/`, `scripts/`, `site/`,
+`tools/`, `config/` or `.github/` was touched.
+
+**Status when written.** `epl/season/2026_27/results_ledger.jsonl` holds its
+twenty rows — ten hand-filed for MW1 at `2026-08-25T12:55:44`, ten from
+`openfootball@10d40e1e…` at `2026-09-01T14:29:27` — no status rows, and every one
+of the twenty carries a `date_played` equal to that fixture's known kickoff day
+(audited read-only: 20 played rows, 0 mismatches). The defect below is therefore
+**real and dormant**: the corrected `cross_check`, run over the live ledger with
+both sources synthesised to carry exactly what it holds, returns
+`already_resolved n = 20` and raises nothing. The refusal this entry adds would
+have fired **zero** times on the ledger as it stands.
+
+### The observation
+
+Line numbers in this section are the tree at `ead8163`, before the change.
+
+`epl/livecycle.py` STOPs when its two sources disagree about `date`, and says why
+(`epl/livecycle.py:595-600`): *"`date_played` is what puts a result on one side
+of a cutoff, so a cycle that picked a date would be picking which forecasts the
+result scores against."* Two lines later, the same function compared the sources
+to the **ledger** on the score alone — `epl/livecycle.py:602-616`, where
+`have = (goal_count(row["hg"]), goal_count(row["ag"]))` is the whole of what a
+covering source is measured against — appended the fixture to `already_resolved`,
+and moved on. The two write doors carried the identical test:
+`ingest_openfootball_results` had `if have == (hg, ag): continue  # idempotent`
+(`epl/season.py:1230-1231`), and `simcli._manual_rows` — the hand overlay, which
+is the *documented remedy* for a bad ledger row — had the same line
+(`epl/simcli.py:2867-2868`), placed **before** its `"correction": true` branch at
+`epl/simcli.py:2869`.
+
+So a ledger row whose score is right and whose day is wrong was unreachable by
+every door the system offers:
+
+| path | before | after |
+|---|---|---|
+| daily cycle cross-check | `already_resolved`, no complaint | `LedgerConflict`, named and stopped |
+| source ingest, `allow_revisions=True` | `continue` — 0 rows | a correction row is offered |
+| hand overlay with `"correction": true` | `continue` — 0 rows, `[ingest] 0 manual row(s) written` | the correction is written |
+
+The last cell is the one that decided this entry. An operator who spotted the
+wrong day, filed a deliberate correction and read `0 manual row(s) written` had
+no way to distinguish that from a ledger that was already right. The only door
+that worked was an undocumented two-step — a `postponed` status row, then the
+result re-filed with the corrected day — which writes into an append-only tracked
+ledger a withdrawal the league never made, and leaves every snapshot taken
+between the two rows reading the fixture as postponed.
+
+Meanwhile the wrong day is not cosmetic. `resolve_ledger` gates a result on
+`played_on >= day` (`epl/season.py:956`), so the row sits on the wrong side of
+every cutoff between the wrong day and the true one, which is what
+`Season.at`, the point-in-time training frame and every rerun read;
+`epl.liveanchor`'s `LiveRow.key` **is** `date_played`
+(`epl/liveanchor.py:136-137`, and `rows_to_frame` uses it for both `date` and
+`valid_as_of` at `:390-391`), so the live Elo walk prices the match in the wrong
+day-block — and when the typo crosses a week boundary, so that the mis-dated
+result moves past another match of one of its own two clubs, that moves the
+pre-ratings of those matches too. Nothing downstream could have caught it:
+`_check_orientation` returns immediately for any row within
+`ORIENTATION_FAR_DAYS = 45` of its own kickoff (`epl/season.py:108`, `:1003`),
+and the matchboard takes its `date` from `state.kickoffs_known`
+(`epl/matchboard.py:186`, `:193`), never from the ledger row.
+
+And every morning the flight log printed *"N fixture(s) both sources carry are
+already resolved and **agreeing**"* (`epl/livecycle.py:1918-1921`) — a word
+nothing in the code had earned, because only the score had been compared.
+
+Defect family **(b)**, an idempotency rule comparing the wrong set of fields.
+
+### The ruling (2026-09-03)
+
+**`date_played` is substance. A comparison that omits it is not an idempotency
+test.** All three tests now compare the DAY as well as the score:
+
+* `epl.livecycle.cross_check` raises `LedgerConflict` when any covering source's
+  date disagrees with the ledger row's, with its own message: the sources are the
+  authority for *when* a match was played exactly as they are for *how* it
+  finished, and the remedy is the same deliberate correction row a score conflict
+  already demands, named in the message with the command that files it. It is a
+  typed refusal of a class `epl.livecycle.REFUSALS` already carries, so it
+  surfaces as a STOP with a flight-log line and exit 2, never as a traceback, and
+  it fires before anything is written.
+* `epl.season.ingest_openfootball_results` is idempotent only when the score AND
+  the day agree. A same-score, different-day row is a correction and takes the
+  path corrections take — refused without `allow_revisions`, refused across
+  source families by plan v2 D4, refused by `_refuse_a_stale_revision` if it
+  cannot win the resolution, and otherwise appended with a `supersedes` note that
+  now names both halves of what it supersedes.
+* `epl.simcli._manual_rows` does the same, and its `date_played` validation moves
+  **above** the conflict test so that the test can see the day at all.
+
+**Nothing rewrites the ledger.** Every one of the three doors either refuses or
+offers an appended row that a human asked for; no automatic correction was added
+anywhere, and the append-only ledger is still never edited in place.
+
+Two shared helpers carry it, named once in `epl/season.py` and exported, in the
+same spirit as A13's `FILING_PROVENANCE_FIELDS`: `played_day(row, fid)` — the day
+a row asserts, normalised, refusing a missing or unparseable one rather than
+returning a sentinel — and `reading(score, day)`, which renders `2-1 played
+2026-08-21` so that a refusal about the day cannot print only the score.
+
+### The rationale
+
+**Why compared as a DAY and not as the stored string.** The two writers spell it
+differently — the sources hand a bare `YYYY-MM-DD`, the hand overlay stores
+whatever the operator typed — and a comparison that read `2026-08-21` and
+`2026-08-21T00:00:00` as a disagreement would be one more reader and writer
+spelling the same fact two ways, which is the defect family this correction is
+supposed to be closing rather than joining. What is WRITTEN is still the
+operator's own spelling; only the comparison is normalised.
+
+**Why the missing day REFUSES.** `played_day` raises rather than returning a
+sentinel, and `SeasonError` is already in `epl.livecycle.REFUSALS`, so a result
+row the writer cannot place surfaces as a typed STOP with a flight-log line
+instead of a traceback or — worse — a comparison against `None` that quietly
+succeeds. A result row without a day is a row `resolve_ledger` will not score
+either; inventing one in order to compare it would be the comparison placing it.
+
+**The one behaviour this costs, stated plainly rather than discovered later.**
+Hoisting `_manual_rows`' `date_played` validation above the conflict test is the
+only change beyond the comparison itself, and it has a consequence: a hand-filed
+**result row with no `date_played` at all**, whose score happened to match what
+the ledger already held, used to `continue` silently and now refuses with
+`SeasonError: <file>:<line>: <fid> has no date_played`. Before the change that
+row was accepted-and-dropped only by accident — it was refused the moment its
+score differed by so much as a goal — and it is a row the writer could not have
+placed in time if it had been written. It is refused deliberately, it is pinned
+by a test rather than left to be met in the field, and it costs the operator one
+edit to a file they were already hand-writing. **Status rows are unaffected**:
+they return before any of this, so `{fixture_id, status}` still needs no day. The
+validation itself is not new and its message is unchanged — `played_day` calls
+the same `_require_stamp` with the same label — only its position moved.
+
+**Why the refusal is safe to leave on.** It can only convert a silent acceptance
+into a STOP or into a correction row; it removes no refusal and writes nothing the
+old code would have refused. It fires when and only when the ledger and a source
+disagree about the day of a result they agree the score of — which, on the live
+ledger of 2026-09-03, is never.
+
+**What was deliberately not done.** Nothing was added that checks `date_played`
+against the fixture's own kickoff at write time. That hole is real — a hand-filed
+result three days off its kickoff is still accepted without comment, and a year
+slip survives every reader — but it is a different ruling, it has to reason about
+postponed and replayed fixtures, and putting a new entry-time refusal on the
+Monday ingest path for a reason this entry has not established is how a refusal
+gets turned off. It is recorded here as open.
+
+**One line is deliberately left alone.** The flight log still says *"already
+resolved and agreeing"*. Before this entry that word was an overclaim; after it,
+it is true.
+
+### What this does not change
+
+No forecast, no score, no published number and no bundle. It moves nothing A6
+(b) or A7 pre-states, and it does not touch what a bundle contains or what
+`check` reads. A13's substance-not-provenance rule for the three scorecard/shadow
+ledgers is untouched, and this entry does not extend it to them: the field ruled
+on here is `date_played` on the RESULTS ledger and nothing else. A14, A14's
+appended note and A17 are untouched — the odds cadence, its refusals and its
+journal block are not opened, and the Friday 06:00 UTC capture never reads the
+results ledger at all. The ledger is still append-only and still never edited in
+place; no automatic rewrite of a ledger row was added, and the remedy for a bad
+row is still a human filing a marked correction. `Season.at`, `resolve_ledger`
+and `epl.liveanchor`'s walk are unchanged; they read the same rows they read
+before, and the only difference is that a wrong day in one of them can now be
+corrected. The Monday 2026-09-07 MW3 ingest keeps its shape: step 3's
+cross-check and step 4's ingest run exactly as before on a ledger and sources
+that agree, and on the live ledger they do.
+
+### What landed
+
+`epl/season.py` gains `played_day` and `reading`, both exported in `__all__`, and
+compares both halves in `ingest_openfootball_results`. `epl/livecycle.py`
+compares the day in `cross_check` and raises `LedgerConflict` with a message that
+names the two days, the score they agree on, and the command that files the
+correction. `epl/simcli.py` compares the day in `_manual_rows`, with its
+`date_played` validation hoisted above the conflict test. All three refusal
+messages now print `2-1 played 2026-08-21` rather than `2-1`, so the next reader
+of a STOP is told which half moved. Two docstrings are re-scoped with the edit
+and recorded here: `ingest_openfootball_results`' "a **correction**" bullet and
+`_manual_rows`' correction bullet, both of which described a correction as a
+different scoreline and are now true of the day as well.
+
+**The coupled tests**, three of them, all three red before the change and each
+red on its own `pytest.raises` line — `DID NOT RAISE LedgerConflict` and twice
+`DID NOT RAISE ResultConflict`, which is the defect exactly: the ledger and the
+sources disagree about the day and every door called that agreement.
+
+- `test_a_ledger_date_the_sources_contradict_is_a_ledger_conflict`
+  (`epl/tests/test_livecycle.py`) — MW1 hand-filed with one typo
+  (`2627:brighton:aston_villa` dated 2026-08-20, really 2026-08-23), both sources
+  carrying 4-0 on the true day. It pins the two days, the agreed score and the
+  word `date_played` into the message, and that one source is enough to raise it
+  under `--allow-single-source`.
+- `test_a_marked_correction_that_changes_only_the_day_is_written`
+  (`epl/tests/test_livecycle.py`) — the hand overlay end to end: an unmarked
+  day change is still a conflict naming both days, a marked one is written with
+  `supersedes 4-0 played 2026-08-20` in its note, the ledger never claims a
+  `postponed` it did not observe, and `current_ledger_view` afterwards carries
+  the corrected day. Its last leg is the behaviour this entry costs — an undated
+  result row that matches the ledger now refuses.
+- `test_a_same_score_row_on_a_different_day_is_a_correction_not_a_repeat`
+  (`epl/tests/test_season.py`) — the source ingest: refused without
+  `allow_revisions`, appended with it, and the corrected reading visible through
+  `current_ledger_view` and `Season.at`.
+
+Each carries its positive control: agreeing days are still `already_resolved` and
+`ingestable == {}`, an unchanged re-ingest is still a no-op, and a re-filed
+corrected row is a no-op rather than a conflict — idempotency survives, it is
+only its subject that changed. `epl/tests/test_livecycle.py`'s `_ingest_manual`
+gains a `dates=` override so a test can file the typo the way an operator would,
+the same shape `football_data_text(..., dates=...)` already had.
+
+**On where the third door's test lives.** The house convention is that an
+amendment's coupled tests sit in the suite of the module they change. The
+`simcli._manual_rows` door is tested from `epl/tests/test_livecycle.py` instead,
+deliberately: that suite already files hand-entered rounds through
+`simcli.ingest_results` (`_ingest_manual` is how every ledger in it is filled),
+and the hand overlay is the remedy `cross_check`'s new STOP prescribes, so the
+refusal and its cure are pinned side by side. `epl/tests/test_simcli.py` is not
+opened by this entry.
+
+Suites run for this entry: `epl/tests/test_livecycle.py` and
+`epl/tests/test_season.py` together, **155 passed, 2 skipped**; with the three
+new tests deselected, **152 passed, 2 skipped** — every test that existed before
+passes unchanged.
+
+**One thing this entry found and did not fix, recorded so it is not lost.**
+`epl.season.resolve_ledger` drops a result row whose `date_played` is at or after
+the cutoff day *before* it updates the winner (`epl/season.py:956`, inside the
+`status is None` branch), so a superseded row RESURRECTS at any cutoff where the
+row superseding it lies outside the play-clock window: a 2026-08-18 row corrected
+to 2026-08-21 still reads as the winner at a 2026-08-19 snapshot taken with full
+knowledge. That is a defect in the single resolution both the season table and
+the live Elo walk share, it predates this entry and is untouched by it, and it
+needs its own ruling.

@@ -2792,11 +2792,13 @@ def _manual_rows(path: Path, season_obj, observed_at) -> list[dict]:
     * a **status** — `{fixture_id, status: "postponed"|"abandoned"}`, carrying no
       goals, which makes the fixture unplayed from this observation on;
     * a **correction** — a result that disagrees with what the ledger currently
-      says, which must set `"correction": true`. Without the marker a
-      disagreement is still :class:`ResultConflict`, because the overwhelmingly
-      likelier explanation for one is a typo, and the append-only ledger has no
-      undo. The marker is a directive to this reader and is not written to the
-      ledger; the row's note records what it supersedes.
+      says, in its scoreline or in its ``date_played`` or in both (A16: the day
+      is part of what a result row asserts), which must set `"correction":
+      true`. Without the marker a disagreement is still
+      :class:`ResultConflict`, because the overwhelmingly likelier explanation
+      for one is a typo, and the append-only ledger has no undo. The marker is a
+      directive to this reader and is not written to the ledger; the row's note
+      records what it supersedes.
 
     Everything here is refused before a byte reaches the file. `_timestamp` maps
     `None`, `""`, `nan` and the string `"NaT"` to `NaT` rather than raising, so a
@@ -2861,27 +2863,32 @@ def _manual_rows(path: Path, season_obj, observed_at) -> list[dict]:
         ag = season_mod.goal_count(row["ag"], f"{where}: {fid} ag")
         note = str(row.get("note", ""))
 
+        # A16: the day comes FIRST, because the conflict test below compares it.
+        # A row whose only difference from the ledger is the day it was played
+        # is a correction, and a test that could not see the day dropped it.
+        if not row.get("date_played"):
+            raise season_mod.SeasonError(f"{where}: {fid} has no date_played")
+        says_day = season_mod.played_day(row, f"{where}: {fid}")
+
         if winner is not None and winner.get("status") is None:
             have = (season_mod.goal_count(winner.get("hg"), f"{fid} hg"),
                     season_mod.goal_count(winner.get("ag"), f"{fid} ag"))
-            if have == (hg, ag):
+            have_day = season_mod.played_day(winner, fid)
+            if have == (hg, ag) and have_day == says_day:
                 continue
             if row.get("correction") is not True:
                 raise season_mod.ResultConflict(
-                    f"{fid}: ledger holds {have[0]}-{have[1]}, {path} says "
-                    f"{hg}-{ag}. STOP: check which is right, then re-file the row "
+                    f"{fid}: ledger holds {season_mod.reading(have, have_day)}, "
+                    f"{path} says {season_mod.reading((hg, ag), says_day)}. STOP: "
+                    "check which is right, then re-file the row "
                     'with "correction": true to append the correction.')
             season_mod._refuse_a_stale_revision(fid, winner, stamp)
             note = (note + "; " if note else "") + (
-                f"correction: supersedes {have[0]}-{have[1]} observed "
-                f"{winner.get('observed_at')}")
+                f"correction: supersedes {season_mod.reading(have, have_day)} "
+                f"observed {winner.get('observed_at')}")
         elif winner is not None:
             season_mod._refuse_a_stale_revision(fid, winner, stamp)
 
-        if not row.get("date_played"):
-            raise season_mod.SeasonError(f"{where}: {fid} has no date_played")
-        season_mod._require_stamp(row["date_played"],
-                                  f"{where}: {fid} date_played")
         out.append({
             "fixture_id": fid,
             "date_played": str(row["date_played"]),

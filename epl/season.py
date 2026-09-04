@@ -799,6 +799,35 @@ def _kickoffs_known(fixtures, amendments, cutoff: pd.Timestamp
     return out
 
 
+def played_day(row, fid: str) -> str:
+    """The DAY a result row says the match was played, as ``YYYY-MM-DD``.
+
+    Compared as a DAY rather than as the raw string because the two writers
+    spell it differently — the sources hand a bare date and the hand overlay
+    stores whatever the operator typed — and a comparison that read
+    ``2026-08-21`` and ``2026-08-21T00:00:00`` as a disagreement would be one
+    more reader and writer spelling the same fact two ways.
+
+    Missing or unparseable REFUSES rather than returning a sentinel: a result
+    row without a day is a row :meth:`Season.at` cannot place at all
+    (:func:`resolve_ledger` demands the same stamp before it will score one),
+    and inventing one here in order to compare it would be this function
+    placing it.
+    """
+    return _require_stamp(row.get("date_played"),
+                          f"{fid} date_played").date().isoformat()
+
+
+def reading(score: tuple[int, int], date_played: str) -> str:
+    """What a result row ASSERTS, both halves: ``2-1 played 2026-08-21``.
+
+    `date_played` is not decoration on a scoreline — it is what puts the result
+    on one side of a cutoff — so a refusal that prints only the score names the
+    wrong disagreement whenever the day is the half that moved.
+    """
+    return f"{score[0]}-{score[1]} played {date_played}"
+
+
 def goal_count(value, label: str) -> int:
     """`value` as a goal count, or :class:`SeasonError`. NEVER a coercion.
 
@@ -1166,8 +1195,9 @@ def ingest_openfootball_results(season: Season, text: str, observed_at, source_i
     :func:`resolve_ledger` is what makes the newest row win:
 
     * a **new result**, as before;
-    * a **correction**, when the source now reports a different scoreline for a
-      fixture it already reported. This needs ``allow_revisions``;
+    * a **correction**, when the source now reports a different scoreline — or
+      the same scoreline on a different ``date_played`` (A16) — for a fixture it
+      already reported. This needs ``allow_revisions``;
     * a **withdrawal**, when a fixture the source previously scored is carried
       unscored in the refreshed file. That appends a ``postponed`` STATUS row, so
       the fixture reads as unplayed from the new observation on. This needs
@@ -1227,22 +1257,27 @@ def ingest_openfootball_results(season: Season, text: str, observed_at, source_i
             if status is None:
                 have = (goal_count(winner.get("hg"), f"{fid} hg"),
                         goal_count(winner.get("ag"), f"{fid} ag"))
-                if have == (hg, ag):
+                # A16: the day is part of what the row asserts, so a same-score
+                # row on a different day is a CORRECTION, not a repeat.
+                have_day = played_day(winner, fid)
+                says = row.date.isoformat()
+                if have == (hg, ag) and have_day == says:
                     continue                                # idempotent
                 if source_family(winner.get("source")) != family:
                     raise ResultConflict(
-                        f"{fid}: ledger holds {have[0]}-{have[1]} from "
-                        f"{winner.get('source')!r}, {source_id} says {hg}-{ag}. A "
+                        f"{fid}: ledger holds {reading(have, have_day)} from "
+                        f"{winner.get('source')!r}, {source_id} says "
+                        f"{reading((hg, ag), says)}. A "
                         "source may revise its own earlier statement; it may not "
                         "overrule another's (plan v2 D4). STOP: file a manual "
                         "correction row deliberately.")
                 if not allow_revisions:
                     raise ResultConflict(
-                        f"{fid}: ledger holds {have[0]}-{have[1]}, {source_id} says "
-                        f"{hg}-{ag}. STOP: check which is right, then re-run with "
-                        "allow_revisions to append the correction.")
+                        f"{fid}: ledger holds {reading(have, have_day)}, {source_id} "
+                        f"says {reading((hg, ag), says)}. STOP: check which is right, "
+                        "then re-run with allow_revisions to append the correction.")
                 _refuse_a_stale_revision(fid, winner, stamp)
-                note = (f"correction: supersedes {have[0]}-{have[1]} observed "
+                note = (f"correction: supersedes {reading(have, have_day)} observed "
                         f"{winner.get('observed_at')}")
             elif status == STATUS_ABANDONED and not allow_revisions:
                 continue
@@ -1360,6 +1395,6 @@ __all__ = [
     "adjustments_at", "archive_season_state", "current_ledger_view",
     "detect_kickoff_amendments", "fixture_id", "goal_count",
     "ingest_openfootball_results", "load_adjustments", "load_manifest",
-    "openfootball_source_id", "parse_openfootball", "resolve_ledger", "season_code",
-    "season_dir_name", "source_family",
+    "openfootball_source_id", "parse_openfootball", "played_day", "reading",
+    "resolve_ledger", "season_code", "season_dir_name", "source_family",
 ]

@@ -478,6 +478,145 @@ def test_a_source_that_disagrees_with_the_resolved_ledger_is_a_ledger_conflict(
     assert "2-3" in str(exc.value) and "3-3" in str(exc.value)
 
 
+# --- A16: the ledger's own DAY, which nothing compared -------------------
+#
+# `cross_check` STOPs when the two SOURCES disagree about `date` (the test
+# above this section), on the stated ground that `date_played` is what puts a
+# result on one side of a cutoff. Ten lines later it compared the sources to
+# the LEDGER on the score alone. These two tests are the two doors that leaves
+# shut: the cycle's own cross-check, and the hand overlay that its STOP
+# prescribes as the remedy.
+
+def test_a_ledger_date_the_sources_contradict_is_a_ledger_conflict(tmp_path):
+    """A16. The ledger row asserts a DAY as well as a score, and "already
+    resolved" was judged on the score alone.
+
+    MW1 was hand-entered, and a hand-entered `date_played` can be a typo. With
+    the score right and the day wrong, both sources carrying the true day were
+    reported "already resolved and agreeing" every morning — a word the cycle
+    had not earned, because nothing had compared the day. `date_played` is what
+    puts a result on one side of a cutoff (the same sentence this function
+    already prints when the two SOURCES disagree about it), so the ledger
+    disagreeing with both of them is a conflict, not a settled fixture.
+    """
+    root = _season_copy(tmp_path)
+    fid = "2627:brighton:aston_villa"
+    _ingest_manual(root, MW1_SCORES, dates={fid: "2026-08-20"})   # really 08-23
+    season_obj = season_mod.Season.load(SEASON, root=root)
+    with pytest.raises(livecycle.LedgerConflict) as exc:
+        livecycle.cross_check(
+            season_obj,
+            livecycle.read_openfootball(openfootball_text(MW1_SCORES), SEASON_CODE),
+            livecycle.read_football_data(football_data_text(MW1_SCORES), SEASON_CODE))
+    message = str(exc.value)
+    assert fid in message
+    assert "2026-08-20" in message and "2026-08-23" in message
+    assert "4-0" in message                     # the score is NOT the complaint
+    assert "date_played" in message
+    assert "correction" in message              # and the remedy is named
+
+    # ...and one source is enough to raise it: a lagging openfootball does not
+    # make the other source's day unworth checking.
+    with pytest.raises(livecycle.LedgerConflict):
+        livecycle.cross_check(
+            season_obj,
+            {},
+            livecycle.read_football_data(football_data_text(MW1_SCORES), SEASON_CODE),
+            allow_single_source=True)
+
+    # POSITIVE CONTROL: the same ten with the TRUE day are already resolved and
+    # raise nothing — the check fires on the disagreement, not on the compare.
+    clean = _season_copy(tmp_path, "clean")
+    _ingest_manual(clean, MW1_SCORES)
+    plan = livecycle.cross_check(
+        season_mod.Season.load(SEASON, root=clean),
+        livecycle.read_openfootball(openfootball_text(MW1_SCORES), SEASON_CODE),
+        livecycle.read_football_data(football_data_text(MW1_SCORES), SEASON_CODE))
+    assert set(plan.already_resolved) == set(MW1_SCORES)
+    assert plan.ingestable == {}
+
+
+def test_a_marked_correction_that_changes_only_the_day_is_written(tmp_path):
+    """A16. The hand overlay is the remedy the STOP above prescribes, and for a
+    wrong `date_played` it silently did nothing.
+
+    `simcli._manual_rows` short-circuited on score equality BEFORE it reached
+    the `"correction": true` branch, so the operator filed a deliberate
+    correction, saw `0 manual row(s) written`, and had no way to tell that from
+    a ledger that was already right. The only door that worked was an
+    undocumented two-step — a `postponed` status row, then the result re-filed
+    — which writes a withdrawal the league never made into an append-only
+    tracked ledger. It is tested here, in the cycle's suite, because
+    `_ingest_manual` is already how this file files a hand-entered round and
+    because the overlay is the cycle's own prescribed remedy.
+    """
+    root = _season_copy(tmp_path)
+    fid = "2627:brighton:aston_villa"                   # really played 2026-08-23
+    _ingest_manual(root, MW1_SCORES, dates={fid: "2026-08-20"})
+    late = "2026-09-01T00:00"          # after every row here; see the two clocks
+    assert season_mod.Season.load(SEASON, root=root).at(
+        "2026-08-21", observed_by=late).played[fid] == (4, 0)
+
+    # An UNMARKED row that changes only the day is still a conflict: a second
+    # typo must not rewrite the first one silently.
+    unmarked = _manual_file(tmp_path, "unmarked.jsonl", {
+        "fixture_id": fid, "date_played": "2026-08-23", "hg": 4, "ag": 0})
+    with pytest.raises(season_mod.ResultConflict) as exc:
+        simcli.ingest_results(season=SEASON, root=root, manual_file=unmarked,
+                              write=True, observed_at="2026-08-26T09:00",
+                              verbose=False)
+    assert "2026-08-20" in str(exc.value) and "2026-08-23" in str(exc.value)
+
+    fixed = _manual_file(tmp_path, "fixed.jsonl", {
+        "fixture_id": fid, "date_played": "2026-08-23", "hg": 4, "ag": 0,
+        "correction": True, "note": "hand-entry typo"})
+    rows = simcli.ingest_results(season=SEASON, root=root, manual_file=fixed,
+                                 write=True, observed_at="2026-08-26T09:00",
+                                 verbose=False)
+    assert len(rows) == 1
+    assert rows[0]["date_played"] == "2026-08-23"
+    assert "supersedes 4-0 played 2026-08-20" in rows[0]["note"]
+
+    # No `postponed` row was needed, so the ledger never claims a withdrawal.
+    ledger = (root / "2026_27" / "results_ledger.jsonl").read_text()
+    assert "postponed" not in ledger
+
+    # The season's CURRENT reading carries the corrected day, which is the whole
+    # point: `cross_check`, the openfootball ingest and `epl.liveanchor`'s
+    # day-blocks all read exactly this.
+    reread = season_mod.Season.load(SEASON, root=root)
+    assert season_mod.current_ledger_view(reread).played_rows[fid][
+        "date_played"] == "2026-08-23"
+    assert reread.at("2026-08-24", observed_by=late).played[fid] == (4, 0)
+
+    # POSITIVE CONTROL: re-filing the corrected row unmarked is a no-op, not a
+    # conflict — idempotency survives, it is only its subject that changed.
+    again = _manual_file(tmp_path, "again.jsonl", {
+        "fixture_id": fid, "date_played": "2026-08-23", "hg": 4, "ag": 0})
+    assert simcli.ingest_results(season=SEASON, root=root, manual_file=again,
+                                 write=True, observed_at="2026-08-27T09:00",
+                                 verbose=False) == []
+
+    # THE ONE BEHAVIOUR THIS COSTS, pinned rather than discovered later. A
+    # result row with no `date_played` whose score matched used to `continue`
+    # silently; the comparison cannot be made without a day, so it now refuses.
+    # Fail-closed and deliberate: a row the writer cannot place should never
+    # have been offered.
+    undated = _manual_file(tmp_path, "undated.jsonl", {
+        "fixture_id": fid, "hg": 4, "ag": 0})
+    with pytest.raises(season_mod.SeasonError, match="date_played"):
+        simcli.ingest_results(season=SEASON, root=root, manual_file=undated,
+                              write=True, observed_at="2026-08-28T09:00",
+                              verbose=False)
+
+
+def _manual_file(tmp_path: Path, name: str, *rows: dict) -> Path:
+    """A hand-overlay JSONL, written the way the operator writes one."""
+    path = tmp_path / name
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    return path
+
+
 def _kickoff(fid: str) -> str:
     """The MW1 kickoff day, read the way the feed writes it: dd/mm/yyyy."""
     return _dt.datetime.strptime(
@@ -485,15 +624,23 @@ def _kickoff(fid: str) -> str:
 
 
 def _ingest_manual(root: Path, scores: dict[str, tuple[int, int]],
-                   observed_at: str = "2026-08-25T12:55:44") -> None:
+                   observed_at: str = "2026-08-25T12:55:44",
+                   *, dates: dict[str, str] | None = None) -> None:
     """Put results in the ledger the way the operator did: through the season's
-    own manual ingest, so the rows are rows its validation accepted."""
+    own manual ingest, so the rows are rows its validation accepted.
+
+    `dates` overrides `date_played` for the fixtures it names. A hand-entry typo
+    is how a wrong play date reaches the ledger in the first place, so a test
+    about correcting one has to be able to file one — the same shape
+    `football_data_text(..., dates=...)` already has above.
+    """
     import tempfile
+    dates = {} if dates is None else dates
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "manual.jsonl"
         path.write_text("".join(
             json.dumps({"fixture_id": fid,
-                        "date_played": _kickoff(fid),
+                        "date_played": dates.get(fid, _kickoff(fid)),
                         "hg": hg, "ag": ag}) + "\n"
             for fid, (hg, ag) in scores.items()))
         simcli.ingest_results(season=SEASON, root=root, manual_file=path,
