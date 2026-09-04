@@ -570,6 +570,13 @@ def test_ingest_openfootball_results_appends_new_rows(season_root: Path):
         text, observed_at="2026-08-23T09:00", source_id="openfootball@x", write=True) == []
 
 
+# --- A16: the ledger's own DAY, which nothing compared --------------------
+#
+# `if have == (hg, ag): continue  # idempotent` was the whole of this ingest's
+# idempotency test, so a source could correct a ledger row's score and never
+# its day. The other two doors — the cycle's cross-check and the hand overlay
+# — are pinned in `test_livecycle.py` under the same banner.
+
 def test_a_same_score_row_on_a_different_day_is_a_correction_not_a_repeat(
         season_root: Path):
     """A16. `have == (hg, ag)` was the whole idempotency test, so a ledger day
@@ -619,6 +626,8 @@ def test_a_same_score_row_on_a_different_day_is_a_correction_not_a_repeat(
         text, observed_at="2026-08-24T09:00", source_id="openfootball@x",
         allow_revisions=True, write=True) == []
 
+
+# --- point-in-time state, continued ---------------------------------------
 
 def test_orientation_suspect_fails_closed(season_root: Path):
     loaded = season_mod.Season.load(SEASON, root=season_root)

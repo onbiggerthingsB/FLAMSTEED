@@ -6230,11 +6230,19 @@ are frozen and were not opened. No file under `src/`, `scripts/`, `site/`,
 twenty rows — ten hand-filed for MW1 at `2026-08-25T12:55:44`, ten from
 `openfootball@10d40e1e…` at `2026-09-01T14:29:27` — no status rows, and every one
 of the twenty carries a `date_played` equal to that fixture's known kickoff day
-(audited read-only: 20 played rows, 0 mismatches). The defect below is therefore
-**real and dormant**: the corrected `cross_check`, run over the live ledger with
-both sources synthesised to carry exactly what it holds, returns
-`already_resolved n = 20` and raises nothing. The refusal this entry adds would
-have fired **zero** times on the ledger as it stands.
+— audited read-only against `state.kickoffs_known`: 20 played rows, **0
+mismatches**, a check that could have gone the other way and did not. The defect
+below is therefore **real and dormant**: the refusal this entry adds would have
+fired **zero** times on the ledger as it stands. The corrected `cross_check` was
+also run over the live ledger, but with both sources synthesised to carry
+exactly what the ledger holds, and it returned `already_resolved n = 20` and
+raised nothing — which is a **smoke check that the corrected code runs clean
+over the live ledger's shape, and not evidence about the new refusal at all**:
+sources synthesised to agree cannot disagree, so that run could not have failed.
+The kickoff audit in the sentence above is the one that could have. Agreement
+between the ledger and a LIVE source cannot be measured offline in either
+direction, because the vendored openfootball file is still the pre-season
+fixture list and parses to 380 fixtures carrying **zero** results.
 
 ### The observation
 
@@ -6343,7 +6351,8 @@ either; inventing one in order to compare it would be the comparison placing it.
 
 **The one behaviour this costs, stated plainly rather than discovered later.**
 Hoisting `_manual_rows`' `date_played` validation above the conflict test is the
-only change beyond the comparison itself, and it has a consequence: a hand-filed
+only change beyond the comparison itself, and it costs two things rather than
+one. **The first is a row that used to pass and now refuses.** A hand-filed
 **result row with no `date_played` at all**, whose score happened to match what
 the ledger already held, used to `continue` silently and now refuses with
 `SeasonError: <file>:<line>: <fid> has no date_played`. Before the change that
@@ -6351,8 +6360,20 @@ row was accepted-and-dropped only by accident — it was refused the moment its
 score differed by so much as a goal — and it is a row the writer could not have
 placed in time if it had been written. It is refused deliberately, it is pinned
 by a test rather than left to be met in the field, and it costs the operator one
-edit to a file they were already hand-writing. **Status rows are unaffected**:
-they return before any of this, so `{fixture_id, status}` still needs no day. The
+edit to a file they were already hand-writing. **The second is a refusal that
+changed its name.** A row with no `date_played` that *also* differs from the
+ledger in its score, or whose `observed_at` is too stale to revise what the
+ledger holds, now surfaces as that same `SeasonError: … has no date_played`
+where it previously surfaced as the score refusal (`ResultConflict: <fid>:
+ledger holds … STOP: check which is right …`) or as
+`_refuse_a_stale_revision`'s message. Nothing that used to refuse now passes and
+nothing new is written; the hoist only moved which of two refusals a doubly-bad
+row meets first, and the one it meets now names the field that has to be
+supplied before the other can even be evaluated. `ResultConflict` is a
+`SeasonError` subclass and no caller anywhere catches `ResultConflict`
+specifically (grepped `epl/`, `src/`, `scripts/`), so no handler's behaviour
+turns on which of the two it is. **Status rows are unaffected**: they return
+before any of this, so `{fixture_id, status}` still needs no day. The
 validation itself is not new and its message is unchanged — `played_day` calls
 the same `_require_stamp` with the same label — only its position moved.
 
@@ -6448,7 +6469,12 @@ opened by this entry.
 Suites run for this entry: `epl/tests/test_livecycle.py` and
 `epl/tests/test_season.py` together, **155 passed, 2 skipped**; with the three
 new tests deselected, **152 passed, 2 skipped** — every test that existed before
-passes unchanged.
+**in those two suites** passes unchanged. That claim is scoped to those two
+suites and not to the tree: `epl/tests/test_simcli.py` is named in the triage's
+A16 landing row, is not opened by this entry, and cannot be run from a worktree
+at all (it needs `data/`), so the third door's own suite is unverified here. The
+full suite is run in the main tree at landing, and `epl/tests/test_simcli.py` is
+the file to watch when it is.
 
 **One thing this entry found and did not fix, recorded so it is not lost.**
 `epl.season.resolve_ledger` drops a result row whose `date_played` is at or after
@@ -6457,5 +6483,8 @@ the cutoff day *before* it updates the winner (`epl/season.py:956`, inside the
 row superseding it lies outside the play-clock window: a 2026-08-18 row corrected
 to 2026-08-21 still reads as the winner at a 2026-08-19 snapshot taken with full
 knowledge. That is a defect in the single resolution both the season table and
-the live Elo walk share, it predates this entry and is untouched by it, and it
+the live Elo walk share, it predates this entry and is untouched by it — though
+this entry does make a NEW class of it reachable, the same-score/different-day
+correction, which is precisely the variant in which the resurrected row is
+indistinguishable from the row correcting it except by the day at issue — and it
 needs its own ruling.
