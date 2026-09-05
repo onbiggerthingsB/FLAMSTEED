@@ -7340,3 +7340,55 @@ holes retroactively. A16 — the resurrection between the wrong day and the
 true day (`epl/season.py:984-985`), disclosed by the entry, needs its own
 ruling before any full-knowledge historical frame is trusted across a day
 correction.
+
+### A19 and the A15–A19 correction note — corrected after a gpt-6-astra read (2026-09-05)
+
+The independent reader that found the A18 race read A19 as landed (`d35c12f`), the
+correction note (`640c606`) and the Monday runbook. Its verdict on the code: the fix
+holds — every production reader of the flight log consumes the one verified read
+(`_journal_lines` at `epl/livecycle.py:785` is the sole read; `_verified_journal_lines`
+`:840`; `verify_journal_chain` `:827`; `_acknowledged_slots` `:941`; `append_journal`
+`:883`/`:887`; `--journal` `:2230` flows through the same checks). Its verdict on the
+prose: nine sentences false. Each is corrected here; nothing above is edited.
+
+**A19's refusal account overstates.** *"`append_journal` refuses the same bytes for the
+same reason, so nothing is written under the edit"* (the ruling paragraph and its
+rationale) is true only while the invalid file is unchanged. The handler performs
+ANOTHER verified read; if the file is repaired between the reader's refusal and the
+handler's append, the handler appends a STOP line and re-raises the reader's exception
+— reproduced by the reader with memory-only I/O. For the persistent case the account
+is right: the exception escapes with the reader's as `__context__`, `main` prints one
+typed STOP and returns 2, and no line is appended. The append itself is not atomic:
+between the verified read and `open("a")` another writer can change the file, and two
+cycles whose verify/write intervals overlap both chain to one parent — the THIRD run
+refuses. Simultaneous starts alone need not corrupt; overlapping appends do. The
+Monday runbook says so in that form.
+
+**The correction note's own false sentences.** *"`git diff HEAD -- …`, which the
+Monday runbook runs before anything else"* — the runbook at that commit ran
+`git diff --quiet -- …`, which compares the working tree with the INDEX, so a staged
+rewrite would have passed it; the runbook's second version runs `git diff HEAD`, and
+the sentence is true of that version only. *"`_slot_already_observed` reads four
+status keys"* — five: `latest_slot_observed`, `missed_latest_slot`,
+`latest_scheduled_slot`, `latest` and `n_observations` (`:1491-1507`). *"Every archive
+A14 reads"* has `n_observations > 0` — too broad: A14 reads empty archives too;
+non-emptiness holds wherever its missed-slot REFUSAL can fire, which is what the
+superset claim needs. *"The operator sees the day conflict on the next run"* — an
+unchanged next run reports the same score conflict; the day conflict surfaces only
+after an intervening change resolves the score conflict and leaves the day. *"Line
+citations `:6255`, `:6295`, `:6298` are one commit off"* — wrong: A16's observation
+section anchors itself to `ead8163` (its line 6249) and its `livecycle` and
+`matchboard` citations are correct there; the *"agreeing"* citation ends one LINE
+early (`:1918-1921` for a sentence that runs to `:1922`), not one commit. Three
+literal errors: the four companion suites mention `livecycle` in docstrings,
+COMMENTS or as text (the note omitted comments); the handler at the cited line RAISES
+after journaling, it does not return; and the guard cited *"at `be38365` and after it
+is `:1601`"* is at `:1647` after A19.
+
+**What the reader could not do.** The authorised pytest command failed before
+collection in its read-only sandbox (no usable temporary directory), so its pass
+count is the main tree's (1631 passed, 66 skipped at `d35c12f`), not the reader's.
+It ran no live cycle, ingest, forecast, capture or build.
+
+**Not changed.** No code. A19's tests and their red accounting stand. The Friday
+2026-09-04 slot is a permanent hole; Monday's path is the runbook's second version.
