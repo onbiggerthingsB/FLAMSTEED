@@ -7233,3 +7233,110 @@ run bypasses the summary, and an earlier STOP leaves `odds_cadence: null`); the
 naming five; and the A16 collision in which an acknowledgment persists on a
 `LedgerConflict` STOP line — a durable operator decision, not a certificate
 that ingestion succeeded. None of them changes what this entry measured.
+
+### A15–A19 — corrected after two independent reviews (2026-09-05)
+
+Two reviews read the four entries A15–A18 against the code at `fc2d0fb`: four
+Fable 5.1 readers, one per entry (verdict on each: sound-with-cosmetics), and
+one gpt-6-astra reader across all four (verdict: A18 not to be cleared
+unchanged — the reproduced read race is A19's subject, below). The sentences
+they found false are corrected here in place of the entries, which are not
+edited. Each correction names the sentence, says what is true, and says which
+review found it. Behaviour is not changed by this note; every code finding
+that needs a test is listed at the end as owed, not done.
+
+**A18, and A19 which copied the sentence.** *"The four other suites that
+import `epl.livecycle`"* (A18; A19 says "five") names five files, of which only
+`test_availarm.py` imports it (function-local, `:1171` and `:1200`); the other
+four mention it in docstrings or read the file as text. The **297 passed, 17
+skipped** figure is real in both entries; it is not a count of suites that
+exercise the module. The companion sentence, *"`epl/tests/test_simcli.py`
+imports `epl.livecycle` too"*, is TRUE — a function-local import at `:4101`,
+inside an A15 test — and the Fable A18 review that called it false was itself
+wrong, which the A19 review caught; it is recorded here so the wrong finding
+is not re-applied. (Fable A18 review, corrected by the Fable A19 review.) *"A ruling filed in advance would
+authorise a hole nobody has seen yet"* is not why `OddsSlotNotMissed` exists:
+an `acknowledged_slots` list over an archive with no hole authorises nothing,
+because step 1b only ever reads rulings against holes the archive reports. The
+refusal is a convenience that catches a flag left on a clean day; it protects
+nothing. (gpt-6-astra.) The refusal path does not reach `render_summary`
+(`epl/livecycle.py:1423` returns before it), so a ruling is reported on the
+screen only on runs that continue; on a run that STOPs after step 1b the
+ruling is on the flight-log line and nowhere else. (gpt-6-astra.) *"The chain
+governs HISTORY"* is corrected by A19's bound section, which this note does
+not restate. `:1598` is the line at `f8856ba`; at `be38365` and after it is
+`:1601`. (Fable.) A19 names `git log -p -- reports/epl_livecycle_journal.jsonl` as the
+independent check; that shows committed revisions only. A rewrite of the
+WORKING-TREE file — the file a run reads — is visible only to `git diff HEAD --
+reports/epl_livecycle_journal.jsonl`, which the Monday runbook runs before
+anything else; both commands are the check, and both are a person's. (A19
+review, C1.) A19's citation "(:6602 onward)" for A18's "inserted, edited or
+reordered" sentence is two lines early: the paragraph heads at `:6604` and the
+sentence is `:6608-6610` at `fc2d0fb`. (A19 review, C3.) A19 recorded four A18
+findings as "not taken up" and left them to the hand that rules on them; the first three are ruled on here, and the
+fourth — an acknowledgment persisting on a `LedgerConflict` STOP line as a
+durable operator decision that certifies nothing about ingestion — is true as
+stated there and is carried into the Monday runbook rather than the ledger.
+
+**A17.** *"`_slot_already_observed` reads the same two fields it read before"*
+(twice, in this entry and in A18): it reads four status keys
+(`epl/livecycle.py:1450-1453`). *"`missed_slots` is a superset of
+`missed_latest_slot` by construction"* is false on a virgin archive — head
+`True`, set `[]` — and true whenever `n_observations > 0`, which is every
+archive A14 reads; the head exception `epl/oddscapture.py:673-674` keeps the
+refusal on that path. *"An archive is never blamed for a cadence that ran
+before it existed"* is contradicted by the next sentence, which describes the
+append branch blaming it for the newest slot when the archive began after it;
+inherited from A14's head boolean and unreachable live. *"Two landings from
+the same review precede it"* — one had (`82784c8`); A18's numbering paragraph
+already records the true order. (All Fable.) An archive whose first receipt is
+a Saturday makes the "permanent" and "start-bound" language of the defect
+section false for its first slot, through the same head exception.
+(gpt-6-astra.)
+
+**A16.** *"It fires before anything is written"* is false: the odds capture at
+step 1 (`epl/livecycle.py:1537`) writes its receipt before the day comparison
+at `:651` runs, so an A18 ruling filed on the same command line is also
+already on the STOP line. The refusal fires before any RESULT is written,
+which is what the sentence was for. (gpt-6-astra.) *"Cannot be run from a
+worktree at all"* — `epl/tests/test_simcli.py` runs in a worktree: 92 passed,
+22 failed or errored for want of `data/`; it is those 22 the sentence should
+have named. Of the twenty `date_played` kickoff comparisons only ten could
+have failed — the Fable reader demonstrated it from the amendment's own
+provenance — so *"a check that could have gone the other way"* holds for
+half the rows. A simultaneous score-and-day conflict
+reports only the score (`:643` raises first); the operator sees the day
+conflict on the next run. The STOP remedy omits `--write`, so a literal follow
+is a dry run. There is no override for a day conflict — `--allow-single-source`
+does not lift it — and that is consistent with the score rule but was not
+said. Line citations `:6255`, `:6295`, `:6298` are one commit off. (Fable,
+except the score-and-day order, which both found.)
+
+**A15.** *"The published arm's run digest"* — `epl/simcli.py:966-967` reads
+`digests[matchboard.ARM]`, the `dc_native` arm's digest, not
+`digests[record["published_arm"]]`; identical for every live bundle, and the
+ledgers key on `dc_native`, so the code is right and the sentence is not.
+`_is_issuance_day` is cited at the after-tree (`:3781-3785` is `82784c8`'s
+line; `28ea652` has it at `:3668-3672`). (Fable.) A `PermissionError` on the
+supersede leaves the OLD issuance standing after the results are ingested, and
+a same-day retry sees `issuance.json` and skips the forecast: the bare retry
+the entry calls safe is safe for the ledgers and leaves an obsolete forecast
+in place until `simcli forecast --cutoff <day>` is run by hand. The entry's
+"the operator's cue" is the `no-op` line, and that line reads *"no result
+moved"*. (gpt-6-astra and Fable.)
+
+**Owed, not done** — each a code finding with a failure scenario and no test
+yet, listed so the next hand does not rediscover them: A18 — a ruling filed on
+a run that then STOPs after step 1b rules for every later run (no test); a
+whitespace-only reason is accepted; a hole closes day-granular under
+`--skip-odds-snapshot`; the screen prints this run's reason for an old ruling
+when the flag is re-passed over one ruled and one new hole; the test named
+for the committed journal reads the working tree. A15 — `aside.exists()`
+follows symlinks (`os.path.lexists`); an identical re-run supersedes and
+leaves two byte-identical bundles; a `RecursionError` on a deeply nested
+`issuance.json` escapes the `OSError`/`ValueError` catch. A17 —
+`--adopt-orphan` with an `observed_at` older than the first receipt creates
+holes retroactively. A16 — the resurrection between the wrong day and the
+true day (`epl/season.py:984-985`), disclosed by the entry, needs its own
+ruling before any full-knowledge historical frame is trusted across a day
+correction.
